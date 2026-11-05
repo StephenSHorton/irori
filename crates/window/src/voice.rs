@@ -68,6 +68,9 @@ pub struct VoiceDownload {
 #[derive(Default)]
 pub(crate) struct VoiceSlot {
     inner: Mutex<SlotInner>,
+    /// Held while a session starts, so [`Window::voice_shutdown`] waits for
+    /// a model that is loading right now and can free it too.
+    opening: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -75,6 +78,8 @@ struct SlotInner {
     next: u32,
     current: Option<(u32, voice::Session)>,
     downloading: bool,
+    /// The app is exiting: nothing starts any more.
+    closed: bool,
 }
 
 /// The status for this machine, given whether the model is there.
@@ -165,8 +170,30 @@ impl Window {
     /// Starts a session (ending any other) and returns its id. Blocking:
     /// the engine loads the model and opens the microphone first.
     pub fn voice_start(self: &Arc<Window>) -> Result<u32, String> {
+        let model = self.voice_model();
+        self.voice_open(|sink| voice::start(&model, sink))
+    }
+
+    /// Like [`Window::voice_start`], but the engine hears `samples` instead
+    /// of the microphone: the shell probe's way to load the model with no
+    /// microphone permission (app/src/shell/probe.rs).
+    #[doc(hidden)]
+    #[cfg(target_os = "macos")]
+    pub fn voice_start_with_samples(self: &Arc<Window>, samples: Vec<f32>) -> Result<u32, String> {
+        let model = self.voice_model();
+        self.voice_open(|sink| voice::start_with_samples(&model, samples, sink))
+    }
+
+    fn voice_open(
+        self: &Arc<Window>,
+        open: impl FnOnce(voice::Sink) -> Result<voice::Session, voice::StartError>,
+    ) -> Result<u32, String> {
+        let _opening = self.voice.opening.lock().map_err(|e| e.to_string())?;
         let old = {
             let mut s = self.voice.inner.lock().map_err(|e| e.to_string())?;
+            if s.closed {
+                return Err("Irori is closing".into());
+            }
             s.current.take()
         };
         // Stopped outside the lock: it waits for the engine's thread.
@@ -182,7 +209,7 @@ impl Window {
                 w.emit(EVENT_VOICE, &event(id, e));
             }
         });
-        let session = voice::start(&self.voice_model(), sink).map_err(|e| e.message)?;
+        let session = open(sink).map_err(|e| e.message)?;
         let replaced = {
             let mut s = self.voice.inner.lock().map_err(|e| e.to_string())?;
             s.current.replace((id, session))
@@ -208,14 +235,15 @@ impl Window {
     }
 
     /// Ends any session and frees the speech model: the shell calls it as
-    /// the app exits (macOS's Metal backend asserts at exit otherwise).
+    /// the app exits (macOS's Metal backend asserts at exit otherwise). A
+    /// session still starting is waited for and ended, and none starts after.
     pub fn voice_shutdown(&self) {
-        let current = self
-            .voice
-            .inner
-            .lock()
-            .map(|mut s| s.current.take())
-            .unwrap_or_default();
+        let _opening = self.voice.opening.lock().unwrap_or_else(|e| e.into_inner());
+        let current = {
+            let mut s = self.voice.inner.lock().unwrap_or_else(|e| e.into_inner());
+            s.closed = true;
+            s.current.take()
+        };
         if let Some((_, session)) = current {
             session.stop();
         }
