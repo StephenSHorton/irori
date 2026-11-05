@@ -4,7 +4,9 @@
 import type { AttachEvent, AttachView, PausedCard, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.5.0'
+export const MOD_VERSION = '0.6.0'
+/** hello's `v` from which `irori attach --standby` is safe: the Core refuses it while another attach is live. */
+export const STANDBY_SINCE = 3
 
 export const PLUGIN = 'irori'
 export const TOOL_PREFIX = 'mcp__irori__'
@@ -146,7 +148,7 @@ export function describeAttach(view: AttachView): string {
     case 'connecting':
       return view.error ? `Reconnecting to the Irori Core: ${view.error}` : 'Connecting to the Irori Core…'
     case 'superseded':
-      return 'A newer attach for this session took over (a reload or another window); this copy stopped.'
+      return 'A newer attach for this session took over (a reload or another window). This copy attaches again by itself once that one leaves; /irori reconnect takes it back now.'
     case 'error':
       return `Not attached: ${view.error ?? 'unknown error'}`
     default:
@@ -158,6 +160,7 @@ export const POLICY_VERBS = ['mode', 'block', 'unblock', 'allow', 'deny', 'pause
 
 export const USAGE = [
   '/irori                               version and attach status',
+  '/irori reconnect                     attach again now, taking over from any other window on this session',
   '/irori mode everyone|allowlist       who may wake this device\'s agents (everyone: all of them)',
   '/irori block <key or name>           (everyone mode) that sender\'s messages are held',
   '/irori unblock <key or name>         remove a block',
