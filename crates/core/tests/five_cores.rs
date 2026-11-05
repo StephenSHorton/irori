@@ -1778,8 +1778,8 @@ fn a_dm_starts_with_bob_already_connected() {
             .talk_conversations(&a1.user())
             .unwrap()
             .iter()
-            .any(|c| c.conv_id == dm),
-        "an opened DM is listed"
+            .any(|c| c.conv_id == dm && c.name == b1.core.person().name),
+        "an opened DM is listed, by the other person's name"
     );
 
     dm_post(a1, &dm, "hi bob");
@@ -2387,5 +2387,56 @@ fn a_person_holds_at_most_four_dm_spaces_with_one_other() {
     b1.core
         .dm_take_frame(&board, &from_alice, frame(&id, "offer", body));
     assert!(b1.core.boards().contains(&id), "a held space was dropped");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+#[derive(Default)]
+struct Cards(std::sync::Mutex<Vec<toast::Note>>);
+
+impl notify::Toaster for Cards {
+    fn configure(&self, _: toast::Config) {}
+    fn set_options(&self, _: toast::Options) {}
+    fn post(&self, n: toast::Note) {
+        self.0.lock().unwrap().push(n);
+    }
+    fn close(&self, _: &str) {}
+}
+
+/// §4: a post from the other person rings, once, from the space's own
+/// follower; the person's own post doesn't.
+#[test]
+fn a_dm_from_bob_rings_once_on_alices_device() {
+    let cards = Arc::new(Cards::default());
+    let notes = notify::Notifier::new(notify::Config {
+        toaster: Some(cards.clone()),
+        ..notify::Config::default()
+    });
+    let mut alice = common::mesh::person_with("alice", 1, |_| {
+        let notes = notes.clone();
+        Some(Arc::new(move |o: &mut irori_core::Options| {
+            o.notifier = Some(notes.clone());
+        }) as common::mesh::Edit)
+    });
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm_with(b1, a1), dm);
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads it", || dm_holds(b1, &dm, "hi bob"));
+    dm_post(b1, &dm, "hi alice");
+    wait_for(WAIT, "alice reads it", || dm_holds(a1, &dm, "hi alice"));
+    let talk = || -> Vec<String> {
+        let cards = cards.0.lock().unwrap();
+        cards
+            .iter()
+            .filter(|n| n.id.starts_with("talk:"))
+            .map(|n| n.body.clone())
+            .collect()
+    };
+    wait_for(WAIT, "the DM's card", || !talk().is_empty());
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(talk(), ["hi alice"]);
     close(alice.drain(..).chain(bob.drain(..)));
 }

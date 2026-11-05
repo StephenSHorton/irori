@@ -317,7 +317,8 @@ impl Mesh {
         let mut relays = Vec::new();
         for (m, mut by_person) in boards.iter().zip(by_board) {
             if self.hidden(m.board_id()) {
-                merge_relays(&mut by_person, &shared, m);
+                let people = m.member_devices().into_iter().map(|d| d.person_id);
+                merge_relays(&mut by_person, &shared, people);
             }
             self.feed_board(m, &by_person);
             m.recheck();
@@ -543,18 +544,18 @@ impl Mesh {
     }
 }
 
-/// Adds to a hidden board's relays what `shared` holds for its own member
-/// devices' people, and for nobody else (card #538).
+/// Adds to a hidden board's relays what `shared` holds for `people`, its
+/// own member devices' people, and for nobody else (card #538).
 fn merge_relays(
     by_person: &mut std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>>,
     shared: &std::collections::BTreeMap<String, Vec<irori_net::endpoint::RelaySpec>>,
-    m: &BoardMesh,
+    people: impl Iterator<Item = String>,
 ) {
-    for d in m.member_devices() {
-        let Some(specs) = shared.get(&d.person_id) else {
+    for person in people {
+        let Some(specs) = shared.get(&person) else {
             continue;
         };
-        let have = by_person.entry(d.person_id).or_default();
+        let have = by_person.entry(person).or_default();
         for s in specs {
             if !have.iter().any(|h| h.url == s.url) {
                 have.push(s.clone());
@@ -580,5 +581,47 @@ impl Mesh {
     /// The pairing's server hints: this mesh's `Servers`.
     pub(crate) fn hints(&self) -> Arc<dyn irori_pair::ServerHints> {
         Arc::new(Hints(self.servers.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use irori_net::endpoint::RelaySpec;
+    use std::collections::BTreeMap;
+
+    fn relay(host: &str) -> RelaySpec {
+        RelaySpec {
+            url: format!("https://{host}").parse().unwrap(),
+            quic_port: 7842,
+            server_pub: iroh::SecretKey::from_bytes(&[7; 32]).public(),
+        }
+    }
+
+    fn hosts(m: &BTreeMap<String, Vec<RelaySpec>>, person: &str) -> Vec<String> {
+        let specs = m.get(person).map(Vec::as_slice).unwrap_or_default();
+        specs.iter().map(|s| s.url.to_string()).collect()
+    }
+
+    /// Card #538: a hidden space takes the relays the person's other spaces
+    /// hold for its own people, once each, and none of anyone else's.
+    #[test]
+    fn a_hidden_space_takes_its_peoples_relays_from_other_spaces() {
+        let shared = BTreeMap::from([
+            (
+                "bob".to_string(),
+                vec![relay("bob.test"), relay("own.test")],
+            ),
+            ("carol".to_string(), vec![relay("carol.test")]),
+        ]);
+        let mut mine = BTreeMap::from([("bob".to_string(), vec![relay("own.test")])]);
+        let people = ["bob".to_string(), "bob".to_string(), "alice".to_string()];
+        merge_relays(&mut mine, &shared, people.into_iter());
+        assert_eq!(
+            hosts(&mine, "bob"),
+            ["https://own.test/", "https://bob.test/"]
+        );
+        assert!(!mine.contains_key("carol"), "someone else's relay");
+        assert!(!mine.contains_key("alice"), "a person no space has one for");
     }
 }

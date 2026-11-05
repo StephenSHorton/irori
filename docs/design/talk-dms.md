@@ -58,7 +58,7 @@ KeyProof {firstPub, rotations: [MemberKeyRotated]}
 
 **Pending** is derived, not queued: the other person has no counted cert. The hand-off runs when the space is made (walking live peers on S), on a hello from one of their devices on S, and on each S vector tick while pending. Hello alone isn't enough: it goes once per connection. Any founder device that holds the secret may run it. After the add, the retry goes only to the pin's root, and builds the offer without writing. A person who left is not pending: nothing asks them back until a later post founds a new space.
 
-**One thread.** The hooks only queue work; `dm_spaces.rs` takes it on one thread, so two steps never run at once, and a queue past 256 drops a frame the next tick will ask for again. A device whose key can't be proven founds nothing and answers no `ask`.
+**One thread.** The hooks only queue work; `dm_spaces.rs` takes it on one thread, so two steps never run at once, and a queue past 32 drops a frame the next tick will ask for again (an offer can be a whole frame, so this bounds what a member of S can make it hold). A device whose key can't be proven founds nothing and answers no `ask`.
 
 **Devices.** Once one device of a person holds the space, the rest follow: the marker reaches them, a private `dm.secret` frame carries the secret (the fields, sealing, vouching and pending path of `board.secret`, but older builds ignore it, so an old device never opens the log; `OwnBoards::is_dm` picks the name, and a DM space's secret never goes as `board.secret`), and `keep_current` certifies them.
 

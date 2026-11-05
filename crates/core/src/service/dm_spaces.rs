@@ -54,8 +54,9 @@ pub(crate) const MAX_DM_SPACES: usize = 4;
 pub(crate) const MAX_PENDING_LOG: usize = irori_meshseam::MAX_MESSAGE / 2;
 
 /// How many hand-off steps wait at once. Past it a frame is dropped: the
-/// next tick asks again, and a member of S can't grow this without bound.
-const MAX_JOBS: usize = 256;
+/// next tick asks again. An offer can be a whole frame, so this is what
+/// bounds the memory a member of S can make this take.
+const MAX_JOBS: usize = 32;
 
 /// One step for the DM thread.
 enum Job {
@@ -687,6 +688,8 @@ impl Services {
         id: &str,
         body: &Value,
     ) -> std::result::Result<(), String> {
+        // Before the fold, so a refused sender costs nothing.
+        let held = self.dm_may_hold(id, &peer.person_id)?;
         let offer: Bundle = body
             .get("bundle")
             .and_then(|b| serde_json::from_value(b.clone()).ok())
@@ -700,7 +703,6 @@ impl Services {
             s.verifier.epoch(&fold.creator.person_id),
         )?;
         let creator = fold.creator.clone();
-        let held = self.dm_may_hold(id, &creator.person_id)?;
         if self.dm_spaces.get(id).is_some_and(|d| d.creator != creator) {
             return Err("that DM space was founded under another key".into());
         }
