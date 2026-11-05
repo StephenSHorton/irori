@@ -546,6 +546,8 @@ pub(crate) struct BriefMore<'a> {
     pub runs: Option<&'a [String]>,
     /// The person's side names (card #496).
     pub side_names: &'a [String],
+    /// A card that lost its lead: one line for each helper's part (#451).
+    pub parts: &'a [String],
 }
 
 impl Default for BriefMore<'_> {
@@ -555,6 +557,7 @@ impl Default for BriefMore<'_> {
             idle: IDLE_LIMIT,
             runs: None,
             side_names: &[],
+            parts: &[],
         }
     }
 }
@@ -692,6 +695,12 @@ pub(crate) fn build_brief(
     if !hand.trim().is_empty() {
         fence(&mut b, "Where the work is", "irori", hand.trim());
     }
+    if !more.parts.is_empty() {
+        b.push_str(&format!(
+            "{short} is split into parts, its last lead went away, and you are its new lead. For each part below that says it is done, merge its branch into the card's branch (`git merge --no-ff`), then accept it with board_status completed on that subtask, or say what is missing on its thread. Put a wait on each part still being worked. Once every part is in, land {short} as above: the parts don't ask the person, only {short} does.\n\n"
+        ));
+        fence(&mut b, "Parts", "irori", &more.parts.join("\n"));
+    }
     let quoted_below =
         |a: &str| sent_back.is_some_and(|sb| !sb.answered && sb.reason.text.trim() == a.trim());
     if let Some(a) = answer.filter(|a| !a.trim().is_empty() && !quoted_below(a)) {
@@ -717,6 +726,37 @@ pub(crate) fn build_brief(
         text: b,
         others_text,
     }
+}
+
+/// One line for each of led card t's helper parts, for its next lead: empty
+/// on a card with no marked parts.
+fn part_lines(co: &coord::Coord, t: &Task) -> Vec<String> {
+    t.subtasks
+        .iter()
+        .filter_map(|id| co.get_task(id))
+        .filter(|k| k.spawn)
+        .map(|k| {
+            let done = k
+                .blockers
+                .iter()
+                .any(|b| b.open() && b.question == coord::PART_QUESTION);
+            let state = if done {
+                "done, waits for you"
+            } else {
+                k.state.as_str()
+            };
+            let at = k
+                .where_
+                .as_ref()
+                .filter(|w| !w.branch.is_empty())
+                .map(|w| {
+                    let sha = w.head.get(..8).unwrap_or(&w.head);
+                    format!(", branch {} @ {sha}", w.branch)
+                })
+                .unwrap_or_default();
+            format!("{} {}: {state}{at}", k.short_ref(), k.title)
+        })
+        .collect()
 }
 
 /// Puts `text` in the brief as quoted data, attributed.
@@ -1434,6 +1474,7 @@ impl Services {
                 idle: setting.idle_limit(),
                 runs: runs.as_deref(),
                 side_names: &side_names,
+                parts: &[],
             },
         );
         // A private thread about a shared board (card #454): its agent reads
@@ -1545,6 +1586,7 @@ impl Services {
         };
         let runs = self.coord.sides_of(&me);
         let side_names = self.coord.side_names();
+        let parts = part_lines(&log.co, t);
         let brief = build_brief(
             t,
             &comments,
@@ -1557,6 +1599,7 @@ impl Services {
                 idle: setting.idle_limit(),
                 runs: runs.as_deref(),
                 side_names: &side_names,
+                parts: &parts,
             },
         );
         // A private thread about a shared board (card #454): its agent reads
@@ -2065,9 +2108,19 @@ impl Services {
                     &now,
                     limit,
                 );
+            // A helper's finished part, past the idle limit (§3): its
+            // branch is on the card and it holds a device slot, which the
+            // lead that merges it may need.
+            let part_waits = t.blockers.iter().any(|b| {
+                b.open()
+                    && b.question == coord::PART_QUESTION
+                    && b.raised_by == a.key
+                    && at_least(&now, &b.at, limit)
+            });
             if done_check
                 || waiting
                 || parked
+                || part_waits
                 || coord::is_terminal(&t.state)
                 || !t.holders.contains(&a.key)
             {
@@ -2511,6 +2564,37 @@ mod tests {
             BriefMore::default(),
         );
         assert!(!mine.others_text);
+    }
+
+    #[test]
+    fn a_new_leads_brief_lists_the_parts_and_says_how_to_accept_them() {
+        let named = |k: &str| k.to_string();
+        let parts = vec!["#8 part A: done, waits for you, branch x-8 @ 03b35af3".to_string()];
+        let b = build_brief(
+            &card(),
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore {
+                parts: &parts,
+                ..BriefMore::default()
+            },
+        );
+        assert!(b.text.contains("you are its new lead"), "{}", b.text);
+        assert!(b.text.contains("git merge --no-ff"), "{}", b.text);
+        assert!(b.text.contains(&parts[0]), "{}", b.text);
+        let b = build_brief(
+            &card(),
+            &[],
+            &named,
+            &|_| None,
+            None,
+            None,
+            BriefMore::default(),
+        );
+        assert!(!b.text.contains("new lead"), "{}", b.text);
     }
 
     #[test]

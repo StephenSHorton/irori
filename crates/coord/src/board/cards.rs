@@ -108,6 +108,11 @@ pub(crate) fn say_done_open(t: &mut Task, by: &str, at: GoTime) {
 /// Keeps the newest KEEP_RESOLVED resolved items.
 /// Whether an answer can put t back on the Board ([`Fold::back_on_board`]).
 fn can_go_back(t: &Task) -> bool {
+    nobody_on(t) && t.subtasks.is_empty()
+}
+
+/// Whether open card t waits with nobody on it or coming to it.
+fn nobody_on(t: &Task) -> bool {
     t.holders.is_empty()
         && t.co_holders.is_empty()
         && t.assigned.is_empty()
@@ -115,7 +120,6 @@ fn can_go_back(t: &Task) -> bool {
         && t.state != SUBMITTED
         && t.state != WORKING
         && t.open_ask().is_none()
-        && t.subtasks.is_empty()
 }
 
 fn trim_resolved(t: &mut Task) {
@@ -818,6 +822,11 @@ impl Fold {
                     opt = -1;
                 }
                 let q = t.blockers[i].question.clone();
+                // A parent's state can't be set, so closing this is the
+                // person's say that clears its run of crashes (#451).
+                if person && q == super::spawn::CRASHED_QUESTION {
+                    t.spawn_crashes = 0;
+                }
                 t.blockers[i].resolved = Some(Resolution {
                     answer: p.answer.clone(),
                     option: opt,
@@ -1493,8 +1502,11 @@ impl Fold {
     /// board, starts a fresh agent); the answer stays in the blocker's
     /// thread and Left off is kept, for whoever picks it up.
     pub(crate) fn back_on_board(&mut self, by: &str, id: &str, why: &str) -> Result<bool> {
-        if !self.tasks.get(id).is_some_and(can_go_back) {
+        let Some(t) = self.tasks.get(id).filter(|t| nobody_on(t)) else {
             return Ok(false);
+        };
+        if !t.subtasks.is_empty() {
+            return self.lead_again(by, id);
         }
         let at = self.stamp();
         self.write(
@@ -1509,6 +1521,33 @@ impl Fold {
                 ..TaskStateRow::default()
             },
         )?;
+        Ok(true)
+    }
+
+    /// back_on_board for a parent, whose state follows its subtasks: the
+    /// person's answer to "crashed twice" closes it, which lets the next
+    /// lead start. Anything else on a parent stays as it is.
+    fn lead_again(&mut self, by: &str, id: &str) -> Result<bool> {
+        let t = &self.tasks[id];
+        let Some(b) = t
+            .blockers
+            .iter()
+            .find(|b| b.open() && b.question == super::spawn::CRASHED_QUESTION)
+            .filter(|_| self.is_owner(by))
+        else {
+            return Ok(false);
+        };
+        let row = BlockerResolvedRow {
+            task_id: id.into(),
+            blocker_id: b.id.clone(),
+            answer: super::spawn::CRASHED_START.into(),
+            option: -1,
+            by: by.into(),
+            restored: self.restore_for(t).into(),
+            at: self.stamp(),
+            ..BlockerResolvedRow::default()
+        };
+        self.write(by, kinds::BLOCKER_RESOLVED, &row)?;
         Ok(true)
     }
 
