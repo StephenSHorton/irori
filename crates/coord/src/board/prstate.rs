@@ -10,8 +10,14 @@
 //! - closed without a merge: the holders hear it;
 //! - changes requested on GitHub: a card in review goes back to working
 //!   and its holders are woken, as a reviewer's changes verdict does;
-//! - GitHub couldn't be asked (no gh, no access): said once on the card,
-//!   and an agent's completed falls back to the rules without it.
+//! - GitHub couldn't be asked (no access, a PR gone) about a PR nothing is
+//!   known of yet: said once on the card, and an agent's completed falls
+//!   back to the rules without it.
+//!
+//! What GitHub said outlasts a device that couldn't ask it (card #542): an
+//! error never replaces a known state, in the fold or at the writer. A
+//! device with no gh doesn't ask at all, but older phones still write
+//! these rows, in any order against the rows that know better.
 //!
 //! An agent's completed is refused while a PR its card links is known to
 //! be open ([`Fold::open_pr_refusal`]).
@@ -86,10 +92,17 @@ impl Fold {
             return;
         }
         let by_pr = self.pr_states.entry(p.task_id.clone()).or_default();
-        if let Some(old) = by_pr.get(&p.pr)
-            && crate::gotime::before(&p.at, &old.at)
-        {
-            return;
+        // Card #542: a known state beats an error whatever their times, so
+        // every device ends on the same row in whatever order they arrive.
+        if let Some(old) = by_pr.get(&p.pr) {
+            let keep = match (old.state.is_empty(), p.state.is_empty()) {
+                (false, true) => true,
+                (true, false) => false,
+                _ => crate::gotime::before(&p.at, &old.at),
+            };
+            if keep {
+                return;
+            }
         }
         by_pr.insert(
             p.pr.clone(),
@@ -148,8 +161,8 @@ impl Fold {
     }
 
     /// Refuses an agent's completed while a PR its card links is known to
-    /// be open (card #208). A PR GitHub couldn't be asked about doesn't
-    /// count: the rules without it apply.
+    /// be open (card #208). A PR GitHub was never heard on doesn't count:
+    /// the rules without it apply.
     pub(crate) fn open_pr_refusal(&self, t: &Task) -> Result<()> {
         let open: Vec<String> = self
             .pr_states_of(t)
@@ -176,7 +189,8 @@ impl Fold {
 
     /// Records what the poller heard about PR `c.pr` on card `id` and acts
     /// on what changed (module doc). Nothing is written when nothing
-    /// changed, or when GitHub still can't be asked: that is said once.
+    /// changed, when GitHub still can't be asked (that is said once), or
+    /// when it can't be asked about a PR whose state is known.
     /// Returns the card and the notices to route.
     pub(crate) fn record_pr_state(&mut self, id: &str, c: PrCheck) -> Result<(Task, Vec<Notice>)> {
         let Some(t) = self.tasks.get(id).cloned() else {
@@ -210,8 +224,9 @@ impl Fold {
                 && old.review == c.review
                 && !old.at.is_zero()
         } else {
-            // Said once: a later failure stays quiet until it is heard again.
-            !old.error.is_empty()
+            // Said once: a later failure stays quiet until it is heard
+            // again. Over a known state the fold wouldn't take it (#542).
+            !old.error.is_empty() || !old.state.is_empty()
         };
         if unchanged {
             return Ok((t, Vec::new()));

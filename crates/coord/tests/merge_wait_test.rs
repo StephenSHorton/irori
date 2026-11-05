@@ -5,7 +5,10 @@
 mod common;
 
 use common::*;
+use coord::rows::PrStateRow;
 use coord::*;
+use gocompat::time::GoTime;
+use store::kinds;
 
 const PR: &str = "https://github.com/a/b/pull/41";
 
@@ -118,6 +121,90 @@ fn a_merged_or_closed_pr_leaves_needs_you() {
         .unwrap();
         assert_eq!(lane(&e, USER, &t.id), (false, true), "{state}");
     }
+}
+
+/// A `pr.state` row as a device writes it: an error and an empty state when
+/// it couldn't ask GitHub, as phones before card #542 still do.
+fn pr_row(id: &str, state: &str, error: &str, at: GoTime) -> PrStateRow {
+    PrStateRow {
+        task_id: id.into(),
+        pr: PR.into(),
+        state: state.into(),
+        error: error.into(),
+        by: "irori".into(),
+        at,
+        ..PrStateRow::default()
+    }
+}
+
+/// Card #542: the phone's "can't reach GitHub" row came after MERGED and
+/// put the merge back in the person's Needs you. It holds live and on a
+/// replay, for each final state.
+#[test]
+fn an_error_row_after_a_final_state_changes_nothing() {
+    for state in [PR_MERGED, PR_CLOSED] {
+        let e = Env::new();
+        let t = claimed(&e, "part 10");
+        external(&e, &t.id, PR, &[]);
+        e.c.record_pr_state(
+            &t.id,
+            PrCheck {
+                pr: PR.into(),
+                state: state.into(),
+                ..PrCheck::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(lane(&e, USER, &t.id), (false, true), "{state}");
+
+        let later = plus(e.clk.now(), mins(5));
+        e.remote(
+            "phone",
+            1,
+            hlc_at(later),
+            "irori",
+            kinds::PR_STATE,
+            &pr_row(&t.id, "", "gh isn't installed here", later),
+        );
+
+        let heard = e.c.pr_state(&t.id, PR).unwrap();
+        assert_eq!(heard.state, state);
+        assert!(heard.error.is_empty(), "{state}");
+        assert_eq!(lane(&e, USER, &t.id), (false, true), "{state}");
+        assert_eq!(e.reopen().pr_state(&t.id, PR).unwrap().state, state);
+    }
+}
+
+/// The error row can reach a device first, with the later time: the merge
+/// that arrives after it must still count, or devices disagree for good.
+#[test]
+fn a_known_state_beats_an_error_row_that_arrived_first() {
+    let e = Env::new();
+    let t = claimed(&e, "part 10");
+    external(&e, &t.id, PR, &[]);
+    let merged_at = e.clk.now();
+    let later = plus(merged_at, mins(5));
+    e.remote(
+        "phone",
+        1,
+        hlc_at(later),
+        "irori",
+        kinds::PR_STATE,
+        &pr_row(&t.id, "", "gh isn't installed here", later),
+    );
+    assert_eq!(e.c.pr_state(&t.id, PR).unwrap().state, "");
+    assert_eq!(lane(&e, USER, &t.id), (true, false), "nothing known yet");
+
+    e.remote(
+        "mac",
+        1,
+        hlc_at(merged_at),
+        "irori",
+        kinds::PR_STATE,
+        &pr_row(&t.id, PR_MERGED, "", merged_at),
+    );
+    assert_eq!(e.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    assert_eq!(lane(&e, USER, &t.id), (false, true));
 }
 
 #[test]

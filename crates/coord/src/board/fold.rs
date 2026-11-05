@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 12] = [
+pub const FOLLOW_KINDS: [&str; 13] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,9 @@ pub const FOLLOW_KINDS: [&str; 12] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // What GitHub said about a card's PR (card #542): a phone has no gh, so
+    // these rows are all it knows, and a restart must keep them.
+    kinds::PR_STATE,
 ];
 
 /// Whether coord folds `kind`.
