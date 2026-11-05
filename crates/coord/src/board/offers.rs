@@ -714,6 +714,16 @@ fn needs_machine(t: &Task) -> Option<Machine> {
     }
 }
 
+/// The machine card t asks for by its `needs:` hint (card #455, for
+/// choosing the device its agent starts on): "mac", "pc", or "" for none.
+pub fn machine_needed(t: &Task) -> &'static str {
+    match needs_machine(t) {
+        Some(Machine::Mac) => "mac",
+        Some(Machine::Pc) => "pc",
+        None => "",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Machine {
     Mac,

@@ -256,6 +256,33 @@ impl Fold {
             self.ignore(&ev.device_id);
             return;
         }
+        // An agent is started for one card, once: a later mark never moves
+        // it to another card. On a shared board the agent must be the card
+        // author's own: another member's Irori can't mark this person's
+        // agent as started for their card, which would let their hand-out
+        // reach it (card #455).
+        if self
+            .spawned
+            .get(&p.key)
+            .is_some_and(|m| m.task_id != p.task_id)
+        {
+            self.ignore(&ev.device_id);
+            return;
+        }
+        if self.on_board {
+            let Some(kp) = &self.key_person else {
+                return;
+            };
+            let author = self
+                .tasks
+                .get(&p.task_id)
+                .map(|t| kp(&t.created_by))
+                .unwrap_or_default();
+            if author.is_empty() || kp(&p.key) != author {
+                self.ignore(&ev.device_id);
+                return;
+            }
+        }
         self.spawned_keys
             .write()
             .unwrap_or_else(|e| e.into_inner())
@@ -507,6 +534,45 @@ impl Fold {
             .any(|c| c.task_id == t.id && self.is_person(&c.by) && !gotime::before(&c.at, &s.at))
     }
 
+    /// The requests naming this device that it may start an agent for now
+    /// (card #455): the card's newest, still requested, unbound, not past
+    /// [`SPAWN_GRACE`] (a device back online with an older request starts
+    /// nothing: the card's own device has moved on to the next one), for a
+    /// card that still needs an agent. On a shared board only cards this
+    /// device's own person made, asked for by them or Irori on one of
+    /// their devices: another member's request naming this device, even on
+    /// their own card, is never acted on (§7). Oldest first.
+    pub(crate) fn spawns_here(&self) -> Vec<(Task, Spawn)> {
+        let now = self.stamp();
+        let mut v: Vec<(Task, Spawn)> = self
+            .tasks
+            .values()
+            .filter(|t| super::offers::needs_agent(t) || self.ask_needs_agent(t))
+            .filter_map(|t| {
+                let s = t.spawn_request()?;
+                (s.pending() && !s.stale(&now) && s.device == self.dev && self.mine_to_start(t, s))
+                    .then(|| (t.clone(), s.clone()))
+            })
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.id.cmp(&b.0.id)));
+        v
+    }
+
+    /// Whether this device's person may have it start card t's request s
+    /// (§7, card #455): always on the private log, which only their own
+    /// devices write; on a shared board only for a card they made, asked
+    /// for by them (or Irori on their device).
+    pub(crate) fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && kp(&t.created_by) == me && (s.by == SWEEPER || kp(&s.by) == me)
+    }
+
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
@@ -530,6 +596,7 @@ impl Fold {
             .filter(|t| {
                 t.spawn_request().is_none_or(|s| {
                     s.op != SPAWN_FAILED
+                        || s.device != self.dev
                         || self.spawn_now.contains(&t.id)
                         || gotime::at_least(&now, &s.at, SPAWN_RETRY)
                         || gotime::before(&s.at, &t.updated_at)
