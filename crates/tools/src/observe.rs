@@ -37,7 +37,7 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
         shown += 1;
         let d = doing.get(&card.key).cloned().unwrap_or_default();
-        write_agent(&mut b, card, &c.sender.key, &now, &d);
+        write_agent(&mut b, card, &c.sender.key, &now, &d, cut_off(s, card));
     }
     // Other members' agents on shared boards (card #372): what they hold
     // and whether their device is there.
@@ -85,6 +85,17 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         "{head} Message one with send (to = its name or key). {}\n{b}",
         untrusted()
     )
+}
+
+/// A live Claude session on this device with no attach stream (GitHub #57):
+/// its process runs, so presence lists it, but its Irori tools and wakes
+/// can't reach it. Only this device's Core knows, so a session on another
+/// device is never called cut off.
+fn cut_off(s: &Inner, c: &presence::AgentCard) -> bool {
+    c.agent == "claude"
+        && c.device_state.is_empty()
+        && c.status != "gone"
+        && s.b.attached(&c.key) == Some(false)
 }
 
 /// One device's presence for an agent's line (card #372).
@@ -175,6 +186,7 @@ fn write_agent(
     me: &str,
     now: &GoTime,
     doing: &capture::Line,
+    detached: bool,
 ) {
     // Every field here can come from a file a peer agent wrote, so all of
     // them go through one_line, not only the free-text ones.
@@ -225,7 +237,14 @@ fn write_agent(
         mode = "unknown".into();
     }
     let _ = writeln!(b, "  permissionMode: {mode}");
-    let _ = writeln!(b, "  device: {}", device_line(c, now));
+    if detached {
+        let _ = writeln!(
+            b,
+            "  device: this device, but the session isn't attached to Irori: its tools and wakes can't reach it"
+        );
+    } else {
+        let _ = writeln!(b, "  device: {}", device_line(c, now));
+    }
     let _ = writeln!(b, "  last activity: {}", last_activity(c, now));
     let txt = one_line(&c.last_text, MAX_FIELD_RUNES);
     if !txt.is_empty() {
