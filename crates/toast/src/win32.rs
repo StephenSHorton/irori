@@ -1421,6 +1421,14 @@ fn draw_card(dc: HDC, cw: &Look, glass: bool) {
     let (sr, sradius) = stripe_rect(h, cw.radius, sc);
     let stripe = rect_of(sr);
     let accent = pal.accent.for_kind(cw.kind);
+    // The soft greys are flattened over the solid background. Behind glass
+    // is anything, and light glass over a dark window goes mid-grey, where
+    // they fade out, so each steps up one.
+    let (body, x_idle, x_hover) = if glass {
+        (pal.foreground, pal.muted, pal.foreground)
+    } else {
+        (pal.muted, pal.faint, pal.muted)
+    };
     if !glass {
         fill(dc, all, pal.background);
     }
@@ -1479,7 +1487,7 @@ fn draw_card(dc: HDC, cw: &Look, glass: bool) {
             "Segoe UI",
             BODY_SIZE_DIP,
             400,
-            pal.muted,
+            body,
             RECT {
                 left: p(TEXT_LEFT_DIP),
                 top: bt,
@@ -1497,12 +1505,12 @@ fn draw_card(dc: HDC, cw: &Look, glass: bool) {
     if let Some((img, r)) = &cw.image {
         draw_thumb(dc, img, rect_of(*r), pal.background, pal.border, inner);
     }
-    let mut xc = pal.faint;
+    let mut xc = x_idle;
     if cw.hot == Part::Close {
         boxed(dc, rect_of(cw.close), pal.hover, Color(0), inner);
         xc = pal.foreground;
     } else if cw.hovered {
-        xc = pal.muted;
+        xc = x_hover;
     }
     text(
         dc,
