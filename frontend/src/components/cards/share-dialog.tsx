@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { boards as actions, type BoardSummary, type SharePreview, type SpaceBoard } from "@/lib/boards"
+import { boards as actions, type BoardSummary, type SharePreview } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import type { Owner, OwnerMember } from "@/lib/owners"
 import { errorText } from "@/lib/talk"
@@ -305,60 +305,6 @@ export function TransferButton({
             </Button>
             <Button size="sm" disabled={busy || (offering && !pick)} onClick={() => void send()}>
               {busy ? "Asking…" : offering ? `Offer it to ${pickName}` : `Ask ${ownerName}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  )
-}
-
-// MoveBoardButton puts a card on another board in its space (card #558).
-// It takes the next number there; its old ref still finds it. A parent
-// takes its subtasks along.
-export function MoveBoardButton({
-  boards,
-  tag,
-  family,
-  initialOpen = false,
-}: {
-  boards: SpaceBoard[]
-  // The card's board now, by tag.
-  tag: string
-  family: boolean
-  initialOpen?: boolean
-}) {
-  const others = boards.filter((b) => b.tag !== tag)
-  const [open, setOpen] = useState(initialOpen)
-  const [to, setTo] = useState(others[0]?.boardId ?? "")
-  return (
-    <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        Move
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Move to another board</DialogTitle>
-            <DialogDescription>
-              It takes the next number on that board. Links to its old number
-              still find it.{family ? " Its subtasks move with it." : ""}
-            </DialogDescription>
-          </DialogHeader>
-          <ChoiceSelect
-            label="Board"
-            showLabel
-            size="sm"
-            value={to}
-            onValueChange={setTo}
-            choices={others.map((b) => ({ value: b.boardId, label: plainLine(b.name) }))}
-          />
-          <DialogFooter>
-            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={() => setOpen(false)}>
-              Move
             </Button>
           </DialogFooter>
         </DialogContent>
