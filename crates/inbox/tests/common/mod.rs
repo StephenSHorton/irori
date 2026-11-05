@@ -91,6 +91,7 @@ pub struct Hooks {
     pub on_passed: Option<OnPassedFn>,
     pub stale: Option<StaleFn>,
     pub notes: Option<inbox::NotesFn>,
+    pub off_side: Option<inbox::OffSideFn>,
 }
 
 pub struct Harness {
@@ -186,6 +187,7 @@ impl Harness {
                 on_passed: hooks.on_passed.clone(),
                 stale: hooks.stale.clone(),
                 notes: hooks.notes.clone(),
+                off_side: hooks.off_side.clone(),
                 ..Options::default()
             },
         )

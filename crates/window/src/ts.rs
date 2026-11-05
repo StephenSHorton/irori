@@ -559,6 +559,9 @@ pub struct Task {
     /// The work/personal side (card #494).
     #[specta(optional)]
     pub side: String,
+    /// Why it waits on its side (card #495).
+    #[specta(optional)]
+    pub side_wait: String,
     #[specta(optional)]
     pub withdrawn: bool,
     pub title: String,

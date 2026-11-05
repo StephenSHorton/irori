@@ -1312,7 +1312,7 @@ impl Fold {
                 continue;
             }
             let mut card = Card {
-                task: t.clone(),
+                task: self.shown(t),
                 overlaps: self.overlaps_of(t, &now),
                 stranded: self.stranded_in(t, &rs),
                 ..Card::default()

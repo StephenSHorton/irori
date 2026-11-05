@@ -289,6 +289,10 @@ impl Fold {
             {
                 continue;
             }
+            // Only an agent on a device that runs the card's side (card #495).
+            if !self.sides.runs(dev, &t.side) {
+                continue;
+            }
             if skip.contains(&a.key)
                 || out.contains(&a.key)
                 || elsewhere.contains(&a.key)
@@ -330,7 +334,7 @@ impl Fold {
         let mut cards: Vec<&Task> = self
             .tasks
             .values()
-            .filter(|t| offerable(t) && self.hands_out(t))
+            .filter(|t| offerable(t) && self.hands_out(t) && self.runs_here(t))
             .filter(|t| t.offer.as_ref().is_none_or(|o| o.to.is_empty()))
             .collect();
         cards.sort_by(|a, b| {
@@ -400,7 +404,8 @@ impl Fold {
         // On a board with spawning on, Irori starts an agent for the card
         // (cards_to_spawn) and the sweep hands nothing out there: handing
         // it to an idle agent too would put two on it (card #453).
-        let free = if self.spawning_on() {
+        // A card on a side this device doesn't run waits (card #495).
+        let free = if self.spawning_on() || !self.runs_here(&t) {
             Vec::new()
         } else {
             self.free_for(&t, roster, &skip)
@@ -532,6 +537,54 @@ impl Fold {
         owner::device_of(&t.created_by) == self.dev
     }
 
+    /// Whether this device runs card t's side (card #495): a card with no
+    /// side, or a device with no pin, runs anywhere. A card this device
+    /// hands out on a side it doesn't run waits: nothing here spawns it or
+    /// hands it out, and it is never handed to another device instead.
+    pub(crate) fn runs_here(&self, t: &Task) -> bool {
+        self.sides.runs(&self.dev, &t.side)
+    }
+
+    /// Copies the sides each device runs where the inbox's off-side hold
+    /// reads them (card #495).
+    pub(crate) fn index_runs(&self) {
+        let mut s = self.stale.write().unwrap_or_else(|e| e.into_inner());
+        s.runs = self.sides.clone();
+    }
+
+    /// The inbox's off-side hold (card #495): whether a notice of `kind`
+    /// about card `id` to `to` is one Irori picked on its own for an agent
+    /// on a device that doesn't run the card's side. A hand-out always is;
+    /// an ask unless the person named `to` in it, and on a thread only the
+    /// agent it was handed to. Runs under its own lock (the inbox's is held).
+    /// Card t as it is shown: with [`Fold::side_wait`] set.
+    pub(crate) fn shown(&self, t: &Task) -> Task {
+        let mut t = t.clone();
+        t.side_wait = self.side_wait(&t);
+        t
+    }
+
+    /// Why card t waits on its side (card #495), or "" when it doesn't:
+    /// it needs an agent, none is starting for it, and the device that
+    /// hands it out doesn't run its side. Read when shown, so a pin that
+    /// changes clears it at once. An ask never says so: its owner may be
+    /// another device, and its agents are any device's that run the side.
+    pub(crate) fn side_wait(&self, t: &Task) -> String {
+        if self.on_board
+            || crate::sides::clean(&t.side).is_empty()
+            || !needs_agent(t)
+            || t.spawn_pending()
+            || self.spawn_now.contains(&t.id)
+        {
+            return String::new();
+        }
+        let dev = owner::device_of(&t.created_by);
+        if dev.is_empty() || self.sides.runs(dev, &t.side) {
+            return String::new();
+        }
+        format!("no device here runs {}", crate::sides::clean(&t.side))
+    }
+
     /// The agents card t may go to (card #174): on a shared board, only
     /// those of the member who made it. Irori never hands one person's
     /// card to another person's agents (0.11.1: their own background
@@ -568,7 +621,7 @@ impl Fold {
                     Some(o) => o.to.is_empty(),
                     None => t.offer.is_none() && offerable(t),
                 };
-                waiting && self.hands_out(t)
+                waiting && self.hands_out(t) && self.runs_here(t)
             })
             .filter(|t| {
                 let mut skip = t
@@ -605,6 +658,11 @@ impl Fold {
                 !spawning
                     && (t.live_offer().is_some() || (t.offer.is_none() && offerable(t)))
                     && self.hands_out(t)
+                    // On a side this device doesn't run (card #495) a card
+                    // gets no new pick; one already handed out is still
+                    // moved on when its agent ends or goes, so that agent
+                    // is free for other work.
+                    && (self.runs_here(t) || t.live_offer().is_some_and(|o| !o.to.is_empty()))
             })
             .map(|t| (t.created_at, t.id.clone()))
             .collect();
@@ -657,7 +715,11 @@ impl Fold {
                 let mut skip = heard.clone();
                 skip.push(t.created_by.clone());
                 let pool = self.offer_pool(&t, agents);
-                let free = self.free_for(&t, &pool, &skip);
+                let free = if self.runs_here(&t) {
+                    self.free_for(&t, &pool, &skip)
+                } else {
+                    Vec::new()
+                };
                 let now = self.stamp();
                 if let Some(pick) = free.first() {
                     heard.push(pick.clone());
@@ -840,5 +902,50 @@ fn offer_notice(t: &Task, to: &str, poster: &str, why: &str) -> Notice {
         wake: true,
         text: b,
         ..Notice::default()
+    }
+}
+
+/// Puts card t's side where the inbox's off-side hold reads it (card
+/// #495); a card on no side leaves it.
+pub(crate) fn index_side(stale: &std::sync::RwLock<super::fold::StaleMap>, t: &Task) {
+    let mut s = stale.write().unwrap_or_else(|e| e.into_inner());
+    if t.side.is_empty() {
+        s.sides.remove(&t.id);
+        return;
+    }
+    let (named, thread) = match &t.ask {
+        Some(a) => (a.mentions.iter().map(|m| m.key.clone()).collect(), a.thread),
+        None => (Vec::new(), false),
+    };
+    let c = super::fold::SideCard {
+        side: t.side.clone(),
+        named,
+        thread,
+    };
+    if s.sides.get(&t.id) != Some(&c) {
+        s.sides.insert(t.id.clone(), c);
+    }
+}
+
+/// The inbox's off-side hold over the index it reads (card #495): whether
+/// a notice of `kind` about card `id` to `to` is one Irori picked on its
+/// own for an agent on a device that doesn't run the card's side. A
+/// hand-out or a review request always is; an ask unless the person named
+/// `to` in it, and on a thread only the agent it was handed to.
+pub(crate) fn off_side_in(s: &super::fold::StaleMap, kind: &str, id: &str, to: &str) -> bool {
+    let Some(c) = s.sides.get(id) else {
+        return false;
+    };
+    let dev = owner::device_of(to);
+    if dev.is_empty() || s.runs.runs(dev, &c.side) {
+        return false;
+    }
+    match kind {
+        NOTICE_OFFER | super::review::NOTICE_REVIEW => true,
+        NOTICE_ASK => {
+            !c.named.iter().any(|n| n == to)
+                && (!c.thread || s.stale.get(id).is_some_and(|t| t == to))
+        }
+        _ => false,
     }
 }

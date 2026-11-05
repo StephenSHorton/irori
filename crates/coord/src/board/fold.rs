@@ -176,6 +176,19 @@ pub(crate) struct StaleMap {
     /// Unheld cards Irori hands out (card #82), by id: (live, the agent it
     /// went to while live, or why it no longer goes out).
     pub offers: HashMap<String, (bool, String)>,
+    /// Each card on a side (card #495), by id, and the sides each device
+    /// runs: what the inbox's off-side hold reads, without coord's lock.
+    pub sides: HashMap<String, SideCard>,
+    pub runs: crate::sides::Sides,
+}
+
+/// A card's side as the inbox's off-side hold reads it (card #495).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct SideCard {
+    pub side: String,
+    /// The agents the person's ask names: they hear it, any side.
+    pub named: Vec<String>,
+    pub thread: bool,
 }
 
 /// The bits of a task `touch` needs, so a handler can touch while it
@@ -645,8 +658,8 @@ impl Fold {
             kinds::TASK_CREATED => self.fold_created(ev, &at),
             kinds::DEVICE_SIDES => {
                 // Private log only: a board log never carries one.
-                if !self.on_board {
-                    self.sides.apply(ev);
+                if !self.on_board && self.sides.apply(ev) {
+                    self.index_runs();
                 }
             }
             kinds::TASK_CLAIMED => {

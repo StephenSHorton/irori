@@ -170,3 +170,14 @@ Both code readers leaned (i). The pick is blocker b2 on #477.
 - **Per-device repo checkouts** (done in #493). The `repo.seen` fold (`KIND_REPO_SEEN` in `apply`, `capture/src/service.rs`) puts only `ev.device_id == me` rows into `repo_roots`, and keeps others in `roots_elsewhere`. There is no payload change and no migration of rows. One upgrade gap is closed in the repo pass: before #493, `note_root` wrote no row for a path a peer had already logged, so a device with a checkout at the same path as a peer's held only the peer's row. Once per start, the repo pass checks each peer root that this device holds no row for; if it is a repo here, `note_root` writes this device's own row with its own key (`capture_service::a_peers_root_that_is_a_checkout_here_too_becomes_ours_at_the_repo_pass`). `spawn_folder` (`core/src/service/spawn.rs`) takes the first root that is a directory. A repo seen only elsewhere then fails as `NoFolder`, which the #467 retry guard catches (today it fails as "not trusted", so that guard never engages). Risk: a device whose id changes treats its own old rows as foreign until capture sees the root again. Test gotcha: peer `repo.seen` rows fold only at replay, so insert them before `Capture::new`.
 
 Spawning, hand-outs, asks, assign, claim, review, mentions and the sync scope wait on b2.
+
+### 7.5 Stephen's answer on b2 (2026-11-04): who runs what, not who reads what
+
+He doesn't mind personal devices reading work cards or the reverse. He wants agents told they're separate, and nothing to pick up work across that line unless asked. So the build is the smallest reading, (ii):
+
+- **A side on every card, and a side list on every device.** Cards carry a `space` label (a new field on `task.created`; a subtask, split or main_red card takes its parent's). Each device has a replicated row naming the sides it runs, set on that device. With no row, a device runs everything, so nothing changes until he pins. A new card gets the side of the device it's typed on, both from the app and from `board_create`. No sync change and no hello gate (private log).
+- **Automatic picks respect the side.** That covers spawn and hand-out (`hands_out`, `cards_to_spawn`, `free_for`), asks (`ask_owner`, `free_agents`), quiet threads and unnamed reviews: Irori only picks agents on a device that runs the card's side. The receiving device checks again in the inbox (`host_hold`, `policy.rs` `hold()`).
+- **"Unless asked" stays open.** If the person assigns, starts an agent, or @-mentions an agent across the line, it goes through. An agent doing the same on its own (assign, claim, join) is refused with the reason, and the reason says to ask the person.
+- **Agents are told.** A spawn brief and a session's Irori instructions say which side its device runs, and that cards on the other side are only read, never taken, unless the person asks.
+
+Reads across stay as they are (§7.2's transcript and search points are accepted).

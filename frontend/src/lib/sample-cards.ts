@@ -1055,6 +1055,17 @@ export function sampleCards(now: Date): CardDetail[] {
         }),
       ],
     }),
+    // A Work card made on a device that runs only Personal (card #495): it
+    // waits, and is never handed to another device.
+    card({
+      id: "sample-card-side-wait",
+      title: "Rotate the staging API keys",
+      repoKey: "remote:github.com/sample-org/example-app",
+      side: "Work",
+      sideWait: "no device here runs Work",
+      goal: "New keys in the vault, old ones revoked.",
+      updatedAt: at(2),
+    }),
     card({
       id: "sample-card-3",
       title: "Two-PC lobby join for the multiplayer build",

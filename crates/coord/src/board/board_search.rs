@@ -250,6 +250,7 @@ impl Fold {
         }
         line(&mut b, "state", &state);
         line(&mut b, "side", &t.side);
+        line(&mut b, "waits", &self.side_wait(t));
         line(&mut b, "ask", &t.ask_line());
         if let Some(p) = self.tasks.get(&t.parent) {
             line(

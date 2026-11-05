@@ -484,7 +484,11 @@ impl Coord {
     /// device, so folding it twice changes nothing).
     pub fn apply_sides(&self, ev: &Event) -> bool {
         let mut f = self.lock();
-        !f.on_board && f.sides.apply(ev)
+        let changed = !f.on_board && f.sides.apply(ev);
+        if changed {
+            f.index_runs();
+        }
+        changed
     }
 
     /// The sides `device` runs; None when it runs every side.
@@ -529,7 +533,8 @@ impl Coord {
         self.lock().list_tasks(f)
     }
     pub fn get_task(&self, id: &str) -> Option<Task> {
-        self.lock().tasks.get(id).cloned()
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.shown(t))
     }
     /// Makes `by` the holder; ErrHeld if another live holder has it.
     pub fn claim_task(&self, by: &str, id: &str) -> Result<Task> {
@@ -1395,6 +1400,23 @@ impl Coord {
             Some((false, why)) => why.clone(),
             _ => String::new(),
         }
+    }
+    /// The inbox's off-side hold (card #495): whether a notice of `kind`
+    /// about card `r` (`task:<id>`) to agent `to` is a pick Irori made on
+    /// its own for a device that doesn't run the card's side. Only a
+    /// hand-out (`offer`), a review request, or an ask the person didn't
+    /// name `to` in counts.
+    /// Best effort on the receiving device: coord and the inbox follow the
+    /// store on their own threads, so a card this fold hasn't indexed yet
+    /// reads as no side and passes. The sender's own pick filters
+    /// (free_for, free_agents, cards_to_spawn) are the first guard.
+    /// Never takes coord's lock.
+    pub fn off_side(&self, kind: &str, r: &str, to: &str) -> bool {
+        let Some(id) = r.strip_prefix("task:") else {
+            return false;
+        };
+        let s = self.stale.read().unwrap_or_else(|e| e.into_inner());
+        offers::off_side_in(&s, kind, id, to)
     }
     /// The inbox's Stale hook: never takes coord's lock.
     pub fn stale_notice(&self, r: &str, to: &str) -> String {

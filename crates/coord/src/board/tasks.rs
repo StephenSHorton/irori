@@ -273,7 +273,7 @@ impl Fold {
                     || !f.holder.is_empty() && !is_holder(t, &f.holder)
                     || f.open && is_terminal(effective_state(t)))
             })
-            .cloned()
+            .map(|t| self.shown(t))
             .collect();
         out.sort_by(|a, b| {
             gotime::cmp(&a.created_at, &b.created_at)

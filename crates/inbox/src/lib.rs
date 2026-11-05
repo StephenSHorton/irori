@@ -266,6 +266,10 @@ pub mod hold {
     /// The person took their comment back to edit it before any agent read
     /// it (card #105). Their own hold: never asked about, never counted.
     pub const EDITING: &str = "editing";
+    /// Irori picked an agent here for a card on a side this device doesn't
+    /// run (card #495): a hand-out, or an ask that didn't name it. The
+    /// person's Release delivers it.
+    pub const OFF_SIDE: &str = "off_side";
 }
 
 /// Delivery modes.
@@ -620,6 +624,10 @@ pub type OnGoneFn = Arc<dyn Fn(&Message, &str) -> Result<String> + Send + Sync>;
 pub type OnPassedFn = Arc<dyn Fn(&Message, &str) -> Result<()> + Send + Sync>;
 /// Options.Stale: the note to close a stale notice with, or `""`.
 pub type StaleFn = Arc<dyn Fn(&Delivery) -> String + Send + Sync>;
+/// Options.OffSide (card #495): whether message m to `recipient` is a
+/// pick Irori made for a card on a side the recipient's device doesn't
+/// run.
+pub type OffSideFn = Arc<dyn Fn(&Message, &str) -> bool + Send + Sync>;
 /// Options.Notes (card #412): the accepted notes for a wake to `agent`,
 /// given the `task:<id>` refs of the messages in it (the first card it is
 /// about), best first.
@@ -676,6 +684,9 @@ pub struct Options {
     /// Whether Irori started agent `key` for one card (card #446): it is
     /// never a repo's front desk. Runs under the inbox lock.
     pub spawned: Option<KeyPredicate>,
+    /// Holds a pick Irori made across the work/personal line (card #495).
+    /// Runs under the inbox lock: it must not call the inbox.
+    pub off_side: Option<OffSideFn>,
     /// Test overrides; zero means the constant.
     pub unengaged_limit: Duration,
     pub gone_grace: Duration,
