@@ -542,14 +542,18 @@ impl Boards {
 
     /// The open board logs, sorted by id.
     pub(crate) fn list(&self) -> Vec<Arc<BoardLog>> {
+        debug_assert!(
+            !coord::under_inbox_lock(),
+            "waiting on the boards list under the inbox lock: route holds it while it reads board coords"
+        );
         lock(&self.inner).logs.values().cloned().collect()
     }
 
     /// [`Boards::list`] without waiting (card #422): `None` while another
     /// thread holds the list. A coord's busy hook reads it under that
-    /// coord's lock, and [`Services::route`] holds the list while it reads
-    /// board coords.
-    fn try_list(&self) -> Option<Vec<Arc<BoardLog>>> {
+    /// coord's lock, the inbox's notes hook under the inbox's, and
+    /// [`Services::route`] holds the list while it reads board coords.
+    pub(crate) fn try_list(&self) -> Option<Vec<Arc<BoardLog>>> {
         let inner = match self.inner.try_lock() {
             Ok(g) => g,
             Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
@@ -1348,9 +1352,10 @@ impl Services {
                             ),
                         }
                     })),
-                    // Under the board coord's lock: takes the inbox's, which
-                    // never waits on a board coord (its stale hook reads
-                    // only the private one).
+                    // Under the board coord's lock: takes the inbox's, whose
+                    // hooks never wait on a board coord (the stale hook reads
+                    // only the private one, the notes hook tries the boards:
+                    // coord::with_inbox_lock_held).
                     hop_of: Some({
                         let s = Arc::downgrade(self);
                         Arc::new(move |actor: &str| s.upgrade().map_or(0, |s| s.board_hop(actor)))
@@ -2605,6 +2610,13 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+
+    /// Holds the boards list until the guard drops, as [`Services::route`]
+    /// does (tests: a reader under the inbox lock must not wait on it).
+    #[doc(hidden)]
+    pub fn hold_boards_list(&self) -> impl Sized + '_ {
+        lock(&self.s.boards.inner)
     }
 }
 

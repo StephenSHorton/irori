@@ -985,7 +985,9 @@ impl Core {
             is_owner: Some(is_owner.clone()),
             spawned: Some({
                 let c = coord_cell.clone();
-                Arc::new(move |k: &str| c.get().is_some_and(|co| co.is_spawned(k)))
+                Arc::new(move |k: &str| {
+                    coord::with_inbox_lock_held(|| c.get().is_some_and(|co| co.is_spawned(k)))
+                })
             }),
             on_recipient_gone: Some({
                 let c = coord_cell.clone();
@@ -1036,16 +1038,20 @@ impl Core {
             stale: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |d: &inbox::Delivery| {
-                    c.get()
-                        .map(|co| notice::stale_notice(co, d))
-                        .unwrap_or_default()
+                    coord::with_inbox_lock_held(|| {
+                        c.get()
+                            .map(|co| notice::stale_notice(co, d))
+                            .unwrap_or_default()
+                    })
                 })
             }),
             off_side: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |m: &inbox::Message, to: &str| {
-                    c.get()
-                        .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                    coord::with_inbox_lock_held(|| {
+                        c.get()
+                            .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                    })
                 })
             }),
             notes: Some({
@@ -1053,7 +1059,7 @@ impl Core {
                 Arc::new(move |agent: &str, refs: &[String]| {
                     c.get()
                         .and_then(|w| w.upgrade())
-                        .map(|s| s.wake_notes(agent, refs))
+                        .map(|s| coord::with_inbox_lock_held(|| s.wake_notes(agent, refs)))
                         .unwrap_or_default()
                 })
             }),

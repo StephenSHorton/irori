@@ -280,6 +280,17 @@ impl Services {
             .collect()
     }
 
+    /// [`Services::shown_boards`] that never waits, for a caller under the
+    /// inbox lock (card #561): none while another thread holds the list.
+    pub(crate) fn try_shown_boards(&self) -> Vec<Arc<BoardLog>> {
+        self.boards
+            .try_list()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| !self.board_leaving(b))
+            .collect()
+    }
+
     /// The person left board `b` and it is still here, out of sight,
     /// until another member holds the `left` row (§4.4).
     pub(crate) fn board_leaving(&self, b: &BoardLog) -> bool {

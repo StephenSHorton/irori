@@ -301,3 +301,132 @@ fn an_agents_board_note_goes_through_the_gate_and_waits_for_a_person() {
     assert_eq!(found[0].note.state, coord::NOTE_PROPOSED);
     assert!(c.search_notes("BOARD-AGENT", true).is_empty());
 }
+
+/// A card on a new board with a note for every wake on it, a Mine note for
+/// every wake, and a message about the card waiting for alpha. Sent before
+/// any test holds a lock: only the wake runs under the inbox lock.
+fn a_message_about_a_board_card(r: &Rig) -> (String, String) {
+    let c = &r.core;
+    let me = c.user_sender().key;
+    let b = c.create_board("MLG", "mlg").unwrap();
+    let co = c.board_coord(&b).unwrap();
+    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, c.person().id);
+    let task = co
+        .create_task(
+            &person,
+            coord::NewTask {
+                title: "Shared work".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    c.propose_note(&me, "mine", nn("MINE-NOTE every wake.", &["everywhere"]))
+        .unwrap();
+    c.propose_note(&me, "mlg", nn("BOARD-NOTE every wake.", &["everywhere"]))
+        .unwrap();
+    send_about(r, &task.id, "about the board card");
+    (b, task.id)
+}
+
+fn send_about(r: &Rig, task_id: &str, text: &str) {
+    let beta = tools::Caller {
+        sender: inbox::Sender::new(&r.key_b, "beta", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let args = serde_json::json!({"to": "alpha", "text": text, "task_id": format!("task:{task_id}")});
+    let out = r
+        .core
+        .tools()
+        .call(&beta, "send", &serde_json::to_vec(&args).unwrap())
+        .unwrap();
+    assert!(out.starts_with("Sent"), "send = {out}");
+}
+
+/// Alpha's wake, issued on another thread while this one holds `_held`: a
+/// wait on what it holds fails here instead of hanging the run.
+fn wake_while_held(r: &Rig, _held: impl Sized) -> inbox::Wake {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let w = r.core.inbox().next_wake(&r.key_a, inbox::path::MOD);
+            let _ = tx.send(w);
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the wake waited on a lock a board write can hold while it waits on the inbox")
+            .unwrap()
+            .expect("alpha has the message")
+    })
+}
+
+fn finish(r: &Rig, w: &inbox::Wake, turn: &str) {
+    let ib = r.core.inbox();
+    ib.mark_delivered(&r.key_a, &w.token).unwrap();
+    ib.mark_engaged(&r.key_a, &w.token, turn).unwrap();
+    ib.turn_ended(&r.key_a, &w.token, turn).unwrap();
+}
+
+/// A wake about a board's card reads that board without waiting (card #561)
+/// and still carries its notes, told apart from Mine's.
+#[test]
+fn a_wake_on_a_board_card_carries_the_boards_notes() {
+    let r = Rig::new();
+    a_message_about_a_board_card(&r);
+    let w = r
+        .core
+        .inbox()
+        .next_wake(&r.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("alpha has the message");
+    let p = &w.prompt;
+    assert!(p.contains("MINE-NOTE") && p.contains("BOARD-NOTE"), "{p}");
+    assert!(
+        p.contains("by a person on the board, accepted by a person on the board"),
+        "{p}"
+    );
+}
+
+/// Card #561: a board write holds its coord and waits on the inbox for its
+/// hop, so a wake under the inbox lock must not wait on that coord. It goes
+/// out without the board's notes, which the next wake gives.
+#[test]
+fn a_wake_never_waits_on_a_busy_board() {
+    let r = Rig::new();
+    let (b, task) = a_message_about_a_board_card(&r);
+    let co = r.core.board_coord(&b).unwrap();
+    let w = wake_while_held(&r, co.hold_lock());
+    assert!(w.prompt.contains("MINE-NOTE"), "{}", w.prompt);
+    assert!(!w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+    finish(&r, &w, "t1");
+
+    send_about(&r, &task, "again, the board free");
+    let w = r
+        .core
+        .inbox()
+        .next_wake(&r.key_a, inbox::path::MOD)
+        .unwrap()
+        .expect("alpha has the message");
+    assert!(w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+}
+
+/// Card #561: `route` holds the boards list while it reads board coords, so
+/// a wake must not wait on the list either.
+#[test]
+fn a_wake_never_waits_on_the_boards_list() {
+    let r = Rig::new();
+    a_message_about_a_board_card(&r);
+    let w = wake_while_held(&r, r.core.hold_boards_list());
+    assert!(w.prompt.contains("MINE-NOTE"), "{}", w.prompt);
+    assert!(!w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+}
+
+/// The check every test runs under: a blocking board read in an inbox hook
+/// panics in a debug build, whether or not the board happens to be busy.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "under the inbox lock")]
+fn waiting_on_a_board_coord_in_an_inbox_hook_is_caught() {
+    let r = Rig::new();
+    let b = r.core.create_board("MLG", "mlg").unwrap();
+    let co = r.core.board_coord(&b).unwrap();
+    coord::with_inbox_lock_held(|| co.get_task("nope"));
+}
