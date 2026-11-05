@@ -546,6 +546,8 @@ pub(crate) struct BriefMore<'a> {
     pub runs: Option<&'a [String]>,
     /// The person's side names (card #496).
     pub side_names: &'a [String],
+    /// What the person said lately on the cards around it (card #555).
+    pub said: &'a [coord::Said],
 }
 
 impl Default for BriefMore<'_> {
@@ -555,6 +557,7 @@ impl Default for BriefMore<'_> {
             idle: IDLE_LIMIT,
             runs: None,
             side_names: &[],
+            said: &[],
         }
     }
 }
@@ -622,6 +625,28 @@ fn quote_channels(b: &mut String, named: &dyn Fn(&str) -> String, channels: &[Br
             };
             fence(b, named, "Post", by, &text);
         }
+    }
+}
+
+/// Puts what the person said lately on the cards around `short` in its
+/// brief (card #555): their own words, each with its card's ref, and the
+/// agent has to say whether they change its card. Without this a card
+/// keeps a premise the person has dropped on its sibling.
+fn quote_said(
+    b: &mut String,
+    named: &dyn Fn(&str) -> String,
+    short: &str,
+    said: &[coord::Said],
+) {
+    if said.is_empty() {
+        return;
+    }
+    b.push_str(&format!(
+        "What the person said lately on cards around {short}: their siblings, parent, subtasks, or cards that name them. Words on one card can change another. Before you start, say in one line on {short} (board_comment) whether any of these change it. If one does, change its title, objective, done-when and steps first (board_edit, board_steps), and work to that. Only the newest are here: show a card or comment for the rest.\n\n"
+    ));
+    for s in said {
+        let label = format!("On {} (comment:{})", s.card, s.comment_id);
+        fence(b, named, &label, "the person", &s.text);
     }
 }
 
@@ -711,6 +736,7 @@ pub(crate) fn build_brief(
         }
     }
     let others_text = quote_thread(&mut b, comments, named, others);
+    quote_said(&mut b, named, &short, more.said);
     quote_channels(&mut b, named, more.channels);
     b.push_str(&format!("You were started for {short}. Take only {short}. Before you finish, put what you found on the card.\n"));
     Brief {
@@ -1422,6 +1448,7 @@ impl Services {
         let channels = self.brief_channel_lines(t);
         let runs = self.coord.sides_of(&me);
         let side_names = self.coord.side_names();
+        let said = self.coord.said_near(&t.id);
         let brief = build_brief(
             t,
             &comments,
@@ -1434,6 +1461,7 @@ impl Services {
                 idle: setting.idle_limit(),
                 runs: runs.as_deref(),
                 side_names: &side_names,
+                said: &said,
             },
         );
         // A private thread about a shared board (card #454): its agent reads
@@ -1545,6 +1573,7 @@ impl Services {
         };
         let runs = self.coord.sides_of(&me);
         let side_names = self.coord.side_names();
+        let said = log.co.said_near(&t.id);
         let brief = build_brief(
             t,
             &comments,
@@ -1557,6 +1586,7 @@ impl Services {
                 idle: setting.idle_limit(),
                 runs: runs.as_deref(),
                 side_names: &side_names,
+                said: &said,
             },
         );
         // A private thread about a shared board (card #454): its agent reads

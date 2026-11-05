@@ -499,6 +499,7 @@ impl Services {
                 text: m.note.text,
             })
             .collect();
+        let (said_for, said) = self.wake_said(agent, refs);
         inbox::WakeNotes {
             task: if notes.is_empty() {
                 String::new()
@@ -507,7 +508,54 @@ impl Services {
                     .unwrap_or_default()
             },
             notes,
+            said_for,
+            said,
         }
+    }
+
+    /// What the person said lately around `agent`'s card, for a wake (card
+    /// #555), and that card's short ref. Its card is the one the wake is
+    /// about when that is the agent's own, else the card it works now: a
+    /// wake about a card it only watches says nothing about that card's
+    /// neighbours. Same locks as [`Self::wake_notes`].
+    fn wake_said(&self, agent: &str, refs: &[String]) -> (String, Vec<inbox::WakeSaid>) {
+        let logs: Vec<Arc<coord::Coord>> = std::iter::once(self.coord.clone())
+            .chain(self.shown_boards().iter().map(|b| b.coord().clone()))
+            .collect();
+        let mine = |t: &coord::Task| {
+            let has = |l: &[String]| l.iter().any(|k| k == agent);
+            has(&t.holders) || has(&t.co_holders) || has(&t.assigned)
+        };
+        let named = refs.iter().find_map(|r| {
+            let id = r.strip_prefix("task:").unwrap_or(r);
+            logs.iter()
+                .find_map(|co| co.get_task(id).filter(&mine).map(|t| (t, co)))
+        });
+        let working = || {
+            logs.iter().find_map(|co| {
+                co.list_tasks(&coord::TaskFilter {
+                    holder: agent.to_string(),
+                    open: true,
+                    ..Default::default()
+                })
+                .into_iter()
+                .find(|t| t.state == coord::WORKING)
+                .map(|t| (t, co))
+            })
+        };
+        let Some((t, co)) = named.or_else(working) else {
+            return Default::default();
+        };
+        let said: Vec<inbox::WakeSaid> = co
+            .said_near(&t.id)
+            .into_iter()
+            .map(|s| inbox::WakeSaid {
+                id: s.comment_id,
+                card: s.card,
+                text: s.text,
+            })
+            .collect();
+        (t.short_ref(), said)
     }
 
     /// This device's name as the person sees it (`machine:` tags).

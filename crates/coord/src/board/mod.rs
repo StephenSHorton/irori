@@ -58,6 +58,8 @@ pub use spawn::{
 mod resource;
 mod review;
 pub mod rows;
+mod said;
+pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
@@ -968,6 +970,10 @@ impl Coord {
     }
     pub fn record_message(&self, m: MessageEntry) -> Result<Comment> {
         self.lock().record_message(m)
+    }
+    /// What the person said lately on the cards around `id` (card #555).
+    pub fn said_near(&self, id: &str) -> Vec<Said> {
+        self.lock().said_near(id)
     }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)

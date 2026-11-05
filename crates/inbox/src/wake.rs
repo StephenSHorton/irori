@@ -4,7 +4,7 @@
 use gocompat::quote::quote;
 use gocompat::time::GoTime;
 
-use crate::fence::{batch, fence, notes_section};
+use crate::fence::{batch, fence, notes_section, said_section};
 use crate::messages::clip;
 use crate::state::{
     APPEND_TOKEN_PREFIX, Drec, Inner, REMINDER_TOKEN_PREFIX, TurnRow, WAKE_TOKEN_PREFIX, WakeRec,
@@ -231,6 +231,7 @@ impl Inner {
             crate::WakeNotes::default()
         };
         prompt.push_str(&notes_section(&notes));
+        prompt.push_str(&said_section(&notes));
         let mut ids: Vec<String> = full.iter().map(|d| d.id.clone()).collect();
         ids.extend(overflow.iter().cloned());
         let row = WakeRow {
@@ -249,6 +250,8 @@ impl Inner {
             at: self.now(),
             notes_task: notes.task.clone(),
             notes: notes.notes.clone(),
+            said_for: notes.said_for.clone(),
+            said: notes.said.clone(),
         };
         self.emit("irori", kinds::WAKE_ISSUED, &row)?;
         Ok(Wake {
@@ -262,6 +265,8 @@ impl Inner {
             prompt,
             notes_task: notes.task,
             notes: notes.notes,
+            said_for: notes.said_for,
+            said: notes.said,
         })
     }
 
@@ -298,6 +303,26 @@ impl Inner {
         }
         if out.notes.is_empty() {
             out.task.clear();
+        }
+        // The person's words near its card (card #555): once each, and not
+        // a line this very wake already brings it as a message.
+        let told: std::collections::HashSet<&str> = self
+            .wakes
+            .values()
+            .filter(|w| w.w.to == agent)
+            .flat_map(|w| w.w.said.iter().map(|s| s.id.as_str()))
+            .collect();
+        let here = |id: &str| {
+            msgs.iter()
+                .any(|d| trim(&d.message.ref_).strip_prefix("comment:") == Some(id))
+        };
+        out.said
+            .retain(|s| !told.contains(s.id.as_str()) && !here(&s.id));
+        while said_section(&out).len() > crate::MAX_SAID_BYTES {
+            out.said.pop();
+        }
+        if out.said.is_empty() {
+            out.said_for.clear();
         }
         out
     }
@@ -444,10 +469,14 @@ impl Inner {
                 .collect();
         let mut out = w.w.clone();
         out.prompt = fence(&w.w.token, w.w.reminder, &msgs, &w.w.overflow);
-        out.prompt.push_str(&notes_section(&crate::WakeNotes {
+        let notes = crate::WakeNotes {
             task: w.w.notes_task.clone(),
             notes: w.w.notes.clone(),
-        }));
+            said_for: w.w.said_for.clone(),
+            said: w.w.said.clone(),
+        };
+        out.prompt.push_str(&notes_section(&notes));
+        out.prompt.push_str(&said_section(&notes));
         out
     }
 }

@@ -116,6 +116,11 @@ pub(crate) struct WakeRow {
     pub notes_task: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<crate::WakeNote>,
+    /// Card #555: the agent's card, and the person's words around it.
+    #[serde(rename = "saidFor", skip_serializing_if = "String::is_empty")]
+    pub said_for: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<crate::WakeSaid>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -392,9 +397,24 @@ fn decode_wake(payload: &[u8]) -> std::result::Result<WakeRow, json::Error> {
                 .collect()
         })
         .unwrap_or_default();
+    let said = o
+        .get("said")
+        .map(|a| {
+            a.items()
+                .iter()
+                .map(|x| crate::WakeSaid {
+                    id: s(x, "id"),
+                    card: s(x, "card"),
+                    text: s(x, "text"),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(WakeRow {
         notes_task: s(&o, "notesTask"),
         notes,
+        said_for: s(&o, "saidFor"),
+        said,
         wake_id: s(&o, "wakeId"),
         to: s(&o, "to"),
         token: s(&o, "token"),
@@ -1026,6 +1046,8 @@ impl Inner {
                         prompt: String::new(),
                         notes_task: r.notes_task.clone(),
                         notes: r.notes.clone(),
+                        said_for: r.said_for.clone(),
+                        said: r.said.clone(),
                     },
                     path: r.path.clone(),
                     issued_at: stamp(r.at),
