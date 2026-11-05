@@ -58,10 +58,8 @@ fn stash(db: &str, dev: &str, behind: i64) -> i64 {
             |r| r.get(0),
         )
         .unwrap();
-    c.execute_batch(
-        "CREATE TABLE catchup_stash AS SELECT * FROM events WHERE 0",
-    )
-    .unwrap();
+    c.execute_batch("CREATE TABLE catchup_stash AS SELECT * FROM events WHERE 0")
+        .unwrap();
     let n = c
         .execute(
             "INSERT INTO catchup_stash SELECT * FROM events WHERE device_id = ?1 AND seq >= ?2",
@@ -99,9 +97,7 @@ fn main() {
     let wall = newest_wall(db);
     stash(db, other, behind);
     let st = Arc::new(Store::open(db, me, Arc::new(hlc::Clock::new())).unwrap());
-    let at = GoTime::from_system(
-        std::time::UNIX_EPOCH + Duration::from_millis(wall as u64),
-    );
+    let at = GoTime::from_system(std::time::UNIX_EPOCH + Duration::from_millis(wall as u64));
     let t = Instant::now();
     let co = Arc::new(
         Coord::new(
