@@ -191,6 +191,9 @@ describe('heldReminder', () => {
     expect(r).toContain('#69 "Waiting", #68 "Fix it"')
     expect(r).not.toContain('#70')
     expect(r).toContain('board_block')
+    // Card #509: ready work asks to merge, never waits on the PR.
+    expect(r).toContain('Can I merge PR #N')
+    expect(r).toContain('never sit on an external wait for a merge')
   })
 
   test('says nothing when it holds no card or the board is missing', () => {

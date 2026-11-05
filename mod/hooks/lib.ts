@@ -290,6 +290,7 @@ export function heldReminder(board: BoardLists | undefined, agentKey: string | u
   return (
     `Irori: you hold ${held.join(', ')}. The person follows your work in the Irori app and may not be watching this terminal. ` +
     'If you need them to decide, approve or do something (sign in, give access, pick an option), raise it on the card with the irori board_block tool, one blocker per question, even when they asked you here; you can also say it here. ' +
+    'When its work is ready to land, ask with one board_block, "Can I merge PR #N (covers #a, #b)?" (batched with other ready work in one PR), and merge it yourself on Merge it: never sit on an external wait for a merge (card #509). ' +
     'Keep the card\'s steps current with board_step.'
   )
 }
