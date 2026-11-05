@@ -118,7 +118,6 @@ pub fn canon(p: &Path) -> String {
 }
 
 pub struct Rig {
-    _tmp: Vec<tempfile::TempDir>,
     pub data: String,
     pub claude: String,
     pub st: Arc<Store>,
@@ -127,6 +126,8 @@ pub struct Rig {
     pub clock: Arc<Clock>,
     pub opts: Options,
     pub blobs: Arc<MemBlobs>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: Vec<tempfile::TempDir>,
 }
 
 pub fn tempdir() -> (tempfile::TempDir, String) {

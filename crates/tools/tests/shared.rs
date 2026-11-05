@@ -18,7 +18,6 @@ const ME: &str = "person:pStephen";
 
 /// One shared board, "MLG farming" (mlg), with Stephen and Blake.
 struct Fake {
-    _dir: tempfile::TempDir,
     info: BoardInfo,
     st: Arc<store::Store>,
     co: Arc<Coord>,
@@ -26,6 +25,8 @@ struct Fake {
     cards: Mutex<BTreeMap<String, String>>,
     shared: Mutex<Vec<(String, String)>>,
     withdrawn: Mutex<Vec<String>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 impl Fake {

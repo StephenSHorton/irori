@@ -126,7 +126,6 @@ impl FakeAwake {
 }
 
 pub struct Node {
-    pub _tmp: tempfile::TempDir,
     pub dir: PathBuf,
     pub ident: Arc<Identity>,
     pub st: Arc<Store>,
@@ -137,6 +136,8 @@ pub struct Node {
     pub srv: Server,
     pub stop: CancellationToken,
     pub run: Option<tokio::task::JoinHandle<()>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    pub _tmp: tempfile::TempDir,
 }
 
 impl Node {

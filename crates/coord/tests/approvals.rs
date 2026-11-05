@@ -31,12 +31,13 @@ fn coord_add(t: GoTime, secs: i64) -> GoTime {
 }
 
 struct Rig {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     book: Arc<Book>,
     seq: HashMap<String, i64>,
     resolved: Arc<Mutex<Vec<Ask>>>,
     revived: Arc<Mutex<Vec<String>>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 fn rig(now: Option<Arc<dyn Fn() -> GoTime + Send + Sync>>) -> Rig {

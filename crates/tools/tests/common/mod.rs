@@ -193,11 +193,12 @@ impl Backend for TestBackend {
 }
 
 pub struct Harness {
-    pub _dir: tempfile::TempDir,
     pub clk: Clock,
     pub b: Arc<TestBackend>,
     pub set: Set,
     pub owners: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    pub _dir: tempfile::TempDir,
 }
 
 pub fn card(key: &str, name: &str, repo: &str, mode: &str) -> presence::AgentCard {

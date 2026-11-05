@@ -294,11 +294,12 @@ fn v3_migration_matches_go() {
 // ------------------------------------------------------------ script replay
 
 struct Replay {
-    dir: tempfile::TempDir,
     rel: &'static str,
     board: bool,
     ver: Arc<FakeVerifier>,
     s: Option<Store>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    dir: tempfile::TempDir,
 }
 
 impl Replay {

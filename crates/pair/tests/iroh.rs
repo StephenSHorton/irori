@@ -61,7 +61,6 @@ fn free_port() -> u16 {
 
 struct Dev {
     name: String,
-    _tmp: tempfile::TempDir,
     dir: std::path::PathBuf,
     ident: Arc<Identity>,
     chain: Arc<Chain>,
@@ -72,6 +71,8 @@ struct Dev {
     lan: Option<irori_lan::LanLookup>,
     relay: Option<home::relay::Relay>,
     conns: Arc<Mutex<Vec<Arc<dyn Conn>>>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: tempfile::TempDir,
 }
 
 struct How {
