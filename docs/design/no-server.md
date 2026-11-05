@@ -1,6 +1,6 @@
 # No server: Irori stays peer to peer, and how moves and board deletes go ahead (card #562)
 
-*2026-11-05. Agreed with Stephen on #562. He held moves and board deletes (#558 b3, held card #563) until a server was designed. The design work showed they don't need one, and after weighing a hosted service he chose to stay decentralized and make that way of working solid. Inputs: decisions 30, 32, 33, 35 (B5) and 43; [spaces.md](spaces.md) §4; [public-relays.md](public-relays.md); [spaces-boards.md](spaces-boards.md) §3 on #558's branch. Line numbers are from main at 11fd8a16.*
+*2026-11-05. Agreed with Stephen on #562. Stephen held moves and board deletes (#558 b3, held card #563) until a server was designed. The design work showed they don't need one, and after weighing a hosted service, Stephen chose to stay decentralized and make that way of working solid. Inputs: decisions 30, 32, 33, 35 (B5) and 43; [spaces.md](spaces.md) §4; [public-relays.md](public-relays.md); [spaces-boards.md](spaces-boards.md) §3 on #558's branch. Line numbers are from main at 11fd8a16.*
 
 ## 1. The short answer
 
@@ -201,4 +201,4 @@ Steps 2 to 5 are separate cards, and #563 doesn't wait on them: a delete works w
 1. **Moves and deletes (b1):** carry them in rows every current device reads (§3), and build it now.
 2. **Which devices block (b3):** only those known to be too old; unheard ones get a warning (§5).
 3. **Restart (b4):** a device with the setting restarts by itself when no agent is working (§4.3).
-4. **The server:** none. He first chose a hosted service (b2), then dropped it: "solidify this decentralized way of working" (§4.4).
+4. **The server:** none. A hosted service was chosen first (b2), then dropped: "solidify this decentralized way of working" (§4.4).
