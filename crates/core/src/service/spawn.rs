@@ -806,6 +806,8 @@ impl Services {
             .cleaned
             .store(false, std::sync::atomic::Ordering::SeqCst);
         *self.spawn.spawner.lock().unwrap_or_else(|e| e.into_inner()) = s;
+        // What this device can start agents in is looked at again now.
+        self.republish_host();
     }
 
     pub(crate) fn spawn_setting(&self, board_id: &str) -> SpawnSetting {
