@@ -71,10 +71,10 @@ export function Thread({
   inBlocker?: boolean
   composer?: ReactNode
   // scroll makes the entries the thread's scroller, newest in view, with
-  // the composer under them and never over them (cards #170, #564). A
-  // class (a max-h) caps their height; true fills the height the parent
-  // gives, shrinking the entries first.
-  scroll?: string | true
+  // the composer under them and never over them (cards #170, #564). The
+  // entries and the composer become items of the parent, a flex column
+  // that bounds the height: only the entries shrink.
+  scroll?: boolean
   // on: the agents on this thread (a card's holders, an ask's takers) and
   // whether it is over, for the live "working…" line (card #299).
   // working, when given, is who the card's rule says works on it now
@@ -138,6 +138,18 @@ export function Thread({
     const el = list.current
     if (el) el.scrollTop = el.scrollHeight
   }, [newest])
+  // The composer growing or the window shrinking takes height from the
+  // entries: stay on the newest if the person was there (card #564).
+  const pinned = useRef(true)
+  useEffect(() => {
+    const el = list.current
+    if (!el) return
+    const watch = new ResizeObserver(() => {
+      if (pinned.current) el.scrollTop = el.scrollHeight
+    })
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [scroll])
   const entries = (
     <>
       {hidden > 0 ? (
@@ -205,25 +217,27 @@ export function Thread({
   )
   if (scroll) {
     return (
-      <div
-        className={cn(
-          "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,auto)_auto] content-start text-[12.5px]",
-          gap
-        )}
-      >
+      <div className="contents text-[12.5px]">
         <div
           ref={list}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            pinned.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 8
+          }}
           className={cn(
-            "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
+            "grid min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
             gap,
-            scroll !== true && scroll
+            // A floor, so a tall draft can't take every message away; a
+            // short thread keeps its own height.
+            shown.length > 2 ? "min-h-16" : "min-h-0"
           )}
         >
           {entries}
         </div>
         {/* No backing: only the entries scroll, so nothing passes under
             the composer and the glass shows through (card #564). */}
-        {composer}
+        {composer && <div className="shrink-0">{composer}</div>}
       </div>
     )
   }

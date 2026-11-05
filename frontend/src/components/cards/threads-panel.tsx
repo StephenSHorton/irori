@@ -3,7 +3,7 @@
 // here until Spaces (Talk 4) bring them into Talk. The thread pieces it
 // shows live in components/talk/threads.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -133,17 +133,30 @@ function ThreadRow({
   now: Date
   why: string
 }) {
-  // Opened from elsewhere (a #ref, card #144), it scrolls into view, and
-  // again once its messages make it taller, so the reply box shows too
-  // (card #564).
+  // Opened from elsewhere (a #ref, card #144), it scrolls into view. It
+  // grows as its messages load and arrive: it scrolls again so the reply
+  // box stays in view, unless the person has scrolled away (card #564).
   const box = useRef<HTMLElement>(null)
-  const reveal = useCallback(
-    () => box.current?.scrollIntoView({ block: "nearest" }),
-    []
-  )
   useEffect(() => {
-    if (open) reveal()
-  }, [open, reveal])
+    const el = box.current
+    if (!open || !el) return
+    let inView = true
+    const seen = new IntersectionObserver(
+      ([e]) => {
+        inView = e.isIntersecting
+      },
+      { threshold: 0.5 }
+    )
+    const grown = new ResizeObserver(() => {
+      if (inView) el.scrollIntoView({ block: "nearest" })
+    })
+    seen.observe(el)
+    grown.observe(el)
+    return () => {
+      seen.disconnect()
+      grown.disconnect()
+    }
+  }, [open])
   const at = parseTime(t.updatedAt)
   const waiting = t.state === "waiting" || t.state === "handed"
   const badge = stateBadges[t.state]
@@ -213,8 +226,7 @@ function ThreadRow({
           t={t}
           now={now}
           onResolved={onResolved}
-          onLoaded={reveal}
-          scroll={PanelThreadMax}
+          bound={PanelThreadBound}
         />
       )}
     </section>
@@ -222,6 +234,9 @@ function ThreadRow({
 }
 
 
-// How tall an open thread's messages grow in the panel before they scroll
-// (card #170): the window less the header, the ask box and its own lines.
-const PanelThreadMax = "max-h-[max(3rem,calc(100svh-30rem))]"
+// How tall an open thread grows in the panel (cards #170, #564): the window
+// less the header, the ask box and its row's title, so the row fits the
+// column. If a tall draft outgrows that in a tiny window, the thread itself
+// scrolls; the padding keeps the box's focus ring from being cut.
+const PanelThreadBound =
+  "-mx-1 max-h-[max(13rem,calc(100svh-19rem))] overflow-y-auto px-1"
