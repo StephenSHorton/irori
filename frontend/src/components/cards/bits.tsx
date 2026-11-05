@@ -97,7 +97,7 @@ export function StatePill({ card }: { card: CardSummary }) {
   if (laterOf(card))
     return (
       <Badge variant="slate" className="rounded-full">
-        Later
+        Not yet
       </Badge>
     )
   // An ask: the person's prompt to the room, before it is a card.

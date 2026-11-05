@@ -4,6 +4,8 @@
 // only when it isn't yours, and its progress. Grouped (card #487), the
 // rows come in one headed list per state, in that order.
 
+import { NotYetFold } from "@/components/cards/order"
+import { followsOf } from "@/lib/later"
 import { Badge } from "@/components/ui/badge"
 import { cardRef, PrChip, Spinner } from "@/components/cards/bits"
 import { useContext } from "react"
@@ -50,12 +52,36 @@ export function ProgressRows({
   // reads busy the same way, so the two never disagree.
   const live = useContext(LiveRoster)
   if (!cards.length) return null
-  const rows = cards.map((c) => ({ c, r: rowState(withLive(c, live)) }))
-  const list = (name: string, rs: typeof rows) => (
+  const all = cards.map((c) => ({ c, r: rowState(withLive(c, live)) }))
+  // Card #570: a card that follows another hangs under it, so the list's
+  // shape is the order.
+  const byId = new Map(all.map((x) => [x.c.id, x]))
+  const under = (id: string) =>
+    followsOf({ id }).flatMap((s) => byId.get(s.id) ?? [])
+  const hung = new Set(all.flatMap((x) => under(x.c.id)).map((x) => x.c.id))
+  const rows = all.filter((x) => !hung.has(x.c.id))
+  const list = (name: string, rs: typeof rows, quiet = false) => (
     <ul aria-label={name} className="glass-panel grid min-w-0 overflow-hidden">
       {rs.map(({ c, r }) => (
         <li key={c.id} className="min-w-0 border-b border-border/60 last:border-b-0">
-          <ProgressRow card={c} row={r} selected={c.id === selected} onOpen={onOpen} />
+          <ProgressRow
+            card={c}
+            row={r}
+            selected={c.id === selected}
+            onOpen={onOpen}
+            quiet={quiet}
+          />
+          {under(c.id).map((f) => (
+            <ProgressRow
+              key={f.c.id}
+              card={f.c}
+              row={f.r}
+              selected={f.c.id === selected}
+              onOpen={onOpen}
+              quiet
+              hangs
+            />
+          ))}
         </li>
       ))}
     </ul>
@@ -63,7 +89,11 @@ export function ProgressRows({
   if (!grouped) return list(label, rows)
   return (
     <div className="grid min-w-0 gap-3">
-      {groupRows(rows, (x) => x.r.state).map((g) => (
+      {groupRows(rows, (x) => x.r.state).map((g) => g.state === "later" ? (
+        <NotYetFold key={g.state} count={g.rows.length}>
+          {list(`${label}: Not yet`, g.rows, true)}
+        </NotYetFold>
+      ) : (
         <section key={g.state} className="grid min-w-0 gap-1.5">
           <h3 className="flex items-center gap-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {rowStateLabel[g.state]}
@@ -81,13 +111,19 @@ function ProgressRow({
   row,
   selected,
   onOpen,
+  quiet = false,
+  hangs = false,
 }: {
   card: CardSummary
   row: RowLine
   selected: boolean
   onOpen: (id: string) => void
+  // quiet: no state or bar, dimmed; hangs: under the card it follows.
+  quiet?: boolean
+  hangs?: boolean
 }) {
-  const { state, line, spin } = row
+  const { state, line: said, spin } = row
+  const line = hangs ? "" : said
   const p = percent(c.progress)
   const board = c.scope === "board" ? plainLine(c.scopeLabel) : ""
   return (
@@ -98,10 +134,13 @@ function ProgressRow({
       aria-current={selected || undefined}
       className={cn(
         "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2.5 text-left outline-none hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,16rem)_5.5rem_4.5rem]",
-        selected && "bg-accent/40"
+        selected && "bg-accent/40",
+        quiet && "text-muted-foreground opacity-70",
+        hangs && "py-1.5"
       )}
     >
       <span className="font-mono text-xs text-muted-foreground tabular-nums">
+        {hangs && <span aria-hidden>└ </span>}
         {cardRef(c)}
       </span>
       {/* The title gives way, not the board's tag: inside the title's
@@ -123,10 +162,15 @@ function ProgressRow({
         <PrChip card={c} />
       </span>
       <span className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
-        <Badge variant={stateVariant[state]}>{rowStateLabel[state]}</Badge>
+        {!quiet && (
+          <Badge variant={stateVariant[state]}>{rowStateLabel[state]}</Badge>
+        )}
       </span>
       <span
-        className="hidden h-1 overflow-hidden rounded-full bg-muted sm:col-start-5 sm:row-start-1 sm:block"
+        className={cn(
+          "hidden h-1 overflow-hidden rounded-full sm:col-start-5 sm:row-start-1 sm:block",
+          !quiet && "bg-muted"
+        )}
         role={p === null ? undefined : "progressbar"}
         aria-label={p === null ? undefined : `${cardRef(c)} progress`}
         aria-valuemin={p === null ? undefined : 0}

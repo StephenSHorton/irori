@@ -1,5 +1,5 @@
-import { LaterButton, LaterItem, OrderList } from "@/components/cards/order"
-import { chainOf, laterOf } from "@/lib/later"
+import { NotYetButton, WhenLine } from "@/components/cards/order"
+import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
@@ -280,7 +280,7 @@ export function CardPage({
                 onOpen={onOpen}
                 onBack={onBack}
               />
-              <LaterButton card={detail} />
+              <NotYetButton card={detail} />
               {!detail.onBoard && <PauseButton card={detail} />}
               {!detail.onBoard && (
                 <DeleteButton detail={detail} onDeleted={onBack} />
@@ -351,16 +351,6 @@ export function CardPage({
                       <RichLine text={detail.doneWhen} />
                     </p>
                   )}
-                </Section>
-              )}
-              {laterOf(detail) && (
-                <Section title="Later">
-                  <LaterItem card={detail} />
-                </Section>
-              )}
-              {chainOf(detail) && (
-                <Section title="Order">
-                  <OrderList card={detail} onOpen={onOpen} />
                 </Section>
               )}
               {hasBlockers && !laterOf(detail) && (
@@ -870,6 +860,7 @@ function PageHeader({
           </button>
         </p>
       )}
+      <WhenLine card={card} onOpen={onOpen} />
       {card.fromThread && (
         <p className="text-sm text-muted-foreground">
           From the thread{" "}
@@ -1046,9 +1037,7 @@ function ProgressLine({ detail }: { detail: CardDetail }) {
         {detail.openBlockers} waiting on a decision
       </span>
     )
-  const parked = laterOf(detail)
-  if (parked) parts.push(<span key="o">{parked.line}</span>)
-  else if (detail.waitingOn)
+  if (detail.waitingOn && !laterOf(detail))
     parts.push(
       <span key="o">{waitLabel(detail).replace(/^Waiting/, "waiting")}</span>
     )

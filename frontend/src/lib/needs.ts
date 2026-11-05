@@ -3,7 +3,7 @@
 // its row, and every other card is one compact row in one of four
 // states. Pure, so the order and the words are tested without a window.
 
-import { laterOf, orderLine } from "@/lib/later"
+import { laterOf } from "@/lib/later"
 import { NotAnswering } from "./agent-counts"
 import { spawnLine } from "./spawn-line"
 import {
@@ -62,7 +62,7 @@ export const rowStateLabel: Record<RowState, string> = {
   working: "Working",
   waiting: "Waiting",
   idle: "Idle",
-  later: "Later",
+  later: "Not yet",
   done: "Done",
 }
 
@@ -159,8 +159,7 @@ function row(c: CardSummary, now: number): Row {
       state: "stuck",
       line: `Waiting on ${waitName(c) || "an agent"}, who is gone`,
     }
-  if (c.waitingOn)
-    return { state: "waiting", line: orderLine(c) || waitLine(c) }
+  if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
   if (c.waiting > 0)
     return { state: "waiting", line: "Your answer is with the agent" }
   const who = held.map(displayName).slice(0, 2).join(", ")

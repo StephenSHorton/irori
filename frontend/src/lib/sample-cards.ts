@@ -2163,7 +2163,7 @@ function laterSample(
       "90",
       "Voice calls and screen sharing",
       "Huddles, stored transcripts and shared screens.",
-      "After the Talk work, as you said",
+      "You said after the Talk work",
       "card",
       "Back when #83 finishes"
     ),
@@ -2171,7 +2171,7 @@ function laterSample(
       "91",
       "Tidy the phone's Settings page",
       "Group the settings the way the desktop does.",
-      "Not worth doing before the December release",
+      "Not before the December release",
       "date",
       "Back on 1 Dec"
     ),

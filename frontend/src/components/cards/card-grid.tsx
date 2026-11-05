@@ -1,5 +1,4 @@
-import { ListOrderedIcon } from "lucide-react"
-import { laterOf, orderLine } from "@/lib/later"
+import { follows, laterOf } from "@/lib/later"
 import { LayersIcon, PinIcon, UserIcon } from "lucide-react"
 import {
   useContext,
@@ -513,7 +512,7 @@ function CardTile({
   const title = plainLine(card.title) || "(untitled)"
   const label = workLabel(withLive(card, live))
   const parked = laterOf(card)
-  const place = orderLine(card)
+  const quiet = !!parked || follows(card)
   return (
     <button
       type="button"
@@ -529,7 +528,7 @@ function CardTile({
         // The accent edge is 2px wider than the border: take it off the
         // padding so the tile's contents don't move.
         card.accent && "pl-3",
-        dim && "opacity-60"
+        (dim || quiet) && "opacity-60"
       )}
       // A card everyone on is on one device wears its colour on the left
       // edge (card #22); the status colours stay where they mean something.
@@ -613,18 +612,9 @@ function CardTile({
         </span>
       )}
       {parked && (
-        <span className="grid gap-0.5 text-xs text-muted-foreground">
-          <span className="line-clamp-2">{plainLine(parked.why)}</span>
-          <span className="text-ink/80">{parked.line}</span>
-        </span>
+        <span className="text-xs text-muted-foreground">{parked.line}</span>
       )}
-      {!parked && place && (
-        <span className="flex gap-1.5 text-xs text-muted-foreground">
-          <ListOrderedIcon aria-hidden className="mt-px size-3 shrink-0" />
-          <span className="line-clamp-2">{place}</span>
-        </span>
-      )}
-      {!parked && !place && !blocked && !!card.waitingOn && (
+      {!quiet && !blocked && !!card.waitingOn && (
         <span className="flex gap-1.5 text-xs text-muted-foreground">
           <span aria-hidden>●</span>
           <span className="line-clamp-2">{waitTip(card)}</span>
@@ -638,7 +628,7 @@ function CardTile({
       )}
       {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} />
-      ) : parked || (closed && p === null) ? null : p === null ? (
+      ) : quiet || (closed && p === null) ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
         <>
@@ -659,7 +649,7 @@ function CardTile({
       <span
         className={cn(
           "flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground",
-          parked && "hidden"
+          quiet && "hidden"
         )}
       >
         {p !== null && (

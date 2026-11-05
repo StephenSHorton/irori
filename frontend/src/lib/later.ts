@@ -1,8 +1,6 @@
-// Later and order (card #570). A parked card is out of the way until its
+// Not yet and order (card #570). A parked card is out of the way until its
 // condition comes; an order is a run of cards each waiting on the last.
 // MOCK-UP: read from the ?later=1 sample, to become fields on CardSummary.
-
-import type { CardSummary } from "@/lib/cards"
 
 export type LaterBack = "card" | "date" | "version" | "word"
 
@@ -39,22 +37,24 @@ export function laterOf(c: { id: string }): Later | undefined {
   return parked.get(c.id)
 }
 
-// The chains among these cards, each in order.
-export function chainsOf(cards: readonly CardSummary[]): OrderStep[][] {
-  return chains.filter((ch) => ch.some((s) => cards.some((c) => c.id === s.id)))
-}
-
 export function chainOf(c: { id: string }): OrderStep[] | undefined {
   return chains.find((ch) => ch.some((s) => s.id === c.id))
 }
 
-// orderLine is a card's place: "3 of 4, after #81, then #83".
-export function orderLine(c: { id: string }): string {
+// headOf is the card a chain hangs under: its first not done.
+function headOf(ch: OrderStep[]): OrderStep | undefined {
+  return ch.find((s) => s.state !== "done")
+}
+
+// followsOf is the cards that hang under c in a list, in order.
+export function followsOf(c: { id: string }): OrderStep[] {
   const ch = chainOf(c)
-  if (!ch) return ""
-  const i = ch.findIndex((s) => s.id === c.id)
-  const parts = [`${i + 1} of ${ch.length}`]
-  if (i > 0) parts.push(`after #${ch[i - 1].short}`)
-  if (i < ch.length - 1) parts.push(`then #${ch[i + 1].short}`)
-  return parts.join(", ")
+  if (!ch || headOf(ch)?.id !== c.id) return []
+  return ch.slice(ch.findIndex((s) => s.id === c.id) + 1)
+}
+
+// follows reports whether c hangs under another card.
+export function follows(c: { id: string }): boolean {
+  const ch = chainOf(c)
+  return !!ch && headOf(ch)?.id !== c.id
 }
