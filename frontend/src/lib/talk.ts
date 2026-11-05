@@ -368,18 +368,81 @@ export const talk = {
 
 // ---- hooks ------------------------------------------------------------------
 
-// useLatest runs load and keeps only the newest answer: calls are async and
-// can come back out of order. An answer equal to the one shown keeps the
-// state as it is (0.11.1): App reloads several lists on every board or
-// inbox change, several times a second while agents work, and each new
-// array re-rendered the whole window.
+// StuckReadMs is how long a read may run before a reload stops waiting for
+// it and reads beside it: a read that never answers must not freeze its
+// list for good.
+export const StuckReadMs = 15_000
+
+export type Answer<T> = { value: T } | { error: unknown }
+
+// latestReads is useLatest's rule (card #551): the reload function it
+// returns keeps one read running. A reload during a read asks for one more
+// when that read ends, however many came, so every answer shows and a slow
+// read can't be starved by events that come faster than it finishes, nor
+// can they pile reads up on a slow device. Each reload's promise ends with
+// a read begun after it was called, so `await reload()` after an action
+// sees the action.
+//
+// A different load (another board or conversation) reads at once and the
+// old load's answer is dropped. A read stuck past StuckReadMs is left
+// running beside a new one, so answers can still arrive out of order: one
+// older than the last shown is dropped.
+export function latestReads<T>(
+  show: (answer: Answer<T>) => void,
+  now: () => number = Date.now
+): (load: () => Promise<T>) => Promise<void> {
+  let started = 0
+  let landed = 0
+  let newest: (() => Promise<T>) | null = null
+  let running: { n: number; load: () => Promise<T>; since: number } | null =
+    null
+  // The reloads the next read to start will answer.
+  let waiting: (() => void)[] = []
+
+  const begin = async (load: () => Promise<T>) => {
+    const n = ++started
+    const covered = waiting
+    waiting = []
+    running = { n, load, since: now() }
+    let answer: Answer<T>
+    try {
+      answer = { value: await load() }
+    } catch (error) {
+      answer = { error }
+    }
+    if (load === newest && n > landed) {
+      landed = n
+      show(answer)
+    }
+    for (const done of covered) done()
+    if (running?.n !== n) return
+    running = null
+    if (waiting.length && newest) void begin(newest)
+  }
+
+  return (load) =>
+    new Promise<void>((done) => {
+      newest = load
+      waiting.push(done)
+      if (
+        !running ||
+        running.load !== load ||
+        now() - running.since >= StuckReadMs
+      )
+        void begin(load)
+    })
+}
+
+// useLatest runs load and keeps the newest answer, by latestReads. An
+// answer equal to the one shown keeps the state as it is (0.11.1): App
+// reloads several lists on every board or inbox change, several times a
+// second while agents work, and each new array re-rendered the whole window.
 export function useLatest<T>(load: () => Promise<T>, initial: T) {
   const [state, setState] = useState<{
     value: T
     loading: boolean
     error: string | null
   }>({ value: initial, loading: true, error: null })
-  const req = useRef(0)
   const mounted = useRef(true)
   const shown = useRef<string | null>(null)
 
@@ -390,22 +453,29 @@ export function useLatest<T>(load: () => Promise<T>, initial: T) {
     }
   }, [])
 
-  const reload = useCallback(async () => {
-    const n = ++req.current
-    try {
-      const value = await load()
-      if (!mounted.current || n !== req.current) return
+  const reads = useRef<ReturnType<typeof latestReads<T>> | null>(null)
+
+  const reload = useCallback(() => {
+    reads.current ??= latestReads<T>((answer) => {
+      if (!mounted.current) return
+      if ("error" in answer) {
+        shown.current = null
+        setState((s) => ({
+          ...s,
+          loading: false,
+          error: message(answer.error),
+        }))
+        return
+      }
+      const { value } = answer
       const same = sameAs(shown, value)
       setState((s) =>
         same && !s.loading && s.error === null
           ? s
           : { value, loading: false, error: null }
       )
-    } catch (err) {
-      if (!mounted.current || n !== req.current) return
-      shown.current = null
-      setState((s) => ({ ...s, loading: false, error: message(err) }))
-    }
+    })
+    return reads.current(load)
   }, [load])
 
   return { ...state, reload }
