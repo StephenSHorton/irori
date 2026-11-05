@@ -3384,6 +3384,10 @@ impl Services {
         if let Err(e) = self.sweep_board_asks() {
             logf(format_args!("board asks: {e}"));
         }
+        // A thread this pass found nobody free for starts its agent now,
+        // not at the next kick (card #512), so the person never sees it
+        // sit unclaimed.
+        self.sweep_spawns();
     }
 
     /// Looks for this device's idle agents whose wakes went unread (#110)

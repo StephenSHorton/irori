@@ -1,37 +1,32 @@
 //! Threads (card #116): the person's conversation with the room, not work.
 //!
-//! A thread is an ask with `thread` set. It doesn't go to one idle agent
-//! at once: the agents on the cards it names (#12) and the agents it
-//! @mentions hear it first, woken, and answer if it's about their work.
-//! If no agent has answered after [`THREAD_QUIET`], the ask's hand-out
-//! gives it to one idle agent. Once an agent answers, the thread is
+//! A thread is an ask with `thread` set. The agents on the cards it names
+//! (#12) and the agents it @mentions hear it, woken, and answer if it's
+//! about their work, but nobody waits on them (card #512): the ask's
+//! hand-out runs at once, so an idle agent with "Offer it cards" on gets
+//! it, or with none free Irori starts the thread's own agent. Once an agent answers, the thread is
 //! answered: nobody holds it (an agent in a thread can still take cards),
 //! and the person's follow-ups go to the agents that answered. It stays
 //! open until the person resolves it.
 //!
 //! On a shared board (card #134) a thread is the same, among that board's
 //! agents and people: its rows live in the board's log, the agents on the
-//! board's cards it names hear it first, and one idle agent of any member
-//! gets it after the quiet spell. Another member's comment is a person's,
+//! board's cards it names hear it, and at once one idle agent of any
+//! member gets it, or with none free the poster's device starts its agent
+//! (card #512). Another member's comment is a person's,
 //! not an answer; the person who started it resolves it. Mentions stay off
 //! board logs, as for every board ask.
 
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 use gocompat::time::GoTime;
 use store::Event;
 
-use super::asks::TAKE_POSTED;
 use super::fold::{Fold, MADE_KIND, Touch, card_refs, line_of};
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, collapse_space, cut, deeper};
 use crate::gotime;
-
-/// How long the agents a thread names have to answer before one idle
-/// agent gets it.
-pub const THREAD_QUIET: Duration = Duration::from_secs(45);
 
 /// A thread an agent answered: nothing more to hand out.
 pub const TAKE_ANSWERED: &str = "answered";
@@ -136,7 +131,7 @@ impl Fold {
 
     /// The thread's next step in the owner's sweep, before the ask
     /// hand-out runs; true when the hand-out should skip it now.
-    pub(crate) fn thread_sweep(&mut self, id: &str, now: &GoTime) -> super::error::Result<bool> {
+    pub(crate) fn thread_sweep(&mut self, id: &str) -> super::error::Result<bool> {
         let t = &self.tasks[id];
         let Some(a) = t.ask.clone() else {
             return Ok(false);
@@ -159,17 +154,10 @@ impl Fold {
             self.write_thread_answered(id, &a)?;
             return Ok(true);
         }
-        // Agents answer now is off (card #391): never handed out.
-        if !a.wake {
-            return Ok(true);
-        }
-        if a.taker.is_empty()
-            && a.reason == TAKE_POSTED
-            && gotime::before(now, &gotime::add(&a.since, THREAD_QUIET))
-        {
-            return Ok(true);
-        }
-        Ok(false)
+        // Agents answer now is off (card #391): never handed out. On, it
+        // goes out at once: the agents it names were woken, and nobody
+        // waits on them (card #512).
+        Ok(!a.wake)
     }
 
     /// Marks thread `id` answered: nobody holds it from now on.
@@ -628,9 +616,8 @@ pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
         cut(&t.objective, MAX_THREAD_NOTICE)
     );
     b.push_str(&format!(
-        "You hear it first because it names your card or you. If you can answer, answer in the thread with board_comment {}; if it isn't about your work, leave it. If no agent answers within {}s, Irori hands it to one idle agent. {NOT_YOURS_TO_CLOSE}",
-        t.short_ref(),
-        THREAD_QUIET.as_secs()
+        "You hear it because it names your card or you. If you can answer, answer in the thread with board_comment {}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {NOT_YOURS_TO_CLOSE}",
+        t.short_ref()
     ));
     b.push_str(&deeper(&t.id));
     Notice {

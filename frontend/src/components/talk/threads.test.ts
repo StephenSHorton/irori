@@ -109,6 +109,6 @@ describe("a thread Irori starts an agent for (card #470)", () => {
     )
   })
   test("without a spawn it reads as before", () => {
-    expect(stateLine(waiting, "")).toBe("Waiting for a free agent")
+    expect(stateLine(waiting, "")).toBe("Waiting for an agent")
   })
 })

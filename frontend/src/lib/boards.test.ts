@@ -105,8 +105,9 @@ describe("presenceLine", () => {
   })
 
   test("online, with their agents on the board", () => {
-    expect(presenceLine(m({ working: 2, free: 1 }), now)).toBe("online · 2 working, 1 free")
-    expect(presenceLine(m({ free: 1 }), now)).toBe("online · 1 free")
+    // Card #512: no "free" count.
+    expect(presenceLine(m({ working: 2, free: 1 }), now)).toBe("online · 2 working")
+    expect(presenceLine(m({ free: 1 }), now)).toBe("online")
     expect(presenceLine(m({}), now)).toBe("online · no agents")
   })
 

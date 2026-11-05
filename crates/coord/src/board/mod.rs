@@ -119,8 +119,8 @@ pub use review::{
 };
 pub use short::{parse_ref, parse_short, short_suffix};
 pub use threads::{
-    NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, THREAD_QUIET,
-    agents_now_default, names_person,
+    NOT_YOURS_TO_CLOSE as THREAD_NOT_YOURS, READING_LINES, TAKE_ANSWERED, agents_now_default,
+    names_person,
 };
 pub use types::*;
 /// Talk's post and channel ids are made as comments' are (card #389).

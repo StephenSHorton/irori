@@ -510,3 +510,99 @@ fn a_thread_made_a_card_before_its_agent_answers_goes_out_as_a_new_card() {
     assert_eq!(t.state, SUBMITTED, "{t:?}");
     assert!(t.holders.is_empty(), "{t:?}");
 }
+
+// Card #512: a thread gets its own agent at once. The agents it names are
+// woken, and nobody waits on them: no quiet spell before the hand-out.
+
+/// A card alice holds and is busy on, and a thread naming it.
+fn thread_naming_alices_card(e: &Env, agents: &[AgentCard]) -> Task {
+    let card =
+        e.c.create_task(
+            ALICE,
+            NewTask {
+                title: "lobby join".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    e.c.claim_task(ALICE, &card.id).unwrap();
+    post(
+        e,
+        &format!("Is #{} still moving?", card.short),
+        true,
+        agents,
+    )
+}
+
+#[test]
+fn a_thread_naming_a_busy_agent_spawns_at_once_and_the_agent_can_still_answer() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let agents = vec![idle(BOB, 20)];
+    let tk = thread_naming_alices_card(&e, &agents);
+    let a = ask_of(&e, &tk.id);
+    assert!(a.heard == [ALICE] && !a.unclaimed, "alice is woken: {a:?}");
+    // The hand-out runs at the next sweep, with no clock advance: nobody
+    // with "Offer it cards" on is free, so it is unclaimed and listed.
+    assert!(e.c.sweep_asks(&agents).unwrap().is_empty());
+    let a = ask_of(&e, &tk.id);
+    assert!(a.unclaimed && a.heard == [ALICE], "{a:?}");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+    spawn_bound(&e, &tk.id);
+    assert_eq!(ask_of(&e, &tk.id).taker, SPAWNED);
+
+    // Its agent answers; alice, done with her work, chimes in later.
+    e.c.add_comment(SPAWNED, &tk.id, "It merged an hour ago.", false)
+        .unwrap();
+    e.c.sweep_asks(&agents).unwrap();
+    e.clk.add(secs(5));
+    e.c.add_comment(ALICE, &tk.id, "And the docs are in too.", false)
+        .unwrap();
+    e.c.sweep_asks(&agents).unwrap();
+    let a = ask_of(&e, &tk.id);
+    assert!(a.reason == TAKE_ANSWERED && a.taker.is_empty(), "{a:?}");
+    assert!(e.c.cards_to_spawn().is_empty(), "answered: no second agent");
+    assert_eq!(e.c.thread_to(&tk.id), [SPAWNED, ALICE]);
+}
+
+#[test]
+fn a_thread_naming_an_agent_still_goes_to_an_opted_in_idle_agent_first() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[BOB]);
+    let agents = vec![idle(BOB, 20)];
+    let tk = thread_naming_alices_card(&e, &agents);
+    let ns = e.c.sweep_asks(&agents).unwrap();
+    assert!(
+        ns.len() == 1 && ns[0].to == [BOB] && ns[0].text.contains("handed it to you"),
+        "{ns:?}"
+    );
+    assert_eq!(ask_of(&e, &tk.id).taker, BOB);
+    assert!(e.c.cards_to_spawn().is_empty(), "taken: no spawn");
+}
+
+/// The named agent answers while the thread's own agent starts: the
+/// thread stays answered when that agent comes up, so it isn't reopened
+/// for a second answer.
+#[test]
+fn a_thread_answered_while_its_agent_starts_stays_answered() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    let agents = vec![idle(BOB, 20)];
+    let tk = thread_naming_alices_card(&e, &agents);
+    e.c.sweep_asks(&agents).unwrap();
+    let g =
+        e.c.request_spawn(SWEEPER_KEY, sask(&tk.id))
+            .unwrap()
+            .unwrap();
+    e.c.add_comment(ALICE, &tk.id, "Yes, still moving.", false)
+        .unwrap();
+    e.c.sweep_asks(&agents).unwrap();
+    assert_eq!(ask_of(&e, &tk.id).reason, TAKE_ANSWERED);
+    assert!(e.c.bind_spawn(&tk.id, g, SPAWNED).unwrap());
+    let a = ask_of(&e, &tk.id);
+    assert!(
+        a.reason == TAKE_ANSWERED && a.taker.is_empty(),
+        "still answered: {a:?}"
+    );
+    assert!(e.c.cards_to_spawn().is_empty());
+}
