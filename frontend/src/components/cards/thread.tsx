@@ -70,10 +70,11 @@ export function Thread({
   // inBlocker: the items sit under their blocker, so they don't name it.
   inBlocker?: boolean
   composer?: ReactNode
-  // scroll caps the entries' height (a class, e.g. a max-h): they scroll
-  // by themselves, newest in view, and the composer stays under them
-  // (a thread in the Threads panel, card #170).
-  scroll?: string
+  // scroll makes the entries the thread's scroller, newest in view, with
+  // the composer under them and never over them (cards #170, #564). A
+  // class (a max-h) caps their height; true fills the height the parent
+  // gives, shrinking the entries first.
+  scroll?: string | true
   // on: the agents on this thread (a card's holders, an ask's takers) and
   // whether it is over, for the live "working…" line (card #299).
   // working, when given, is who the card's rule says works on it now
@@ -206,7 +207,7 @@ export function Thread({
     return (
       <div
         className={cn(
-          "grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]",
+          "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,auto)_auto] content-start text-[12.5px]",
           gap
         )}
       >
@@ -215,18 +216,14 @@ export function Thread({
           className={cn(
             "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
             gap,
-            scroll
+            scroll !== true && scroll
           )}
         >
           {entries}
         </div>
-        {/* In a short window the column scrolls too: the composer sticks
-            to its bottom edge, so it is never scrolled out of sight. */}
-        {composer && (
-          <div className="sticky bottom-0 z-10 bg-background/95 pb-1 backdrop-blur-sm">
-            {composer}
-          </div>
-        )}
+        {/* No backing: only the entries scroll, so nothing passes under
+            the composer and the glass shows through (card #564). */}
+        {composer}
       </div>
     )
   }

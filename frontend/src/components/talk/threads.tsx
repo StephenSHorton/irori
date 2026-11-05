@@ -2,7 +2,7 @@
 // Home's Board, card #116): its state, the cards made from it, and the
 // open thread itself.
 
-import { useContext, useState } from "react"
+import { useContext, useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +22,7 @@ import {
 } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
+import { cn } from "@/lib/utils"
 
 // resolvedShown is whether the "Resolved" list is unfolded: the person's
 // pick, or a resolved thread open (a #ref to one unfolds it, card #144).
@@ -131,21 +132,29 @@ export function ThreadCards({ cards }: { cards: ThreadCard[] }) {
 
 // ThreadView is an open thread on the Talk page (card #390): what the
 // person asked, the answers (the card's own thread, events left out), the
-// reply box and Resolve. Its messages scroll inside the page and the
-// reply box stays in view.
+// reply box and Resolve. Only its messages scroll, so the reply box stays
+// in view and nothing passes under it (card #564).
 export function ThreadView({
   t,
   now,
   onResolved,
-  scroll = OpenThreadMax,
+  onLoaded,
+  scroll = true,
 }: {
   t: ThreadSummary
   now: Date
   onResolved: () => void
-  // How tall its messages grow before they scroll (a max-h class).
-  scroll?: string
+  // Its messages came: the thread is its full height now.
+  onLoaded?: () => void
+  // How tall its messages grow before they scroll (a max-h class); true
+  // fills the height its parent gives (Talk's pane).
+  scroll?: string | true
 }) {
   const { detail } = useCard(t.id)
+  const loaded = !!detail
+  useEffect(() => {
+    if (loaded) onLoaded?.()
+  }, [loaded, onLoaded])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resolved = t.state === "resolved"
@@ -173,12 +182,16 @@ export function ThreadView({
   const setAgentsNow = (on: boolean) =>
     void act((id) => threadsApi.setAgentsNow(id, on))()
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
+    <div className="grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,auto)_auto] content-start gap-2">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 text-[12.5px]">
-        <RichText
-          text={t.text}
-          className="[overflow-wrap:anywhere] text-ink-2"
-        />
+        {/* A long question scrolls by itself, so it leaves the messages
+            and the reply box their room in a short window. */}
+        <div className={cn("min-w-0 overflow-y-auto", QuestionMax)}>
+          <RichText
+            text={t.text}
+            className="[overflow-wrap:anywhere] text-ink-2"
+          />
+        </div>
         {t.told.length > 0 && (
           <span className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
             {t.state === "waiting" ? "Asked first:" : "Told:"}
@@ -211,9 +224,6 @@ export function ThreadView({
               : "No answer yet. Agents answer now is off: agents in it read it at their next turn."
         }
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
-        // Its messages scroll and the reply box stays in view (card #170):
-        // the cap leaves room for the page's header, the thread's title
-        // and question, the box and Resolve.
         scroll={scroll}
       />
       <div className="flex items-center gap-2">
@@ -251,6 +261,5 @@ export function ThreadView({
   )
 }
 
-// How tall an open thread's messages grow before they scroll (card #170):
-// the window less the header and the thread's own lines.
-const OpenThreadMax = "max-h-[max(8rem,calc(100svh-22rem))]"
+// How tall a thread's question grows before it scrolls (card #564).
+const QuestionMax = "max-h-[max(3rem,calc(50svh-10rem))]"

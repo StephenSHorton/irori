@@ -3,7 +3,7 @@
 // here until Spaces (Talk 4) bring them into Talk. The thread pieces it
 // shows live in components/talk/threads.
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -133,11 +133,17 @@ function ThreadRow({
   now: Date
   why: string
 }) {
-  // Opened from elsewhere (a #ref, card #144), it scrolls into view.
+  // Opened from elsewhere (a #ref, card #144), it scrolls into view, and
+  // again once its messages make it taller, so the reply box shows too
+  // (card #564).
   const box = useRef<HTMLElement>(null)
+  const reveal = useCallback(
+    () => box.current?.scrollIntoView({ block: "nearest" }),
+    []
+  )
   useEffect(() => {
-    if (open) box.current?.scrollIntoView({ block: "nearest" })
-  }, [open])
+    if (open) reveal()
+  }, [open, reveal])
   const at = parseTime(t.updatedAt)
   const waiting = t.state === "waiting" || t.state === "handed"
   const badge = stateBadges[t.state]
@@ -202,7 +208,15 @@ function ThreadRow({
         )}
       </button>
       {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
-      {open && <ThreadView t={t} now={now} onResolved={onResolved} scroll={PanelThreadMax} />}
+      {open && (
+        <ThreadView
+          t={t}
+          now={now}
+          onResolved={onResolved}
+          onLoaded={reveal}
+          scroll={PanelThreadMax}
+        />
+      )}
     </section>
   )
 }
@@ -210,4 +224,4 @@ function ThreadRow({
 
 // How tall an open thread's messages grow in the panel before they scroll
 // (card #170): the window less the header, the ask box and its own lines.
-const PanelThreadMax = "max-h-[max(6rem,calc(100svh-30rem))]"
+const PanelThreadMax = "max-h-[max(3rem,calc(100svh-30rem))]"
