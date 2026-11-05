@@ -6,6 +6,7 @@ import { useBoards } from "@/lib/boards"
 import { cn } from "@/lib/utils"
 import {
   askLine,
+  askStarting,
   AskState,
   cards as cardsApi,
   displayName,
@@ -306,18 +307,23 @@ export function HolderLine({
 
 // AskLine stands in for the holder line on an open ask: "3 agents heard
 // it", "Waiting for the MacBook to hand it out", "Nobody took this yet",
-// who Irori handed it to, or who took it.
+// who Irori handed it to, or who took it. With starting (the card's, card
+// #518) it says where Irori is starting its agent instead of nobody took it.
 export function AskLine({
   ask,
+  starting,
   className,
 }: {
   ask: CardAsk
+  starting?: string
   className?: string
 }) {
+  const coming = askStarting(ask, starting)
   const warn =
-    ask.state === AskState.Unclaimed ||
-    ask.state === AskState.Waiting ||
-    (ask.state === AskState.Open && ask.told === 0)
+    !coming &&
+    (ask.state === AskState.Unclaimed ||
+      ask.state === AskState.Waiting ||
+      (ask.state === AskState.Open && ask.told === 0))
   return (
     <span
       className={cn(
@@ -326,7 +332,9 @@ export function AskLine({
         className
       )}
     >
-      {(ask.state === AskState.Taken || ask.state === AskState.Handed) && (
+      {(coming ||
+        ask.state === AskState.Taken ||
+        ask.state === AskState.Handed) && (
         <span
           className={cn(
             "inline-block size-[7px] shrink-0 rounded-full",
@@ -335,7 +343,7 @@ export function AskLine({
           aria-hidden
         />
       )}
-      <span className="truncate">{askLine(ask)}</span>
+      <span className="truncate">{askLine(ask, starting)}</span>
       {ask.taker?.device && (
         <span className="shrink-0 text-[11px] text-muted-foreground">
           on {plainLine(ask.taker.device)}

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
 import { agentCounts, freeIn, idleLine, whyWaiting } from "./agent-counts"
+import { CardAsk, CardSummary, TaskState } from "./models"
+import { nobodyTook } from "./needs"
 
 // An agent that takes offered work (card #453) unless extra says otherwise.
 const a = (
@@ -189,6 +191,30 @@ describe("idleLine (card #341)", () => {
       )
     ).toBe(
       "2 agents idle; 2 cards nobody took: #25, wind#9 (nobody on this board is free)."
+    )
+  })
+  // Card #518: an ask Irori is starting an agent for isn't one nobody
+  // took; once its spawn fails (starting gone) it is again.
+  test("an ask whose agent is starting isn't counted as nobody took it", () => {
+    const ask = (id: string, starting?: string) =>
+      CardSummary({
+        id,
+        short: id,
+        state: TaskState.Submitted,
+        scope: "mine",
+        starting,
+        ask: CardAsk({ state: "unclaimed", told: 0, owner: "This PC" }),
+      })
+    const untaken = (cs: CardSummary[]) =>
+      cs
+        .filter((c) => nobodyTook(c))
+        .map((c) => ({ id: c.id, short: `#${c.short}` }))
+    const r = { idle: 1, unoffered: [] }
+    expect(idleLine(r, untaken([ask("7", "This PC")]))).toBe(
+      "1 agent idle, no open work."
+    )
+    expect(idleLine(r, untaken([ask("7", "This PC"), ask("8")]))).toBe(
+      "1 agent idle; 1 card nobody took: #8."
     )
   })
 })

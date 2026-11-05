@@ -236,9 +236,21 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
 
+// askStarting says Irori is starting an agent for an open ask nobody has
+// (card #518): the card's starting, which the Core sets by coord's rule
+// from the moment nobody was free until the agent takes it, its spawn
+// fails, or it didn't bind in time. Not "Nobody took this yet" then.
+export function askStarting(a: CardAsk, starting?: string): boolean {
+  return (
+    !!starting && (a.state === AskState.Unclaimed || a.state === AskState.Open)
+  )
+}
+
 // askLine is an open ask's line in place of the holder line: how many
-// it told, who it waits on, or who took it.
-export function askLine(a: CardAsk): string {
+// it told, who it waits on, who took it, or (with starting, card #518)
+// where Irori is starting its agent.
+export function askLine(a: CardAsk, starting = ""): string {
+  if (askStarting(a, starting)) return `Starting an agent on ${starting}`
   switch (a.state) {
     case AskState.Taken:
       return `${a.taker ? displayName(a.taker) : "An agent"} took it`
@@ -440,7 +452,8 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
-      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+      starting:
+        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0

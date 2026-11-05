@@ -7,6 +7,7 @@ import { NotAnswering } from "./agent-counts"
 import { spawnLine } from "./spawn-line"
 import {
   askLine,
+  askStarting,
   AskState,
   busy,
   displayName,
@@ -115,8 +116,11 @@ function row(c: CardSummary, now: number): Row {
   // hasn't taken it up.
   const held = c.working.filter((w) => !w.assigned)
   if (openAsk(c) && c.ask) {
-    const line = askLine(c.ask)
+    const line = askLine(c.ask, c.starting)
     if (c.ask.state === AskState.Waiting) return { state: "waiting", line }
+    // Card #518: Irori is starting its agent, so it is neither Stuck nor
+    // one nobody took (the idle line doesn't count it either).
+    if (askStarting(c.ask, c.starting)) return { state: "working", line }
     if (c.ask.state !== AskState.Taken)
       return { state: "stuck", line, nobody: true }
     // Taken: Working while its taker is there.

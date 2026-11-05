@@ -5,6 +5,7 @@ import { TaskState } from "./models"
 import {
   refStatus,
   askLine,
+  askStarting,
   busy,
   namesLine,
   withLive,
@@ -180,6 +181,26 @@ describe("asks", () => {
         ask({ state: "handed", taker: agent("idle", { name: "sample-heron" }) })
       )
     ).toBe("Handed to sample-heron")
+  })
+  // Card #518: while Irori starts the ask's agent the tile says so, not
+  // that nobody took it.
+  test("an ask whose agent is starting says where", () => {
+    const pc = "Macbook Pro (this one)"
+    for (const state of ["unclaimed", "open"]) {
+      expect(askStarting(ask({ state }), pc)).toBe(true)
+      expect(askLine(ask({ state }), pc)).toBe(`Starting an agent on ${pc}`)
+    }
+    expect(askLine(ask({ state: "unclaimed" }), "")).toBe(
+      "Nobody took this yet"
+    )
+    for (const state of ["waiting", "taken", "handed", "closed"])
+      expect(askStarting(ask({ state }), pc)).toBe(false)
+    expect(
+      askLine(
+        ask({ state: "taken", taker: agent("idle", { name: "sample-heron" }) }),
+        pc
+      )
+    ).toBe("sample-heron took it")
   })
   test("only an ask without an outcome is open", () => {
     expect(openAsk({ ask: ask({}) })).toBe(true)

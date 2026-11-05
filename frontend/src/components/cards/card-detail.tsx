@@ -416,7 +416,7 @@ export function CardPage({
             <Card className="gap-0 py-0!">
               <Section title="Progress">
                 {detail.ask && openAsk(detail) ? (
-                  <AskLine ask={detail.ask} />
+                  <AskLine ask={detail.ask} starting={detail.starting} />
                 ) : p === null ? (
                   <HolderLine holder={detail.holder} />
                 ) : (
@@ -611,7 +611,11 @@ function AskStatus({
   if (!detail.ask) return null
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
-      <AskLine ask={detail.ask} className="min-w-48 flex-1" />
+      <AskLine
+        ask={detail.ask}
+        starting={detail.starting}
+        className="min-w-48 flex-1"
+      />
       <Input
         value={note}
         onChange={(e) => setNote(e.target.value)}

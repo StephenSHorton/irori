@@ -622,7 +622,7 @@ function CardTile({
         </span>
       )}
       {card.ask && (openAsk(card) || closed) ? (
-        <AskLine ask={card.ask} />
+        <AskLine ask={card.ask} starting={card.starting} />
       ) : closed && p === null ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (

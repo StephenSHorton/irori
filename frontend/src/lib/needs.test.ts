@@ -637,6 +637,32 @@ describe("Home's groups (card #487)", () => {
     })
     expect(nobodyTook(starting)).toBe(false)
   })
+  // Card #518: nobody was free, so Irori starts an agent for the ask; it
+  // isn't Stuck or one nobody took while that agent starts.
+  test("an ask Irori starts an agent for: Working, not counted", () => {
+    for (const state of ["unclaimed", "open"]) {
+      const c = { ...ask({ state, told: 0 }), starting: "This PC" }
+      expect(rowState(c)).toEqual({
+        state: "working",
+        line: "Starting an agent on This PC",
+      })
+      expect(nobodyTook(c)).toBe(false)
+    }
+    // Its spawn failed, or the agent never bound: starting is gone, and it
+    // is Stuck again.
+    const failed = ask({ state: "unclaimed" })
+    expect(rowState(failed)).toEqual({
+      state: "stuck",
+      line: "Nobody took this yet",
+    })
+    expect(nobodyTook(failed)).toBe(true)
+    // Taken: its taker, whatever starting still says.
+    const taken = {
+      ...ask({ state: "taken", taker: heron }),
+      starting: "This PC",
+    }
+    expect(rowState(taken)).toEqual({ state: "working", line: "heron took it" })
+  })
   test("a wait with a name: Waiting; a wait on a gone agent: Stuck", () => {
     expect(rowState(card({ waiting: 1 }))).toEqual({
       state: "waiting",
