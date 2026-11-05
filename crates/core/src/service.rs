@@ -67,7 +67,9 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_boards;
 pub mod spawn_permissions;
+pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
 pub use mirror::BoardReviewer;
@@ -1377,6 +1379,9 @@ impl Core {
                     .unwrap_or_default()
             });
         }
+        // The requests naming this device its log holds before any sync
+        // are never started (card #455).
+        s.hold_requests_at_start();
         // A space's channels go in its log (card #392).
         s.talk
             .set_spaces(Arc::new(spaces::SpaceTalk(Arc::downgrade(&s))));
@@ -2501,6 +2506,31 @@ impl Core {
     /// The person cancels card `id`'s starting agent.
     pub fn cancel_spawn(&self, id: &str) -> Result<bool, String> {
         self.s.cancel_spawn(id)
+    }
+
+    /// The person's End on spawned agent `key` from any of their devices
+    /// (card #455): ended here when it runs here, else a replicated request
+    /// the device it runs on acts on. App only.
+    pub fn request_end(&self, key: &str) -> Result<(), String> {
+        self.s.request_end(key)
+    }
+
+    /// The person asks the device card `id`'s agent must start on to trust
+    /// its repo (card #455): that device asks them in its own window. The
+    /// device's id. App only; nothing here writes trust.
+    pub fn request_trust(&self, id: &str) -> Result<String, String> {
+        self.s.request_trust(id)
+    }
+
+    /// The device that asked this one to trust card `id`'s repo, if any.
+    pub fn trust_asked_by(&self, id: &str) -> Option<String> {
+        self.s.trust_asked_by(id)
+    }
+
+    /// What each of the person's devices can start agents in, by device
+    /// (card #455).
+    pub fn spawn_hosts(&self) -> std::collections::HashMap<String, spawn_remote::SpawnHost> {
+        self.s.hosts()
     }
 
     /// Log rows appended or replicated from now on, with a resync signal

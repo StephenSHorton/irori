@@ -2042,6 +2042,26 @@ impl Fold {
                     .iter()
                     .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
             }),
+            // A spawned agent's request and mark (card #455): from a device
+            // of the card's author, which spawn_writer_ok checks itself.
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            // Binding a spawned agent assigns the card to it: from a device
+            // of the card's author, and only to the agent marked as started
+            // for this card in this log.
+            kinds::TASK_ASSIGNED => {
+                let Some(a) = row::<TaskAssignedRow>(&ev.payload) else {
+                    return false;
+                };
+                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                    return false;
+                };
+                self.tasks.get(&p.task_id).is_some_and(|t| {
+                    let author = kp(&t.created_by);
+                    !author.is_empty()
+                        && author == dp(&ev.device_id)
+                        && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
+                })
+            }
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,

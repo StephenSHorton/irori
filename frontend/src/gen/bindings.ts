@@ -191,6 +191,12 @@ export const commands = {
 	 */
 	agentsTrustAndStart: (taskId: string) => __TAURI_INVOKE<TrustStarted>("agents_trust_and_start", { taskId }),
 	/**
+	 *  The person asks the device a card's agent must start on to trust its
+	 *  repo there (part 11); that device asks them in its own window. Writes
+	 *  no trust. The device's name.
+	 */
+	agentsTrustRequest: (taskId: string) => __TAURI_INVOKE<string>("agents_trust_request", { taskId }),
+	/**
 	 *  This device's repos and whether each is trusted for agents (card #456,
 	 *  Settings › Agents).
 	 */
@@ -2280,6 +2286,8 @@ export type TrustNeed = {
 	here: boolean,
 	/**  What trusting does, in the words the confirm shows. */
 	what: string,
+	/**  The device that asked this one to trust it (part 11), by name. */
+	askedBy: string | null,
 };
 
 /**  After Trust and start. */

@@ -338,6 +338,9 @@ export const AgentsService = {
   Running: () => call(commands.agentsRunning()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
+  // Asks the device the agent starts on to trust it there (part 11);
+  // writes no trust. That device's name.
+  TrustRequest: (taskId: string) => call(commands.agentsTrustRequest(taskId)),
   Trusted: () => call(commands.agentsTrusted()),
   TrustRepo: (repoKey: string) => call(commands.agentsTrustRepo(repoKey)),
   Permissions: (boardId: string) => call(commands.agentsPermissions(boardId)),

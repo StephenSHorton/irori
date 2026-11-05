@@ -1,6 +1,6 @@
 //! Two devices of one person (Go pairedCores, newHCore): Cores whose
 //! meshes run on loopback iroh, B certified by A as pairing does. Shared by
-//! tests/boards.rs and tests/spawn_devices.rs.
+//! tests/boards.rs and tests/spawn_settings_devices.rs.
 
 use std::time::Duration;
 

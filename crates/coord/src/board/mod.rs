@@ -47,7 +47,9 @@ mod placed;
 mod presence;
 mod prstate;
 mod threads;
-pub use offers::{IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered};
+pub use offers::{
+    IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered, machine_needed,
+};
 pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
@@ -1386,6 +1388,29 @@ impl Coord {
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.
     pub fn cards_to_spawn(&self) -> Vec<Task> {
         self.lock().cards_to_spawn()
+    }
+    /// The requests naming this device it may start an agent for now
+    /// (card #455): another of the person's devices chose it, or it chose
+    /// itself. See [`Fold::spawns_here`].
+    pub fn spawns_here(&self) -> Vec<(Task, Spawn)> {
+        self.lock().spawns_here()
+    }
+    /// Marks agent `key` as started for card `task_id` of another log
+    /// (card #455). See [`Fold::mark_spawned_elsewhere`].
+    pub fn mark_spawned_elsewhere(
+        &self,
+        key: &str,
+        task_id: &str,
+        generation: i64,
+        device: &str,
+        board: &str,
+    ) -> Result<()> {
+        self.lock()
+            .mark_spawned_elsewhere(key, task_id, generation, device, board)
+    }
+    /// This log's device id.
+    pub fn device_id(&self) -> String {
+        self.lock().dev.clone()
     }
     /// The inbox's Stale hook for a card Irori handed out (card #82): the
     /// note to close a hand-out notice to `to` with once the card went to
