@@ -403,7 +403,7 @@ function GoneNeed({
     >
       <p className="text-sm break-words text-muted-foreground">
         {plainLine(c.title)}
-        {said ? `: “${said}”` : ""}
+        {said ? `: “${said}”.` : "."}
         {!g.waitedOn && g.on
           ? ` It waits on ${plainLine(g.on)}, and ${name}, who raised it, is gone.`
           : ""}{" "}

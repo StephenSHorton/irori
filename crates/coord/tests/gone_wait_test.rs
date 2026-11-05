@@ -56,7 +56,13 @@ fn lane(e: &Env, viewer: &str, id: &str) -> (bool, bool) {
 fn a_wait_on_a_gone_agent_needs_the_person_once_nobody_holds_the_card() {
     let e = Env::new();
     let t = card(&e, ALICE);
-    let b = wait(&e, &t.id, "Waiting on bob's GUI spawn", BLOCKED_ON_AGENT, BOB);
+    let b = wait(
+        &e,
+        &t.id,
+        "Waiting on bob's GUI spawn",
+        BLOCKED_ON_AGENT,
+        BOB,
+    );
     e.c.leave(ALICE, &t.id, ALICE).unwrap();
     // Bob is still here: it waits on him, not on the person.
     assert!(e.c.gone_waits(&t.id).is_empty());
@@ -124,7 +130,13 @@ fn a_question_and_a_card_wait_are_left_to_their_own_rows() {
     let t = card(&e, ALICE);
     let other = card(&e, CAROL);
     wait(&e, &t.id, "Which repo?", "", "");
-    wait(&e, &t.id, "Waits on the desk card", BLOCKED_ON_TASK, &other.id);
+    wait(
+        &e,
+        &t.id,
+        "Waits on the desk card",
+        BLOCKED_ON_TASK,
+        &other.id,
+    );
     e.c.leave(ALICE, &t.id, ALICE).unwrap();
     e.ros.set(ALICE, "gone");
     // The question is stranded (and a decision already), the card wait

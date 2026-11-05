@@ -2956,7 +2956,9 @@ fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
         on: if first.waited_on {
             String::new()
         } else {
-            b.on.as_ref().map(|on| on.reference.clone()).unwrap_or_default()
+            b.on.as_ref()
+                .map(|on| on.reference.clone())
+                .unwrap_or_default()
         },
         question: b.question.clone(),
         more: (gw.len() - 1) as i64,
