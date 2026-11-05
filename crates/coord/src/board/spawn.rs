@@ -47,6 +47,11 @@ pub const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start anot
 /// The person's way on from it (their own words go into the next brief).
 pub const CRASHED_START: &str = "Start another agent";
 
+/// Whether b is Irori's crash question.
+pub fn is_crash_question(b: &Blocker) -> bool {
+    b.raised_by == SWEEPER && b.question == CRASHED_QUESTION
+}
+
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 

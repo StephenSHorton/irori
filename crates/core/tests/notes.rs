@@ -246,12 +246,6 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
         vec![path_note.note.id.as_str(), repo_note.note.id.as_str()]
     );
 
-    // The card page's read.
-    let cw = c.card_wake_notes(&format!("task:{}", task.id));
-    assert_eq!(cw.len(), 2);
-    assert_eq!(cw[0].agent, r.key_a);
-    assert_eq!(cw[1].tag, format!("repo:{REPO}"));
-
     // The next wake about the card doesn't repeat them.
     c.inbox().mark_delivered(&r.key_a, &w.token).unwrap();
     c.inbox()

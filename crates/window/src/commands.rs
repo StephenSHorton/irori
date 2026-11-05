@@ -984,12 +984,6 @@ pub async fn agents_trust_repo(
     blocking(&w, move |w| w.agents_trust_repo(&repo_key)).await
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn card_wake_notes(w: W<'_>, task_id: String) -> R<Vec<crate::notes::WakeNoteView>> {
-    blocking(&w, move |w| Ok(w.card_wake_notes(&task_id))).await
-}
-
 // ---- Invites ----------------------------------------------------------------------
 
 #[tauri::command]
@@ -1653,7 +1647,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_trust_repo,
             agents_permissions,
             agents_permissions_set,
-            card_wake_notes,
             boards_invite,
             boards_join_invite,
             boards_confirm_invite_words,
