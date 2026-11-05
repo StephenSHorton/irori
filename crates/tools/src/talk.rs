@@ -576,7 +576,7 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
         return Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p)));
     }
     if let Some(name) = conv.strip_prefix('#')
-        && let Some(id) = named_in(&talk, name, space)?
+        && let Some(id) = named_in(talk, name, space)?
     {
         return Ok(Target::Channel(id));
     }
@@ -591,7 +591,7 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
     {
         return Ok(Target::Thread(trim(id).to_string()));
     }
-    if let Some(id) = named_in(&talk, conv, space)? {
+    if let Some(id) = named_in(talk, conv, space)? {
         return Ok(Target::Channel(id));
     }
     // Only spaces this person still has can be named back (a space being
