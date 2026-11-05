@@ -32,14 +32,12 @@ pub struct SpaceBoard {
 
 /// `space.board.created` / `space.board.renamed`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct SpaceBoardRow {
     pub board_id: String,
     pub name: String,
     pub tag: String,
-    #[serde(default)]
     pub by: String,
-    #[serde(default)]
     pub at: String,
 }
 
@@ -47,14 +45,24 @@ pub struct SpaceBoardRow {
 /// board (from board.created/renamed), then each `space.board.created` in
 /// log order with its newest rename. A rename of a board the log doesn't
 /// hold is ignored, as is a second create of one id.
-pub fn fold_space_boards(own: SpaceBoard, rows: &[(String, Vec<u8>)]) -> Vec<SpaceBoard> {
+///
+/// `own` comes in with the space's name, and keeps it until a rename names
+/// the first board itself (card #558): only its name, since its tag is the
+/// space's and refs are stamped with it.
+pub fn fold_space_boards(mut own: SpaceBoard, rows: &[(String, Vec<u8>)]) -> Vec<SpaceBoard> {
     let mut order: Vec<String> = Vec::new();
     let mut boards: BTreeMap<String, SpaceBoard> = BTreeMap::new();
     for (kind, payload) in rows {
         let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(payload) else {
             continue;
         };
-        if r.board_id.is_empty() || r.board_id == own.board_id {
+        if r.board_id.is_empty() {
+            continue;
+        }
+        if r.board_id == own.board_id {
+            if kind == kinds::SPACE_BOARD_RENAMED && !r.name.is_empty() {
+                own.name = r.name;
+            }
             continue;
         }
         match kind.as_str() {
@@ -118,9 +126,30 @@ pub(crate) fn board_tag_in(st: &store::Store, board: &str) -> Option<String> {
         .map(|b| b.tag)
 }
 
+/// Every tag the log whose store is `st` has named for a board inside it.
+pub(crate) fn board_tags_in(st: &store::Store) -> Vec<String> {
+    let rows = space_board_rows(st).unwrap_or_default();
+    rows.iter()
+        .filter_map(|(_, p)| serde_json::from_slice::<SpaceBoardRow>(p).ok())
+        .map(|r| r.tag)
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
 impl Services {
-    /// The boards in space `space_id`, its own first.
+    /// Whether `id` is a hidden space: one with no boards, that never gets
+    /// any and takes no card (spaces-boards.md §1). None yet: #538's DM
+    /// spaces wire in here. Never key on a tag or a name.
+    pub(crate) fn is_hidden_space(&self, _id: &str) -> bool {
+        false
+    }
+
+    /// The boards in space `space_id`, its own first; a hidden space has
+    /// none.
     pub(crate) fn space_boards(&self, space_id: &str) -> Result<Vec<SpaceBoard>> {
+        if self.is_hidden_space(space_id) {
+            return Ok(Vec::new());
+        }
         let b = self.board(space_id)?;
         let m = b.verifier.membership();
         let own = SpaceBoard {
@@ -182,16 +211,14 @@ impl Services {
         name: &str,
         tag: &str,
     ) -> Result<String> {
-        let (name, tag) = (name.trim(), tag.trim());
-        if !irori_identity::membership::valid_board_name(name) {
+        if self.is_hidden_space(space_id) {
             return Err(Error::coord(
-                CK::Invalid,
-                format_args!(
-                    "a board name is 1 to {} characters",
-                    irori_identity::membership::MAX_BOARD_NAME
-                ),
+                CK::NotAllowed,
+                format_args!("space {space_id} holds no boards"),
             ));
         }
+        let (name, tag) = (name.trim(), tag.trim());
+        check_board_name(name)?;
         if !irori_identity::membership::valid_board_tag(tag) {
             return Err(Error::coord(
                 CK::Invalid,
@@ -235,6 +262,53 @@ impl Services {
         Ok(id)
     }
 
+    /// Renames board `board_id` of space `space_id`, its first board too:
+    /// any active member may, as for adding one. Only the board's name
+    /// changes, so no ref does and its tag needs no check, and a first
+    /// board's rename leaves the space's own name alone (card #558).
+    /// Refused until every member device reads space rows.
+    pub(crate) fn rename_space_board(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        name: &str,
+    ) -> Result<()> {
+        let name = name.trim();
+        check_board_name(name)?;
+        let b = self.board(space_id)?;
+        let me = self.person_id();
+        if !b.verifier.membership().active(&me) {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("you aren't a member of space {space_id}"),
+            ));
+        }
+        if !self
+            .space_boards(space_id)?
+            .iter()
+            .any(|x| x.board_id == board_id)
+        {
+            return Err(Error::coord(
+                CK::NotFound,
+                format_args!("no board {board_id} in space {space_id}"),
+            ));
+        }
+        if let Some(why) = gate_refusal(&self.space_not_ready(space_id)?) {
+            return Err(Error::coord(CK::NotAllowed, why));
+        }
+        let by = format!("{}{me}", kinds::PERSON_ACTOR_PREFIX);
+        let row = SpaceBoardRow {
+            board_id: board_id.to_string(),
+            name: name.to_string(),
+            tag: String::new(),
+            by: by.clone(),
+            at: (self.now)().format_rfc3339_nano(),
+        };
+        b.store.append(&by, kinds::SPACE_BOARD_RENAMED, &row)?;
+        self.boards.moved();
+        Ok(())
+    }
+
     /// The board (a space's own, or one inside a space) already using
     /// `tag` on this device, if any.
     pub(crate) fn board_tag_holder(&self, tag: &str) -> Option<String> {
@@ -255,6 +329,19 @@ impl Services {
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
+}
+
+fn check_board_name(name: &str) -> Result<()> {
+    if irori_identity::membership::valid_board_name(name) {
+        return Ok(());
+    }
+    Err(Error::coord(
+        CK::Invalid,
+        format_args!(
+            "a board name is 1 to {} characters",
+            irori_identity::membership::MAX_BOARD_NAME
+        ),
+    ))
 }
 
 /// The version gate's answer (card #392, spaces.md §4): why a space may
@@ -492,6 +579,13 @@ impl super::Core {
     pub fn create_space_board(&self, space_id: &str, name: &str, tag: &str) -> Result<String> {
         self.s.create_space_board(space_id, name, tag)
     }
+
+    /// Renames a board of space `space_id`, its first too, leaving the
+    /// space's own name alone; refused until every member device reads
+    /// space rows.
+    pub fn rename_space_board(&self, space_id: &str, board_id: &str, name: &str) -> Result<()> {
+        self.s.rename_space_board(space_id, board_id, name)
+    }
 }
 
 #[cfg(test)]
@@ -521,8 +615,8 @@ mod tests {
                 row(kinds::SPACE_BOARD_CREATED, "b2", "Netcode", "net"),
                 row(kinds::SPACE_BOARD_CREATED, "b1", "Art", "art"),
                 row(kinds::SPACE_BOARD_RENAMED, "b2", "Netcode v2", ""),
-                // A second create of one id, a rename of no board, and the
-                // space's own id are all ignored.
+                // A second create of one id, a rename of no board, and a
+                // create of the space's own id are all ignored.
                 row(kinds::SPACE_BOARD_CREATED, "b2", "dup", "dup"),
                 row(kinds::SPACE_BOARD_RENAMED, "nope", "x", "x"),
                 row(kinds::SPACE_BOARD_CREATED, "s", "self", "self"),
@@ -540,6 +634,66 @@ mod tests {
                 ("Netcode v2", "net"),
                 ("Art", "art")
             ]
+        );
+    }
+
+    /// A row with only some fields still folds (card #558): a failed decode
+    /// would lose it without a word.
+    #[test]
+    fn a_row_missing_fields_still_folds() {
+        let own = SpaceBoard {
+            board_id: "s".into(),
+            name: "Wind".into(),
+            tag: "wind".into(),
+        };
+        let got = fold_space_boards(
+            own,
+            &[
+                row(kinds::SPACE_BOARD_CREATED, "b1", "Netcode", "net"),
+                (
+                    kinds::SPACE_BOARD_RENAMED.into(),
+                    br#"{"boardId":"b1","name":"Sockets"}"#.to_vec(),
+                ),
+            ],
+        );
+        assert_eq!(got[1].name, "Sockets");
+        assert_eq!(got[1].tag, "net");
+    }
+
+    /// A peer's new or renamed board reaches the boards list live.
+    #[test]
+    fn a_space_board_row_moves_the_boards_list() {
+        let ev = |kind: &str| store::Event {
+            seq: 1,
+            kind: kind.into(),
+            ..Default::default()
+        };
+        let moves = super::super::boards::summary_row;
+        assert!(moves(&ev(kinds::SPACE_BOARD_CREATED)));
+        assert!(moves(&ev(kinds::SPACE_BOARD_RENAMED)));
+        assert!(!moves(&ev(kinds::TASK_CREATED)));
+    }
+
+    /// The first board has a name of its own once a rename gives it one
+    /// (card #558), and only its name: its tag is the space's. Until then
+    /// it follows the space's name.
+    #[test]
+    fn a_first_board_takes_a_name_from_a_rename_and_nothing_else() {
+        let own = |name: &str| SpaceBoard {
+            board_id: "s".into(),
+            name: name.into(),
+            tag: "wind".into(),
+        };
+        assert_eq!(fold_space_boards(own("New name"), &[])[0].name, "New name");
+        let rows = [
+            row(kinds::SPACE_BOARD_RENAMED, "s", "Tasks", "other"),
+            row(kinds::SPACE_BOARD_RENAMED, "s", "", ""),
+        ];
+        let got = fold_space_boards(own("New name"), &rows);
+        assert_eq!(got.len(), 1);
+        assert_eq!(
+            (got[0].name.as_str(), got[0].tag.as_str()),
+            ("Tasks", "wind")
         );
     }
 

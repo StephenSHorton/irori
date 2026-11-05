@@ -1175,6 +1175,22 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         card_on(b1, &space, &t.id).is_some_and(|x| x.board == net)
     });
 
+    // Bob isn't an owner, and any member renames a board (card #558): the
+    // first board too, while the space's name stays Alice's to change.
+    let joined = |c: &Core| c.board_list().into_iter().find(|s| s.board_id == space);
+    let space_name = joined(&a1.core).unwrap().name;
+    b1.core.rename_space_board(&space, &net, "Sockets").unwrap();
+    b1.core.rename_space_board(&space, &space, "Tasks").unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice gets bob's renames", || {
+        a1.core.space_boards(&space).is_ok_and(|bs| {
+            bs.iter().any(|b| b.board_id == net && b.name == "Sockets") && bs[0].name == "Tasks"
+        })
+    });
+    assert_eq!(joined(&a1.core).unwrap().name, space_name);
+    assert_eq!(joined(&b1.core).unwrap().name, space_name);
+    assert_eq!(a1.core.space_boards(&space).unwrap()[1].tag, "net");
+
     // A channel in the space, and a post in it.
     let ch = a1
         .core

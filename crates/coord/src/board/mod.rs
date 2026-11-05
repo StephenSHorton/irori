@@ -274,6 +274,9 @@ pub struct Options {
     /// On a space (card #392): the tag of another board in it, by id;
     /// None for an id the space doesn't hold.
     pub board_tag: Option<BoardTagFn>,
+    /// On a space (card #558): whether it's a hidden one, which takes no
+    /// card.
+    pub no_cards: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// On a space (card #558): every tag its log has named for a board
     /// inside it, for a ref to a board that holds no card.
     pub board_tags: Option<BoardTagsFn>,

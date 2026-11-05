@@ -1,0 +1,191 @@
+//! Card #558: a space is a group of people, a board a list of tasks. The
+//! boards inside a space through the Core's public calls, on one device.
+
+mod common;
+
+use common::Rig;
+use coord::ErrorKind as CK;
+use irori_core::{BoardError, Core};
+
+fn new_task(title: &str) -> coord::NewTask {
+    coord::NewTask {
+        title: title.into(),
+        ..Default::default()
+    }
+}
+
+/// A space `wind` holding one more board, `net`: (space id, net's id).
+fn wind_and_net(c: &Core) -> (String, String) {
+    let id = c.create_board("Wind Waker Multiplayer", "wind").unwrap();
+    let net = c.create_space_board(&id, "Netcode", "net").unwrap();
+    (id, net)
+}
+
+fn on_board(r: &Rig, space: &str, board: &str, title: &str) -> coord::Task {
+    let co = r.core.board_coord(space).unwrap();
+    let by = r.core.board_key(space, &r.key_a).unwrap();
+    co.create_task(
+        &by,
+        coord::NewTask {
+            board: board.into(),
+            ..new_task(title)
+        },
+    )
+    .unwrap()
+}
+
+/// A new space can't take a tag a board inside another space holds.
+#[test]
+fn a_new_space_cant_take_an_inner_boards_tag() {
+    let r = Rig::new();
+    wind_and_net(&r.core);
+    let e = r.core.create_board("Network", "net").unwrap_err();
+    assert!(e.to_string().contains("already board"), "{e}");
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::Invalid));
+}
+
+fn names(c: &Core, id: &str) -> Vec<String> {
+    c.space_boards(id)
+        .unwrap()
+        .into_iter()
+        .map(|b| format!("{}:{}", b.tag, b.name))
+        .collect()
+}
+
+fn space_name(c: &Core, id: &str) -> String {
+    let s = c.board_list().into_iter().find(|s| s.board_id == id);
+    s.unwrap().name
+}
+
+/// A board's rename changes only its name: its tag and every ref stay, and
+/// it takes no check of the tag, which it's already holding.
+#[test]
+fn renaming_a_board_changes_only_its_name() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let t = on_board(&r, &id, &net, "rollback");
+    r.core.rename_space_board(&id, &net, " Sockets ").unwrap();
+    assert_eq!(
+        names(&r.core, &id),
+        ["wind:Wind Waker Multiplayer", "net:Sockets"]
+    );
+    assert_eq!(r.core.task_ref("net#1").unwrap(), t.id);
+    assert_eq!(space_name(&r.core, &id), "Wind Waker Multiplayer");
+}
+
+#[test]
+fn a_rename_needs_a_name_and_a_board_in_the_space() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let other = r.core.create_board("Other", "other").unwrap();
+    let kind = |e: BoardError| match e {
+        BoardError::Coord(c) => c.kind(),
+        e => panic!("{e}"),
+    };
+    let e = r.core.rename_space_board(&id, &net, "  ").unwrap_err();
+    assert_eq!(kind(e), CK::Invalid);
+    let e = r.core.rename_space_board(&id, "nope", "x").unwrap_err();
+    assert_eq!(kind(e), CK::NotFound);
+    let e = r.core.rename_space_board(&other, &net, "x").unwrap_err();
+    assert_eq!(kind(e), CK::NotFound, "net is in another space");
+    assert_eq!(names(&r.core, &id)[1], "net:Netcode");
+}
+
+/// The first board's name is its own once renamed, and the space's name
+/// stays apart from it, each way: until then it follows the space.
+#[test]
+fn a_first_boards_name_and_the_spaces_are_separate() {
+    let r = Rig::new();
+    let c = &r.core;
+    let (id, _) = wind_and_net(c);
+    // No name of its own yet: it follows the space's.
+    c.rename_board(&id, "Wind Waker").unwrap();
+    assert_eq!(names(c, &id)[0], "wind:Wind Waker");
+    // Renaming it leaves the space's name alone.
+    c.rename_space_board(&id, &id, "Tasks").unwrap();
+    assert_eq!(names(c, &id)[0], "wind:Tasks");
+    assert_eq!(space_name(c, &id), "Wind Waker");
+    assert_eq!(
+        c.board_verifier(&id).unwrap().membership().name,
+        "Wind Waker"
+    );
+    // With a name of its own, a space rename leaves it alone too.
+    c.rename_board(&id, "Wind Waker Online").unwrap();
+    assert_eq!(names(c, &id)[0], "wind:Tasks");
+    assert_eq!(space_name(c, &id), "Wind Waker Online");
+}
+
+/// Agents see a first board's own name, in the list and on a card alike.
+#[test]
+fn the_tools_name_a_first_board_the_same_everywhere() {
+    let r = Rig::new();
+    let (id, _) = wind_and_net(&r.core);
+    r.core.rename_space_board(&id, &id, "Tasks").unwrap();
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: String::new(),
+    };
+    let call = |tool: &str, args: serde_json::Value| {
+        let args = serde_json::to_vec(&args).unwrap();
+        r.core.tools().call(&caller, tool, &args).unwrap()
+    };
+    let out = call(
+        "board_create",
+        serde_json::json!({"title": "decomp", "board": "wind"}),
+    );
+    assert!(out.contains("on Tasks (wind)"), "from boards(): {out}");
+    let out = call(
+        "board_share",
+        serde_json::json!({"task_id": "wind#1", "board": "wind"}),
+    );
+    assert!(out.contains("on Tasks (wind)"), "from board_of(): {out}");
+}
+
+/// A board nobody has put a card on has its tag, through the real hook.
+#[test]
+fn a_ref_to_a_board_with_no_cards_is_not_on_another_board() {
+    let r = Rig::new();
+    let (id, _) = wind_and_net(&r.core);
+    let co = r.core.board_coord(&id).unwrap();
+    let e = co.task_ref("net#4").unwrap_err();
+    assert_eq!(e.kind(), CK::NotFound);
+    assert!(!e.to_string().contains("another board"), "{e}");
+    let e = co.task_ref("elsewhere#4").unwrap_err();
+    assert!(e.to_string().contains("another board"), "{e}");
+}
+
+/// A subtask goes on its parent's board, made either way: with `parent`
+/// (the board isn't named) or by splitting the parent.
+#[test]
+fn a_subtask_stays_on_its_parents_board() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let parent = on_board(&r, &id, &net, "rollback");
+    let co = r.core.board_coord(&id).unwrap();
+    let by = r.core.board_key(&id, &r.key_a).unwrap();
+    let kid = co
+        .create_task(
+            &by,
+            coord::NewTask {
+                parent: parent.id.clone(),
+                ..new_task("kid")
+            },
+        )
+        .unwrap();
+    assert_eq!(kid.board, net);
+    assert_eq!(kid.tag, "net");
+    let (_, parts) = co
+        .split(
+            &by,
+            &parent.id,
+            vec![coord::NewSubtask {
+                title: "part".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    assert_eq!(parts.len(), 1);
+    assert_eq!(parts[0].board, net);
+    assert_eq!(parts[0].tag, "net");
+}

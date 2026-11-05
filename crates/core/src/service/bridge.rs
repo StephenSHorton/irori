@@ -542,12 +542,14 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         }
     }
 
-    /// The tools' view of one board.
+    /// The tools' view of a space's first board: its own name, which a
+    /// space not ready yet doesn't have.
     fn tools_board(&self, s: super::boards::BoardSummary) -> tools::BoardInfo {
+        let first = s.boards.first().map(|b| b.name.clone());
         tools::BoardInfo {
             board_id: s.board_id,
             tag: s.tag,
-            name: s.name,
+            name: first.filter(|n| !n.is_empty()).unwrap_or(s.name),
             people: s.people,
             space_board: String::new(),
         }

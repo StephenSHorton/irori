@@ -190,6 +190,11 @@ impl Fold {
                 "Irori itself can't create a card on a shared board: a person or an agent creates it",
             ));
         }
+        if self.no_cards_fn.as_ref().is_some_and(|f| f()) {
+            return Err(not_allowed(
+                "this space holds no boards, so it takes no card",
+            ));
+        }
         if let Some(p) = self.tasks.get(&ct.parent) {
             ct.board = p.board.clone();
         }

@@ -347,6 +347,32 @@ fn a_row_ahead_of_its_board_numbers_on_that_board() {
     );
 }
 
+/// A hidden space has no boards, so a card has nowhere to go.
+#[test]
+fn a_hidden_space_takes_no_card() {
+    let s = space("dev-a");
+    let c = Coord::new(
+        s.st.clone(),
+        None,
+        Options {
+            no_cards: Some(Arc::new(|| true)),
+            ..opts(&s)
+        },
+    )
+    .unwrap();
+    let e = c
+        .create_task(
+            ME,
+            NewTask {
+                title: "x".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::NotAllowed);
+    assert!(e.to_string().contains("no boards"), "{e}");
+}
+
 /// A private log has no boards in it: one run, as it always was.
 #[test]
 fn a_private_log_is_one_run() {
