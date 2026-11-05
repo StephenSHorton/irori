@@ -12,8 +12,23 @@
 //! the engine's lock and post `WM_SYNC` to the thread's message-only host
 //! window. With `capture_exclude` the cards are left out of screen capture
 //! (`WDA_EXCLUDEFROMCAPTURE`, Windows 10 2004+).
+//!
+//! Cards follow the person's Settings > Appearance through the engine's
+//! [`Look`]: every colour comes from `look.palette` (already resolved for
+//! light or dark), the corners from `look.radius`. When the theme, radius,
+//! glass or light/dark changes the engine calls [`Surface::draw`] again for
+//! the cards already on screen, which re-cuts the window region and
+//! repaints. With the scheme on System, the OS mode is read from the
+//! registry (`AppsUseLightTheme`); a card hears the `ImmersiveColorSet`
+//! setting change when it flips and asks the host to sync, so cards restyle
+//! at once.
+//!
+//! Corners are a window region (`SetWindowRgn`), not DWM's Windows 11
+//! corner preference, which isn't reliable on layered windows. Glass is a
+//! seam for now ([`apply_backdrop`]): the cards paint the solid
+//! `palette.background`, the fallback, until the backdrop lands.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -35,6 +50,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
@@ -224,7 +240,8 @@ struct Win {
     key: u64,
     look: Option<Look>,
     tracking: bool,
-    rgn: (i32, i32),
+    /// The region the window has: (w, h, radius) px, or all zero for none.
+    rgn: (i32, i32, i32),
 }
 
 thread_local! {
@@ -232,6 +249,46 @@ thread_local! {
     static RUN_CFG: RefCell<Option<Config>> = const { RefCell::new(None) };
     static WINS: RefCell<HashMap<isize, Win>> = RefCell::new(HashMap::new());
     static BY_KEY: RefCell<HashMap<u64, isize>> = RefCell::new(HashMap::new());
+    /// The OS's dark mode as last read; cleared when a card hears it change.
+    static OS_DARK: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// Whether Windows' app mode is dark: HKCU\..\Themes\Personalize
+/// `AppsUseLightTheme` is 0 (missing, as before Windows 10 1809, is light).
+fn read_os_dark() -> bool {
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+    let name = wide("AppsUseLightTheme");
+    let mut v: u32 = 1;
+    let mut n = std::mem::size_of::<u32>() as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_DWORD,
+            null_mut(),
+            (&mut v as *mut u32).cast(),
+            &mut n,
+        )
+    };
+    r == 0 && v == 0
+}
+
+/// Whether lp (a WM_SETTINGCHANGE lParam) is the wide string s. It may be
+/// null; it is read only up to its terminator or the first mismatch.
+fn lparam_is(lp: LPARAM, s: &str) -> bool {
+    let p = lp as *const u16;
+    if p.is_null() {
+        return false;
+    }
+    for (i, want) in s.encode_utf16().chain(std::iter::once(0)).enumerate() {
+        // SAFETY: every earlier unit matched a non-zero unit of s, so the
+        // string goes on at least to i.
+        if unsafe { *p.add(i) } != want {
+            return false;
+        }
+    }
+    true
 }
 
 fn hwnd_of(key: u64) -> HWND {
@@ -281,6 +338,12 @@ unsafe extern "system" fn card_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
         || (msg == WM_SETTINGCHANGE && wp == SPI_SETWORKAREA as usize)
     {
         post_host(WM_REHOME);
+    }
+    // The OS light/dark mode flipped: re-read it and restyle the cards (a
+    // no-op unless the scheme is System).
+    if msg == WM_SETTINGCHANGE && lparam_is(lp, "ImmersiveColorSet") {
+        OS_DARK.with(|c| c.set(None));
+        post_host(WM_SYNC);
     }
     let key = WINS.with(|w| w.borrow().get(&(h as isize)).map(|w| w.key));
     let Some(key) = key else {
@@ -523,7 +586,7 @@ impl Surface for Win32Surface {
                     key,
                     look: None,
                     tracking: false,
-                    rgn: (0, 0),
+                    rgn: (0, 0, 0),
                 },
             )
         });
@@ -537,22 +600,53 @@ impl Surface for Win32Surface {
         if h.is_null() {
             return;
         }
+        // Called again for a card on screen when its look changes (theme,
+        // radius, glass, light/dark), so the region follows the radius too.
         let rgn = WINS.with(|m| {
             let mut m = m.borrow_mut();
             let w = m.get_mut(&(h as isize))?;
             w.look = Some(look.clone());
-            let want = (look.w, look.h);
-            if look.radius > 0 && w.rgn != want {
+            let want = if look.radius > 0 {
+                (look.w, look.h, look.radius)
+            } else {
+                (0, 0, 0)
+            };
+            if w.rgn != want {
                 w.rgn = want;
                 return Some(want);
             }
             None
         });
-        if let Some((w, ht)) = rgn {
-            let r = look.radius;
-            unsafe { SetWindowRgn(h, CreateRoundRectRgn(0, 0, w + 1, ht + 1, 2 * r, 2 * r), 1) };
+        // The window owns the region once set: it is not deleted here.
+        // DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) would give
+        // Windows 11's antialiased corners, but it isn't reliable on layered
+        // windows and does nothing on Windows 10, so the region stays the
+        // source of truth (the trade-off: slightly jagged corners).
+        match rgn {
+            Some((0, 0, 0)) => unsafe {
+                SetWindowRgn(h, null_mut(), 1);
+            },
+            Some((w, ht, r)) => unsafe {
+                SetWindowRgn(h, CreateRoundRectRgn(0, 0, w + 1, ht + 1, 2 * r, 2 * r), 1);
+            },
+            None => {}
         }
+        apply_backdrop(h, look);
         unsafe { InvalidateRect(h, null(), 0) };
+    }
+
+    fn os_dark(&mut self) -> bool {
+        // Read afresh when no card is up (none heard a change) or after one
+        // heard ImmersiveColorSet; asked only while the scheme is System.
+        let fresh = WINS.with(|w| w.borrow().is_empty());
+        OS_DARK.with(|c| match c.get() {
+            Some(d) if !fresh => d,
+            _ => {
+                let d = read_os_dark();
+                c.set(Some(d));
+                d
+            }
+        })
     }
 
     fn place(&mut self, key: u64, x: i32, y: i32, w: i32, h: i32, raise: bool, placed: bool) {
@@ -609,6 +703,28 @@ impl Surface for Win32Surface {
             return;
         }
         throw_confetti(card);
+    }
+}
+
+/// The glass seam. `look.glass` is `None` for a solid card; with `Some`
+/// (the tint's opacity) this does nothing yet either, and the card paints
+/// the solid `palette.background`, the fallback, so Windows is right but
+/// solid until the backdrop lands.
+///
+/// TODO(#527): the pending PC spike picks the backdrop for an inactive,
+/// `WS_EX_LAYERED` card: acrylic via the undocumented
+/// SetWindowCompositionAttribute(WCA_ACCENT_POLICY,
+/// ACCENT_ENABLE_ACRYLICBLURBEHIND, tint at `glass`) versus
+/// DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)
+/// (Windows 11 22H2+, and it may drop the blur on an inactive window).
+/// Either way paint() must then leave the backdrop showing (the palette's
+/// tint at `glass`, not an opaque background) and keep the region corners,
+/// and a card going back to solid must turn the backdrop off. Track the
+/// applied state in `Win` so a redraw doesn't re-apply it.
+fn apply_backdrop(_h: HWND, look: &Look) {
+    match look.glass {
+        None => {}              // solid: nothing behind the card
+        Some(_tint_alpha) => {} // glass wanted, not done yet: solid fallback
     }
 }
 
