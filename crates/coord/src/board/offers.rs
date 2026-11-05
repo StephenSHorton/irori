@@ -85,17 +85,21 @@ impl Fold {
     /// not withdrawn, handed out here (this device owns its take lock),
     /// nobody has it, and the hand-out ran and found nobody free
     /// (`unclaimed`), so an idle agent with "Offer it cards" on still takes
-    /// it first. A plain ask that names agents goes to them alone; a
-    /// thread waits out its named agents' quiet spell, and one with
-    /// "Agents answer now" off is never handed out, so neither is
-    /// unclaimed then. A private thread about a shared board (`a.board`,
-    /// card #185) lives in the person's own log, so it spawns too (card
-    /// #454); threads in a board's own log are part 11's.
+    /// it first. A plain ask that names agents goes to them alone. A thread
+    /// goes out at once, whoever it names (card #512: they are woken, and
+    /// nobody waits on them), so it is unclaimed as soon as the hand-out
+    /// finds nobody free; one with "Agents answer now" off is never handed
+    /// out, so never unclaimed. A private thread about a shared board
+    /// (`a.board`, card #185) lives in the person's own log, so it spawns
+    /// too (card #454), and so does a thread in a shared board's own log,
+    /// on the poster's device (the ask's owner; card #512, as a board card
+    /// spawns on the device that made it, #455). Plain board asks still go
+    /// to the members' idle agents only.
     pub(crate) fn ask_needs_agent(&self, t: &Task) -> bool {
         let Some(a) = t.open_ask() else {
             return false;
         };
-        !self.on_board
+        (!self.on_board || a.thread)
             && !is_terminal(&t.state)
             && !t.withdrawn
             && !t.shared

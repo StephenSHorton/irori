@@ -848,6 +848,8 @@ export function App() {
                   )}
                   board={threadsSpace(space)}
                   space={space}
+                  desks={desks.desks}
+                  onOpenDesk={(repo) => go({ kind: "desk", repo })}
                 />
               ) : section.kind === "notes" ? (
                 <Scroll>

@@ -36,7 +36,19 @@ describe("agentCounts (card #172)", () => {
       ownWork: 0,
       silent: 1,
       offline: 1,
+      blocked: 0,
     })
+  })
+  test("a blocked agent is neither working nor free (card #512)", () => {
+    const c = agentCounts(
+      [
+        { key: "a", status: "busy" },
+        { key: "b", status: "idle", offersCards: true },
+        { key: "c", status: "busy" },
+      ],
+      new Set(["a", "b"])
+    )
+    expect([c.working, c.free, c.blocked]).toEqual([1, 0, 2])
   })
 
   test("an idle terminal agent without Offer it cards isn't free (card #453)", () => {
@@ -67,17 +79,17 @@ describe("agentCounts (card #172)", () => {
 describe("whyWaiting (card #172)", () => {
   test("everyone working, some on their own commands", () => {
     expect(whyWaiting([a("busy"), a("shell"), a("shell")])).toBe(
-      "Nobody is free: 3 working (2 running a job). The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 3 working (2 running a job). Irori starts an agent for it when spawning is on."
     )
   })
   test("idle but not answering", () => {
     expect(whyWaiting([a("busy"), a("unresponsive"), a("unresponsive")])).toBe(
-      "Nobody is free: 1 working, 2 idle but not answering. The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 1 working, 2 idle but not answering. Irori starts an agent for it when spawning is on."
     )
   })
   test("on an offline device", () => {
     expect(whyWaiting([a("idle", { deviceState: "offline" })])).toBe(
-      "Nobody is free: 1 on an offline device. The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 1 on an offline device. Irori starts an agent for it when spawning is on."
     )
   })
   test("idle, but none in the repo", () => {
@@ -99,12 +111,12 @@ describe("whyWaiting (card #172)", () => {
         a("busy", { spawned: true }),
       ])
     ).toBe(
-      "No agent takes offered work: Irori starts one on boards with spawning on, or turn on Offer it cards for an agent."
+      "No agent takes offered work: Irori starts one for it when spawning is on."
     )
   })
   test("idle agents not taking offers while a taker works", () => {
     expect(whyWaiting([a("busy"), a("idle", { offersCards: false })])).toBe(
-      "Nobody is free: 1 working, 1 idle, not taking offered work. The first agent with Offer it cards on to go idle answers it."
+      "Nobody is free: 1 working, 1 idle, not taking offered work. Irori starts an agent for it when spawning is on."
     )
   })
   test("no agents", () => {

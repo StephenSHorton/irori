@@ -3384,6 +3384,10 @@ impl Services {
         if let Err(e) = self.sweep_board_asks() {
             logf(format_args!("board asks: {e}"));
         }
+        // A thread this pass found nobody free for starts its agent now,
+        // not at the next kick (card #512), so the person never sees it
+        // sit unclaimed.
+        self.sweep_spawns();
     }
 
     /// Looks for this device's idle agents whose wakes went unread (#110)
@@ -3740,9 +3744,11 @@ impl Services {
         match heard {
             Ok(prs) => {
                 let truncated = prs.len() >= limit;
+                // The person's own login, which the desk trusts (card #521).
+                let viewer = self.desk_watch.viewer(lister.as_ref());
                 let wrote = self
                     .coord
-                    .record_desk_prs(repo_key, prs, truncated)
+                    .record_desk_snapshot(repo_key, prs, truncated, &viewer)
                     .map_err(|e| e.to_string());
                 self.desk_watch.heard(
                     repo_key,

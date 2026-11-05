@@ -912,6 +912,10 @@ fn files_with_a_thread_a_reply_and_a_new_card() {
     assert_eq!(files_on(&r, &res.task.id), vec!["crash.txt"]);
     assert_eq!(heard(&r), vec![vec!["crash.txt".to_string()]]);
 
+    // The thread went at once to the other free agent (card #512: nobody
+    // waits on alpha); resolved, it frees that agent for the card below.
+    r.w.resolve_thread(&id).unwrap();
+
     // Nobody picked: Irori offers it to a free agent, files and all.
     let res =
         r.w.create_card(irori_window::new_card::NewCardInput {

@@ -1379,12 +1379,32 @@ export type DeskSettings = {
 export type DeskSnapshotView = {
 	truncated: boolean,
 	prs: DeskPrView[],
+	/**
+	 *  The person's own GitHub login, as the poll's gh heard it; "" not
+	 *  known yet. The desk trusts it (card #521).
+	 */
+	viewer: string,
 	at: string,
 };
 
 /**  One repo's desk. */
 export type DeskView = {
 	settings: DeskSettings,
+	/**
+	 *  The settings are the default a GitHub repo an agent works in gets
+	 *  (card #521), not ones the person saved.
+	 */
+	isDefault: boolean,
+	/**
+	 *  The device that saw the repo last: the poll device unless the
+	 *  person picks another; "" never seen.
+	 */
+	seenOn: string,
+	/**
+	 *  The poll device follows `seen_on` (the default, or a saved row that
+	 *  left it blank); a save keeps it blank so it keeps following.
+	 */
+	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
 	holds: DeskMark[],
 	paused?: DeskMark | null,

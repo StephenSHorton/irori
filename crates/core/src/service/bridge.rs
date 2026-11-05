@@ -449,8 +449,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                         );
                     }
                     format!(
-                        "{name} started a thread on this board ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it first because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. If no agent answers within {}s, Irori hands it to one idle agent. {}",
-                        coord::THREAD_QUIET.as_secs(),
+                        "{name} started a thread on this board ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {}",
                         coord::THREAD_NOT_YOURS
                     )
                 }),

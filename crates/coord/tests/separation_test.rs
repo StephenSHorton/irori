@@ -373,7 +373,7 @@ fn a_quiet_thread_is_handed_only_to_an_agent_on_its_side() {
             )
             .unwrap();
         assert!(n.to.is_empty(), "{me}: {n:?}");
-        // Past the quiet spell, still nobody on the other side.
+        // Minutes on, still nobody on the other side.
         for _ in 0..3 {
             e.clk.add(secs(60));
             let out = e.c.sweep_asks(&[idle_on(other)]).unwrap();

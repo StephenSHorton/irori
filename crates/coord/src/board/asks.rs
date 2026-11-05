@@ -1313,7 +1313,7 @@ impl Fold {
             .collect();
         let res = (|| -> Result<()> {
             for id in &ids {
-                if self.thread_sweep(id, &now)? {
+                if self.thread_sweep(id)? {
                     continue;
                 }
                 let a = self.tasks[id].ask.clone().unwrap_or_default();
