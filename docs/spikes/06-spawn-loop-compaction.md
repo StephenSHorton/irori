@@ -141,6 +141,33 @@ on each device, with Irori quit there:
 4. Keep the old `irori.db` aside, put the copy's `irori.db` in place (remove
    the old `-wal`/`-shm`), and start Irori.
 
+**After compacting, a new device can't join.** A device that is paired or reset
+starts at seq 0, so it stalls on the first deleted row (the Gap above), silently
+and for good. Pair every device and let it sync *before* compacting, and don't
+reset or reinstall one afterwards, until sync accepts holes.
+
+**Reading floors without the peer's database.** The phone's app data can't be
+read (release build), and the Mac keeps peer vectors only in memory. Two proofs
+work from the Mac, because ingest is gapless (holding seq N means holding all
+below it):
+
+- A removal's "seen by N of N" (`/v1/devices?detail=1`, `pending`/`remaining`)
+  means every remaining device's vector holds that revoke row.
+- A row a peer visibly has, such as a note showing on its screen, proves that
+  row's device up to that seq.
+
+**The run on the Mac, 2026-11-05.** Floors: Mac 3,588,367 (the removal of the old
+phone, seen by 3 of 3), PC 534,767 (a note the phone showed; the PC's last loop
+row is 533,805). 3,887,749 of 4,129,079 rows went, 88 task.spawn stayed, and
+2,568 MB became 327 MB. Core ready went from 17.8–27 s to 2.3–2.5 s. Afterwards
+the phone showed a Mac row written after the run (seq 3,590,741), so sync past
+the deleted rows works. The PC and phone still hold the rows: the phone's data
+can't be reached with `irori-dev`, and the PC needs its own run.
+
+When scripting this, quitting Irori may end the agent running it, so launch the
+script detached. `irori attach` helpers outlive the app and share its binary
+path, so wait on the app's pid, not on a process-name match.
+
 Letting peers skip the rows instead of pulling them needs a sync protocol that accepts
 holes (a signed "compacted to N" row, gap-tolerant ingest), with every peer
 upgraded before any device compacts. That is not built.
