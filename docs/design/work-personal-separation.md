@@ -61,7 +61,7 @@ The work Irori, never paired, has its own person: a fresh data dir makes its own
 - **Private spawns stay on the work devices and the work login**, since §2.2 applies inside each person.
 - **Open cards on the space go only to their author's agents (0.11.1).** Only the device that made the card hands it out, and only to agents of the card's person (`offers.rs:496-525`). Tested by `boards2_test::open_cards_go_to_the_authors_agents` and `a_hand_out_from_another_device_counts_nowhere`, and through two Cores by `bridge2::an_open_card_never_reaches_the_other_persons_agents`.
 - **Another person can't start an agent for your card.**
-  - A board log refuses `task.spawn`, `task.spawned`, `spawn.set` and `agent.offer` outright, on append and on sync (`crates/store/src/kinds.rs:167-181`, `store/src/board.rs:254-258`).
+  - A board log refuses `spawn.set` and `agent.offer` outright, on append and on sync (`crates/store/src/kinds.rs`, `store/src/board.rs`). Since #455 it takes `task.spawn` and `task.spawned`, behind the hello gate, but a row counts only from the card author's devices (`Fold::spawn_writer_ok`), and a device starts only its own person's cards (`Fold::mine_to_start`).
   - Behind that, the fold counts a spawn row on a board only from a device of the card's author (`spawn_writer_ok`, `coord/src/board/spawn.rs:170-197`).
   - The step "spawn" mark that asks for helper agents is refused from another person (`boards2_test::another_persons_spawn_mark_on_a_card_is_refused`).
   - The **new** `boards2_test::another_persons_card_is_never_spawned_on_your_side` turns spawning on for both sides of a space. It checks that each side lists only its own person's card, and that a spawn request for the other person's card is refused from the sweep, from an agent, and by sync.
@@ -69,7 +69,7 @@ The work Irori, never paired, has its own person: a fresh data dir makes its own
 
 ### 3.2 What doesn't hold
 
-- **Cards on a space never get a background agent.** Only the private board's coord has the spawning switch; board coords are built without it (`core/src/service/boards.rs:1310-1413`), and board logs refuse spawn rows (above). A work card put on the space is served only by an author's terminal agent with Offer it cards on, or by an agent told to take it.
+- ~~**Cards on a space never get a background agent.**~~ **Changed by #455:** a person's own cards on a board whose switch is on get an agent on the device that made them (spawned-agents.md part 11). Another member's card is never started on your side (above).
 - **Room asks go to every member's free agents** (`free_agents`, `asks.rs:1051-1100`). From the asking side, the board's offers check is true for any other member's agent (`boards.rs:1389-1403`). Tested as intended by `bridge2::a_board_ask_reaches_the_other_persons_free_agents`.
 - **Quiet threads**: with "Agents answer now" on, a thread nobody answers in 45 s goes to one idle agent of any member (`threads.rs:12-34`).
 - **Reviews cross people on purpose.** With no reviewer named, a review goes to a free agent of *another* person, and naming your own is refused (`review.rs:183-202, 239-243`). A work PR would be reviewed by a personal agent.
@@ -129,7 +129,7 @@ New, on branch `worktree-477-work-personal-separation`:
   - `a_card_made_on_one_linked_device_never_spawns_on_another`: in both directions, for a card the person typed and one an agent posted, and again after a replay.
   - `a_card_made_on_one_linked_device_is_never_handed_out_by_another`: with free agents present and repeated sweeps.
   - Both fail when `hands_out` is forced true (checked by hand).
-- `crates/coord/tests/boards2_test.rs`, `another_persons_card_is_never_spawned_on_your_side`: on a space with spawning on for both sides, each lists only its own person's card. A spawn request for the other person's card is refused from the sweep, from an agent and by sync, so it counts on neither side. It fails when the store lets `task.spawn` into board logs (checked by hand).
+- `crates/coord/tests/boards2_test.rs`, `another_persons_card_is_never_spawned_on_your_side`: on a space with spawning on for both sides, each lists only its own person's card. Since #455 the board log takes the row, but a request for the other person's card, from the sweep or from an agent, counts on neither side and no device is asked to start it.
 - `crates/core/tests/spawn.rs`, `a_card_whose_repo_isnt_on_this_device_is_refused_not_spawned`: refused here with "no checkout of …", nothing started, the card left unheld. It covers a repo no device has seen. A repo seen only on another linked device: `a_repo_seen_only_on_a_peer_is_refused_not_spawned_there`, refused as "no checkout of …" though the peer's path exists here and is trusted, nothing started, and past the retry wait no more `task.spawn` rows (#493, §7.4). In capture, `capture_service::a_peers_repo_seen_is_not_a_checkout_here`: a peer's row leaves `repo_roots` and `repos()` empty, and this device's own row then shows.
 
 Run them with `cargo test -p irori-coord --test separation_test --test boards2_test` and `cargo test -p irori-core --test spawn`.

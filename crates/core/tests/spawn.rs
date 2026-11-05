@@ -770,7 +770,8 @@ fn a_repo_seen_only_on_a_peer_is_refused_not_spawned_there() {
         .cloned()
         .unwrap();
     assert_eq!(s.device, me, "asked for here only");
-    assert!(s.reason.contains(&format!("no checkout of {K}")), "{s:?}");
+    // #480's wording: "no copy of <repo> on <device>".
+    assert!(s.reason.contains("no copy of work-repo"), "{s:?}");
     let rows = spawn_rows();
     assert_eq!(rows, 2, "one requested and one failed");
 

@@ -334,6 +334,59 @@ fn a_card_made_on_the_pc_starts_on_the_mac_and_ends_from_the_pc() {
     t2.close();
 }
 
+/// Cards #495 and #455 together: A's sweep never sends a card to a device
+/// that doesn't run the card's side. B runs Personal only and has the
+/// repo; A runs every side and has none. A Work card made on A is never
+/// asked of B, and nothing starts there; a Personal card for the same
+/// repo goes to B as before.
+#[test]
+fn a_card_is_never_sent_to_a_device_that_doesnt_run_its_side() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.b.core
+        .set_device_sides(&["Personal".to_string()])
+        .unwrap();
+    t2.a_sees_b_host(true);
+    wait_for(WAIT, "A has B's side pin", || {
+        t2.a.core.device_sides().get(&b_id) == Some(&vec!["Personal".to_string()])
+    });
+    let new_card = |title: &str, side: &str| {
+        t2.a.core
+            .coord()
+            .create_task(
+                &format!("user:{}", t2.a_id()),
+                NewTask {
+                    title: title.into(),
+                    repo_key: REPO.into(),
+                    side: side.into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap()
+    };
+    let work = new_card("Work card", "Work");
+    t2.spawning_on_a();
+    wait_for(WAIT, "A's sweep looked at the Work card", || {
+        t2.on_a(&work.id).spawn_request().is_some()
+    });
+    t2.kick();
+    let s = t2.on_a(&work.id).spawn_request().cloned().unwrap();
+    assert_ne!(s.device, b_id, "the Work card was asked of B: {s:?}");
+    assert_eq!(t2.fb.started(), 0, "B started the Work card");
+
+    let personal = new_card("Personal card", "Personal");
+    wait_for(WAIT, "A's request for the Personal card names B", || {
+        t2.on_a(&personal.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    });
+    wait_for(WAIT, "B started the Personal card", || t2.fb.started() == 1);
+    assert_eq!(t2.fb.started.lock().unwrap()[0].task_id, personal.id);
+    t2.close();
+}
+
 /// A request B's log already held when B's Core started (B was away and
 /// comes back) is never started there: whether it went stale is A's call
 /// (no double start after a restart, no clock-skew miss). The person's

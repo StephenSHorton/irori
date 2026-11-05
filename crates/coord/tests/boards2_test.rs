@@ -2024,11 +2024,11 @@ fn a_version_wait_on_a_board_is_refused() {
 }
 
 /// Card #477 (docs/design/work-personal-separation.md §3): on one space,
-/// p2's card is never p1's to start, and the reverse. Shared boards don't
-/// spawn today (no board coord has the switch), so both sides turn it on
-/// here: each lists only its own person's card. A spawn request can't go
-/// in a board log at all: the store refuses `task.spawn` there, from
-/// p1's sweep, from p1's agent and from a peer's sync alike.
+/// p2's card is never p1's to start, and the reverse. Both sides turn
+/// spawning on here: each lists only its own person's card. Since #455 a
+/// board log takes `task.spawn` rows, but only the card author's devices'
+/// count: p1's sweep and p1's agent asking for p2's card change nothing
+/// on either side, and no device is asked to start it.
 #[test]
 fn another_persons_card_is_never_spawned_on_your_side() {
     let (a, b, owners) = two_people();
@@ -2043,23 +2043,19 @@ fn another_persons_card_is_never_spawned_on_your_side() {
     let b = side_reopen_with(b, P2, &owners, on());
     assert_eq!(ids(&a.c.cards_to_spawn()), std::slice::from_ref(&mine.id));
     assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
-    // p1's sweep asks for an agent for p2's card anyway: refused.
-    let n = a.st.vector().unwrap();
-    want_err(
-        a.c.request_spawn(
-            "irori",
-            SpawnAsk {
-                task_id: theirs.id.clone(),
-                device: "dev-a".into(),
-                folder: "/work".into(),
-                permission_mode: "default".into(),
-                name: "for-theirs".into(),
-                ..SpawnAsk::default()
-            },
-        ),
-        ErrorKind::Store,
+    // p1's sweep asks for an agent for p2's card anyway.
+    let _ = a.c.request_spawn(
+        "irori",
+        SpawnAsk {
+            task_id: theirs.id.clone(),
+            device: "dev-a".into(),
+            folder: "/work".into(),
+            permission_mode: "default".into(),
+            name: "for-theirs".into(),
+            ..SpawnAsk::default()
+        },
     );
-    // One of p1's agents writing it straight to the log: refused.
+    // One of p1's agents writing it straight to the log.
     let row = coord::rows::TaskSpawnRow {
         task_id: theirs.id.clone(),
         generation: 1,
@@ -2070,25 +2066,16 @@ fn another_persons_card_is_never_spawned_on_your_side() {
         at: fixed_now(),
         ..Default::default()
     };
-    assert!(a.st.append(CARD1, kinds::TASK_SPAWN, &row).is_err());
-    assert_eq!(a.st.vector().unwrap(), n, "nothing went in p1's log");
-    // A forged row arriving by sync: p2's store refuses it too.
-    let ev = Event {
-        device_id: "dev-a".into(),
-        seq: 999,
-        hlc: hlc::Timestamp(u64::MAX / 2),
-        actor: CARD1.into(),
-        kind: kinds::TASK_SPAWN.into(),
-        payload: gocompat::json::marshal(&row).unwrap(),
-        sig: Vec::new(),
-    };
-    assert!(b.st.insert(&ev).is_err(), "p2's store takes no spawn row");
-    b.c.fold_live(&[ev]);
+    if let Ok(ev) = a.st.append(CARD1, kinds::TASK_SPAWN, &row) {
+        a.c.fold_live(&[ev]);
+    }
     sync(&a, &b);
     for s in [&a, &b] {
         let t = s.c.get_task(&theirs.id).unwrap();
         assert!(t.spawn_request().is_none(), "{:?}", t.spawn_request());
+        assert!(s.c.spawns_here().is_empty(), "{:?}", s.c.spawns_here());
     }
+    assert!(!ids(&a.c.cards_to_spawn()).contains(&theirs.id));
     assert_eq!(ids(&b.c.cards_to_spawn()), std::slice::from_ref(&theirs.id));
 }
 

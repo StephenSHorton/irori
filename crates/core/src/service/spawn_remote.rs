@@ -390,6 +390,12 @@ impl Services {
             if !usable {
                 continue;
             }
+            // Only a device that runs the card's side (its device.sides
+            // pin; no pin runs every side), unless the person asked for
+            // this agent now (card #495's rule, across devices).
+            if !asked_now && !self.coord.runs_side(dev, &t.side) {
+                continue;
+            }
             if !need.is_empty() && h.machine() != need {
                 continue;
             }
