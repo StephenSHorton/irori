@@ -482,7 +482,10 @@ export function App() {
         needs
           .filter(
             (n) =>
-              n.kind === "check" || n.kind === "decision" || n.kind === "merge"
+              n.kind === "check" ||
+              n.kind === "decision" ||
+              n.kind === "merge" ||
+              n.kind === "gone"
           )
           .map((n) => n.id)
       ),

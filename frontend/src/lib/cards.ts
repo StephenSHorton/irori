@@ -45,6 +45,7 @@ import {
   type CardReview,
   type CardRef,
   type WaitPr,
+  type GoneWait,
   type CardSubtask,
   type CardWait,
   LinkKind,
@@ -84,6 +85,7 @@ export type {
   CardReview,
   CardRef,
   WaitPr,
+  GoneWait,
   CardSubtask,
   CardSummary,
   CardThreadItem,
@@ -749,6 +751,7 @@ function summary(c: CardDetail): CardSummary {
     atCap: c.atCap,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
+    goneWait: c.goneWait,
     working: c.working,
     watching: c.watching,
     holder: c.holder,
@@ -1623,6 +1626,13 @@ export const cards = {
     if (inWails()) return BoardService.HandOn(id)
     const c = sampleCard(id)
     c.state = TaskState.Submitted
+    // Its open items close as it goes (card #520: its Needs you row too).
+    c.goneWait = undefined
+    for (const b of c.blockers)
+      if (b.goneAgent) {
+        b.state = BlockerState.Resolved
+        b.goneAgent = undefined
+      }
     sampleChanged()
     return "It is back on the Board: Irori starts an agent for it."
   },

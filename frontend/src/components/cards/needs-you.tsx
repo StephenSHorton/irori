@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { byRecommendation } from "@/components/cards/card-detail"
 import { Asker, cardRef } from "@/components/cards/bits"
+import { ConfirmDialog } from "@/components/common/confirm-button"
 import {
   BlockerState,
   cards as cardsApi,
@@ -22,6 +23,7 @@ import {
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
+  goneTitle,
   loopLine,
   mergeLine,
   NOT_TRUSTED,
@@ -89,6 +91,8 @@ export function NeedsYou({
                 <CardNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "merge" ? (
                 <MergeNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "gone" ? (
+                <GoneNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
@@ -123,6 +127,8 @@ const kinds = {
   decision: { label: "Decision", variant: "destructive" },
   // Card #509: an agent waits on the person to merge its PR.
   merge: { label: "Merge", variant: "warning" },
+  // Card #520: a wait on an agent that is gone, on a card nobody holds.
+  gone: { label: "Gone", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
@@ -359,6 +365,68 @@ function MergeNeed({
         </Button>
         <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
           Open card
+        </Button>
+      </span>
+      <Said error={error} done={done} />
+    </Row>
+  )
+}
+
+// GoneNeed is a card nobody holds whose wait no agent will end (card
+// #520): it waits on an agent that is gone, or its gone agent raised an
+// outside wait. It sat as an amber line on the card's page, unseen. Hand
+// to an agent puts the card back on the Board with what was open said on
+// it; Open #N has Stop waiting and the rest.
+function GoneNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "gone" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const c = need.card
+  const g = need.wait
+  const { error, done, run } = useAct()
+  const [asking, setAsking] = useState(false)
+  const name = displayName(g.agent)
+  const said = plainLine(g.question)
+  const ref = cardRef(c)
+  return (
+    <Row
+      kind="gone"
+      where={<Where card={c} />}
+      at={need.at}
+      now={now}
+      title={goneTitle(c, g)}
+    >
+      <p className="text-sm break-words text-muted-foreground">
+        {plainLine(c.title)}
+        {said ? `: “${said}”` : ""}
+        {!g.waitedOn && g.on
+          ? ` It waits on ${plainLine(g.on)}, and ${name}, who raised it, is gone.`
+          : ""}{" "}
+        Nobody holds the card, so nothing will move it
+        {g.more ? ` (${g.more} more like it)` : ""}.
+      </p>
+      <span className="flex flex-wrap gap-1.5">
+        <ConfirmDialog
+          question={`Hand ${ref} to a new agent? ${name} is gone. Its open items close and are said on the card, and Irori starts an agent for it, or the next free agent takes it.`}
+          confirmLabel="Hand to an agent"
+          variant="default"
+          open={asking}
+          onOpenChange={setAsking}
+          onConfirm={() => run(() => cardsApi.handOn(c.id), (r) => r)}
+          onError={() => {}}
+          trigger={
+            <Button size="sm" onClick={() => setAsking(true)}>
+              Hand to an agent
+            </Button>
+          }
+        />
+        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
+          Open {ref}
         </Button>
       </span>
       <Said error={error} done={done} />
