@@ -995,6 +995,7 @@ impl Fold {
         self.asks = super::asks::AskBook::default();
         self.reset_stale();
         self.links.clear();
+        self.pr_states.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).

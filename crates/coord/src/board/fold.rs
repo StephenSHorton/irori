@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 12] = [
+pub const FOLLOW_KINDS: [&str; 13] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,9 @@ pub const FOLLOW_KINDS: [&str; 12] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // What GitHub said about a card's PR (card #542): a phone has no gh, so
+    // these rows are all it knows, and a restart must keep them.
+    kinds::PR_STATE,
 ];
 
 /// Whether coord folds `kind`.
@@ -2034,7 +2037,9 @@ impl Fold {
             // Or, for a PR an external wait is on (card #509), from a device
             // of the person whose agent raised the wait: its poller asks
             // whoever holds the card.
-            kinds::PR_STATE => self.tasks.get(&p.task_id).is_some_and(|t| {
+            // A row ahead of its card waits beside it (card #542): rows come
+            // device by device, and nothing writes a settled PR's row again.
+            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|t| {
                 t.holders
                     .iter()
                     .chain(&t.co_holders)
