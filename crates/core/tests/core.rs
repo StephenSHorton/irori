@@ -404,6 +404,7 @@ fn test_record_rewrites_seen_after_a_lost_added() {
         local: None,
         liveness: None,
         seen: None,
+        via: None,
         revoked: None,
     })
     .unwrap();

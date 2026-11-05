@@ -90,6 +90,10 @@ pub struct AgentCard {
     pub last_tool: String,
     #[specta(optional)]
     pub device_state: String,
+    /// The device its rows come through while there is no session with it
+    /// (card #544).
+    #[specta(optional)]
+    pub device_via: String,
     /// When the current status began, omitted when unknown (card #489).
     #[specta(optional)]
     pub status_since: Time,
