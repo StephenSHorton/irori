@@ -205,7 +205,7 @@ export function ThreadView({
         compact
         empty={
           t.state === "waiting" && t.agentsNow
-            ? "No answer yet. Irori starts an agent to answer it."
+            ? "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
             : t.agentsNow
               ? "No answer yet."
               : "No answer yet. Agents answer now is off: agents in it read it at their next turn."

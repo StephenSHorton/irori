@@ -1540,11 +1540,21 @@ impl Services {
                 b.stop.on_cancel(move || q.close())
             };
             let s = Arc::downgrade(self);
+            let co = Arc::downgrade(b.coord());
             b.spawn("changes", move || {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
                         Some(s) => {
+                            // A board thread goes out, and starts its
+                            // agent, at once (card #512): its rows kick the
+                            // hand-out as the private log's do.
+                            if co.upgrade().is_some_and(|c| {
+                                c.get_task(&ch.task_id)
+                                    .is_some_and(|t| t.open_ask().is_some())
+                            }) {
+                                s.asks_kick.kick();
+                            }
                             s.boards.tell(ch);
                             // A shared card's blocker resolved (card #482).
                             s.settle_notifications();

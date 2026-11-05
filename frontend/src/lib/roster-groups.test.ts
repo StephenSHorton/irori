@@ -77,13 +77,24 @@ describe("spawnedKeys", () => {
     ])
     expect([...k]).toEqual(["thyme"])
   })
-  test("blocked: on a permission prompt, or on a card with an open blocker (card #512)", () => {
+  test("blocked: on a permission prompt, or idle on a blocked card (card #512)", () => {
     const g = rosterGroups(
-      [a("fern", "waiting"), a("clover"), a("mallow"), a("sorrel", "gone")],
+      [
+        a("fern", "waiting"),
+        a("clover", "idle"),
+        a("mallow", "idle"),
+        a("sorrel", "gone"),
+        a("thyme"),
+        a("basil", "idle"),
+      ],
       [
         { ...card("61", [{ key: "clover", spawned: true }]), openBlockers: 1 },
         card("66", [{ key: "mallow" }]),
         { ...card("67", [{ key: "sorrel" }]), openBlockers: 2 },
+        // Busy on a blocked card: working, not blocked.
+        { ...card("68", [{ key: "thyme" }]), openBlockers: 1 },
+        // Ready for your check: not a block.
+        { ...card("69", [{ key: "basil" }]), openBlockers: 1, ready: true },
       ]
     )
     expect([...g.blocked].sort()).toEqual(["clover", "fern"])

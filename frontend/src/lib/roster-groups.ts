@@ -14,8 +14,10 @@ type Card = {
   working: { key: string; spawned?: boolean; status: string }[]
   starting?: string
   atCap?: string
-  // Open blockers on the card (card #512): its agents are blocked.
+  // Open blockers on the card (card #512): its idle agents are blocked.
   openBlockers?: number
+  // Ready for the person's check: one of openBlockers, not a block.
+  ready?: boolean
 }
 
 export type OnCard<A> = {
@@ -33,7 +35,8 @@ export type RosterGroups<A> = {
   starting: number
   atCap: number
   // Live agents that are blocked (card #512): on a permission prompt
-  // ("waiting"), or working on a card with an open blocker.
+  // ("waiting"), or idle on a card with an open blocker (a busy one is
+  // working, and a card ready for your check isn't blocked).
   blocked: Set<string>
 }
 
@@ -59,8 +62,9 @@ export function rosterGroups<A extends Agent>(
   for (const c of cards) {
     if (c.starting) starting++
     else if (c.atCap) atCap++
-    if ((c.openBlockers ?? 0) > 0)
-      for (const w of c.working) if (byKey.has(w.key)) blocked.add(w.key)
+    if ((c.openBlockers ?? 0) - (c.ready ? 1 : 0) > 0)
+      for (const w of c.working)
+        if (byKey.get(w.key)?.status === "idle") blocked.add(w.key)
     const here: A[] = []
     for (const w of c.working) {
       if (!w.spawned || placed.has(w.key)) continue

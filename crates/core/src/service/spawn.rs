@@ -1972,7 +1972,7 @@ impl Services {
                         && at_least(
                             &(self.now)(),
                             &quiet_since,
-                            self.spawn_setting("").idle_limit(),
+                            self.spawn_setting(&m.board).idle_limit(),
                         );
                     if lost || quiet {
                         self.begin_end(&a.key);

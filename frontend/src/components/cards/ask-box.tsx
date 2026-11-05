@@ -83,16 +83,20 @@ export function AskBox({
       // On a board the other people's agents are told by their own
       // devices: count every agent the thread's round names.
       const n = onBoard ? (res.task.ask?.told ?? 0) : (res.told.to?.length ?? 0)
+      // Handed at once to an idle agent with Offer it cards on: no agent
+      // starts for it.
+      const handed = !!res.task.ask?.taker
+      const more = handed
+        ? ""
+        : " An idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
       setLine({
         text: !now
           ? "Sent. Agents answer now was off: no agent was woken or handed it."
-          : onBoard
-            ? n === 0
-              ? "Sent. Irori starts an agent for it when spawning is on."
-              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. Irori starts an agent for it too, when spawning is on.`
+          : handed && n <= 1
+            ? "Sent. An agent with Offer it cards on has it."
             : n === 0
-              ? "Sent. Irori starts an agent for it when spawning is on."
-              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}. Irori starts an agent for it too, when spawning is on.`,
+              ? `Sent.${more}`
+              : `Sent to ${n === 1 ? "1 agent" : `${n} agents`}.${more}`,
       })
       setText("")
       setMentions([])
