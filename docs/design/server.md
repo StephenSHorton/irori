@@ -177,7 +177,7 @@ Steps 2 to 4 are separate cards, and #563 doesn't wait on them: a delete works w
 
 Raised on #562. Recommended picks are the ones written above.
 
-1. **Moves and deletes:** carry them in rows every current device reads (§3), or new row kinds behind a level 2 gate, which any device that never updates can block.
+1. **Moves and deletes:** decided (b1): carry them in rows every current device reads (§3), and build it now.
 2. **The server:** a role on the always-on PC (§4.2), or a rented machine as well (§4.3).
 3. **Which devices block:** only those known to be too old (§5), or everyone not yet heard from, as today, but remembered across restarts.
 4. **The always-on PC's restart:** by itself when no agent is working (§4.2), or keep the Install / Later card and only check and download on a timer.
