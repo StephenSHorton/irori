@@ -259,11 +259,14 @@ pub fn opened_card(o: &Opened, tasks: &[Task], now_ms: i64) -> Option<String> {
     held.next().is_none().then(|| one.id.clone())
 }
 
-/// The logins the desk trusts for `p`: its `trusted` list, plus the PR's
-/// own login when the person OK'd it at this head (a new push needs a new
-/// OK).
+/// The logins the desk trusts for `p`: its `trusted` list, the person's
+/// own login as the poll's gh heard it (card #521), plus the PR's own
+/// login when the person OK'd it at this head (a new push needs a new OK).
 pub fn desk_logins(desk: &coord::Desk, p: &coord::DeskPr) -> Vec<String> {
     let mut logins = desk.settings.trusted.clone();
+    if let Some(v) = desk.prs.as_ref().map(|s| s.viewer.trim()).filter(|v| !v.is_empty()) {
+        logins.push(v.to_string());
+    }
     let ok = desk
         .oks
         .get(&p.number)
