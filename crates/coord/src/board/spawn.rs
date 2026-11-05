@@ -634,8 +634,12 @@ impl Fold {
                 (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
-            // unless the person asked for an agent on it here.
-            .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
+            // unless the person asked for an agent on it here, or another
+            // device with its repo runs it: the Core's choice of device
+            // then sends it there (card #523).
+            .filter(|t| {
+                self.runs_here(t) || self.spawn_now.contains(&t.id) || self.runs_elsewhere(t)
+            })
             .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))

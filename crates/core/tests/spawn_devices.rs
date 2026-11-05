@@ -387,6 +387,103 @@ fn a_card_is_never_sent_to_a_device_that_doesnt_run_its_side() {
     t2.close();
 }
 
+/// Card #523: a Work card made on a device that runs Personal only (A)
+/// starts on the person's Work device that has the repo (B), not left
+/// waiting on A; A starts nothing and the card never says it waits.
+#[test]
+fn an_off_side_card_starts_on_a_device_that_runs_its_side() {
+    let t2 = Two::new();
+    let (a_id, b_id) = (t2.a_id(), t2.b_id());
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a.core
+        .set_device_sides(&["Personal".to_string()])
+        .unwrap();
+    t2.b.core.set_device_sides(&["Work".to_string()]).unwrap();
+    t2.a_sees_b_host(true);
+    wait_for(WAIT, "A has both side pins", || {
+        let s = t2.a.core.device_sides();
+        s.get(&a_id) == Some(&vec!["Personal".to_string()])
+            && s.get(&b_id) == Some(&vec!["Work".to_string()])
+    });
+    let work =
+        t2.a.core
+            .coord()
+            .create_task(
+                &format!("user:{a_id}"),
+                NewTask {
+                    title: "Work card".into(),
+                    repo_key: REPO.into(),
+                    side: "Work".into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+    t2.spawning_on_a();
+    wait_for(WAIT, "A's request for the Work card names B", || {
+        t2.on_a(&work.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    });
+    wait_for(WAIT, "B started the Work card", || t2.fb.started() == 1);
+    assert_eq!(t2.fb.started.lock().unwrap()[0].task_id, work.id);
+    t2.kick();
+    assert_eq!(t2.fa.started(), 0, "A started the Work card");
+    assert_eq!(t2.fb.started(), 1, "B started it once");
+    assert_eq!(
+        t2.on_a(&work.id).side_wait,
+        "",
+        "it doesn't wait on its side"
+    );
+    t2.close();
+}
+
+/// Card #523, the other half: with no device that runs Work and has the
+/// repo (B has it but runs Personal only, like A), the Work card made on
+/// A still waits, asks no device, starts nothing and says why.
+#[test]
+fn an_off_side_card_waits_and_says_so_when_no_device_runs_its_side() {
+    let t2 = Two::new();
+    let (a_id, b_id) = (t2.a_id(), t2.b_id());
+    t2.spawner_b();
+    t2.spawner_a();
+    for d in [&t2.a, &t2.b] {
+        d.core.set_device_sides(&["Personal".to_string()]).unwrap();
+    }
+    t2.a_sees_b_host(true);
+    wait_for(WAIT, "A has both side pins", || {
+        let s = t2.a.core.device_sides();
+        s.get(&a_id) == Some(&vec!["Personal".to_string()])
+            && s.get(&b_id) == Some(&vec!["Personal".to_string()])
+    });
+    let work =
+        t2.a.core
+            .coord()
+            .create_task(
+                &format!("user:{a_id}"),
+                NewTask {
+                    title: "Work card".into(),
+                    repo_key: REPO.into(),
+                    side: "Work".into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+    t2.spawning_on_a();
+    t2.kick();
+    t2.kick();
+    let t = t2.on_a(&work.id);
+    assert!(
+        t.spawn_request().is_none(),
+        "asked a device: {:?}",
+        t.spawn_request()
+    );
+    assert_eq!(t.side_wait, "no device here runs Work");
+    assert_eq!(t2.fa.started(), 0, "A started the Work card");
+    assert_eq!(t2.fb.started(), 0, "B started the Work card");
+    t2.close();
+}
+
 /// A request B's log already held when B's Core started (B was away and
 /// comes back) is never started there: whether it went stale is A's call
 /// (no double start after a restart, no clock-skew miss). The person's

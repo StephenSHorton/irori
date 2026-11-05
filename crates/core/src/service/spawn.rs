@@ -1190,6 +1190,7 @@ impl Services {
         self.reap_ended();
         self.sweep_permission_waits();
         self.say_ask_crashes();
+        self.share_repo_hosts();
         if self.inbox.policy().paused {
             return;
         }

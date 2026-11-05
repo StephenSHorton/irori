@@ -277,6 +277,29 @@ impl Services {
         out
     }
 
+    /// Tells the board which of the person's devices can start agents in
+    /// each repo (card #523), from their `spawn.host` rows: a card on a
+    /// side this device doesn't run then goes through to
+    /// [`Self::spawn_device`], and says it waits on its side only when no
+    /// such device runs it. A revoked device, or one that may not start
+    /// agents, is left out.
+    pub(crate) fn share_repo_hosts(&self) {
+        let rows = self.mesh.node.devices(false);
+        let usable = |d: &str| match rows.iter().find(|r| r.device_id == d) {
+            Some(r) => {
+                !r.revoked && (r.role.is_empty() || r.role == irori_identity::objects::ROLE_DESKTOP)
+            }
+            None => d == self.device.id,
+        };
+        let pairs: Vec<(String, String)> = self
+            .hosts()
+            .into_iter()
+            .filter(|(dev, _)| usable(dev))
+            .flat_map(|(dev, h)| h.repos.into_iter().map(move |r| (r.repo_key, dev.clone())))
+            .collect();
+        self.coord.set_repo_hosts(pairs);
+    }
+
     /// Device `dev`'s cap: the person's, else its OS's default.
     pub(crate) fn cap_on(&self, dev: &str, host: Option<&SpawnHost>) -> i64 {
         if let Some(c) = self
@@ -338,7 +361,8 @@ impl Services {
     /// goes last, so the next request names the next device; a card that
     /// needs a machine never moves off it. Asks and helpers start here,
     /// and so does a card no other device can take (no repo named, nobody
-    /// published one), as before.
+    /// published one), as before, unless this device doesn't run its side:
+    /// then it waits (card #523).
     pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
         let me = self.device.id.clone();
         if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
@@ -432,6 +456,12 @@ impl Services {
         cands.sort();
         let Some((_, dev)) = cands.into_iter().next() else {
             if waits_for_machine || remote_full {
+                return None;
+            }
+            // A card on a side this device doesn't run never starts here
+            // when no other device can take it (card #523): it waits, and
+            // its card says so.
+            if !asked_now && !self.coord.runs_side(&me, &t.side) {
                 return None;
             }
             // Its newest request failed on another device that is the only

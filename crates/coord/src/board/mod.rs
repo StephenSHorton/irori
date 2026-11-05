@@ -503,6 +503,25 @@ impl Coord {
         self.lock().sides.runs(device, side)
     }
 
+    /// Which of the person's devices can start agents in each repo (card
+    /// #523): `(repo key, device)` pairs from their `spawn.host` rows,
+    /// devices that may no longer start agents left out. A card on a side
+    /// this device doesn't run is then sent to one of them that runs it,
+    /// and says it waits only when none does.
+    pub fn set_repo_hosts(&self, hosts: impl IntoIterator<Item = (String, String)>) {
+        let mut m: std::collections::HashMap<String, Vec<String>> = Default::default();
+        for (repo, dev) in hosts {
+            let v = m.entry(ledger::canonical_repo_key(&repo)).or_default();
+            if !v.contains(&dev) {
+                v.push(dev);
+            }
+        }
+        for v in m.values_mut() {
+            v.sort();
+        }
+        self.lock().repo_hosts = m;
+    }
+
     /// The side a new card typed on this device takes ("" for none).
     pub fn home_side(&self) -> String {
         let f = self.lock();

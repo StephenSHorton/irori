@@ -542,10 +542,34 @@ impl Fold {
 
     /// Whether this device runs card t's side (card #495): a card with no
     /// side, or a device with no pin, runs anywhere. A card this device
-    /// hands out on a side it doesn't run waits: nothing here spawns it or
-    /// hands it out, and it is never handed to another device instead.
+    /// hands out on a side it doesn't run is never spawned here or handed
+    /// to an agent here; it starts on another device that runs its side
+    /// and has its repo ([`Self::runs_elsewhere`], card #523), or waits.
     pub(crate) fn runs_here(&self, t: &Task) -> bool {
         self.sides.runs(&self.dev, &t.side)
+    }
+
+    /// Whether another of the person's devices that published a checkout
+    /// of card t's repo runs its side (card #523): the private board's
+    /// sweep then lets the card through to the Core's choice of device,
+    /// which sends it there rather than have it wait here. Never on a
+    /// shared board, whose cards start only on their maker's device, and
+    /// never for an ask or a lead's helper, which start only here.
+    pub(crate) fn runs_elsewhere(&self, t: &Task) -> bool {
+        if self.on_board
+            || t.repo_key.is_empty()
+            || t.open_ask().is_some()
+            || (t.spawn && !t.parent.is_empty())
+        {
+            return false;
+        }
+        let made_on = owner::device_of(&t.created_by);
+        self.repo_hosts
+            .get(&ledger::canonical_repo_key(&t.repo_key))
+            .is_some_and(|ds| {
+                ds.iter()
+                    .any(|d| d != made_on && d != &self.dev && self.sides.runs(d, &t.side))
+            })
     }
 
     /// Copies the sides each device runs where the inbox's off-side hold
@@ -583,6 +607,11 @@ impl Fold {
         }
         let dev = owner::device_of(&t.created_by);
         if dev.is_empty() || self.sides.runs(dev, &t.side) {
+            return String::new();
+        }
+        // Another device with the repo runs it (card #523): the card goes
+        // there, so it doesn't wait on its side.
+        if self.runs_elsewhere(t) {
             return String::new();
         }
         format!("no device here runs {}", crate::sides::clean(&t.side))

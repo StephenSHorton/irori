@@ -237,6 +237,11 @@ pub struct Fold {
     pub(crate) person: String,
     /// The sides each device runs (card #494), from `device.sides` rows.
     pub(crate) sides: crate::sides::Sides,
+    /// The person's devices that can start agents in each repo (card
+    /// #523), by canonical repo key: what the Core read from their
+    /// `spawn.host` rows. A card on a side this device doesn't run goes
+    /// to one of them that does, and only waits when none does.
+    pub(crate) repo_hosts: HashMap<String, Vec<String>>,
     /// See [`super::Options::spawning`].
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// See [`super::Options::offers`].
@@ -417,6 +422,7 @@ impl Fold {
             person,
             key_person: o.key_person,
             sides: crate::sides::Sides::new(),
+            repo_hosts: HashMap::new(),
             spawning: o.spawning,
             offers: o.offers,
             agents_per_card: o.agents_per_card,
