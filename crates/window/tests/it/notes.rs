@@ -5,12 +5,11 @@ use crate::common;
 use common::*;
 use irori_window::notes::{NoteEditInput, NoteInput};
 
-fn input(scope: &str, text: &str) -> NoteInput {
+fn input(text: &str, tags: &[&str]) -> NoteInput {
     NoteInput {
-        scope: scope.into(),
         kind: "rule".into(),
         text: text.into(),
-        tags: vec!["everywhere".into()],
+        tags: tags.iter().map(|t| t.to_string()).collect(),
     }
 }
 
@@ -24,7 +23,6 @@ fn notes_in_the_window() {
         .core
         .propose_note(
             &r.key_a,
-            "mine",
             coord::NewNote {
                 kind: "gotcha".into(),
                 text: "Load 20 makes presence tests time out.".into(),
@@ -33,15 +31,15 @@ fn notes_in_the_window() {
             },
         )
         .unwrap();
-    let list = w.notes_list("", false).unwrap();
+    let list = w.notes_list(false).unwrap();
     assert_eq!(list.len(), 1);
     let v = &list[0];
-    assert_eq!((v.state.as_str(), v.scope.as_str()), ("proposed", "mine"));
+    assert_eq!(v.state, "proposed");
     assert!(!v.by_person, "{v:?}");
     assert_eq!(v.stale, "");
 
     // Keep: live, accepted by the person.
-    let k = w.note_accept(&format!("note:{}", p.note.id)).unwrap();
+    let k = w.note_accept(&format!("note:{}", p.id)).unwrap();
     assert_eq!(k.state, "accepted");
     assert_eq!(k.accepted_by, w.core.user_sender().key);
 
@@ -50,7 +48,7 @@ fn notes_in_the_window() {
     w.core
         .edit_note(
             &r.key_a,
-            &p.note.id,
+            &p.id,
             coord::NoteEdit {
                 text: Some("Load 20 times presence tests out.".into()),
                 ..Default::default()
@@ -58,12 +56,12 @@ fn notes_in_the_window() {
             "shorter",
         )
         .unwrap();
-    let v = &w.notes_list("mine", false).unwrap()[0];
+    let v = &w.notes_list(false).unwrap()[0];
     let pend = v.pending.as_ref().expect("pending edit");
     assert_eq!((pend.why.as_str(), pend.remove), ("shorter", false));
     let e = w
         .note_edit(
-            &p.note.id,
+            &p.id,
             NoteEditInput {
                 text: Some("Under load, rerun presence tests alone.".into()),
                 ..NoteEditInput::default()
@@ -90,7 +88,6 @@ fn notes_in_the_window() {
         .core
         .propose_note(
             &r.key_a,
-            "mine",
             coord::NewNote {
                 kind: "decision".into(),
                 text: "Answers on this card are decisions.".into(),
@@ -102,16 +99,13 @@ fn notes_in_the_window() {
         )
         .unwrap();
     let kept = w
-        .note_accept(&format!("note:{}", from_card.note.id))
+        .note_accept(&format!("note:{}", from_card.id))
         .unwrap();
-    assert_eq!(
-        (kept.state.as_str(), kept.scope.as_str()),
-        ("accepted", "mine")
-    );
+    assert_eq!(kept.state, "accepted");
     assert_eq!(kept.task_id, t.id);
     w.delete_card(&t.id).unwrap();
     let kept = w
-        .notes_list("mine", false)
+        .notes_list(false)
         .unwrap()
         .into_iter()
         .find(|n| n.id == kept.id)
@@ -120,18 +114,18 @@ fn notes_in_the_window() {
 
     // Removed: gone from the list, kept in the history view.
     w.note_remove(&kept.id, "card gone").unwrap();
-    assert_eq!(w.notes_list("mine", false).unwrap().len(), 1);
-    assert_eq!(w.notes_list("mine", true).unwrap().len(), 2);
+    assert_eq!(w.notes_list(false).unwrap().len(), 1);
+    assert_eq!(w.notes_list(true).unwrap().len(), 2);
 
-    // Alone on a board nothing waits (#392's gate): a board note shows
-    // under its board, made by the person, so it's live at once. (The
-    // wait for another device is tested in core's boards.rs.)
+    // New note about a shared space (card #616): the person's own, live at
+    // once, in the one list.
     w.boards_create("MLG", "mlg").unwrap();
-    let on_board = w.note_new(input("mlg", "Ship to the repo.")).unwrap();
-    assert_eq!(on_board.scope, "mlg");
-    assert_eq!(on_board.state, "accepted");
-    assert!(on_board.by_person);
-    assert_eq!(w.notes_list("mlg", false).unwrap().len(), 1);
+    let about = w
+        .note_new(input("Ship to the repo.", &["board:mlg"]))
+        .unwrap();
+    assert_eq!(about.state, "accepted");
+    assert!(about.by_person);
+    assert_eq!(w.notes_list(false).unwrap().len(), 2);
 }
 
 /// Card #468: the sidebar's count, without notes_list's views and Still
@@ -146,7 +140,6 @@ fn notes_waiting_counts_what_new_shows() {
         .core
         .propose_note(
             &r.key_a,
-            "mine",
             coord::NewNote {
                 kind: "gotcha".into(),
                 text: "An agent's proposal waits.".into(),
@@ -155,15 +148,15 @@ fn notes_waiting_counts_what_new_shows() {
             },
         )
         .unwrap();
-    w.note_new(input("mine", "A person's note is live at once."))
+    w.note_new(input("A person's note is live at once.", &["everywhere"]))
         .unwrap();
     assert_eq!(w.notes_waiting().unwrap(), 1);
-    w.note_accept(&format!("note:{}", p.note.id)).unwrap();
+    w.note_accept(&format!("note:{}", p.id)).unwrap();
     assert_eq!(w.notes_waiting().unwrap(), 0);
     w.core
         .edit_note(
             &r.key_a,
-            &p.note.id,
+            &p.id,
             coord::NoteEdit {
                 text: Some("A pending edit waits too.".into()),
                 ..Default::default()
@@ -173,7 +166,7 @@ fn notes_waiting_counts_what_new_shows() {
         .unwrap();
     assert_eq!(w.notes_waiting().unwrap(), 1);
     // The same count the Notes page's New shows from notes_list.
-    let listed = w.notes_list("", false).unwrap();
+    let listed = w.notes_list(false).unwrap();
     let waiting = listed
         .iter()
         .filter(|n| n.state == "proposed" || (n.state == "accepted" && n.pending.is_some()))
@@ -215,7 +208,6 @@ fn notes_waiting_against_notes_list_timing() {
         w.core
             .propose_note(
                 &r.key_a,
-                "mine",
                 coord::NewNote {
                     kind: "gotcha".into(),
                     text: format!("Note {i} about src/f{i}.rs."),
@@ -225,7 +217,7 @@ fn notes_waiting_against_notes_list_timing() {
             )
             .unwrap();
     }
-    let list = w.notes_list("", false).unwrap();
+    let list = w.notes_list(false).unwrap();
     assert_eq!(list.len(), N);
     assert_eq!(list.iter().filter(|n| !n.stale.is_empty()).count(), N / 2);
     let best = |f: &dyn Fn() -> usize| {
@@ -239,7 +231,7 @@ fn notes_waiting_against_notes_list_timing() {
     };
     // What the IPC reply carried: the views as JSON.
     let before = best(&|| {
-        serde_json::to_vec(&w.notes_list("", false).unwrap())
+        serde_json::to_vec(&w.notes_list(false).unwrap())
             .unwrap()
             .len()
     });

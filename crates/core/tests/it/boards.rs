@@ -536,90 +536,53 @@ fn a_new_board_tag_is_eight_at_most() {
     assert!(e.to_string().contains("8 characters at most"), "{e}");
 }
 
-/// Card #411: a board note waits, like a space row, while a member device
-/// is known to be too old for note.* (an older Irori would stall on it); a
-/// Mine note never waits. Card #577: one nobody has heard from yet doesn't
-/// hold a note back, and shows as a warning line. Both board notes then
-/// reach the other device.
+/// Card #616: notes are Mine only, but board logs still take note.* rows,
+/// since a device on 0.11.0-0.12.3 can still write one and refusing it
+/// would stall that device's stream. Such a row syncs to the other device
+/// like any other, and neither Core shows it.
 #[test]
-fn a_board_note_waits_for_every_device_then_reaches_it() {
+fn old_board_note_rows_still_sync_and_go_unread() {
     let (a, b) = paired();
     let id = a.core.create_board("MLG", "mlg").unwrap();
-    let me = a.core.user_sender().key;
-    let nn = |text: &str| coord::NewNote {
-        kind: "rule".into(),
-        text: text.into(),
-        tags: vec!["everywhere".into()],
-        ..Default::default()
-    };
-    // Nobody has any word from b yet: that refuses nothing (no-server.md
-    // §5), and b shows in the warnings instead.
-    let short = b.core.device_id()[..6].to_string();
-    wait_for(45, "a is warned b is unheard", || {
-        a.core
-            .board_list()
-            .iter()
-            .find(|s| s.board_id == id)
-            .is_some_and(|s| {
-                s.warnings
-                    .iter()
-                    .any(|w| w.starts_with("Nothing heard yet") && w.contains(&short))
-            })
-    });
-    let early = a
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, a.core.person().id);
+    let old = a
         .core
-        .propose_note(&me, "mlg", nn("Models stay out of the repo."))
-        .unwrap();
-    a.core
-        .propose_note(&me, "mine", nn("Home IPs stay out of MLG."))
-        .unwrap();
-    // As if a last heard b on an Irori before notes: refused, naming b,
-    // while a Mine note still goes.
-    a.core
-        .board_store(&id)
+        .board_coord(&id)
         .unwrap()
-        .append_local(
-            "irori",
-            mesh::boardmesh::KIND_BOARD_HELLO,
-            &mesh::boardmesh::SavedHello {
-                device_id: b.core.device_id().to_string(),
-                core_version: "0.10.2".into(),
-                spaces: 0,
-                seq: i64::MAX,
+        .propose_note(
+            &person,
+            coord::NewNote {
+                kind: "rule".into(),
+                text: "OLD-BOARD-NOTE: models stay out of the repo.".into(),
+                tags: vec!["everywhere".into()],
                 ..Default::default()
             },
         )
         .unwrap();
-    let e = a
+    // A card written after it still arrives: the stream didn't stall.
+    let after = a
         .core
-        .propose_note(&me, "mlg", nn("Too soon."))
-        .unwrap_err();
-    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
-    assert!(
-        e.to_string().contains("waiting on") && e.to_string().contains(&short),
-        "{e}"
-    );
-    assert_eq!(a.core.notes("mlg", false).unwrap().len(), 1, "not written");
-    a.core
-        .propose_note(&me, "mine", nn("Mine notes never wait."))
+        .board_coord(&id)
+        .unwrap()
+        .create_task(
+            &person,
+            coord::NewTask {
+                title: "after the note".into(),
+                ..Default::default()
+            },
+        )
         .unwrap();
-    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
-    // b's live hello beats the old saved one.
-    wait_for(45, "a hears b read spaces", || {
-        a.core.space_not_ready(&id).unwrap().is_empty()
-    });
-    let n = a
-        .core
-        .propose_note(&me, "mlg", nn("Ship models to the repo."))
-        .unwrap();
-    assert_eq!(n.note.state, coord::NOTE_ACCEPTED);
-    wait_for(45, "b gets both board notes", || {
-        b.core.notes(&id, false).is_ok_and(|ns| {
-            [&early.note.id, &n.note.id]
-                .iter()
-                .all(|id| ns.iter().any(|x| &&x.note.id == id))
+    wait_for(45, "b gets the note row and the card after it", || {
+        b.core.kick_board(&id);
+        b.core.board_coord(&id).is_ok_and(|co| {
+            co.notes(false).iter().any(|n| n.id == old.id) && co.get_task(&after.id).is_some()
         })
     });
+    for d in [&a, &b] {
+        assert!(d.core.notes(false).is_empty());
+        assert!(d.core.search_notes("OLD-BOARD-NOTE", false).is_empty());
+    }
 }
 
 /// Card #392: a member device not yet heard to read space rows (an older
