@@ -251,12 +251,27 @@ impl BoardRules {
         self.lock().counts.outside += 1;
     }
 
-    /// Go `checkShape`: the allow-list and the actor, on every row.
+    /// Go `checkShape`: the allow-list and the actor, on a row this device
+    /// writes. Strict, so our own bugs show at the write.
     pub(crate) fn check_shape(&self, actor: &str, kind: &str, payload: &[u8]) -> Result<()> {
         if !kinds::board_accepted(kind) {
             self.lock().counts.kind += 1;
             return Err(Error::wrap(ErrorKind::NotBoardKind, kind));
         }
+        self.check_actor(actor, kind, payload)
+    }
+
+    /// [`Self::check_shape`] for a row another device wrote: the same, but
+    /// a kind [`kinds::board_tolerated`] names passes the allow-list. Its
+    /// actor is still checked, and so are its signature, cert, cut and gap.
+    pub(crate) fn check_pulled(&self, actor: &str, kind: &str, payload: &[u8]) -> Result<()> {
+        if kinds::board_tolerated(kind) {
+            return self.check_actor(actor, kind, payload);
+        }
+        self.check_shape(actor, kind, payload)
+    }
+
+    fn check_actor(&self, actor: &str, kind: &str, payload: &[u8]) -> Result<()> {
         if !kinds::board_actor_ok(actor) {
             self.count_actor();
             return Err(Error::wrap(ErrorKind::BoardActor, quote(actor)));

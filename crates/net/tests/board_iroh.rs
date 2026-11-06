@@ -137,6 +137,22 @@ impl Dev {
     }
 
     fn build_with(person: Person, creator: &MemberPin, open_gate: bool, gossip: bool) -> Dev {
+        Dev::build_as(person, creator, open_gate, gossip, true)
+    }
+
+    /// A newer Irori: it writes kinds this build has never heard of, which
+    /// this build's own board log wouldn't let it.
+    fn newer(person: Person, creator: &MemberPin) -> Dev {
+        Dev::build_as(person, creator, false, false, false)
+    }
+
+    fn build_as(
+        person: Person,
+        creator: &MemberPin,
+        open_gate: bool,
+        gossip: bool,
+        strict: bool,
+    ) -> Dev {
         let dir = tempfile::tempdir().unwrap();
         let key = rand_key();
         let id = person.root.clone();
@@ -149,7 +165,7 @@ impl Dev {
                 store::OpenOptions {
                     signer: Some(Arc::new(KeySigner(key.clone()))),
                     verifier: Some(verifier.clone()),
-                    board: true,
+                    board: strict,
                     ..Default::default()
                 },
             )
@@ -957,4 +973,147 @@ async fn a_file_on_a_shared_card_reaches_the_other_member_and_a_private_one_neve
         d.mesh().close();
         d.net.close().await;
     }
+}
+
+/// Two people and a third's stream, for the stall tests: Alice runs a newer
+/// Irori, Bob this build, and Casey's stream sorts after Alice's. Each holds
+/// the membership rows, and the meshes are open and connected.
+async fn stall_board() -> (Dev, Dev, Dev) {
+    let alice_p = Person::new("a-alice-pc");
+    let creator = alice_p.pin();
+    let mut alice = Dev::newer(alice_p, &creator);
+    let mut bob = Dev::new("b-bob-mac", &creator);
+    let casey = Dev::new("z-casey-pc", &creator);
+
+    let a_cert = alice.self_cert();
+    let created = alice.create_board();
+    let added_bob = alice.add_member(&bob.person);
+    let added_casey = alice.add_member(&casey.person);
+    let b_cert = bob.self_cert();
+    let c_cert = casey.self_cert();
+    let rows = [a_cert, created, added_bob, added_casey];
+    bob.take(&rows);
+    casey.take(&rows);
+    alice.take(&[b_cert.clone(), c_cert.clone()]);
+    bob.take(std::slice::from_ref(&c_cert));
+    casey.take(std::slice::from_ref(&b_cert));
+
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).unwrap();
+    alice.secrets.add(1, &alice.id, &secret).unwrap();
+    bob.secrets.add(1, &alice.id, &secret).unwrap();
+    let (pa, pb) = (alice.peer_addr().await, bob.peer_addr().await);
+    alice.net.set_board_peers(BOARD, vec![pb]);
+    bob.net.set_board_peers(BOARD, vec![pa]);
+    alice.open().await;
+    bob.open().await;
+    eventually("the board connection", || {
+        alice.connected_to(&bob.id) && bob.connected_to(&alice.id)
+    })
+    .await;
+    (alice, bob, casey)
+}
+
+/// Rows that come in a writer's stream on Alice's device, as Casey's do when
+/// Alice forwards them.
+fn forward(from: &Dev, to: &Dev, after: i64) -> Vec<Event> {
+    let evs = from
+        .log
+        .list(&store::Filter {
+            device_id: from.id.clone(),
+            after_seq: after,
+            ..Default::default()
+        })
+        .unwrap();
+    to.take(&evs);
+    evs
+}
+
+/// Card #579, done-when 1: a newer Irori's `task.*` row moves between
+/// devices like any other. It's stored on this build, the writer's next rows
+/// follow, and nothing says stalled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unknown_task_kind_shows_no_stall() {
+    let (alice, bob, _casey) = stall_board().await;
+    let future = alice.append("irori", "task.future", &serde_json::json!({"a": 1}));
+    let space = alice.append("irori", "space.future", &serde_json::json!({"b": 2}));
+    let after = alice.note("Alice");
+    alice.mesh().kick();
+    eventually("the rows past the new kinds reach this build", || {
+        bob.has(&after)
+    })
+    .await;
+    assert!(bob.has(&future) && bob.has(&space));
+    assert!(
+        bob.mesh().stalled().is_empty(),
+        "{:?}",
+        bob.mesh().stalled()
+    );
+    // Bob's hello said what he does, and his vector shows he kept up.
+    eventually("alice hears bob at the top of her stream", || {
+        alice.mesh().heard().iter().any(|h| {
+            h.tolerant == mesh::boardmesh::TOLERANT_PROTOCOL
+                && h.vector.get(&alice.id).copied() == Some(after.seq)
+        })
+    })
+    .await;
+    alice.net.close().await;
+    bob.net.close().await;
+}
+
+/// Card #579, done-when 2: an unknown strict kind stalls its writer, and only
+/// it. This device says so itself, others still see it from its true vector,
+/// retries back off, and rows of writers that sort after the stalled one,
+/// behind a run longer than a pull, keep landing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
+    let (alice, bob, casey) = stall_board().await;
+    let held = bob.log.vector().unwrap();
+    let bad = alice.append("irori", "board.future", &serde_json::json!({}));
+    // More rows behind the stall than one pull carries.
+    for _ in 0..2100 {
+        alice.note("Alice");
+    }
+    // Casey's stream sorts after Alice's and reaches Bob only through her.
+    let before = casey.log.vector().unwrap()[&casey.id];
+    let row = casey.note("Casey");
+    forward(&casey, &alice, before);
+    alice.mesh().kick();
+
+    eventually("the row of the writer behind the stall lands", || {
+        bob.has(&row)
+    })
+    .await;
+    assert_eq!(
+        bob.log.vector().unwrap().get(&alice.id),
+        Some(&(bad.seq - 1)),
+        "nothing past the refused row is stored"
+    );
+    assert!(held[&alice.id] < bad.seq);
+    let stalled = bob.mesh().stalled();
+    assert_eq!(stalled.len(), 1, "{stalled:?}");
+    assert_eq!(stalled[0].device_id, alice.id);
+    assert_eq!(stalled[0].seq, bad.seq);
+    assert!(stalled[0].unread, "an update heals this one");
+
+    // Holding off doesn't lie to others: Alice still sees Bob's real vector.
+    eventually("alice hears where bob stopped", || {
+        alice
+            .mesh()
+            .heard()
+            .iter()
+            .any(|h| h.device_id == bob.id && h.vector.get(&alice.id).copied() == Some(bad.seq - 1))
+    })
+    .await;
+
+    // On hold, a further row of a healthy writer still lands, on the kick,
+    // with the stalled stream left out of the pull.
+    let before = casey.log.vector().unwrap()[&casey.id];
+    let row = casey.note("Casey again");
+    forward(&casey, &alice, before);
+    alice.mesh().kick();
+    eventually("a later row of the healthy writer lands", || bob.has(&row)).await;
+    assert_eq!(bob.mesh().stalled().len(), 1, "still stalled");
+    alice.net.close().await;
+    bob.net.close().await;
 }

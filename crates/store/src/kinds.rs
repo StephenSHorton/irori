@@ -371,6 +371,23 @@ pub fn board_accepted(kind: &str) -> bool {
     !is_local(kind) && kind_board(kind) == Board::Accepts
 }
 
+/// The tolerant reader (docs/design/no-server.md §3.5): a pulled `task.*` or
+/// `space.*` row of a kind this build has never heard of. A board log stores
+/// it, so a newer Irori's kind doesn't stall this device, and it folds after
+/// the update. A kind the registry names keeps its verdict, and any other
+/// unknown family stays refused: stalling on a membership or revoke row
+/// fails closed, and skipping one fails open.
+///
+/// A kind stored this way must never become [`Board::Refuses`], or the build
+/// that says so stalls on rows already in the log: `tests/board.rs` pins the
+/// `task.*` and `space.*` kinds that are refused today.
+pub fn board_tolerated(kind: &str) -> bool {
+    let named = kind
+        .strip_prefix("task.")
+        .or_else(|| kind.strip_prefix("space."));
+    named.is_some_and(|n| !n.is_empty()) && !index().contains_key(kind)
+}
+
 /// Go `IsBoardIdentityKind`: board.*, member.* and agent.card, which a board
 /// store's Verifier folds.
 pub fn is_board_identity_kind(kind: &str) -> bool {
