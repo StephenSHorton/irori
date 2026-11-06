@@ -5,7 +5,7 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at its foot.
 
-import { useContext, useState, type ReactNode } from "react"
+import { useContext, useEffect, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -17,20 +17,29 @@ import {
   PlusIcon,
   SearchIcon,
   SquarePenIcon,
+  UserIcon,
 } from "lucide-react"
 
 import { AskBox } from "@/components/cards/ask-box"
+import {
+  ListRowsShape,
+  MessageRowsShape,
+} from "@/components/common/loading-shapes"
+import { Loading } from "@/components/ui/loading"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
 import { type ThreadSummary } from "@/lib/cards"
 import {
   dmGone,
+  dmPerson,
   dmWith,
   listed,
   readAll,
   talkApi,
+  waitingText,
   type Conversation as Conv,
+  type Person,
 } from "@/lib/conversations"
 import { talkDesks, type Desk, type TalkDesk } from "@/lib/desk"
 import { AgentRef } from "@/lib/models"
@@ -106,8 +115,17 @@ export function TalkPage({
   space = AllSpaces,
   desks = [],
   onOpenDesk,
+  threadsLoading = false,
+  conversationsLoading = false,
+  desksLoading = false,
 }: {
   threads: ThreadSummary[]
+  // True until each list's first read lands (card #598): its section is a
+  // skeleton till then, not "No open threads", and never on a reload.
+  threadsLoading?: boolean
+  conversationsLoading?: boolean
+  // The desks listed at the top of Channels have their own first read.
+  desksLoading?: boolean
   // Merge desks, listed in Channels (card #521); opening one opens its
   // queue on the desk page until it is a Talk channel (slice 8).
   desks?: Desk[]
@@ -205,34 +223,42 @@ export function TalkPage({
         }
       >
         {extra}
-        {!folded(k) &&
-          lead.map((d) => (
-            <DeskItem
-              key={d.repoKey}
-              d={d}
-              onClick={() => onOpenDesk?.(d.repoKey)}
-            />
-          ))}
-        {items.length === 0 && lead.length === 0 && !extra && !folded(k) && (
-          <p className="px-2 py-1 text-[12px] text-muted-foreground">{empty}</p>
-        )}
-        {rows.map((c) => (
-          <ConvItem
-            key={c.convId}
-            c={c}
-            now={now}
-            current={c.convId === open}
-            onClick={() => onOpen(c.convId)}
-          />
-        ))}
-        {hidden > 0 && !folded(k) && (
-          <button
-            type="button"
-            className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
-            onClick={() => setAllShown({ ...allShown, [k]: true })}
+        {!folded(k) && (
+          <Rows
+            loading={conversationsLoading || (k === "channels" && desksLoading)}
+            label={label}
           >
-            Show {hidden} more
-          </button>
+            {lead.map((d) => (
+              <DeskItem
+                key={d.repoKey}
+                d={d}
+                onClick={() => onOpenDesk?.(d.repoKey)}
+              />
+            ))}
+            {items.length === 0 && lead.length === 0 && !extra && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {empty}
+              </p>
+            )}
+            {rows.map((c) => (
+              <ConvItem
+                key={c.convId}
+                c={c}
+                now={now}
+                current={c.convId === open}
+                onClick={() => onOpen(c.convId)}
+              />
+            ))}
+            {hidden > 0 && (
+              <button
+                type="button"
+                className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+                onClick={() => setAllShown({ ...allShown, [k]: true })}
+              >
+                Show {hidden} more
+              </button>
+            )}
+          </Rows>
         )}
       </Group>
     )
@@ -339,22 +365,26 @@ export function TalkPage({
         folded={folded("threads")}
         onToggle={searching ? undefined : () => toggleFold("threads")}
       >
-        {live.length === 0 && !folded("threads") && (
-          <p className="px-2 py-1 text-[12px] text-muted-foreground">
-            {query.trim()
-              ? "No open thread matches."
-              : "No open threads. Start one with the pen above."}
-          </p>
+        {!folded("threads") && (
+          <Rows loading={threadsLoading} label="Threads">
+            {live.length === 0 && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {query.trim()
+                  ? "No open thread matches."
+                  : "No open threads. Start one with the pen above."}
+              </p>
+            )}
+            {liveThreads.map((t) => (
+              <ThreadItem
+                key={t.id}
+                t={t}
+                current={t.id === open}
+                why={why}
+                onClick={() => onOpen(t.id)}
+              />
+            ))}
+          </Rows>
         )}
-        {liveThreads.map((t) => (
-          <ThreadItem
-            key={t.id}
-            t={t}
-            current={t.id === open}
-            why={why}
-            onClick={() => onOpen(t.id)}
-          />
-        ))}
       </Group>
       {convSection(
         "channels",
@@ -430,6 +460,13 @@ export function TalkPage({
     </nav>
   )
 
+  // A link straight to a thread or channel (a reload, /#talk/<id>) waits
+  // for the lists' first read to find it (card #598): a skeleton of the
+  // pane till then, not the new-thread box. Thread or channel isn't known
+  // yet, so the shape is a plain header over messages.
+  const finding =
+    !!open && !current && !conv && (threadsLoading || conversationsLoading)
+
   const conversation = current ? (
     <Conversation
       key={current.id}
@@ -447,6 +484,14 @@ export function TalkPage({
       narrow={narrow}
       onBack={() => onOpen("")}
     />
+  ) : finding ? (
+    <Loading
+      loading
+      label="Loading the conversation"
+      className={cn("min-w-0 flex-1", narrow ? "px-1 py-2" : "p-4")}
+    >
+      <PaneShape />
+    </Loading>
   ) : (
     <div className="grid min-w-0 flex-1 content-start gap-3 p-4">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink">
@@ -481,13 +526,53 @@ export function TalkPage({
   if (narrow)
     return (
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden">
-        {current || conv || composing ? conversation : list}
+        {current || conv || finding || composing ? conversation : list}
       </div>
     )
   return (
     <div className="mb-4 flex min-h-0 flex-1 overflow-hidden glass-panel">
       {list}
       {conversation}
+    </div>
+  )
+}
+
+// Rows are a section's rows inside Loading (card #598): a skeleton of
+// list rows until the list's first read lands, then the rows in place.
+// Loading puts its own block between, so the rows keep their grid here.
+function Rows({
+  loading,
+  label,
+  children,
+}: {
+  loading: boolean
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Loading loading={loading} label={`Loading ${label}`}>
+      {loading ? (
+        <ListRowsShape rows={3} className="gap-0.5" />
+      ) : (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">{children}</div>
+      )}
+    </Loading>
+  )
+}
+
+// PaneShape is the right pane's skeleton while a linked conversation is
+// still being found: a title line, a line under it, then messages.
+function PaneShape() {
+  return (
+    <div className="grid content-start gap-3">
+      <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+        <span className="block size-4 shrink-0 rounded" />
+        Talk: channels and threads
+      </h2>
+      <p className="text-[12.5px] text-ink-2">
+        Looked at the list read; it waits on the store's lock.
+      </p>
+      <MessageRowsShape rows={4} />
     </div>
   )
 }
@@ -626,9 +711,12 @@ export function ConvItem({
 }) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
+  const person = dmPerson(c)
   const icon =
     c.kind === "channel" ? (
       <HashIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    ) : person ? (
+      <UserIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     ) : c.readOnly ? (
       <EyeIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     ) : other[0] ? (
@@ -646,21 +734,28 @@ export function ConvItem({
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+      : person
+        ? nameOr(plainLine(person.name || c.name))
+        : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+  const waiting = person ? waitingText(c, label) : ""
   const last =
     c.kind === "dm" &&
-    (c.readOnly || (!!other[0] && statusOf(other[0], live) === "gone"))
+    (c.readOnly ||
+      (!!person && !waiting) ||
+      (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   const sub =
     c.kind === "channel"
       ? c.topic
         ? plainLine(c.topic)
         : ""
-      : last
-        ? line
-        : other[0]
-          ? memberStatus(other[0], live)
-          : ""
+      : waiting
+        ? waiting
+        : last
+          ? line
+          : other[0]
+            ? memberStatus(other[0], live)
+            : ""
   return (
     <button
       type="button"
@@ -842,7 +937,9 @@ function NewChannel({
   )
 }
 
-// NewDm picks a live agent to message; the DM opens (or reopens).
+// NewDm picks someone to message, a person you share a space with (card
+// #538) or a live agent; the DM opens (or reopens). Opening one with a
+// person writes nothing until the first post.
 function NewDm({
   agents,
   onDone,
@@ -851,13 +948,59 @@ function NewDm({
   onDone: (id: string) => void
 }) {
   const [error, setError] = useState("")
+  const [people, setPeople] = useState<Person[]>([])
+  useEffect(() => {
+    let on = true
+    talkApi
+      .dmPeople()
+      .then((p) => on && setPeople(p))
+      .catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [])
   const live = agents.filter((a) => a.status !== "gone")
+  const open = async (m: { kind: "person" | "agent"; key: string }) => {
+    try {
+      onDone(await talkApi.dm(m))
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
   return (
     <div
       className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1"
       role="listbox"
-      aria-label="Message an agent"
+      aria-label="Message someone"
     >
+      {people.length > 0 && (
+        <>
+          <p className="px-2 pt-0.5 text-[11px] font-medium text-muted-foreground">
+            People
+          </p>
+          {people.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              role="option"
+              aria-selected={false}
+              className="flex items-center gap-2 rounded px-2 py-1 text-left text-[12.5px] text-ink-2 hover:bg-secondary"
+              onClick={() => void open({ kind: "person", key: p.key })}
+            >
+              <UserIcon
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate">
+                {nameOr(plainLine(p.name))}
+              </span>
+            </button>
+          ))}
+          <p className="px-2 pt-1 text-[11px] font-medium text-muted-foreground">
+            Agents
+          </p>
+        </>
+      )}
       {live.length === 0 && (
         <p className="px-2 py-1 text-[12px] text-muted-foreground">
           No agents are running.
@@ -870,13 +1013,7 @@ function NewDm({
           role="option"
           aria-selected={false}
           className="flex items-center gap-2 rounded px-2 py-1 text-left text-[12.5px] text-ink-2 hover:bg-secondary"
-          onClick={async () => {
-            try {
-              onDone(await talkApi.dm({ kind: "agent", key: a.key }))
-            } catch (err) {
-              setError(errorText(err))
-            }
-          }}
+          onClick={() => void open({ kind: "agent", key: a.key })}
         >
           <Face
             who={AgentRef({

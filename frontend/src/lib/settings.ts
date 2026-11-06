@@ -38,6 +38,9 @@ export interface SettingsState {
   notify: NotifyOptions | null
   launchAtLogin: boolean | null
   error: string | null
+  // True until the first read lands (card #598), for the panes' skeletons;
+  // never again after. A failed first read ends it too: error says why.
+  loading: boolean
   // A note after the test button: "Sent" or why it couldn't be.
   tested: string | null
   setNotify: (patch: Partial<NotifyOptions>) => Promise<void>
@@ -127,6 +130,7 @@ export function useSettings(active: boolean): SettingsState {
     notify,
     launchAtLogin,
     error,
+    loading: notify === null && error === null,
     tested,
     setNotify,
     setLaunchAtLogin,
@@ -190,5 +194,6 @@ export function useYourName(active: boolean) {
       return false
     }
   }, [])
-  return { name, error, save }
+  // loading is true until the first read lands (card #598).
+  return { name, error, loading: name === null && error === null, save }
 }

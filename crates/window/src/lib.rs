@@ -66,6 +66,7 @@ pub mod roster;
 pub mod seams;
 pub mod settings;
 pub mod spawn;
+pub mod spawn_cost;
 pub mod stop;
 pub mod talk;
 pub mod terms;

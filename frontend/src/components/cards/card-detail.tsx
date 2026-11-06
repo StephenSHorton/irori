@@ -7,6 +7,8 @@ import {
   PinOffIcon,
   PlayIcon,
 } from "lucide-react"
+import { Loading } from "@/components/ui/loading"
+import { MessageRowsShape } from "@/components/common/loading-shapes"
 
 import {
   AttachButton,
@@ -73,6 +75,7 @@ import {
   blockerItemId,
 } from "@/lib/thread"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { spawnLine, usageResets } from "@/lib/spawn-line"
 import { agentStatus } from "@/lib/agent-status"
 import { AskedAgain, blockerOutcome } from "@/lib/notifications"
 import { EarlierRound, SentBackSigns } from "./done-rounds"
@@ -103,6 +106,7 @@ import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard, useMissed } from "@/lib/mentions"
 import { useBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
+import { StartPastLimit } from "./start-past-limit"
 import { ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
@@ -186,24 +190,29 @@ export function CardPage({
       Cards
     </Button>
   )
+  // While the card loads (card #598), the header comes from the grid's
+  // tile when there is one, and the body is a skeleton in the page's own
+  // shape; the same Loading (key "body") then reveals the page in place.
   if (!detail)
     return (
-      <article className="grid gap-3" aria-label="Card" aria-busy={!error}>
-        {back}
-        {summary && <WorkingRow card={withLive(summary, live)} />}
-        {summary ? (
-          <PageHeader card={summary} spinning={busy(withLive(summary, live))} />
-        ) : (
-          !error && (
-            <header className="grid gap-2" aria-hidden>
-              <span className="h-[18px] w-40 bg-muted/60" />
-              <span className="h-8 w-[min(32rem,80%)] bg-muted/40" />
-            </header>
-          )
-        )}
-        <Card className="items-start gap-2 px-5 py-5! text-sm">
+      <MentionBoard.Provider value="">
+        <article className="grid gap-3" aria-label="Card">
+          {back}
+          {summary && <WorkingRow card={withLive(summary, live)} />}
+          {summary ? (
+            <PageHeader
+              card={summary}
+              spinning={busy(withLive(summary, live))}
+            />
+          ) : (
+            !error && (
+              <Loading loading label="Loading the card">
+                <CardHeaderShape />
+              </Loading>
+            )
+          )}
           {error ? (
-            <>
+            <Card className="items-start gap-2 px-5 py-5! text-sm">
               <p className="font-medium text-ink" role="alert">
                 Could not open the card
               </p>
@@ -213,12 +222,14 @@ export function CardPage({
               <Button size="sm" variant="outline" onClick={onBack}>
                 Back to the cards
               </Button>
-            </>
+            </Card>
           ) : (
-            <p className="text-muted-foreground">Opening the card…</p>
+            <Loading key="body" loading label="Loading the card">
+              <CardBodyShape />
+            </Loading>
           )}
-        </Card>
-      </article>
+        </article>
+      </MentionBoard.Provider>
     )
   const p = percent(detail.progress)
   const open = detail.blockers.filter((b) => !b.resolved)
@@ -285,265 +296,280 @@ export function CardPage({
             </>
           }
         />
-        {openAsk(detail) ? (
-          <AskStatus detail={detail} onClosed={onBack} />
-        ) : (
-          <ProgressStrip detail={detail} spinning={spinning} />
-        )}
-        {!over(detail) && !openAsk(detail) && (
-          <CloseBar detail={detail} ready={!!readyNow} />
-        )}
-        {over(detail) &&
-          (detail.sharedTo && !detail.sharedTo.withdrawn ? (
-            <SharedToBar detail={detail} onOpen={onOpen} />
-          ) : (
-            <ReopenBar detail={detail} />
-          ))}
-        <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
-          {(ready || hasObjective || hasBlockers) && (
-            <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
-              {ready && (
-                <Section
-                  title={readyNow ? "Ready for you" : "Done check"}
-                  last={!hasObjective && !hasBlockers}
-                >
-                  <BlockerItem
-                    cardId={detail.id}
-                    blocker={ready}
-                    now={now}
-                    noFiles={!!detail.onBoard}
-                    onNoteAnswered={() => {}}
-                  />
-                </Section>
-              )}
-              {hasObjective && (
-                <Section
-                  title={openAsk(detail) ? "You asked" : "Objective"}
-                  last={!hasBlockers}
-                >
-                  {detail.goal && (
-                    <RichText
-                      text={detail.goal}
-                      mentions={detail.ask?.mentions}
-                      className="text-sm text-ink-2"
-                    />
-                  )}
-                  {detail.onBoard && (
-                    <p className="text-[12.5px] text-muted-foreground">
-                      <span className="font-medium text-ink-2">
-                        Visible to:
-                      </span>{" "}
-                      {detail.onBoard.visibleTo.map(plainLine).join(", ")}
-                    </p>
-                  )}
-                  {showNote && (
-                    <p className="text-[12.5px] text-muted-foreground">
-                      <span className="font-medium text-ink-2">Note:</span>{" "}
-                      <RichLine text={detail.note} />
-                    </p>
-                  )}
-                  {detail.doneWhen && (
-                    <p className="text-[12.5px] text-muted-foreground">
-                      <span className="font-medium text-ink-2">Done when:</span>{" "}
-                      <RichLine text={detail.doneWhen} />
-                    </p>
-                  )}
-                </Section>
-              )}
-              {hasBlockers && (
-                <Section title="Blockers" last>
-                  {legacy && (
-                    <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
-                      <div className="text-[13.5px] font-semibold text-ink">
-                        <RichLine text={detail.blockerQuestion} />
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Raised without recommended answers. The agent on it
-                        clears it when it's sorted.
-                      </div>
-                    </div>
-                  )}
-                  {answered && !open.some((b) => b.id === NoteItem) && (
-                    <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 opacity-85">
-                      <div className="text-[13.5px] font-semibold text-ink">
-                        <span className="text-success" aria-label="Answered: ">
-                          ✓{" "}
-                        </span>
-                        {plainLine(answered.question)}
-                      </div>
-                      <div className="text-[11.5px] text-muted-foreground">
-                        You answered: “{gist(answered.answer)}”
-                      </div>
-                      <ToldLine told={answered.told} raiser={answered.to} />
-                    </div>
-                  )}
-                  {blockers
-                    .filter((b) => !isWait(b))
-                    .map((b) => (
+        <Loading key="body" loading={false} label="Loading the card">
+          <div className="grid gap-3">
+            {openAsk(detail) ? (
+              <AskStatus detail={detail} onClosed={onBack} />
+            ) : (
+              <ProgressStrip detail={detail} spinning={spinning} />
+            )}
+            {!over(detail) && !openAsk(detail) && (
+              <CloseBar detail={detail} ready={!!readyNow} />
+            )}
+            {over(detail) &&
+              (detail.sharedTo && !detail.sharedTo.withdrawn ? (
+                <SharedToBar detail={detail} onOpen={onOpen} />
+              ) : (
+                <ReopenBar detail={detail} />
+              ))}
+            <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+              {(ready || hasObjective || hasBlockers) && (
+                <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
+                  {ready && (
+                    <Section
+                      title={readyNow ? "Ready for you" : "Done check"}
+                      last={!hasObjective && !hasBlockers}
+                    >
                       <BlockerItem
-                        key={b.id}
                         cardId={detail.id}
-                        blocker={b}
+                        blocker={ready}
                         now={now}
                         noFiles={!!detail.onBoard}
-                        onNoteAnswered={(answer, told) =>
-                          setAnswered({
-                            question: b.question,
-                            answer,
-                            told,
-                            to: b.raisedBy,
-                          })
-                        }
+                        onNoteAnswered={() => {}}
                       />
-                    ))}
-                  {blockers.filter(isWait).map((b) => (
-                    <WaitItem
-                      key={b.id}
-                      cardId={detail.id}
-                      blocker={b}
-                      onOpen={onOpen}
-                    />
-                  ))}
-                </Section>
+                    </Section>
+                  )}
+                  {hasObjective && (
+                    <Section
+                      title={openAsk(detail) ? "You asked" : "Objective"}
+                      last={!hasBlockers}
+                    >
+                      {detail.goal && (
+                        <RichText
+                          text={detail.goal}
+                          mentions={detail.ask?.mentions}
+                          className="text-sm text-ink-2"
+                        />
+                      )}
+                      {detail.onBoard && (
+                        <p className="text-[12.5px] text-muted-foreground">
+                          <span className="font-medium text-ink-2">
+                            Visible to:
+                          </span>{" "}
+                          {detail.onBoard.visibleTo.map(plainLine).join(", ")}
+                        </p>
+                      )}
+                      {showNote && (
+                        <p className="text-[12.5px] text-muted-foreground">
+                          <span className="font-medium text-ink-2">Note:</span>{" "}
+                          <RichLine text={detail.note} />
+                        </p>
+                      )}
+                      {detail.doneWhen && (
+                        <p className="text-[12.5px] text-muted-foreground">
+                          <span className="font-medium text-ink-2">
+                            Done when:
+                          </span>{" "}
+                          <RichLine text={detail.doneWhen} />
+                        </p>
+                      )}
+                    </Section>
+                  )}
+                  {hasBlockers && (
+                    <Section title="Blockers" last>
+                      {legacy && (
+                        <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
+                          <div className="text-[13.5px] font-semibold text-ink">
+                            <RichLine text={detail.blockerQuestion} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Raised without recommended answers. The agent on it
+                            clears it when it's sorted.
+                          </div>
+                        </div>
+                      )}
+                      {answered && !open.some((b) => b.id === NoteItem) && (
+                        <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 opacity-85">
+                          <div className="text-[13.5px] font-semibold text-ink">
+                            <span
+                              className="text-success"
+                              aria-label="Answered: "
+                            >
+                              ✓{" "}
+                            </span>
+                            {plainLine(answered.question)}
+                          </div>
+                          <div className="text-[11.5px] text-muted-foreground">
+                            You answered: “{gist(answered.answer)}”
+                          </div>
+                          <ToldLine told={answered.told} raiser={answered.to} />
+                        </div>
+                      )}
+                      {blockers
+                        .filter((b) => !isWait(b))
+                        .map((b) => (
+                          <BlockerItem
+                            key={b.id}
+                            cardId={detail.id}
+                            blocker={b}
+                            now={now}
+                            noFiles={!!detail.onBoard}
+                            onNoteAnswered={(answer, told) =>
+                              setAnswered({
+                                question: b.question,
+                                answer,
+                                told,
+                                to: b.raisedBy,
+                              })
+                            }
+                          />
+                        ))}
+                      {blockers.filter(isWait).map((b) => (
+                        <WaitItem
+                          key={b.id}
+                          cardId={detail.id}
+                          blocker={b}
+                          onOpen={onOpen}
+                        />
+                      ))}
+                    </Section>
+                  )}
+                </Card>
               )}
-            </Card>
-          )}
 
-          <aside
-            aria-label="About the card"
-            className="min-w-0 min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-[calc(100svh-5.5rem)] min-[900px]:overflow-y-auto"
-          >
-            <Card className="gap-0 py-0!">
-              <Section title="Progress">
-                {detail.ask && openAsk(detail) ? (
-                  <AskLine ask={detail.ask} />
-                ) : p === null ? (
-                  <HolderLine holder={detail.holder} />
-                ) : (
-                  <ProgressBar
-                    progress={detail.progress}
-                    label={`${p ?? 0}% complete`}
-                    tone={cardTone(detail)}
-                  />
-                )}
-                <ProgressLine detail={detail} />
-                {detail.subtaskList?.length > 0 ? (
-                  <>
-                    <Subtasks list={detail.subtaskList} onOpen={onOpen} />
-                    {detail.steps.length > 0 && (
-                      <details className="text-xs text-muted-foreground">
-                        <summary className="cursor-pointer">
-                          Steps done before the split
-                        </summary>
+              <aside
+                aria-label="About the card"
+                className="min-w-0 min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-[calc(100svh-5.5rem)] min-[900px]:overflow-y-auto"
+              >
+                <Card className="gap-0 py-0!">
+                  <Section title="Progress">
+                    {detail.ask && openAsk(detail) ? (
+                      <AskLine ask={detail.ask} />
+                    ) : p === null ? (
+                      <HolderLine holder={detail.holder} />
+                    ) : (
+                      <ProgressBar
+                        progress={detail.progress}
+                        label={`${p ?? 0}% complete`}
+                        tone={cardTone(detail)}
+                      />
+                    )}
+                    <ProgressLine detail={detail} />
+                    {detail.subtaskList?.length > 0 ? (
+                      <>
+                        <Subtasks list={detail.subtaskList} onOpen={onOpen} />
+                        {detail.steps.length > 0 && (
+                          <details className="text-xs text-muted-foreground">
+                            <summary className="cursor-pointer">
+                              Steps done before the split
+                            </summary>
+                            <Steps
+                              steps={detail.steps}
+                              spinning={false}
+                              people={detail.working}
+                            />
+                          </details>
+                        )}
+                      </>
+                    ) : (
+                      detail.steps.length > 0 && (
                         <Steps
                           steps={detail.steps}
-                          spinning={false}
+                          spinning={spinning}
                           people={detail.working}
                         />
-                      </details>
+                      )
                     )}
-                  </>
-                ) : (
-                  detail.steps.length > 0 && (
-                    <Steps
-                      steps={detail.steps}
-                      spinning={spinning}
-                      people={detail.working}
-                    />
-                  )
-                )}
-                <WhereLines detail={detail} now={now} />
-              </Section>
+                    <WhereLines detail={detail} now={now} />
+                  </Section>
 
-              <Section
-                title="Who's on it"
-                last={
-                  !detail.reviews.length &&
-                  !detail.prs.length &&
-                  !links.length &&
-                  !files.length
-                }
-              >
-                <People detail={now_} gone={gone} />
-              </Section>
-
-              {detail.reviews.length > 0 && (
-                <Section
-                  title="Review"
-                  last={!detail.prs.length && !links.length && !files.length}
-                >
-                  <div className="grid gap-2">
-                    {detail.reviews.map((r) => (
-                      <ReviewRow key={r.reviewer.key} review={r} now={now} />
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {detail.prs.length > 0 && (
-                <Section
-                  title="Pull requests"
-                  last={!links.length && !files.length}
-                >
-                  <div className="grid gap-2">
-                    {detail.prs.map((pr) => (
-                      <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {links.length > 0 && (
-                <Section title="Links" last={!files.length}>
-                  <div className="flex flex-wrap gap-1.5">
-                    {links.map((l) => (
-                      <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {files.length > 0 && (
-                <Section title="Files" last>
-                  <AttachmentList attachments={files} compact />
-                </Section>
-              )}
-            </Card>
-          </aside>
-
-          <div className="grid gap-4 min-[900px]:col-start-1 min-[900px]:row-start-2">
-            <TerminalCard cardId={detail.id} />
-            <Card className="gap-0 py-0!">
-              <Section title="Thread" last>
-                <BlockersHere.Provider value={blockersHere}>
-                  <StartAgentOn.Provider
-                    value={startable(detail) ? detail.id : ""}
+                  <Section
+                    title="Who's on it"
+                    last={
+                      !detail.reviews.length &&
+                      !detail.prs.length &&
+                      !links.length &&
+                      !files.length
+                    }
                   >
-                    <Thread
-                      cardId={detail.id}
-                      items={detail.thread}
-                      now={now}
-                      earlier={detail.threadEarlier}
-                      historyTrimmed={detail.historyTrimmed}
-                      on={{
-                        agents: detail.working,
-                        over: over(detail),
-                        working: workers,
-                        jobs,
-                      }}
-                      composer={
-                        <CommentBox
-                          cardId={detail.id}
-                          noFiles={!!detail.onBoard}
-                        />
+                    <People detail={now_} gone={gone} />
+                  </Section>
+
+                  {detail.reviews.length > 0 && (
+                    <Section
+                      title="Review"
+                      last={
+                        !detail.prs.length && !links.length && !files.length
                       }
-                    />
-                  </StartAgentOn.Provider>
-                </BlockersHere.Provider>
-              </Section>
-            </Card>
+                    >
+                      <div className="grid gap-2">
+                        {detail.reviews.map((r) => (
+                          <ReviewRow
+                            key={r.reviewer.key}
+                            review={r}
+                            now={now}
+                          />
+                        ))}
+                      </div>
+                    </Section>
+                  )}
+
+                  {detail.prs.length > 0 && (
+                    <Section
+                      title="Pull requests"
+                      last={!links.length && !files.length}
+                    >
+                      <div className="grid gap-2">
+                        {detail.prs.map((pr) => (
+                          <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} />
+                        ))}
+                      </div>
+                    </Section>
+                  )}
+
+                  {links.length > 0 && (
+                    <Section title="Links" last={!files.length}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {links.map((l) => (
+                          <LinkChip key={`${l.kind}:${l.ref}`} link={l} />
+                        ))}
+                      </div>
+                    </Section>
+                  )}
+
+                  {files.length > 0 && (
+                    <Section title="Files" last>
+                      <AttachmentList attachments={files} compact />
+                    </Section>
+                  )}
+                </Card>
+              </aside>
+
+              <div className="grid gap-4 min-[900px]:col-start-1 min-[900px]:row-start-2">
+                <TerminalCard cardId={detail.id} />
+                <Card className="gap-0 py-0!">
+                  <Section title="Thread" last>
+                    <BlockersHere.Provider value={blockersHere}>
+                      <StartAgentOn.Provider
+                        value={startable(detail) ? detail.id : ""}
+                      >
+                        <Thread
+                          cardId={detail.id}
+                          items={detail.thread}
+                          now={now}
+                          earlier={detail.threadEarlier}
+                          historyTrimmed={detail.historyTrimmed}
+                          on={{
+                            agents: detail.working,
+                            over: over(detail),
+                            working: workers,
+                            jobs,
+                          }}
+                          composer={
+                            <CommentBox
+                              cardId={detail.id}
+                              noFiles={!!detail.onBoard}
+                            />
+                          }
+                        />
+                      </StartAgentOn.Provider>
+                    </BlockersHere.Provider>
+                  </Section>
+                </Card>
+              </div>
+            </div>
           </div>
-        </div>
+        </Loading>
       </article>
     </MentionBoard.Provider>
   )
@@ -558,7 +584,7 @@ function WorkingRow({ card }: { card: CardSummary }) {
   const busyNow = workingNow(card)
   // Card #431: between turns, but a background job it started still runs.
   const who = busyNow.length ? busyNow : runningJobNow(card)
-  if (!who.length) return null
+  if (!who.length) return <QueueRow card={card} />
   const names = namesLine(who.map(displayName))
   // Card #489: a job reads as on the hover card, with how long one has run.
   const doing = busyNow.length
@@ -577,6 +603,33 @@ function WorkingRow({ card }: { card: CardSummary }) {
         <span className="font-semibold">{names}</span>{" "}
         {who.length > 1 ? "are" : "is"} {doing}
       </span>
+    </p>
+  )
+}
+
+// QueueRow is the card page's top line while nobody is on it and Irori is
+// getting it an agent (spawned-agents §10, card #450): starting, its place
+// in a device's queue, held on a usage limit until its reset (with Start
+// an agent), or why one can't start. Nothing otherwise.
+function QueueRow({ card }: { card: CardSummary }) {
+  const line = spawnLine(card)
+  if (!line) return null
+  const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
+  return (
+    <p
+      role="status"
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[13px] text-ink",
+        line.tone === "warn"
+          ? "border-warning/40 bg-warning/10"
+          : "border-border bg-muted/40"
+      )}
+    >
+      <span className="min-w-0">
+        {line.text.charAt(0).toUpperCase() + line.text.slice(1)}
+        {resets && ` (${resets})`}
+      </span>
+      <StartPastLimit id={card.id} state={card} />
     </p>
   )
 }
@@ -1255,6 +1308,82 @@ function TerminalCard({ cardId }: { cardId: string }) {
         <TerminalSection cardId={cardId} />
       </Section>
     </Card>
+  )
+}
+
+// CardHeaderShape and CardBodyShape are the card page's skeleton (card
+// #598): plain markup in the header's and body's shape, with no hooks, for
+// Loading to measure. The words only set line lengths.
+function CardHeaderShape() {
+  return (
+    <header className="grid gap-2">
+      <span className="text-[12.5px] text-muted-foreground">#598 · irori</span>
+      <h1 className="text-2xl font-semibold text-ink">
+        Loading states across the app
+      </h1>
+    </header>
+  )
+}
+
+function CardBodyShape() {
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-2 px-4 py-3 glass-panel min-[900px]:hidden">
+        <span className="text-[13px] text-ink-2">2 of 5 steps done</span>
+        <span skullet-block="" className="block h-1 bg-muted" />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 glass-panel">
+        <span className="min-w-40 flex-1 text-[13px] text-muted-foreground">
+          Close it by hand when the work is done.
+        </span>
+        <span skullet-block="" className="block h-8 w-56 rounded-md" />
+      </div>
+      <div className="grid items-start gap-4 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[900px]:grid-rows-[auto_1fr] min-[1600px]:grid-cols-[minmax(0,1fr)_minmax(0,400px)]">
+        <Card className="gap-0 py-0! min-[900px]:col-start-1 min-[900px]:row-start-1">
+          <Section title="Objective" last>
+            <p className="text-sm text-ink-2">
+              Move the main loading spots onto one wrapper of ours, so a page
+              keeps its shape while its data loads and nothing jumps when it
+              arrives.
+            </p>
+            <p className="text-[12.5px] text-muted-foreground">
+              Done when: the main spots use it, in both themes.
+            </p>
+          </Section>
+        </Card>
+        <aside className="min-w-0 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1">
+          <Card className="gap-0 py-0!">
+            <Section title="Progress">
+              <span skullet-block="" className="block h-1 bg-muted" />
+              <p className="text-[12.5px] text-muted-foreground">
+                2 of 5 steps · updated 4 min ago
+              </p>
+              <ul className="grid gap-1.5 text-[12.5px] text-ink-2">
+                <li>List every loading state</li>
+                <li>Add the wrapper</li>
+                <li>Move the main spots onto it</li>
+              </ul>
+            </Section>
+            <Section title="Who's on it" last>
+              <span className="flex items-center gap-2 text-[12.5px] text-ink-2">
+                <span
+                  skullet-block=""
+                  className="block size-6 shrink-0 rounded-full"
+                />
+                sample-heron · working
+              </span>
+            </Section>
+          </Card>
+        </aside>
+        <div className="grid gap-4 min-[900px]:col-start-1 min-[900px]:row-start-2">
+          <Card className="gap-0 py-0!">
+            <Section title="Thread" last>
+              <MessageRowsShape rows={4} />
+            </Section>
+          </Card>
+        </div>
+      </div>
+    </div>
   )
 }
 

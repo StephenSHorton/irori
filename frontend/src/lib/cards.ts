@@ -442,7 +442,8 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
-      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+      starting:
+        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -760,13 +761,15 @@ export function withStarted(
 // useThreads is the Threads panel's rows, fresh on every card change.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
   error: string | null
 } {
   const load = useCallback(async () => {
     const asOf = startedSeq
     return { rows: await threads.list(boardId), asOf }
   }, [boardId])
-  const { value, error, reload } = useLatest(
+  const { value, loading, error, reload } = useLatest(
     load,
     { rows: [] as ThreadSummary[], asOf: startedSeq },
     "threads"
@@ -777,7 +780,7 @@ export function useThreads(boardId = ""): {
     () => withStarted(value.rows, value.asOf, boardId, started),
     [value, boardId, started]
   )
-  return { threads: list, error }
+  return { threads: list, loading, error }
 }
 
 function sampleChanged() {
@@ -822,6 +825,8 @@ function summary(c: CardDetail): CardSummary {
     cantStart: c.cantStart,
     starting: c.starting,
     atCap: c.atCap,
+    queuePlace: c.queuePlace,
+    usageLimit: c.usageLimit,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
     goneWait: c.goneWait,
