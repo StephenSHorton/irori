@@ -1018,6 +1018,13 @@ impl Fold {
         self.origin.clear();
         self.short_groups.clear();
         self.short_idx.clear();
+        self.short_hist.clear();
+        self.moved_ids.clear();
+        self.moved_rows.clear();
+        self.walked_to = None;
+        // A set-aside row the cut took out mustn't fold when its card lands:
+        // replay sets aside again what the store still holds.
+        self.aside.clear();
         self.last.clear();
         self.conflicts.clear();
         self.stolen.clear();
@@ -1046,7 +1053,7 @@ impl Fold {
                 && t.short != was
             {
                 let (to, ti) = (t.short.clone(), id.clone());
-                self.short_moved_to(&ti, &was, &to);
+                self.short_moved_to(&ti, &was, &to, false);
             }
         }
         self.note(Change {
@@ -1076,6 +1083,15 @@ impl Fold {
                 self.relink();
             }
             self.holder_duties();
+        }
+        // The page's board rows read the list again before the lock goes,
+        // or a deleted board's cards would show its tag-less fallback
+        // until the catch-up ends (card #563).
+        if evs
+            .iter()
+            .any(|e| e.kind.starts_with("space.board.") || e.kind.starts_with("board.member."))
+        {
+            self.refresh_boards();
         }
         self.relink();
     }

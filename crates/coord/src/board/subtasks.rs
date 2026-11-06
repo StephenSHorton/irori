@@ -399,6 +399,7 @@ impl Fold {
             out.push(self.create_locked(&by, ct)?);
         }
         for k in adopt_ids {
+            let on = self.tasks.get(&k).map(|x| x.board.clone());
             let at = self.stamp();
             self.write(
                 &by,
@@ -410,6 +411,22 @@ impl Fold {
                     at,
                 },
             )?;
+            // A subtask sits on its parent's board (card #563).
+            if on.is_some_and(|b| b != t.board) {
+                let (num, at) = (self.next_short(&t.board), self.stamp());
+                self.write(
+                    &by,
+                    self.ask_kind(kinds::TASK_EDITED),
+                    &TaskEditedRow {
+                        task_id: k.clone(),
+                        board: Some(t.board.clone()),
+                        num,
+                        by: by.clone(),
+                        at,
+                        ..TaskEditedRow::default()
+                    },
+                )?;
+            }
             self.inherit_park(&by, id, &k)?;
         }
         if !placed.is_empty() {

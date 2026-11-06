@@ -329,6 +329,20 @@ impl Window {
         self.boards_find(space_id)
     }
 
+    /// Deletes a board of space `space_id` (card #563): any member may, its
+    /// cards go to the first board, and that one can't go. Refused, like
+    /// adding one, until every member device reads spaces.
+    pub fn boards_delete_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .delete_space_board(space_id, board_id)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
     /// Personal's boards (card #558), its default first: the private log
     /// holds them, so no [`BoardSummary`] does.
     pub fn boards_personal(&self) -> Result<Vec<SpaceBoard>, String> {
@@ -354,6 +368,12 @@ impl Window {
         self.core
             .rename_personal_board(board_id, name)
             .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Deletes one of Personal's boards (card #563), and returns the rest.
+    pub fn boards_delete_in_personal(&self, board_id: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.core.delete_personal_board(board_id).map_err(text)?;
         self.boards_personal()
     }
 
