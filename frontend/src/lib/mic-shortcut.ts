@@ -23,6 +23,8 @@ export function dictationKey(
 export type Mic = {
   // Its text box.
   box: () => HTMLElement | null
+  // The mic button itself (focus on it counts as focus on its box).
+  button?: () => HTMLElement | null
   // The main composer of its page or dialog (the Ask box, a card's
   // comment box, a message reply), which answers when no box has focus.
   main: boolean
@@ -39,7 +41,7 @@ export type Mic = {
 
 // pickMic is the one mic a press toggles, or null:
 //  1. one that is listening, so the press stops it wherever focus went;
-//  2. the focused box's mic;
+//  2. the focused box's mic (or the focused mic button's);
 //  3. with focus in some other text field, none: the words never land
 //     somewhere the person isn't typing;
 //  4. else the main composer in view, the one whose box had focus last,
@@ -52,7 +54,7 @@ export function pickMic(
   const live = mics.find((m) => m.live())
   if (live) return live
   if (active) {
-    const own = mics.find((m) => m.box() === active)
+    const own = mics.find((m) => m.box() === active || m.button?.() === active)
     if (own) return own.usable() ? own : null
     if (editable(active)) return null
   }

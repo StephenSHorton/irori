@@ -86,6 +86,13 @@ describe("pickMic", () => {
     expect(pickMic([a, r], reply, all)).toBe(r)
   })
 
+  test("focus on a mic button: that mic", () => {
+    const btn = box("reply-mic", "BUTTON")
+    const a = mic(ask, { main: true })
+    const r = { ...mic(reply), button: () => btn }
+    expect(pickMic([a, r], btn, all)).toBe(r)
+  })
+
   test("no focus: the main composer in view", () => {
     const a = mic(ask, { main: true })
     const r = mic(reply)

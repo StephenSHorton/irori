@@ -211,6 +211,7 @@ export function MicButton({
     () =>
       registerMic({
         box: () => target.current,
+        button: () => button.current,
         main: !!main,
         live: () => phaseRef.current !== "idle",
         usable: () => usableRef.current,
