@@ -134,6 +134,10 @@ pub(crate) struct PeerInfo {
     pub last_ping: Option<SystemTime>,
     pub last_sync: Option<SystemTime>,
     pub last_presence: Option<SystemTime>,
+    /// When this device last held every row the peer's newest vector named
+    /// (card #580): in step with it, so nothing it had was missing here.
+    /// A hello or a ping alone doesn't count.
+    pub in_step: Option<SystemTime>,
     /// Nanoseconds, the peer's wall clock minus this one's.
     pub skew: i64,
     pub vec: Vector,
@@ -869,6 +873,24 @@ impl Node {
         let k = g.info(peer);
         k.last_sync = Some(now);
         k.last_ping = Some(now);
+        drop(g);
+        self.check_step(peer);
+    }
+
+    /// Notes when this device holds every row `peer` last said it had
+    /// (card #580): the log is in step with it as of now.
+    pub(crate) fn check_step(&self, peer: &str) {
+        let theirs = match self.lock().known.get(peer) {
+            Some(k) => k.vec.clone(),
+            None => return,
+        };
+        let Ok(ours) = self.o.store.vector() else {
+            return;
+        };
+        if covers(&ours, &theirs) {
+            let now = self.now();
+            self.lock().info(peer).in_step = Some(now);
+        }
     }
 
     /// Rows of `dev` were applied from the connection to `peer` (card
@@ -1268,4 +1290,11 @@ pub fn check_device(
 /// Go `ed25519.Verify` (non-strict, as identity.md §6 settles).
 pub(crate) fn verify(pub_key: &[u8; 32], msg: &[u8], sig: &[u8]) -> bool {
     identity::objects::ed25519_verify(pub_key, msg, sig)
+}
+
+/// Whether `ours` holds every row `theirs` names.
+pub(crate) fn covers(ours: &store::Vector, theirs: &store::Vector) -> bool {
+    theirs
+        .iter()
+        .all(|(d, s)| ours.get(d).copied().unwrap_or(0) >= *s)
 }

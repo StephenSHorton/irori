@@ -2440,6 +2440,11 @@ impl super::Core {
         self.s.private_task(t)
     }
 
+    /// How fresh the private log and each shared space are (card #580).
+    pub fn freshness(&self) -> Vec<crate::service::freshness::LogFreshness> {
+        self.s.freshness()
+    }
+
     /// Every board on this device, by name.
     pub fn board_list(&self) -> Vec<BoardSummary> {
         self.s.board_list()

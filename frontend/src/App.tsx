@@ -66,6 +66,7 @@ import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
+import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
@@ -466,8 +467,7 @@ export function App() {
     // Card #509: a wait on a PR's merge is theirs too, as the tray counts it.
     // Card #520: and a wait no agent will end.
     (c) =>
-      c.scope === "board" &&
-      (c.openBlockers > 0 || !!c.mergePr || !!c.goneWait)
+      c.scope === "board" && (c.openBlockers > 0 || !!c.mergePr || !!c.goneWait)
   )
   // Needs you leads Home (card #261): its cards and held messages. An
   // agent's message to you is a DM in Talk (card #390). Held ones are
@@ -946,6 +946,14 @@ export function App() {
                         board={threadsSpace(space)}
                       />
                       <IdleLine text={idleLine(idle, untaken, homeIds)} />
+                      <HomeFreshness
+                        space={space}
+                        names={
+                          new Map(
+                            boards.map((b) => [b.boardId, b.name || b.tag])
+                          )
+                        }
+                      />
                     </>
                   }
                   lead={

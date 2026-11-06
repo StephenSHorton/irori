@@ -13,6 +13,7 @@ import { TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { cn } from "@/lib/utils"
+import { FreshnessShort } from "@/components/common/freshness-line"
 
 import { InvitePanel, NewBoardDialog } from "./parts"
 
@@ -228,6 +229,7 @@ function BoardTile({
               Active {relativeTime(new Date(last), now)}
             </span>
           )}
+          <FreshnessShort log={b.boardId} />
           {decide > 0 && (
             <span className="text-destructive">
               {decide === 1 ? "1 card needs" : `${decide} cards need`} a decision

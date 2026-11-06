@@ -12,8 +12,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { FreshnessShort } from "@/components/common/freshness-line"
 import type { BoardSummary } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
+import { previewFlag } from "@/lib/preview"
 import { AllSpaces, Personal, spacesOf, withLine, type Space } from "@/lib/spaces"
 import { cn } from "@/lib/utils"
 
@@ -56,7 +58,7 @@ export function SpaceSwitcher({
   const cur = spaces.find((s) => s.id === space) ?? spaces[0]
   const line = withLine(cur.others.map(plainLine))
   return (
-    <DropdownMenu>
+    <DropdownMenu defaultOpen={previewFlag("spaces") === "open"}>
       <DropdownMenuTrigger
         render={
           <button
@@ -87,11 +89,14 @@ export function SpaceSwitcher({
             {i === 2 && <DropdownMenuSeparator />}
             <DropdownMenuItem onClick={() => onSpace(s.id)}>
               <Mark s={s} />
-              <span className="min-w-0 flex-1 truncate">
-                {plainLine(s.name)}
-                {s.others.length > 0 && (
-                  <span className="text-muted-foreground"> · {withLine(s.others.map(plainLine))}</span>
-                )}
+              <span className="grid min-w-0 flex-1">
+                <span className="truncate">
+                  {plainLine(s.name)}
+                  {s.others.length > 0 && (
+                    <span className="text-muted-foreground"> · {withLine(s.others.map(plainLine))}</span>
+                  )}
+                </span>
+                {s.id !== AllSpaces && <FreshnessShort log={s.id} className="text-[11px]" />}
               </span>
               {s.id === cur.id && <CheckIcon className="size-3.5" aria-hidden />}
             </DropdownMenuItem>

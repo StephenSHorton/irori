@@ -289,6 +289,26 @@ pub fn write_board_server(log: &Store, row: &BoardServer) -> Result<bool, String
     Ok(true)
 }
 
+/// When `dev` wrote its row `seq` in `log`, by its HLC, in Unix ms.
+fn newest_wall_ms(log: &Store, dev: &str, seq: i64) -> Option<i64> {
+    if seq < 1 {
+        return None;
+    }
+    let evs = log
+        .list(&store::Filter {
+            device_id: dev.into(),
+            after_seq: seq - 1,
+            limit: 1,
+            ..store::Filter::default()
+        })
+        .ok()?;
+    let ev = evs.into_iter().find(|e| e.seq == seq)?;
+    let wall = ev.hlc.wall();
+    wall.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_millis() as i64)
+}
+
 /// What a [`BoardMesh`] runs on.
 #[derive(Clone)]
 pub struct BoardMeshOpts {
@@ -362,6 +382,10 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// When a pull from it last left this device holding every row its
+    /// newest vector named (card #580); 0 never. That vector may have come
+    /// by gossip rather than this connection: either way it was its own.
+    pub synced_ms: i64,
 }
 
 /// One board connection.
@@ -605,6 +629,48 @@ impl BoardMesh {
                 heard
                     .get(&d.device_id)
                     .is_none_or(|h| h.spawns < SPAWNS_PROTOCOL)
+            })
+            .collect()
+    }
+
+    /// How fresh this board log is (card #580, no-server.md §4.3): per
+    /// member device but this one, when this device was last in step with
+    /// it, in Unix ms (0 never). Connected and holding all it last said it
+    /// had: now. Else when a pull from it last did, or, with neither since
+    /// Irori started, when it wrote its newest row this log holds (in step
+    /// at least that recently).
+    pub fn freshness(&self) -> Vec<(String, i64)> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        let up: std::collections::BTreeSet<String> =
+            self.peers().into_iter().map(|(_, d)| d).collect();
+        let heard = self.s.heard.lock().expect("heard").clone();
+        let ours = self.s.opts.log.vector().unwrap_or_default();
+        let mut devs: std::collections::BTreeSet<String> = self
+            .s
+            .member_devices()
+            .into_iter()
+            .map(|d| d.device_id)
+            .collect();
+        devs.extend(heard.keys().cloned());
+        devs.remove(&self.s.opts.self_id);
+        devs.into_iter()
+            .map(|dev| {
+                let h = heard.get(&dev);
+                let live = up.contains(&dev) && h.is_some_and(|h| !self.s.behind(&h.vector));
+                let at = if live {
+                    now
+                } else {
+                    let synced = h.map_or(0, |h| h.synced_ms);
+                    let wrote = ours
+                        .get(&dev)
+                        .and_then(|seq| newest_wall_ms(&self.s.opts.log, &dev, *seq))
+                        .unwrap_or(0)
+                        .min(now);
+                    synced.max(wrote)
+                };
+                (dev, at)
             })
             .collect()
     }
@@ -1406,6 +1472,24 @@ impl Shared {
         h.at_ms = now;
     }
 
+    /// A pull from `dev` finished: when it left nothing of what `dev` last
+    /// said it had missing here, this log is in step with it (card #580).
+    fn note_step(&self, dev: &str) {
+        let theirs = match self.heard.lock().expect("heard").get(dev) {
+            Some(h) => h.vector.clone(),
+            None => return,
+        };
+        if self.behind(&theirs) {
+            return;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        if let Some(h) = self.heard.lock().expect("heard").get_mut(dev) {
+            h.synced_ms = now;
+        }
+    }
+
     /// Whether `theirs` holds a row this device's board log lacks.
     fn behind(&self, theirs: &BTreeMap<String, i64>) -> bool {
         let ours = self.opts.log.vector().unwrap_or_default();
@@ -1436,6 +1520,9 @@ impl Shared {
                 _ = ctx.cancelled() => return,
                 r = pull_board(p.conn.as_ref(), &self.opts.board_id, self.opts.log.clone()) => r,
             };
+            if r.is_ok() {
+                self.note_step(p.conn.id());
+            }
             match r {
                 Ok(0) => {}
                 Ok(_) => {
@@ -1445,6 +1532,13 @@ impl Shared {
                     let f = self.on_rows.lock().expect("on_rows").clone();
                     if let Some(f) = f {
                         f();
+                    }
+                    // Say at once what this device holds now (card #580),
+                    // not at the next tick: the writer can tell its rows
+                    // have left it, as when it syncs before sleep or quit.
+                    let vector = self.opts.log.vector().unwrap_or_default();
+                    if self.send(&p, &Wire::Vector { vector }).await.is_err() {
+                        return;
                     }
                 }
                 Err(e) => self.logf(&format!("pull from {}: {e}", p.conn.id())),

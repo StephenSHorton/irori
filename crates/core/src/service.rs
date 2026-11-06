@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+pub mod freshness;
 mod liveness;
 mod mirror;
 pub mod notes;
