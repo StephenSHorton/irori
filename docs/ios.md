@@ -54,3 +54,24 @@ Alternatively, open `app/gen/apple/irori-app.xcodeproj` in Xcode, choose your te
 - Data lives in the app's own Application Support folder (`app/src/lib.rs`, `mobile_main`). Deleting the app deletes it. Pair again to get your cards back.
 - netdev and libc: the workspace patches netdev with a vendored 0.46.3 (vendor/netdev) and holds libc at 0.2.186, because newer versions don't build iroh's networking for iOS. Cargo.toml has the details.
 - Not yet tried on a real iPhone: voice input (whisper.cpp built for iOS) and finding devices on the local network. iOS asks for the mic and local-network permissions on first use.
+
+## In the background
+
+Written for card #580 (no-server.md §4.3, "find out what phones really do in the background"). No iPhone was measured; the numbers for a real phone are on Android (docs/android.md, In the background). What follows is the code and Apple's documented behaviour.
+
+**What the app does today.** Nothing asks iOS for time in the background. Info.plist has no `UIBackgroundModes`, the entitlements file is empty (no `aps-environment`, so no push), nothing registers a `BGTaskScheduler` task, and the only sources are `main.mm` and the bindings. The Rust shell doesn't handle Tauri's mobile `WindowEvent::Suspended` or `Resumed` (`app/src/shell/mod.rs`), so leaving the app tells the mesh nothing. After you come back, recovery waits on the ordinary timers (`crates/mesh/src/node.rs`, `Intervals`): connect and presence every 30 s, ping every 15 s, a vector every 30 s, and redial backoff from 1 s up to 60 s. Arriving with card #580: Irori now syncs as far as it can when the app goes to the background.
+
+**What iOS does.** This is platform behaviour, from Apple's docs:
+
+- "Preparing your UI to run in the background" and "Managing your app's life cycle": an app with no background mode is suspended within seconds of leaving the foreground. A suspended app runs no code, so its timers stop and its connections go quiet. iOS may end it later to free memory, which makes the next open a cold start.
+- "Extending your app's background execution time": `beginBackgroundTask` buys about 30 s to finish work after leaving the foreground.
+- "Using background tasks to update your app": a `BGAppRefreshTask` runs when iOS chooses, based on how often you use the app. It's short and isn't guaranteed.
+- "Pushing background updates to your app": a silent push can wake an app, but it comes from a server through APNs.
+
+**What it means for you.** As on Android, only more so: an iPhone catches up when you open it, and doesn't keep spaces fresh while locked.
+
+**What could change it later.** Options, not decisions:
+
+- `beginBackgroundTask` around the sync when the app leaves the foreground, so it gets its 30 s.
+- A `BGAppRefreshTask` that opens the mesh, syncs and stops: an occasional catch-up while locked, when iOS allows it.
+- Silent push needs a server, which §4.4 of docs/design/no-server.md chose not to run.
