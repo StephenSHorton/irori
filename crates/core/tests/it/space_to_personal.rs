@@ -138,13 +138,16 @@ fn wind(c: &Core, person: &str, agent: &str) -> (String, Vec<String>) {
         },
     )
     .unwrap();
-    co.set_task_state(&ag, &sub.id, "completed", "drawn").unwrap();
+    co.set_task_state(&ag, &sub.id, "completed", "drawn")
+        .unwrap();
     (id, vec![parent.id, sub.id, open.id])
 }
 
 fn space_facts(c: &Core, space: &str, ids: &[String]) -> Vec<Facts> {
     let co = c.board_coord(space).unwrap();
-    ids.iter().map(|id| facts(&co.get_task(id).unwrap())).collect()
+    ids.iter()
+        .map(|id| facts(&co.get_task(id).unwrap()))
+        .collect()
 }
 
 fn personal_facts(c: &Core, ids: &[String]) -> Vec<Facts> {
@@ -168,7 +171,10 @@ fn a_space_moves_into_personal_with_every_card() {
     let (id, ids) = wind(&r.core, &me, &r.key_a);
     let before = space_facts(&r.core, &id, &ids);
     assert_eq!(before[1].comments, 2, "{before:?}");
-    assert_eq!(before[1].steps, [("map".into(), true), ("dots".into(), false)]);
+    assert_eq!(
+        before[1].steps,
+        [("map".into(), true), ("dots".into(), false)]
+    );
 
     let m = r
         .core
@@ -194,7 +200,11 @@ fn a_space_moves_into_personal_with_every_card() {
     assert_eq!(card.tag, "wind");
     // The person's rows are the person's here: their comment and answer.
     let comments = r.core.coord().comments(&ids[1]).unwrap();
-    assert!(comments.iter().any(|c| c.by == me && c.text == "looks good"));
+    assert!(
+        comments
+            .iter()
+            .any(|c| c.by == me && c.text == "looks good")
+    );
     // Hand-out state isn't copied, and every copied row says where from.
     let rows = r
         .core
@@ -263,7 +273,10 @@ fn a_tag_held_elsewhere_stops_the_move() {
         .core
         .move_space_to_personal(&id, &MoveOpts::default())
         .unwrap_err();
-    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed), "{e}");
+    assert!(
+        matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed),
+        "{e}"
+    );
     assert!(r.core.boards().contains(&id));
 }
 
@@ -288,7 +301,9 @@ fn the_other_device_follows_the_move() {
                     .is_some_and(|t| t.board == m.board_id)
             })
     });
-    wait_for(45, "b folds every row", || personal_facts(&b.core, &ids) == before);
+    wait_for(45, "b folds every row", || {
+        personal_facts(&b.core, &ids) == before
+    });
     assert_eq!(b.core.task_ref("wind#1").unwrap(), ids[0]);
     assert!(b.core.board_list().iter().all(|s| s.board_id != id));
 }

@@ -180,10 +180,7 @@ fn other_rows(core: &Core, me: &str, seq0: i64) -> String {
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
     };
-    loop {
-        let Ok(evs) = core.store().list(&f) else {
-            break;
-        };
+    while let Ok(evs) = core.store().list(&f) {
         for ev in &evs {
             let moved = String::from_utf8_lossy(&ev.payload).contains(irori_core::MOVED_FIELD);
             if !moved && ev.kind != kinds::BOARD_FORGOT {
@@ -275,7 +272,10 @@ pub fn run(o: &Opts) -> ExitCode {
             .ok()
             .and_then(|b| b.first().map(|x| x.tag.clone()))
             .unwrap_or_default();
-        let cards = tasks.iter().map(|t| (t.id.clone(), t.short_ref())).collect();
+        let cards = tasks
+            .iter()
+            .map(|t| (t.id.clone(), t.short_ref()))
+            .collect();
         println!("space {id} ({tag})");
         let raw = raw_rows(&core, id);
         let kinds_line = |ks: &[&str]| {

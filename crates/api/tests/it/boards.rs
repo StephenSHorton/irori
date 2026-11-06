@@ -77,12 +77,10 @@ fn the_core_serves_its_boards_with_set_aside_counts_under_detail() {
 fn a_one_person_space_moves_into_personal_by_post() {
     let rig = common::Rig::new();
     let call = |m: &str, q: &str| {
-        rig.rt.block_on(rig.client.call(
-            m,
-            &format!("/v1/spaces/move-to-personal{q}"),
-            &[],
-            None,
-        ))
+        rig.rt.block_on(
+            rig.client
+                .call(m, &format!("/v1/spaces/move-to-personal{q}"), &[], None),
+        )
     };
     let c = &rig.core;
     let id = c.create_board("Wind Waker", "wind").unwrap();

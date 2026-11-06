@@ -2047,6 +2047,14 @@ impl Coord {
         self.lock().refold_if_cut(vec)
     }
 
+    /// Rebuilds the fold from the store as a replay, quietly: for rows this
+    /// device wrote straight to the store (card #640's move), which the
+    /// fold otherwise never sees until a restart.
+    pub fn refold(&self) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        self.lock().refold()
+    }
+
     /// Whether a card's short ref moved at or after `since` (search
     /// re-reads those docs).
     pub fn short_moved_since(&self, id: &str, since: &GoTime) -> bool {

@@ -28,7 +28,6 @@ use super::spaces::board_tag_ids;
 /// The extra field each copied row carries: the row it copies.
 pub const MOVED_FIELD: &str = "moved";
 
-
 /// Space kinds that are the private log's under another name
 /// (`Fold::ask_kind`), with `board.ask.moved`, which `take_kind` leaves.
 const RENAMED: &[(&str, &str)] = &[
@@ -216,12 +215,17 @@ impl Services {
             } else {
                 ev.actor.clone()
             };
-            // The private fold skips this device's rows when the store
-            // hands them back (its own writes fold as they're made), so
-            // each copied row is folded here, as it would arrive live.
-            let w = self.store.append(&actor, &kind, &v)?;
-            self.coord.fold_live(std::slice::from_ref(&w));
+            self.store.append(&actor, &kind, &v)?;
             out.rows_copied += 1;
+        }
+        // The private fold skips this device's rows when the store hands
+        // them back (its own writes fold as they're made). Rebuilding it
+        // once, as a replay, folds the copy quietly: old rows tell no
+        // watcher anything, and no duty acts on a card half copied.
+        if out.rows_copied > 0 {
+            self.coord
+                .refold()
+                .map_err(|e| Error::other(format_args!("refold after the copy: {e}")))?;
         }
 
         let diffs = self.compare_move(&b, &mut out);
@@ -371,7 +375,11 @@ impl Services {
                     r,
                 );
                 if got.is_err() || !self.files.has(&r.sha256) {
-                    missing.push(format!("{} ({})", r.name, &r.sha256[..r.sha256.len().min(8)]));
+                    missing.push(format!(
+                        "{} ({})",
+                        r.name,
+                        &r.sha256[..r.sha256.len().min(8)]
+                    ));
                     continue;
                 }
             }
@@ -395,8 +403,7 @@ impl Services {
                 ..coord::roster::AgentCard::default()
             })
             .collect();
-        self.agent_names
-            .note(&cards, presence::now_local().secs);
+        self.agent_names.note(&cards, presence::now_local().secs);
     }
 
     /// Adds a name for each space agent key (`agent:<cardId>`) the
@@ -541,7 +548,12 @@ fn file_refs(rows: &[Event]) -> Vec<blob::FileRef> {
             v.get("attachments"),
             v.get("blocker").and_then(|b| b.get("attachments")),
         ];
-        for f in lists.into_iter().flatten().filter_map(Value::as_array).flatten() {
+        for f in lists
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_array)
+            .flatten()
+        {
             let s = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
             let sha = s("sha256");
             if sha.is_empty() || !seen.insert(sha.clone()) {
@@ -606,14 +618,22 @@ fn facts_diff(a: &CardFacts, z: &CardFacts) -> String {
     f("title", a.title.clone(), z.title.clone());
     f("state", a.state.clone(), z.state.clone());
     f("comments", a.comments.to_string(), z.comments.to_string());
-    f("steps", a.steps.len().to_string(), z.steps.len().to_string());
+    f(
+        "steps",
+        a.steps.len().to_string(),
+        z.steps.len().to_string(),
+    );
     f(
         "ticked steps",
         a.steps.iter().filter(|s| s.1).count().to_string(),
         z.steps.iter().filter(|s| s.1).count().to_string(),
     );
     f("blockers", a.blockers.to_string(), z.blockers.to_string());
-    f("open blockers", a.open_blockers.to_string(), z.open_blockers.to_string());
+    f(
+        "open blockers",
+        a.open_blockers.to_string(),
+        z.open_blockers.to_string(),
+    );
     f("subtasks", a.subtasks.to_string(), z.subtasks.to_string());
     f("parent", a.parent.clone(), z.parent.clone());
     f("thread", a.thread.to_string(), z.thread.to_string());
