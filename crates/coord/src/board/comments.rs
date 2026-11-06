@@ -164,13 +164,8 @@ impl Fold {
                 }
                 // Every wait comes through here (card #570). A new card has
                 // nothing waiting on it yet, so nothing to close a circle.
-                if edge
-                    && !me.is_empty()
-                    && let Some(path) = self.order_path(&out.reference, me)
-                {
-                    let mut ids = vec![me.to_string()];
-                    ids.extend(path);
-                    return Err(self.circle(&ids));
+                if edge {
+                    self.check_edge(me, Some(&out))?;
                 }
             }
             BLOCKED_ON_PERSON => {

@@ -2,17 +2,9 @@
 
 From the review of the coord build. None checked or fixed yet: the fix stage was stopped by a wind-down. Delete this file once they are dealt with.
 
-## 1. revise with no options closes a circle that was never checked (medium)
+## 1. revise with no options closes a circle that was never checked — fixed: revise runs the circle check when a task wait loses its options.
 
-`crates/coord/src/board/cards.rs:1442`
-
-Ran on a /tmp copy identical to 5898f117. raise(#1, 'Wait for two, or go?', options [Wait, Go], on task #2) is allowed, because a wait with options is no edge. add_after(#2, [#1]) is then allowed too. revise(#1, bid, options: []) returns Ok. The row keeps on: b.on and revise never calls check_wait, so the item becomes a plain task wait. Observed: task_waits(#1)=[#2], task_waits(#2)=[#1], wait_chain reports a 2-card loop. One device, public API, no refusal. The loop does show at read time and can be undone, hence medium. Fix: when revise leaves an item with on.kind task and no options, run the circle check.
-
-## 2. raise with options on a same-question item writes an unchecked edge (medium)
-
-`crates/coord/src/board/cards.rs:1281`
-
-#1 has an open plain item 'Which way?' and add_after(#2, [#1]) is done. raise(#1, 'Which way?', options [Wait, Go], on task #2) returns Ok: check_wait gets edge=false because opts is non-empty. The fold's same-question branch (cards.rs:670) then sets b.on = br.on and ignores the row's options, so the existing optionless item becomes a task wait. Observed: the returned item has 0 options, task_waits(#1)=[#2], wait_chain shows a 2-card loop, and it survives a replay (e.reopen()). Fix: in raise_locked, pass edge=true when same_q hits an item with no options.
+## 2. raise with options on a same-question item writes an unchecked edge — fixed: raise_locked checks the circle when the same-question item it merges into has no options.
 
 ## 3. ask_close into a held parent inherits a hold with no circle check (medium)
 
@@ -44,11 +36,7 @@ Release build, a chain where each card is parked until the one before. board() a
 
 kids_to_park checks held_by_someone(k) before the 'hold names this very subtask' skip, and check_adopt does the same at later.rs:293. K is a subtask of P with BOB on it. park(USER, P, why, Back::Card(K)) is refused: 'subtask #2 of #1 is held: it finishes first'. With K unheld the same call succeeds and K stays free, so the hold never touches K. Adopt case: P is parked until K, BOB claims K, then split(P, adopt K) is refused with '#2 is held, and #1 is Not yet', although inherit_park would leave K alone. Doc section 3 says 'Parking a parent with a held subtask is refused', so the park case follows the doc's letter. It still contradicts the builder's rule that this subtask stays free, so the person should decide. The fix is to move the skip above the held check in both places.
 
-## 8. New-card question clash overwrites a wait instead of refusing (low)
-
-`crates/coord/src/board/later.rs:968`
-
-new_waits compares after questions only with each other, not with the card's own reason or an inherited hold. Doc section 2 says refuse a clash rather than overwrite. Case 1: NewTask{block_reason 'After #2: two', blocked_by #1, after ['#2']}. Observed: Ok with 1 open item, and task_waits holds only #2, so the wait on #1 is lost. Case 2: a new subtask of a parent held as 'Not yet: voice calls', with that same text as block_reason and blocked_by task Y. Observed: Ok with 1 open item, no waits, parked true, so the wait on Y is absorbed into the hold. Contrived input, but it is the fold overwrite the doc warns about. Fix: compare against block_question(ct.reason) and the park's question.
+## 8. New-card question clash overwrites a wait instead of refusing — fixed: new_waits compares after items, the card's own reason and the inherited hold, and refuses a clash.
 
 ## 9. remove_after by #N can't clear a wait on a deleted card (low)
 
@@ -62,11 +50,7 @@ Next to doc section 5 bug 3. A is after #1, the person deletes #1, and the sweep
 
 VERIFIED by running probes a1, a2 and a3 (all probes are in /tmp/rv570/crates/coord/tests/review_probe.rs, a scratch copy of 5898f117; the worktree is unchanged). set_step_owner (:2270) and set_steps (:2027) have no parked check, and both are agent tools (board_step at tools/src/board.rs:1989, board_steps at :1896). Scenario: a person parks a one-step card on Back::Word. claim_task(BOB) is refused NotAllowed, but set_step_owner(BOB, id, s1, BOB) returns Ok and co_holders becomes [bob]: the agent is on a card claim just refused it. Handing it to someone else: set_step_owner(ALICE, id, s1, CAROL) sends CAROL a step_owner notice with wake=true saying 'gave you a step... You hear the card like a holder', so an idle agent is woken onto a held card. set_steps_notice with an owner does the same. Read, not run: co_holders then makes held_by_someone true, so kids_to_park refuses parking its parent, and park refuses agents on that card. Fix at write time: refuse a new owner on a parked card for agents, and treat a person's as their word or refuse it too.
 
-## 11. A block or raise with the hold's own words rewrites its `on`: a date hold never returns, or it shows in Needs you (high)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/cards.rs:672`
-
-VERIFIED by running probes d1 and d2. raise_locked (:1283) finds the open item by question and writes a row with a new id, and the fold's open_with_question branch (:670-672) sets b.on = br.on while keeping later. Scenario 1 (d1): a card is parked on a date with question 'Not yet: not now'. An agent calls board_block reason='Not yet: not now', the text the card shows; this reaches co.block at tools/src/board.rs:1639. The block returns Ok and the item becomes on=None, later='date ...'. gone_away (comments.rs:1277) skips any item with no `on` before it reaches b.back(), so 25 hours after the date a sweep leaves it blocked and parked. A card or version hold has the same skip, and nothing says so. Scenario 2 (d2): the same text raised with on=person returns Ok, on becomes person, and the card goes to needs_you instead of later. It needs the exact question text, but that text is what the card displays. Fix at write time: refuse in raise_locked when same_q names an item with a non-empty later.
+## 11. A block or raise with the hold's own words rewrites its `on` — fixed: raise_locked (block too) refuses when the same-question item is a hold.
 
 ## 12. A sweep that hasn't seen the hold writes blocker.closed and ends a word hold on the device that has it (medium)
 
@@ -92,11 +76,7 @@ VERIFIED by running probes c1 and c2. check_parkable only refuses person items, 
 
 VERIFIED by running probe e1. A person parks a parent on Back::Word, and its subtask takes the same item. Any agent revises the parent's item with board_block blocker_id, setting the question to 'Not yet: until the spring'. revise has no parked check, and only the parent's row changes. The person calls bring_back(parent). The parent returns, but same_hold compares later and question, so close_kid_parks finds no match. The result is subtask state=blocked parked=true on 'word', with no way back except a separate bring-back by a person. Read, not run: revising the subtask instead has the same effect, and a later park replace misses it too because `same` comes back None. Fix: match on something revise doesn't change, or keep the question in step.
 
-## 16. A hold accepts options through revise, which drops it as a circle edge and, by reading, makes it a window question (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/cards.rs:1374`
-
-VERIFIED by running probes e2 and e3; the window effect is by reading only. e2: revise(ALICE, id, bid, options=[go]) on a word hold returns Ok and the item has 1 option; the spec says a park has no options. e3: a card held with Back::Card(x) has order_reaches(t, x) true. After that revise it is false, because task_waits drops items with options, and add_after(x, [t]) then returns Ok, so x waits on t while t's hold still waits on x. No refusal fires, and neither side's list shows the loop as an edge. By reading: window/src/cards.rs:1559 needs bl.options.is_empty() to count a wait, so the item falls to open_blockers += 1 at :1590, which is Needs you with a reply box. Fix at write time: refuse options in revise on an item with later.
+## 16. A hold accepts options through revise — fixed: revise refuses options on a hold.
 
 ## 17. Changing a parent's word hold to wait on its own subtask leaves that subtask held, so neither comes back (medium)
 

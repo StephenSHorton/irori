@@ -1278,15 +1278,28 @@ impl Fold {
                 "a choice only the person can make goes on a card: ask_close it with outcome card (it stays yours), then board_block that card, one blocker per question; a question about what they meant goes on its thread (board_comment)",
             ));
         }
-        let mut nb = self.check_wait(bb.as_ref(), &t.id, opts.is_empty())?;
-        self.decider_default(by, t, &mut nb);
         let same_q = open_with_question(t, q);
+        // The fold keeps a same-question item's options and takes this
+        // row's `on`, so an optionless one becomes a wait (card #570).
+        let edge = opts.is_empty() || same_q.is_some_and(|i| t.blockers[i].options.is_empty());
+        let mut nb = self.check_wait(bb.as_ref(), &t.id, edge)?;
+        self.decider_default(by, t, &mut nb);
         if let Some(i) = same_q
             && t.state == BLOCKED
             && (nb.is_none() && !reason_only || t.blockers[i].on == nb)
             && !brings_new(&t.blockers[i], &links, &files)
         {
             return Ok((t.clone(), t.blockers[i].clone()));
+        }
+        // That row would rewrite the hold's `on` (card #570).
+        if let Some(i) = same_q
+            && !t.blockers[i].later.is_empty()
+        {
+            return Err(invalid(format!(
+                "{} is Not yet with {} asking that: ask something else, or change or end the hold",
+                t.short_ref(),
+                t.blockers[i].id
+            )));
         }
         if let Some(i) = same_q {
             let b = &t.blockers[i];
@@ -1419,6 +1432,16 @@ impl Fold {
         check_text("the context", &cx, 0, max_cx)?;
         let now = self.stamp();
         let opts = clean_options(&r.options, &by, now)?;
+        // A hold has no options: they'd drop it as a wait (card #570).
+        if !b.later.is_empty() && !opts.is_empty() {
+            return Err(invalid(format!(
+                "{bid} is the card's Not yet hold, which takes no options: ask the person in a separate blocker"
+            )));
+        }
+        // Without options a task wait is an edge again.
+        if opts.is_empty() && !b.options.is_empty() {
+            self.check_edge(&t.id, b.on.as_ref())?;
+        }
         if q == b.question && cx == b.context && same_options(&opts, &b.options) {
             return Err(invalid(format!(
                 "that asks the same question with the same options: answer the person on the blocker (board_comment blocker_id={bid}), then resolve it (board_unblock) or revise it with options that fit what you know now, or none"

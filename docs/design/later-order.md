@@ -97,7 +97,8 @@ Field rules:
   reason-only block replaces such an item.
 - Each after item needs its own question, because the fold dedupes on question
   text and would overwrite `on`. Use the short ref plus title, and refuse a
-  clash rather than overwrite.
+  clash rather than overwrite. A new card's after items, its own reason and
+  a hold it takes from its parent are all compared.
 - Check the cap (8 open items), the refs and circles for the whole list before
   the first write.
 - Refs take `tag#N`: with #558's per-board numbers a bare `#N` can be ambiguous.
@@ -110,6 +111,9 @@ Field rules:
   `INPUT_REQUIRED` is open: those stay Needs you, and raising would swallow
   them.
 - One park per card. Changing the condition is a `replace` row with the same id.
+- A block or question with the hold's own words is refused: the fold's
+  same-question merge would rewrite the hold's `on`. A hold takes no options
+  through revise either.
 - A pending spawn is ended on park, since `bind_spawns` has no state check.
 - A held card: parking drops its holders, because a kept holder would come back
   silently as `WORKING`. Only the holder or a person may park a held card.
@@ -149,6 +153,9 @@ devices.
 - Edges are `task_waits` plus parent to open subtasks, because a parent can't
   finish first. `split` adopting a card makes the same check.
 - A `later:"card"` item is an edge for free.
+- A wait with options is no edge, so it is checked when it becomes one:
+  revise dropping its options, or a raise merging into an optionless item
+  with the same question.
 - Two devices can each make half a circle offline. Neither can refuse that, and
   the fold must accept both rows, so every device converges on the same loop.
   #481's read-time loop item still shows it, which is the one exception to

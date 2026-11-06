@@ -246,6 +246,22 @@ impl Fold {
         None
     }
 
+    /// Refuses `on` as a wait of card `me` when it closes a circle.
+    pub(crate) fn check_edge(&self, me: &str, on: Option<&BlockedBy>) -> Result<()> {
+        let Some(on) = on.filter(|on| on.kind == BLOCKED_ON_TASK) else {
+            return Ok(());
+        };
+        if me.is_empty() || on.reference.is_empty() || on.reference == me {
+            return Ok(());
+        }
+        let Some(path) = self.order_path(&on.reference, me) else {
+            return Ok(());
+        };
+        let mut ids = vec![me.to_string()];
+        ids.extend(path);
+        Err(self.circle(&ids))
+    }
+
     pub(crate) fn order_reaches(&self, from: &str, to: &str) -> bool {
         self.order_path(from, to).is_some()
     }
@@ -954,6 +970,11 @@ impl Fold {
             self.check_new_subtask(&ct.parent, &bb.reference)?;
         }
         let mut out = NewWaits::default();
+        // The fold merges items by question, so each needs its own.
+        let mut asked: Vec<String> = Vec::new();
+        if !ct.reason.is_empty() && ct.later.is_none() {
+            asked.push(block_question(&ct.reason).0);
+        }
         for r in &ct.after {
             let k = self.task_ref_locked(r)?;
             if bb.is_some_and(|bb| bb.reference == k)
@@ -965,12 +986,10 @@ impl Fold {
             let on = self.check_blocker(Some(&on), "")?.unwrap_or_default();
             self.check_new_subtask(&ct.parent, &on.reference)?;
             let q = after_question(&self.tasks[&on.reference]);
-            if out.after.iter().any(|(o, _)| *o == q) {
-                return Err(invalid(format!(
-                    "two cards read the same ({}): say them apart",
-                    quote(&q)
-                )));
+            if asked.contains(&q) {
+                return Err(same_question(&q));
             }
+            asked.push(q.clone());
             out.after.push((q, on));
         }
         out.park = match (&ct.later, held) {
@@ -984,6 +1003,11 @@ impl Fold {
             (None, Some(item)) => Some(Park::of(&item)),
             (None, None) => None,
         };
+        if let Some(p) = &out.park
+            && asked.contains(&p.question)
+        {
+            return Err(same_question(&p.question));
+        }
         let plain = usize::from(!ct.reason.is_empty() && ct.later.is_none());
         let n = plain + out.after.len() + usize::from(out.park.is_some());
         if n > MAX_OPEN_BLOCKERS {
@@ -1004,6 +1028,14 @@ impl Fold {
         }
         Ok(())
     }
+}
+
+/// The refusal for two items of one new card that read the same.
+fn same_question(q: &str) -> Error {
+    invalid(format!(
+        "two of the new card's waits read the same ({}): say them apart",
+        quote(q)
+    ))
 }
 
 /// The refusal that names a loop: `#1 waits on #2, which waits on #1`. A
