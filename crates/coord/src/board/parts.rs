@@ -80,34 +80,48 @@ impl Fold {
     pub(crate) fn lead_coming(&self, t: &Task) -> bool {
         t.spawn
             && !t.parent.is_empty()
-            && self.spawning_on()
-            && self.tasks.get(&t.parent).is_some_and(|p| {
-                !is_terminal(&p.state)
-                    && p.holders.is_empty()
-                    && !p.shared
-                    && p.spawn_crashes < self.crash_limit()
-            })
+            && self.tasks.get(&t.parent).is_some_and(|p| self.lead_due(p))
+    }
+
+    /// Who helper part t's "Part done" waits on now (card #557): Some with
+    /// its parent's holders while a lead is on it, Some(empty) while Irori
+    /// would start one, None when t isn't a part or nobody is coming (the
+    /// wait is then stranded and says so).
+    pub(crate) fn part_lead(&self, t: &Task) -> Option<Vec<String>> {
+        let on = self.lead_of(t);
+        if !on.is_empty() {
+            return Some(on);
+        }
+        self.lead_coming(t).then(Vec::new)
+    }
+
+    /// Whether Irori would start a lead for parent p once there is work for
+    /// one: p is open, nobody holds it, it is private, the board spawns and
+    /// its agents haven't crashed past the limit.
+    fn lead_due(&self, p: &Task) -> bool {
+        self.spawning_on()
+            && !is_terminal(&p.state)
+            && p.holders.is_empty()
+            && !p.shared
+            && p.spawn_crashes < self.crash_limit()
     }
 
     /// Whether led card t lost its lead and has work for the next: nobody
-    /// is on it or starting, and a helper's part says it is done. Not before
-    /// that: a fresh lead with nothing to merge would only idle out again.
-    /// Nor while t waits on anything but its own parts: on the person, Irori
-    /// would end the new lead at once and start another, so it comes with
-    /// their answer. A wait on a part only closes through a lead.
+    /// is on it or starting, and a helper's part says it is done, or the
+    /// person answered on t itself (card #557: their "Merge it" on the
+    /// lead's "Can I merge?" once every part was accepted, after the lead
+    /// went). Not before that: a fresh lead with nothing to do would only
+    /// idle out again. Nor while t waits on anything but its own parts: on
+    /// the person, Irori would end the new lead at once and start another,
+    /// so it comes with their answer. A wait on a part only closes through
+    /// a lead.
     pub(crate) fn needs_lead(&self, t: &Task) -> bool {
         let on_a_part = |b: &Blocker| {
             b.on.as_ref()
                 .is_some_and(|on| on.kind == BLOCKED_ON_TASK && t.subtasks.contains(&on.reference))
         };
-        t.assigned.is_empty()
-            && !t.withdrawn
-            && t.open_ask().is_none()
-            && t.blockers
-                .iter()
-                .filter(|b| b.open())
-                .all(|b| b.status == BLOCKER_ANSWERED || on_a_part(b))
-            && t.subtasks
+        let part_done = || {
+            t.subtasks
                 .iter()
                 .filter_map(|id| self.tasks.get(id))
                 .any(|k| {
@@ -117,6 +131,26 @@ impl Fold {
                             .iter()
                             .any(|b| b.open() && b.question == PART_QUESTION)
                 })
+        };
+        // The person's answer on the parent waits on an agent, and with no
+        // lead on it nobody else would act on it: back_on_board leaves a
+        // parent's state to its subtasks, and needs_agent refuses one.
+        let answered = || {
+            self.lead_due(t)
+                && t.co_holders.is_empty()
+                && t.blockers
+                    .iter()
+                    .any(|b| b.open() && b.status == BLOCKER_ANSWERED)
+        };
+        !t.subtasks.is_empty()
+            && t.assigned.is_empty()
+            && !t.withdrawn
+            && t.open_ask().is_none()
+            && t.blockers
+                .iter()
+                .filter(|b| b.open())
+                .all(|b| b.status == BLOCKER_ANSWERED || on_a_part(b))
+            && (part_done() || answered())
     }
 
     /// An unmarked subtask of a led card (§3): it isn't spawned on its own,

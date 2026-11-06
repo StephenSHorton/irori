@@ -1574,6 +1574,13 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
     }
+    /// Who helper part `id`'s "Part done" waits on now (card #557): its
+    /// lead's keys, empty while Irori would start one, None when it isn't
+    /// a part or no lead is coming.
+    pub fn part_lead(&self, id: &str) -> Option<Vec<String>> {
+        let f = self.lock();
+        f.tasks.get(id).and_then(|t| f.part_lead(t))
+    }
     /// Why "Hand to an agent" can't move card `id` (a shared board's card,
     /// an open ask, subtasks, already on the Board); "" when it can.
     pub fn hand_on_refusal(&self, id: &str) -> String {
