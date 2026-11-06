@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 
-import { contrast, glassStyles, hexToOklch, themes, type Appearance, type Mode } from "./appearance"
+import {
+  contrast,
+  glassStyles,
+  hexToOklch,
+  themes,
+  type Appearance,
+  type Mode,
+} from "./appearance"
 import { cardLook, sendCardLook } from "./card-look"
 
 const modes: Mode[] = ["light", "dark"]
@@ -22,9 +29,15 @@ const keys = [
 const custom = { base: "blue", accent: "#e2683c", tint: "#5a6b7c" }
 const ids = [...themes.map((t) => t.id), "custom"]
 const look = (theme: string, mode: Appearance["mode"], glass = "frost") =>
-  cardLook({ theme, mode, glass, custom: theme === "custom" ? custom : undefined })
+  cardLook({
+    theme,
+    mode,
+    glass,
+    custom: theme === "custom" ? custom : undefined,
+  })
 
-const ratio = (fg: string, bg: string) => contrast(hexToOklch(fg), hexToOklch(bg))
+const ratio = (fg: string, bg: string) =>
+  contrast(hexToOklch(fg), hexToOklch(bg))
 // Hue distance in degrees.
 const apart = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
 
@@ -35,7 +48,9 @@ describe("every theme, mode and glass gives a readable card", () => {
         test(`${id} ${m} ${g.id}`, () => {
           const c = look(id, m, g.id)[m]!
           for (const k of keys) expect(c[k]).toMatch(/^#[0-9a-f]{6}$/)
-          expect(ratio(c.foreground!, c.background!)).toBeGreaterThanOrEqual(4.5)
+          expect(ratio(c.foreground!, c.background!)).toBeGreaterThanOrEqual(
+            4.5
+          )
           expect(ratio(c.muted!, c.background!)).toBeGreaterThanOrEqual(3)
           expect(ratio(c.onPrimary!, c.primary!)).toBeGreaterThanOrEqual(4.5)
           // The card keeps an edge on the desktop.
@@ -46,14 +61,20 @@ describe("every theme, mode and glass gives a readable card", () => {
 describe("the info stripe takes the theme's accent", () => {
   for (const m of modes) {
     test(`sakura ${m} is pink`, () => {
-      expect(apart(hexToOklch(look("sakura", m)[m]!.info!).h, 355)).toBeLessThan(25)
+      expect(
+        apart(hexToOklch(look("sakura", m)[m]!.info!).h, 355)
+      ).toBeLessThan(25)
     })
     test(`forest ${m} is green`, () => {
-      expect(apart(hexToOklch(look("forest", m)[m]!.info!).h, 150)).toBeLessThan(25)
+      expect(
+        apart(hexToOklch(look("forest", m)[m]!.info!).h, 150)
+      ).toBeLessThan(25)
     })
     test(`custom ${m} follows the picked accent`, () => {
       const want = hexToOklch(custom.accent).h
-      expect(apart(hexToOklch(look("custom", m)[m]!.info!).h, want)).toBeLessThan(25)
+      expect(
+        apart(hexToOklch(look("custom", m)[m]!.info!).h, want)
+      ).toBeLessThan(25)
     })
   }
 })
@@ -97,13 +118,17 @@ test("system mode keeps both palettes", () => {
 })
 
 test("custom is its own palette", () => {
-  expect(look("custom", "dark").dark!.primary).not.toBe(look("blue", "dark").dark!.primary)
+  expect(look("custom", "dark").dark!.primary).not.toBe(
+    look("blue", "dark").dark!.primary
+  )
   expect(look("custom", "dark").theme).toBe("custom")
 })
 
 describe("sendCardLook", () => {
   type Invoke = (cmd: string, args: unknown) => Promise<unknown>
-  const g = globalThis as unknown as { window?: { __TAURI_INTERNALS__?: { invoke: Invoke } } }
+  const g = globalThis as unknown as {
+    window?: { __TAURI_INTERNALS__?: { invoke: Invoke } }
+  }
 
   test("sends only in the host, skips a look already sent, and never throws", async () => {
     const had = g.window

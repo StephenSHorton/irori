@@ -41,7 +41,12 @@ export function sectionFromHash(hash: string): Section {
   if (d) return { kind: "desk", repo: decodeURIComponent(d[1]) }
   if (hash === "#notifications") return { kind: "notifications" }
   const l = hash.match(/^#board\/([^/]+)\/([^/]+)$/)
-  if (l) return { kind: "board", id: decodeURIComponent(l[1]), board: decodeURIComponent(l[2]) }
+  if (l)
+    return {
+      kind: "board",
+      id: decodeURIComponent(l[1]),
+      board: decodeURIComponent(l[2]),
+    }
   const m = hash.match(/^#board\/(.+)$/)
   if (m) return { kind: "board", id: decodeURIComponent(m[1]) }
   return Home
@@ -50,9 +55,12 @@ export function sectionFromHash(hash: string): Section {
 export function sectionHash(s: Section): string {
   if (s.kind === "boards") return "#boards"
   if (s.kind === "profile") return "#profile"
-  if (s.kind === "talk") return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
-  if (s.kind === "notes") return s.tab ? `#notes/${encodeURIComponent(s.tab)}` : "#notes"
-  if (s.kind === "desk") return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
+  if (s.kind === "talk")
+    return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
+  if (s.kind === "notes")
+    return s.tab ? `#notes/${encodeURIComponent(s.tab)}` : "#notes"
+  if (s.kind === "desk")
+    return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
   if (s.kind === "notifications") return "#notifications"
   if (s.kind === "board")
     return s.board
@@ -71,7 +79,8 @@ export function go(s: Section): void {
 
 export function sameSection(a: Section, b: Section): boolean {
   if (a.kind !== b.kind) return false
-  if (a.kind === "board") return b.kind === "board" && a.id === b.id && a.board === b.board
+  if (a.kind === "board")
+    return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
   if (a.kind === "notes") return b.kind === "notes" && a.tab === b.tab
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo

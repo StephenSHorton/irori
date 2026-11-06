@@ -12,7 +12,11 @@ import {
   type Drag,
 } from "./sidebar-width"
 
-const open = (width: number): Drag => ({ folded: false, width, catching: false })
+const open = (width: number): Drag => ({
+  folded: false,
+  width,
+  catching: false,
+})
 const shut = (width: number): Drag => ({ folded: true, width, catching: false })
 
 describe("clampWidth", () => {

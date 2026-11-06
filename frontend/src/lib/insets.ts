@@ -4,7 +4,12 @@
 // (window.IroriInsets, in CSS px). index.css's --safe-top and friends take
 // the larger of the two; pages pad with those, never env() directly.
 
-type Insets = { top(): number; bottom(): number; left(): number; right(): number }
+type Insets = {
+  top(): number
+  bottom(): number
+  left(): number
+  right(): number
+}
 
 export function followInsets(): void {
   const src = (window as unknown as { IroriInsets?: Insets }).IroriInsets

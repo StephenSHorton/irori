@@ -10,7 +10,10 @@ export const AvatarSize = 128
 export const MaxAvatar = 32 * 1024
 
 // cropSquare is the centred square of a w×h picture: its left, top and side.
-export function cropSquare(w: number, h: number): { x: number; y: number; side: number } {
+export function cropSquare(
+  w: number,
+  h: number
+): { x: number; y: number; side: number } {
   const side = Math.min(w, h)
   return { x: Math.floor((w - side) / 2), y: Math.floor((h - side) / 2), side }
 }

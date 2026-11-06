@@ -19,7 +19,13 @@
 //
 // Only Chrome's DevTools protocol over a WebSocket: no extra packages.
 /* eslint-disable @typescript-eslint/no-explicit-any -- DevTools replies are untyped JSON */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -29,7 +35,8 @@ const width = Number(process.env.PHONE_WIDTH ?? 390)
 const height = Number(process.env.PHONE_HEIGHT ?? 844)
 const dpr = Number(process.env.PHONE_DPR ?? 1)
 const mobile = process.env.PHONE_MOBILE !== "0"
-const out = process.env.PHONE_OUT ?? join(import.meta.dir, "..", "preview-shots", "phone")
+const out =
+  process.env.PHONE_OUT ?? join(import.meta.dir, "..", "preview-shots", "phone")
 
 // The main pages a phone reaches (rows of PREVIEW.md).
 const PAGES: Array<[name: string, query: string]> = [
@@ -103,7 +110,11 @@ class Cdp {
     const id = ++this.id
     this.ws.send(JSON.stringify({ id, method, params, sessionId }))
     return new Promise((res, rej) =>
-      this.waiting.set(id, (m) => (m.error ? rej(new Error(`${method}: ${m.error.message}`)) : res(m.result))),
+      this.waiting.set(id, (m) =>
+        m.error
+          ? rej(new Error(`${method}: ${m.error.message}`))
+          : res(m.result)
+      )
     )
   }
 }
@@ -158,53 +169,106 @@ async function main() {
   mkdirSync(out, { recursive: true })
   const only = process.argv.slice(2)
   const pages = only.length ? PAGES.filter(([n]) => only.includes(n)) : PAGES
-  if (!pages.length) throw new Error(`no page named ${only.join(", ")}; pages: ${PAGES.map(([n]) => n).join(" ")}`)
+  if (!pages.length)
+    throw new Error(
+      `no page named ${only.join(", ")}; pages: ${PAGES.map(([n]) => n).join(" ")}`
+    )
   const base = previewUrl()
   await checkPreview(base)
   const profile = mkdtempSync(join(tmpdir(), "phone-check-"))
   const chrome = spawn(
     findBrowser(),
-    ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-      "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
-    { stdio: "ignore" },
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--hide-scrollbars",
+      "--no-first-run",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: "ignore" }
   )
   let failed = 0
   try {
     const port = await devtoolsPort(profile)
-    const ver: any = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json())
+    const ver: any = await fetch(`http://127.0.0.1:${port}/json/version`).then(
+      (r) => r.json()
+    )
     const ws = new WebSocket(ver.webSocketDebuggerUrl)
     await new Promise((r, j) => ((ws.onopen = r), (ws.onerror = j)))
     const cdp = new Cdp(ws)
     for (const [name, query] of pages) {
-      const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" })
-      const { sessionId: s } = await cdp.send("Target.attachToTarget", { targetId, flatten: true })
-      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile }, s)
+      const { targetId } = await cdp.send("Target.createTarget", {
+        url: "about:blank",
+      })
+      const { sessionId: s } = await cdp.send("Target.attachToTarget", {
+        targetId,
+        flatten: true,
+      })
+      await cdp.send(
+        "Emulation.setDeviceMetricsOverride",
+        { width, height, deviceScaleFactor: dpr, mobile },
+        s
+      )
       if (mobile) {
-        await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }, s)
-        await cdp.send("Emulation.setEmulatedMedia", {
-          features: [{ name: "hover", value: "none" }, { name: "pointer", value: "coarse" },
-            { name: "any-hover", value: "none" }, { name: "any-pointer", value: "coarse" }],
-        }, s)
+        await cdp.send(
+          "Emulation.setTouchEmulationEnabled",
+          { enabled: true, maxTouchPoints: 5 },
+          s
+        )
+        await cdp.send(
+          "Emulation.setEmulatedMedia",
+          {
+            features: [
+              { name: "hover", value: "none" },
+              { name: "pointer", value: "coarse" },
+              { name: "any-hover", value: "none" },
+              { name: "any-pointer", value: "coarse" },
+            ],
+          },
+          s
+        )
       }
       await cdp.send("Page.navigate", { url: base + query }, s)
       await Bun.sleep(1800)
-      const { result, exceptionDetails } = await cdp.send("Runtime.evaluate", { expression: PROBE, returnByValue: true }, s)
-      if (exceptionDetails) throw new Error(`probe failed on ${name}: ${exceptionDetails.text}`)
+      const { result, exceptionDetails } = await cdp.send(
+        "Runtime.evaluate",
+        { expression: PROBE, returnByValue: true },
+        s
+      )
+      if (exceptionDetails)
+        throw new Error(`probe failed on ${name}: ${exceptionDetails.text}`)
       const v = result.value
-      const shot = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
+      const shot = await cdp.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        s
+      )
       writeFileSync(join(out, `${name}.png`), Buffer.from(shot.data, "base64"))
       await cdp.send("Target.closeTarget", { targetId })
       const problems: string[] = []
-      if (v.vw !== width) problems.push(`the page saw a ${v.vw}px window, not ${width}px: the check itself is wrong`)
-      if (v.scrollWidth > width) problems.push(`the page is ${v.scrollWidth}px wide`)
-      for (const o of v.off) problems.push(`past the edge (right ${o.right}, y ${o.top}): ${o.el}`)
+      if (v.vw !== width)
+        problems.push(
+          `the page saw a ${v.vw}px window, not ${width}px: the check itself is wrong`
+        )
+      if (v.scrollWidth > width)
+        problems.push(`the page is ${v.scrollWidth}px wide`)
+      for (const o of v.off)
+        problems.push(`past the edge (right ${o.right}, y ${o.top}): ${o.el}`)
       const ok = problems.length === 0
       if (!ok) failed++
       const warn = v.cut.length + v.ellipsis.length
-      console.log(`${ok ? "ok  " : "FAIL"} ${name.padEnd(20)}${warn ? ` ${warn} warning(s)` : ""}`)
+      console.log(
+        `${ok ? "ok  " : "FAIL"} ${name.padEnd(20)}${warn ? ` ${warn} warning(s)` : ""}`
+      )
       for (const p of problems.slice(0, 20)) console.log(`       ${p}`)
-      for (const o of v.cut.slice(0, 12)) console.log(`       warn cut at ${o.box} (right ${o.right}, y ${o.top}): ${o.el}${process.env.PHONE_TRACE ? `\n         in ${o.path}` : ""}`)
-      for (const o of v.ellipsis.slice(0, 12)) console.log(`       warn ends in … (y ${o.top}): ${o.el}`)
+      for (const o of v.cut.slice(0, 12))
+        console.log(
+          `       warn cut at ${o.box} (right ${o.right}, y ${o.top}): ${o.el}${process.env.PHONE_TRACE ? `\n         in ${o.path}` : ""}`
+        )
+      for (const o of v.ellipsis.slice(0, 12))
+        console.log(`       warn ends in … (y ${o.top}): ${o.el}`)
     }
     ws.close()
   } finally {
@@ -214,7 +278,7 @@ async function main() {
   console.log(
     failed
       ? `${failed} of ${pages.length} page(s) don't fit ${width}px; screenshots in ${out}`
-      : `all ${pages.length} pages fit ${width}px; screenshots in ${out}`,
+      : `all ${pages.length} pages fit ${width}px; screenshots in ${out}`
   )
   process.exit(failed ? 1 : 0)
 }

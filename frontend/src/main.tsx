@@ -6,7 +6,12 @@ import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { commands } from "./gen/bindings"
 import { inHost } from "./lib/irori"
-import { applyAppearance, clean, loadAppearance, onAppearanceApplied } from "./lib/appearance"
+import {
+  applyAppearance,
+  clean,
+  loadAppearance,
+  onAppearanceApplied,
+} from "./lib/appearance"
 import { sendCardLook } from "./lib/card-look"
 import { previewFlag } from "./lib/preview"
 import { followInsets } from "./lib/insets"
