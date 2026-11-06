@@ -108,11 +108,13 @@ fn a_version_wait_closes_once_every_named_device_runs_it() {
     let now = e.c.get_task(&t.id).unwrap();
     assert_eq!(now.state, WORKING);
     assert!(now.blockers.iter().all(|b| !b.open()));
-    // The close names the wait it saw open, and only that (card #635).
-    let closed = e.rows(store::kinds::BLOCKER_CLOSED);
-    assert_eq!(closed.len(), 1);
-    let p: rows::BlockerClosedRow = payload(&closed[0]);
-    assert_eq!(p.blocker_ids, [now.blockers[0].id.clone()]);
+    // The sweep closes the wait by name, never with a close of the whole
+    // card (cards #570, #635).
+    assert!(e.rows(store::kinds::BLOCKER_CLOSED).is_empty());
+    let resolved = e.rows(store::kinds::BLOCKER_RESOLVED);
+    assert_eq!(resolved.len(), 1);
+    let p: rows::BlockerResolvedRow = payload(&resolved[0]);
+    assert_eq!(p.blocker_id, now.blockers[0].id);
 }
 
 #[test]
