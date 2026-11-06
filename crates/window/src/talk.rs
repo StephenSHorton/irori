@@ -71,6 +71,25 @@ pub struct TalkConversation {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_id: String,
+    /// A DM with another person that hasn't reached them yet (card #538):
+    /// `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
+    /// updating"). Absent otherwise. `name` is who they are.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub waiting: String,
+}
+
+/// Someone the person can DM (card #538): the new-DM picker's people.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkPerson {
+    /// `person:<id>`, as talk_dm takes it with kind `person`.
+    pub key: String,
+    pub name: String,
+    /// Their own colour pick, "" for none.
+    pub color: String,
+    /// Their avatar, "" for none.
+    pub avatar: String,
 }
 
 /// One post.
@@ -135,6 +154,7 @@ impl Window {
                 read_only: c.read_only,
                 agents_now: c.agents_now,
                 space_id: c.space_id,
+                waiting: c.waiting,
             })
             .collect())
     }
@@ -308,12 +328,35 @@ impl Window {
         Ok(c.id)
     }
 
-    /// The person's DM with `m` (an agent), opened if it's new; returns its
-    /// id for talk_posts and talk_post.
+    /// The person's DM with `m`, opened if it's new; returns its id for
+    /// talk_posts and talk_post. `m` is one of their agents, or another
+    /// person by `person:<id>` (card #538): that opens a draft, which
+    /// writes nothing until the first post. Another person's agent is
+    /// refused.
     pub fn talk_dm(&self, m: &TalkMemberRef) -> Result<String, String> {
-        let me = self.me();
+        self.core.talk_dm(&self.me(), &m.key)
+    }
+
+    /// Everyone the person can DM (card #538): whoever shares a space with
+    /// them, by name.
+    pub fn talk_dm_people(&self) -> Vec<TalkPerson> {
         self.core
-            .talk_open_dm(&coord::talk::Member::of(&me), &member(m), &me)
+            .talk_dm_people()
+            .into_iter()
+            .map(|p| TalkPerson {
+                key: p.key,
+                name: p.name,
+                color: p.color,
+                avatar: p.avatar,
+            })
+            .collect()
+    }
+
+    /// Leaves DM `conv` with another person (card #538): what's in it goes
+    /// from all the person's devices. A later DM from either side starts a
+    /// new one.
+    pub fn talk_dm_leave(&self, conv: &str) -> Result<(), String> {
+        self.core.talk_dm_leave(conv)
     }
 
     /// Adds `m` to a channel or DM, as the person.

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { spawnLine } from "./spawn-line"
+import {
+  ordinal,
+  queued,
+  spawnLine,
+  startPastLimit,
+  usageResets,
+} from "./spawn-line"
 
 describe("spawnLine (card #448)", () => {
   test("nothing to say", () => {
@@ -30,10 +36,69 @@ describe("spawnLine (card #448)", () => {
       spawnLine({ cantStart: "no copy of irori on Desktop Computer" })?.text
     ).toBe("can't start: no copy of irori on Desktop Computer")
   })
+  test("its place in the queue (card #450)", () => {
+    expect(spawnLine({ atCap: "the PC (this one)", queuePlace: 1 })).toEqual({
+      text: "queued: 1st for the PC (this one)",
+      tone: "quiet",
+    })
+    expect(spawnLine({ atCap: "the PC", queuePlace: 4 })?.text).toBe(
+      "queued: 4th for the PC"
+    )
+  })
+  test("a usage limit holds the queue (card #450)", () => {
+    expect(
+      spawnLine({
+        atCap: "the PC",
+        queuePlace: 2,
+        usageLimit: "2026-11-04T23:30:00Z",
+      })?.text
+    ).toBe("queued: usage limit")
+    expect(usageResets("2026-11-04T23:30:00Z", "en-US")).toMatch(
+      /^resets \d{1,2}:30/
+    )
+    expect(usageResets("nope")).toBe("")
+  })
+  test("ordinals", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111].map(ordinal)).toEqual([
+      "1st",
+      "2nd",
+      "3rd",
+      "4th",
+      "11th",
+      "12th",
+      "13th",
+      "21st",
+      "22nd",
+      "101st",
+      "111th",
+    ])
+  })
+  test("queued is a place or a hold, never a failure", () => {
+    expect(queued({ atCap: "pc", queuePlace: 1 })).toBe(true)
+    expect(queued({ usageLimit: "2026-11-04T23:30:00Z" })).toBe(true)
+    expect(queued({ starting: "pc", atCap: "pc" })).toBe(false)
+    expect(queued({ cantStart: "x", atCap: "pc" })).toBe(false)
+    expect(queued({})).toBe(false)
+  })
   test("at its cap", () => {
     expect(spawnLine({ atCap: "Macbook Pro (this one)" })).toEqual({
       text: "waiting: Macbook Pro (this one) is at its cap",
       tone: "quiet",
     })
+  })
+})
+
+describe("startPastLimit (card #576)", () => {
+  test("only a usage limit offers it", () => {
+    expect(startPastLimit({})).toBe("")
+    expect(startPastLimit({ atCap: "the PC", queuePlace: 2 })).toBe("")
+    expect(startPastLimit({ usageLimit: "2026-11-05T16:30:00Z" })).toContain(
+      "Tries now"
+    )
+  })
+  test("not while one is starting or can't", () => {
+    const usageLimit = "2026-11-05T16:30:00Z"
+    expect(startPastLimit({ usageLimit, starting: "the PC" })).toBe("")
+    expect(startPastLimit({ usageLimit, cantStart: "no copy" })).toBe("")
   })
 })

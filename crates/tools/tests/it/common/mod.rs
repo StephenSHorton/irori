@@ -139,6 +139,8 @@ pub struct TestBackend {
     pub talk: Arc<coord::talk::Talk>,
     /// Other members' agents on shared boards (card #478); empty: none.
     pub board_agents: Mutex<Vec<tools::BoardAgent>>,
+    /// Names for keys nothing else names (card #538).
+    pub known: Mutex<BTreeMap<String, String>>,
 }
 
 impl TestBackend {
@@ -196,6 +198,9 @@ impl Backend for TestBackend {
     }
     fn board_agents(&self) -> Vec<tools::BoardAgent> {
         self.board_agents.lock().unwrap().clone()
+    }
+    fn known_names(&self) -> BTreeMap<String, String> {
+        self.known.lock().unwrap().clone()
     }
 }
 
@@ -365,6 +370,7 @@ pub fn new_harness_setup(
         roster,
         talk,
         board_agents: Mutex::new(Vec::new()),
+        known: Mutex::new(BTreeMap::new()),
         st,
         ib,
         co,

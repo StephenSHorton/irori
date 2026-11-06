@@ -10,6 +10,7 @@ mod files;
 mod golden;
 mod identity;
 mod keychain;
+mod keyproof;
 mod keystore;
 mod membership;
 mod rotate;

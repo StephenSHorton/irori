@@ -366,6 +366,7 @@ impl Dev {
             transport: Arc::new(self.net.clone()),
             own_devices: None,
             files: Some(self.files.clone()),
+            dms: None,
         });
         m.set_intervals(iv);
         hook(&m);

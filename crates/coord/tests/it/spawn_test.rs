@@ -7,7 +7,7 @@
 use crate::common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use common::*;
 use coord::roster::AgentCard;
@@ -887,4 +887,115 @@ fn a_card_that_crashed_twice_says_so() {
     spawn_and_crash(&e, &t.id, "dev-a/first");
     spawn_and_crash(&e, &t.id, "dev-a/second");
     assert_eq!(e.c.spawn_hold(&t.id), SpawnHold::Crashed);
+}
+
+/// The crash limit is the person's (card #576): read live, with the
+/// question saying the number; at the default it's the words it always was.
+fn limited_crashes(e: &Env, on: &Arc<AtomicBool>, limit: &Arc<AtomicI64>) -> Coord {
+    let (f, n) = (on.clone(), limit.clone());
+    e.reopen_with(Options {
+        spawning: Some(Arc::new(move || f.load(Ordering::SeqCst))),
+        crash_limit: Some(Arc::new(move || n.load(Ordering::SeqCst))),
+        ..e.opts()
+    })
+}
+
+#[test]
+fn a_higher_crash_limit_keeps_starting_and_says_its_number() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    let limit = Arc::new(AtomicI64::new(3));
+    e.c = limited_crashes(&e, &on, &limit);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+    spawn_and_crash(&e, &t.id, "dev-a/third");
+    assert!(e.c.cards_to_spawn().is_empty());
+    let got = e.c.get_task(&t.id).unwrap();
+    let b = got.blockers.iter().find(|b| b.open()).unwrap().clone();
+    assert_eq!(b.question, coord::crash_question(3));
+    assert!(b.context.starts_with("The last 3 agents"), "{b:?}");
+    assert!(is_crash_question(&b));
+
+    // The person's answer clears the run at any limit.
+    e.c.answer(
+        USER,
+        &t.id,
+        &b.id,
+        BlockerAnswer {
+            pick: 1,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = e.c.get_task(&t.id).unwrap();
+    assert_eq!(got.spawn_crashes, 0, "{got:?}");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+}
+
+#[test]
+fn a_crash_limit_lowered_under_a_card_asks_the_person() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    let limit = Arc::new(AtomicI64::new(0));
+    e.c = limited_crashes(&e, &on, &limit);
+    let t = e.c.create_task(USER, nt("Crashed once")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    assert_eq!(e.c.crash_limit(), MAX_SPAWN_CRASHES, "0 is the default");
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+    limit.store(1, Ordering::SeqCst);
+    assert!(e.c.cards_to_spawn().is_empty(), "no agent, so it must ask");
+    e.c.stop_crashed(&t.id).unwrap();
+    e.c.stop_crashed(&t.id).unwrap();
+    let got = e.c.get_task(&t.id).unwrap();
+    let open: Vec<_> = got.blockers.iter().filter(|b| b.open()).collect();
+    assert_eq!(open.len(), 1, "asked once: {open:?}");
+    assert_eq!(open[0].question, coord::crash_question(1));
+}
+
+#[test]
+fn the_crash_question_at_the_default_is_unchanged() {
+    assert_eq!(coord::crash_question(MAX_SPAWN_CRASHES), CRASHED_QUESTION);
+}
+
+/// Card #575: a start an agent asked for counts toward the person's limit
+/// and never goes first, even on their own card, until they say so.
+#[test]
+fn an_agents_counted_start_queues_behind_the_persons_cards() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let older =
+        e.c.create_task(USER, nt("An agent asked for this"))
+            .unwrap();
+    e.clk.add(std::time::Duration::from_secs(1));
+    let newer = e.c.create_task(USER, nt("Mine")).unwrap();
+    let g =
+        e.c.request_spawn(
+            SWEEPER_KEY,
+            SpawnAsk {
+                counted: true,
+                ..ask(&older.id)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(e.c.bind_spawn(&older.id, g, "dev-a/first").unwrap());
+    e.c.claim_task("dev-a/first", &older.id).unwrap();
+    e.ros.set("dev-a/first", "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [newer.id.clone(), older.id.clone()]
+    );
+    // The person's Start puts it first again.
+    e.c.spawn_now(&older.id);
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [older.id.clone(), newer.id.clone()]
+    );
 }

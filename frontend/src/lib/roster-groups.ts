@@ -5,6 +5,8 @@
 // A spawned agent is known from the cards: a working row marked spawned.
 // Only live agents are listed; one that has ended is gone from both.
 
+import { queued as isQueued } from "./spawn-line"
+
 type Agent = { key: string; status: string; deviceState?: string | null }
 
 type Card = {
@@ -18,6 +20,9 @@ type Card = {
   openBlockers?: number
   // Ready for the person's check: one of openBlockers, not a block.
   ready?: boolean
+  queuePlace?: number
+  usageLimit?: string | null
+  cantStart?: string
 }
 
 export type OnCard<A> = {
@@ -30,10 +35,11 @@ export type OnCard<A> = {
 export type RosterGroups<A> = {
   yours: A[]
   onCards: OnCard<A>[]
-  // Agents on cards, cards starting one, and cards waiting for a slot.
+  // Agents on cards, cards starting one, and cards queued for one (a
+  // slot, a usage limit's reset or the person, card #450).
   spawned: number
   starting: number
-  atCap: number
+  queued: number
   // Live agents that are blocked (card #512): on a permission prompt
   // ("waiting"), or idle on a card with an open blocker (a busy one is
   // working, and a card ready for your check isn't blocked).
@@ -55,13 +61,13 @@ export function rosterGroups<A extends Agent>(
   const placed = new Set<string>()
   const onCards: OnCard<A>[] = []
   let starting = 0
-  let atCap = 0
+  let queued = 0
   const blocked = new Set(
     live.filter((a) => a.status === OnPrompt).map((a) => a.key)
   )
   for (const c of cards) {
     if (c.starting) starting++
-    else if (c.atCap) atCap++
+    else if (isQueued(c)) queued++
     if ((c.openBlockers ?? 0) - (c.ready ? 1 : 0) > 0)
       for (const w of c.working)
         if (byKey.get(w.key)?.status === "idle") blocked.add(w.key)
@@ -74,14 +80,19 @@ export function rosterGroups<A extends Agent>(
       here.push(a)
     }
     if (here.length)
-      onCards.push({ cardId: c.id, short: c.short, title: c.title, agents: here })
+      onCards.push({
+        cardId: c.id,
+        short: c.short,
+        title: c.title,
+        agents: here,
+      })
   }
   return {
     yours: live.filter((a) => !placed.has(a.key)),
     onCards,
     spawned: placed.size,
     starting,
-    atCap,
+    queued,
     blocked,
   }
 }
