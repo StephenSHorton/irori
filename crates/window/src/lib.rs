@@ -54,6 +54,7 @@ pub mod comment_edit;
 pub mod desk;
 pub mod devices;
 pub mod events;
+pub mod freshness;
 pub mod inbox;
 pub mod invites;
 pub mod mentions;

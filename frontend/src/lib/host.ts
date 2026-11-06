@@ -366,6 +366,11 @@ export const AgentsService = {
     call(commands.agentsPermissionsSet(p)),
 }
 
+// SyncService: how fresh each log is (card #580).
+export const SyncService = {
+  Freshness: () => call(commands.syncFreshness()),
+}
+
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),

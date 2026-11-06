@@ -136,6 +136,14 @@ pub struct DeviceRow {
     pub detail: Option<PeerState>,
 }
 
+/// One device the private log syncs with, and when this device was last in
+/// step with it (card #580).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fresh {
+    pub device_id: String,
+    pub at: Option<SystemTime>,
+}
+
 /// How another device reads from here (card #544): the one rule behind
 /// `status`, `liveness` and `last_seen`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -296,6 +304,45 @@ impl Node {
     /// Devices shows it; `None` never.
     pub fn last_seen(&self, dev: &str) -> Option<SystemTime> {
         self.device_read(dev).seen
+    }
+
+    /// How fresh the private log is (card #580, no-server.md §4.3): for
+    /// each of the person's other devices, when this one was last in step
+    /// with it. Connected and holding all it has said it has: now. Else the
+    /// last time that was true while Irori ran, or, after a restart, when
+    /// it wrote the newest row of its that this device holds (it was in
+    /// step at least that recently). `None`: never, as far as this device
+    /// knows. Removed devices are left out.
+    pub fn freshness(&self) -> Vec<Fresh> {
+        let now = self.now();
+        let ours = self.o.store.vector().unwrap_or_default();
+        let mut out = Vec::new();
+        for p in self.status().peer_list() {
+            if p.revoked {
+                continue;
+            }
+            let dev = p.device_id.clone();
+            self.seed_rows(&dev);
+            let up = self.connected_to(&dev);
+            let (k, rows) = {
+                let g = self.lock();
+                (
+                    g.known.get(&dev).cloned().unwrap_or_default(),
+                    g.rows.get(&dev).cloned().unwrap_or_default(),
+                )
+            };
+            let live = up && crate::node::covers(&ours, &k.vec);
+            let at = if live {
+                Some(now)
+            } else {
+                [k.in_step, rows.at.filter(|_| rows.via.is_empty())]
+                    .into_iter()
+                    .flatten()
+                    .max()
+            };
+            out.push(Fresh { device_id: dev, at });
+        }
+        out
     }
 
     /// Go `Devices`: the person's devices, this one first; `detail` fills

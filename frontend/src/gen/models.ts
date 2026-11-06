@@ -85,6 +85,7 @@ export type InboxCounts = B.InboxCounts
 export type InviteStatus = B.InviteStatus
 export type Link = B.Link
 export type LinkKind = B.LinkKind
+export type LogFreshness = B.LogFreshness
 export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
@@ -517,6 +518,11 @@ export function InviteStatus(p: Partial<B.InviteStatus> = {}): B.InviteStatus {
 /** Link with Go's zero values for every field left out. */
 export function Link(p: Partial<B.Link> = {}): B.Link {
   return { "kind": "", "ref": "", "label": "", ...p } as B.Link
+}
+
+/** LogFreshness with Go's zero values for every field left out. */
+export function LogFreshness(p: Partial<B.LogFreshness> = {}): B.LogFreshness {
+  return { "log": "", "shared": false, ...p } as B.LogFreshness
 }
 
 /** Mention with Go's zero values for every field left out. */

@@ -385,7 +385,9 @@ impl Mesh for CoreMesh {
             remote: String::new(),
             public_relays: self.core.public_relays(),
         };
-        if self.core.net_status().state == mesh::STATE_ON {
+        // With public relays on, devices away from home meet through them,
+        // so an unreachable home server isn't in anyone's way (card #580).
+        if self.core.net_status().state == mesh::STATE_ON && !v.public_relays {
             v.remote = remote_line(&self.core.remote_servers(), &self.devices());
         }
         v

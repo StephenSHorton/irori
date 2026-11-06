@@ -67,6 +67,7 @@ import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
+import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
@@ -1009,6 +1010,14 @@ export function App() {
                         board={threadsSpace(space)}
                       />
                       <IdleLine text={idleLine(idle, untaken, homeIds)} />
+                      <HomeFreshness
+                        space={space}
+                        names={
+                          new Map(
+                            boards.map((b) => [b.boardId, b.name || b.tag])
+                          )
+                        }
+                      />
                     </>
                   }
                   lead={

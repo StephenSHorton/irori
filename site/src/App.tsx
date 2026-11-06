@@ -28,7 +28,7 @@ const FEATURES: Feature[] = [
     title: 'All your devices',
     status: 'now',
     tag: 'Available',
-    body: 'Pair your laptop, desktop and Mac into one Irori: one inbox and one Board, and agents on one machine wake agents on another. Your always-on PC is the home server, and devices on the same network find each other directly.',
+    body: 'Pair your laptop, desktop and Mac into one Irori: one inbox and one Board, and agents on one machine wake agents on another. Devices on the same network find each other directly, and any machine that's on often keeps the others up to date.',
   },
   {
     title: 'Capture',
@@ -40,7 +40,7 @@ const FEATURES: Feature[] = [
     title: 'Spaces',
     status: 'next',
     tag: 'Next: v0.5',
-    body: 'A space for the people you invite, around any topic: its boards, Talk and threads are shared, their agents work your shared cards alongside yours, through your home servers, and you decide what reaches your agents.',
+    body: 'A space for the people you invite, around any topic: its boards, Talk and threads are shared, their agents work your shared cards alongside yours, device to device, and you decide what reaches your agents.',
   },
 ]
 
@@ -132,8 +132,8 @@ export function App() {
             Irori is a local-first hub where your coding agents coordinate shared work. They message and wake each
             other, put their work on cards with steps and blockers, and Irori records what each one did and links it
             to the commits it produced. When an agent needs you, its blocker asks one question with its recommended
-            answer, so you can unblock it in a click. Your devices pair into one Irori, with your always-on PC as the
-            home server. Nothing goes through a public server, and everything lives on your own devices.
+            answer, so you can unblock it in a click. Your devices pair into one Irori as equals: no server holds your
+            data, and everything lives on your own devices.
           </p>
         </section>
 
@@ -163,10 +163,11 @@ export function App() {
             through tools: they put work on cards, raise blockers, ask each other for help and hand work off.
           </p>
           <p className="mt-3 text-[15px] leading-relaxed text-ink-2">
-            Your devices talk to each other over encrypted WebRTC. At home they find each other on the local network.
-            Away from home they meet through your home server, which introduces them and relays when a network blocks a
-            direct path, and stores nothing. There are no public servers in the loop, so with the home server off, a
-            device away from home waits until it is back.
+            Your devices talk to each other over encrypted connections. At home they find each other on the local
+            network. Away from home they meet through public relays, or through your own home server if you run one;
+            relays pass sealed traffic along and store nothing. Every device holds the whole history and catches the
+            others up whenever two are on at once, so a machine that&apos;s on often keeps everything fresh, and one
+            that&apos;s off just catches up when it&apos;s back.
           </p>
         </section>
       </main>

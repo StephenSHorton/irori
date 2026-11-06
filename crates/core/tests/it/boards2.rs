@@ -310,6 +310,41 @@ fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
     bb.log.close().unwrap();
 }
 
+/// Card #580: Alice writes to the shared board and closes at once;
+/// `sync_out` returns once Bob's device says it holds the row, and it does.
+#[test]
+fn sync_out_returns_once_the_other_member_holds_the_row() {
+    let dirs: Vec<tempfile::TempDir> = (0..6).map(|_| tempfile::tempdir().unwrap()).collect();
+    let a = core(dirs[0].path(), dirs[1].path());
+    let b = core(dirs[2].path(), dirs[3].path());
+    let (alice, bob, ba, bb) = shared_board(&a, &b, dirs[4].path(), dirs[5].path());
+    let (ra, rb) = (a.pairing_runtime().clone(), b.pairing_runtime().clone());
+    ra.block_on(a.open_board_net(board_parts(&alice, &ba)))
+        .unwrap();
+    rb.block_on(b.open_board_net(board_parts(&bob, &bb)))
+        .unwrap();
+    let addrs = |c: &Core| c.net().endpoint().expect("bound").bound_sockets();
+    a.board_addr_hint(b.device_id(), addrs(&b));
+    b.board_addr_hint(a.device_id(), addrs(&a));
+    let peer = |c: &Core, id: &str| c.net().board_conns(BOARD).iter().any(|x| x.peer == id);
+    wait("the two Cores connect on the board", || {
+        peer(&a, b.device_id()) && peer(&b, a.device_id())
+    });
+
+    // No kick: sync_out sends it.
+    let last = note(&ba.log, &alice, "the last thing alice did");
+    let r = a.sync_out(Duration::from_secs(20));
+    let l = r.log(BOARD).expect("the board");
+    assert!(l.seq >= last.seq, "{r:?}");
+    assert_eq!(l.taken_by.as_deref(), Some(b.device_id()), "{r:?}");
+    assert!(has(&bb.log, &last), "bob's Core holds alice's row");
+    // Two people, no private mesh between them: only the board counts.
+    assert!(r.log(irori_core::PERSONAL_LOG).is_none(), "{r:?}");
+
+    a.close().unwrap();
+    b.close().unwrap();
+}
+
 /// The stage 2 path end to end on loopback, with board gossip on: Alice's
 /// home server runs (on 127.0.0.1, "reachable from outside" at 127.0.0.1),
 /// and her Core writes its `board.server` row into the board she opened.

@@ -732,6 +732,15 @@ pub async fn board_reopen(w: W<'_>, id: String) -> R<TaskResult> {
     w.reopen(&id)
 }
 
+// ---- SyncService -----------------------------------------------------------------
+
+/// How fresh the private log and each shared space are (card #580).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_freshness(w: W<'_>) -> R<Vec<crate::freshness::LogFreshness>> {
+    Ok(w.freshness())
+}
+
 // ---- BoardsService ---------------------------------------------------------------
 
 #[tauri::command]
@@ -1754,6 +1763,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_move_pin,
             board_reopen,
             boards_list,
+            sync_freshness,
             boards_pin,
             boards_create,
             boards_rename,
