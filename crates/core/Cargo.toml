@@ -18,6 +18,7 @@ irori-home.workspace = true
 irori-mesh.workspace = true
 irori-meshseam.workspace = true
 irori-net.workspace = true
+irori-call.workspace = true
 irori-pair.workspace = true
 iroh = "1.4.1"
 irori-identity.workspace = true

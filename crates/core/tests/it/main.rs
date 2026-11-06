@@ -25,6 +25,7 @@ mod dm_people;
 mod expiry;
 mod five_cores;
 mod helpertree;
+mod huddle;
 mod invites;
 mod lockfile;
 mod migrate;

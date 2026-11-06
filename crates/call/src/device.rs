@@ -37,6 +37,10 @@ pub struct Devices {
 /// Opens devices on the engine's thread.
 pub type Opener = Box<dyn FnOnce() -> Result<Devices, String> + Send>;
 
+/// Makes an [`Opener`] for each call: the default devices in the app, fake
+/// ones in tests.
+pub type OpenerFn = Arc<dyn Fn() -> Opener + Send + Sync>;
+
 /// Ring sizes, in seconds of audio: room for a stalled engine thread.
 const RING_SECS: f32 = 0.5;
 

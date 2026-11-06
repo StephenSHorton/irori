@@ -134,6 +134,12 @@ pub struct Options {
     /// for this data dir. `None` is headless (Go's nil Notifier): no card
     /// is ever shown and no Watch runs, so tests never put one on screen.
     pub notifier: Option<notify::Notifier>,
+    /// The phone's side of a call (card #654): Android's microphone
+    /// service. `None` on desktops and in tests.
+    pub call_platform: Option<Arc<dyn call::Platform>>,
+    /// The mic and speaker a call opens; `None` is the default devices.
+    /// Tests pass fake ones.
+    pub call_audio: Option<call::device::OpenerFn>,
     /// Builds the transport pairing runs on (M7, [`crate::devices`]);
     /// `None` is iroh on the device key, bound when a window opens.
     pub pair_net: Option<crate::devices::PairNetFn>,
@@ -311,6 +317,8 @@ struct Services {
     dm_spaces: Arc<boards_own::DmSpaces>,
     /// The DM hand-offs' work (card #538).
     dms: dm_spaces::Dms,
+    /// Calls (card #654).
+    calls: calls::Calls,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -1465,6 +1473,7 @@ impl Core {
             boards: board_set,
             dm_spaces,
             dms: dm_spaces::Dms::default(),
+            calls: calls::Calls::new(opts.call_platform.clone(), opts.call_audio.clone()),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1506,6 +1515,9 @@ impl Core {
                 Arc::new(dm_spaces::DmBridge(w.clone())),
                 Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
             );
+            // And the call hooks (card #654).
+            s.mesh
+                .set_calls(Arc::new(calls::CallBridge(Arc::downgrade(&s))));
         }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {

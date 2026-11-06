@@ -3432,6 +3432,7 @@ dependencies = [
  "hex",
  "iroh",
  "irori-blob",
+ "irori-call",
  "irori-capture",
  "irori-coord",
  "irori-gocompat",
