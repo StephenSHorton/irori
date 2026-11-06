@@ -2289,6 +2289,8 @@ export type TermMsg = { t: "title"; title: string } | { t: "bell" } |
 export type ThreadCard = {
 	id: string,
 	short: string,
+	/**  As [`ThreadSummary::tag`]. */
+	tag: string,
 	title: string,
 	state: string,
 };
@@ -2297,6 +2299,11 @@ export type ThreadCard = {
 export type ThreadSummary = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), and the channel
+	 *  pointer says `mlg#5`. "": a private thread.
+	 */
+	tag: string,
 	title: string,
 	/**  What the person asked, in full. */
 	text: string,

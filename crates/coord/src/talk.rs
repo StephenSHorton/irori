@@ -317,6 +317,8 @@ struct State {
     ids: HashSet<String>,
     reads: HashMap<(String, String), Cursor>,
     cards: HashMap<String, String>,
+    /// Where each post's link in `cards` came from.
+    card_at: HashMap<String, Ord3>,
 }
 
 /// What to post.
@@ -1085,6 +1087,14 @@ fn fold(s: &mut State, ev: &Event) -> bool {
             {
                 return false;
             }
+            // Two people can make a card from one post while apart, and the
+            // link is in a shared log (card #558): the later row wins, so
+            // every member shows one card, whichever row reached them first.
+            let at = ord_of(ev);
+            if s.card_at.get(&r.post_id).is_some_and(|o| *o >= at) {
+                return false;
+            }
+            s.card_at.insert(r.post_id.clone(), at);
             for ps in s.posts.values_mut() {
                 if let Some(p) = ps.iter_mut().find(|p| p.post_id == r.post_id) {
                     p.card = Some(r.task_id.clone());

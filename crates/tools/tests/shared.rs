@@ -371,6 +371,38 @@ fn scrub_blocks_a_write_and_names_why() {
     has_not(&out, &["Visible to"]);
 }
 
+/// talk_post on a space's card is a comment that replicates to its members,
+/// so it passes the same fence as board_comment (card #558).
+#[test]
+fn talk_post_on_a_space_card_keeps_the_fence() {
+    let r = rig();
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Speed", "board": "mlg"}),
+    );
+    let before = cs_text(&r, "mlg#1").len();
+    r.h.failsj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "notes in /Users/fixture/x"}),
+        &["nothing was written", "home directory"],
+    );
+    r.h.failsj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz012345"}),
+        &["nothing was written", "secret"],
+    );
+    assert_eq!(cs_text(&r, "mlg#1").len(), before);
+    let out = r.h.okj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "profiled: the decoder is the slow part"}),
+    );
+    assert!(out.ends_with("\nVisible to: Stephen, Blake"), "{out}");
+}
+
 #[test]
 fn ask_me_requests_a_card_and_the_answer_makes_it() {
     let r = rig();

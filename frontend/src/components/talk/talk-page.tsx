@@ -5,6 +5,7 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at its foot.
 
+import { cardRef } from "@/components/cards/bits"
 import { useContext, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
@@ -70,7 +71,7 @@ import { memberName, nameOr } from "@/lib/names"
 export function talkMatches(t: ThreadSummary, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [t.title, t.text, t.short && `#${t.short}`, t.lastText ?? ""].some(
+  return [t.title, t.text, t.short && cardRef(t), t.lastText ?? ""].some(
     (s) => !!s && s.toLowerCase().includes(q)
   )
 }
@@ -993,7 +994,7 @@ function Conversation({
         />
         {t.short && (
           <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
-            #{plainLine(t.short)}
+            {cardRef(t)}
           </span>
         )}
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">

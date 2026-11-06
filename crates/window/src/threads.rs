@@ -47,6 +47,9 @@ type Found = (std::sync::Arc<coord::Coord>, Task, bool);
 pub struct ThreadSummary {
     pub id: String,
     pub short: String,
+    /// Its board's tag: numbers are per board (card #558), and the channel
+    /// pointer says `mlg#5`. "": a private thread.
+    pub tag: String,
     pub title: String,
     /// What the person asked, in full.
     pub text: String,
@@ -123,6 +126,8 @@ pub struct RefTarget {
 pub struct ThreadCard {
     pub id: String,
     pub short: String,
+    /// As [`ThreadSummary::tag`].
+    pub tag: String,
     pub title: String,
     pub state: String,
 }
@@ -443,6 +448,7 @@ impl Window {
             let s = ThreadSummary {
                 id: t.id.clone(),
                 short: t.short.clone(),
+                tag: t.tag.clone(),
                 title: t.title.clone(),
                 text: t.objective.clone(),
                 state: state.into(),
@@ -458,6 +464,7 @@ impl Window {
                     .map(|c| ThreadCard {
                         id: c.id.clone(),
                         short: c.short.clone(),
+                        tag: c.tag.clone(),
                         title: c.title.clone(),
                         state: c.state.to_string(),
                     })

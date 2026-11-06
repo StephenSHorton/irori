@@ -1165,7 +1165,12 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         if !ms.is_empty() {
             args["mention"] = serde_json::json!(ms);
         }
-        return crate::board::board_comment(s, c, args.to_string().as_bytes());
+        // Through the shared-space rules, as the tool itself runs: a card
+        // in a space replicates to its members (card #558).
+        let raw = args.to_string();
+        return s.around_board("board_comment", raw.as_bytes(), || {
+            crate::board::board_comment(s, c, raw.as_bytes())
+        });
     }
     match post(
         b,
