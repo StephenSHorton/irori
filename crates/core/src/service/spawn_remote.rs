@@ -147,13 +147,17 @@ pub struct TrustRequest {
     pub at: GoTime,
 }
 
+/// What this device last published on its `spawn.host`: os, repos,
+/// no_agents, moves.
+type HostLast = (String, Vec<HostRepo>, bool, i64);
+
 /// What the Services keep for spawning across devices.
 #[derive(Default)]
 pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>, bool, i64)>>,
+    host_last: Mutex<Option<HostLast>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
