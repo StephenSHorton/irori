@@ -17,10 +17,28 @@ use crate::names::trim_space;
 /// One split caps this many subtasks.
 const MAX_SUBTASKS: usize = 20;
 
-fn first_open_question(t: &Task) -> String {
-    t.blockers
-        .iter()
-        .find(|b| b.open())
+/// The first open item on t that is a call for the person: unanswered,
+/// and not a wait on other work (a card, a lease, an agent, something
+/// outside) unless it offers choices.
+fn first_call_item(t: &Task) -> Option<&Blocker> {
+    t.blockers.iter().find(|b| {
+        b.open()
+            && b.status != BLOCKER_ANSWERED
+            && (!b.options.is_empty()
+                || b.on
+                    .as_ref()
+                    .is_none_or(|on| !super::offers::on_work(&on.kind)))
+    })
+}
+
+/// Whether blocked card t waits on a call from the person: an open call,
+/// or blocked with no item at all (its reason is the question).
+fn asks_a_call(t: &Task) -> bool {
+    first_call_item(t).is_some() || !t.blockers.iter().any(|b| b.open())
+}
+
+fn first_call(t: &Task) -> String {
+    first_call_item(t)
         .map(|b| b.question.clone())
         .unwrap_or_else(|| t.reason.clone())
 }
@@ -154,9 +172,12 @@ impl Fold {
                 BLOCKED if super::later::only_held(k) => {}
                 BLOCKED => {
                     blocked = true;
-                    if r.blocked.is_empty() {
+                    // The part the parent's "needs a call" names: one with
+                    // a question for the person, not one waiting on work,
+                    // such as a helper's part on its lead (card #557).
+                    if r.blocked.is_empty() && asks_a_call(k) {
                         r.blocked = id.clone();
-                        r.blocked_question = first_open_question(k);
+                        r.blocked_question = first_call(k);
                     }
                 }
                 INPUT_REQUIRED => input = true,
@@ -175,7 +196,12 @@ impl Fold {
             r.total += 1;
         }
         let all = ended == ks.len();
-        r.state = if is_terminal(&t.state) {
+        // The parent's own wait comes before "every part is done" (card
+        // #557): a lead's "Can I merge?" keeps the card open, listed and
+        // before the person until it is answered and acted on, and keeps
+        // it where a fresh lead can be started and bound for that answer.
+        let own_wait = t.state == BLOCKED || t.state == INPUT_REQUIRED;
+        r.state = if is_terminal(&t.state) || (all && own_wait) {
             t.state.clone()
         } else if all && completed > 0 {
             COMPLETED.into()

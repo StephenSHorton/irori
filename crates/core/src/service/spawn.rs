@@ -975,7 +975,7 @@ pub(crate) fn build_brief(
     }
     if !more.parts.is_empty() {
         b.push_str(&format!(
-            "{short} is split into parts, its last lead went away, and you are its new lead. For each part below that says it is done, merge its branch into the card's branch (`git merge --no-ff`), then accept it with board_status completed on that subtask, or say what is missing on its thread. Put a wait on each part still being worked. Once every part is in, land {short} as above: the parts don't ask the person, only {short} does.\n\n"
+            "{short} is split into parts, its last lead went away, and you are its new lead. For each part below that says it is done, merge its branch into the card's branch (`git merge --no-ff`), then accept it with board_status completed on that subtask, or say what is missing on its thread. Put a wait on each part still being worked. Once every part is in, land {short} as above: the parts don't ask the person, only {short} does. If the last lead already asked the person on {short} and they answered (a Merge it on its \"Can I merge?\"), that answer is yours to act on now, as the last lead would have: resolve that blocker with what you are doing, then do it.\n\n"
         ));
         fence(&mut b, "Parts", "irori", &more.parts.join("\n"));
     }

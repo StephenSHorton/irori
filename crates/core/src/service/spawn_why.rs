@@ -530,9 +530,8 @@ impl Services {
         if hold == SpawnHold::Blocked {
             return Some(Why::Blocked);
         }
-        if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
-            return Some(self.failed_why(&t, s));
-        }
+        // A member's older Irori before an old failure too: no agent
+        // starts on this board until it updates, whatever is fixed here.
         if let Some(b) = &board
             && !self.board_spawns_ready(b)
         {
@@ -549,6 +548,9 @@ impl Services {
             people.sort();
             people.dedup();
             return Some(Why::OlderMember { people });
+        }
+        if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
+            return Some(self.failed_why(&t, s));
         }
         // device_why would only blame this device.
         if let Some(why) = no_computer() {

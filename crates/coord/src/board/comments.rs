@@ -1266,6 +1266,11 @@ impl Fold {
         if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
             return false;
         }
+        // A split card's next lead acts on it (card #557): the answer
+        // stays open for the lead Irori starts.
+        if self.answer_brings_lead(t) {
+            return false;
+        }
         let tgt = &b.raised_by;
         !tgt.is_empty()
             && tgt != SWEEPER

@@ -208,6 +208,14 @@ describe("Agents talking: rows and the cap (card #486)", () => {
       line: "You: Is #470 on main?",
       when: "5m ago",
     })
+    // A DM the agent opened lists the person as "user"; their post says
+    // "user:<device>" (card #642).
+    const opened = {
+      ...mine,
+      members: [{ ...you, key: "user" }, agent("dev/heron", "heron")],
+      lastBy: "user:mac",
+    }
+    expect(lastLine(opened, now).line).toBe("You: Is #470 on main?")
     expect(lastLine({ ...mine, lastText: "", lastAt: "" }, now)).toEqual({
       line: "",
       when: "",

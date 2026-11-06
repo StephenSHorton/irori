@@ -203,7 +203,7 @@ export function AgentStartsView(p: Partial<B.AgentStartsView> = {}): B.AgentStar
 
 /** AnswerResult with Go's zero values for every field left out. */
 export function AnswerResult(p: Partial<B.AnswerResult> = {}): B.AnswerResult {
-  return { "card": CardDetail(), "told": Told(), ...p } as B.AnswerResult
+  return { "resolved": false, "told": Told(), ...p } as B.AnswerResult
 }
 
 /** Ask with Go's zero values for every field left out. */

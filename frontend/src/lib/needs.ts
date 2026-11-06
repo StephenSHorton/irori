@@ -168,7 +168,9 @@ function row(c: CardSummary, now: number): Row {
       line: `Waiting on ${waitName(c) || "an agent"}, who is gone`,
     }
   if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
-  if (c.waiting > 0)
+  // With nobody on it, an agent starting for the answer (or why one
+  // can't) says more (card #557: a split card whose lead went).
+  if (c.waiting > 0 && (held.length > 0 || !spawnLine(c)))
     return { state: "waiting", line: "Your answer is with the agent" }
   const who = held.map(displayName).slice(0, 2).join(", ")
   if (busy(c))

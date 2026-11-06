@@ -5,7 +5,9 @@ import {
   dmGone,
   dmPerson,
   fromPost,
+  isYou,
   listed,
+  memberOf,
   postLine,
   readAll,
   replyingLine,
@@ -177,14 +179,21 @@ describe("files on a post (card #643)", () => {
       },
     }
     try {
+      expect(await talkApi.post("c1", "hello", true, "p0", ["agent:x"])).toBe(
+        "id-1"
+      )
       expect(
-        await talkApi.post("c1", "hello", true, "p0", ["agent:x"])
-      ).toBe("id-1")
-      expect(
-        await talkApi.post("c1", "", false, null, [], [
-          new File([new Uint8Array([104, 105])], "a.txt"),
-          new File([new Uint8Array([33])], "b.txt"),
-        ])
+        await talkApi.post(
+          "c1",
+          "",
+          false,
+          null,
+          [],
+          [
+            new File([new Uint8Array([104, 105])], "a.txt"),
+            new File([new Uint8Array([33])], "b.txt"),
+          ]
+        )
       ).toBe("id-2")
     } finally {
       delete w.__TAURI_INTERNALS__
@@ -386,5 +395,31 @@ describe("replyingLine (card #645)", () => {
     expect(
       replyingLine([a("oak", 5, "k1"), a("oak", 5, "k1")], now)?.text
     ).toBe("oak is replying…")
+  })
+})
+
+describe("the person in a DM an agent opened (card #642)", () => {
+  const you = { kind: "person", key: "user", name: "you" }
+  const jasmine = { kind: "agent", key: "dev/s1", name: "jasmine" }
+  test("their posts by user:<device> are theirs, not an unknown agent", () => {
+    expect(memberOf([you, jasmine], "user:mac")).toBe(you)
+    expect(memberOf([jasmine, you], "user:phone")).toBe(you)
+  })
+  test("an exact key wins, and agents are found as before", () => {
+    const mac = { kind: "person", key: "user:mac", name: "you" }
+    expect(memberOf([you, mac], "user:mac")).toBe(mac)
+    expect(memberOf([you, jasmine], "dev/s1")).toBe(jasmine)
+    expect(memberOf([you, jasmine], "dev/s2")).toBeUndefined()
+  })
+  test("the person not listed is still you; another person is not", () => {
+    expect(memberOf([jasmine], "user:mac")).toEqual({
+      kind: "person",
+      key: "user:mac",
+      name: "you",
+    })
+    expect(memberOf([jasmine], "person:bob")).toBeUndefined()
+    expect(isYou("user")).toBe(true)
+    expect(isYou("person:bob")).toBe(false)
+    expect(isYou("username/s1")).toBe(false)
   })
 })

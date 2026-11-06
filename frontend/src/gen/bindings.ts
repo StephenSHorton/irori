@@ -623,9 +623,17 @@ export type AgentsSettings = {
 	defaultStartTries: number,
 };
 
-/**  Answer's reply: the card after the answer, and who heard. */
+/**
+ *  Answer's reply: whether the item ended, and who heard. It carries no
+ *  card (card #644): rebuilding one was half an answer's time, and the
+ *  window shows the answer at once and reads the card on board:changed.
+ */
 export type AnswerResult = {
-	card: CardDetail,
+	/**
+	 *  The answered item is resolved now (nobody runs to act on it, Done
+	 *  on a done check, or Mark resolved), not left with its agent.
+	 */
+	resolved: boolean,
 	told: Told,
 	/**  What each mention came to (card #77). */
 	mentioned?: MentionOutcome[],
