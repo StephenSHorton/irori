@@ -21,6 +21,9 @@ const base = process.env.PREVIEW_URL ?? "http://127.0.0.1:9246/"
 const width = Number(process.env.SHOT_WIDTH ?? 1280)
 const height = Number(process.env.SHOT_HEIGHT ?? 800)
 const frames = Number(process.env.SHOT_FRAMES ?? 0)
+// SHOT_LOADED=1 shoots the same pages without ?slow: the loaded page, to
+// compare with its skeleton.
+const loaded = process.env.SHOT_LOADED === "1"
 const out = process.env.SHOT_OUT ?? join(import.meta.dir, "..", "preview-shots", "loading")
 
 // The loading spots moved onto Loading, each held on its skeleton by ?slow.
@@ -125,13 +128,14 @@ async function main() {
           await cdp.send("Emulation.setEmulatedMedia", {
             features: [{ name: "prefers-reduced-motion", value: reduce ? "reduce" : "no-preference" }],
           }, s)
-          const [path, hash = ""] = query.split("#")
+          const [raw, hash = ""] = query.split("#")
+          const path = loaded ? raw.replace(/^\?slow&?/, "?").replace(/^\?$/, "") : raw
           const url = `${base}${path}${path ? "&" : "?"}mode=${mode}${hash ? `#${hash}` : ""}`
           await cdp.send("Page.navigate", { url }, s)
           await Bun.sleep(1800)
           const { result } = await cdp.send("Runtime.evaluate", { expression: PROBE, returnByValue: true }, s)
           const v = result.value
-          const tag = `${name}-${mode}${reduce ? "-reduced" : ""}`
+          const tag = `${name}-${mode}${reduce ? "-reduced" : ""}${loaded ? "-loaded" : ""}`
           const shot = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
           writeFileSync(join(out, `${tag}.png`), Buffer.from(shot.data, "base64"))
           if (frames && mode === "dark" && !reduce)
@@ -141,13 +145,19 @@ async function main() {
               await Bun.sleep(120)
             }
           await cdp.send("Target.closeTarget", { targetId })
-          if (!v.busy) empty++
+          if (!v.busy && !loaded) empty++
           console.log(`${v.busy ? "ok  " : "NONE"} ${tag.padEnd(34)} ${v.busy} skeleton(s), ${v.moving} animation(s)`)
         }
     ws.close()
   } finally {
     chrome.kill()
-    rmSync(profile, { recursive: true, force: true })
+    // Chrome can hold its profile a moment after the kill (Windows).
+    await Bun.sleep(500)
+    try {
+      rmSync(profile, { recursive: true, force: true })
+    } catch {
+      // left in the temp folder
+    }
   }
   console.log(empty ? `${empty} shot(s) showed no skeleton; PNGs in ${out}` : `PNGs in ${out}`)
   process.exit(empty ? 1 : 0)

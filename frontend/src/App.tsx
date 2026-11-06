@@ -850,6 +850,7 @@ export function App() {
                   conversations={conversations}
                   threadsLoading={threadsLoading}
                   conversationsLoading={conversationsLoading}
+                  desksLoading={!desks.loaded}
                   agents={roster.agents.map((a) => ({
                     key: a.key,
                     name: a.name,
@@ -939,7 +940,7 @@ export function App() {
                 <Loading
                   loading
                   label="Loading the cards"
-                  className="min-h-0 flex-1 overflow-hidden"
+                  className="min-h-0 flex-1"
                 >
                   <HomeShape />
                 </Loading>

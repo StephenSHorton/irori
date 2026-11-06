@@ -113,12 +113,15 @@ export function TalkPage({
   onOpenDesk,
   threadsLoading = false,
   conversationsLoading = false,
+  desksLoading = false,
 }: {
   threads: ThreadSummary[]
   // True until each list's first read lands (card #598): its section is a
   // skeleton till then, not "No open threads", and never on a reload.
   threadsLoading?: boolean
   conversationsLoading?: boolean
+  // The desks listed at the top of Channels have their own first read.
+  desksLoading?: boolean
   // Merge desks, listed in Channels (card #521); opening one opens its
   // queue on the desk page until it is a Talk channel (slice 8).
   desks?: Desk[]
@@ -217,7 +220,10 @@ export function TalkPage({
       >
         {extra}
         {!folded(k) && (
-          <Rows loading={conversationsLoading} label={label}>
+          <Rows
+            loading={conversationsLoading || (k === "channels" && desksLoading)}
+            label={label}
+          >
             {lead.map((d) => (
               <DeskItem
                 key={d.repoKey}

@@ -69,7 +69,10 @@ export function ListRowsShape({
           key={i}
           className={cn("flex items-start gap-2 px-2 py-1.5", rowClassName)}
         >
-          <span className="mt-0.5 block size-4 shrink-0 rounded-full" />
+          <span
+            skullet-block=""
+            className="mt-0.5 block size-4 shrink-0 rounded-full"
+          />
           <span className="grid min-w-0 gap-0.5">
             <span className="text-[13px] text-ink">
               {titles[i % titles.length]}
@@ -110,7 +113,10 @@ export function PostRowsShape({
         const [who, text] = posts[i % posts.length]
         return (
           <div key={i} className="flex gap-2.5 rounded-lg px-2 py-1.5">
-            <span className="mt-0.5 block size-[26px] shrink-0" />
+            <span
+              skullet-block=""
+              className="mt-0.5 block size-[26px] shrink-0"
+            />
             <div className="grid min-w-0 flex-1 gap-0.5">
               <div className="flex min-w-0 items-baseline gap-2">
                 <span className="text-[13px] font-medium text-ink">{who}</span>
@@ -150,13 +156,13 @@ export function CardTileShape({ i = 0 }: { i?: number }) {
         <span className="font-mono text-xs text-muted-foreground">
           mlg#{i + 1}
         </span>
-        <span className="block h-5 w-20 rounded-md" />
-        <span className="block h-5 w-10 rounded-md" />
+        <span skullet-block="" className="block h-5 w-20 rounded-md" />
+        <span skullet-block="" className="block h-5 w-10 rounded-md" />
       </span>
       <span className="text-sm leading-snug font-medium text-ink">
         {tileTitles[i % tileTitles.length]}
       </span>
-      <span className="block h-1 w-full bg-muted" />
+      <span skullet-block="" className="block h-1 w-full bg-muted" />
       <span className="text-[11px] text-muted-foreground">
         50% · sample-heron working
       </span>
@@ -193,7 +199,7 @@ export function AskBoxShape() {
       <span className="flex-1 px-3 py-2 text-sm text-muted-foreground">
         Ask about anything…
       </span>
-      <span className="block h-8 w-14 rounded-md" />
+      <span skullet-block="" className="block h-8 w-14 rounded-md" />
     </div>
   )
 }
@@ -212,8 +218,8 @@ export function FilterRowShape({ tabs = 3 }: { tabs?: number }) {
         ))}
       </span>
       <span className="ml-auto flex items-center gap-2">
-        <span className="block h-8 w-56 rounded-md" />
-        <span className="block h-8 w-28 rounded-md" />
+        <span skullet-block="" className="block h-8 w-56 rounded-md" />
+        <span skullet-block="" className="block h-8 w-28 rounded-md" />
       </span>
     </div>
   )
@@ -225,7 +231,7 @@ export function NeedRowShape({ i = 0 }: { i?: number }) {
   return (
     <article className="grid min-w-0 gap-2 px-4 py-3 glass-panel">
       <div className="flex min-w-0 items-center gap-x-2 text-[12.5px] text-muted-foreground">
-        <span className="block h-5 w-20 rounded-md" />
+        <span skullet-block="" className="block h-5 w-20 rounded-md" />
         <span>#1{i}</span>
         <span className="ml-auto">2m ago</span>
       </div>
@@ -237,8 +243,8 @@ export function NeedRowShape({ i = 0 }: { i?: number }) {
         test, then twenty dockings with no clipping.
       </p>
       <span className="flex gap-1.5">
-        <span className="block h-8 w-16 rounded-md" />
-        <span className="block h-8 w-24 rounded-md" />
+        <span skullet-block="" className="block h-8 w-16 rounded-md" />
+        <span skullet-block="" className="block h-8 w-24 rounded-md" />
       </span>
     </article>
   )
@@ -281,8 +287,14 @@ export function ProgressRowsShape({ rows = 4 }: { rows?: number }) {
             <span className="col-span-3 col-start-2 row-start-2 truncate text-[12.5px] text-muted-foreground sm:col-span-1 sm:col-start-3 sm:row-start-1">
               Running the checks
             </span>
-            <span className="col-start-3 row-start-1 block h-5 w-16 justify-self-end rounded-md sm:col-start-4" />
-            <span className="hidden h-1 bg-muted sm:col-start-5 sm:row-start-1 sm:block" />
+            <span
+              skullet-block=""
+              className="col-start-3 row-start-1 block h-5 w-16 justify-self-end rounded-md sm:col-start-4"
+            />
+            <span
+              skullet-block=""
+              className="hidden h-1 bg-muted sm:col-start-5 sm:row-start-1 sm:block"
+            />
           </li>
         ))}
       </ul>
