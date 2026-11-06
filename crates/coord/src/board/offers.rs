@@ -559,13 +559,6 @@ impl Fold {
             .is_none_or(|f| !f().cant.contains(dev))
     }
 
-    /// Whether device `dev` isn't connected now (card #541).
-    pub(crate) fn is_away(&self, dev: &str) -> bool {
-        self.agent_devices
-            .as_ref()
-            .is_some_and(|f| f().away.contains(dev))
-    }
-
     /// Whether device `dev` has been away for at least `d` (card #541).
     pub(crate) fn away_for(&self, dev: &str, d: std::time::Duration) -> bool {
         let Some(f) = self.agent_devices.as_ref() else {
