@@ -932,7 +932,7 @@ fn share_and_withdraw() {
         Ok(_) => panic!("a write to the private id was let through"),
     };
     assert!(
-        e.contains("shared to a board") && e.contains("mlg#1") && e.contains("visible to"),
+        e.contains("shared to a space") && e.contains("mlg#1") && e.contains("visible to"),
         "a write to the private id: {e}"
     );
     assert!(
@@ -1313,7 +1313,7 @@ fn board_cards_across_own_devices() {
         .core
         .task_coord(&priv_t.id, std::slice::from_ref(&mac.agent))
     {
-        Err(e) => assert!(e.to_string().contains("shared to a board"), "{e}"),
+        Err(e) => assert!(e.to_string().contains("shared to a space"), "{e}"),
         Ok(_) => panic!("a write to the shared private card on the mac went through"),
     }
 

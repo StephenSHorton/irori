@@ -1224,7 +1224,7 @@ impl People {
                     status: if person { "person" } else { "unknown" }.into(),
                     live: person,
                     where_: if person {
-                        "On the board".into()
+                        "In the space".into()
                     } else {
                         "Another person's agent".into()
                     },
@@ -1284,7 +1284,7 @@ impl People {
                 },
                 status: "person".into(),
                 live: true,
-                where_: "On the board".into(),
+                where_: "In the space".into(),
                 color: key
                     .strip_prefix(store::kinds::PERSON_ACTOR_PREFIX)
                     .and_then(|pid| self.others.get(pid))

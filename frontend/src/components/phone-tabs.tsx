@@ -3,11 +3,11 @@ import { HouseIcon, LayoutGridIcon, MessagesSquareIcon } from "lucide-react"
 import type { Section } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
-// PhoneTab is a bottom tab: Home, Talk or Boards (card #395, mockup talk-5).
+// PhoneTab is a bottom tab: Home, Talk or Spaces (card #395, mockup talk-5).
 export type PhoneTab = "home" | "talk" | "boards"
 
-// phoneTab is the tab a section sits under: one board's page is under
-// Boards. A card's page is under the tab it was opened from.
+// phoneTab is the tab a section sits under: a space's page and its
+// boards are under Spaces. A card's page is under the tab it was opened from.
 export function phoneTab(s: Section): PhoneTab {
   if (s.kind === "talk") return "talk"
   if (s.kind === "boards" || s.kind === "board") return "boards"
@@ -20,9 +20,9 @@ const tabs: { tab: PhoneTab; label: string; to: Section; Icon: typeof HouseIcon 
   { tab: "boards", label: "Spaces", to: { kind: "boards" }, Icon: LayoutGridIcon },
 ]
 
-// PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Boards,
+// PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Spaces,
 // with Talk's count of what waits on you. A tap on the tab you are on goes
-// to its top (Talk's list, the Boards page).
+// to its top (Talk's list, the Spaces page).
 export function PhoneTabs({
   at,
   talk,

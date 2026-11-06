@@ -223,7 +223,7 @@ impl Window {
         } else {
             if !files.is_empty() {
                 return Err(
-                    "files go with a thread on your own board only; on a shared board, attach them on a card"
+                    "files go with a thread in Personal only; in a shared space, attach them on a card"
                         .into(),
                 );
             }
@@ -296,7 +296,7 @@ impl Window {
             .find(|m| theirs(&self.core.private_key(&m.key)))
         {
             return Err(format!(
-                "your threads on this board are private, so only your own agents hear them: {} is another member's. Switch \"My threads\" to shared in the board's settings to talk with them.",
+                "your threads in this space are private, so only your own agents hear them: {} is another member's. Switch \"My threads\" to shared in Space settings to talk with them.",
                 if m.name.is_empty() { &m.key } else { &m.name }
             ));
         }

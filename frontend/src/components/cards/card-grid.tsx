@@ -240,7 +240,7 @@ export function BoardBar({
     <div
       className="flex flex-wrap items-center gap-1"
       role="group"
-      aria-label="Filter cards by board"
+      aria-label="Filter cards by space"
     >
       {withPrivate && (
         <Button
@@ -248,7 +248,7 @@ export function BoardBar({
           aria-pressed={filter === "private"}
           variant={filter === "private" ? "secondary" : "ghost"}
           onClick={() => onFilter(filter === "private" ? "all" : "private")}
-          title="Your private cards: on no shared board"
+          title="Your private cards: in no shared space"
         >
           Private
         </Button>
@@ -262,7 +262,7 @@ export function BoardBar({
             aria-pressed={filter === id}
             variant={filter === id ? "secondary" : "ghost"}
             onClick={() => onFilter(filter === id ? "all" : id)}
-            title={`Cards on the board ${plainLine(b.name)} (${plainLine(b.tag)}#…)`}
+            title={`Cards in the space ${plainLine(b.name)} (${plainLine(b.tag)}#…)`}
           >
             <LayersIcon aria-hidden className="size-3.5 opacity-70" />
             {plainLine(b.name)}
@@ -912,7 +912,7 @@ function PickBar({
               Delete {what} permanently? They leave Irori on every device, and
               agents no longer find them with search or show. This can't be
               undone.
-              {shared && " Cards on a shared board can't be deleted here."}
+              {shared && " Cards in a shared space can't be deleted here."}
             </>
           }
           onConfirm={async () => {

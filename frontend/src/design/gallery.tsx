@@ -231,7 +231,7 @@ export default function Gallery() {
           </Card>
 
           <Command>
-            <CommandInput placeholder="Search cards, boards, agents…" />
+            <CommandInput placeholder="Search cards, spaces, agents…" />
             <CommandList>
               <CommandGroup heading="Needs you">
                 <CommandItem>
@@ -242,7 +242,7 @@ export default function Gallery() {
                   <CommandShortcut>⌘3</CommandShortcut>
                 </CommandItem>
               </CommandGroup>
-              <CommandGroup heading="Boards">
+              <CommandGroup heading="Spaces">
                 <CommandItem>
                   <SearchIcon /> MLG
                 </CommandItem>
@@ -382,10 +382,9 @@ export default function Gallery() {
             <CardContent>
               <Accordion defaultValue={["what"]}>
                 <AccordionItem value="what">
-                  <AccordionTrigger>What is a board?</AccordionTrigger>
+                  <AccordionTrigger>What is a space?</AccordionTrigger>
                   <AccordionContent>
-                    A project you share: its cards, the people on it and their
-                    agents.
+                    A group of people: its boards, Talk and their agents.
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="held">

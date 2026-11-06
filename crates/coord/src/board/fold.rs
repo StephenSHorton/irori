@@ -788,7 +788,7 @@ impl Fold {
                         t.let_go = Some((p.who.clone(), at(p.at)));
                     }
                     if p.reason == LEFT_REMOVED {
-                        what = "was taken off: their person left the board".into();
+                        what = "was taken off: their person left the space".into();
                     }
                     // A spawned agent of this card that went away without
                     // finishing crashed (card #447); any other leave of

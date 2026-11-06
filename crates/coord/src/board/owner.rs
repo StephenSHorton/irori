@@ -146,7 +146,7 @@ impl Fold {
         let to = to.strip_prefix(kinds::PERSON_ACTOR_PREFIX).unwrap_or(to);
         let (op, person, decides, q, cx) = if me == owner {
             if to.is_empty() || to == owner {
-                return Err(invalid("offer the card to another member of the board"));
+                return Err(invalid("offer the card to another member of the space"));
             }
             (
                 OP_OFFER,

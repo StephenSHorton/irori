@@ -494,7 +494,7 @@ export const threads = {
         return BoardService.StartThread(text, mentions, boardId, agentsNow)
       if (boardId)
         throw new Error(
-          "files go with a thread on your own board only; on a shared board, attach them on a card"
+          "files go with a thread in Personal only; in a shared space, attach them on a card"
         )
       return BoardService.StartThreadWithFiles(
         text,
@@ -1060,7 +1060,7 @@ export function samplePreview(
 ): SharePreviewShape {
   const c = sampleCard(id)
   if (c.scope === "board")
-    throw new Error("coord: invalid input: the card is already on a board")
+    throw new Error("coord: invalid input: the card is already in a space")
   if (c.parent)
     throw new Error(
       `coord: invalid input: #${c.short} is a subtask of #${c.parent.short}: share #${c.parent.short} and its subtasks go with it`
@@ -1196,7 +1196,7 @@ export function sampleTransferOwner(id: string, to: string): string {
   const c = sampleCard(id)
   if (!c.onBoard)
     throw new Error(
-      `coord: invalid input: ${id} is a private card: only a card on a shared board changes owner`
+      `coord: invalid input: ${id} is a private card: only a card in a shared space changes owner`
     )
   if (c.blockers.some((b) => !b.resolved && b.transfer))
     throw new Error(
@@ -2047,7 +2047,7 @@ function sampleIdleReport(idle: number): IdleReport {
         id: "sample-gap-1",
         short: "wind#87",
         title: "Slot 1 rig",
-        why: "nobody on this board is free",
+        why: "nobody in this space is free",
       }),
       UnofferedCard({
         id: "sample-gap-2",

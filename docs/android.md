@@ -1,6 +1,6 @@
 # Irori on Android (card #225, #226)
 
-The phone build is a board client: it pairs with your other devices (Settings → Devices → Join with a code), syncs your cards and boards over iroh, and lets you read, comment, answer blockers and ask. It runs no agents. The tray, single instance, launch at login and the updater are desktop only (`#[cfg(desktop)]` and `app/src/shell/tray_mobile.rs`).
+The phone build is a client for your spaces: it pairs with your other devices (Settings → Devices → Join with a code), syncs your spaces, boards and cards over iroh, and lets you read, comment, answer blockers and ask. It runs no agents. The tray, single instance, launch at login and the updater are desktop only (`#[cfg(desktop)]` and `app/src/shell/tray_mobile.rs`).
 
 ## Toolchain (Mac)
 

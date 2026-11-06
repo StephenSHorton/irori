@@ -50,7 +50,7 @@ export function AgentsPane({ open }: { open: boolean }) {
             Start an agent for each card
           </label>
           <span id={`${id}-hint`} className="text-xs text-muted-foreground">
-            On your own board, Irori starts a fresh agent for every card you
+            In Personal, Irori starts a fresh agent for every card you
             post instead of waiting for a free one, and ends it when the card is
             done.
           </span>

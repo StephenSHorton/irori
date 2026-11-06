@@ -74,7 +74,7 @@ export const settingsSections: {
     id: "people",
     label: "People and invites",
     icon: UsersIcon,
-    hint: "Who is on your boards, and joining someone else's.",
+    hint: "Who is in your spaces, and joining someone else's.",
   },
   {
     id: "agents",
@@ -272,10 +272,10 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
       {error && <p className="text-xs text-destructive">{error}</p>}
       {boards.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
-          No boards yet. Make one on the Boards page, then invite people to it.
+          No spaces yet. Make one on the Spaces page, then invite people to it.
         </p>
       ) : (
-        <ul className="grid gap-1.5" aria-label="People on your boards">
+        <ul className="grid gap-1.5" aria-label="People in your spaces">
           {boards.map((b) => (
             <li
               key={b.boardId}
@@ -468,8 +468,8 @@ function YourName() {
         {error
           ? error
           : saved
-            ? "Saved. Your other devices and your boards pick it up as they sync."
-            : "What people on your boards see you as, on all your devices."}
+            ? "Saved. Your other devices and your spaces pick it up as they sync."
+            : "What people in your spaces see you as, on all your devices."}
       </p>
     </div>
   )

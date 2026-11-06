@@ -84,14 +84,14 @@ export const ReceivePresets = [
 // Autonomy presets (design §7.3): what your agents may do on a board
 // without asking. Trusted is the default.
 export const AutonomyPresets = [
-  { value: "ask", label: "Ask me", hint: "New cards on the board ask you first; your private cards aren't shared." },
-  { value: "trusted", label: "Trusted", hint: "They create cards on the board; sharing a private card asks you." },
+  { value: "ask", label: "Ask me", hint: "New cards in the space ask you first; your private cards aren't shared." },
+  { value: "trusted", label: "Trusted", hint: "They create cards in the space; sharing a private card asks you." },
   { value: "autonomous", label: "Autonomous", hint: "They also share private cards (after scrub) and mirror all their leases." },
 ] as const
 
 // ThreadsModes are where your threads on a shared board live (card #185).
 export const ThreadsModes = [
-  { value: "shared", label: "Shared", hint: "Every member and their agents see your threads on this board." },
+  { value: "shared", label: "Shared", hint: "Every member and their agents see your threads in this space." },
   { value: "private", label: "Private", hint: "Only you and your own agents see them; they never reach other members' devices." },
 ] as const
 
@@ -194,7 +194,7 @@ function sampleMoved() {
 
 function sampleFind(id: string): BoardSummary {
   const b = boardsState().find((x) => x.boardId === id)
-  if (!b) throw new Error(`core: no such board on this device: ${id}`)
+  if (!b) throw new Error(`core: no such space on this device: ${id}`)
   return b
 }
 
@@ -240,7 +240,7 @@ export const boards = {
     const n = name.trim()
     const t = tag.trim().toLowerCase()
     if (!n || n.length > MaxBoardName)
-      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+      throw new Error(`coord: invalid input: a space name is 1 to ${MaxBoardName} characters`)
     if (!validTag(t))
       throw new Error(
         "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
@@ -371,7 +371,7 @@ export const boards = {
     const s = await boards.settings(boardId)
     const owners = s.members.filter((m) => m.owner).length
     const m = s.members.find((x) => x.personId === personId)
-    if (!m) throw new Error(`coord: not found: ${personId} isn't on the board`)
+    if (!m) throw new Error(`coord: not found: ${personId} isn't in the space`)
     if (role === "member" && m.owner && owners <= 1)
       throw new Error(
         "coord: not allowed: the last owner can't stop being one: make someone else an owner first"
@@ -524,7 +524,7 @@ export const boards = {
       InviteStatus({
         role: "guest",
         state: InviteState.Words,
-        boardName: "Sample board",
+        boardName: "Sample space",
         words: ["sample", "words", "to", "give", "them"],
         peerName: "Sam",
         peerFingerprint: "3f2a 91c0 7be4 d018",

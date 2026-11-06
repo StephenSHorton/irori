@@ -416,7 +416,7 @@ impl Fold {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
                         note: format!(
-                            "{}: the person whose agent worked it left the board",
+                            "{}: the person whose agent worked it left the space",
                             super::fold::NOBODY_NOTE
                         ),
                         by: by.clone(),

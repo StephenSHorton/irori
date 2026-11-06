@@ -780,7 +780,7 @@ fn alice_removes_bob_and_his_agent_comes_off() {
         .unwrap_or_default();
     assert!(
         line.first()
-            .is_some_and(|l| l.starts_with("You're no longer on this board")),
+            .is_some_and(|l| l.starts_with("You're no longer in this space")),
         "bob's board line: {line:?}"
     );
     assert!(
