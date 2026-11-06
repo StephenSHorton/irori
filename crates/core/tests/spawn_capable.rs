@@ -24,6 +24,8 @@ struct Fake {
     started: Mutex<Vec<SpawnReq>>,
     /// `claude` isn't installed.
     missing: AtomicBool,
+    /// Sessions ended.
+    ended: Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -33,7 +35,7 @@ impl Fake {
 }
 
 fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
-    let (a, b) = (f.clone(), f.clone());
+    let (a, b, c) = (f.clone(), f.clone(), f.clone());
     Spawner {
         ready: Some(Arc::new(move || !b.missing.load(Ordering::SeqCst))),
         spawn: Arc::new(move |r: &SpawnReq| {
@@ -50,7 +52,10 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
                 prefix: SESS[..8].into(),
             })
         }),
-        end: Arc::new(|_: &str| Ok(String::new())),
+        end: Arc::new(move |s: &str| {
+            c.ended.lock().unwrap().push(s.to_string());
+            Ok(String::new())
+        }),
         trusted: Arc::new(|_| true),
         list: None,
     }
@@ -596,7 +601,8 @@ fn a_shared_boards_thread_says_why_too() {
 /// posts on it before the Mac can start anything, so the phone owns it.
 fn board_thread(r: &Rig) -> (String, Task) {
     let id = r.phone.core.create_board("Team", "team").unwrap();
-    wait_for(WAIT, "the Mac has the board", || {
+    // Slow under the full suite's load: the board reaches the Mac by sync.
+    wait_for(2 * WAIT, "the Mac has the board", || {
         r.mac.core.boards().contains(&id)
     });
     for d in [&r.phone, &r.mac] {
@@ -717,5 +723,66 @@ fn an_older_computer_is_never_where_phone_work_goes() {
         r.phone_id(),
         "not given to it"
     );
+    r.close();
+}
+
+/// Two computers took one card's generation at once and the other one's id
+/// is lower: the Mac's agent, though it started and bound, is ended, so the
+/// card keeps one agent. Found by #541's review.
+#[test]
+fn a_bound_agent_ends_when_a_lower_computer_won_its_generation() {
+    let r = Rig::new();
+    r.mac_spawner();
+    let mac = r.mac_id();
+    let t = r
+        .mac
+        .core
+        .coord()
+        .create_task(
+            &format!("user:{mac}"),
+            NewTask {
+                title: "Rename the API's handlers".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    wait_for(WAIT, "an agent starts on the Mac", || r.fake.started() == 1);
+    wait_for(WAIT, "it binds", || {
+        r.mac
+            .core
+            .coord()
+            .get_task(&t.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|s| !s.key.is_empty() && s.device == mac)
+    });
+    let g = r
+        .mac
+        .core
+        .coord()
+        .get_task(&t.id)
+        .unwrap()
+        .spawn_request()
+        .unwrap()
+        .generation;
+    assert!(r.fake.ended.lock().unwrap().is_empty());
+    // The other computer's row for the same generation, reaching the Mac
+    // through the phone.
+    r.phone
+        .core
+        .capture()
+        .emit_row(
+            "irori",
+            "task.spawn",
+            &serde_json::json!({
+                "taskId": t.id, "gen": g, "op": "requested", "device": "0",
+                "permissionMode": "acceptEdits", "name": "for-0", "by": "irori",
+                "at": "2026-11-01T00:00:00Z"
+            }),
+        )
+        .unwrap();
+    wait_for(WAIT, "the Mac ends its agent", || {
+        r.fake.ended.lock().unwrap().iter().any(|s| s == SESS)
+    });
     r.close();
 }

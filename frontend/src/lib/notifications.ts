@@ -9,7 +9,12 @@ import { useCallback, useEffect } from "react"
 
 import { Events, NotificationService } from "./host"
 import { inWails } from "./irori"
-import { Notification, NotificationAsk, NotificationCard, State } from "./models"
+import {
+  Notification,
+  NotificationAsk,
+  NotificationCard,
+  State,
+} from "./models"
 import type { CardBlocker, Delivery } from "./models"
 import { EventInboxChanged, useLatest } from "./talk"
 
@@ -80,7 +85,9 @@ export const kindTone: Record<
 export function asksOnCard(n: Notification): boolean {
   return (
     !!n.taskId &&
-    (n.kind === Kind.Blocker || n.kind === Kind.DoneCheck || n.kind === Kind.Input)
+    (n.kind === Kind.Blocker ||
+      n.kind === Kind.DoneCheck ||
+      n.kind === Kind.Input)
   )
 }
 
@@ -88,11 +95,17 @@ export function asksOnCard(n: Notification): boolean {
 // stands for several messages, not one (card #482). Before #482 it was a
 // message about delivery "waiting".
 export function waitedSummary(n: Notification): boolean {
-  return n.kind === Kind.Waited || (n.kind === Kind.Message && n.deliveryId === "waiting")
+  return (
+    n.kind === Kind.Waited ||
+    (n.kind === Kind.Message && n.deliveryId === "waiting")
+  )
 }
 
 // shown is the list a filter shows, newest first as it comes.
-export function shown(list: Notification[], f: NotificationFilter): Notification[] {
+export function shown(
+  list: Notification[],
+  f: NotificationFilter
+): Notification[] {
   return f === "unread" ? list.filter((n) => !n.read) : list
 }
 
@@ -213,9 +226,11 @@ export function useNotifications(): {
         sampleListeners.delete(reload)
       }
     }
-    const offs = [EventNotificationsChanged, EventBoardChanged, EventInboxChanged].map(
-      (e) => Events.On(e, () => void reload())
-    )
+    const offs = [
+      EventNotificationsChanged,
+      EventBoardChanged,
+      EventInboxChanged,
+    ].map((e) => Events.On(e, () => void reload()))
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
@@ -289,7 +304,9 @@ function ago(min: number): string {
 }
 
 function sampleNotifications(): Notification[] {
-  if (new URLSearchParams(window.location.search).get("notifications") === "none")
+  if (
+    new URLSearchParams(window.location.search).get("notifications") === "none"
+  )
     return []
   if (sample) return sample
   const card = (id: string, short: string, title: string) =>
@@ -313,7 +330,11 @@ function sampleNotifications(): Notification[] {
       body: "Slot 2's Dolphin stopped answering. Restart it now? The run on it is lost.",
       level: "warn",
       at: ago(4),
-      ask: NotificationAsk({ open: true, actions: ["Restart", "Leave it"], until: ago(-10) }),
+      ask: NotificationAsk({
+        open: true,
+        actions: ["Restart", "Leave it"],
+        until: ago(-10),
+      }),
     }),
     Notification({
       key: "blocker:sample-card-2/b1",
@@ -365,7 +386,12 @@ function sampleNotifications(): Notification[] {
       body: "check.sh is green on the branch.",
       at: ago(180),
       read: true,
-      ask: NotificationAsk({ open: false, answered: true, choice: "Push", actions: ["Push", "Wait"] }),
+      ask: NotificationAsk({
+        open: false,
+        answered: true,
+        choice: "Push",
+        actions: ["Push", "Wait"],
+      }),
     }),
   ]
   return sample

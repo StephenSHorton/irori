@@ -163,7 +163,7 @@ pub(crate) struct RemoteState {
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
     /// Requests started on this device, by (card, generation): the name it
     /// was started with. Dropped once bound, or ended when superseded.
-    started: Mutex<HashMap<(String, i64), (String, String)>>,
+    started: Mutex<HashMap<(String, i64), String>>,
     /// Request rows (end, start, trust) already acted on, by (device, seq).
     seen: Mutex<HashSet<(String, i64)>>,
     /// Cards another device asked this one to trust the repo of, and which
@@ -637,28 +637,22 @@ impl Services {
             .contains_key(&(id.to_string(), generation))
     }
 
-    /// Notes that this device started request `generation` of card `id`
-    /// as session `name`, on board `board` ("" the private one).
-    pub(crate) fn note_started_as(&self, id: &str, generation: i64, name: &str, board: &str) {
+    pub(crate) fn note_started_as(&self, id: &str, generation: i64, name: &str) {
         self.spawn
             .remote
             .started
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(
-                (id.to_string(), generation),
-                (name.to_string(), board.to_string()),
-            );
+            .insert((id.to_string(), generation), name.to_string());
     }
 
     /// Sessions this device started for a request that is no longer the
     /// card's (a newer generation named another device, or it was
     /// canceled) and never bound: ended, so the card keeps one agent
-    /// (§9 "if two sessions start anyway"). One started for a generation
-    /// another computer's request won (card #541) is ended even once
-    /// bound, so it is watched until its card is done.
+    /// (§9 "if two sessions start anyway").
     pub(crate) fn end_superseded(&self, sp: &Spawner) {
-        let started: Vec<((String, i64), (String, String))> = self
+        self.end_lost_ties(sp);
+        let started: Vec<((String, i64), String)> = self
             .spawn
             .remote
             .started
@@ -670,40 +664,28 @@ impl Services {
         if started.is_empty() {
             return;
         }
-        let me = self.device.id.clone();
         let live = self.presence.snapshot();
-        for ((id, generation), (name, board)) in started {
-            let co = if board.is_empty() {
-                Some(self.coord.clone())
-            } else {
-                self.board(&board).ok().map(|b| b.coord().clone())
-            };
-            let task = co.as_ref().and_then(|c| c.get_task(&id));
-            let current = task.as_ref().and_then(|t| t.spawn_request().cloned());
-            let lost = current.as_ref().is_some_and(|s| {
-                s.generation == generation && !s.device.is_empty() && s.device != me
-            });
+        for ((id, generation), name) in started {
+            let current = self
+                .coord
+                .get_task(&id)
+                .and_then(|t| t.spawn_request().cloned());
             let mine: Option<&Spawn> = current
                 .as_ref()
                 .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED)
-                .filter(|_| !lost);
+                // Another computer took the same generation (card #541).
+                .filter(|s| s.device.is_empty() || s.device == self.device.id);
             let session = live
                 .iter()
                 .find(|a| a.name == name && a.status != "gone")
                 .map(|a| a.key.clone());
-            let spawned = |k: &str| co.as_ref().is_some_and(|c| c.is_spawned(k));
             match (mine, session) {
                 // Still the card's and not bound yet: wait for presence.
                 (Some(s), _) if s.key.is_empty() => continue,
-                // Bound: watched while the card is open, since another
-                // computer's request for this generation may yet arrive.
-                (Some(_), _) if !task.as_ref().is_some_and(|t| coord::is_terminal(&t.state)) => {
-                    continue;
-                }
+                // Bound: nothing more to watch.
                 (Some(_), _) => {}
-                // No longer the card's and running unbound, or another
-                // computer's won this generation: end it.
-                (None, Some(key)) if lost || !spawned(&key) => {
+                // No longer the card's and running unbound: end it.
+                (None, Some(key)) if !self.coord.is_spawned(&key) => {
                     let sess = key.rsplit_once('/').map_or(key.as_str(), |(_, s)| s);
                     match (sp.end)(sess) {
                         Ok(_) => logf(format_args!(
@@ -725,6 +707,57 @@ impl Services {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&(id, generation));
+        }
+    }
+
+    /// This device's live, bound agents whose card's request for the same
+    /// generation is now another computer's (card #541: two took one card
+    /// at once, and the lowest id won): ended, so the card keeps one. Read
+    /// from the marks, not from what this run started, so it holds after a
+    /// restart too. Only the request that is still starting wins: if it
+    /// failed, the agent that did start keeps the card.
+    fn end_lost_ties(&self, sp: &Spawner) {
+        let me = self.device.id.clone();
+        for a in self.presence.snapshot() {
+            if a.device_id != me || a.status == "gone" {
+                continue;
+            }
+            let Some(m) = self.coord.spawned(&a.key) else {
+                continue;
+            };
+            if m.device != me || !m.step.is_empty() || !m.subtask.is_empty() {
+                continue;
+            }
+            let co = if m.board.is_empty() {
+                self.coord.clone()
+            } else {
+                match self.board(&m.board) {
+                    Ok(b) => b.coord().clone(),
+                    // A board it can't read now says nothing.
+                    Err(_) => continue,
+                }
+            };
+            let Some(t) = co.get_task(&m.task_id) else {
+                continue;
+            };
+            let lost = !coord::is_terminal(&t.state)
+                && t.spawn_request().is_some_and(|s| {
+                    s.generation == m.generation
+                        && s.op == coord::SPAWN_REQUESTED
+                        && !s.device.is_empty()
+                        && s.device != me
+                });
+            if !lost {
+                continue;
+            }
+            let sess = a.key.rsplit_once('/').map_or(a.key.as_str(), |(_, s)| s);
+            match (sp.end)(sess) {
+                Ok(_) => logf(format_args!(
+                    "spawn {}: ended {}, another computer took request {}",
+                    m.task_id, a.key, m.generation
+                )),
+                Err(e) => logf(format_args!("spawn {}: end {}: {e}", m.task_id, a.key)),
+            }
         }
     }
 

@@ -242,11 +242,14 @@ impl Fold {
         match t.spawns.iter_mut().find(|o| o.part() == s.part()) {
             // Only a newer generation moves a request on.
             Some(o) if s.generation > o.generation => *o = s,
-            // Its own generation's rows from the same device may end it.
+            // Its own generation's rows from the same device may end it;
+            // a cancel (the person's) ends the generation, whichever
+            // computer's request it named.
             Some(o)
                 if s.generation == o.generation
                     && s.op != SPAWN_REQUESTED
-                    && same_device(&s.device, &o.device) =>
+                    && o.op != SPAWN_CANCELED
+                    && (s.op == SPAWN_CANCELED || same_device(&s.device, &o.device)) =>
             {
                 *o = Spawn {
                     key: o.key.clone(),
@@ -261,6 +264,7 @@ impl Fold {
             Some(o)
                 if s.generation == o.generation
                     && s.op == SPAWN_REQUESTED
+                    && o.op != SPAWN_CANCELED
                     && !same_device(&s.device, &o.device)
                     && s.device < o.device =>
             {

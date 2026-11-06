@@ -868,3 +868,64 @@ fn the_losing_computer_neither_binds_nor_fails_the_winners_request() {
         ("dev-a", SPAWN_REQUESTED, "")
     );
 }
+
+/// Card #541: the person cancels from the phone, which saw only dev-b's
+/// request; dev-a's (the lowest id) arrives before or after. The cancel
+/// ends the generation on every device, so nothing starts.
+#[test]
+fn a_cancel_ends_the_generation_whichever_request_it_saw() {
+    let row = |id: &str, op: &str, dev: &str| TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: op.into(),
+        device: dev.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{dev}"),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    for a_first in [true, false] {
+        let e = Env::on("dev-p");
+        let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+        let a = |e: &Env| {
+            e.remote(
+                "dev-a",
+                1,
+                hlc_at(fixed_now()) + 1,
+                SWEEPER_KEY,
+                kinds::TASK_SPAWN,
+                &row(&t.id, SPAWN_REQUESTED, "dev-a"),
+            );
+        };
+        if a_first {
+            a(&e);
+        }
+        e.remote(
+            "dev-b",
+            1,
+            hlc_at(fixed_now()) + 2,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_REQUESTED, "dev-b"),
+        );
+        e.remote(
+            "dev-c",
+            1,
+            hlc_at(fixed_now()) + 3,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_CANCELED, "dev-b"),
+        );
+        if !a_first {
+            a(&e);
+        }
+        let s =
+            e.c.get_task(&t.id)
+                .unwrap()
+                .spawn_request()
+                .cloned()
+                .unwrap();
+        assert_eq!(s.op, SPAWN_CANCELED, "dev-a's first: {a_first}");
+    }
+}

@@ -1812,9 +1812,11 @@ impl Services {
         let started_name = req.name.clone();
         match (sp.spawn)(&req) {
             Ok(_) => {
-                // Watched until its request is settled: another computer
-                // may have taken the same generation (card #541).
-                self.note_started_as(&t.id, g, &started_name, &log.board_id);
+                // Only the private board's: a board card keeps one agent
+                // by its own log's generation and binding.
+                if private {
+                    self.note_started_as(&t.id, g, &started_name);
+                }
                 self.spawn
                     .answers
                     .lock()
