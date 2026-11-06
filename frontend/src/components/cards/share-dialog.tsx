@@ -350,7 +350,16 @@ export function MoveBoardButton({
   }
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          // The boards may have changed since it last opened.
+          setTo(others[0]?.boardId ?? "")
+          setError(null)
+          setOpen(true)
+        }}
+      >
         Move
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

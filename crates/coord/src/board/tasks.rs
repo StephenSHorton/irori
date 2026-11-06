@@ -1056,6 +1056,15 @@ impl Fold {
             }
             self.holder_duties();
         }
+        // The page's board rows read the list again before the lock goes,
+        // or a deleted board's cards would show its tag-less fallback
+        // until the catch-up ends (card #563).
+        if evs
+            .iter()
+            .any(|e| e.kind.starts_with("space.board.") || e.kind.starts_with("board.member."))
+        {
+            self.refresh_boards();
+        }
         self.relink();
     }
 }

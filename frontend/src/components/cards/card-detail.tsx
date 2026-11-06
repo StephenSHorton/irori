@@ -838,7 +838,7 @@ function BoardActions({
             initialOpen={previewFlag("transfer") === detail.id}
           />
         )}
-        {shared && !detail.parent && boardsOf(shared).length > 1 && (
+        {shared && !detail.parent && !openAsk(detail) && boardsOf(shared).length > 1 && (
           <MoveBoardButton
             id={detail.id}
             boards={boardsOf(shared)}

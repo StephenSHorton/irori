@@ -5,7 +5,7 @@
 // deleting the board. Leave, Invite and Space settings stay on the space.
 // Personal has the same page and list, over the person's own log.
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 
 import { BoardView, ScopeOwn } from "@/components/cards/board-view"
@@ -294,6 +294,12 @@ export function PersonalList({
 export function PersonalHeaderBar({ list }: { list: string }) {
   const { boards: all, reload } = usePersonalBoards()
   const x = all.find((b) => b.boardId === list)
+  // Deleted on another device (card #563): its cards are on the default
+  // board now, so that is where the page goes.
+  const gone = all.length > 0 && !x
+  useEffect(() => {
+    if (gone) go({ kind: "board", id: Personal })
+  }, [gone])
   if (!x) return <h1 className="text-lg font-semibold text-ink">Personal</h1>
   return (
     <ListHeader

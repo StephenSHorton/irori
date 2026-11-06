@@ -684,3 +684,39 @@ fn a_board_list_that_cant_be_read_changes_nothing() {
     );
     assert_eq!(place(&c, &n.id).0, "", "still on the first board");
 }
+
+/// A one-run ref (`#5a`, card #558) still means the card it meant after
+/// that card moves: the letters go by each card's create claim.
+#[test]
+fn a_one_run_ref_still_finds_its_card_after_a_move() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    land(&s, &c, &created("dev-b", 1, 10, "x", 5, ""));
+    land(&s, &c, &created("dev-b", 2, 20, "y", 5, NET));
+    assert_eq!(c.task_ref("#5a").unwrap(), "x");
+    assert_eq!(c.task_ref("#5b").unwrap(), "y");
+    land(&s, &c, &moved("dev-b", 3, 30, "x", 6, NET));
+    assert_eq!(place(&c, "x"), (NET.to_string(), "net#6".to_string()));
+    assert_eq!(c.task_ref("#5a").unwrap(), "x");
+    assert_eq!(c.task_ref("#5b").unwrap(), "y");
+}
+
+/// A delete that only a catch-up folds (it landed between the replay and
+/// the subscription) still sends the board's cards to the first board.
+#[test]
+fn a_delete_folded_by_a_catch_up_moves_the_cards() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    land(&s, &c, &created("dev-b", 1, 10, "n", 1, NET));
+    s.list
+        .lock()
+        .unwrap()
+        .deleted
+        .push((NET.into(), pos("dev-b", 2, 20)));
+    let raw = format!(r#"{{"boardId":"{NET}","name":"","tag":"","deleted":true}}"#);
+    s.st.insert(&event("dev-b", 2, 20, kinds::SPACE_BOARD_RENAMED, raw.into_bytes()))
+        .unwrap();
+    c.catch_up().unwrap();
+    assert_eq!(place(&c, "n"), (String::new(), "wind#1".to_string()));
+    assert_eq!(c.task_ref("net#1").unwrap(), "n");
+}

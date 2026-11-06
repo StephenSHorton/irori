@@ -1692,9 +1692,7 @@ impl Coord {
     pub fn handle(&self, ev: &Event) -> Result<()> {
         // Before the lock: `catching` comes first.
         if ev.is_resync() {
-            self.catch_up()?;
-            self.lock().refresh_boards();
-            return Ok(());
+            return self.catch_up();
         }
         let mut f = self.lock();
         // Core writes these itself, so this device's reach the fold here.
@@ -1917,7 +1915,12 @@ impl Coord {
         if !on_board {
             self.catch_up_own_seen(&st, &me, limit)?;
         }
-        self.lock().holder_duties();
+        let mut f = self.lock();
+        // A board row a page folded may be a delete (card #563); this
+        // device's own were read as Core wrote them, and a startup catch-up
+        // needs the list as much as a resync.
+        f.refresh_boards();
+        f.holder_duties();
         Ok(())
     }
 

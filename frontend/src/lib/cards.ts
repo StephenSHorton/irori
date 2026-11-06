@@ -1102,9 +1102,12 @@ function sampleDelete(id: string) {
 }
 
 // sampleMoveBoard is BoardService.Move on the sample: the card shows the
-// new board at once, and the sample keeps no numbers per board.
+// new board and its tag at once, and the sample keeps no numbers per board.
 function sampleMoveBoard(id: string, board: string) {
   const c = sampleCard(id)
+  const space = c.board ? sampleBoardOf(c.board) : undefined
+  const list = space ? space.boards?.find((x) => x.boardId === board) : samplePersonalOf(board)
+  c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()
 }

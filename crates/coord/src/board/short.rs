@@ -648,16 +648,26 @@ impl Fold {
             return None;
         }
         let num = base.parse::<i64>().ok()?;
-        let mut g: Vec<(&str, &ShortClaim)> = self
-            .short_groups
-            .iter()
-            .filter(|((_, n), _)| *n == num)
-            .flat_map(|((b, _), g)| g.iter().map(move |cl| (b.as_str(), cl)))
-            .collect();
-        g.sort_by(|a, b| a.1.at.cmp(&b.1.at));
+        // Each card's create claim, where the one run numbered it: a move
+        // (card #563) came after that run and changes none of its letters.
+        let mut made: Vec<&ShortClaim> = self.claims.iter().filter(|c| !c.moved).collect();
+        made.sort_by(|a, b| a.at.cmp(&b.at));
+        let mut legacy = 0;
+        let mut g: Vec<&ShortClaim> = Vec::new();
+        for cl in made {
+            let n = if cl.num == 0 {
+                legacy += 1;
+                legacy
+            } else {
+                cl.num
+            };
+            if n == num {
+                g.push(cl);
+            }
+        }
         let i = (0..g.len()).find(|i| short_suffix(*i as i64) == letters)?;
-        let (board, cl) = g[i];
-        (tag.is_empty() || self.tag_of(board) == tag).then_some(cl.id.as_str())
+        let cl = g[i];
+        (tag.is_empty() || self.tag_of(&cl.board) == tag).then_some(cl.id.as_str())
     }
 
     /// Resolves what someone typed for a card to its task id.
