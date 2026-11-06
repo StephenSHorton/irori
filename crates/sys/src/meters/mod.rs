@@ -13,8 +13,8 @@
 //! |---|---|---|
 //! | CPU % | PDH `Processor Information(_Total)\% Processor Utility` | `host_processor_info` tick deltas |
 //! | CPU GHz | PDH `% Processor Performance` × base MHz (`CallNtPowerInformation`) | not read (no public source on Apple Silicon) |
-//! | Memory | `GlobalMemoryStatusEx` | `hw.memsize`, `host_statistics64` (active + wired + compressed) |
-//! | Disks | PDH `PhysicalDisk(*)` idle time and bytes/s | IOKit `IOBlockStorageDriver` Statistics |
+//! | Memory | `GlobalMemoryStatusEx` | `hw.memsize`, `host_statistics64` (app + wired + compressed, as Activity Monitor) |
+//! | Disks | PDH `PhysicalDisk(*)` idle time and bytes/s | IOKit `IOBlockStorageDriver` Statistics (disk images left out) |
 //! | Network | `GetIfEntry2` octets on the up Ethernet and Wi-Fi adapters | `NET_RT_IFLIST2` 64-bit byte counters |
 //! | GPUs | PDH `GPU Engine(*)` / `GPU Adapter Memory(*)`, D3DKMT names, VRAM size and temperature | IOKit `IOAccelerator` PerformanceStatistics |
 //!

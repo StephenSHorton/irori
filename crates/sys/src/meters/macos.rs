@@ -1,6 +1,6 @@
 //! macOS meters: Mach host statistics for CPU and memory, the routing
 //! sysctl's 64-bit interface counters for network, and IOKit's registry for
-//! disks (`IOBlockStorageDriver` Statistics) and the GPU (`IOAccelerator`
+//! disks (`IOBlockStorageDriver` Statistics, by BSD name) and the GPU (`IOAccelerator`
 //! PerformanceStatistics). None of it needs root. IOKit and CoreFoundation
 //! are declared by hand, as `awake.rs` does.
 
@@ -18,7 +18,7 @@ pub(super) struct Sampler {
     cpu_prev: Option<(u64, u64)>,
     cores: u32,
     net_prev: HashMap<u16, (u64, u64)>,
-    disk_prev: HashMap<usize, DiskRaw>,
+    disk_prev: HashMap<String, DiskRaw>,
     last: Option<Instant>,
 }
 
@@ -172,13 +172,23 @@ impl Sampler {
         out
     }
 
-    /// Each block storage driver's throughput, and its active time as the
-    /// share of wall time spent in reads and writes (approximate: two
-    /// overlapping requests count twice; clamped to 100).
+    /// Each disk's throughput, and its active time as the share of wall
+    /// time spent in reads and writes (approximate: two overlapping
+    /// requests count twice; clamped to 100). Disks are named by their
+    /// whole media's BSD name ("disk0", as `diskutil` and `iostat` say);
+    /// a driver with no media (an empty card reader) and mounted disk
+    /// images (simulator runtimes, .dmg files) are left out.
     fn disks(&mut self, secs: f64) -> Vec<Disk> {
         let mut out = Vec::new();
         let mut seen = HashMap::new();
-        for (i, entry) in services(c"IOBlockStorageDriver").into_iter().enumerate() {
+        for entry in services(c"IOBlockStorageDriver") {
+            if entry.is_disk_image() {
+                continue;
+            }
+            let Some(name) = entry.search_string("BSD Name", K_IO_REGISTRY_ITERATE_RECURSIVELY)
+            else {
+                continue;
+            };
             let Some(stats) = entry.dict_property("Statistics") else {
                 continue;
             };
@@ -189,10 +199,10 @@ impl Sampler {
                     + stats.u64("Total Time (Write)").unwrap_or(0),
             };
             let mut d = Disk {
-                name: format!("disk{i}"),
+                name: name.clone(),
                 ..Disk::default()
             };
-            if let Some(p) = self.disk_prev.get(&i)
+            if let Some(p) = self.disk_prev.get(&name)
                 && secs > 0.0
             {
                 d.read_bytes_per_s = rate(p.read_bytes, raw.read_bytes, secs);
@@ -200,10 +210,19 @@ impl Sampler {
                 let busy = raw.busy_ns.saturating_sub(p.busy_ns) as f64;
                 d.active_pct = clamp_pct(busy / (secs * 1e9) * 100.0);
             }
-            seen.insert(i, raw);
+            seen.insert(name, raw);
             out.push(d);
         }
         self.disk_prev = seen;
+        // disk0 first, then by number (disk2 before disk10).
+        out.sort_by_key(|d| {
+            let n = d
+                .name
+                .trim_start_matches("disk")
+                .parse::<u32>()
+                .unwrap_or(u32::MAX);
+            (n, d.name.clone())
+        });
         out
     }
 }
@@ -301,6 +320,11 @@ type IoObject = libc::mach_port_t;
 
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT64_TYPE: CFIndex = 4;
+/// kIORegistryIterateRecursively / kIORegistryIterateParents.
+const K_IO_REGISTRY_ITERATE_RECURSIVELY: u32 = 1;
+const K_IO_REGISTRY_ITERATE_PARENTS: u32 = 2;
+/// kIOServicePlane.
+const IO_SERVICE_PLANE: &CStr = c"IOService";
 /// kIOMainPortDefault.
 const IO_MAIN_PORT_DEFAULT: libc::mach_port_t = 0;
 
@@ -342,6 +366,13 @@ unsafe extern "C" {
         alloc: CFAllocatorRef,
         options: u32,
     ) -> CFTypeRef;
+    fn IORegistryEntrySearchCFProperty(
+        entry: IoObject,
+        plane: *const c_char,
+        key: CFStringRef,
+        alloc: CFAllocatorRef,
+        options: u32,
+    ) -> CFTypeRef;
 }
 
 /// A CF object we own one reference to.
@@ -366,7 +397,7 @@ impl Cf {
                 0,
             )
         };
-        (!r.is_null()).then_some(Cf(r))
+        (!r.is_null()).then(|| Cf(r))
     }
 
     /// A number in this dictionary, as u64.
@@ -400,7 +431,7 @@ impl Entry {
         let k = Cf::string(key)?;
         // SAFETY: a live entry and key; the result is ours to release.
         let v = unsafe { IORegistryEntryCreateCFProperty(self.0, k.0, std::ptr::null(), 0) };
-        (!v.is_null()).then_some(Cf(v))
+        (!v.is_null()).then(|| Cf(v))
     }
 
     fn dict_property(&self, key: &str) -> Option<Cf> {
@@ -411,27 +442,81 @@ impl Entry {
 
     /// A string property; IOKit gives some ("model") as data holding a C string.
     fn string_property(&self, key: &str) -> Option<String> {
-        let v = self.property(key)?;
-        // SAFETY: live CF objects, typed before use.
-        unsafe {
-            let id = CFGetTypeID(v.0);
-            if id == CFStringGetTypeID() {
-                let mut buf = [0 as c_char; 256];
-                if CFStringGetCString(v.0, buf.as_mut_ptr(), 256, K_CF_STRING_ENCODING_UTF8) != 0 {
-                    return Some(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned());
-                }
-            } else if id == CFDataGetTypeID() {
-                let n = CFDataGetLength(v.0).max(0) as usize;
-                let bytes = std::slice::from_raw_parts(CFDataGetBytePtr(v.0), n);
-                let end = bytes.iter().position(|&b| b == 0).unwrap_or(n);
-                let s = String::from_utf8_lossy(&bytes[..end]).trim().to_string();
-                if !s.is_empty() {
-                    return Some(s);
-                }
+        cf_string(&self.property(key)?)
+    }
+
+    /// A property found on this entry or, per `options`, its children or
+    /// parents in the service plane.
+    fn search(&self, key: &str, options: u32) -> Option<Cf> {
+        let k = Cf::string(key)?;
+        // SAFETY: a live entry, plane name and key; the result is ours to release.
+        let v = unsafe {
+            IORegistryEntrySearchCFProperty(
+                self.0,
+                IO_SERVICE_PLANE.as_ptr(),
+                k.0,
+                std::ptr::null(),
+                options,
+            )
+        };
+        (!v.is_null()).then(|| Cf(v))
+    }
+
+    fn search_string(&self, key: &str, options: u32) -> Option<String> {
+        cf_string(&self.search(key, options)?)
+    }
+
+    /// Whether this block storage driver sits on a mounted disk image: its
+    /// device's interconnect is "Virtual Interface" (both the user-space
+    /// and in-kernel disk image devices say so).
+    fn is_disk_image(&self) -> bool {
+        let Some(pc) = self.search(
+            "Protocol Characteristics",
+            K_IO_REGISTRY_ITERATE_PARENTS | K_IO_REGISTRY_ITERATE_RECURSIVELY,
+        ) else {
+            return false;
+        };
+        // SAFETY: a live CF object.
+        if unsafe { CFGetTypeID(pc.0) } != unsafe { CFDictionaryGetTypeID() } {
+            return false;
+        }
+        let Some(k) = Cf::string("Physical Interconnect") else {
+            return false;
+        };
+        // SAFETY: pc is a CFDictionary; the value is borrowed, not released.
+        let v = unsafe { CFDictionaryGetValue(pc.0, k.0) };
+        if v.is_null() {
+            return false;
+        }
+        cf_string_ref(v).as_deref() == Some("Virtual Interface")
+    }
+}
+
+/// A CFString, or CFData holding a C string, as a String.
+fn cf_string(v: &Cf) -> Option<String> {
+    cf_string_ref(v.0)
+}
+
+fn cf_string_ref(v: CFTypeRef) -> Option<String> {
+    // SAFETY: a live CF object, typed before use.
+    unsafe {
+        let id = CFGetTypeID(v);
+        if id == CFStringGetTypeID() {
+            let mut buf = [0 as c_char; 256];
+            if CFStringGetCString(v, buf.as_mut_ptr(), 256, K_CF_STRING_ENCODING_UTF8) != 0 {
+                return Some(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned());
+            }
+        } else if id == CFDataGetTypeID() {
+            let n = CFDataGetLength(v).max(0) as usize;
+            let bytes = std::slice::from_raw_parts(CFDataGetBytePtr(v), n);
+            let end = bytes.iter().position(|&b| b == 0).unwrap_or(n);
+            let s = String::from_utf8_lossy(&bytes[..end]).trim().to_string();
+            if !s.is_empty() {
+                return Some(s);
             }
         }
-        None
     }
+    None
 }
 
 /// The registry entries of an IOKit class.
