@@ -1,21 +1,23 @@
 //! Calls on the Core (#654, docs/research/08-voice-calls/irori-fit.md).
 //!
-//! A huddle lives in a conversation: a space channel, or a person DM (its
-//! hidden space). Everything about it rides that space:
+//! A huddle lives in a conversation: a space channel, a person DM (its
+//! hidden space), or a Personal channel (the person's own devices, #663).
+//! Everything about it rides that space, or for a Personal channel the
+//! private mesh ([`Ride`]):
 //! - ringing, joining, leaving and a heartbeat are board `call` frames to
-//!   the space's devices that are online (`BoardMesh::send_call`);
+//!   the space's devices that are online (`BoardMesh::send_call`), or
+//!   `call` frames on the private mesh to the person's own devices
+//!   (`mesh::Node::send_call`);
 //! - the audio is one `irori/call/1` connection per pair of devices in the
 //!   call, admitted by the space's verifier and a proof keyed on its topic
-//!   key (`IrohNet::call_join` / `call_dial`), Opus frames in its QUIC
-//!   datagrams (`call::Engine`);
+//!   key, or for a Personal channel by the person's chain (`ChainAdmit`'s
+//!   check) and a proof keyed on the mesh key (`IrohNet::call_join` /
+//!   `call_dial`), Opus frames in its QUIC datagrams (`call::Engine`);
 //! - the start and the end are `talk.post` rows with a call mark, so the
 //!   conversation keeps a record and an older Irori reads them as posts.
 //!
 //! Who dials: whoever joins dials every device already in the call. A
 //! device rung later learns the roster from the frames.
-//!
-//! Personal channels have no space and so no board frames: no huddles
-//! there yet.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, Weak};
@@ -23,7 +25,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use coord::talk::{CallMark, NewPost, Post};
 use iroh::endpoint::Connection;
+use irori_identity::Chain;
 use mesh::boardmesh::{BoardMesh, CallFrame, CallHooks, LivePeer};
+use mesh::owncalls::OwnCalls;
 
 use super::{Core, Services};
 use crate::events::CoreEvent;
@@ -123,7 +127,7 @@ struct Active {
     generation: u64,
     engine: Arc<call::Engine>,
     handle: irori_net::call::CallHandle,
-    mesh: Arc<BoardMesh>,
+    mesh: Ride,
     peers: BTreeMap<String, Slot>,
     /// Person ids of everyone seen in the call, this person included.
     people: BTreeSet<String>,
@@ -134,6 +138,113 @@ struct Slot {
     person_id: String,
     conn: Option<Connection>,
     gone: bool,
+}
+
+/// What a call's frames ride and who it admits: a space's board mesh, or
+/// for a Personal channel (space id "") the private mesh among the
+/// person's own devices (card #663).
+#[derive(Clone)]
+enum Ride {
+    Space(Arc<BoardMesh>),
+    Own {
+        node: Arc<mesh::Node>,
+        chain: Arc<Chain>,
+        /// This device's id.
+        me: String,
+    },
+}
+
+impl Ride {
+    /// The devices connected now that said hello, with the person each
+    /// counts as.
+    fn live(&self) -> Vec<LivePeer> {
+        match self {
+            Ride::Space(m) => m.live_peers(),
+            Ride::Own { node, chain, .. } => {
+                let person = chain.person_id();
+                node.own_peers()
+                    .into_iter()
+                    .map(|p| LivePeer {
+                        device_id: p.device_id,
+                        device_pub: p.device_pub,
+                        person_id: person.clone(),
+                        dms: 0,
+                        calls: p.calls,
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// Every device the call may hold, counted or certified: (device id,
+    /// person id, key hex).
+    fn members(&self) -> Vec<(String, String, String)> {
+        match self {
+            Ride::Space(m) => m
+                .member_devices()
+                .into_iter()
+                .map(|d| (d.device_id, d.person_id, d.device_pub))
+                .collect(),
+            Ride::Own { chain, .. } => chain
+                .devices()
+                .into_iter()
+                .filter(|d| !d.revoked)
+                .map(|d| (d.cert.device_id, d.cert.person_id, d.cert.device_pub))
+                .collect(),
+        }
+    }
+
+    /// The keys a call connection is proved with, the one to dial with
+    /// first.
+    fn keys(&self) -> Vec<(i64, [u8; 32])> {
+        match self {
+            Ride::Space(m) => m.topic_keys(),
+            Ride::Own { node, .. } => node.call_keys(),
+        }
+    }
+
+    /// Whether device `peer` with key `eid` may be in the call: a counted
+    /// member device whose key matches, or one of the person's own devices
+    /// live in the space; for a Personal channel, a device the person's
+    /// chain certifies with that key and hasn't revoked (`ChainAdmit`).
+    fn accepts(&self, peer: &str, eid: &iroh::EndpointId) -> bool {
+        match self {
+            Ride::Space(m) => {
+                let k = hex::encode(eid.as_bytes());
+                m.member_devices()
+                    .iter()
+                    .any(|d| d.device_id == peer && d.device_pub == k)
+                    || m.live_peers()
+                        .iter()
+                        .any(|d| d.device_id == peer && d.device_pub == k)
+            }
+            Ride::Own { chain, me, .. } => {
+                irori_net::admit::check_device(chain, me, peer, eid.as_bytes()).is_ok()
+            }
+        }
+    }
+
+    /// Sends `f` to `device` alone.
+    async fn send(&self, device: &str, f: CallFrame) -> Result<(), String> {
+        match self {
+            Ride::Space(m) => m.send_call(device, f).await,
+            Ride::Own { node, .. } => node.send_call(device, &f),
+        }
+    }
+
+    /// The person `device` counts as here, if known.
+    fn person_of(&self, device: &str) -> Option<String> {
+        self.members()
+            .into_iter()
+            .find(|(d, _, _)| d == device)
+            .map(|(_, p, _)| p)
+            .or_else(|| {
+                self.live()
+                    .into_iter()
+                    .find(|p| p.device_id == device)
+                    .map(|p| p.person_id)
+            })
+    }
 }
 
 fn now_ms() -> i64 {
@@ -186,6 +297,23 @@ impl CallHooks for CallBridge {
     }
 }
 
+/// Call frames from the person's own devices on the private mesh (card
+/// #663): a Personal channel's huddle.
+impl OwnCalls for CallBridge {
+    fn frame(&self, peer: &str, peer_pub: &str, frame: CallFrame) {
+        let Some(s) = self.0.upgrade() else { return };
+        let peer = LivePeer {
+            device_id: peer.to_string(),
+            device_pub: peer_pub.to_string(),
+            person_id: s.person_id(),
+            dms: 0,
+            calls: mesh::frames::CALLS_PROTOCOL,
+        };
+        let h = s.pairing.handle.clone();
+        h.spawn_blocking(move || s.on_call_frame("", &peer, frame));
+    }
+}
+
 impl Services {
     fn calls_changed(&self) {
         self.hub.publish(CoreEvent::Call);
@@ -212,10 +340,21 @@ impl Services {
             .talk
             .channel(conv)
             .ok_or_else(|| format!("no channel {conv}"))?;
-        if ch.space_id.is_empty() {
-            return Err("Personal channels have no huddles yet: start one in a space".into());
-        }
+        // A Personal channel's huddle is the person's own devices (#663).
         Ok(ch.space_id)
+    }
+
+    /// What a call in space `space` rides: its board mesh, or for "" (a
+    /// Personal channel) the private mesh.
+    fn ride(&self, space: &str) -> Option<Ride> {
+        if space.is_empty() {
+            return Some(Ride::Own {
+                node: self.mesh.node.clone(),
+                chain: self.chain.clone(),
+                me: self.device.id.clone(),
+            });
+        }
+        self.mesh.board(space).map(Ride::Space)
     }
 
     fn frame(
@@ -237,13 +376,14 @@ impl Services {
         }
     }
 
-    /// Sends `f` to every device of the space online now that speaks calls.
-    fn tell_space(&self, m: &Arc<BoardMesh>, f: CallFrame) {
+    /// Sends `f` to every device of the space (or the person's own, for a
+    /// Personal channel) online now that speaks calls.
+    fn tell_space(&self, m: &Ride, f: CallFrame) {
         let m = m.clone();
         self.pairing.handle.spawn(async move {
-            for p in m.live_peers() {
+            for p in m.live() {
                 if p.calls >= mesh::boardmesh::CALLS_PROTOCOL {
-                    let _ = m.send_call(&p.device_id, f.clone()).await;
+                    let _ = m.send(&p.device_id, f.clone()).await;
                 }
             }
         });
@@ -261,19 +401,16 @@ impl Services {
         {
             return;
         }
-        let Some(m) = self.mesh.board(via) else {
+        let Some(m) = self.ride(via) else {
             return;
         };
-        // Only devices of this space, and no more than a call holds.
+        // Only devices of this space (the person's own, in a Personal
+        // channel), and no more than a call holds.
         let known: BTreeMap<String, String> = m
-            .member_devices()
+            .members()
             .into_iter()
-            .map(|d| (d.device_id, d.person_id))
-            .chain(
-                m.live_peers()
-                    .into_iter()
-                    .map(|p| (p.device_id, p.person_id)),
-            )
+            .map(|(d, p, _)| (d, p))
+            .chain(m.live().into_iter().map(|p| (p.device_id, p.person_id)))
             .collect();
         f.devices.retain(|d| known.contains_key(d));
         f.devices.dedup();
@@ -312,8 +449,10 @@ impl Services {
                     live.devices
                         .insert(peer.device_id.clone(), peer.person_id.clone());
                     expire = Some(LIVE_FOR);
-                    if f.op == "join" && peer.person_id == me_person {
-                        // Answered on another of this person's devices.
+                    if f.op == "join" && peer.person_id == me_person && !via.is_empty() {
+                        // Answered on another of this person's devices. Not
+                        // in a Personal channel: there every device is the
+                        // person's, and each is rung to join (#663).
                         g.ringing.remove(&f.call_id);
                     } else if f.op == "ring"
                         && !mine
@@ -535,10 +674,7 @@ impl Services {
         if let Err(e) = self.post_call_mark(&conv, "started a huddle", mark) {
             crate::logf(format_args!("call {call_id}: start post: {e}"));
         }
-        let m = self
-            .mesh
-            .board(&space)
-            .ok_or("this space isn't open here")?;
+        let m = self.ride(&space).ok_or("this space isn't open here")?;
         let me = self.device.id.clone();
         self.tell_space(&m, self.frame(&call_id, &conv, &space, "ring", vec![me]));
         Ok(call_id)
@@ -602,10 +738,14 @@ impl Services {
             g.entering = true;
         }
         let _entering = Entering(&self.calls);
-        let m = self.mesh.board(space).ok_or("this space isn't open here")?;
-        let keys = m.topic_keys();
+        let m = self.ride(space).ok_or("this space isn't open here")?;
+        let keys = m.keys();
         if keys.is_empty() {
-            return Err("this space has no key yet: try again in a moment".into());
+            return Err(if space.is_empty() {
+                "your devices have no mesh key yet: try again in a moment".into()
+            } else {
+                "this space has no key yet: try again in a moment".into()
+            });
         }
 
         // The phone first: Android only lets the mic run on with its
@@ -659,17 +799,8 @@ impl Services {
         };
 
         let accept_mesh = m.clone();
-        let accept: irori_net::call::CallAccept = Arc::new(move |peer, eid| {
-            let k = hex::encode(eid.as_bytes());
-            accept_mesh
-                .member_devices()
-                .iter()
-                .any(|d| d.device_id == peer && d.device_pub == k)
-                || accept_mesh
-                    .live_peers()
-                    .iter()
-                    .any(|d| d.device_id == peer && d.device_pub == k)
-        });
+        let accept: irori_net::call::CallAccept =
+            Arc::new(move |peer, eid| accept_mesh.accepts(peer, eid));
         let w = Arc::downgrade(self);
         let cid = call_id.to_string();
         let on_peer: irori_net::call::OnCallPeer = Arc::new(move |cc| {
@@ -707,11 +838,8 @@ impl Services {
 
         let me = self.device.id.clone();
         let mut peers = BTreeMap::new();
-        let member_of: BTreeMap<String, String> = m
-            .member_devices()
-            .into_iter()
-            .map(|d| (d.device_id, d.person_id))
-            .collect();
+        let member_of: BTreeMap<String, String> =
+            m.members().into_iter().map(|(d, p, _)| (d, p)).collect();
         for d in devices.iter().filter(|d| **d != me) {
             peers.insert(
                 d.clone(),
@@ -803,20 +931,7 @@ impl Services {
                 conn.close(0u32.into(), b"not in this call");
                 return;
             };
-            let person = a
-                .mesh
-                .member_devices()
-                .into_iter()
-                .find(|d| d.device_id == peer)
-                .map(|d| d.person_id)
-                .or_else(|| {
-                    a.mesh
-                        .live_peers()
-                        .into_iter()
-                        .find(|d| d.device_id == peer)
-                        .map(|d| d.person_id)
-                })
-                .unwrap_or_default();
+            let person = a.mesh.person_of(&peer).unwrap_or_default();
             if !person.is_empty() {
                 a.people.insert(person.clone());
             }
@@ -1173,17 +1288,14 @@ impl Core {
 
     /// Devices of space `id` online now that a ring reaches: counted by
     /// the space and speaking calls (tests wait for them before ringing).
+    /// "" is the person's own devices on the private mesh.
     #[doc(hidden)]
     pub fn call_reachable(&self, id: &str) -> Vec<String> {
-        let Some(m) = self.s.mesh.board(id) else {
+        let Some(m) = self.s.ride(id) else {
             return Vec::new();
         };
-        let counted: BTreeSet<String> = m
-            .member_devices()
-            .into_iter()
-            .map(|d| d.device_id)
-            .collect();
-        m.live_peers()
+        let counted: BTreeSet<String> = m.members().into_iter().map(|(d, _, _)| d).collect();
+        m.live()
             .into_iter()
             .filter(|p| {
                 p.calls >= mesh::boardmesh::CALLS_PROTOCOL && counted.contains(&p.device_id)

@@ -214,6 +214,8 @@ pub struct Node {
     /// The shared boards open here, for `board.secret` (crate::ownboards).
     pub(crate) own_boards: Mutex<Option<Arc<dyn crate::ownboards::OwnBoards>>>,
     pub(crate) board_pending: Mutex<BTreeMap<String, crate::ownboards::PendingBoardSecret>>,
+    /// Who hears call frames from the person's devices (crate::owncalls).
+    pub(crate) own_calls: Mutex<Option<Arc<dyn crate::owncalls::OwnCalls>>>,
     me: Weak<Node>,
 }
 
@@ -273,6 +275,7 @@ impl Node {
             fetching: Mutex::new(BTreeMap::new()),
             own_boards: Mutex::new(None),
             board_pending: Mutex::new(BTreeMap::new()),
+            own_calls: Mutex::new(None),
             me: me.clone(),
             o,
         })
@@ -873,6 +876,7 @@ impl Node {
             core_version: self.o.version.clone(),
             schema: store::schema_version(),
             wall_ms: hlc::unix_milli(self.now()),
+            calls: crate::frames::CALLS_PROTOCOL,
             ..Frame::of_type(FRAME_HELLO)
         };
         let at = v.get(peer).copied().unwrap_or(0);

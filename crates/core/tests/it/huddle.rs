@@ -8,6 +8,9 @@
 //! another person's device learns only the inviter's address, so the
 //! three-way call is one person's three devices (the Mac, the phone and a
 //! third, as on the card) and the two-person call is two devices.
+//!
+//! A Personal channel's huddle (#663) has no space: it rings on the private
+//! mesh and its connections are proved with the mesh key.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -262,4 +265,88 @@ fn two_people_huddle_in_a_space_channel() {
     let end = mark(a1, &s.ch, &call_id, CALL_END).unwrap();
     assert_eq!(end.people.len(), 2, "{end:?}");
     close(s);
+}
+
+/// #663: one person's three devices (the Mac, the phone and the PC) in a
+/// Personal channel, no space anywhere: the Mac rings both, each joins, and
+/// the Mac's voice comes out of both speakers over a full mesh of three.
+#[test]
+fn own_devices_huddle_in_a_personal_channel() {
+    let recs: Vec<_> = (0..3)
+        .map(|_| Arc::new(Mutex::new(Recording::default())))
+        .collect();
+    let alice = {
+        let recs = recs.clone();
+        person_with("alice", 3, move |i| {
+            Some(fake_audio(i == 0, recs[i].clone()))
+        })
+    };
+    let (mac, phone, pc) = (&alice[0], &alice[1], &alice[2]);
+    let ch = mac
+        .core
+        .talk_channel_create(&mac.user(), "us", "")
+        .unwrap()
+        .id;
+    for d in [phone, pc] {
+        wait_for(WAIT, "the channel reaches the other devices", || {
+            d.core
+                .talk_conversations(&d.user())
+                .is_ok_and(|cs| cs.iter().any(|c| c.conv_id == ch))
+        });
+    }
+    wait_for(
+        WAIT,
+        "the devices reach each other on the private mesh",
+        || {
+            alice.iter().all(|d| {
+                let r = d.core.call_reachable("");
+                alice
+                    .iter()
+                    .filter(|o| o.core.device_id() != d.core.device_id())
+                    .all(|o| r.contains(&o.core.device_id().to_string()))
+            })
+        },
+    );
+
+    let call_id = mac.core.call_start(&ch).expect("start");
+    wait_for(WAIT, "the phone and the PC ring", || {
+        rung(phone, &call_id, &ch) && rung(pc, &call_id, &ch)
+    });
+    let ring = phone.core.call_snapshot().ringing.remove(0);
+    assert_eq!(ring.space_id, "");
+    phone.core.call_join(&call_id).expect("the phone joins");
+    wait_for(WAIT, "the mac and the phone are connected", || {
+        live_peers(mac) == 1 && live_peers(phone) == 1
+    });
+    // Answered on the phone: the PC still rings, since every device here
+    // is the person's own.
+    assert!(rung(pc, &call_id, &ch), "the PC stopped ringing");
+    pc.core.call_join(&call_id).expect("the PC joins");
+    wait_for(WAIT, "a full mesh of three", || {
+        live_peers(mac) == 2 && live_peers(phone) == 2 && live_peers(pc) == 2
+    });
+    for (i, who) in [(1, "phone"), (2, "PC")] {
+        let from = len(&recs[i]);
+        wait_for(
+            WAIT,
+            &format!("the mac's voice comes out of the {who}"),
+            || loud_blocks(&recs[i], from) >= 10,
+        );
+    }
+    let mine = pc.core.call_snapshot().mine.expect("the PC is in it");
+    assert_eq!(mine.space_id, "");
+    assert!(mine.peers.iter().all(|p| p.phase == "live"), "{mine:?}");
+
+    pc.core.call_leave().unwrap();
+    phone.core.call_leave().unwrap();
+    wait_for(WAIT, "the mac is alone", || live_peers(mac) == 0);
+    mac.core.call_leave().unwrap();
+    let end = mark(mac, &ch, &call_id, CALL_END).expect("the end post");
+    assert_eq!(end.people, vec![mac.user()]);
+    wait_for(WAIT, "the phone has the end post", || {
+        mark(phone, &ch, &call_id, CALL_END).is_some()
+    });
+    for d in alice {
+        d.core.close().unwrap();
+    }
 }
