@@ -426,8 +426,14 @@ fn a_card_with_no_repo_starts_where_agents_work_and_finds_its_repo() {
         "{brief}"
     );
     assert!(brief.contains(&format!("board_leave {short}")), "{brief}");
-    assert!(brief.contains("raise one board_block asking which repo"), "{brief}");
-    assert!(brief.contains("Repos with a checkout on this device:"), "{brief}");
+    assert!(
+        brief.contains("raise one board_block asking which repo"),
+        "{brief}"
+    );
+    assert!(
+        brief.contains("Repos with a checkout on this device:"),
+        "{brief}"
+    );
 }
 
 /// Card #600: with no agent working here, a card with no repo starts in a
