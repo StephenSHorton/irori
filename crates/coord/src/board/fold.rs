@@ -368,6 +368,13 @@ pub struct Fold {
     pub(crate) pr_states: super::prstate::PrStates,
     /// pr.state rows waiting on their card's holder or wait (card #548).
     pub(crate) pr_ahead: Vec<Event>,
+    /// Who a card's pr.state rows count from, ever (card #548): each
+    /// holder's key, for any PR, and each merge wait's raiser, for its PR
+    /// (empty PR: any). It only grows, so a row is taken in any order
+    /// against the holder's leave or the wait's answer.
+    pub(crate) pr_vouchers: HashMap<String, Vec<(String, String)>>,
+    /// `pr_vouchers` grew since kept rows were last looked at.
+    pub(crate) pr_vouched: bool,
     /// Merge desks by repo key (card #415).
     pub(crate) desks: BTreeMap<String, super::desk::Desk>,
 }
@@ -494,6 +501,8 @@ impl Fold {
             review_before_block: HashSet::new(),
             pr_states: Default::default(),
             pr_ahead: Vec::new(),
+            pr_vouchers: HashMap::new(),
+            pr_vouched: false,
             desks: BTreeMap::new(),
         }
     }
@@ -637,10 +646,12 @@ impl Fold {
         self.fold(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.sync_offer_stale(&p.task_id);
-            self.retry_pr_ahead(Some(&p.task_id));
         }
         self.fold_deferred();
         self.retry_aside();
+        // After both: a claim either let through may be the holder a kept
+        // pr.state row waited for (card #548), and replay has no tick.
+        self.retry_pr_ahead();
         if !self.replaying {
             self.relink();
         }
@@ -648,8 +659,10 @@ impl Fold {
 
     pub(crate) fn fold(&mut self, ev: &Event) {
         if !self.writer_ok(ev) {
-            self.ignore(&ev.device_id);
-            self.hold_pr_row(ev);
+            // A kept pr.state row isn't refused yet (card #548).
+            if !self.hold_pr_row(ev) {
+                self.ignore(&ev.device_id);
+            }
             return;
         }
         if !self.aside_gate(ev) {
@@ -662,6 +675,14 @@ impl Fold {
             }
             return;
         }
+        self.fold_kind(ev);
+        if let Some(p) = row::<TaskIdRow>(&ev.payload) {
+            self.note_pr_vouchers(&p.task_id);
+        }
+    }
+
+    /// Folds one row the writer rules, the aside and the take lock let in.
+    fn fold_kind(&mut self, ev: &Event) {
         let wall = gotime::hlc_wall(ev.hlc);
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
@@ -2046,17 +2067,17 @@ impl Fold {
             // device by device, and nothing writes a settled PR's row again.
             // One ahead of the card's holder or wait is kept and looked at
             // again (card #548, `hold_pr_row`).
-            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|t| {
-                t.holders
-                    .iter()
-                    .chain(&t.co_holders)
-                    .any(|h| self.may_write(h, &ev.device_id))
-                    || row::<PrStateRow>(&ev.payload).is_some_and(|r| {
-                        t.blockers.iter().any(|b| {
-                            b.merge_wait().as_deref() == Some(r.pr.as_str())
-                                && self.may_write(&b.raised_by, &ev.device_id)
-                        })
+            // Card #548: anyone who ever held it or raised the wait, so the
+            // row counts whether it folds before or after they went.
+            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|_| {
+                let pr = row::<PrStateRow>(&ev.payload)
+                    .map(|r| r.pr)
+                    .unwrap_or_default();
+                self.pr_vouchers.get(&p.task_id).is_some_and(|vs| {
+                    vs.iter().any(|(for_pr, key)| {
+                        (for_pr.is_empty() || *for_pr == pr) && self.may_write(key, &ev.device_id)
                     })
+                })
             }),
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:

@@ -1002,6 +1002,7 @@ impl Fold {
         self.links.clear();
         self.pr_states.clear();
         self.pr_ahead.clear();
+        self.pr_vouchers.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).

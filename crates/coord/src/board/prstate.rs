@@ -541,10 +541,8 @@ impl Fold {
     /// agents it hosts (card #548): the writer's device could only tell
     /// its own person's. Read from the fold, not from rows as they come,
     /// so a row that came ahead of the card's holder still counts;
-    /// [`PrNews::mark`] keeps it to once. Rows kept for a holder that
-    /// hadn't folded get another look first.
-    pub(crate) fn pr_news(&mut self) -> Vec<PrNews> {
-        self.retry_pr_ahead(None);
+    /// [`PrNews::mark`] keeps it to once.
+    pub(crate) fn pr_news(&self) -> Vec<PrNews> {
         let mut out = Vec::new();
         for (id, by_pr) in &self.pr_states {
             // A card waiting on the person's Done is past hearing it.
@@ -580,38 +578,93 @@ impl Fold {
 
     /// Keeps a pr.state row a board refused (card #548): its holder's or
     /// wait's row may be on its way from another device, and nothing
-    /// writes a settled PR's row again. The newest per PR and device. Not
-    /// this device's own: the holder left, and its next poll writes again.
-    pub(crate) fn hold_pr_row(&mut self, ev: &Event) {
-        if !self.on_board || ev.kind != kinds::PR_STATE || ev.device_id == self.dev {
-            return;
+    /// writes a settled PR's row again. Every row that says something of
+    /// the PR, as news needs each; of the errors only the newest per PR and
+    /// device. Returns whether it was kept.
+    pub(crate) fn hold_pr_row(&mut self, ev: &Event) -> bool {
+        // Only a row refused for want of who vouches for it, and not this
+        // device's own: it wrote that knowing who held the card.
+        if !self.on_board
+            || ev.kind != kinds::PR_STATE
+            || ev.actor != SWEEPER
+            || ev.device_id == self.dev
+            || self.sweeper_ok(ev)
+        {
+            return false;
         }
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
-            return;
+            return false;
         };
-        // An error supersedes only an error: it says nothing of the PR.
-        let error = p.state.is_empty();
-        self.pr_ahead.retain(|o| {
-            o.device_id != ev.device_id
-                || !row::<PrStateRow>(&o.payload).is_some_and(|r| {
-                    r.task_id == p.task_id && r.pr == p.pr && (!error || r.state.is_empty())
-                })
-        });
+        if self
+            .pr_ahead
+            .iter()
+            .any(|o| o.device_id == ev.device_id && o.seq == ev.seq)
+        {
+            return true;
+        }
+        if p.state.is_empty() {
+            self.pr_ahead.retain(|o| {
+                o.device_id != ev.device_id
+                    || !row::<PrStateRow>(&o.payload).is_some_and(|r| {
+                        r.task_id == p.task_id && r.pr == p.pr && r.state.is_empty()
+                    })
+            });
+        }
         if self.pr_ahead.len() >= MAX_PR_AHEAD {
-            self.pr_ahead.remove(0);
+            // A done card's rows go first, then the oldest in log order,
+            // so every device drops the same.
+            let done = |e: &Event| {
+                row::<PrStateRow>(&e.payload)
+                    .and_then(|r| self.tasks.get(&r.task_id))
+                    .is_some_and(|t| is_terminal(&t.state))
+            };
+            let at = (0..self.pr_ahead.len())
+                .min_by_key(|&i| {
+                    let e = &self.pr_ahead[i];
+                    (!done(e), e.hlc, e.device_id.clone(), e.seq)
+                })
+                .unwrap_or(0);
+            let gone = self.pr_ahead.remove(at);
+            self.ignore(&gone.device_id);
         }
         self.pr_ahead.push(ev.clone());
+        true
     }
 
-    /// Folds the kept pr.state rows that count now: card `id`'s, or all.
-    pub(crate) fn retry_pr_ahead(&mut self, id: Option<&str>) {
-        if self.pr_ahead.is_empty() {
+    /// Notes who card `id`'s pr.state rows count from now, for good
+    /// (`Fold::pr_vouchers`). Kept rows get another look when it grows.
+    pub(crate) fn note_pr_vouchers(&mut self, id: &str) {
+        let Some(t) = self.tasks.get(id) else {
+            return;
+        };
+        let now: Vec<(String, String)> = t
+            .holders
+            .iter()
+            .chain(&t.co_holders)
+            .map(|h| (String::new(), h.clone()))
+            .chain(
+                t.blockers
+                    .iter()
+                    .filter_map(|b| b.merge_wait().map(|pr| (pr, b.raised_by.clone()))),
+            )
+            .collect();
+        let vs = self.pr_vouchers.entry(id.to_string()).or_default();
+        for v in now {
+            if !vs.contains(&v) {
+                vs.push(v);
+                self.pr_vouched = true;
+            }
+        }
+    }
+
+    /// Folds the kept pr.state rows that count now, when someone new
+    /// vouches for a card's rows.
+    pub(crate) fn retry_pr_ahead(&mut self) {
+        if !std::mem::take(&mut self.pr_vouched) || self.pr_ahead.is_empty() {
             return;
         }
         for ev in std::mem::take(&mut self.pr_ahead) {
-            let named =
-                id.is_none_or(|id| row::<PrStateRow>(&ev.payload).is_some_and(|r| r.task_id == id));
-            if named && self.sweeper_ok(&ev) {
+            if self.sweeper_ok(&ev) {
                 self.fold(&ev);
             } else {
                 self.pr_ahead.push(ev);

@@ -79,9 +79,26 @@ fn side_full(
         )
         .unwrap(),
     );
+    let o = side_opts(person, owners, done_check, &clk);
+    let c = Coord::new(st.clone(), ros.map(|r| r as Arc<dyn Agents>), o).unwrap();
+    Side {
+        _dir: dir,
+        st,
+        clk,
+        c,
+    }
+}
+
+/// A new Coord over `s`'s store, as after a restart: it replays the log
+/// in log order, not in the order the rows came.
+fn replayed(s: &Side, person: &str, owners: &Owners) -> Coord {
+    Coord::new(s.st.clone(), None, side_opts(person, owners, false, &s.clk)).unwrap()
+}
+
+fn side_opts(person: &str, owners: &Owners, done_check: bool, clk: &Clk) -> Options {
     let me = person.to_string();
     let o2 = owners.clone();
-    let o = Options {
+    Options {
         now: Some(clk.func()),
         board: true,
         done_check,
@@ -96,13 +113,6 @@ fn side_full(
             })
         })),
         ..Options::default()
-    };
-    let c = Coord::new(st.clone(), ros.map(|r| r as Arc<dyn Agents>), o).unwrap();
-    Side {
-        _dir: dir,
-        st,
-        clk,
-        c,
     }
 }
 
@@ -1259,6 +1269,85 @@ fn a_pr_row_ahead_of_its_wait_folds_when_the_wait_does() {
     assert!(a.c.pr_state(&t.id, PR).is_none());
     pull(&b, &a);
     assert_eq!(a.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+}
+
+/// Card #548, third review: who vouches for a pr.state row is everyone
+/// who ever held the card, so a row that comes after the holder's leave
+/// still folds, as it does when the log is replayed in order.
+#[test]
+fn a_pr_row_after_its_holders_leave_still_folds() {
+    const PR: &str = "https://github.com/a/b/pull/8";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let far = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &far] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    pull(&a, &b2);
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(60));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_MERGED, ""))
+        .unwrap();
+    b.c.leave(CARD2, &t.id, CARD2).unwrap();
+
+    // `far` hears the claim and the leave, then the merge.
+    pull(&a, &far);
+    pull_dev(&b, &far, "dev-b");
+    assert!(far.c.get_task(&t.id).unwrap().holders.is_empty());
+    pull_dev(&b2, &far, "dev-b2");
+    assert_eq!(far.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+    assert_eq!(
+        replayed(&far, P1, &owners)
+            .pr_state(&t.id, PR)
+            .unwrap()
+            .state,
+        PR_MERGED
+    );
+}
+
+/// Card #548, third review: rows kept ahead of the holder are kept whole,
+/// so a closing and its reopen both count once the holder folds: the
+/// news names the reopen there as on the writer, and after a replay.
+#[test]
+fn pr_rows_kept_ahead_of_the_holder_keep_their_history() {
+    const PR: &str = "https://github.com/a/b/pull/9";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let far = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &far] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &far);
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    pull(&a, &b2);
+    pull(&b, &b2);
+    for state in [PR_CLOSED, PR_OPEN] {
+        b2.clk.add(Duration::from_secs(60));
+        b2.c.record_pr_state(&t.id, pr_check(PR, state, ""))
+            .unwrap();
+    }
+    let want = b2.c.pr_news();
+    assert_eq!(want.len(), 1);
+    assert!(want[0].mark.contains("Reopened#1"), "{}", want[0].mark);
+
+    pull_dev(&b2, &far, "dev-b2");
+    assert!(far.c.pr_state(&t.id, PR).is_none(), "kept, not folded");
+    pull_dev(&b, &far, "dev-b");
+    let marks = |c: &Coord| c.pr_news().into_iter().map(|n| n.mark).collect::<Vec<_>>();
+    assert_eq!(marks(&far.c), vec![want[0].mark.clone()]);
+    assert_eq!(
+        marks(&replayed(&far, P1, &owners)),
+        vec![want[0].mark.clone()]
+    );
 }
 
 /// Card #548: what each device owes its own agents, as the fold has it:
