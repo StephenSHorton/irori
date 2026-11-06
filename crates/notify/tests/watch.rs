@@ -1218,4 +1218,6 @@ fn ask_cards_answer_and_clear() {
         "{a:?}"
     );
     h.stop();
+    // Book::start's thread keeps the store: close it so the dir can go.
+    st.close().unwrap();
 }

@@ -102,4 +102,9 @@ fn a_card_can_hold_several_shells() {
     r.w.core.terms().close(a.id).unwrap();
     r.w.core.terms().close(b.id).unwrap();
     assert!(r.w.term_list(&t.id).is_empty());
+    // A killed shell may stay in its folder for a moment, and Windows can't
+    // delete a folder in use. TempDir's own drop would give up at once.
+    wait("the shells to leave their folder", || {
+        std::fs::remove_dir_all(dir.path()).is_ok()
+    });
 }

@@ -493,7 +493,7 @@ fn a_non_member_is_refused() {
     rc.block_on(c1.core.open_board_net(irori_core::BoardParts {
         board_id: board.clone(),
         person_id: pin.person_id.clone(),
-        log,
+        log: log.clone(),
         verifier,
         secrets,
     }))
@@ -512,6 +512,8 @@ fn a_non_member_is_refused() {
         "carol got a board connection to alice"
     );
     assert!(a1.core.net().conns().iter().all(|c| c.peer != c_dev));
+    // Opened by hand, so Carol's Core doesn't close it.
+    log.close().unwrap();
     close(alice.drain(..).chain(bob.drain(..)).chain(carol.drain(..)));
 }
 
