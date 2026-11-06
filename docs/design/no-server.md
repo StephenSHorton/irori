@@ -119,7 +119,7 @@ Store-and-forward isn't a feature in the code. Every member device holds the who
 | Shared spaces | The same; other people's devices count too |
 | Agents | The machine they run on. Their work waits while it's off |
 | Files | A device that holds the file |
-| Phones | They catch up when opened. They don't keep syncing in the background: nothing asks the phone to keep Irori running, so Android freezes or ends it and iOS suspends it within seconds ([android.md](../android.md#in-the-background), [ios.md](../ios.md#in-the-background)) |
+| Phones | They catch up when opened. They're not expected to keep syncing in the background: nothing asks the phone to keep Irori running, so Android freezes or ends it and iOS suspends it within seconds ([android.md](../android.md#in-the-background), [ios.md](../ios.md#in-the-background)) |
 
 With a machine off you lose freshness, not data. Rows wait on whichever devices have them.
 
