@@ -47,6 +47,19 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())?
 }
 
+/// Runs a write command and logs how long it took (card #644), so a wait
+/// the person feels shows in irori.log as `cmd: <name> <ms> ms`.
+async fn timed<T>(name: &str, f: impl std::future::Future<Output = R<T>>) -> R<T> {
+    let t = std::time::Instant::now();
+    let r = f.await;
+    irori_core::log(&format!(
+        "cmd: {name} {} ms{}",
+        t.elapsed().as_millis(),
+        if r.is_err() { " (refused)" } else { "" }
+    ));
+    r
+}
+
 /// The wake policy as the window sends it.
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct PolicyInput {
@@ -324,7 +337,7 @@ pub async fn notifications_unread(w: W<'_>) -> R<u32> {
 #[tauri::command]
 #[specta::specta]
 pub async fn notifications_read(w: W<'_>, keys: Vec<String>) -> R<()> {
-    w.read_notifications(&keys)
+    timed("notifications_read", async { w.read_notifications(&keys) }).await
 }
 
 /// Answers an agent's ask from its notification (card #377); refused once
@@ -332,7 +345,10 @@ pub async fn notifications_read(w: W<'_>, keys: Vec<String>) -> R<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn notifications_answer_ask(w: W<'_>, ask_id: String, choice: String) -> R<()> {
-    w.answer_notification_ask(&ask_id, &choice)
+    timed("notifications_answer_ask", async {
+        w.answer_notification_ask(&ask_id, &choice)
+    })
+    .await
 }
 
 /// One scope's live cards (card #161): "" every card, "own" the private
@@ -387,7 +403,10 @@ pub async fn board_comment(
     tell: String,
     mentions: Vec<ts::Mention>,
 ) -> R<CommentResult> {
-    w.comment(&id, &text, &tell, &mentions, &[])
+    timed("board_comment", async {
+        w.comment(&id, &text, &tell, &mentions, &[])
+    })
+    .await
 }
 
 /// Comment with files (card #124): pasted, dropped or picked in the
@@ -416,7 +435,10 @@ pub async fn board_answer(
     wake: bool,
     mentions: Vec<ts::Mention>,
 ) -> R<AnswerResult> {
-    w.answer(&task_id, &blocker_id, option, &text, wake, &mentions)
+    timed("board_answer", async {
+        w.answer(&task_id, &blocker_id, option, &text, wake, &mentions)
+    })
+    .await
 }
 
 /// An answer with files (card #195), stored off the bridge thread as a
@@ -457,7 +479,10 @@ pub async fn board_resolve_blocker(
     note: String,
     mentions: Vec<ts::Mention>,
 ) -> R<AnswerResult> {
-    w.resolve_blocker(&task_id, &blocker_id, &note, &mentions)
+    timed("board_resolve_blocker", async {
+        w.resolve_blocker(&task_id, &blocker_id, &note, &mentions)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -529,7 +554,7 @@ pub async fn board_close_ask(
     id: String,
     note: String,
 ) -> R<Typed<coord::Task, ts::Task>> {
-    w.close_ask(&id, &note).map(Typed::new)
+    timed("board_close_ask", async { w.close_ask(&id, &note).map(Typed::new) }).await
 }
 
 #[tauri::command]
@@ -540,7 +565,10 @@ pub async fn board_close(
     state: String,
     note: String,
 ) -> R<Typed<coord::Task, ts::Task>> {
-    w.close_card(&id, &state, &note).map(Typed::new)
+    timed("board_close", async {
+        w.close_card(&id, &state, &note).map(Typed::new)
+    })
+    .await
 }
 
 #[tauri::command]

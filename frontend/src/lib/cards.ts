@@ -69,6 +69,7 @@ import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
 import { nameOr, unknownAgent } from "./names"
+import { pending, type Pending } from "./pending"
 
 export type {
   AgentRef,
@@ -2200,15 +2201,29 @@ export type CardsState = {
   error: string | null
 }
 
-// useCards is the grid: every live card, cards waiting on a decision first.
+// useCards is the grid: every live card, cards waiting on a decision first,
+// with the person's pending changes on them (card #644).
 export function useCards(): CardsState {
   const { value, loading, error, reload } = useLatest<CardSummary[]>(
-    loadCards,
+    loadLiveCards,
     [],
     "cards"
   )
   useFresh(reload, error)
-  return { cards: value, loading, error }
+  const v = useSyncExternalStore(pending.subscribe, pending.version)
+  const cards = useMemo(
+    () => pending.summaries(value),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v is when pending changes
+    [value, v]
+  )
+  return { cards, loading, error }
+}
+
+// loadLiveCards is loadCards, telling the pending changes what came in.
+async function loadLiveCards(): Promise<CardSummary[]> {
+  const list = await loadCards()
+  pending.observeSummaries(list)
+  return list
 }
 
 // useIdleReport is Home's idle line (card #341): BoardService.IdleReport,
@@ -2445,9 +2460,25 @@ export const cardStore = createCardStore(readCards)
 export function createCardStore(
   read: (ids: string[]) => Promise<Map<string, CardSlot>>,
   events: (again: () => void) => () => void = cardEvents,
-  retryMs = RetryMs
+  retryMs = RetryMs,
+  pend: Pending = pending
 ) {
   const slots = new Map<string, CardSlot>()
+  // What each card shows with the person's pending changes on it (card
+  // #644): one object per read and set of changes, so useCard renders
+  // only when either moves.
+  const views = new Map<string, { base: CardSlot; v: number; out: CardSlot }>()
+  let offPending: (() => void) | null = null
+  const view = (id: string): CardSlot | undefined => {
+    const base = slots.get(id)
+    if (!base?.detail || !pend.touches(id)) return base
+    const v = pend.version()
+    const had = views.get(id)
+    if (had && had.base === base && had.v === v) return had.out
+    const out = { ...base, detail: pend.detail(base.detail) }
+    views.set(id, { base, v, out })
+    return out
+  }
   const seen = new Map<string, string>()
   const users = new Map<string, Set<() => void>>()
   // Ids to read next; all: every watched id.
@@ -2484,6 +2515,9 @@ export function createCardStore(
           const slot = got1.error
             ? { detail: slots.get(id)?.detail ?? null, error: got1.error }
             : got1
+          // Real data the person's change agrees with ends it, even when
+          // nothing else about the card changed.
+          if (got1.detail) pend.observeDetail(got1.detail)
           const json = JSON.stringify(slot)
           if (seen.get(id) === json) continue
           seen.set(id, json)
@@ -2510,8 +2544,18 @@ export function createCardStore(
 
   function listen() {
     const stop = events(() => request())
+    // A change shown or taken back renders the cards it touches.
+    offPending = pend.subscribe(() => {
+      for (const [id, fns] of users)
+        if (pend.touches(id) || views.has(id)) {
+          if (!pend.touches(id)) views.delete(id)
+          for (const fn of fns) fn()
+        }
+    })
     return () => {
       stop()
+      offPending?.()
+      offPending = null
       clearTimeout(retry)
       retry = undefined
       failedIds.clear()
@@ -2519,7 +2563,7 @@ export function createCardStore(
   }
 
   return {
-    slot: (id: string): CardSlot | undefined => slots.get(id),
+    slot: view,
     watch(id: string, fn: () => void): () => void {
       if (!id) return () => {}
       let set = users.get(id)
@@ -2537,6 +2581,7 @@ export function createCardStore(
         users.delete(id)
         slots.delete(id)
         seen.delete(id)
+        views.delete(id)
         if (!users.size && off) {
           off()
           off = null

@@ -5,7 +5,7 @@
 // from the notification, so they go once it's resolved anywhere. The
 // words here are pure, so they're tested without a window.
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 
 import { Events, NotificationService } from "./host"
 import { inWails } from "./irori"
@@ -16,6 +16,7 @@ import {
   State,
 } from "./models"
 import type { CardBlocker, Delivery } from "./models"
+import { pending } from "./pending"
 import { EventInboxChanged, useLatest } from "./talk"
 
 export type { Notification } from "./models"
@@ -205,19 +206,28 @@ export function askOutcome(a: NotificationAsk): string {
 }
 
 // useNotifications is the history, re-read whenever it changes and on
-// every card or inbox change (an item's card title follows the card).
+// every card or inbox change (an item's card title follows the card),
+// with the person's pending answers on it (card #644).
 export function useNotifications(): {
   list: Notification[]
   loading: boolean
   error: string | null
   reload: () => Promise<void>
 } {
-  const load = useCallback(
-    async (): Promise<Notification[]> =>
-      inWails() ? NotificationService.List() : sampleNotifications(),
-    []
-  )
+  const load = useCallback(async (): Promise<Notification[]> => {
+    const list = inWails()
+      ? await NotificationService.List()
+      : sampleNotifications()
+    pending.observeNotifications(list)
+    return list
+  }, [])
   const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  const v = useSyncExternalStore(pending.subscribe, pending.version)
+  const list = useMemo(
+    () => pending.notifications(value),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v is when pending changes
+    [value, v]
+  )
   useEffect(() => {
     void reload()
     if (!inWails()) {
@@ -238,7 +248,7 @@ export function useNotifications(): {
       window.removeEventListener("focus", onFocus)
     }
   }, [reload])
-  return { list: value, loading, error, reload }
+  return { list, loading, error, reload }
 }
 
 // useUnreadNotifications is the sidebar's badge: just the count, re-read
