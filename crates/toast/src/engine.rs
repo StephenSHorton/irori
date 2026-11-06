@@ -47,7 +47,13 @@ pub struct Look {
     pub radius: i32,
     pub close: Rect,
     pub buttons: Vec<Rect>,
+    /// The palette in effect (light or dark, per the config's scheme).
     pub palette: Palette,
+    /// The card is dark (the platform's material and appearance follow).
+    pub dark: bool,
+    /// Real glass: the palette's tint at this opacity over the blurred
+    /// desktop. `None` is a solid card (and the fallback without blur).
+    pub glass: Option<f64>,
     /// The part under the cursor.
     pub hot: Part,
     /// The cursor is over this card.
@@ -93,6 +99,12 @@ pub trait Surface {
     /// without taking clicks. Called once per such post, after the card is
     /// placed. The platform skips it while the OS asks for reduced motion.
     fn confetti(&mut self, _card: Rect, _work: Rect) {}
+    /// Whether the OS is in dark mode now (asked only while the config's
+    /// scheme is [`crate::config::Scheme::System`]). The platform syncs
+    /// again when it flips.
+    fn os_dark(&mut self) -> bool {
+        true
+    }
 }
 
 /// How the next sync places the stack, in increasing strength.
@@ -124,6 +136,8 @@ struct Shared {
     reloc: Reloc,
     raise: bool,
     cfg: Config,
+    /// Bumped by every configure: cards made under an older one restyle.
+    cfg_rev: u64,
     opts: Options,
     /// Card keys on screen, oldest first (tests).
     keys: Vec<u64>,
@@ -138,6 +152,9 @@ struct CardWin {
     rev: u64,
     scale: f64,
     cfg: Config,
+    /// The configure revision and darkness cfg was drawn with.
+    cfg_rev: u64,
+    dark: bool,
     title: String,
     body: String,
     kind: Kind,
@@ -221,6 +238,7 @@ impl Engine {
                 reloc: Reloc::None,
                 raise: false,
                 cfg: Config::default().normalized(),
+                cfg_rev: 0,
                 opts: Options::default(),
                 keys: vec![],
                 confetti: vec![],
@@ -235,10 +253,17 @@ impl Engine {
         }
     }
 
-    /// Sets the app-level setup. Windows already up keep the one they were
-    /// made with.
-    pub fn configure(&self, c: Config) {
-        lock(&self.shared).cfg = c.normalized();
+    /// Sets the app-level setup. Cards already up restyle at the next
+    /// sync (their window class and title stay). True when it changed.
+    pub fn configure(&self, c: Config) -> bool {
+        let c = c.normalized();
+        let mut s = lock(&self.shared);
+        if s.cfg == c {
+            return false;
+        }
+        s.cfg = c;
+        s.cfg_rev += 1;
+        true
     }
 
     /// The setup in effect, defaults filled in.
@@ -349,7 +374,7 @@ impl Engine {
             alpha: u8,
         }
         let mut timed = false;
-        let (views, reloc, up, corner, cfg, bursts) = {
+        let (views, reloc, up, corner, cfg, cfg_rev, bursts) = {
             let mut s = lock(&self.shared);
             let views: Vec<View> = s
                 .stack
@@ -379,6 +404,7 @@ impl Engine {
                 s.raise,
                 s.opts.corner.clone(),
                 s.cfg.clone(),
+                s.cfg_rev,
                 std::mem::take(&mut s.confetti),
             );
             s.reloc = Reloc::None;
@@ -394,6 +420,8 @@ impl Engine {
             ui.scale = sc;
         }
         let sc = ui.scale;
+        let os_dark = cfg.scheme == crate::config::Scheme::System && surf.os_dark();
+        let dark = cfg.is_dark(os_dark);
 
         let gone: Vec<u64> = ui
             .wins
@@ -418,6 +446,8 @@ impl Engine {
                 rev: 0,
                 scale: 0.0,
                 cfg: cfg.clone(),
+                cfg_rev,
+                dark,
                 title: String::new(),
                 body: String::new(),
                 kind: Kind::Info,
@@ -441,7 +471,13 @@ impl Engine {
                 pressed: Part::None,
                 hovered: false,
             });
-            if fresh || cw.rev != v.rev || cw.scale != sc {
+            let restyle = cw.cfg_rev != cfg_rev || cw.dark != dark;
+            if restyle {
+                cw.cfg = cfg.clone();
+                cw.cfg_rev = cfg_rev;
+                cw.dark = dark;
+            }
+            if fresh || restyle || cw.rev != v.rev || cw.scale != sc {
                 cw.rev = v.rev;
                 cw.scale = sc;
                 cw.title = v.title;
@@ -611,7 +647,9 @@ fn look(cw: &CardWin) -> Look {
         radius: cw.radius,
         close: cw.close,
         buttons: cw.buttons.clone(),
-        palette: cw.cfg.palette,
+        palette: cw.cfg.palette(cw.dark),
+        dark: cw.dark,
+        glass: cw.cfg.glass_alpha(),
         hot: cw.hot,
         hovered: cw.hovered,
         clickable: cw.clickable,
