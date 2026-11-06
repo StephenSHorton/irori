@@ -72,6 +72,9 @@ pub const REASON_DESK_HOLDER_CHANGED: &str = "desk_holder_changed";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";
+/// A task.left reason: the card went to Not yet with the holder on it
+/// (card #570).
+pub const LEFT_PARKED: &str = "parked";
 /// A task.left reason: an owner removed the holder's person from the board
 /// (v0.5 §4.3).
 pub const LEFT_REMOVED: &str = "member_removed";
@@ -94,7 +97,7 @@ pub const SUB_BUFFER: usize = 64;
 /// fold only these kinds, and so does [`super::Coord::fold_live`], so a
 /// test that folds a kind missing here fails as production would (card
 /// #614; `pr.state` was missed until #542).
-pub const FOLLOW_KINDS: [&str; 15] = [
+pub const FOLLOW_KINDS: [&str; 16] = [
     "task.",
     "lease.",
     "blocker.",
@@ -113,9 +116,11 @@ pub const FOLLOW_KINDS: [&str; 15] = [
     kinds::REPO_SEEN,
     // A computer takes an ask (card #541).
     kinds::ASK_MOVED,
-    // A board's row can land after its cards (card #558): only their tag
-    // follows it, since the boards themselves are read from the log.
+    // A board's row can land after its cards (card #558), and a card's
+    // board and tag come from the board list (card #563); who may delete a
+    // board comes from the members at the row's place.
     "space.board.",
+    "board.member.",
     // What GitHub said about a card's PR (card #542): a phone has no gh, so
     // these rows are all it knows, and a restart must keep them.
     kinds::PR_STATE,
@@ -167,6 +172,10 @@ pub(crate) struct ShortClaim {
     /// space's first. Raw, so a row that arrives before its
     /// `space.board.created` numbers the same on every device.
     pub board: String,
+    /// A move's claim, not a create's (card #563).
+    pub moved: bool,
+    /// Given by the walk to a card whose board was deleted: no row says it.
+    pub displaced: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -284,6 +293,9 @@ pub struct Fold {
     pub(crate) tag_fn: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     pub(crate) board_tag_fn: Option<super::BoardTagFn>,
     pub(crate) board_tags_fn: Option<super::BoardTagsFn>,
+    pub(crate) board_view_fn: Option<super::BoardViewFn>,
+    /// The last [`super::BoardList`] read (card #563).
+    pub(crate) board_view: super::BoardList,
     pub(crate) no_cards_fn: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub(crate) board_owner: Option<super::OwnerAtFn>,
     pub(crate) hop_of: Option<super::HopFn>,
@@ -352,6 +364,15 @@ pub struct Fold {
     /// one run's top never was: a number a cut card held isn't given out
     /// again here.
     pub(crate) short_tops: HashMap<String, i64>,
+    /// Numbers cards moved away from (card #563): each stays claimed, and
+    /// its old ref still finds the card unless a card holds it now.
+    pub(crate) short_hist: BTreeMap<(String, i64), Vec<(RowPos, String)>>,
+    /// Cards a move has named, and those rows by (device, seq).
+    pub(crate) moved_ids: HashSet<String>,
+    pub(crate) moved_rows: HashSet<(String, i64)>,
+    /// How far the last walk went: a claim past it can't change what the
+    /// walk gave.
+    pub(crate) walked_to: Option<RowPos>,
     pub(crate) short_moved: HashMap<String, GoTime>,
 
     pub(crate) subs: Vec<Sub>,
@@ -480,6 +501,8 @@ impl Fold {
             tag_fn: o.tag,
             board_tag_fn: o.board_tag,
             board_tags_fn: o.board_tags,
+            board_view_fn: o.board_view,
+            board_view: super::BoardList::default(),
             no_cards_fn: o.no_cards,
             board_owner: o.board_owner,
             hop_of: o.hop_of,
@@ -518,6 +541,10 @@ impl Fold {
             short_groups: BTreeMap::new(),
             short_idx: BTreeMap::new(),
             short_tops: HashMap::new(),
+            short_hist: BTreeMap::new(),
+            moved_ids: HashSet::new(),
+            moved_rows: HashSet::new(),
+            walked_to: None,
             short_moved: HashMap::new(),
             subs: Vec::new(),
             pending: Vec::new(),
@@ -565,6 +592,8 @@ impl Fold {
         let Some(st) = self.st.clone() else {
             return Ok(());
         };
+        // Rows name boards as the list does, so it's read before them.
+        self.read_board_view();
         let mut f = store::Filter {
             kinds: FOLLOW_KINDS.iter().map(|k| k.to_string()).collect(),
             limit: store::MAX_LIST_LIMIT,
@@ -648,6 +677,7 @@ impl Fold {
     }
 
     pub(crate) fn end_replay(&mut self) {
+        self.read_board_view();
         self.renumber();
         self.relink();
         self.replaying = false;
@@ -994,25 +1024,38 @@ impl Fold {
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
-                if t.state != BLOCKED {
+                // Card #635: a close names what its writer saw open. One
+                // from another device can land after the card was unblocked
+                // and blocked again (the person's done check): what it
+                // names is closed already, so it changes nothing; or after
+                // a new item was raised, which stays open.
+                let ids = &p.blocker_ids;
+                let named = |b: &Blocker| ids.is_empty() || ids.contains(&b.id);
+                if t.state != BLOCKED || !t.blockers.iter().any(|b| b.open() && named(b)) {
                     self.tasks.insert(p.task_id, t);
                     return;
                 }
-                let mut s = p.restored.clone();
-                if !valid_state(&s) || s == BLOCKED || is_terminal(&s) {
-                    s = restore_state(&t).into();
-                }
-                t.state = s;
-                t.reason.clear();
-                t.blocked_by = None;
-                if !p.note.is_empty() {
-                    t.note = p.note.clone();
-                }
-                t.updated_at = at(p.at);
+                let when = at(p.at);
+                let others = t.blockers.iter().any(|b| b.open() && !named(b));
+                super::cards::close_named(&mut t, ids, &p.by, &p.note, when);
+                let mut what = if others {
+                    super::cards::sync_reason(&mut t);
+                    "closed what it waited on".to_string()
+                } else {
+                    let mut s = p.restored.clone();
+                    if !valid_state(&s) || s == BLOCKED || is_terminal(&s) {
+                        s = restore_state(&t).into();
+                    }
+                    t.state = s;
+                    t.reason.clear();
+                    t.blocked_by = None;
+                    if !p.note.is_empty() {
+                        t.note = p.note.clone();
+                    }
+                    "unblocked it".to_string()
+                };
+                t.updated_at = when;
                 t.updated_by = p.by.clone();
-                let when = t.updated_at;
-                super::cards::close_open(&mut t, &p.by, &p.note, when);
-                let mut what = "unblocked it".to_string();
                 if !p.note.is_empty() {
                     what.push_str(&format!(": {}", p.note));
                 }
@@ -1228,7 +1271,13 @@ impl Fold {
         let Some(p) = row::<TaskCreatedRow>(&ev.payload) else {
             return;
         };
-        if p.task_id.is_empty() || self.deleted.contains(&p.task_id) {
+        if p.task_id.is_empty() {
+            return;
+        }
+        if self.deleted.contains(&p.task_id) {
+            // Its number still counts, or a device that heard the delete
+            // first numbers other cards unlike the rest (card #563).
+            self.claim_short(&p.task_id, RowPos::of(ev), p.num, &p.board);
             return;
         }
         let t = at(p.at);
@@ -1262,7 +1311,7 @@ impl Fold {
             shared: p.shared,
             links,
             tag: self.tag_of(&p.board),
-            board: p.board.clone(),
+            board: self.own_board(&p.board),
             side: crate::sides::clean(&p.side),
             own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
@@ -1613,8 +1662,9 @@ impl Fold {
         let mut done: HashSet<String> = HashSet::new();
         for (tag, n) in card_refs(text) {
             // What the ref means comes first: `#3` on card #3 names that
-            // card, not another board's #3.
-            let [t] = self.short_hits(tag.as_deref().unwrap_or(""), &n)[..] else {
+            // card, not another board's #3. A moved card's old ref still
+            // finds it (card #563).
+            let [t] = self.ref_hits(tag.as_deref(), &n)[..] else {
                 continue;
             };
             if t.id == from || !done.insert(t.id.clone()) {
@@ -2237,10 +2287,16 @@ impl Fold {
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:
             // that device sees what it waited on.
+            // Of the items it names, when it names them (card #635).
             kinds::BLOCKER_CLOSED => self.tasks.get(&p.task_id).is_some_and(|t| {
-                t.blockers
-                    .iter()
-                    .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
+                let ids = row::<BlockerClosedRow>(&ev.payload)
+                    .map(|r| r.blocker_ids)
+                    .unwrap_or_default();
+                t.blockers.iter().any(|b| {
+                    b.open()
+                        && (ids.is_empty() || ids.contains(&b.id))
+                        && self.may_write(&b.raised_by, &ev.device_id)
+                })
             }),
             // A spawned agent's request and mark (card #455): from a device
             // of the person it serves, which spawn_writer_ok checks itself.

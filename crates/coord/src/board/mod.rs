@@ -24,11 +24,9 @@ mod desk_run;
 mod error;
 mod fold;
 mod idle;
+mod later;
+pub use later::{Back, OrderLoops};
 mod links;
-mod main_red;
-pub use main_red::{
-    MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
-};
 mod mention;
 mod stranded;
 mod version_wait;
@@ -95,9 +93,9 @@ pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT,
-    REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
-    SUB_BUFFER, followed,
+    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
+    REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
+    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
@@ -237,6 +235,23 @@ pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Every tag a space's log has named for a board inside it (card #558).
 pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
+/// What the fold needs from a space's board list (card #563): the writer
+/// checks and the rule that a delete wins live where the list is folded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardList {
+    /// The first board's id, which a row may name instead of `""`.
+    pub own: String,
+    /// Each deleted board, with its first valid delete's place.
+    pub deleted: Vec<(String, RowPos)>,
+    /// Every (tag, board) the log has named, deleted boards' too.
+    pub tags: Vec<(String, String)>,
+}
+/// See [`Options::board_view`].
+///
+/// None when the list can't be read just now: the fold keeps what it has,
+/// since a blank list would undo every delete.
+pub type BoardViewFn = Arc<dyn Fn() -> Option<BoardList> + Send + Sync>;
+
 /// See [`Options::agent_devices`].
 pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
 
@@ -311,6 +326,9 @@ pub struct Options {
     /// On a space (card #558): every tag its log has named for a board
     /// inside it, for a ref to a board that holds no card.
     pub board_tags: Option<BoardTagsFn>,
+    /// On a space or Personal (card #563): its board list, for moves and
+    /// deletes. Read again whenever a board or member row lands.
+    pub board_view: Option<BoardViewFn>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).
@@ -748,14 +766,36 @@ impl Coord {
         }
         Ok(t)
     }
-    /// Finds or makes the one open card for main failing `test` (card
-    /// #436), reported from card `from`; true when it was made now, so the
-    /// caller hands it out. Block `from` on it with a task wait.
-    pub fn main_red(&self, by: &str, from: &str, test: &str, commit: &str) -> Result<(Task, bool)> {
-        self.lock().main_red(by, from, test, commit)
-    }
     pub fn unblock(&self, by: &str, id: &str, note: &str) -> Result<(Task, Notice)> {
         self.lock().unblock(by, id, note)
+    }
+    /// Holds card `id` as Not yet until `back` (card #570), or changes the
+    /// hold on a card already held. The notices tell the agents taken off.
+    pub fn park(&self, by: &str, id: &str, why: &str, back: Back) -> Result<(Task, Vec<Notice>)> {
+        self.lock().park(by, id, why, back)
+    }
+    /// Ends card `id`'s hold now (card #570): one on the person's word only
+    /// a person ends.
+    pub fn bring_back(&self, by: &str, id: &str, note: &str) -> Result<(Task, Vec<Notice>)> {
+        self.lock().bring_back(by, id, note)
+    }
+    /// Puts card `id` after `cards` (card #570): one wait on each.
+    pub fn add_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().add_after(by, id, cards)
+    }
+    /// Takes card `id` off its waits on `cards` (card #570).
+    pub fn remove_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().remove_after(by, id, cards)
+    }
+    /// Whether card `from` can't finish until card `to` has (card #570).
+    pub fn order_reaches(&self, from: &str, to: &str) -> bool {
+        self.lock().order_reaches(from, to)
+    }
+    /// Every loop of cards that can't finish before each other (card
+    /// #570): waits on cards and parents on their open subtasks, the
+    /// write check's edges, found in one pass.
+    pub fn order_loops(&self) -> OrderLoops {
+        self.lock().order_loops()
     }
     /// Takes a card back off a shared board.
     pub fn withdraw(&self, by: &str, id: &str, note: &str) -> Result<Task> {
@@ -920,6 +960,16 @@ impl Coord {
         f.mention_notice(&by, id, &ms, text, &format!("task:{id}"), "")
     }
     /// Renames a card or changes its objective or done-when (board_edit).
+    /// Reads the board list now: Core calls this after writing a board row
+    /// itself, so a read straight after sees the cards where they went.
+    pub fn refresh_boards(&self) {
+        self.lock().refresh_boards();
+    }
+
+    pub fn move_task(&self, by: &str, id: &str, board: &str) -> Result<Task> {
+        self.lock().move_task(by, id, board)
+    }
+
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
     }
@@ -1794,6 +1844,10 @@ impl Coord {
             return self.catch_up();
         }
         let mut f = self.lock();
+        // Core writes these itself, so this device's reach the fold here.
+        if ev.kind.starts_with("space.board.") || ev.kind.starts_with("board.member.") {
+            f.refresh_boards();
+        }
         // repo.seen is capture's row, never coord's own write, so this
         // device's ones are folded here (card #521: a GitHub repo an agent
         // works in has a desk by itself).
@@ -2010,7 +2064,12 @@ impl Coord {
         if !on_board {
             self.catch_up_own_seen(&st, &me, limit)?;
         }
-        self.lock().holder_duties();
+        let mut f = self.lock();
+        // A board row a page folded may be a delete (card #563); this
+        // device's own were read as Core wrote them, and a startup catch-up
+        // needs the list as much as a resync.
+        f.refresh_boards();
+        f.holder_duties();
         Ok(())
     }
 

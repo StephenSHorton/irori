@@ -1349,6 +1349,69 @@ fn a_space_thread_reaches_the_other_members_agent_talk_tools() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
+/// Card #563: a move and a board delete reach every device. Bob isn't an
+/// owner, and any member may delete a board. Both devices settle on the
+/// same places and numbers, and the old refs still work on both.
+#[test]
+fn a_move_and_a_board_delete_reach_every_device() {
+    let alice = person("alice", 1);
+    let bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    let net = a1
+        .core
+        .create_space_board(&space, "Netcode", "net")
+        .unwrap();
+    let co = a1.core.board_coord(&space).unwrap();
+    let make = |title: &str, board: &str| {
+        co.create_task(
+            &a1.person_actor(),
+            coord::NewTask {
+                title: title.into(),
+                board: board.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (w, n) = (make("first board", ""), make("on net", &net));
+    let was = w.short_ref();
+    co.move_task(&a1.person_actor(), &w.id, &net).unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees the move", || {
+        card_on(b1, &space, &w.id).is_some_and(|x| x.board == net && x.tag == "net")
+            && card_on(b1, &space, &n.id).is_some()
+    });
+    assert_eq!(b1.core.task_ref(&was).unwrap(), w.id, "the old ref, on bob");
+
+    wait_for(WAIT, "bob has the board", || {
+        b1.core
+            .space_boards(&space)
+            .is_ok_and(|bs| bs.iter().any(|b| b.board_id == net))
+    });
+    b1.core.delete_space_board(&space, &net).unwrap();
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice's cards land on the first board", || {
+        [&w.id, &n.id]
+            .iter()
+            .all(|id| card_on(a1, &space, id).is_some_and(|x| x.board.is_empty()))
+    });
+    for id in [&w.id, &n.id] {
+        let (a, b) = (
+            card_on(a1, &space, id).unwrap(),
+            card_on(b1, &space, id).unwrap(),
+        );
+        assert_eq!(a.short_ref(), b.short_ref(), "both devices agree");
+        assert_eq!(a.board, b.board);
+    }
+    assert_eq!(a1.core.space_boards(&space).unwrap().len(), 1);
+    assert_eq!(a1.core.task_ref("net#1").unwrap(), n.id);
+    assert_eq!(b1.core.task_ref("net#1").unwrap(), n.id);
+}
+
 /// Card #392 (Spaces s5): Alice's space is the board Bob joined. Once
 /// Alice has heard Bob's device read space rows, a second board and a card
 /// on it reach Bob, and so does a channel made in the space and its posts,

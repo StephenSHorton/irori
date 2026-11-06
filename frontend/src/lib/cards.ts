@@ -24,6 +24,7 @@ import {
   CardMessage,
   CardResolution,
   CardSummary,
+  CardLater,
   CardThreadItem,
   CommentResult,
   DonePage,
@@ -88,6 +89,7 @@ export type {
   GoneWait,
   CardSubtask,
   CardSummary,
+  CardLater,
   CardThreadItem,
   CardWait,
   CommentResult,
@@ -843,7 +845,6 @@ function summary(c: CardDetail): CardSummary {
     waitTask: c.waitTask,
     waitLoop: c.waitLoop,
     waitStuck: c.waitStuck,
-    mainRed: c.mainRed,
     cantStart: c.cantStart,
     noAgent: c.noAgent,
     starting: c.starting,
@@ -870,12 +871,62 @@ function summary(c: CardDetail): CardSummary {
     pinRank: c.pinRank,
     pos: c.pos,
     owner: c.owner,
+    later: c.later,
+    order: c.order,
     // As crates/window's search_text (card #171), less the creator.
     searchText: [c.goal, c.doneWhen, ...c.steps.map((s) => s.text)]
       .map((w) => w.trim())
       .filter(Boolean)
       .join("\n"),
   })
+}
+
+// sampleNotYet is Not yet on the sample (card #570): it reads until the
+// way the host does, roughly, so the popover can be tried.
+function sampleNotYet(id: string, until: string, why: string) {
+  const c = sampleCard(id)
+  const u = until.trim()
+  const by = "You"
+  const reason = why.trim() || "You held it back"
+  let later: CardLater
+  if (!u)
+    later = CardLater({ why: reason, back: "word", line: "when you say", by })
+  else if (/#|^\d+$/.test(u)) {
+    // Numbers are per board (card #558): a bare one means the card's own.
+    const ref = u.includes("#") ? u : `${c.tag ?? ""}#${u}`
+    const hit =
+      sampleCardRef(ref.startsWith("#") ? `${c.tag ?? ""}${ref}` : ref) ??
+      sampleCardRef(ref)
+    const k = hit && sampleCard(hit.id)
+    if (!k) throw new Error(`coord: not found: no card ${u}`)
+    if (k.id === c.id)
+      throw new Error("coord: invalid input: a card can't wait on itself")
+    later = CardLater({
+      why: reason,
+      back: "card",
+      line: `when ${k.tag ?? ""}#${k.short} is done`,
+      by,
+      card: k.id,
+    })
+  } else if (/^v?\d+\.\d/.test(u))
+    later = CardLater({
+      why: reason,
+      back: "version",
+      line: `when this Mac runs v${u.replace(/^v/, "")}`,
+      by,
+    })
+  else if (
+    /^(\d{4}-\d\d-\d\d|\d{1,2}\s+[a-z]{3,}|[a-z]{3,}\s+\d{1,2})$/i.test(u)
+  )
+    later = CardLater({ why: reason, back: "date", line: `on ${u}`, by })
+  else
+    throw new Error(
+      "Hold it until a card (#83), a day (1 Dec) or a version (v0.13.0); left empty, it waits for you"
+    )
+  c.later = later
+  c.state = TaskState.Blocked
+  c.working = []
+  sampleChanged()
 }
 
 // sampleBoardOf finds a sample board by id; lib/boards.ts sets it (it
@@ -1105,6 +1156,30 @@ function sampleToClear(
 function sampleDelete(id: string) {
   sampleCard(id)
   sample = sampleState().filter((x) => x.id !== id)
+  sampleChanged()
+}
+
+// sampleMoveBoard is BoardService.Move on the sample: the card shows the
+// new board and its tag at once, and the sample keeps no numbers per board.
+function sampleMoveBoard(id: string, board: string) {
+  const c = sampleCard(id)
+  const space = c.board ? sampleBoardOf(c.board) : undefined
+  const list = space
+    ? space.boards?.find((x) => x.boardId === board)
+    : samplePersonalOf(board)
+  c.tag = list?.tag || space?.tag || ""
+  c.spaceBoard = board
+  sampleChanged()
+}
+
+// sampleBoardGone is a board delete on the sample (card #563): its cards go
+// to the default board, shown by its tag.
+export function sampleBoardGone(boardId: string, tag: string) {
+  for (const c of sampleState()) {
+    if (c.spaceBoard !== boardId) continue
+    c.spaceBoard = ""
+    c.tag = tag
+  }
   sampleChanged()
 }
 
@@ -1846,6 +1921,34 @@ export const cards = {
     return []
   },
 
+  // notYet holds card id back from the agents (card #570) until what
+  // until says: a card ("#83"), a day ("1 Dec") or a version ("v0.13.0");
+  // empty, until the person says.
+  async notYet(id: string, until: string, why = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.NotYet(id, until, why)
+      return
+    }
+    sampleNotYet(id, until, why)
+  },
+
+  // startNow brings held card id back (card #570): it goes out as if
+  // just posted.
+  async startNow(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.StartNow(id)
+      return
+    }
+    const c = sampleCard(id)
+    if (!c.later) throw new Error(`coord: bad state: #${c.short} isn't held`)
+    c.later = null
+    c.state = TaskState.Submitted
+    c.openBlockers = 0
+    c.waitingOn = 0
+    c.blockers = c.blockers.filter((b) => b.state !== "open")
+    sampleChanged()
+  },
+
   // movePin puts pinned card id in front of pinned card before ("": last).
   async movePin(id: string, before: string): Promise<void> {
     if (inWails()) {
@@ -1882,6 +1985,16 @@ export const cards = {
       return
     }
     sampleDelete(id)
+  },
+
+  // move puts a card on another board in its space (card #563), with its
+  // subtasks. It takes the next number there; its old ref still finds it.
+  async move(id: string, board: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Move(id, board)
+      return
+    }
+    sampleMoveBoard(id, board)
   },
 
   // clearDoneCount is how many done cards a clear by age would take
