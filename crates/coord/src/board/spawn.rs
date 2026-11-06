@@ -221,9 +221,7 @@ impl Fold {
         // only their own devices pass this, and the asking device checks
         // it before it starts or binds anything (card #573).
         let serves = self.serving_person(t);
-        !serves.is_empty()
-            && serves == dp(&ev.device_id)
-            && (by == SWEEPER || kp(by) == serves)
+        !serves.is_empty() && serves == dp(&ev.device_id) && (by == SWEEPER || kp(by) == serves)
     }
 
     pub(crate) fn fold_spawn(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
@@ -707,16 +705,43 @@ impl Fold {
         .then_some(to)
     }
 
-    /// Whether an assignment to `to`, already on card t, is another
-    /// person asking again after a Not now.
+    /// Whether a `task.assigned` row is the card's author taking it back:
+    /// to their own `person:` key, from their own device.
+    pub(crate) fn takes_back(&self, ev: &Event, p: &TaskAssignedRow) -> bool {
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let me = dp(&ev.device_id);
+        !me.is_empty()
+            && p.to.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            && kp(&p.to) == me
+            && kp(&p.by) == me
+            && self.tasks.get(&p.task_id).is_some_and(|t| {
+                t.given.as_ref().is_some_and(|g| g.person != me) && kp(&t.created_by) == me
+            })
+    }
+
+    /// Whether someone other than card `id`'s given person wrote `by`'s
+    /// change to what its agent's brief says.
+    pub(crate) fn edited_by_another(&self, id: &str, by: &str) -> bool {
+        let Some(g) = self.tasks.get(id).and_then(|t| t.given.as_ref()) else {
+            return false;
+        };
+        self.key_person.as_ref().is_none_or(|kp| kp(by) != g.person)
+    }
+
+    /// Whether an assignment to `to`, already on card t, is someone else
+    /// giving it again: after a Not now, or a yes its device never acted
+    /// on. It starts over, and a device that can start it asks.
     pub(crate) fn gives_again(&self, t: &Task, by: &str, to: &str) -> bool {
         t.given.as_ref().is_some_and(|g| g.key == to)
-            && t.given_said.as_ref().is_some_and(|y| !y.yes)
+            && t.given_said.is_some()
             && self.person_of(by) != self.person_of(to)
     }
 
     /// A card with an agent on it, or one starting, can't be given: its
-    /// agent would be orphaned on its person's device (card #573).
+    /// agent would be orphaned on its person's device. A parent card's
+    /// agents are its parts' (card #573).
     pub(crate) fn check_give(&self, t: &Task, by: &str, to: &str) -> Result<()> {
         if !self.on_board
             || !to.starts_with(kinds::PERSON_ACTOR_PREFIX)
@@ -724,11 +749,21 @@ impl Fold {
         {
             return Ok(());
         }
+        if !t.subtasks.is_empty() {
+            return Err(bad_state(format!(
+                "{} is split into parts: give a part, not the whole card",
+                t.short_ref()
+            )));
+        }
         let agent = t
             .holders
             .iter()
             .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX));
-        if agent || t.spawn_pending() {
+        let now = self.stamp();
+        if agent
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+        {
             return Err(bad_state(format!(
                 "{} has an agent on it: end it before giving the card to someone",
                 t.short_ref()
@@ -742,67 +777,81 @@ impl Fold {
     /// themselves (`person`: never their agent): yes on the question
     /// they raised. Anyone else closing it says nothing, so they are asked
     /// again.
-    pub(crate) fn given_say(
-        &self,
-        p: &BlockerResolvedRow,
-        person: bool,
-    ) -> Option<GivenSaid> {
+    pub(crate) fn given_say(&self, p: &BlockerResolvedRow, person: bool) -> Option<GivenSaid> {
         let t = self.tasks.get(&p.task_id)?;
         let b = t.blockers.iter().find(|b| b.id == p.blocker_id)?;
         if b.question != GIVEN_QUESTION || !b.open() {
             return None;
         }
-        let who = t.given.as_ref()?.person.clone();
+        let g = t.given.as_ref()?;
+        let who = g.person.clone();
         let kp = self.key_person.as_ref()?;
-        if !person || kp(&p.by) != who {
+        if !person || kp(&p.by) != who || g.question != p.blocker_id {
             return None;
         }
         Some(GivenSaid {
-            yes: !p.closed && p.answer == GIVEN_START && kp(&b.raised_by) == who,
+            yes: !p.closed && p.answer == GIVEN_START,
             generation: t.spawn_request().map_or(0, |s| s.generation),
             person: who,
         })
     }
 
-    /// Notes the given person's device raising the question on card t.
-    /// True when it is a second row for a question the card already has:
-    /// it changes nothing but who acts, the lowest device of the two.
+    /// Notes the given person raising the question on card t, as
+    /// themselves from their own device: no agent's or other member's row
+    /// makes a question their yes can stand on. True when it is a second
+    /// row for the question the card already has: it changes nothing, but
+    /// until they've answered the lowest device of the two acts.
     pub(crate) fn given_raised(&self, t: &mut Task, p: &TaskStateRow, ev: &Event) -> bool {
         let Some(br) = p.blocker.as_ref().filter(|b| b.question == GIVEN_QUESTION) else {
             return false;
         };
-        let Some(dp) = &self.dev_person else {
+        let mine = t.given.as_ref().is_some_and(|g| g.key == p.by);
+        if !mine || !self.person_row(ev, &p.by) {
+            return false;
+        }
+        let said = t.given_said.is_some();
+        let known = t.blockers.iter().any(|b| b.id == br.id);
+        let Some(g) = t.given.as_mut() else {
             return false;
         };
-        let Some(g) = t.given.as_mut().filter(|g| g.person == dp(&ev.device_id)) else {
-            return false;
-        };
-        if t.blockers.iter().any(|b| b.id == br.id) {
-            if ev.device_id < g.asker {
+        if known {
+            if !said && ev.device_id < g.asker {
                 g.asker = ev.device_id.clone();
             }
             return true;
         }
         g.asker = ev.device_id.clone();
+        g.question = br.id.clone();
         t.given_said = None;
         false
     }
 
-    /// Whether a spawn row from someone other than the card's author waits
-    /// for the give that lets it in: rows come device by device, so the
-    /// person's own can arrive before the giver's.
+    /// Whether a row of the person a card was given to waits for the give
+    /// that lets it in: rows come device by device, so theirs can arrive
+    /// before the giver's. Their spawn rows, the bind's assignment, and the
+    /// question and its answer.
     pub(crate) fn ahead_of_give(&self, ev: &Event) -> bool {
-        let spawn = matches!(ev.kind.as_str(), kinds::TASK_SPAWN | kinds::TASK_SPAWNED)
-            || (ev.kind == kinds::TASK_ASSIGNED && ev.actor == SWEEPER);
-        if !spawn || !self.on_board {
+        if !self.on_board {
             return false;
         }
         let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
             return false;
         };
-        row::<TaskIdRow>(&ev.payload)
-            .and_then(|p| self.tasks.get(&p.task_id))
-            .is_some_and(|t| t.given.is_none() && kp(&t.created_by) != dp(&ev.device_id))
+        let Some(t) = row::<TaskIdRow>(&ev.payload).and_then(|p| self.tasks.get(&p.task_id)) else {
+            return false;
+        };
+        if t.given.is_some() || kp(&t.created_by) == dp(&ev.device_id) {
+            return false;
+        }
+        match ev.kind.as_str() {
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            kinds::TASK_ASSIGNED => ev.actor == SWEEPER,
+            kinds::TASK_STATUS => row::<TaskStateRow>(&ev.payload)
+                .is_some_and(|p| p.blocker.is_some_and(|b| b.question == GIVEN_QUESTION)),
+            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload)
+                .is_some_and(|p| !t.blockers.iter().any(|b| b.id == p.blocker_id)),
+            _ => false,
+        }
     }
 
     /// Whether card t, given to someone, is free for an agent: only people
@@ -812,7 +861,6 @@ impl Fold {
             && (t.state == SUBMITTED || t.state == WORKING)
             && !t.withdrawn
             && t.open_ask().is_none()
-            && t.subtasks.is_empty()
             && !super::offers::waits_on_work(t)
             && t.holders
                 .iter()
@@ -849,11 +897,16 @@ impl Fold {
     /// asked asks again. A Not now stays until it's given again or they
     /// ask for it on the card.
     pub(crate) fn given_to_ask(&self) -> Vec<Task> {
+        let now = self.stamp();
         let mut v: Vec<Task> = self
             .tasks
             .values()
             .filter(|t| self.mine_to_serve(t) && self.given_free(t))
-            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES && !t.spawn_pending())
+            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| {
+                t.spawn_request()
+                    .is_none_or(|s| !s.pending() || s.stale(&now))
+            })
             .filter(|t| {
                 t.given
                     .as_ref()

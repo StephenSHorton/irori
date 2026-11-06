@@ -517,7 +517,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 id: "b-given",
                 question: "OK to start an agent on this?",
                 context:
-                  "Spencer gave you this card. It asks: Uploads over 50 MB retry twice before failing.\n\nIrori stopped here because someone else wrote it. An agent would run on this device, under your own settings and cap, and treat the card as Spencer's request.",
+                  "Spencer gave you this card. It asks: Uploads over 50 MB retry twice before failing.\n\nIrori stopped here because someone else wrote it. An agent would run on this computer, under your own settings and cap, and treat the card as Spencer's request.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",
@@ -527,7 +527,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 options: [
                   CardOption({
                     answer: "Start an agent",
-                    why: "It starts here, under your own settings and cap.",
+                    why: "It starts under your own settings and cap.",
                     by: AgentRef({
                       key: "irori",
                       name: "Irori",

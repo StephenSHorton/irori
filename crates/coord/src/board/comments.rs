@@ -391,6 +391,11 @@ impl Fold {
                     keys.push(a.clone());
                 }
             }
+            // A card given to them comes back though nobody of theirs holds
+            // it now (card #573).
+            if let Some(g) = t.given.as_ref().filter(|g| !keys.contains(&g.key)) {
+                keys.push(g.key.clone());
+            }
             for who in keys.into_iter().filter(|k| kp(k) == person_id) {
                 let at = self.stamp();
                 self.write(

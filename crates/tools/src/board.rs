@@ -2203,11 +2203,10 @@ pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     // On a shared card `to` may be another member: the card is given to
     // them, and their Irori asks them before it starts anything (card #573).
-    let member = s
-        .b
-        .shared_boards()
-        .and_then(|sb| sb.board_of(&id))
-        .and_then(|b| s.member_key(&b.board_id, want));
+    let member =
+        s.b.shared_boards()
+            .and_then(|sb| sb.board_of(&id))
+            .and_then(|b| s.member_key(&b.board_id, want));
     let to = match member {
         Some(k) => k,
         None => match s.assignee(want) {

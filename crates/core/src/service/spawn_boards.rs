@@ -104,7 +104,7 @@ impl Services {
     /// under this device's cap.
     pub(crate) fn sweep_board_spawns(&self, sp: &Spawner, cap: i64, running: &mut i64) {
         for b in self.shown_boards() {
-            self.bind_board_spawns(&b);
+            self.bind_board_spawns(sp, &b);
             let co = b.coord().clone();
             // A card given to this person: never by the switch, which is
             // for cards they made; only on their yes (card #573).
@@ -180,9 +180,6 @@ impl Services {
     /// starts and binds one. Runs even while paused: it starts nothing.
     pub(crate) fn ask_given_cards(&self) {
         for b in self.shown_boards() {
-            if !self.board_spawns_ready(&b) {
-                continue;
-            }
             let co = b.coord();
             let log = SpawnLog::board(self, &b);
             let me = self.person_actor();
@@ -210,6 +207,20 @@ impl Services {
             };
             if !co.mine_to_serve(&t) || t.given_said.as_ref().is_none_or(|y| y.yes) {
                 return Ok(false);
+            }
+            // The device that asks is the one that starts it: a phone, or a
+            // computer without its repo, can't take that on.
+            let runs = self
+                .spawn
+                .spawner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some();
+            if !runs || self.spawn_device(&t).is_none_or(|d| d != self.device.id) {
+                return Err(format!(
+                    "{} can't start on this device: press Start an agent on the computer with its repo",
+                    t.short_ref()
+                ));
             }
             let log = SpawnLog::board(self, &b);
             let context = self.given_context(&log, &t);
@@ -247,7 +258,9 @@ impl Services {
         // No copy here, or not trusted, and its last request failed for
         // that: it waits (card #467's rule) until that changes or the
         // person asks again.
-        let asked_now = log.co.spawn_asked_now(&t.id);
+        // A yes is the person asking now: a card that can't start says so
+        // again and asks again, rather than waiting in silence (card #573).
+        let asked_now = log.co.spawn_asked_now(&t.id) || t.given.is_some();
         let failed_here = |no_folder: bool| {
             t.spawn_request().is_some_and(|s| {
                 s.op == coord::SPAWN_FAILED
@@ -297,6 +310,14 @@ impl Services {
         else {
             return Ok(false);
         };
+        if t.given.is_some() {
+            self.spawn
+                .remote
+                .board_started
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((t.id.clone(), g));
+        }
         self.start_in(sp, &log, t, g, &name, Some(folder))
     }
 
@@ -305,7 +326,7 @@ impl Services {
     /// the agent card know Irori started it), then the agent put on the
     /// board (`card_for`, marked on its agent card), then the board's mark
     /// and the card assigned to its `agent:<cardId>` (§9).
-    fn bind_board_spawns(&self, b: &Arc<BoardLog>) {
+    fn bind_board_spawns(&self, sp: &Spawner, b: &Arc<BoardLog>) {
         if !self.board_spawns_ready(b) {
             return;
         }
@@ -325,11 +346,15 @@ impl Services {
             }
             let Some(s) = t
                 .spawn_request()
-                .filter(|s| s.pending() && s.device == me && co.mine_to_start(&t, s))
+                .filter(|s| s.pending() && s.device == me)
                 .cloned()
             else {
                 continue;
             };
+            if !co.mine_to_start(&t, &s) {
+                self.drop_given_request(sp, b, &t, &s, &live);
+                continue;
+            }
             let Some(a) = live.iter().find(|a| {
                 !s.name.is_empty()
                     && a.name == s.name
@@ -358,6 +383,47 @@ impl Services {
             };
             if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
                 logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
+            }
+        }
+    }
+
+    /// A request on a card given to this person that their yes no longer
+    /// covers: the card changed, or it was never theirs. It ends, so the
+    /// card can be asked about again, and a session this device started
+    /// for it goes. Never a session it didn't start: the name came on a row.
+    fn drop_given_request(
+        &self,
+        sp: &Spawner,
+        b: &Arc<BoardLog>,
+        t: &Task,
+        s: &coord::Spawn,
+        live: &[presence::AgentCard],
+    ) {
+        if t.given.is_none() {
+            return;
+        }
+        let why = "the yes for this agent no longer stands";
+        if let Err(e) =
+            b.coord()
+                .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_CANCELED, why)
+        {
+            logf(format_args!("spawn {}: cancel: {e}", t.short_ref()));
+            return;
+        }
+        let started = self
+            .spawn
+            .remote
+            .board_started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&(t.id.clone(), s.generation));
+        if !started {
+            return;
+        }
+        if let Some(a) = live.iter().find(|a| a.name == s.name && a.status != "gone") {
+            let sess = a.key.rsplit_once('/').map_or(a.key.as_str(), |(_, x)| x);
+            if let Err(e) = (sp.end)(sess) {
+                logf(format_args!("spawn {}: end {}: {e}", t.short_ref(), a.key));
             }
         }
     }

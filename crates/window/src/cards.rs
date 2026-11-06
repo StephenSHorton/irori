@@ -2210,8 +2210,7 @@ impl Window {
                 let mut cs = card_summary(&pt, p);
                 let private = |k: &str| self.core.private_key(k);
                 // Comments are read only when nothing cheaper already said so.
-                cs.given_no =
-                    co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
+                cs.given_no = co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
                 cs.ours = ours(&t, [], private)
                     || (t.comments > 0
                         && ours(
@@ -2303,6 +2302,9 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        d.summary.given_no = raw
+            .as_ref()
+            .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
         if let Some(raw) = &raw
             && !d.summary.board.is_empty()
         {

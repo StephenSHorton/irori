@@ -904,6 +904,13 @@ impl Fold {
                     *seq = (*seq).max(seq_of(&s.id, "s"));
                     ss.push(s.clone());
                 }
+                // Steps go in the brief: someone else's change asks again,
+                // as a change to its words does (card #573).
+                let edited = self.edited_by_another(&p.task_id, &p.by);
+                if edited && let Some(t) = self.tasks.get_mut(&p.task_id) {
+                    close_given_question(t, at(p.at));
+                    t.given_said = None;
+                }
                 // Spawn marks only from the card's owner's side (§3).
                 let refused = {
                     let t = &self.tasks[&p.task_id];

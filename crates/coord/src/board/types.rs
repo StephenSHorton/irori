@@ -148,6 +148,9 @@ pub struct Given {
     /// The device that asked them: it alone starts and binds the agent,
     /// so one yes can't start two. Empty until it's asked.
     pub asker: String,
+    /// The question's blocker id, once they raised it themselves: only
+    /// an answer on that one is their say.
+    pub question: String,
 }
 
 /// A person's last say on "OK to start an agent on this?" (card #573).
