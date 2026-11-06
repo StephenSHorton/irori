@@ -21,22 +21,11 @@ const MAX_CHAIN: usize = 64;
 /// What `until` takes, said in its refusal.
 const UNTIL_TAKES: &str = "until takes a card (#12 or tag#12), a date (2026-12-01), version 0.13.0 [device …], or nothing: until the person says.";
 
-/// The cards `t` comes after: its open plain waits on cards. A hold
-/// until a card is no order, and a question with options is no wait.
+/// The cards `t` comes after: its open plain after items, the same ones
+/// the window shows as order. A hold, a question or an old reason-only
+/// wait isn't order.
 pub(crate) fn afters(t: &Task) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for b in &t.blockers {
-        if !b.open() || !b.later.is_empty() || !b.options.is_empty() {
-            continue;
-        }
-        let Some(on) = b.on.as_ref().filter(|on| on.kind == coord::BLOCKED_ON_TASK) else {
-            continue;
-        };
-        if !on.reference.is_empty() && !out.contains(&on.reference) {
-            out.push(on.reference.clone());
-        }
-    }
-    out
+    t.after_cards()
 }
 
 /// The order among a set of open cards, found once per list.
