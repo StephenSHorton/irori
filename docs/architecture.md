@@ -418,7 +418,7 @@ There is no CI (no workflow builds or checks anything): `release.yml` is replace
 
 **macOS:**
 - `CFBundleIdentifier com.stephenshorton.irori`, `CFBundleShortVersionString` = bare `X.Y.Z`, executable `irori`, `LSMinimumSystemVersion` 12.0.0.
-- Developer ID signing and notarization (ports of `I:build/darwin/package.sh` and `notarize.sh`, not yet read).
+- Developer ID signing, always (docs/releasing.md), and notarization when credentials are set.
 - `codesign --verify --deep --strict` must pass, because the Go updater checks all of this on the zip (surface.md §7.3).
 - Assets: `irori-<v>-macos-arm64.app.zip`, `.dmg`.
 
