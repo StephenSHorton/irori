@@ -13,7 +13,10 @@
 //!   `vector` (the sender's board vector; one ahead of ours pulls now),
 //!   `ping`/`pong`, and `board.secret` ([`BoardSecretFrame`], a newer
 //!   epoch's secret sealed under this connection's epoch key).
-//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]).
+//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]). A
+//!   writer whose row this device refused goes on hold from that peer, with
+//!   a wait that doubles, and [`BoardMesh::stalled`] says so; the vector
+//!   frames and hello keep saying where this device really is.
 //! - Files on the board's cards move on `blob/<16 hex>` streams, as on the
 //!   private mesh (v0.5 §5.5): served only to a counted member device, and
 //!   only a hash this person's devices offered in this board's log

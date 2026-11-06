@@ -29,7 +29,8 @@ pub enum Side {
 /// A kind's verdict for a shared board's log (Go `Board`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Board {
-    /// Refused by a board log, like every kind it does not name.
+    /// Refused by a board log, like every kind it does not name, unless
+    /// [`board_tolerated`] says a pulled row of it is stored.
     Unclassified,
     /// A board log stores it.
     Accepts,

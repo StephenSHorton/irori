@@ -106,6 +106,7 @@ struct Dev {
     id: String,
     person: Person,
     key: SigningKey,
+    clock: Arc<store::Clock>,
     log: Arc<Store>,
     verifier: Arc<BoardVerifier>,
     secrets: Arc<BoardSecrets>,
@@ -137,35 +138,20 @@ impl Dev {
     }
 
     fn build_with(person: Person, creator: &MemberPin, open_gate: bool, gossip: bool) -> Dev {
-        Dev::build_as(person, creator, open_gate, gossip, true)
-    }
-
-    /// A newer Irori: it writes kinds this build has never heard of, which
-    /// this build's own board log wouldn't let it.
-    fn newer(person: Person, creator: &MemberPin) -> Dev {
-        Dev::build_as(person, creator, false, false, false)
-    }
-
-    fn build_as(
-        person: Person,
-        creator: &MemberPin,
-        open_gate: bool,
-        gossip: bool,
-        strict: bool,
-    ) -> Dev {
         let dir = tempfile::tempdir().unwrap();
         let key = rand_key();
         let id = person.root.clone();
         let verifier = Arc::new(BoardVerifier::new_for(BOARD, std::slice::from_ref(creator)));
+        let clock = Arc::new(store::Clock::new());
         let log = Arc::new(
             Store::open_with(
                 dir.path().join(format!("{BOARD}.db")),
                 &id,
-                Arc::new(store::Clock::new()),
+                clock.clone(),
                 store::OpenOptions {
                     signer: Some(Arc::new(KeySigner(key.clone()))),
                     verifier: Some(verifier.clone()),
-                    board: strict,
+                    board: true,
                     ..Default::default()
                 },
             )
@@ -209,6 +195,7 @@ impl Dev {
             id,
             person,
             key,
+            clock,
             log,
             verifier,
             secrets,
@@ -218,6 +205,24 @@ impl Dev {
             files,
             dir,
         }
+    }
+
+    /// A row as a newer Irori writes it: a kind this build has never heard
+    /// of, which its own board log won't let it write, signed all the same.
+    fn append_newer(&self, kind: &str) -> Event {
+        let newer = Store::open_with(
+            self.dir.path().join(format!("{BOARD}.db")),
+            &self.id,
+            self.clock.clone(),
+            store::OpenOptions {
+                signer: Some(Arc::new(KeySigner(self.key.clone()))),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        newer
+            .append("irori", kind, &RawJson(b"{}".to_vec()))
+            .unwrap()
     }
 
     fn pub_hex(&self) -> String {
@@ -981,7 +986,7 @@ async fn a_file_on_a_shared_card_reaches_the_other_member_and_a_private_one_neve
 async fn stall_board() -> (Dev, Dev, Dev) {
     let alice_p = Person::new("a-alice-pc");
     let creator = alice_p.pin();
-    let mut alice = Dev::newer(alice_p, &creator);
+    let mut alice = Dev::with_person(alice_p, &creator);
     let mut bob = Dev::new("b-bob-mac", &creator);
     let casey = Dev::new("z-casey-pc", &creator);
 
@@ -1035,8 +1040,8 @@ fn forward(from: &Dev, to: &Dev, after: i64) -> Vec<Event> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_unknown_task_kind_shows_no_stall() {
     let (alice, bob, _casey) = stall_board().await;
-    let future = alice.append("irori", "task.future", &serde_json::json!({"a": 1}));
-    let space = alice.append("irori", "space.future", &serde_json::json!({"b": 2}));
+    let future = alice.append_newer("task.future");
+    let space = alice.append_newer("space.future");
     let after = alice.note("Alice");
     alice.mesh().kick();
     eventually("the rows past the new kinds reach this build", || {
@@ -1068,8 +1073,15 @@ async fn an_unknown_task_kind_shows_no_stall() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     let (alice, bob, casey) = stall_board().await;
+    let refusals = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = refusals.clone();
+    bob.mesh().set_log(Arc::new(move |line: &str| {
+        if line.contains("not allowed in a board log") {
+            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }));
     let held = bob.log.vector().unwrap();
-    let bad = alice.append("irori", "board.future", &serde_json::json!({}));
+    let bad = alice.append_newer("board.future");
     // More rows behind the stall than one pull carries.
     for _ in 0..2100 {
         alice.note("Alice");
@@ -1114,6 +1126,14 @@ async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     alice.mesh().kick();
     eventually("a later row of the healthy writer lands", || bob.has(&row)).await;
     assert_eq!(bob.mesh().stalled().len(), 1, "still stalled");
+
+    // Retries back off. The vector ticks every 300 ms, so every tick would
+    // be 10 refusals in these 3 s.
+    let before = refusals.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(before >= 1, "the stall was never refused");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let more = refusals.load(std::sync::atomic::Ordering::SeqCst) - before;
+    assert!(more <= 4, "{more} retries in 3 s");
     alice.net.close().await;
     bob.net.close().await;
 }

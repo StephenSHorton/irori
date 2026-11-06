@@ -7,7 +7,9 @@
 //!
 //! A pull: the puller writes `u32 BE len || {"vector":{...}}`; the server
 //! answers with `u32 BE len || {"events":[Row]}` chunks of what the puller
-//! lacks, at most 2000 rows in all, then finishes the stream.
+//! lacks, at most 2000 rows in all, taking turns between writers, then
+//! finishes the stream. A puller leaves out a writer it's holding off by
+//! saying it holds that writer's whole stream.
 
 use std::sync::Arc;
 
