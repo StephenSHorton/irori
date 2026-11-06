@@ -12,6 +12,8 @@
 //! - Numbers keep their literal text.
 //! - Parsing and dropping never recurse, so Go's full 10000-level depth is
 //!   safe on any thread.
+//! - [`write_compact`] (rewriting a golden file) does recurse: it is for
+//!   files the repo holds, not for untrusted input.
 
 use super::Error;
 use super::scanner::check_valid;
@@ -348,10 +350,10 @@ impl Value {
 }
 
 /// Writes a parsed tree back as compact JSON, keeping member order,
-/// duplicates and each literal's own bytes, so `encode(&parse(b)?)` is
+/// duplicates and each literal's own bytes, so `write_compact(&parse(b)?)` is
 /// `compact(b)`. For rewriting part of a file Go wrote (a golden) while the
 /// rest stays byte for byte. Recursive: for files, not untrusted input.
-pub fn encode(v: &Value) -> Vec<u8> {
+pub fn write_compact(v: &Value) -> Vec<u8> {
     let mut out = Vec::new();
     write(&mut out, v);
     out
@@ -407,7 +409,7 @@ pub fn rewrite_indented(
     let bad = |e: Error| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string());
     let mut v = parse(&old).map_err(bad)?;
     edit(&mut v);
-    let mut new = super::scanner::indent(&encode(&v), "", "  ").map_err(bad)?;
+    let mut new = super::scanner::indent(&write_compact(&v), "", "  ").map_err(bad)?;
     if old.ends_with(b"\n") {
         new.push(b'\n');
     }
@@ -435,7 +437,7 @@ mod tests {
     #[test]
     fn encode_keeps_order_and_literals() {
         let src = br#"{"b":1,"a":"x\u003cy\/","b":[true,null,{}],"n":1.50e3}"#;
-        assert_eq!(encode(&parse(src).unwrap()), src.to_vec());
+        assert_eq!(write_compact(&parse(src).unwrap()), src.to_vec());
     }
 
     #[test]
@@ -443,11 +445,11 @@ mod tests {
         let mut v = parse(br#"{"k":"old"}"#).unwrap();
         *v.get_mut("k").unwrap() = Value::string("<a & \"b\">\n");
         assert_eq!(
-            encode(&v),
+            write_compact(&v),
             br#"{"k":"\u003ca \u0026 \"b\"\u003e\n"}"#.to_vec()
         );
         *v.get_mut("k").unwrap() = Value::string_with("<a & b>", false);
-        assert_eq!(encode(&v), br#"{"k":"<a & b>"}"#.to_vec());
+        assert_eq!(write_compact(&v), br#"{"k":"<a & b>"}"#.to_vec());
     }
 
     #[test]

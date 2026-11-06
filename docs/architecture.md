@@ -372,7 +372,7 @@ IRORI_BLESS=1 cargo test --no-fail-fast -p irori-tools -p irori-api -p irori-mcp
 cargo test -p irori-tools -p irori-api -p irori-mcp
 ```
 
-The bless rewrites only those parts. Everything else in the files keeps its bytes, its key order, its escaping and its line endings (`gocompat::json::rewrite_indented`), and any other difference still fails. Review the diff: it should show only the text you changed.
+The bless rewrites only those parts. Everything else in the files keeps its bytes, its key order, its escaping and its line endings (`gocompat::json::rewrite_indented`), and any other difference still fails. Review the diff: it should show only the text you changed. The one exception is a `tools/list` answer in `wire.json` that was patched by hand earlier: the first bless rewrites it whole, in the escaping the server really writes (`<` for `<`), and later blesses change only the edited text.
 
 ### 6.3 Differential tests on real data (local only)
 
