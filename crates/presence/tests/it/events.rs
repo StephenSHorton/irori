@@ -29,8 +29,7 @@ async fn event_path_reacts_without_rescan() {
         .join(format!("{id_a}.jsonl"));
     std::fs::create_dir_all(tp.parent().unwrap()).unwrap();
     std::fs::create_dir_all(dir.join("sessions")).unwrap();
-    // Run starts its watchers before the first scan, so once this session
-    // is Added every later write is reported.
+    // Once the watchers are up every later write is reported.
     write_session(dir, json!({"pid": 40, "sessionId": "sentinel"}));
     let (mut o, opens) = event_opts(dir, HOUR, HOUR);
     o.watch = Some(polling_watch());
@@ -38,6 +37,7 @@ async fn event_path_reacts_without_rescan() {
     let sub = w.subscribe();
     let r = run_watcher(&w);
     await_change(&sub, "Added sentinel", is(ChangeKind::Added, "sentinel")).await;
+    await_events(&w, &opens, 1).await;
 
     // A session appears, transcript already there.
     append_file(&tp, &assistant_row("2026-10-26T10:00:00Z", "one"));
@@ -130,6 +130,7 @@ async fn key_file_event_ignored() {
     let sub = w.subscribe();
     let r = run_watcher(&w);
     await_change(&sub, "Added", |c| c.kind == ChangeKind::Added).await;
+    await_events(&w, &opens, 1).await;
     let jsons = opens.count(".json");
     fw.src("sessions").send(FsEvent {
         path: dir
@@ -169,6 +170,7 @@ async fn dead_watcher_falls_back_to_interval() {
     let sub = w.subscribe();
     let r = run_watcher(&w);
     await_change(&sub, "Added first", |c| c.kind == ChangeKind::Added).await;
+    await_watching(&w).await;
 
     *fw.err.lock().unwrap() = Some(WatchError::Other("dir gone".into()));
     fw.src("sessions").kill();
@@ -352,13 +354,14 @@ async fn transcript_of_an_unlisted_session_rescans() {
     write_session(dir, json!({"pid": 40, "sessionId": "sentinel"}));
     let p = dir.join("sessions").join("43.json");
     std::fs::write(&p, b"{\"pid\":").unwrap();
-    let (mut o, _) = event_opts(dir, HOUR, HOUR);
+    let (mut o, opens) = event_opts(dir, HOUR, HOUR);
     let fw = FakeWatch::new();
     fw.install(&mut o);
     let w = Watcher::new(o);
     let sub = w.subscribe();
     let r = run_watcher(&w);
     await_change(&sub, "Added sentinel", is(ChangeKind::Added, "sentinel")).await;
+    await_events(&w, &opens, 2).await;
     assert!(!w.snapshot().iter().any(|c| c.session_id == id));
 
     // The file reads again, but no session-file event arrives; only the
