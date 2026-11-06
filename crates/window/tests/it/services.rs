@@ -81,7 +81,8 @@ fn board_cards_and_answers() {
 
     let a = r.w.answer(&t.id, &bl.id, 0, "", false, &[]).unwrap();
     assert_eq!(a.told.to, vec![r.key_a.clone()]);
-    assert_eq!(a.card.blockers[0].state, "answered");
+    assert!(!a.resolved, "answered, not resolved: it waits on the agent");
+    assert_eq!(r.w.card(&t.id).unwrap().blockers[0].state, "answered");
     assert_eq!(r.w.cards()[0].waiting, 1);
 
     let c =
@@ -117,7 +118,8 @@ fn board_cards_and_answers() {
     let check_id = check.id.clone();
     // Done closes it, as the person.
     let a = r.w.answer(&t.id, &check_id, 0, "", false, &[]).unwrap();
-    assert_eq!(a.card.summary.state, coord::COMPLETED);
+    assert!(a.resolved);
+    assert_eq!(r.w.card(&t.id).unwrap().summary.state, coord::COMPLETED);
     // In one step (card #315): the check reads answered Done.
     let ct = co.get_task(&t.id).unwrap();
     let res = ct
@@ -832,7 +834,8 @@ fn not_done_goes_back_to_the_agent() {
         r.w.answer(&t.id, &check, -1, "the tests still fail", false, &[])
             .unwrap();
     assert_eq!(a.told.to, vec![r.key_a.clone()]);
-    assert_ne!(a.card.summary.state, coord::COMPLETED);
+    assert!(!a.resolved);
+    assert_ne!(r.w.card(&t.id).unwrap().summary.state, coord::COMPLETED);
     let cards = r.w.cards();
     assert_eq!(cards.len(), 1);
     assert!(!cards[0].ready, "answered: it is back with the agent");

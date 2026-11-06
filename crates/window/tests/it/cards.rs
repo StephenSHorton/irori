@@ -260,14 +260,12 @@ fn answer_leaves_blocker_open() {
     let res =
         r.w.answer(&t.id, &bl.id, -1, "Which one is cheaper to run?", true, &[])
             .unwrap();
-    let b = blocker(&res.card, &bl.id);
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    let card = r.w.card(&t.id).unwrap();
+    let b = blocker(&card, &bl.id);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     assert_eq!(b.state, BLOCKER_ANSWERED);
     assert!(b.resolved.is_none());
-    assert_eq!(
-        (res.card.summary.open_blockers, res.card.summary.waiting),
-        (0, 1)
-    );
+    assert_eq!((card.summary.open_blockers, card.summary.waiting), (0, 1));
     assert_eq!(b.sent_to.as_ref().unwrap().name, "alpha");
     assert_eq!(res.told.to, std::slice::from_ref(&r.key_a));
     assert_eq!(res.told.mode, "wake");
@@ -368,16 +366,20 @@ fn answer_resolves_when_nobody_can_act() {
     let b1 = raise(&r, &ended, &t.id, "Ship it?", &[]);
     let b2 = raise(&r, &ended, &t.id, "Which region?", &[]);
     let res = r.w.answer(&t.id, &b1.id, -1, "yes", true, &[]).unwrap();
-    let b = blocker(&res.card, &b1.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved, "nobody runs for it: resolved in place");
+    let b = blocker(&card, &b1.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!((rs.answer.as_str(), rs.note.as_str()), ("yes", ""));
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     let res = r.w.answer(&t.id, &b2.id, -1, "eu-west", true, &[]).unwrap();
-    let b = blocker(&res.card, &b2.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved);
+    let b = blocker(&card, &b2.id);
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(b.resolved.as_ref().unwrap().answer, "eu-west");
-    assert_eq!(res.card.summary.state, coord::WORKING);
+    assert_eq!(card.summary.state, coord::WORKING);
 
     // The person's own item on a card a live agent holds.
     let t2 = another_held_task(&r);
@@ -385,11 +387,13 @@ fn answer_resolves_when_nobody_can_act() {
     let res =
         r.w.answer(&t2.id, &mine.id, -1, "checked", false, &[])
             .unwrap();
-    let b = blocker(&res.card, &mine.id);
+    let card = r.w.card(&t2.id).unwrap();
+    assert!(res.resolved, "the person's own item resolves");
+    let b = blocker(&card, &mine.id);
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(b.resolved.as_ref().unwrap().answer, "checked");
-    assert_ne!(res.card.summary.state, coord::BLOCKED);
-    assert_eq!(res.card.summary.waiting, 0);
+    assert_ne!(card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.waiting, 0);
     assert_eq!(r.w.decide_count(), 0);
 }
 
@@ -418,12 +422,13 @@ fn resolve_blocker_by_person() {
     r.w.answer(&t.id, &b2.id, -1, "whatever is free", false, &[])
         .unwrap();
     let res = r.w.resolve_blocker(&t.id, &b1.id, "", &[]).unwrap();
-    let b = blocker(&res.card, &b1.id);
+    let card = r.w.card(&t.id).unwrap();
+    let b = blocker(&card, &b1.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!((rs.answer.as_str(), rs.option), ("postgres", 0));
     assert_eq!((rs.note.as_str(), rs.by.name.as_str()), ("", "You"));
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     assert_eq!(res.told.mode, "next_turn");
 
     let res =
@@ -434,12 +439,14 @@ fn resolve_blocker_by_person() {
             &[],
         )
         .unwrap();
-    let b = blocker(&res.card, &b2.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved);
+    let b = blocker(&card, &b2.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(rs.answer, "whatever is free");
     assert_eq!(rs.note, "I'll pick one myself later.");
-    assert_eq!(res.card.summary.state, coord::WORKING);
+    assert_eq!(card.summary.state, coord::WORKING);
     let twice = r.w.resolve_blocker(&t.id, &b2.id, "", &[]).unwrap_err();
     assert!(
         twice.starts_with(coord::ErrorKind::BadState.text()),
@@ -600,7 +607,9 @@ fn revised_blocker_shows_in_its_thread() {
     assert!(raw.contains("\"revised\":true"), "{raw}");
     // The pick is from the revised options.
     let res = r.w.answer(&t.id, &bl.id, 0, "", true, &[]).unwrap();
-    let b = blocker(&res.card, &bl.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(!res.resolved, "answered: it waits on the agent");
+    let b = blocker(&card, &bl.id);
     assert_eq!(b.state, BLOCKER_ANSWERED);
     assert_eq!(b.thread.last().unwrap().text, "Yes");
 }
@@ -1770,7 +1779,7 @@ fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
     let ws: Vec<&str> = d.summary.watching.iter().map(|w| w.key.as_str()).collect();
     assert_eq!(ws, [r.key_b.as_str()]);
 
-    let res =
+    let _ =
         r.w.answer(
             &t.id,
             &check,
@@ -1780,9 +1789,10 @@ fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
             &[],
         )
         .unwrap();
+    let card = r.w.card(&t.id).unwrap();
     // Not resolved in place: the card is back on the Board, and the
     // person's words are on the check's thread for the next agent's brief.
-    assert_eq!(res.card.summary.state, coord::SUBMITTED);
+    assert_eq!(card.summary.state, coord::SUBMITTED);
     let cs = co.comments(&t.id).unwrap_or_default();
     assert!(
         cs.iter()

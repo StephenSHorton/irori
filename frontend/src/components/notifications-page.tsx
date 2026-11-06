@@ -20,6 +20,8 @@ import {
   useAct,
 } from "@/components/cards/needs-you"
 import { useCard } from "@/lib/cards"
+import { AnswersShape } from "@/components/common/loading-shapes"
+import { askKey, askPatch, instant } from "@/lib/optimistic"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import {
@@ -383,13 +385,24 @@ function CardLive({
   const { detail, error } = useCard(n.card?.id ?? "")
   if (!n.card) return <Outcome line="The card is gone" now={now} />
   if (error) return <OpenCard onOpen={onOpen} />
-  if (!detail) return null
+  // The item's answers are on their way (card #644): their shape now,
+  // not a gap that jumps when they come.
+  if (!detail)
+    return (
+      <Loading loading label="Loading the answers">
+        <AnswersShape />
+      </Loading>
+    )
   const b = n.blockerId
     ? detail.blockers.find((x) => x.id === n.blockerId)
     : undefined
   if (b) {
+    // "Answer…" opens the card to answer there (card #644); a pick is
+    // answered here.
     if (blockerOpen(b))
-      return <BlockerAnswer cardId={detail.id} b={b} onOpen={onOpen} />
+      return (
+        <BlockerAnswer cardId={detail.id} b={b} onOpen={onOpen} answerOpens />
+      )
     return (
       <>
         {!b.doneCheck && (
@@ -419,36 +432,34 @@ function CardLive({
 }
 
 // AskLive is an agent's ask: its buttons while it waits, else its answer.
+// A pick shows as the answer at once and saves in the background (card
+// #644); a refusal (answered on another device, out of time) brings the
+// buttons back and says why in a toast.
 function AskLive({ n }: { n: Notification }) {
-  const act = useAct()
   const a = n.ask!
   const ask = n.key.startsWith("ask:") ? n.key.slice(4) : ""
   if (!a.open) return <Outcome line={askOutcome(a)} now={new Date()} />
+  const pick = (l: string) =>
+    instant({
+      key: askKey(ask),
+      patch: askPatch(n.key, l),
+      send: () => answerAsk(ask, l),
+      failed: "Your answer wasn't sent",
+    })
   return (
-    <>
-      {!act.done && (
-        <span
-          className="flex flex-wrap gap-1.5"
-          role="group"
-          aria-label="Answers"
+    <span className="flex flex-wrap gap-1.5" role="group" aria-label="Answers">
+      {a.actions.map((l, i) => (
+        <Button
+          key={l}
+          size="sm"
+          variant={i === 0 ? "default" : "outline"}
+          disabled={!ask}
+          onClick={() => void pick(l)}
         >
-          {a.actions.map((l, i) => (
-            <Button
-              key={l}
-              size="sm"
-              variant={i === 0 ? "default" : "outline"}
-              disabled={act.busy || !ask}
-              onClick={() =>
-                void act.run(() => answerAsk(ask, l), `Answered “${l}”.`)
-              }
-            >
-              {l}
-            </Button>
-          ))}
-        </span>
-      )}
-      <Said error={act.error} done={act.done} />
-    </>
+          {l}
+        </Button>
+      ))}
+    </span>
   )
 }
 

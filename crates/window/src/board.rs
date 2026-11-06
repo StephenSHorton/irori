@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
-use crate::cards::{AgentRef, CardDetail, NOTE_ITEM, not_found_task};
+use crate::cards::{AgentRef, NOTE_ITEM, not_found_task};
 use crate::mentions::{MentionOutcome, Plan};
 use crate::ts;
 
@@ -57,11 +57,15 @@ pub struct CommentResult {
     pub mentioned: Vec<MentionOutcome>,
 }
 
-/// Answer's reply: the card after the answer, and who heard.
+/// Answer's reply: whether the item ended, and who heard. It carries no
+/// card (card #644): rebuilding one was half an answer's time, and the
+/// window shows the answer at once and reads the card on board:changed.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerResult {
-    pub card: CardDetail,
+    /// The answered item is resolved now (nobody runs to act on it, Done
+    /// on a done check, or Mark resolved), not left with its agent.
+    pub resolved: bool,
     pub told: Told,
     /// What each mention came to (card #77).
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -638,7 +642,7 @@ impl Window {
                 .get(option.max(0) as usize)
                 .is_some_and(|o| option >= 0 && o.answer == coord::DONE_ANSWER)
         {
-            let (_, ns) = co
+            let (t, ns) = co
                 .say_done(&me, task_id, blocker_id, &plan.log)
                 .map_err(|e| e.to_string())?;
             let (ns, mentioned) = self.route_mentioned(ns, &plan);
@@ -647,7 +651,7 @@ impl Window {
                 .map(|n| self.tell(n, Tell::NextTurn))
                 .unwrap_or_default();
             return Ok(AnswerResult {
-                card: self.card(task_id)?,
+                resolved: item_resolved(&t, blocker_id),
                 told,
                 mentioned,
                 irori_acts: false,
@@ -738,7 +742,7 @@ impl Window {
         let (ns, mentioned) = self.route_mentioned(ns, &plan);
         let told = self.tell(&ns[0], Tell::NextTurn);
         Ok(AnswerResult {
-            card: self.card(&t.id)?,
+            resolved: item_resolved(&t, blocker_id),
             told,
             mentioned,
             irori_acts,
@@ -804,7 +808,7 @@ impl Window {
             .map(|n| self.tell(n, Tell::NextTurn))
             .unwrap_or_default();
         Ok(AnswerResult {
-            card: self.card(&t.id)?,
+            resolved: item_resolved(&t, blocker_id),
             told,
             mentioned,
             irori_acts: false,
@@ -857,7 +861,7 @@ impl Window {
         co.set_task_state(&me, id, back, "")
             .map_err(|e| e.to_string())?;
         Ok(AnswerResult {
-            card: self.card(id)?,
+            resolved: false,
             told,
             mentioned,
             irori_acts: false,
@@ -949,4 +953,13 @@ mod tests {
             "tell is next_turn, wake, stop or none, not \"loud\""
         );
     }
+}
+
+/// Whether item `id` of `t` is resolved after an answer: closed, or gone
+/// from the card (only the newest resolved items are kept).
+fn item_resolved(t: &Task, id: &str) -> bool {
+    t.blockers
+        .iter()
+        .find(|b| b.id == id)
+        .is_none_or(|b| b.resolved.is_some())
 }
