@@ -174,7 +174,7 @@ Rules:
 | AppKit toast panels, the tray, SMAppService | the AppKit main thread Tauri already runs, through `run_on_main_thread` | inbox.md §7.16 |
 | FSEvents stream | its own thread with a CFRunLoop | capture.md §4 |
 | ReadDirectoryChangesW | a blocking thread per watch, armed before `watch()` returns | capture.md §4, §7.12 |
-| Presence's watcher starts | a `presence-watch` thread; the roster scans first and polls until they're up | `FSEventStreamStart` can take a minute on a busy Mac (card #601) |
+| File watcher starts (presence, capture) | a `presence-watch` / `capture-watch` thread each; the loop scans first, and reads what a watcher covers once it is up | `FSEventStreamStart` can take a minute on a busy Mac (card #601) |
 | Parent and process waits (attach, presence) | blocking threads (`WaitForMultipleObjects`, kqueue) | surface.md §4 |
 | The capture loop | one task owns all tail and reflog state; readers use the RwLock'd fold | capture.md §7.13 |
 
