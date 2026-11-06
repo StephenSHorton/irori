@@ -74,9 +74,11 @@ function hueOf(name: string): string {
   return hues[Math.abs(h) % hues.length]
 }
 
+// initials is a name's first letter, or its first two words' ("another
+// person": "AP").
 function initials(name: string): string {
   const w = name.trim().split(/\s+/)
-  return (w.length > 1 ? w[0][0] + w[1][0] : name.slice(0, 2)).toUpperCase()
+  return (w.length > 1 ? w[0][0] + w[1][0] : name.slice(0, 1)).toUpperCase()
 }
 
 const healthDot: Record<Health, string> = {
