@@ -2595,6 +2595,7 @@ fn live(d: &Dev, person: &str) -> mesh::boardmesh::LivePeer {
         device_pub: hex::encode(d.core.identity().device_pub()),
         person_id: person.to_string(),
         dms: mesh::boardmesh::DMS_PROTOCOL,
+        calls: mesh::boardmesh::CALLS_PROTOCOL,
     }
 }
 
