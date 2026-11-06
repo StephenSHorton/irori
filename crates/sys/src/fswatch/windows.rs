@@ -194,10 +194,13 @@ pub(super) fn watch(
             .spawn(move || {
                 let mut r = reader;
                 let armed = r.arm();
-                let ok = armed.is_ok();
+                let armed_ok = armed.is_ok();
                 let _ = armed_tx.send(armed);
-                // On failure nothing is pending: fall through to clean up.
-                while ok {
+                loop {
+                    // On failure nothing is pending: go clean up.
+                    if !armed_ok {
+                        break;
+                    }
                     let hs = [r.io.0, stop_ev.0];
                     // SAFETY: two open handles.
                     let w = unsafe { WaitForMultipleObjects(2, hs.as_ptr(), 0, INFINITE) };
