@@ -475,6 +475,17 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// Device `owner` takes the ask (card #541); `moves` counts the takes.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct AskMovedRow {
+        pub task_id: String = "taskId",
+        pub owner: String = "owner",
+        pub moves: i64 = "moves",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TakeStateRow {
         pub task_id: String = "taskId",

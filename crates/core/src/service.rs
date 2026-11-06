@@ -70,6 +70,7 @@ mod notifications;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_boards;
+pub mod spawn_capable;
 pub mod spawn_limits;
 pub mod spawn_permissions;
 pub mod spawn_remote;
@@ -1119,6 +1120,7 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
+                    agent_devices: Some(spawn_state.agent_devices_fn()),
                     // The limit the coord reads (card #576): from the
                     // same map, so a change holds at once.
                     crash_limit: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
@@ -2549,6 +2551,23 @@ impl Core {
         self.s.coord.is_spawned(key)
     }
 
+    /// The open cards and threads no agent can start for now, each with
+    /// why (card #541), on the private board and the shared ones.
+    pub fn no_agent(&self) -> std::collections::HashMap<String, String> {
+        self.s.no_agent_all()
+    }
+
+    /// This device never runs agents (a phone, card #541).
+    pub fn set_runs_no_agents(&self) {
+        self.s.set_runs_no_agents();
+        self.s.asks_kick.kick();
+    }
+
+    /// The devices that can't run agents (card #541).
+    pub fn cant_run_devices(&self) -> std::collections::HashSet<String> {
+        self.s.cant_run_devices()
+    }
+
     /// The person's "Offer it cards" on one of their terminal agents: the
     /// app only, never a tool (card #453).
     pub fn set_agent_offer(&self, key: &str, on: bool) -> Result<(), String> {
@@ -2636,10 +2655,15 @@ impl Core {
         self.s.start_agent(id, "")?;
         // The device that made the card runs its hand-out (card #485: the
         // PC's cards go out from the PC).
+        if let Some(why) = self.s.no_agent_all().remove(id) {
+            return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
+        }
         if !self.s.coord.hands_out_here(id) {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
-            if name.is_empty() {
+            if self.s.cant_run_devices().contains(&dev) {
+                name = "one of your computers".into();
+            } else if name.is_empty() {
                 name = "the device that made it".into();
             }
             return Ok(format!(

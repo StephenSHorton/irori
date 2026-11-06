@@ -40,6 +40,7 @@ fn rig() -> T {
         end: Arc::new(|_| Ok(String::new())),
         trusted: Arc::new(|_: &Path| true),
         list: None,
+        ready: None,
     }));
     r.w.core
         .set_spawn_setting(SpawnSetting {

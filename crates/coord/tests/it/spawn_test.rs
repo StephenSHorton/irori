@@ -723,6 +723,213 @@ fn a_request_naming_another_device_or_superseded_or_stale_starts_nothing_here() 
     assert!(e.c.spawns_here().is_empty(), "moved on to dev-c");
 }
 
+/// Card #541: two computers (dev-a and dev-b) both took one card's
+/// generation 1, and dev-b started, bound and then failed its own. Every
+/// device, whatever order the rows reach it in, ends with dev-a's request
+/// (the lowest id), not bound to dev-b's agent, and dev-a's agent binds.
+#[test]
+fn two_computers_taking_one_generation_agree_in_any_order() {
+    let row = |id: &str, op: &str, dev: &str| TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: op.into(),
+        device: dev.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{dev}"),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    let mark = |id: &str, dev: &str| coord::rows::TaskSpawnedRow {
+        task_id: id.into(),
+        key: format!("{dev}/session"),
+        generation: 1,
+        device: dev.into(),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..Default::default()
+    };
+    // dev-b's rows keep their order; dev-a's request lands anywhere.
+    for at in 0..4 {
+        let e = Env::on("dev-p");
+        let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+        let id = t.id.clone();
+        let mut b_seq = 0;
+        let mut b = |n: usize| {
+            b_seq += 1;
+            let at = hlc_at(fixed_now()) + 10 + b_seq as u64;
+            match n {
+                0 => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_REQUESTED, "dev-b"),
+                ),
+                1 => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWNED,
+                    &mark(&id, "dev-b"),
+                ),
+                _ => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_FAILED, "dev-b"),
+                ),
+            };
+        };
+        for n in 0..3 {
+            if n == at {
+                e.remote(
+                    "dev-a",
+                    1,
+                    hlc_at(fixed_now()) + 1,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_REQUESTED, "dev-a"),
+                );
+            }
+            b(n);
+        }
+        if at == 3 {
+            e.remote(
+                "dev-a",
+                1,
+                hlc_at(fixed_now()) + 1,
+                SWEEPER_KEY,
+                kinds::TASK_SPAWN,
+                &row(&id, SPAWN_REQUESTED, "dev-a"),
+            );
+        }
+        let s = e.c.get_task(&id).unwrap().spawn_request().cloned().unwrap();
+        assert_eq!(
+            (s.device.as_str(), s.op.as_str(), s.key.as_str()),
+            ("dev-a", SPAWN_REQUESTED, ""),
+            "dev-a's request arrived at {at}"
+        );
+        e.remote(
+            "dev-a",
+            2,
+            hlc_at(fixed_now()) + 2,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWNED,
+            &mark(&id, "dev-a"),
+        );
+        let s = e.c.get_task(&id).unwrap().spawn_request().cloned().unwrap();
+        assert_eq!(s.key, "dev-a/session", "dev-a's agent binds at {at}");
+    }
+}
+
+/// Card #541: the computer whose request lost the generation can't bind
+/// its agent to the winner's, nor fail the winner's with its own refusal.
+#[test]
+fn the_losing_computer_neither_binds_nor_fails_the_winners_request() {
+    let e = Env::on("dev-b");
+    let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+    let row = TaskSpawnRow {
+        task_id: t.id.clone(),
+        generation: 1,
+        op: SPAWN_REQUESTED.into(),
+        device: "dev-a".into(),
+        permission_mode: "acceptEdits".into(),
+        name: "for-dev-a".into(),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    e.remote(
+        "dev-a",
+        1,
+        hlc_at(fixed_now()) + 1,
+        SWEEPER_KEY,
+        kinds::TASK_SPAWN,
+        &row,
+    );
+    assert!(!e.c.bind_spawn(&t.id, 1, "dev-b/session").unwrap());
+    assert!(
+        !e.c.fail_own_spawn(&t.id, 1, "Claude Code isn't installed on the Mac")
+            .unwrap()
+    );
+    let s =
+        e.c.get_task(&t.id)
+            .unwrap()
+            .spawn_request()
+            .cloned()
+            .unwrap();
+    assert_eq!(
+        (s.device.as_str(), s.op.as_str(), s.key.as_str()),
+        ("dev-a", SPAWN_REQUESTED, "")
+    );
+}
+
+/// Card #541: the person cancels from the phone, which saw only dev-b's
+/// request; dev-a's (the lowest id) arrives before or after. The cancel
+/// ends the generation on every device, so nothing starts.
+#[test]
+fn a_cancel_ends_the_generation_whichever_request_it_saw() {
+    let row = |id: &str, op: &str, dev: &str| TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: op.into(),
+        device: dev.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{dev}"),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    for a_first in [true, false] {
+        let e = Env::on("dev-p");
+        let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+        let a = |e: &Env| {
+            e.remote(
+                "dev-a",
+                1,
+                hlc_at(fixed_now()) + 1,
+                SWEEPER_KEY,
+                kinds::TASK_SPAWN,
+                &row(&t.id, SPAWN_REQUESTED, "dev-a"),
+            );
+        };
+        if a_first {
+            a(&e);
+        }
+        e.remote(
+            "dev-b",
+            1,
+            hlc_at(fixed_now()) + 2,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_REQUESTED, "dev-b"),
+        );
+        e.remote(
+            "dev-c",
+            1,
+            hlc_at(fixed_now()) + 3,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_CANCELED, "dev-b"),
+        );
+        if !a_first {
+            a(&e);
+        }
+        let s =
+            e.c.get_task(&t.id)
+                .unwrap()
+                .spawn_request()
+                .cloned()
+                .unwrap();
+        assert_eq!(s.op, SPAWN_CANCELED, "dev-a's first: {a_first}");
+    }
+}
+
 /// The crash limit is the person's (card #576): read live, with the
 /// question saying the number; at the default it's the words it always was.
 fn limited_crashes(e: &Env, on: &Arc<AtomicBool>, limit: &Arc<AtomicI64>) -> Coord {

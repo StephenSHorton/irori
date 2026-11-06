@@ -55,6 +55,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf, sess: &'static str) -> Spawner {
     let (a, b, c) = (f.clone(), f.clone(), f.clone());
     let s2 = sessions.clone();
     Spawner {
+        ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
             if let Some(e) = a.fail.lock().unwrap().clone() {
                 return Err(e);

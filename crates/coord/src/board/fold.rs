@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 14] = [
+pub const FOLLOW_KINDS: [&str; 15] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,8 @@ pub const FOLLOW_KINDS: [&str; 14] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // A computer takes an ask (card #541).
+    kinds::ASK_MOVED,
     // A board's row can land after its cards (card #558): only their tag
     // follows it, since the boards themselves are read from the log.
     "space.board.",
@@ -251,6 +253,8 @@ pub struct Fold {
     pub(crate) sides: crate::sides::Sides,
     /// See [`super::Options::spawning`].
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// See [`super::Options::agent_devices`].
+    pub(crate) agent_devices: Option<super::AgentDevicesFn>,
     /// See [`super::Options::offers`].
     pub(crate) offers: Option<super::OffersFn>,
     /// See [`super::Options::crash_limit`].
@@ -453,6 +457,7 @@ impl Fold {
             key_person: o.key_person,
             sides: crate::sides::Sides::new(),
             spawning: o.spawning,
+            agent_devices: o.agent_devices,
             offers: o.offers,
             crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
@@ -1052,6 +1057,7 @@ impl Fold {
             | kinds::BOARD_ASK_REQUESTED
             | kinds::BOARD_ASK_STATE
             | kinds::BOARD_ASK_EDITED => self.apply_take(ev, &at),
+            kinds::ASK_MOVED | kinds::BOARD_ASK_MOVED => self.apply_ask_moved(ev),
             kinds::LEASE_REFUSED => {
                 let Some(mut r) = row::<Refusal>(&ev.payload) else {
                     return;
@@ -2121,6 +2127,8 @@ impl Fold {
             kinds::LEASE_RELEASED => true,
             // The take lock: its fold counts only the asking device's.
             kinds::BOARD_ASK_STATE => true,
+            // Its fold checks who may take the ask (card #541).
+            kinds::BOARD_ASK_MOVED => true,
             // A hand-out counts from the device that runs it: the one that
             // made the card (card #174).
             kinds::TASK_OFFERED => self.origin.get(&p.task_id) == Some(&ev.device_id),

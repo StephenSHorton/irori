@@ -76,6 +76,9 @@ export const stateBadges: Record<
 
 // stateLine says where a thread stands, under its title in the Talk list.
 export function stateLine(t: ThreadSummary, why = ""): string {
+  // A follow-up no computer can start an agent for (card #541): why, even
+  // on a thread an agent answered before.
+  if (t.state === "answered" && t.noAgent) return t.noAgent
   switch (t.state) {
     case "answered":
       return t.lastBy && t.lastText

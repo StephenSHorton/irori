@@ -236,6 +236,33 @@ pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Every tag a space's log has named for a board inside it (card #558).
 pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
+/// See [`Options::agent_devices`].
+pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
+
+/// Which of the person's devices can run agents (card #541).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentDevices {
+    /// The computers that can run agents, best first: work goes to the
+    /// first. Offline ones count, so work can wait for one.
+    pub homes: Vec<String>,
+    /// The devices that can't run agents.
+    pub cant: std::collections::HashSet<String>,
+    /// The devices not connected now.
+    pub away: std::collections::HashSet<String>,
+    /// Since when each device in `away` has been away, in unix nanoseconds,
+    /// as this device saw it: a link that dropped a moment ago moves
+    /// nothing.
+    pub away_since: std::collections::BTreeMap<String, i64>,
+    /// The devices whose Irori reads `ask.moved` (a `spawn.host` row
+    /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
+    /// one of these, since an older one would keep acting on it.
+    pub moves: std::collections::HashSet<String>,
+}
+
+/// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
+/// and stands in for a phone (card #541). Older rows have none (0).
+pub const HOST_MOVES: i64 = 1;
+
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -305,6 +332,10 @@ pub struct Options {
     /// the app only. Read when the hand-out runs. `None` or false: idle
     /// agents, as before.
     pub spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Which of the person's devices can run agents (card #541). Read
+    /// under the coord's lock, so never the store. `None`: every device
+    /// can, as before.
+    pub agent_devices: Option<AgentDevicesFn>,
     /// Whether an agent Irori didn't start (a terminal agent, spawned
     /// agents §5) takes work Irori hands out: unheld cards, asks and
     /// threads (card #453). Only when the person turned on "Offer it
@@ -1528,11 +1559,29 @@ impl Coord {
     pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
         self.lock().hand_on(by, id)
     }
-    /// Whether this device runs card `id`'s hand-out (it made the card):
-    /// only then does its own sweep start or offer the card's agent.
+    /// Whether this device starts card `id`'s agent: it made the card and
+    /// can run agents, it stands in for a device that can't, or it owns
+    /// the ask (card #541).
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
-        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
+        f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Takes to this device the waiting asks whose owner can't serve them,
+    /// when work goes here (card #541).
+    pub fn pull_asks(&self) -> Result<()> {
+        self.lock().pull_asks()
+    }
+    /// Whether card t waits for an agent to start for it (card #541).
+    pub fn waits_for_agent(&self, t: &Task) -> bool {
+        self.lock().waits_for_agent(t)
+    }
+    /// Whether card t was made on this device (card #541).
+    pub fn made_here(&self, t: &Task) -> bool {
+        self.lock().hands_out(t)
+    }
+    /// The computer agent work on `side` goes to (card #541).
+    pub fn agent_home(&self, side: &str) -> Option<String> {
+        self.lock().agent_home(side)
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
@@ -1565,6 +1614,11 @@ impl Coord {
     ) -> Result<bool> {
         self.lock()
             .end_spawn(by, id, ("", ""), generation, op, reason)
+    }
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it; Ok(false) when it is another computer's now.
+    pub fn fail_own_spawn(&self, id: &str, generation: i64, reason: &str) -> Result<bool> {
+        self.lock().fail_own_spawn(id, generation, reason)
     }
     /// Binds agent `key` to request `generation` of card `id`: the mark, and the
     /// card assigned to it.
