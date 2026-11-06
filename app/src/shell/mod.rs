@@ -16,6 +16,9 @@
 
 #[cfg(target_os = "android")]
 mod apk;
+// The parsing in it is tested on the desktop too.
+#[cfg(any(target_os = "android", test))]
+mod call_android;
 #[cfg(test)]
 mod golden;
 pub mod instance;
@@ -111,6 +114,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(Arc::new(notify_android::Phone(phone.clone())));
     #[cfg(not(target_os = "android"))]
     let toaster = None;
+    // Card #654: a call's microphone service and audio mode on the phone.
+    #[cfg(target_os = "android")]
+    let call_slot: call_android::Slot = Arc::default();
+    // #654: handed to the call service
+    #[cfg(target_os = "android")]
+    let _call_platform: Arc<dyn call::Platform> =
+        Arc::new(call_android::Phone::new(call_slot.clone()));
     let notifier = notify::Notifier::new(notify::Config {
         dir: Some(data.clone()),
         headless: probe::Probe::from_env().on(),
@@ -156,6 +166,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // again (a tap that brought it back).
     #[cfg(target_os = "android")]
     let app = app.plugin(notify_android::init(phone.clone(), notifier.clone()));
+    // Calls (#654): the Kotlin CallPlugin behind the phone's call::Platform.
+    #[cfg(target_os = "android")]
+    let app = app.plugin(call_android::init(call_slot));
     let app = app
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
