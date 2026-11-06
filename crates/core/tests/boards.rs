@@ -404,9 +404,10 @@ fn board_logs_move_to_spaces() {
 }
 
 /// Card #392: a space holds more boards. A lone device adds one at once;
-/// with two devices the add waits until the other has said, in its board
-/// hello, that it reads space rows (an older Irori would stall on them),
-/// and then the new board reaches it.
+/// with two devices the add waits while the other is known to be too old
+/// for space rows (an older Irori would stall on them), and then the new
+/// board reaches it. Card #577: a's saved word on b says too old, so a
+/// refuses, naming b, until b's live hello says it reads them.
 #[test]
 fn a_second_board_in_a_space_reaches_the_other_device() {
     let (a, b) = paired();
@@ -414,20 +415,38 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
         .core
         .create_board("Wind Waker Multiplayer", "wind")
         .unwrap();
-    // b is a member device (a wrote its cert) but hasn't even opened the
-    // space yet, so it can't have said it reads space rows: refused.
+    // As if a last heard b on an Irori before spaces.
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.10.2".into(),
+                spaces: 0,
+                at_ms: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     let e = a
         .core
         .create_space_board(&id, "Too soon", "soon")
         .unwrap_err();
-    assert!(e.to_string().contains("waiting on"), "{e}");
+    let short = &b.core.device_id()[..6];
+    assert!(
+        e.to_string().contains("waiting on") && e.to_string().contains(short),
+        "{e}"
+    );
     assert_eq!(a.core.space_boards(&id).unwrap().len(), 1);
     wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
     let bv = b.core.board_verifier(&id).unwrap();
     wait_for(45, "b's cert arrives", || {
         bv.membership().created && bv.cert(b.core.device_id()).is_some()
     });
-    // Nobody is known to be too old, so a needn't wait for b's hello.
+    // b's live hello beats the old saved one.
     wait_for(45, "a hears b read spaces", || {
         a.core.space_not_ready(&id).unwrap().is_empty()
     });
@@ -490,10 +509,11 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     }
 }
 
-/// Card #411: a board note waits, like a space row, until every member
-/// device has said it reads them (an older Irori would stall on note.*),
-/// naming what it waits on; a Mine note never waits. Then the board note
-/// reaches the other device.
+/// Card #411: a board note waits, like a space row, while a member device
+/// is known to be too old for note.* (an older Irori would stall on it); a
+/// Mine note never waits. Card #577: one nobody has heard from yet doesn't
+/// hold a note back, and shows as a warning line. Both board notes then
+/// reach the other device.
 #[test]
 fn a_board_note_waits_for_every_device_then_reaches_it() {
     let (a, b) = paired();
@@ -505,29 +525,39 @@ fn a_board_note_waits_for_every_device_then_reaches_it() {
         tags: vec!["everywhere".into()],
         ..Default::default()
     };
-    let e = a
+    // Nobody has any word from b yet: that refuses nothing (no-server.md
+    // §5), and b shows in the warnings instead.
+    let short = b.core.device_id()[..6].to_string();
+    wait_for(45, "a is warned b is unheard", || {
+        a.core
+            .board_list()
+            .iter()
+            .find(|s| s.board_id == id)
+            .is_some_and(|s| {
+                s.warnings
+                    .iter()
+                    .any(|w| w.starts_with("Nothing heard yet") && w.contains(&short))
+            })
+    });
+    let early = a
         .core
-        .propose_note(&me, "mlg", nn("Ship models to the repo."))
-        .unwrap_err();
-    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
-    assert!(e.to_string().contains("waiting on"), "{e}");
-    assert!(a.core.notes("mlg", false).unwrap().is_empty());
+        .propose_note(&me, "mlg", nn("Models stay out of the repo."))
+        .unwrap();
     a.core
         .propose_note(&me, "mine", nn("Home IPs stay out of MLG."))
         .unwrap();
     wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
-    wait_for(45, "a hears b read spaces", || {
-        a.core.space_not_ready(&id).unwrap().is_empty()
-    });
     let n = a
         .core
         .propose_note(&me, "mlg", nn("Ship models to the repo."))
         .unwrap();
     assert_eq!(n.note.state, coord::NOTE_ACCEPTED);
-    wait_for(45, "b gets the board note", || {
-        b.core
-            .notes(&id, false)
-            .is_ok_and(|ns| ns.iter().any(|x| x.note.id == n.note.id))
+    wait_for(45, "b gets both board notes", || {
+        b.core.notes(&id, false).is_ok_and(|ns| {
+            [&early.note.id, &n.note.id]
+                .iter()
+                .all(|id| ns.iter().any(|x| &&x.note.id == id))
+        })
     });
 }
 
