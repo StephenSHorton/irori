@@ -579,26 +579,6 @@ impl Coord {
         self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
     }
 
-    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
-    /// lock (card #561): `None` when the log is busy. With the matches, the
-    /// keys among their writers and accepters that are this log's person
-    /// ([`Coord::is_person`]), so telling them apart needs no second read.
-    pub fn try_notes_for(
-        &self,
-        cx: &NoteContext,
-    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
-        self.try_read(|f| {
-            let notes = f.notes_for(cx);
-            let people = notes
-                .iter()
-                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
-                .filter(|k| f.is_owner(k))
-                .cloned()
-                .collect();
-            (notes, people)
-        })
-    }
-
     /// Holds this log's lock until the guard drops, so a test can show a
     /// reader doesn't wait on it.
     #[doc(hidden)]

@@ -1,7 +1,7 @@
 //! The Notes page's commands (decision 45, card #401, docs/design/notes.md
-//! §11): list, New note, accept, edit and remove, each
-//! through the Core's notes API, which routes a note to Mine (the private
-//! log) or a board's log and gates board writes (#411).
+//! §11): list, New note, accept, edit and remove, each through the Core's
+//! notes API. Every note is the person's own, in the private log
+//! (decision 52, card #616).
 
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
@@ -43,10 +43,6 @@ pub struct NoteEventView {
 pub struct NoteView {
     /// The bare id; refs are `note:<id>`.
     pub id: String,
-    /// `mine`, or the board's tag.
-    pub scope: String,
-    /// `""` for Mine.
-    pub board_id: String,
     /// rule, gotcha, decision, pointer or preference.
     pub kind: String,
     pub text: String,
@@ -54,8 +50,7 @@ pub struct NoteView {
     /// `task:<id>`, `comment:<id>`, `blocker:<taskId>/<b1>`, `proof:<taskId>`, or "".
     pub source: String,
     pub task_id: String,
-    /// The author's key: the person (`user:…`, or `person:…` on a board)
-    /// or an agent.
+    /// The author's key: the person (`user:…`) or an agent.
     pub by: String,
     /// Whether the author is a person (a person's note is live at once).
     pub by_person: bool,
@@ -80,8 +75,6 @@ pub struct NoteView {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NoteInput {
-    /// `mine` (the default), or a board's tag or id.
-    pub scope: String,
     pub kind: String,
     pub text: String,
     pub tags: Vec<String>,
@@ -96,13 +89,10 @@ pub struct NoteEditInput {
     pub tags: Option<Vec<String>>,
 }
 
-fn view(s: irori_core::ScopedNote, person: impl Fn(&str) -> bool) -> NoteView {
-    let n = s.note;
+fn view(n: coord::Note, person: impl Fn(&str) -> bool) -> NoteView {
     NoteView {
         by_person: person(&n.by),
         id: n.id,
-        scope: s.scope,
-        board_id: s.board_id,
         kind: n.kind,
         text: n.text,
         tags: n.tags,
@@ -144,17 +134,9 @@ fn needs_look(n: &coord::Note) -> bool {
 
 impl Window {
     /// Still true? for one note (v1, docs/design/notes.md §11).
-    fn stale(&self, s: &irori_core::ScopedNote) -> String {
-        let n = &s.note;
-        if !n.task_id.is_empty() {
-            let co = if s.board_id.is_empty() {
-                Some(self.core.coord().clone())
-            } else {
-                self.core.board_coord(&s.board_id).ok()
-            };
-            if co.is_some_and(|c| c.get_task(&n.task_id).is_none()) {
-                return "its source card is gone".into();
-            }
+    fn stale(&self, n: &coord::Note) -> String {
+        if !n.task_id.is_empty() && self.core.coord().get_task(&n.task_id).is_none() {
+            return "its source card is gone".into();
         }
         for t in &n.tags {
             let Some(rest) = t.strip_prefix(coord::TAG_PATH) else {
@@ -180,38 +162,36 @@ impl Window {
         String::new()
     }
 
-    fn note_view(&self, s: irori_core::ScopedNote) -> NoteView {
-        let stale = if s.note.state == coord::NOTE_REMOVED {
+    fn note_view(&self, n: coord::Note) -> NoteView {
+        let stale = if n.state == coord::NOTE_REMOVED {
             String::new()
         } else {
-            self.stale(&s)
+            self.stale(&n)
         };
         let core = self.core.clone();
-        let mut v = view(s, move |k| {
-            k.starts_with(store::kinds::PERSON_ACTOR_PREFIX) || core.coord().is_person(k)
-        });
+        let mut v = view(n, move |k| core.coord().is_person(k));
         v.stale = stale;
         v
     }
 
-    /// The notes in `scope` (`""`: Mine and every board), newest first;
-    /// removed ones too when asked (the history view).
-    pub fn notes_list(&self, scope: &str, removed: bool) -> Result<Vec<NoteView>, String> {
-        let ns = self
+    /// The person's notes, newest first; removed ones too when asked (the
+    /// history view).
+    pub fn notes_list(&self, removed: bool) -> Result<Vec<NoteView>, String> {
+        Ok(self
             .core
-            .notes(crate::trim(scope), removed)
-            .map_err(|e| e.to_string())?;
-        Ok(ns.into_iter().map(|s| self.note_view(s)).collect())
+            .notes(removed)
+            .into_iter()
+            .map(|n| self.note_view(n))
+            .collect())
     }
 
-    /// The sidebar's Notes count (card #468): notes in Mine and every board
-    /// waiting on the person's look, an agent's proposal or an agent's
-    /// pending edit or removal of a live note. It reads the folds only:
-    /// no Still true? checks on disk and no views, which notes_list("")
-    /// did for every note on every board change.
+    /// The sidebar's Notes count (card #468): notes waiting on the
+    /// person's look, an agent's proposal or an agent's pending edit or
+    /// removal of a live note. It reads the fold only: no Still true?
+    /// checks on disk and no views, which notes_list did for every note on
+    /// every board change.
     pub fn notes_waiting(&self) -> Result<usize, String> {
-        let ns = self.core.notes("", false).map_err(|e| e.to_string())?;
-        Ok(ns.iter().filter(|s| needs_look(&s.note)).count())
+        Ok(self.core.notes(false).iter().filter(|n| needs_look(n)).count())
     }
 
     /// New note: written by the person, so live at once.
@@ -221,7 +201,6 @@ impl Window {
             .core
             .propose_note(
                 &me,
-                crate::trim(&n.scope),
                 coord::NewNote {
                     kind: n.kind,
                     text: n.text,

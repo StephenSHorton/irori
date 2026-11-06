@@ -415,7 +415,7 @@ export function AppSidebar({
             count={notesWaiting}
             countTone="warning"
             countTitle="Notes agents proposed, waiting on your look"
-            onClick={() => go({ kind: "notes", tab: "" })}
+            onClick={() => go({ kind: "notes" })}
           />
           <NavItem
             icon={LayoutGridIcon}

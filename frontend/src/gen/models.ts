@@ -572,7 +572,7 @@ export function NoteInput(p: Partial<B.NoteInput> = {}): B.NoteInput {
 
 /** NoteView with Go's zero values for every field left out. */
 export function NoteView(p: Partial<B.NoteView> = {}): B.NoteView {
-  return { "id": "", "scope": "", "boardId": "", "kind": "", "text": "", "tags": [], "source": "", "taskId": "", "by": "", "byPerson": false, "at": "", "state": "", "acceptedBy": "", "acceptedAt": "", "updated": "", "pending": null, "history": [], "stale": "", ...p } as B.NoteView
+  return { "id": "", "kind": "", "text": "", "tags": [], "source": "", "taskId": "", "by": "", "byPerson": false, "at": "", "state": "", "acceptedBy": "", "acceptedAt": "", "updated": "", "pending": null, "history": [], "stale": "", ...p } as B.NoteView
 }
 
 /** Notification with Go's zero values for every field left out. */

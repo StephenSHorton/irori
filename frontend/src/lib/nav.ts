@@ -1,9 +1,8 @@
 // Where the window is (card #96): Home (your own cards), Talk (card #390:
-// threads, and channels and DMs once Talk 1 lands), Notes (card #413: Mine
-// or one board's tab), the Boards page, or one board's page. It lives in
-// the address, like an open card ("#card/<id>"), so back and forward move
-// between them: "#talk", "#talk/<id>" (a conversation open), "#notes",
-// "#notes/<board tag>", "#profile" (card #393: your name, colour and
+// threads, and channels and DMs once Talk 1 lands), Notes (card #413), the
+// Boards page, or one board's page. It lives in the address, like an open
+// card ("#card/<id>"), so back and forward move between them: "#talk",
+// "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
 // picture, and your spaces), "#boards", "#board/<id>", and no hash for
 // Home. A card's page opens over whichever
 // of them it was opened from.
@@ -11,8 +10,7 @@
 export type Section =
   | { kind: "home" }
   | { kind: "talk"; id: string }
-  // tab: "" for Mine, else a shared board's tag.
-  | { kind: "notes"; tab: string }
+  | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
   | { kind: "boards" }
@@ -33,9 +31,9 @@ export function sectionFromHash(hash: string): Section {
   if (hash === "#talk") return { kind: "talk", id: "" }
   const t = hash.match(/^#talk\/(.+)$/)
   if (t) return { kind: "talk", id: decodeURIComponent(t[1]) }
-  if (hash === "#notes") return { kind: "notes", tab: "" }
-  const n = hash.match(/^#notes\/(.+)$/)
-  if (n) return { kind: "notes", tab: decodeURIComponent(n[1]) }
+  // "#notes/<board tag>" was a board's tab before notes were Mine only
+  // (card #616): it opens Notes.
+  if (hash === "#notes" || hash.startsWith("#notes/")) return { kind: "notes" }
   if (hash === "#desk") return { kind: "desk", repo: "" }
   const d = hash.match(/^#desk\/(.+)$/)
   if (d) return { kind: "desk", repo: decodeURIComponent(d[1]) }
@@ -51,7 +49,7 @@ export function sectionHash(s: Section): string {
   if (s.kind === "boards") return "#boards"
   if (s.kind === "profile") return "#profile"
   if (s.kind === "talk") return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
-  if (s.kind === "notes") return s.tab ? `#notes/${encodeURIComponent(s.tab)}` : "#notes"
+  if (s.kind === "notes") return "#notes"
   if (s.kind === "desk") return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
   if (s.kind === "notifications") return "#notifications"
   if (s.kind === "board")
@@ -73,7 +71,6 @@ export function sameSection(a: Section, b: Section): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === "board") return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
-  if (a.kind === "notes") return b.kind === "notes" && a.tab === b.tab
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
   return true
 }

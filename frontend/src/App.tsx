@@ -219,13 +219,12 @@ export function App() {
   // #390), Notes (card #413), Boards, or one board's page; in the address
   // so back and forward move between them. ?boards in the preview starts
   // on Boards, ?talk on Talk, ?thread=<id> on Talk with that thread open,
-  // and ?notes on Notes (?notes=<board tag> on that board's tab).
+  // and ?notes on Notes.
   const [section, setSection] = useState<Section>(() => {
     const thread = previewFlag("thread")
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
-    const notesTab = previewFlag("notes")
-    if (notesTab !== null) return { kind: "notes", tab: notesTab }
+    if (previewFlag("notes") !== null) return { kind: "notes" }
     return previewFlag("boards") !== null
       ? { kind: "boards" }
       : sectionFromHash(window.location.hash)
@@ -637,7 +636,7 @@ export function App() {
       group: "Go to",
       order: 2,
       keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"],
-      run: () => goTo({ kind: "notes", tab: "" }),
+      run: () => goTo({ kind: "notes" }),
     },
     {
       id: "nav.boards",
@@ -895,10 +894,8 @@ export function App() {
               ) : section.kind === "notes" ? (
                 <Scroll>
                   <NotesPage
-                    tab={section.tab}
                     boards={boards}
                     roster={roster}
-                    onTab={(tab) => go({ kind: "notes", tab })}
                     onOpen={openCard}
                     now={now}
                   />

@@ -920,12 +920,12 @@ pub async fn boards_set_reviewer(
     w.boards_set_reviewer(&board_id, &agent, &repo)
 }
 
-// ---- Notes (card #401) ------------------------------------------------------------
+// ---- Notes (card #401; Mine only since #616) ------------------------------------
 
 #[tauri::command]
 #[specta::specta]
-pub async fn notes_list(w: W<'_>, scope: String, removed: bool) -> R<Vec<crate::notes::NoteView>> {
-    blocking(&w, move |w| w.notes_list(&scope, removed)).await
+pub async fn notes_list(w: W<'_>, removed: bool) -> R<Vec<crate::notes::NoteView>> {
+    blocking(&w, move |w| w.notes_list(removed)).await
 }
 
 /// The sidebar's Notes count: notes waiting on the person's look (card #468).

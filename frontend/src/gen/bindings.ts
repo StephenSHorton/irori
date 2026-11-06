@@ -186,7 +186,7 @@ export const commands = {
 	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
-	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
+	notesList: (removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { removed }),
 	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
 	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
@@ -1953,8 +1953,6 @@ export type NoteEventView = {
 
 /**  What New note writes. */
 export type NoteInput = {
-	/**  `mine` (the default), or a board's tag or id. */
-	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
@@ -1964,10 +1962,6 @@ export type NoteInput = {
 export type NoteView = {
 	/**  The bare id; refs are `note:<id>`. */
 	id: string,
-	/**  `mine`, or the board's tag. */
-	scope: string,
-	/**  `""` for Mine. */
-	boardId: string,
 	/**  rule, gotcha, decision, pointer or preference. */
 	kind: string,
 	text: string,
@@ -1975,10 +1969,7 @@ export type NoteView = {
 	/**  `task:<id>`, `comment:<id>`, `blocker:<taskId>/<b1>`, `proof:<taskId>`, or "". */
 	source: string,
 	taskId: string,
-	/**
-	 *  The author's key: the person (`user:…`, or `person:…` on a board)
-	 *  or an agent.
-	 */
+	/**  The author's key: the person (`user:…`) or an agent. */
 	by: string,
 	/**  Whether the author is a person (a person's note is live at once). */
 	byPerson: boolean,

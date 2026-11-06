@@ -1,21 +1,19 @@
 // NotesPage is Notes (docs/design/notes.md §9, card #413): the short rules,
-// gotchas, decisions, pointers and preferences agents get on wake. One tab
-// for Mine (the private log) and one per board. New from agents sits at
-// the top: an agent's proposal reaches no agent until you keep it (Mine)
-// or a member accepts it (a board), and an agent's edit or removal of a
-// live note waits the same way. Below, the live notes, filtered by kind.
+// gotchas, decisions, pointers and preferences agents get on wake. Notes
+// are the person's own (card #616): one list, read only by their agents.
+// New from agents sits at the top: an agent's proposal reaches no agent
+// until you keep it, and an agent's edit or removal of a live note waits
+// the same way. Below, the live notes, filtered by kind.
 
 import { useMemo, useState } from "react"
 import {
   AlertTriangleIcon,
   CheckIcon,
-  LockIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
   SparklesIcon,
   Trash2Icon,
-  UsersIcon,
   XIcon,
 } from "lucide-react"
 
@@ -26,7 +24,6 @@ import { Loading } from "@/components/ui/loading"
 import type { BoardSummary } from "@/lib/boards"
 import { plainLine, relativeTime, type Roster } from "@/lib/irori"
 import {
-  MineScope,
   kindCounts,
   needsLook,
   notes,
@@ -40,26 +37,18 @@ import { cn } from "@/lib/utils"
 import { KindBadge, NoteForm, sourceLabel, useWho, type Who } from "./parts"
 
 export function NotesPage({
-  tab,
   boards,
   roster,
-  onTab,
   onOpen,
   now,
 }: {
-  // "" for Mine, else a board's tag.
-  tab: string
+  // For board: tags, which name a space by its tag.
   boards: BoardSummary[]
   roster: Roster
-  onTab: (tab: string) => void
   onOpen: (cardId: string) => void
   now: Date
 }) {
-  const board = tab
-    ? boards.find((b) => b.tag.toLowerCase() === tab.toLowerCase())
-    : undefined
-  const scope = board ? board.tag : MineScope
-  const { notes: list, loading, error } = useNotes(scope)
+  const { notes: list, loading, error } = useNotes()
   const [kind, setKind] = useState<NoteKind | "all">("all")
   const [query, setQuery] = useState("")
   const [creating, setCreating] = useState(false)
@@ -85,32 +74,10 @@ export function NotesPage({
       .sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))
   }, [list, kind, query])
 
-  const scopeLabel = board ? plainLine(board.name) : "Mine"
   return (
     <div className="grid content-start gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold text-ink">Notes</h1>
-        <div
-          role="tablist"
-          aria-label="Whose notes"
-          className="flex flex-wrap gap-1 rounded-lg bg-secondary/60 p-0.5 text-[12.5px]"
-        >
-          <ScopeTab
-            label="Mine"
-            icon={LockIcon}
-            current={!board}
-            onClick={() => onTab("")}
-          />
-          {boards.map((b) => (
-            <ScopeTab
-              key={b.boardId}
-              label={plainLine(b.name) || b.tag}
-              icon={UsersIcon}
-              current={board?.boardId === b.boardId}
-              onClick={() => onTab(b.tag)}
-            />
-          ))}
-        </div>
         <div className="ml-auto flex items-center gap-2">
           <label className="relative">
             <span className="sr-only">Search notes</span>
@@ -132,9 +99,9 @@ export function NotesPage({
         </div>
       </div>
       <p className="max-w-3xl text-[13px] text-muted-foreground">
-        {board
-          ? `Notes on ${scopeLabel} reach every member's agents once anyone in the space accepts them. Any member can edit or remove one.`
-          : "Mine stays on your devices and only your agents read it, even when a note is about a shared space. Agents get the few that match their card on wake."}
+        Notes stay on your devices and only your agents read them, even when a
+        note is about a shared space. Agents get the few that match their card
+        on wake.
       </p>
       {error && (
         <p className="text-xs text-destructive">
@@ -151,7 +118,6 @@ export function NotesPage({
             <Proposed
               key={n.id}
               n={n}
-              shared={!!board}
               who={who}
               boardName={boardName}
               onOpen={onOpen}
@@ -161,10 +127,10 @@ export function NotesPage({
         </section>
       )}
 
-      <section aria-label={`${scopeLabel} notes`} className="grid gap-2">
+      <section aria-label="Your notes" className="grid gap-2">
         {/* The kind chips and the list wait for the first read together
-            (card #598), so neither shows a false 0 or a blank. Another
-            scope's read keeps the shown list; loading never comes back. */}
+            (card #598), so neither shows a false 0 or a blank; loading
+            never comes back. */}
         <Loading
           loading={loading}
           label="Loading the notes"
@@ -216,9 +182,7 @@ export function NotesPage({
                 <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
                   {query || kind !== "all"
                     ? "No notes match."
-                    : board
-                      ? `No notes on ${scopeLabel} yet. Agents propose them here, or write one with New note.`
-                      : "No notes yet. Agents propose them here, or write one with New note."}
+                    : "No notes yet. Agents propose them here, or write one with New note."}
                 </p>
               )}
             </div>
@@ -230,13 +194,7 @@ export function NotesPage({
         open={creating}
         onOpenChange={setCreating}
         title="New note"
-        boards={boards}
-        initial={{
-          scope,
-          kind: "rule",
-          text: "",
-          tags: board ? ["everywhere"] : ["everywhere"],
-        }}
+        initial={{ kind: "rule", text: "", tags: ["everywhere"] }}
         onSave={async (n) => {
           await notes.create(n)
         }}
@@ -288,34 +246,6 @@ function NotesShape() {
         ))}
       </ul>
     </div>
-  )
-}
-
-function ScopeTab({
-  label,
-  icon: Icon,
-  current,
-  onClick,
-}: {
-  label: string
-  icon: typeof LockIcon
-  current: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={current}
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-ink-2",
-        current && "bg-background font-medium text-ink shadow-sm"
-      )}
-    >
-      <Icon className="size-3" aria-hidden />
-      {label}
-    </button>
   )
 }
 
@@ -430,8 +360,7 @@ function NoteRow({
         open={editing}
         onOpenChange={setEditing}
         title="Edit note"
-        fixedScope
-        initial={{ scope: n.scope, kind: n.kind, text: n.text, tags: n.tags }}
+        initial={{ kind: n.kind, text: n.text, tags: n.tags }}
         onSave={async (e) => {
           await notes.edit(n.id, { kind: e.kind, text: e.text, tags: e.tags })
         }}
@@ -445,14 +374,12 @@ function NoteRow({
 // Remove or Reject.
 function Proposed({
   n,
-  shared,
   who,
   boardName,
   onOpen,
   now,
 }: {
   n: Note
-  shared: boolean
   who: Who
   boardName: (tag: string) => string
   onOpen: (cardId: string) => void
@@ -478,13 +405,11 @@ function Proposed({
       ? "proposes removing this note"
       : "proposes an edit"
   const yes = !p
-    ? shared
-      ? "Accept"
-      : "Keep"
+    ? "Keep"
     : p.remove
       ? "Remove it"
       : "Accept the edit"
-  const no = !p ? (shared ? "Reject" : "Remove") : "Keep it as it is"
+  const no = !p ? "Remove" : "Keep it as it is"
   return (
     <div className="grid gap-2 rounded-lg border border-info/40 bg-info-foreground/40 p-3">
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-2">
@@ -580,17 +505,9 @@ function Proposed({
       <NoteForm
         open={editing}
         onOpenChange={setEditing}
-        title={
-          p
-            ? "Edit before accepting"
-            : shared
-              ? "Edit, then accept"
-              : "Edit, then keep"
-        }
-        fixedScope
-        save={shared ? "Accept" : "Keep"}
+        title={p ? "Edit before accepting" : "Edit, then keep"}
+        save="Keep"
         initial={{
-          scope: n.scope,
           kind: ((p?.kind as NoteKind) || n.kind) as NoteKind,
           text: p?.text || n.text,
           tags: p?.tags ?? n.tags,
