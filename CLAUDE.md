@@ -14,9 +14,11 @@ that has the details; read that rather than guessing.
   your worktree before starting another.
 - Timeouts under load are usually load, not your change: "presence never
   listed both sessions" in the core/api/attach tests, or shellpath's
-  `login shell PATH = ""`. Rerun the failed tests alone
-  (`cargo test -p <crate> --test it <module>::<test> -- --exact --test-threads=1`) and
-  compare with main before chasing them.
+  `login shell PATH = ""`. Rerun the failed tests alone and compare with
+  main before chasing them:
+  `cargo test -p irori-<crate> --test it <module>::<test> -- --exact --test-threads=1`
+  for an integration test, or `--lib <path>::<test>` for a unit test (e.g.
+  `cargo test -p irori-sys --lib shellpath::tests::login_shell_answers -- --exact`).
 - Integration tests live in `tests/it/` (one binary per crate), with
   `use crate::common;`, never `mod common;`. Layout and the Windows TempDir
   and fswatch rules: architecture.md §7.1.
@@ -35,12 +37,15 @@ that has the details; read that rather than guessing.
 - The person's own Irori is running beside you on `~/.irori` (on Windows
   `%LOCALAPPDATA%\irori`). Run a scratch build with `IRORI_HOME` set to a copy,
   `CLAUDE_CONFIG_DIR` set to an empty dir and `IRORI_DEV_PORT_OFFSET=N`, and
-  stop it by its PID.
+  stop it by its PID. The port offset works only in a debug build; a release
+  build ignores it and shares the live app's LAN port.
 - On the Mac every bundle shares the bundle id `com.stephenshorton.irori`:
   never quit Irori by app name or bundle id (`osascript`, `killall Irori`),
   which quits the live one. `open Irori.app` drops your environment and runs
-  on the live `~/.irori`: see [docs/releasing.md](docs/releasing.md),
-  "Rehearsing an update on the Mac".
+  on the live `~/.irori`: launch a scratch bundle with
+  `open -n --env IRORI_HOME=<copy> --env CLAUDE_CONFIG_DIR=<empty dir> <app>`,
+  or for a relaunch you don't start yourself (the updater's) see
+  [docs/releasing.md](docs/releasing.md), "Rehearsing an update on the Mac".
 - After a scratch run, check the live `irori.log` gained no line for your
   version.
 
