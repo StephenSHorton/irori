@@ -63,7 +63,8 @@ use zeroize::Zeroizing;
 
 use crate::boards::{BOARD_LABEL_PREFIX, RefusedRow, pull_board, serve_pull};
 use crate::files::{
-    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, serve_blob,
+    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, prove_over,
+    serve_blob,
 };
 use crate::node::Intervals;
 use crate::servers::PublicAddr;
@@ -1330,6 +1331,58 @@ impl BoardMesh {
         holders_in(&self.s.opts.log, sha).is_ok_and(|h| !h.is_empty())
     }
 
+    /// Whether one of this person's own devices offered `sha` in this
+    /// board's log ([`Self::may_serve`] without holding it): this person
+    /// put the file on the board, or fetched it for the board (card #659).
+    pub fn own_offer(&self, sha: &str) -> bool {
+        self.s.own_offer(sha)
+    }
+
+    /// [`Self::fetch_file`] for a reader who reached `r` only through this
+    /// board (card #659): a file already here counts only when this
+    /// person offered it on the board, else a device that offered it here
+    /// must show it holds the bytes ([`crate::files::prove_over`]). So a
+    /// row and an offer naming a hash their writer never had can't lend a
+    /// copy this device holds for another conversation. A file not here is
+    /// fetched from this board's holders only. The caller holds the fetch
+    /// turn.
+    pub async fn fetch_for_board(&self, r: &FileRef) -> Result<String, FetchError> {
+        let s = &self.s;
+        let Some(fs) = s.opts.files.clone() else {
+            return Err(FetchError::NoFiles);
+        };
+        check_ref(&fs, r)?;
+        if !fs.has(&r.sha256) {
+            return self.fetch_file(r).await;
+        }
+        if s.own_offer(&r.sha256) {
+            return Ok(String::new());
+        }
+        let held =
+            holders_in(&s.opts.log, &r.sha256).map_err(|e| FetchError::Other(e.to_string()))?;
+        let me = &s.opts.self_id;
+        let cands: Vec<String> = held.into_iter().filter(|h| h != me).collect();
+        if cands.is_empty() {
+            return Err(FetchError::Offline(Vec::new()));
+        }
+        let mut last: Option<FetchError> = None;
+        for dev in &cands {
+            let Some(p) = s.live_peer(dev) else {
+                continue;
+            };
+            match prove_over(p.conn.as_ref(), r).await {
+                Ok(()) => {
+                    if let Err(e) = s.offer(r) {
+                        s.logf(&format!("offer {}: {e}", r.sha256));
+                    }
+                    return Ok(dev.clone());
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap_or(FetchError::Offline(cands)))
+    }
+
     /// Makes sure `r`'s file (a file on this board's cards) is in this
     /// device's attachment store, fetching it on a `blob/` stream from a
     /// connected member device: the origin first, then every other device
@@ -1575,7 +1628,12 @@ impl Shared {
         let Some(fs) = &self.opts.files else {
             return false;
         };
-        if !blob::valid_id(sha) || !fs.has(sha) {
+        blob::valid_id(sha) && fs.has(sha) && self.own_offer(sha)
+    }
+
+    /// See [`BoardMesh::own_offer`].
+    fn own_offer(&self, sha: &str) -> bool {
+        if !blob::valid_id(sha) {
             return false;
         }
         let me = self.opts.person_id.as_str();

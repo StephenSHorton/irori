@@ -11,6 +11,7 @@ import {
   TalkCall,
   TalkConversation,
   TalkPost,
+  type FileRef,
   type TalkMember,
   type TalkMemberRef,
   type TalkPerson,
@@ -21,6 +22,8 @@ import { isKeyLike } from "./names"
 import { useLatest } from "./talk"
 import { namesLine, threads } from "./cards"
 import { previewFlag } from "./preview"
+import { checkUploads, uploadOf } from "./uploads"
+import { humanSize } from "./attachments"
 
 export type Conversation = TalkConversation
 export type Post = TalkPost
@@ -92,6 +95,30 @@ export function waitingText(c: { waiting?: string }, who: string): string {
   return ""
 }
 
+// isYou is whether key is the person on any of their devices: "user", as
+// an agent that opens a DM adds them, or "user:<device>", as their posts
+// and the DMs they open carry it (card #642).
+export function isYou(key: string): boolean {
+  return key === "user" || key.startsWith("user:")
+}
+
+// memberOf is the member key names in a conversation: its own row, else
+// the person's whichever of their keys the row has (card #642: a DM an
+// agent opened lists them as "user", their posts say "user:<device>"),
+// else the person as "you" when nothing lists them.
+export function memberOf(
+  members: Iterable<Member>,
+  key: string
+): Member | undefined {
+  let you: Member | undefined
+  for (const m of members) {
+    if (m.key === key) return m
+    if (m.kind === "person" && isYou(m.key)) you = m
+  }
+  if (!isYou(key)) return undefined
+  return you ?? { kind: "person", key, name: "you" }
+}
+
 // dmWith is the DM's other side (an agent DM has one), or the two agents of
 // a read-only agent↔agent DM.
 export function dmWith(c: Conversation): Member[] {
@@ -150,17 +177,30 @@ export const talkApi = {
       ? TalkService.Posts(convId, before, PostsPage)
       : Promise.resolve(samplePosts(convId)),
   // mentions are the picker's keys: the agent picked, another person's in
-  // a space too, whatever else answers to its name (#461).
-  post: (
+  // a space too, whatever else answers to its name (#461). files go with
+  // it (card #643): with files the text may be empty.
+  post: async (
     convId: string,
     text: string,
     agentsNow: boolean,
     threadFrom: string | null = null,
-    mentions: string[] = []
-  ) =>
-    inWails()
-      ? TalkService.Post(convId, text, mentions, agentsNow, threadFrom)
-      : Promise.resolve(samplePost(convId, text, agentsNow, threadFrom)),
+    mentions: string[] = [],
+    files: File[] = []
+  ): Promise<string> => {
+    checkUploads(files)
+    if (!inWails())
+      return samplePost(convId, text, agentsNow, threadFrom, files)
+    if (!files.length)
+      return TalkService.Post(convId, text, mentions, agentsNow, threadFrom)
+    return TalkService.PostWithFiles(
+      convId,
+      text,
+      mentions,
+      agentsNow,
+      threadFrom,
+      await Promise.all(files.map(uploadOf))
+    )
+  },
   // threadFrom asks about channel convId's post postId in a new thread
   // whose ask is text (design b2): the thread records the channel, and in
   // a channel named after a repo it starts there (#454); the channel gets
@@ -392,6 +432,15 @@ function post(
   })
 }
 
+// sampleRef is a seeded post's picture (card #643).
+const sampleRef = (n: number, name: string, size: number): FileRef => ({
+  sha256: String(n).repeat(64),
+  name,
+  size,
+  mime: "image/png",
+  device: "sample-device",
+})
+
 function sampleState(): SampleConv[] {
   if (sample) return sample
   const ch = (
@@ -451,7 +500,9 @@ function sampleState(): SampleConv[] {
           3,
           heron,
           38,
-          "Only the live PC transfer. It needs one Firewall click from you, or we wait for #8's install."
+          "Only the live PC transfer. It needs one Firewall click from you, or we wait for #8's install.",
+          // A post with a picture (card #643): it shows inline.
+          { attachments: [sampleRef(5, "firewall-prompt.png", 61442)] }
         ),
         post("sample-ch-suzuri", 5, me, 36, "#20", {
           threadFrom: "sample-ch-suzuri-p3",
@@ -524,11 +575,13 @@ function sampleState(): SampleConv[] {
         name: "sample-heron",
         members: [you, a(heron, "sample-heron")],
       }),
+      // The agent opened it, so it lists the person as "user", while
+      // their posts carry their device (card #642).
       posts: [
         post(
           "sample-dm-heron",
           1,
-          me,
+          `${me}:sample-device`,
           200,
           "How would you feel about dropping the workspace panel altogether?"
         ),
@@ -544,7 +597,8 @@ function sampleState(): SampleConv[] {
           3,
           heron,
           5,
-          "The panel's gone and the PC check passed. Anything else before I go idle?"
+          "The panel's gone and the PC check passed. Anything else before I go idle?",
+          { attachments: [sampleRef(6, "pc-check.png", 38120)] }
         ),
       ],
       readUpTo: "sample-dm-heron-p2",
@@ -781,7 +835,7 @@ function sampleState(): SampleConv[] {
 
 function counted(c: SampleConv): Conversation {
   const at = c.posts.findIndex((p) => p.postId === c.readUpTo)
-  const fresh = c.posts.slice(at + 1).filter((p) => p.by !== me)
+  const fresh = c.posts.slice(at + 1).filter((p) => !isYou(p.by))
   const { posts, readUpTo, ...conv } = c
   void readUpTo
   return {
@@ -789,7 +843,7 @@ function counted(c: SampleConv): Conversation {
     unread: fresh.length,
     mentions: fresh.filter((p) => p.mentions.includes(me)).length,
     lastAt: posts[posts.length - 1]?.at ?? "",
-    lastText: (posts[posts.length - 1]?.text ?? "").replace(/\s+/g, " ").trim(),
+    lastText: postLine(posts[posts.length - 1]),
     lastBy: posts[posts.length - 1]?.by ?? "",
   }
 }
@@ -802,17 +856,48 @@ function samplePosts(convId: string): Post[] {
   return sampleState().find((c) => c.convId === convId)?.posts ?? []
 }
 
+// postLine is a post on one line, the list's subtitle: its text, or its
+// file's name when it has only files (card #643).
+export function postLine(p: Post | undefined): string {
+  if (!p) return ""
+  const text = p.text.replace(/\s+/g, " ").trim()
+  if (text) return text
+  const files = p.attachments ?? []
+  if (!files.length) return ""
+  const more = files.length > 1 ? ` +${files.length - 1}` : ""
+  return `📎 ${files[0].name}${more}`
+}
+
+let sampleShas = 0
+
+// sampleFile is a picked file as the window would store it: a made-up
+// sha, unique in the sample, so each shows its own thumbnail.
+function sampleFile(f: File): FileRef {
+  sampleShas++
+  return {
+    sha256: `c${sampleShas.toString(16).padStart(63, "0")}`,
+    name: f.name || "pasted.png",
+    size: f.size,
+    mime: f.type || undefined,
+    device: "sample-device",
+  }
+}
+
 function samplePost(
   convId: string,
   text: string,
   agentsNow: boolean,
-  threadFrom: string | null
+  threadFrom: string | null,
+  files: File[] = []
 ): string {
   const c = sampleState().find((x) => x.convId === convId)
   if (!c) throw new Error(`talk: no conversation ${convId}`)
+  if (!text.trim() && !files.length)
+    throw new Error("talk: a post needs text or a file")
   const p = post(convId, c.posts.length + 1, me, 0, text, {
     agentsNow,
     threadFrom,
+    attachments: files.map(sampleFile),
   })
   c.posts.push(p)
   c.readUpTo = p.postId
@@ -833,15 +918,23 @@ function sampleLink(postId: string, taskId: string) {
 
 // fromPost is the New card form a message fills (Make a card): its first
 // line as the title, the message and where it was said as the objective.
+// A message with only files (card #643) takes its first file's name as the
+// title. The objective names each file as attachment_get's describe line
+// does, with its sha256, so the card's agent can fetch it.
 export function fromPost(
   text: string,
-  where: string
+  where: string,
+  files: readonly FileRef[] = []
 ): { title: string; objective: string } {
-  const first = text.trim().split(/\r?\n/)[0] ?? ""
+  const first = text.trim().split(/\r?\n/)[0] || (files[0]?.name ?? "")
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
+  const body = text.trim() ? `${text.trim()}\n\n` : ""
+  const names = files.length
+    ? `${files.map((f) => `file: ${f.name} (${humanSize(f.size)}, sha256=${f.sha256})`).join("\n")}\n\n`
+    : ""
   return {
     title,
-    objective: `${text.trim()}\n\n(From a message in ${where}.)`,
+    objective: `${body}${names}(From a message in ${where}.)`,
   }
 }
 

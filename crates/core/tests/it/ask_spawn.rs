@@ -325,6 +325,21 @@ fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel()
             })
             .unwrap();
     }
+    // A post of files alone (card #643) reads as Talk's one line for it.
+    r.core
+        .talk()
+        .post(coord::talk::NewPost {
+            conv_id: ch.id.clone(),
+            by: person.clone(),
+            files: vec![blob::FileRef {
+                sha256: "a".repeat(64),
+                name: "save-trace.log".into(),
+                size: 10,
+                ..blob::FileRef::default()
+            }],
+            ..coord::talk::NewPost::default()
+        })
+        .unwrap();
 
     r.core
         .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
@@ -359,7 +374,8 @@ fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel()
     assert!(
         brief.contains("The newest lines in #game-repo")
             && brief.contains("the save test times out on Windows")
-            && brief.contains("doesn't make you one"),
+            && brief.contains("doesn't make you one")
+            && brief.contains("📎 save-trace.log"),
         "the channel's lines, as data: {brief}"
     );
     assert!(

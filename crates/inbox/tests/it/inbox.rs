@@ -343,6 +343,25 @@ fn text_limits() {
         h.ib.send(&claude(KEY_A, "alpha"), &to("beta"), " \n\t ", ""),
         ErrorKind::Empty,
     );
+    // Files alone make a message (card #643: a Talk DM of a screenshot).
+    let (m, _) =
+        h.ib.send_with(
+            &claude(KEY_A, "alpha"),
+            &to("beta"),
+            " ",
+            inbox::SendOptions {
+                attachments: vec![inbox::FileRef {
+                    sha256: "a".repeat(64),
+                    name: "shot.png".into(),
+                    size: 10,
+                    mime: "image/png".into(),
+                    device: "dev1".into(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!((m.text.as_str(), m.attachments.len()), ("", 1));
     want_err(
         h.ib.send(
             &claude(KEY_A, "alpha"),

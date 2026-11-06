@@ -792,6 +792,10 @@ describe("Home's groups (card #487)", () => {
       state: "waiting",
       line: "Your answer is with the agent",
     })
+    // Card #557: nobody on it, an agent starting for the answer says so.
+    expect(
+      rowState(card({ waiting: 1, subtasks: 2, starting: "This PC" }))
+    ).toEqual({ state: "working", line: "Starting an agent on This PC" })
     const lease = card({
       state: TaskState.Blocked,
       waitingOn: 1,

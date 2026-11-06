@@ -373,6 +373,9 @@ impl Services {
                     &self.chain,
                     &self.device_names.chosen(),
                     r,
+                    // The person's own fetch, into their private log: not
+                    // a reader reaching it through a board (card #659).
+                    None,
                 );
                 if got.is_err() || !self.files.has(&r.sha256) {
                     missing.push(format!(

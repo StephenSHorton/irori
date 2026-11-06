@@ -1193,6 +1193,100 @@ fn a_person_dm_is_found_by_its_space_before_any_row_folds() {
     assert_eq!(t.pair_other(&talk::dm_id(USER, ALICE)), None);
 }
 
+fn file(n: u8, name: &str) -> blob::FileRef {
+    blob::FileRef {
+        sha256: format!("{:02x}", n).repeat(32),
+        name: name.into(),
+        size: 42,
+        mime: "image/png".into(),
+        device: "dev-a".into(),
+    }
+}
+
+/// Card #643: a post carries files; they fold, refold from the store, and
+/// are found by hash. With files the text may be empty, never without.
+#[test]
+fn posts_carry_files() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let shot = file(1, "shot.png");
+    let p = t
+        .post(NewPost {
+            conv_id: c.id.clone(),
+            text: "  ".into(),
+            by: USER.into(),
+            files: vec![shot.clone(), shot.clone(), file(2, "log.txt")],
+            ..NewPost::default()
+        })
+        .unwrap();
+    assert_eq!(p.text, "", "files alone make a post");
+    assert_eq!(p.files.len(), 2, "the same file goes once");
+    assert_eq!(p.files[0], shot);
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(BOB), USER)
+        .unwrap();
+    t.post(NewPost {
+        conv_id: dm.clone(),
+        text: "again".into(),
+        by: USER.into(),
+        files: vec![shot.clone()],
+        ..NewPost::default()
+    })
+    .unwrap();
+    assert_eq!(
+        t.attachments(&shot.sha256)
+            .into_iter()
+            .map(|a| (a.conv, a.file))
+            .collect::<Vec<_>>(),
+        vec![(c.id.clone(), shot.clone()), (dm.clone(), shot.clone())],
+        "earliest first"
+    );
+    assert!(t.attachments(&"ff".repeat(32)).is_empty());
+
+    // The row names them, and a refold from the store keeps them.
+    let rows = e.rows(kinds::TALK_POST);
+    let v: serde_json::Value = serde_json::from_slice(&rows[0].payload).unwrap();
+    assert_eq!(v["attach"][0]["sha256"], shot.sha256);
+    let t2 = talk(&e);
+    assert_eq!(t2.posts(&c.id), t.posts(&c.id));
+    assert_eq!(t2.attachments(&shot.sha256).len(), 2);
+
+    // An old row without "attach" still folds, with no files.
+    let old = row(
+        "dev-b",
+        1,
+        hlc_at(fixed_now()) + 10,
+        &format!("agent:{ALICE}"),
+        kinds::TALK_POST,
+        &serde_json::json!({"postId": "p_old", "convId": c.id, "text": "old", "mentions": [], "agentsNow": true, "by": ALICE, "at": fixed_now()}),
+    );
+    assert!(t2.apply(&old));
+    let got = t2.posts(&c.id);
+    let o = got.iter().find(|p| p.post_id == "p_old").unwrap();
+    assert!(o.files.is_empty());
+
+    // Refused: no text and no files, too many files, a bad hash.
+    let bare = |files: Vec<blob::FileRef>, text: &str| {
+        t.post(NewPost {
+            conv_id: c.id.clone(),
+            text: text.into(),
+            by: USER.into(),
+            files,
+            ..NewPost::default()
+        })
+    };
+    want(bare(vec![], " "), ErrorKind::Invalid);
+    let many: Vec<blob::FileRef> = (0..=coord::board::MAX_ATTACHMENTS as u8)
+        .map(|i| file(10 + i, "f"))
+        .collect();
+    want(bare(many, "too many"), ErrorKind::Invalid);
+    let mut bad = file(3, "bad");
+    bad.sha256 = "nope".into();
+    want(bare(vec![bad], "bad"), ErrorKind::Invalid);
+    assert_eq!(t.posts(&c.id).len(), 1, "nothing refused was written");
+}
+
 fn call_post(t: &Talk, conv: &str, mark: talk::CallMark) -> coord::Result<talk::Post> {
     t.post(NewPost {
         conv_id: conv.into(),

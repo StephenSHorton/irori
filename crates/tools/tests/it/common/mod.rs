@@ -809,3 +809,30 @@ pub fn more_before(out: &str) -> String {
         .1;
     rest.split(';').next().unwrap().to_string()
 }
+
+/// Go's attachingBackend: each path becomes a ref named after it, its hash
+/// made from its place in the list.
+pub struct NamedFiles;
+
+impl tools::Attacher for NamedFiles {
+    fn attach_files(&self, _by: &str, paths: &[String]) -> Result<Vec<blob::FileRef>, blob::Error> {
+        Ok(paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| blob::FileRef {
+                sha256: ((b'a' + i as u8) as char).to_string().repeat(64),
+                name: std::path::Path::new(p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                size: 10,
+                mime: String::new(),
+                device: "dev1".into(),
+            })
+            .collect())
+    }
+    fn get_attachment(&self, _: &str, _: &str, _: &str) -> Result<(String, String), String> {
+        Ok((String::new(), String::new()))
+    }
+}

@@ -965,6 +965,21 @@ impl Services {
         {
             o.insert("spaceId".into(), space_id.into());
         }
+        // A post's files are offered in this log first, as a board
+        // comment's are (card #643): a member's device may fetch a file
+        // only where one of ours offered it here (v0.5 §5.5).
+        if kind == kinds::TALK_POST
+            && let Some(files) = payload.get("attach").and_then(|a| a.as_array())
+        {
+            let files: Vec<&serde_json::Value> = files.iter().collect();
+            coord::board::offer_files_in(
+                &b.store,
+                &self.device.id,
+                &|sha: &str| self.files.has(sha),
+                &files,
+            )
+            .map_err(|e| e.to_string())?;
+        }
         let ev = b
             .store
             .append(&actor, kind, &payload)

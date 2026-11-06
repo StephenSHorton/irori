@@ -145,7 +145,7 @@ pub(super) fn watch(
         return Err(e);
     }
     let stop_ev = H(stop_ev);
-    let mut reader = Reader {
+    let reader = Reader {
         dir,
         io,
         buf: vec![0u8; BUF_SIZE].into_boxed_slice(),
@@ -153,12 +153,6 @@ pub(super) fn watch(
         ov: Box::new(unsafe { std::mem::zeroed() }),
         recursive,
     };
-    if let Err(code) = reader.arm() {
-        close(stop_ev);
-        close(io);
-        close(dir);
-        return Err(Error::Io(std::io::Error::from_raw_os_error(code as i32)));
-    }
 
     // The stop event is signalled only while it is open (Go's sync.Once
     // around SetEvent, used up before the handle closes).
@@ -186,6 +180,11 @@ pub(super) fn watch(
             .spawn(move || coalesce(raw_rx, out_tx, debounce, root, lost))
             .map_err(Error::Io)?
     };
+    // The reader thread arms the first read itself and reports back. A read
+    // armed here would be canceled when the calling thread exits (Windows
+    // cancels a thread's pending I/O when it ends), and callers may start a
+    // watcher on a thread that ends right after (card #636).
+    let (armed_tx, armed_rx) = sync_channel::<Result<(), u32>>(1);
     let reader_thread = {
         let lost = raw_lost;
         let root = root.clone();
@@ -194,7 +193,14 @@ pub(super) fn watch(
             .name("fswatch-rdcw".into())
             .spawn(move || {
                 let mut r = reader;
+                let armed = r.arm();
+                let armed_ok = armed.is_ok();
+                let _ = armed_tx.send(armed);
                 loop {
+                    // On failure nothing is pending: go clean up.
+                    if !armed_ok {
+                        break;
+                    }
                     let hs = [r.io.0, stop_ev.0];
                     // SAFETY: two open handles.
                     let w = unsafe { WaitForMultipleObjects(2, hs.as_ptr(), 0, INFINITE) };
@@ -250,6 +256,16 @@ pub(super) fn watch(
             })
             .map_err(Error::Io)?
     };
+    // Changes are only buffered on the handle once a read is pending, so
+    // wait for the first one before returning.
+    if let Err(code) = armed_rx
+        .recv()
+        .unwrap_or(Err(windows_sys::Win32::Foundation::ERROR_OPERATION_ABORTED))
+    {
+        let _ = reader_thread.join();
+        let _ = coalescer.join();
+        return Err(Error::Io(std::io::Error::from_raw_os_error(code as i32)));
+    }
 
     let reg = cancel.on_cancel(signal.clone());
     let threads = Mutex::new(Some((reader_thread, coalescer)));

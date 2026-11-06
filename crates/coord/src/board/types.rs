@@ -276,6 +276,10 @@ pub struct Blocker {
     /// them too. Never decides anything here.
     #[serde(skip)]
     pub(crate) merged: Vec<String>,
+    /// The device whose row put each file on it (card #659), by hash: on a
+    /// shared board a file counts only where that device offered it.
+    #[serde(skip)]
+    pub(crate) file_devs: Vec<(String, String)>,
 }
 
 impl Blocker {
