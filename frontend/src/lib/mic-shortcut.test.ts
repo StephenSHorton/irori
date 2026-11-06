@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { dictationKey, pickMic, type Mic } from "./mic-shortcut"
+import { dictationKey, pickMic, Reach, type Mic } from "./mic-shortcut"
 
 const k = (
   key: string,
@@ -48,7 +48,7 @@ describe("dictationKey", () => {
 })
 
 // Boxes stand in for elements: the picker only compares them, reads
-// tagName for "is this a text field", and asks inView.
+// tagName for "is this a text field", and asks reach.
 const box = (name: string, tagName = "TEXTAREA") =>
   ({ name, tagName }) as unknown as HTMLElement
 
@@ -73,7 +73,7 @@ function mic(
   }
 }
 
-const all = () => true
+const all = () => Reach.Seen
 
 describe("pickMic", () => {
   const ask = box("ask")
@@ -103,7 +103,17 @@ describe("pickMic", () => {
 
   test("a main composer out of view or covered doesn't answer", () => {
     const a = mic(ask, { main: true })
-    expect(pickMic([a], null, () => false)).toBe(null)
+    expect(pickMic([a], null, () => Reach.None)).toBe(null)
+  })
+
+  test("one only scrolled away answers when none is seen; a seen one wins", () => {
+    const c = mic(comment, { main: true, mounted: 2 })
+    const r = mic(reply, { mounted: 3 })
+    expect(pickMic([c, r], null, () => Reach.Scrolled)).toBe(c)
+    const a = mic(ask, { main: true, mounted: 1 })
+    const seenAsk = (b: HTMLElement) =>
+      b === ask ? Reach.Seen : Reach.Scrolled
+    expect(pickMic([a, c], null, seenAsk)).toBe(a)
   })
 
   test("of two main composers in view, the one focused last, then the newest", () => {
@@ -112,7 +122,9 @@ describe("pickMic", () => {
     expect(pickMic([a, c], null, all)).toBe(c)
     a.focused = 5
     expect(pickMic([a, c], null, all)).toBe(a)
-    expect(pickMic([a, c], null, (b) => b !== ask)).toBe(c)
+    expect(
+      pickMic([a, c], null, (b) => (b === ask ? Reach.None : Reach.Seen))
+    ).toBe(c)
   })
 
   test("a listening mic answers first, so the press stops it", () => {

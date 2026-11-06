@@ -44,12 +44,14 @@ export type Mic = {
 //  2. the focused box's mic (or the focused mic button's);
 //  3. with focus in some other text field, none: the words never land
 //     somewhere the person isn't typing;
-//  4. else the main composer in view, the one whose box had focus last,
-//     then the newest (a dialog over a page).
+//  4. else the main composer in view; failing that, one only scrolled
+//     out of view (focus scrolls it in: a card's comment box under its
+//     blockers). Of two alike, the one whose box had focus last, then the
+//     newest (a dialog over a page).
 export function pickMic(
   mics: readonly Mic[],
   active: Element | null,
-  inView: (box: HTMLElement) => boolean
+  reach: (box: HTMLElement) => Reach
 ): Mic | null {
   const live = mics.find((m) => m.live())
   if (live) return live
@@ -59,18 +61,32 @@ export function pickMic(
     if (editable(active)) return null
   }
   let best: Mic | null = null
+  let bestReach: Reach = Reach.None
   for (const m of mics) {
     if (!m.main || !m.usable()) continue
     const b = m.box()
-    if (!b || !inView(b)) continue
+    const r = b ? reach(b) : Reach.None
+    if (r === Reach.None) continue
     if (
       !best ||
-      m.focused > best.focused ||
-      (m.focused === best.focused && m.mounted > best.mounted)
-    )
+      r > bestReach ||
+      (r === bestReach &&
+        (m.focused > best.focused ||
+          (m.focused === best.focused && m.mounted > best.mounted)))
+    ) {
       best = m
+      bestReach = r
+    }
   }
   return best
+}
+
+// How a box can be reached: not at all (hidden, or under a dialog or the
+// palette), by scrolling, or seen now.
+export enum Reach {
+  None = 0,
+  Scrolled = 1,
+  Seen = 2,
 }
 
 // editable says whether focus is in a text field the person types in.
@@ -93,19 +109,27 @@ export function editable(el: Element): boolean {
   return (el as HTMLElement).isContentEditable === true
 }
 
-// inView says whether a box can be seen: part of it is in the window and
-// nothing (a dialog, the palette) covers its middle.
-export function inView(box: HTMLElement): boolean {
-  if (!box.isConnected) return false
+// reachOf says how a box can be reached: Seen when part of it is in the
+// window and nothing (a dialog, the palette) covers its middle; Scrolled
+// when it is laid out but off screen, outside any open modal; else None.
+export function reachOf(box: HTMLElement): Reach {
+  if (!box.isConnected || box.getClientRects().length === 0) return Reach.None
+  if (box.closest("[inert], [aria-hidden='true']")) return Reach.None
   const r = box.getBoundingClientRect()
   const x0 = Math.max(r.left, 0)
   const x1 = Math.min(r.right, window.innerWidth)
   const y0 = Math.max(r.top, 0)
   const y1 = Math.min(r.bottom, window.innerHeight)
-  if (x1 - x0 < 1 || y1 - y0 < 1) return false
+  if (x1 - x0 < 1 || y1 - y0 < 1) {
+    const modals = document.querySelectorAll("[aria-modal='true']")
+    for (const m of modals) if (!m.contains(box)) return Reach.None
+    return Reach.Scrolled
+  }
   const hit = document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2)
-  if (!hit) return false
+  if (!hit) return Reach.None
   return hit === box || box.contains(hit) || !!box.parentElement?.contains(hit)
+    ? Reach.Seen
+    : Reach.None
 }
 
 const mics: Mic[] = []
@@ -133,7 +157,7 @@ function listen(): () => void {
   // Capture, so it comes before a field or a dialog takes the key.
   const onKey = (e: KeyboardEvent) => {
     if (e.isComposing || !dictationKey(e, mac)) return
-    const m = pickMic(mics, document.activeElement, inView)
+    const m = pickMic(mics, document.activeElement, reachOf)
     if (!m) return
     // Ctrl+D would bookmark in a browser engine; one mic, one press.
     e.preventDefault()
