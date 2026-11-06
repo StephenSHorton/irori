@@ -621,7 +621,10 @@ fn a_parent_asking_to_merge_reads_blocked_not_done() {
     let (e, p, _) = merge_asked_lead_gone();
     let t = e.c.get_task(&p.id).unwrap();
     assert_eq!(effective_state(&t), BLOCKED, "its own question comes first");
-    assert!(open_ids(&e.c).contains(&p.id), "listed open, where a lead binds");
+    assert!(
+        open_ids(&e.c).contains(&p.id),
+        "listed open, where a lead binds"
+    );
     assert!(
         !e.c.board(&BoardFilter::default())
             .done

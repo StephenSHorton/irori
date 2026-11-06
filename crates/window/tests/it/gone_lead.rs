@@ -123,9 +123,15 @@ fn merge_it_on_a_card_whose_lead_went_reaches_a_fresh_lead() {
     let (p, made) = t.led();
     let lead = t.key("lead");
     for (i, k) in made.iter().enumerate() {
-        co.set_task_state(&t.key(&format!("helper-{i}")), &k.id, COMPLETED, "on my branch")
+        co.set_task_state(
+            &t.key(&format!("helper-{i}")),
+            &k.id,
+            COMPLETED,
+            "on my branch",
+        )
+        .unwrap();
+        co.set_task_state(&lead, &k.id, COMPLETED, "merged")
             .unwrap();
-        co.set_task_state(&lead, &k.id, COMPLETED, "merged").unwrap();
     }
     let opt = |a: &str| BlockerOption {
         answer: a.into(),

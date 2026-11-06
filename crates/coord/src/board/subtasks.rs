@@ -25,7 +25,9 @@ fn first_call_item(t: &Task) -> Option<&Blocker> {
         b.open()
             && b.status != BLOCKER_ANSWERED
             && (!b.options.is_empty()
-                || b.on.as_ref().is_none_or(|on| !super::offers::on_work(&on.kind)))
+                || b.on
+                    .as_ref()
+                    .is_none_or(|on| !super::offers::on_work(&on.kind)))
     })
 }
 
