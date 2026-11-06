@@ -299,6 +299,18 @@ export const commands = {
 	voiceStart: () => __TAURI_INVOKE<number>("voice_start"),
 	voiceStop: (session: number) => __TAURI_INVOKE<null>("voice_stop", { session }),
 	voiceOpenSettings: (code: string) => __TAURI_INVOKE<null>("voice_open_settings", { code }),
+	/**  The huddles on now: yours, ringing here, and live in your conversations. */
+	callState: () => __TAURI_INVOKE<CallView>("call_state"),
+	/**  Starts a huddle in a channel or person DM; returns its id. */
+	callStart: (convId: string) => __TAURI_INVOKE<string>("call_start", { convId }),
+	/**  Joins a huddle ringing here or live in a conversation. */
+	callJoin: (callId: string) => __TAURI_INVOKE<null>("call_join", { callId }),
+	/**  Leaves the huddle this device is in. */
+	callLeave: () => __TAURI_INVOKE<null>("call_leave"),
+	/**  Mutes or unmutes this device's mic in the huddle. */
+	callMute: (on: boolean) => __TAURI_INVOKE<null>("call_mute", { on }),
+	/**  Stops a huddle ringing here. */
+	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
 	talkConversations: () => __TAURI_INVOKE<TalkConversation[]>("talk_conversations"),
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
@@ -819,6 +831,75 @@ export type BoardSummary = {
 	 *  a card's `board` names one of them (empty: the space's own).
 	 */
 	boards: SpaceBoard[],
+};
+
+/**  A call on now in a conversation this device can see. */
+export type CallLiveView = {
+	callId: string,
+	convId: string,
+	/**  Who is in it, each person once, by name. */
+	people: string[],
+};
+
+/**  The call this device is in. */
+export type CallMineView = {
+	callId: string,
+	convId: string,
+	/**  The channel's name, or the DM's other person. */
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  When this device joined, Unix ms. */
+	joinedAtMs: number,
+	muted: boolean,
+	/**  This device's mic is above the speech gate. */
+	speaking: boolean,
+	/**  This device's name ("" when it has none). */
+	device: string,
+	/**  The other devices in it. */
+	peers: CallPeerView[],
+	/**  Why the call isn't working, in plain words. */
+	error: string | null,
+};
+
+/**  Another device in the call. */
+export type CallPeerView = {
+	/**  Whose it is ("you" for another of the person's own devices). */
+	name: string,
+	/**  The device's name when it is one of the person's own, else "". */
+	device: string,
+	/**  `connecting`, `live` or `gone`. */
+	phase: string,
+	/**  `direct`, `relay` or "" (not connected). */
+	path: string,
+	rttMs: number | null,
+	/**  Datagrams lost on the way here, percent. */
+	lossPct: number | null,
+	speaking: boolean,
+	muted: boolean,
+};
+
+/**  A call ringing here. */
+export type CallRingView = {
+	callId: string,
+	convId: string,
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  Who started it. */
+	by: string,
+	/**  When it rang, Unix ms. */
+	atMs: number,
+};
+
+/**  Every call this device knows of, as the window shows them. */
+export type CallView = {
+	/**  The call this device is in. */
+	mine: CallMineView | null,
+	/**  Calls this device is rung for and hasn't joined or dismissed. */
+	ringing: CallRingView[],
+	/**  Calls on now, for the Talk list's rows. */
+	live: CallLiveView[],
 };
 
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */

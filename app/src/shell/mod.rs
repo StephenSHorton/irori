@@ -351,6 +351,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
+                        // Leave any huddle and close its devices (#654).
+                        window.call_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
                         h.close()

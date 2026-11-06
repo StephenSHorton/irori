@@ -25,6 +25,11 @@ export type BoardMember = B.BoardMember
 export type BoardReviewer = B.BoardReviewer
 export type BoardSettings = B.BoardSettings
 export type BoardSummary = B.BoardSummary
+export type CallLiveView = B.CallLiveView
+export type CallMineView = B.CallMineView
+export type CallPeerView = B.CallPeerView
+export type CallRingView = B.CallRingView
+export type CallView = B.CallView
 export type CanvasPos = B.CanvasPos
 export type CaptureChange = B.CaptureChange
 export type CardActivity = B.CardActivity
@@ -255,6 +260,31 @@ export function BoardSettings(p: Partial<B.BoardSettings> = {}): B.BoardSettings
 /** BoardSummary with Go's zero values for every field left out. */
 export function BoardSummary(p: Partial<B.BoardSummary> = {}): B.BoardSummary {
   return { "boardId": "", "name": "", "tag": "", "people": [], "members": [], "owner": false, "devices": 0, "cards": 0, "doneWeek": 0, "ready": false, "boards": [], ...p } as B.BoardSummary
+}
+
+/** CallLiveView with Go's zero values for every field left out. */
+export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
+  return { "callId": "", "convId": "", "people": [], ...p } as B.CallLiveView
+}
+
+/** CallMineView with Go's zero values for every field left out. */
+export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
+}
+
+/** CallPeerView with Go's zero values for every field left out. */
+export function CallPeerView(p: Partial<B.CallPeerView> = {}): B.CallPeerView {
+  return { "name": "", "device": "", "phase": "", "path": "", "rttMs": null, "lossPct": null, "speaking": false, "muted": false, ...p } as B.CallPeerView
+}
+
+/** CallRingView with Go's zero values for every field left out. */
+export function CallRingView(p: Partial<B.CallRingView> = {}): B.CallRingView {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "by": "", "atMs": 0, ...p } as B.CallRingView
+}
+
+/** CallView with Go's zero values for every field left out. */
+export function CallView(p: Partial<B.CallView> = {}): B.CallView {
+  return { "mine": null, "ringing": [], "live": [], ...p } as B.CallView
 }
 
 /** CanvasPos with Go's zero values for every field left out. */
