@@ -258,7 +258,8 @@ impl Services {
 
     /// What card t waits on for the device that starts it, when nothing on
     /// the card itself is in the way.
-    fn device_why(&self, co: &coord::Coord, t: &Task, private: bool) -> Why {
+    fn device_why(&self, co: &coord::Coord, t: &Task, board_id: &str) -> Why {
+        let private = board_id.is_empty();
         let me = self.device.id.clone();
         let origin = co.card_origin(&t.id);
         if origin.is_empty() {
@@ -309,16 +310,57 @@ impl Services {
                 cap,
             };
         }
-        if let Some(why) = self.folder_why(t, private, &|f| (sp.trusted)(Path::new(f))) {
+        let trusted = |f: &str| (sp.trusted)(Path::new(f));
+        if let Some(why) = self.folder_why(t, private, &trusted) {
             return why;
         }
-        // The sweep takes the private board's cards first, oldest first.
-        let queue = co.cards_to_spawn();
-        let mut ahead = queue.iter().take_while(|k| k.id != t.id).count() as i64;
-        if !private {
-            ahead += self.coord.cards_to_spawn().len() as i64;
-        }
+        let ahead = self.ahead_here(t, board_id, &trusted);
         queued(self.named_device(&me), running, cap, ahead).unwrap_or(Why::NextPass)
+    }
+
+    /// How many older cards take one of this device's slots before card t,
+    /// in the sweep's order: the private board's cards, then each shown
+    /// board's (`sweep_spawns`, `sweep_board_spawns`). Only those the sweep
+    /// would start here count: not a card another device starts, one that
+    /// waits for its machine, or one with no folder or trust here.
+    fn ahead_here(&self, t: &Task, board_id: &str, trusted: &dyn Fn(&str) -> bool) -> i64 {
+        let me = self.device.id.clone();
+        let mut ahead = 0;
+        for k in self.coord.cards_to_spawn() {
+            if board_id.is_empty() && k.id == t.id {
+                return ahead;
+            }
+            if self.spawn_device(&k).as_deref() == Some(me.as_str())
+                && self.folder_why(&k, true, trusted).is_none()
+            {
+                ahead += 1;
+            }
+        }
+        if board_id.is_empty() {
+            return ahead;
+        }
+        let person = self.person_id();
+        for b in self.shown_boards() {
+            let co = b.coord().clone();
+            if !co.spawning() || !self.board_spawns_ready(&b) {
+                continue;
+            }
+            for k in co.cards_to_spawn() {
+                if k.id == t.id {
+                    return ahead;
+                }
+                if k.open_ask().is_none_or(|a| a.thread)
+                    && b.verifier.key_person(&k.created_by) == person
+                    && self.folder_why(&k, false, trusted).is_none()
+                {
+                    ahead += 1;
+                }
+            }
+            if b.id == board_id {
+                break;
+            }
+        }
+        ahead
     }
 
     /// What the sweep's first try here would refuse on: no folder, or one
@@ -460,11 +502,13 @@ impl Services {
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);
         }
-        if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
-            return Some(self.failed_why(&t, s));
-        }
+        // Blocked before an old failure: the failure's
+        // fix (Trust and start, a folder) starts nothing until they clear.
         if hold == SpawnHold::Blocked {
             return Some(Why::Blocked);
+        }
+        if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
+            return Some(self.failed_why(&t, s));
         }
         if let Some(b) = &board
             && !self.board_spawns_ready(b)
@@ -483,9 +527,14 @@ impl Services {
             people.dedup();
             return Some(Why::OlderMember { people });
         }
-        let why = self.device_why(&co, &t, private);
-        match (why, stale) {
-            (Why::NextPass, Some(s)) => Some(Why::NoShow {
+        match (self.device_why(&co, &t, &board_id), stale) {
+            // Asked and nothing came: Irori asks again after a wait, and
+            // until then the asked device counts that request as running,
+            // so a full device or nowhere to start it is about this request.
+            (
+                Why::NextPass | Why::AtCap { .. } | Why::Queued { .. } | Why::NoDevice { .. },
+                Some(s),
+            ) => Some(Why::NoShow {
                 device: self.named_device(&s.device),
             }),
             (Why::NextPass, None) => asked.then_some(Why::NextPass),

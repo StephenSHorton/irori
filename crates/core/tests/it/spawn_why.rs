@@ -3,17 +3,16 @@
 //! works on shared-board cards. Real Cores: one for the private board's
 //! reasons, then two people on loopback iroh for a shared board's.
 
-use crate::common;
-
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::mesh::{invited, person, restart};
-use common::{Rig, wait_for};
+use crate::common::mesh::{invited, person, restart};
+use crate::common::{Rig, wait_for};
 use coord::{NewTask, SPAWN_FAILED, SpawnAsk, Task};
 use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::spawn_why::Why;
+use mesh::boardmesh::{KIND_BOARD_HELLO, SavedHello};
 
 const REPO: &str = "remote:github.com/stephen/api";
 
@@ -358,9 +357,8 @@ fn a_step_mark_on_a_held_card_says_to_split_it() {
 /// Stephen and Bob on one board, on real Cores. Bob's card asked about from
 /// Stephen's side is Bob's to start; Stephen's own card waits on his switch;
 /// an agent of Stephen's waiting on Bob's card is woken when it's done, and
-/// the wait never reaches Bob's device. Once Bob is away and Stephen has
-/// restarted, the board remembers what Bob's device reads (card #577), so
-/// the line moves on to what is in the way here, not an older member.
+/// the wait never reaches Bob's device, nor the waiting agent his board.
+/// Once Bob's device is known to read no agent starts, the line names him.
 #[test]
 fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     let mut st = person("stephen", 1);
@@ -396,11 +394,23 @@ fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     let mine = new(&sco, s.person_actor(), "Stephen's card");
     assert_eq!(s.core.why_no_agent(&mine.id, true), Some(Why::SwitchOff));
 
+    let on_board = |c: &irori_core::Core| {
+        c.board_agents()
+            .iter()
+            .filter(|a| a.board_id == board && a.person_id == s.core.person().id)
+            .count()
+    };
+    let before = on_board(&s.core);
     let out = s.tool(
         "wait",
         serde_json::json!({"task_id": theirs.id, "until": ["done"], "note": "private words"}),
     );
     assert!(out.contains("Only you see this wait"), "{out}");
+    assert_eq!(
+        on_board(&s.core),
+        before,
+        "waiting puts no agent of Stephen's on the board"
+    );
     assert!(
         s.tool("board", serde_json::json!({"repo": "*"}))
             .contains("(until done)"),
@@ -432,16 +442,42 @@ fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
             ..SpawnSetting::default()
         })
         .unwrap();
-    let mine_id = mine.id.clone();
+    let bob_device = b.core.device_id().to_string();
+    let (bob_person, bob_name) = (b.core.person().id, b.core.person().name);
     drop(sco);
     drop(bco);
     drop(b);
     std::thread::sleep(Duration::from_millis(500));
+    // What Stephen heard live from Bob wins over what was saved, so a
+    // restart, then Bob's device saved as reading no agent starts (an
+    // older Irori, as card #577 remembers it): the line names Bob.
     let s = restart(s);
     s.core.set_spawner(Some(idle_spawner()));
-    wait_for(60, "the line says what is in the way here", || {
-        matches!(s.core.why_no_agent(&mine_id, true), Some(Why::NoFolder(_)))
+    s.core
+        .board_store(&board)
+        .unwrap()
+        .append_local(
+            "irori",
+            KIND_BOARD_HELLO,
+            &SavedHello {
+                device_id: bob_device,
+                person_id: bob_person,
+                core_version: "0.10.2".into(),
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    wait_for(60, "the board reads as not ready", || {
+        matches!(
+            s.core.why_no_agent(&mine.id, true),
+            Some(Why::OlderMember { .. })
+        )
     });
+    match s.core.why_no_agent(&mine.id, true) {
+        Some(Why::OlderMember { people }) => assert_eq!(people, vec![bob_name]),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A card another of the person's devices made is that device's to start.
@@ -477,6 +513,142 @@ fn another_of_my_devices_starts_what_it_made() {
     });
     match a.core.why_no_agent(&t.id, true) {
         Some(Why::Elsewhere { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A blocked card says it's blocked, not its old failure: Trust and start
+/// starts nothing until the blocker clears.
+#[test]
+fn a_blocked_card_says_blocked_before_an_old_failure() {
+    let r = Rig::new();
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    let dev = r.core.device_id().to_string();
+    let first = card(&r, "First");
+    let t = card(&r, "Untrusted, then blocked");
+    failed(&r, &t, &format!("not trusted: /work/api on {dev}"));
+    assert!(matches!(
+        r.core.why_no_agent(&t.id, false),
+        Some(Why::NeedsTrust { .. })
+    ));
+    r.core
+        .coord()
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "waits".into(),
+                blocked_by: Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_TASK.into(),
+                    reference: first.id.clone(),
+                }),
+                ..coord::NewBlocker::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(r.core.why_no_agent(&t.id, false), Some(Why::Blocked));
+}
+
+/// A request past its grace with no agent says none showed up, not that
+/// the device looks full.
+#[test]
+fn a_request_with_no_agent_says_none_showed_up() {
+    let ahead = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let a = ahead.clone();
+    let r = Rig::with(move |o| {
+        o.now = Some(Arc::new(move || {
+            let by = Duration::from_secs(a.load(std::sync::atomic::Ordering::SeqCst));
+            gocompat::time::GoTime::from_system(std::time::SystemTime::now() + by)
+        }));
+    });
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    // At cap 0 the sweep asks nobody again, so the request stays stale.
+    r.core.set_spawn_cap(0).unwrap();
+    let t = card(&r, "A card");
+    r.core
+        .coord()
+        .request_spawn(
+            "irori",
+            SpawnAsk {
+                task_id: t.id.clone(),
+                device: r.core.device_id().to_string(),
+                repo_key: REPO.into(),
+                permission_mode: "acceptEdits".into(),
+                name: "heron".into(),
+                ..SpawnAsk::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        r.core.why_no_agent(&t.id, false),
+        Some(Why::Starting { .. })
+    ));
+    ahead.store(
+        coord::SPAWN_GRACE.as_secs() + 10,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::NoShow { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What's on the card itself (its side, its lead) is said whether or not
+/// the switch is on, but on its own only when the board starts agents.
+#[test]
+fn a_part_says_its_lead_and_a_card_its_side() {
+    let r = Rig::new();
+    r.core.set_spawner(Some(idle_spawner()));
+    r.core.set_spawn_cap(0).unwrap();
+    let co = r.core.coord();
+    let person = format!("user:{}", r.core.device_id());
+    let p = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Big card".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &p.id).unwrap();
+    let sub = |title: &str, spawn: bool| coord::NewSubtask {
+        title: title.into(),
+        spawn,
+        ..coord::NewSubtask::default()
+    };
+    let (_, parts) = co
+        .split(
+            &r.key_a,
+            &p.id,
+            vec![sub("plain", false), sub("one", true), sub("two", true)],
+            vec![],
+        )
+        .unwrap();
+    let plain = &parts[0];
+    assert_eq!(r.core.why_no_agent(&plain.id, false), None, "switch off");
+    assert_eq!(r.core.why_no_agent(&plain.id, true), Some(Why::ForLead));
+    switch(&r, true);
+    assert_eq!(r.core.why_no_agent(&plain.id, false), Some(Why::ForLead));
+
+    r.core.set_device_sides(&["front".into()]).unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Back end".into(),
+                repo_key: REPO.into(),
+                side: "back".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::OffSide(w)) => assert!(w.contains("back"), "{w}"),
         other => panic!("{other:?}"),
     }
 }
