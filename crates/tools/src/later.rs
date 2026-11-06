@@ -255,10 +255,15 @@ pub(crate) fn board_later(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Err(e) => return map_err(e),
         };
         let (told, _) = s.tell_all(c, ns);
+        // Its order stays: a card still after others waits for them.
+        let then = if t.state == coord::BLOCKED {
+            "it still waits on its other items (its order, say) before it goes out"
+        } else {
+            "it goes out again as if just posted"
+        };
         return format!(
-            "Brought {} back: it is {} and goes out again as if just posted.{}\n{}",
+            "Brought {} back: {then}.{}\n{}",
             t.short_ref(),
-            t.state,
             s.told(&told, &n),
             s.card_line(&t, None, &n, &s.now())
         );

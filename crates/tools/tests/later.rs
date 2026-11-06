@@ -290,7 +290,7 @@ fn a_card_is_held_back_and_brought_back() {
     );
     has(
         &out,
-        &["Brought #1 back: it is submitted and goes out again as if just posted."],
+        &["Brought #1 back: it goes out again as if just posted."],
     );
     has_not(&out, &["[not yet]"]);
     h.failsj(
@@ -378,4 +378,39 @@ fn only_the_person_brings_back_a_card_that_waits_for_their_word() {
         json!({"task_id": "#1", "back": true}),
     );
     has(&out, &["Brought #1 back"]);
+}
+
+#[test]
+fn a_version_hold_names_the_device_and_a_card_back_keeps_its_order() {
+    let h = new_harness();
+    plain(&h, "Spaces");
+    plain(&h, "Voice calls");
+    // No device named: this one.
+    let out = h.okj(
+        &call_a(),
+        "board_later",
+        json!({"task_id": "#2", "until": "version 99.0.0", "why": "needs the new sync"}),
+    );
+    has(&out, &["#2 is Not yet: it comes back when", "runs 99.0.0"]);
+    has_not(&out, &["when the person says"]);
+    // Brought back while still after another card: it waits for that.
+    h.okj(
+        &call_a(),
+        "board_edit",
+        json!({"task_id": "#2", "after": ["#1"]}),
+    );
+    let out = h.okj(
+        &call_a(),
+        "board_later",
+        json!({"task_id": "#2", "back": true}),
+    );
+    has(
+        &out,
+        &[
+            "Brought #2 back: it still waits on its other items",
+            "order: after #1",
+        ],
+    );
+    let id = h.b.co.task_ref("#2").unwrap();
+    assert_eq!(h.b.co.get_task(&id).unwrap().state, coord::BLOCKED);
 }
