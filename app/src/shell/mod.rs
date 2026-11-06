@@ -23,6 +23,7 @@ pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
 mod probe;
+mod shot;
 // No tray on a phone (card #226): the same API with nothing behind it.
 #[cfg_attr(mobile, path = "tray_mobile.rs")]
 pub mod tray;
@@ -228,6 +229,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 builder.mount_events(app);
                 // The probe never puts a window on screen.
                 main_window(app.handle(), startup || probe.on())?;
+                shot::start(app.handle());
                 irori_core::log(&format!(
                     "start: window open {} ms after launch",
                     launched.elapsed().as_millis()

@@ -128,16 +128,36 @@ describe("canvas layout (card #587)", () => {
     expect(inside(l.groups["group:agent:a"], b, NodeSize.blocker)).toBe(true)
   })
 
-  test("a kept spot far away floats instead of stretching its hub", () => {
-    const near = card({ working: [busy("a")] })
-    const far = card({ working: [busy("a")], pos: { x: 9000, y: 9000 } })
-    const g = toGraph([near, far])
+  test("a kept spot counts only inside the card's own area", () => {
+    const a1 = card({ working: [busy("a")] })
+    const a2 = card({ working: [busy("a")] })
+    const g0 = toGraph([a1, a2])
+    const spot = { x: autoLayout(g0).pos[a1.id].x + 10, y: autoLayout(g0).pos[a1.id].y + 6 }
+    // Arranged within its hub: kept.
+    const inHub = card({ ...a2, pos: spot })
+    let g = toGraph([a1, inHub])
+    expect(withPlaced(g, autoLayout(g)).pos[inHub.id]).toEqual(spot)
+    // Far off (an older layout, or dropped in the open): back in the grid.
+    const far = card({ ...a2, pos: { x: 9000, y: 9000 } })
+    g = toGraph([a1, far])
     const auto = autoLayout(g)
-    const l = withPlaced(g, auto)
-    expect(l.pos[far.id]).toEqual({ x: 9000, y: 9000 })
-    expect(l.groups["group:agent:a"].w).toBeLessThan(2000)
-    // Without the anchor (the old rule) it would stretch.
-    expect(groupRects(g, l.pos, auto)["group:agent:a"].w).toBeGreaterThan(9000)
+    expect(withPlaced(g, auto).pos[far.id]).toEqual(auto.pos[far.id])
+    // While dragged far, it floats rather than stretching the box.
+    const dragged = { ...auto.pos, [far.id]: { x: 9000, y: 9000 } }
+    expect(groupRects(g, dragged, auto, auto.groups)["group:agent:a"].w).toBeLessThan(2000)
+    expect(groupRects(g, dragged, auto)["group:agent:a"].w).toBeGreaterThan(9000)
+    // Handed to b: its spot in a's hub no longer counts.
+    const handed = card({ ...a2, working: [busy("b")], pos: spot })
+    g = toGraph([a1, handed])
+    const l = autoLayout(g)
+    expect(withPlaced(g, l).pos[handed.id]).toEqual(l.pos[handed.id])
+  })
+
+  test("a second holder sits in the shared strip with a line to the card", () => {
+    const c = card({ working: [busy("a"), busy("b")] })
+    const g = toGraph([c])
+    expect(g.nodes.find((x) => x.id === "agent:b")).toMatchObject({ group: "group:others" })
+    expect(g.edges.some((e) => e.kind === "holder" && e.source === "agent:b" && !e.inHub)).toBe(true)
   })
 })
 

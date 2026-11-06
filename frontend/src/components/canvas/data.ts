@@ -43,8 +43,9 @@ export type FaceRef = {
 }
 
 // GroupNode is an area on the canvas: an agent's hub (the agent and the
-// cards it holds), the cards nobody is on, the agents here that hold
-// nothing (watching, talking), or the done cards.
+// cards it holds first), the cards nobody is on, the agents here with no
+// card in a hub of their own (watching, talking, a second holder), or the
+// done cards.
 export type GroupNode = {
   kind: "group"
   id: string // "group:agent:<key>", "group:unheld", "group:others" or "group:done"
@@ -325,13 +326,14 @@ export function toGraph(
   for (const t of talk.values())
     edge("talk", `agent:${t.a}`, `agent:${t.b}`, t.cards.join(", "))
 
-  // An agent that holds a card here (or you) has a hub; the rest that
-  // are here (watching, talking) share one strip.
+  // An agent that is a card's first holder here (you too) has a hub; the
+  // rest that are here (watching, talking, holding beside another) share
+  // one strip, their lines going to the cards.
   const hubs: GroupNode[] = []
   let others = 0
   for (const a of agents.values()) {
     const n = held.get(a.group) ?? 0
-    if (!n && !a.person) {
+    if (!n) {
       a.group = OthersId
       others++
       continue
@@ -355,7 +357,7 @@ export function toGraph(
     areas.push({
       kind: "group",
       id: OthersId,
-      label: `Also here, on no card of their own · ${others}`,
+      label: `Also here · ${others}`,
       by: "others",
       key: "",
     })
@@ -555,10 +557,16 @@ export function autoLayout(g: Graph): Layout {
 // withPlaced is the layout with every placed card at its kept spot: its
 // blockers move with it (under it, as autoLayout puts them), and each
 // area's rect grows or shrinks to hold its members where they are now.
+// Areas move as cards change hands (card #587), so a kept spot counts
+// only while it lies inside the card's own area as laid out now: a card
+// arranged within its hub stays put, and one kept from an older layout,
+// under another holder or out in the open goes back to its area's grid
+// rather than landing on another hub's cards.
 export function withPlaced(g: Graph, l: Layout): Layout {
   const pos = { ...l.pos }
   for (const n of g.nodes) {
     if (n.kind !== "card" || !n.card.pos) continue
+    if (!within(n.card.pos, l.groups[n.group])) continue
     pos[n.id] = { x: n.card.pos.x, y: n.card.pos.y }
   }
   return { ...l, pos: followers(g, pos), groups: groupRects(g, pos, l, l.groups) }
@@ -577,6 +585,18 @@ export function followers(g: Graph, pos: Record<string, Point>): Record<string, 
     out[n.id] = blockerSpot(c, i)
   }
   return out
+}
+
+// within says a card at p lies wholly inside r, give or take a little.
+function within(p: Point, r: Rect | undefined): boolean {
+  if (!r) return false
+  const slack = Gap
+  return (
+    p.x >= r.x - slack &&
+    p.y >= r.y - slack &&
+    p.x + NodeSize.card.w <= r.x + r.w + slack &&
+    p.y + NodeSize.card.h <= r.y + r.h + slack
+  )
 }
 
 // Reach is how far outside its area's laid-out rect a kept card may sit

@@ -255,11 +255,15 @@ function useFlash(graph: Graph, still: boolean): ReadonlySet<string> {
     last.current = holders(graph)
     if (!prev || still) return
     const moved = handOffs(prev, graph)
-    if (!moved.length) return
-    setFlash(new Set(moved))
+    if (moved.length) setFlash(new Set(moved))
+  }, [graph, still])
+  // Cleared on its own clock, so a graph change in the meantime can't
+  // leave a card flashing.
+  useEffect(() => {
+    if (!flash.size) return
     const t = window.setTimeout(() => setFlash(new Set()), 1600)
     return () => window.clearTimeout(t)
-  }, [graph, still])
+  }, [flash])
   return flash
 }
 
@@ -366,7 +370,7 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        onNodeMouseEnter={(_, n) => setHover(n.id)}
+        onNodeMouseEnter={(_, n) => setHover(n.type === "group" ? null : n.id)}
         onNodeMouseLeave={() => setHover(null)}
         onNodeClick={(_, node) => {
           const n = (node.data as { n: { kind: string; id: string; card?: string } }).n
