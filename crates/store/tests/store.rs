@@ -279,6 +279,53 @@ fn missing_respects_vector_and_limit() {
     assert_eq!(evs.iter().map(|e| e.seq).collect::<Vec<_>>(), [3, 4]);
 }
 
+/// Card #579: a writer with a long run can't use up a pull. Everyone gets a
+/// share of `limit`, each writer's rows stay in order from the vector, and
+/// a share nobody needs goes to the others.
+#[test]
+fn missing_by_turns_shares_the_limit_between_writers() {
+    let dir = tempdir();
+    let s = open_test(dir.path(), "dev-z");
+    let mut hlc = must_append(&s, AGENT_STATUS, &()).hlc.0;
+    for (dev, rows) in [("dev-a", 50), ("dev-b", 3)] {
+        for seq in 1..=rows {
+            hlc += 1;
+            s.insert(&ev(dev, seq, hlc, AGENT_GONE)).unwrap();
+        }
+    }
+    let seqs = |evs: &[Event], dev: &str| -> Vec<i64> {
+        evs.iter()
+            .filter(|e| e.device_id == dev)
+            .map(|e| e.seq)
+            .collect()
+    };
+    // Byte order would be dev-a's first 12 rows, and nothing else.
+    assert_eq!(
+        seqs(&s.missing(&Vector::new(), 12).unwrap(), "dev-a").len(),
+        12
+    );
+    let evs = s.missing_by_turns(&Vector::new(), 12).unwrap();
+    assert_eq!(evs.len(), 12);
+    assert_eq!(seqs(&evs, "dev-b"), [1, 2, 3]);
+    assert_eq!(seqs(&evs, "dev-z"), [1]);
+    assert_eq!(seqs(&evs, "dev-a"), (1..=8).collect::<Vec<_>>());
+    // From a vector, past what it holds.
+    let v: Vector = [("dev-a".to_string(), 48), ("dev-z".to_string(), 1)].into();
+    let evs = s.missing_by_turns(&v, 100).unwrap();
+    assert_eq!(seqs(&evs, "dev-a"), [49, 50]);
+    assert_eq!(seqs(&evs, "dev-b"), [1, 2, 3]);
+    assert!(seqs(&evs, "dev-z").is_empty());
+    // A writer the vector says is all held is left out, whatever it holds.
+    let v: Vector = [("dev-a".to_string(), i64::MAX)].into();
+    let evs = s.missing_by_turns(&v, 100).unwrap();
+    assert!(seqs(&evs, "dev-a").is_empty());
+    assert_eq!(evs.len(), 4);
+    // Nothing owed; and a limit below the writers still sends rows.
+    let all: Vector = s.vector().unwrap();
+    assert!(s.missing_by_turns(&all, 10).unwrap().is_empty());
+    assert_eq!(s.missing_by_turns(&Vector::new(), 2).unwrap().len(), 2);
+}
+
 #[test]
 fn list_filters() {
     let dir = tempdir();
