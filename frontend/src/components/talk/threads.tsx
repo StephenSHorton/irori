@@ -232,14 +232,8 @@ export function ThreadView({
             <Loading loading label="Loading the answers">
               <MessageRowsShape rows={2} />
             </Loading>
-          ) : t.openedBy ? (
-            emptyOpened(t.openedBy)
-          ) : t.state === "waiting" && t.agentsNow ? (
-            "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
-          ) : t.agentsNow ? (
-            "No answer yet."
           ) : (
-            "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+            emptyLine(t)
           )
         }
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
@@ -295,6 +289,20 @@ export function OpenedBy({ who }: { who: AgentRef }) {
 
 export function openedLine(who: AgentRef): string {
   return `${displayName(who)} opened this thread`
+}
+
+// emptyLine is what a thread with no replies yet says in its pane.
+export function emptyLine(
+  t: Pick<ThreadSummary, "openedBy" | "noAgent" | "state" | "agentsNow">
+): string {
+  if (t.openedBy) return emptyOpened(t.openedBy)
+  // Why no computer can start one, and what happens next (card #541):
+  // "Irori starts one when spawning is on" would give the wrong reason.
+  if (t.noAgent) return t.noAgent
+  if (t.state === "waiting" && t.agentsNow)
+    return "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
+  if (t.agentsNow) return "No answer yet."
+  return "No answer yet. Agents answer now is off: agents in it read it at their next turn."
 }
 
 // emptyOpened is an agent's own thread before anyone writes in it: its

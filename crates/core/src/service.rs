@@ -1529,6 +1529,10 @@ impl Core {
             // And the call hooks (card #654).
             s.mesh
                 .set_calls(Arc::new(calls::CallBridge(Arc::downgrade(&s))));
+            // A Personal channel's huddle rings on the private mesh (#663).
+            s.mesh
+                .node
+                .set_own_calls(Some(Arc::new(calls::CallBridge(Arc::downgrade(&s)))));
         }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {

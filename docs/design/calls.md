@@ -1,6 +1,6 @@
 # Calls: Irori's own call layer (card #654)
 
-Huddles: voice calls of 2 to 6 devices in a space channel or a person DM. The research behind the choices is in `docs/research/08-voice-calls/` (#571). This page says what was built, how the parts meet, how it was measured, and what's still open.
+Huddles: voice calls of 2 to 6 devices in a space channel, a person DM, or a Personal channel (the person's own devices: Mac, phone, PC; card #663). The research behind the choices is in `docs/research/08-voice-calls/` (#571). This page says what was built, how the parts meet, how it was measured, and what's still open.
 
 ## The parts
 
@@ -8,8 +8,8 @@ Huddles: voice calls of 2 to 6 devices in a space channel or a person DM. The re
 |---|---|---|
 | Audio engine | `crates/call` (lib `call`) | One thread per call owns the mic, the speaker, echo cancelling, the Opus encoder and a jitter buffer per peer. It knows nothing of iroh: a peer is a `Link` that sends a datagram. |
 | Transport | `crates/net/src/call.rs` | ALPN `irori/call/1`: one QUIC connection per pair of devices in the call, on the existing endpoint. Audio rides its datagrams. |
-| Ringing | `crates/mesh/src/boardmesh.rs` | A board `call` frame (`CallFrame`, ops `ring`, `join`, `leave`, `end`) to the space's devices that are online and said `calls >= 1` in their hello. |
-| Call service | `crates/core/src/service/calls.rs` | Wires it together: routes a conversation to its space, starts the engine, joins the call on the endpoint, rings, dials, writes the start and end posts, publishes `CoreEvent::Call`. |
+| Ringing | `crates/mesh/src/boardmesh.rs`, `crates/mesh/src/owncalls.rs` | A board `call` frame (`CallFrame`, ops `ring`, `join`, `leave`, `end`) to the space's devices that are online and said `calls >= 1` in their hello. In a Personal channel, the same steps as a private mesh `call` frame to the person's own devices whose mesh hello said `calls >= 1`. |
+| Call service | `crates/core/src/service/calls.rs` | Wires it together: routes a conversation to its space (or the private mesh, `Ride`), starts the engine, joins the call on the endpoint, rings, dials, writes the start and end posts, publishes `CoreEvent::Call`. |
 | Record | `talk.post` with a `call` mark | The start and the end are ordinary posts with a `CallMark` (`coord::talk`). An older Irori reads them as plain posts. |
 | Window | `crates/window/src/call.rs`, `frontend/src/lib/call.ts` | `call_*` commands, the `call:state` event, the huddle button, call bar and ringing banner. |
 | Phone | `app/src/shell/call_android.rs`, `CallService.kt`, `CallPlugin.kt` | A foreground service of type microphone, so a call survives the screen turning off. See `docs/android.md`. |
@@ -36,6 +36,7 @@ Huddles: voice calls of 2 to 6 devices in a space channel or a person DM. The re
 - The acceptor checks the call is joined here, that the space and epoch match a key it holds, the proof, and the space's `accept`.
   - `accept` passes a counted member device whose key matches, or one of the person's own devices that is live in the space.
   - It then requires `max_datagram_size()`.
+- **Personal channels** (#663): `spaceId` is `""`, the key is the mesh key of the person's current epoch (`mesh_secret(seed, personId, epoch).key`, the one before it too while its seed is held), and `accept` is the chain's check (`ChainAdmit`): a certified, unrevoked device of the person whose key matches. The dialer finds the peer in the private mesh's address book.
 - **Duplicate connections** between two devices keep one by the boards' REPLACED rule (`keep_new`).
 - **Closing:**
   - `recheck`, `drop_device`, `drop_board` and `close` reach call connections.
@@ -51,7 +52,9 @@ Huddles: voice calls of 2 to 6 devices in a space channel or a person DM. The re
   - Together these fill in the full mesh, even when the joiner knew only the device that rang it.
 - **Heartbeat:** every device in a call sends a `join` frame every 15 s. A device that comes online sees the huddle as live, and a live entry nobody mentions for 50 s is dropped.
 - **Leave:** a device that leaves while others are connected sends `leave`. The last one out sends `end` and writes the end post, with the call's length (from the first ring) and its people.
-- **Personal channels** have no space, so no board frames: no huddles there yet.
+- **Personal channels** (#663) have no space, so ringing rides the private mesh `sync` channel instead: a `call` frame `{type, epoch, callId, op, convId, devices, atMs}` (Go-compatible keys, none folding onto an older one), sent only to a device whose mesh hello said `calls: 1`. An older build ignores the type and is never rung. A frame from the private mesh must name a Personal channel, and one from a board connection can't name one.
+  - A `join` from another of the person's devices doesn't stop the ring there, as it does in a space: every device in a Personal channel is the person's, and each is rung to join.
+  - The ring banner names the device that rang ("You started a huddle in #us on MacBook").
 
 ## Measured (2026-11-06)
 
@@ -63,9 +66,10 @@ Huddles: voice calls of 2 to 6 devices in a space channel or a person DM. The re
   - the probe;
   - whole engines on fake devices: two ways, a third engine, mute, removing a peer.
 - Software mouth-to-ear on fake devices is 66 ms.
-- `crates/core/tests/it/huddle.rs` runs two whole huddles through real Cores on loopback iroh with fake audio:
+- `crates/core/tests/it/huddle.rs` runs three whole huddles through real Cores on loopback iroh with fake audio:
   - one person's three devices (as the Mac, the phone and a third), with ringing, joining, voice to every speaker, mute, and leaving one by one with the end post;
-  - two people in a space channel.
+  - two people in a space channel;
+  - one person's three devices in a Personal channel, with no space at all: both others ring, the PC still rings after the phone answers, a full mesh of three, voice to both speakers, the end post (#663).
 
 **MacBook Pro, its own speakers and mic (`call-dev`, two processes on one machine, direct path, RTT 0.7 ms):**
 - **Mouth-to-ear:** median 154 ms, max 163 ms (n = 9). This was after moving the speaker from 44.1 kHz with an FFT resampler (median about 190 ms) to 48 kHz.

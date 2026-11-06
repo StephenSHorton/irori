@@ -80,6 +80,10 @@ pub struct CallRingView {
     pub conv_kind: String,
     /// Who started it.
     pub by: String,
+    /// The device that rang, by name, when it is one of the person's own
+    /// (a Personal channel's huddle, #663, or one started on another of
+    /// their devices); "" otherwise.
+    pub by_device: String,
     /// When it rang, Unix ms.
     pub at_ms: i64,
 }
@@ -287,6 +291,7 @@ impl<'a> Names<'a> {
         let (conv_kind, conv_name) = self.conv(&r.conv_id);
         CallRingView {
             by: self.person(&r.by_person),
+            by_device: self.device(&r.by_person, &r.by_device),
             call_id: r.call_id,
             conv_id: r.conv_id,
             conv_name,

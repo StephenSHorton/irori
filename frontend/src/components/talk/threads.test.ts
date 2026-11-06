@@ -7,6 +7,7 @@ import type { ThreadCard } from "@/gen/models"
 import {
   openedLine,
   ThreadCards,
+  emptyLine,
   emptyOpened,
   openAfterResolve,
   resolvedShown,
@@ -127,6 +128,13 @@ describe("a thread Irori starts an agent for (card #470)", () => {
       })
     ).toBe(why)
     expect(stateLine({ ...waiting, noAgent: why })).toBe(why)
+  })
+  test("the open thread's pane says why too, not 'when spawning is on' (card #541)", () => {
+    const why =
+      "No agent can start: Macbook Pro is offline. It starts by itself when it's back."
+    const open = { ...waiting, agentsNow: true }
+    expect(emptyLine({ ...open, noAgent: why })).toBe(why)
+    expect(emptyLine(open)).toContain("when spawning is on")
   })
 })
 
