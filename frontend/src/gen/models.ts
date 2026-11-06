@@ -8,7 +8,9 @@ export type AddressKind = B.AddressKind
 export type AgentCard = B.AgentCard
 export type AgentPermissions = B.AgentPermissions
 export type AgentRef = B.AgentRef
+export type AgentStartsView = B.AgentStartsView
 export type AgentsChange = B.AgentsChange
+export type AgentsLimits = B.AgentsLimits
 export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
@@ -67,6 +69,7 @@ export type DeskPrView = B.DeskPrView
 export type DeskSettings = B.DeskSettings
 export type DeskSnapshotView = B.DeskSnapshotView
 export type DeskView = B.DeskView
+export type DeviceCap = B.DeviceCap
 export type DeviceView = B.DeviceView
 export type DonePage = B.DonePage
 export type Empty = B.Empty
@@ -85,6 +88,7 @@ export type InviteStatus = B.InviteStatus
 export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
+export type LogFreshness = B.LogFreshness
 export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
@@ -130,6 +134,7 @@ export type SummaryMember = B.SummaryMember
 export type TalkConversation = B.TalkConversation
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
+export type TalkPerson = B.TalkPerson
 export type TalkPost = B.TalkPost
 export type Target = B.Target
 export type Task = B.Task
@@ -180,9 +185,19 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
   return { ...p } as B.AgentsChange
 }
 
+/** AgentsLimits with Go's zero values for every field left out. */
+export function AgentsLimits(p: Partial<B.AgentsLimits> = {}): B.AgentsLimits {
+  return { "devices": [], "maxCap": 0, "today": 0, "todayHere": 0, "costUsd": null, "queued": 0, ...p } as B.AgentsLimits
+}
+
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+}
+
+/** AgentStartsView with Go's zero values for every field left out. */
+export function AgentStartsView(p: Partial<B.AgentStartsView> = {}): B.AgentStartsView {
+  return { "on": false, "max": 0, "used": 0, "ceiling": 0, ...p } as B.AgentStartsView
 }
 
 /** AnswerResult with Go's zero values for every field left out. */
@@ -267,7 +282,7 @@ export function CardBlocker(p: Partial<B.CardBlocker> = {}): B.CardBlocker {
 
 /** CardBoard with Go's zero values for every field left out. */
 export function CardBoard(p: Partial<B.CardBoard> = {}): B.CardBoard {
-  return { "id": "", "name": "", "tag": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
+  return { "id": "", "name": "", "tag": "", "spaceBoard": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
 }
 
 /** CardColors with Go's zero values for every field left out. */
@@ -337,7 +352,7 @@ export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
 
 /** CardRef with Go's zero values for every field left out. */
 export function CardRef(p: Partial<B.CardRef> = {}): B.CardRef {
-  return { "id": "", "short": "", "title": "", ...p } as B.CardRef
+  return { "id": "", "short": "", "tag": "", "title": "", ...p } as B.CardRef
 }
 
 /** CardResolution with Go's zero values for every field left out. */
@@ -357,7 +372,7 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
 
 /** CardSubtask with Go's zero values for every field left out. */
 export function CardSubtask(p: Partial<B.CardSubtask> = {}): B.CardSubtask {
-  return { "id": "", "short": "", "title": "", "state": "", "holder": CardHolder(), "progress": CardProgress(), "blocked": false, ...p } as B.CardSubtask
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", "holder": CardHolder(), "progress": CardProgress(), "blocked": false, ...p } as B.CardSubtask
 }
 
 /** CardSummary with Go's zero values for every field left out. */
@@ -450,6 +465,11 @@ export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
   return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
+/** DeviceCap with Go's zero values for every field left out. */
+export function DeviceCap(p: Partial<B.DeviceCap> = {}): B.DeviceCap {
+  return { "device": "", "name": "", "here": false, "cap": 0, "chosen": false, "running": 0, ...p } as B.DeviceCap
+}
+
 /** DeviceView with Go's zero values for every field left out. */
 export function DeviceView(p: Partial<B.DeviceView> = {}): B.DeviceView {
   return { "deviceId": "", "name": "", "role": "", "state": "", ...p } as B.DeviceView
@@ -515,6 +535,11 @@ export function Link(p: Partial<B.Link> = {}): B.Link {
   return { "kind": "", "ref": "", "label": "", ...p } as B.Link
 }
 
+/** LogFreshness with Go's zero values for every field left out. */
+export function LogFreshness(p: Partial<B.LogFreshness> = {}): B.LogFreshness {
+  return { "log": "", "shared": false, ...p } as B.LogFreshness
+}
+
 /** Mention with Go's zero values for every field left out. */
 export function Mention(p: Partial<B.Mention> = {}): B.Mention {
   return { "key": "", "name": "", ...p } as B.Mention
@@ -577,7 +602,7 @@ export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.Notificat
 
 /** NotificationCard with Go's zero values for every field left out. */
 export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.NotificationCard {
-  return { "id": "", "short": "", "title": "", ...p } as B.NotificationCard
+  return { "id": "", "short": "", "tag": "", "title": "", ...p } as B.NotificationCard
 }
 
 /** NotifyOptions with Go's zero values for every field left out. */
@@ -720,6 +745,11 @@ export function TalkMemberRef(p: Partial<B.TalkMemberRef> = {}): B.TalkMemberRef
   return { "kind": "", "key": "", ...p } as B.TalkMemberRef
 }
 
+/** TalkPerson with Go's zero values for every field left out. */
+export function TalkPerson(p: Partial<B.TalkPerson> = {}): B.TalkPerson {
+  return { "key": "", "name": "", "color": "", "avatar": "", ...p } as B.TalkPerson
+}
+
 /** TalkPost with Go's zero values for every field left out. */
 export function TalkPost(p: Partial<B.TalkPost> = {}): B.TalkPost {
   return { "postId": "", "convId": "", "by": "", "text": "", "mentions": [], "agentsNow": false, "at": "", ...p } as B.TalkPost
@@ -747,12 +777,12 @@ export function TermInfo(p: Partial<B.TermInfo> = {}): B.TermInfo {
 
 /** ThreadCard with Go's zero values for every field left out. */
 export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
-  return { "id": "", "short": "", "title": "", "state": "", ...p } as B.ThreadCard
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.ThreadCard
 }
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */

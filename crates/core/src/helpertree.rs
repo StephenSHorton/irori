@@ -1,11 +1,11 @@
 //! Helper worktrees for a card with several agents (docs/design/
 //! spawned-agents.md §3, part 7). Irori makes each helper's worktree
 //! itself, branched from the card's branch, so a helper starts from the
-//! lead's plan and scaffold commits; `claude --bg -w` can only branch from
-//! the default branch or HEAD, so it stays for single-agent cards. The
-//! helper is spawned with its folder set to the worktree made here.
+//! lead's plan and scaffold commits. The helper is spawned with its folder
+//! set to the worktree made here. A single-agent card's tree is made by
+//! Irori too ([`crate::treeclean::make`], card #565), never `claude -w`.
 //!
-//! The worktree sits where `-w` puts its own (`.claude/worktrees/<name>`
+//! The worktree sits where `-w` would put its own (`.claude/worktrees/<name>`
 //! in the repo), so its trust follows the repo's entry, and the helper's
 //! card reports it in Where like any agent's, so a settled card's build
 //! folder goes the usual way (card #427).
@@ -18,7 +18,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Where Claude Code's `-w` keeps worktrees, under the repo root.
+/// Where Irori makes its trees, under the repo root (where Claude Code's
+/// `-w` would put them, so trust follows the repo's entry).
 pub const WORKTREES: &str = ".claude/worktrees";
 
 /// A helper's worktree and its branch.
@@ -153,6 +154,14 @@ pub fn make(repo: &Path, card_branch: &str, part: &str) -> Result<HelperTree, St
     let branch = helper_branch(card_branch, part);
     let path = helper_path(repo, &branch);
     if let Some((p, _)) = worktrees(repo)?.into_iter().find(|(_, b)| *b == branch) {
+        // A settled helper's tree in its last checks before removal: never
+        // start an agent there (card #565).
+        if crate::treeclean::being_removed(&p) {
+            return Err(format!(
+                "{} is being removed after its card settled; try again in a moment",
+                p.display()
+            ));
+        }
         return Ok(HelperTree {
             path: p,
             branch,

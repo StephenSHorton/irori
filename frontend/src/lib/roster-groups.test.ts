@@ -58,15 +58,18 @@ describe("rosterGroups", () => {
     expect(g.yours.map((x) => x.key)).toEqual(["juniper"])
     expect(g.spawned).toBe(0)
   })
-  test("counts cards starting an agent and cards at the cap", () => {
+  test("counts cards starting an agent and cards queued for one", () => {
     const g = rosterGroups(
       [],
       [
         card("64", [], { starting: "Macbook Pro (this one)" }),
-        card("67", [], { atCap: "Macbook Pro (this one)" }),
+        card("67", [], { atCap: "Macbook Pro (this one)", queuePlace: 1 }),
+        // Card #450: held on a usage limit.
+        card("68", [], { usageLimit: "2026-11-04T23:30:00Z" }),
+        card("70", [], { cantStart: "no copy of irori on PC" }),
       ]
     )
-    expect([g.starting, g.atCap]).toEqual([1, 1])
+    expect([g.starting, g.queued]).toEqual([1, 2])
   })
 })
 
@@ -99,4 +102,11 @@ describe("spawnedKeys", () => {
     )
     expect([...g.blocked].sort()).toEqual(["clover", "fern"])
   })
+})
+
+// Numbers are per board (card #558): a group's ref needs its card's tag.
+test("a group carries its card's tag", () => {
+  const c = { ...card("3", [{ key: "thyme", spawned: true }]), tag: "net" }
+  const g = rosterGroups([a("thyme")], [c])
+  expect(g.onCards[0].tag).toBe("net")
 })

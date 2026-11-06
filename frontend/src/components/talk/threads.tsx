@@ -2,6 +2,7 @@
 // Home's Board, card #116): its state, the cards made from it, and the
 // open thread itself.
 
+import { cardRef } from "@/components/cards/bits"
 import { useContext, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +13,10 @@ import { CommentBox } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
 import { Thread } from "@/components/cards/thread"
+import { MessageRowsShape } from "@/components/common/loading-shapes"
+import { Loading } from "@/components/ui/loading"
 import { spawnLine } from "@/lib/spawn-line"
+import { StartPastLimit } from "@/components/cards/start-past-limit"
 import {
   displayName,
   threads as threadsApi,
@@ -72,6 +76,9 @@ export const stateBadges: Record<
 
 // stateLine says where a thread stands, under its title in the Talk list.
 export function stateLine(t: ThreadSummary, why = ""): string {
+  // A follow-up no computer can start an agent for (card #541): why, even
+  // on a thread an agent answered before.
+  if (t.state === "answered" && t.noAgent) return t.noAgent
   switch (t.state) {
     case "answered":
       return t.lastBy && t.lastText
@@ -85,10 +92,7 @@ export function stateLine(t: ThreadSummary, why = ""): string {
       return "Resolved"
     default:
       // An agent Irori starts for it, or why it can't (card #470).
-      return (
-        spawnLine(t)?.text ??
-        (why || "Waiting for an agent")
-      )
+      return spawnLine(t)?.text ?? (why || "Waiting for an agent")
   }
 }
 
@@ -121,7 +125,7 @@ export function ThreadCards({ cards }: { cards: ThreadCard[] }) {
             variant={cardStates[c.state] ?? "slate"}
             className="h-4 max-w-full gap-1 px-1 text-[10.5px]"
           >
-            <span className="font-mono">#{plainLine(c.short)}</span>
+            <span className="font-mono">{cardRef(c)}</span>
             <span className="truncate">{plainLine(c.title)}</span>
           </Badge>
         </button>
@@ -147,7 +151,10 @@ export function ThreadView({
   // Talk's pane does: everything but the messages keeps its height.
   bound?: string
 }) {
-  const { detail } = useCard(t.id)
+  const { detail, error: readError } = useCard(t.id)
+  // The answers are a skeleton until the card's first read lands (card
+  // #598), not "No answer yet"; a failed read keeps the plain line.
+  const reading = !detail && !readError
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resolved = t.state === "resolved"
@@ -210,15 +217,24 @@ export function ThreadView({
         on={{ agents: [...t.told, ...t.answeredBy], over: resolved }}
         compact
         empty={
-          t.state === "waiting" && t.agentsNow
-            ? "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
-            : t.agentsNow
-              ? "No answer yet."
-              : "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+          reading ? (
+            <Loading loading label="Loading the answers">
+              <MessageRowsShape rows={2} />
+            </Loading>
+          ) : t.state === "waiting" && t.agentsNow ? (
+            "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
+          ) : t.agentsNow ? (
+            "No answer yet."
+          ) : (
+            "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+          )
         }
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
         scroll
       />
+      {t.state === "waiting" && (
+        <StartPastLimit id={t.id} state={t} size="xs" />
+      )}
       <div className="flex shrink-0 items-center gap-2">
         {resolved ? (
           <Button

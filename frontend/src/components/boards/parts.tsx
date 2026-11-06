@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -20,6 +21,7 @@ import {
   MaxBoardName,
   suggestTag,
   validTag,
+  MaxBoardTag,
   type BoardSettings,
   type InviteStatus,
 } from "@/lib/boards"
@@ -120,8 +122,8 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
           autoFocus
           onChange={(e) => setName(e.target.value)}
           maxLength={MaxBoardName}
-          placeholder="Board name"
-          aria-label="New board's name"
+          placeholder="Space name"
+          aria-label="New space's name"
           className="h-8 min-w-0 flex-1 text-[13px]"
         />
         <Input
@@ -130,9 +132,9 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
             setTypedTag(true)
             setTag(e.target.value.toLowerCase())
           }}
-          maxLength={16}
+          maxLength={MaxBoardTag}
           placeholder="tag"
-          aria-label="New board's tag, the short name in card refs like tag#12"
+          aria-label="Tag for its first board, the short name in card refs like tag#12"
           className="h-8 w-24 font-mono text-[13px]"
         />
         <Button type="submit" size="sm" className="h-8" disabled={busy || !name.trim() || !validTag(t) || clash}>
@@ -143,7 +145,7 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
         {clash
           ? `Another board is tagged ${t} already.`
           : t && !validTag(t)
-            ? "A tag is a lowercase letter, then letters, digits or '-' (16 at most)."
+            ? `A tag is a lowercase letter, then letters, digits or '-' (${MaxBoardTag} at most).`
             : `Its cards are ${t || "tag"}#1, ${t || "tag"}#2, …`}
       </p>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -183,18 +185,18 @@ export function NewBoardDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t === "make" ? "New board" : "Join a board"}</DialogTitle>
+          <DialogTitle>{t === "make" ? "New space" : "Join a space"}</DialogTitle>
           <DialogDescription>
             {t === "make"
-              ? "One board per project. Only the people you invite see it."
+              ? "A group of people, with its boards and Talk. Only the people you invite see it."
               : "Paste the invite link someone sent you."}
           </DialogDescription>
         </DialogHeader>
         {join && (
-          <div className="flex gap-1" role="tablist" aria-label="New board or join one">
+          <div className="flex gap-1" role="tablist" aria-label="New space or join one">
             {(
               [
-                ["make", "Make a board"],
+                ["make", "Make a space"],
                 ["join", "Join with an invite"],
               ] as const
             ).map(([k, label]) => (
@@ -281,7 +283,7 @@ export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }
 export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => void }) {
   const open = inviteOpen(s)
   const host = s.role === "host"
-  const board = plainLine(s.boardName) || "the board"
+  const board = plainLine(s.boardName) || "the space"
   const peer = plainLine(s.peerName) || "them"
   return (
     <section className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[13px]" aria-label="Invite">
@@ -439,11 +441,11 @@ function Reviewers({
     <section className="grid gap-1" aria-label="Reviews">
       <span className="font-semibold text-ink">Reviews</span>
       <p className="text-muted-foreground">
-        Any free agent of yours reviews other people&apos;s PRs on this board, under your GitHub
+        Any free agent of yours reviews other people&apos;s PRs in this space, under your GitHub
         account. Nothing to set up.
       </p>
       <p className="text-muted-foreground">
-        Optional: always use one agent, for the whole board or one repo.
+        Optional: always use one agent, for the whole space or one repo.
       </p>
       {s.reviewers.length > 0 && (
         <ul className="grid gap-0.5" aria-label="Pinned reviewers">
@@ -451,7 +453,7 @@ function Reviewers({
             <li key={r.repo || "*"} className="flex items-center gap-1.5">
               <span className="text-ink">{plainLine(r.name) || r.agent}</span>
               <span className="text-muted-foreground">
-                {r.repo ? `for ${shortRepo(r.repo)}` : "for the whole board"}
+                {r.repo ? `for ${shortRepo(r.repo)}` : "for the whole space"}
               </span>
               <Button
                 size="xs"
@@ -487,7 +489,7 @@ function Reviewers({
             value={repo}
             onChange={(e) => setRepo(e.target.value)}
           >
-            <option value="">the whole board</option>
+            <option value="">the whole space</option>
             {repos.map((r) => (
               <option key={r} value={r}>
                 {shortRepo(r)}
@@ -558,6 +560,7 @@ export function BoardSettingsPanel({
   const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
   return (
     <div className="grid gap-3 text-xs">
+      <SpaceAgentSwitch boardId={boardId} name="Start an agent for each card you make" open />
       <section className="grid gap-1" aria-label="Members">
         <span className="font-semibold text-ink">Members</span>
         <ul className="grid gap-0.5">
@@ -617,7 +620,7 @@ export function BoardSettingsPanel({
                           <>
                             {plainLine(m.name) ? `${plainLine(m.name)} keeps` : "They keep"}{" "}
                             everything already on their devices. Removing them stops them syncing and writing
-                            anything this board accepts.
+                            anything this space accepts.
                           </>
                         }
                         onConfirm={async () => {
@@ -689,7 +692,7 @@ export function BoardSettingsPanel({
               })}
             </ul>
           ) : (
-            <p className="text-muted-foreground">Nobody else is on this board yet.</p>
+            <p className="text-muted-foreground">Nobody else is in this space yet.</p>
           ))}
       </section>
       <section className="grid gap-1" aria-label="What my agents may do">

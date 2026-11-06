@@ -61,20 +61,28 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod dm_spaces;
+pub mod freshness;
 mod liveness;
 mod mirror;
 pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_agents;
 pub mod spawn_boards;
+pub mod spawn_capable;
+pub mod spawn_limits;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
+pub mod spawn_why;
+pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod trees;
 
 use boards::Boards;
 
@@ -145,6 +153,11 @@ pub struct Options {
     /// passes [`crate::buildclean::IDLE`]; `None` (tests, rehearsals)
     /// never deletes a build.
     pub clear_builds: Option<Duration>,
+    /// Card #580: fetch every file up to this many bytes another device
+    /// offers, so this device holds it too ([`crate::prefetch`]). The
+    /// desktop app passes [`crate::prefetch::SMALL_FILE`]; `None` (phones,
+    /// tests) fetches only what is asked for.
+    pub prefetch_files: Option<u64>,
 }
 
 /// Go `core.ErrNoHomeServer`'s text.
@@ -249,8 +262,11 @@ struct Services {
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
-    builds_looked: Mutex<crate::buildclean::Looked>,
+    builds_looked: Arc<Mutex<crate::buildclean::Looked>>,
     builds_busy: Arc<std::sync::atomic::AtomicBool>,
+    /// These Services, once built (card #565: a sweep's thread asks them
+    /// again just before a tree goes).
+    this: Arc<OnceLock<Weak<Services>>>,
     members: Arc<Members>,
     names_kick: Arc<Kick>,
     /// This device's agents that stopped answering their wakes (#110).
@@ -290,6 +306,10 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The hidden DM spaces' markers (card #538).
+    dm_spaces: Arc<boards_own::DmSpaces>,
+    /// The DM hand-offs' work (card #538).
+    dms: dm_spaces::Dms,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -401,6 +421,23 @@ impl tools::Backend for ToolsView {
     fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         self.0.device_labels()
     }
+    fn agent_start(&self, caller: &str, task_id: &str) -> Result<String, String> {
+        self.0.agent_start(caller, task_id)
+    }
+    fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
+        self.0.agent_end(caller, key)
+    }
+    fn agent_limit(&self) -> Option<tools::AgentLimit> {
+        let u = self.0.agent_starts_use();
+        Some(tools::AgentLimit {
+            on: u.on,
+            max: u.max,
+            used: u.used,
+        })
+    }
+    fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
+        self.0.spawn_wait(task_id, asked)
+    }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
     }
@@ -453,6 +490,9 @@ impl tools::TaskRouter for ToolsView {
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
     }
+    fn private_key(&self, key: &str) -> String {
+        self.0.private_key(key)
+    }
     fn mirror_acquire(
         &self,
         key: &str,
@@ -474,10 +514,12 @@ impl tools::TaskRouter for ToolsView {
         self.0.request_release(by, resource, why)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
+        // Not a hidden DM space's (card #538): no agent works there.
         self.0
             .boards
             .list()
             .into_iter()
+            .filter(|b| !self.0.is_dm_space(&b.id))
             .map(|b| b.coord().clone())
             .find(|co| co.get_comment(id).is_some())
     }
@@ -988,7 +1030,9 @@ impl Core {
             is_owner: Some(is_owner.clone()),
             spawned: Some({
                 let c = coord_cell.clone();
-                Arc::new(move |k: &str| c.get().is_some_and(|co| co.is_spawned(k)))
+                Arc::new(move |k: &str| {
+                    coord::with_inbox_lock_held(|| c.get().is_some_and(|co| co.is_spawned(k)))
+                })
             }),
             on_recipient_gone: Some({
                 let c = coord_cell.clone();
@@ -1039,16 +1083,20 @@ impl Core {
             stale: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |d: &inbox::Delivery| {
-                    c.get()
-                        .map(|co| notice::stale_notice(co, d))
-                        .unwrap_or_default()
+                    coord::with_inbox_lock_held(|| {
+                        c.get()
+                            .map(|co| notice::stale_notice(co, d))
+                            .unwrap_or_default()
+                    })
                 })
             }),
             off_side: Some({
                 let c = coord_cell.clone();
                 Arc::new(move |m: &inbox::Message, to: &str| {
-                    c.get()
-                        .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                    coord::with_inbox_lock_held(|| {
+                        c.get()
+                            .is_some_and(|co| co.off_side(&m.reason, &m.ref_, to))
+                    })
                 })
             }),
             notes: Some({
@@ -1056,7 +1104,7 @@ impl Core {
                 Arc::new(move |agent: &str, refs: &[String]| {
                     c.get()
                         .and_then(|w| w.upgrade())
-                        .map(|s| s.wake_notes(agent, refs))
+                        .map(|s| coord::with_inbox_lock_held(|| s.wake_notes(agent, refs)))
                         .unwrap_or_default()
                 })
             }),
@@ -1095,6 +1143,12 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
+                    agent_devices: Some(spawn_state.agent_devices_fn()),
+                    // The limit the coord reads (card #576): from the
+                    // same map, so a change holds at once.
+                    crash_limit: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
+                        s.crash_limit
+                    })),
                     // A terminal agent takes unheld cards, asks and threads
                     // only with the person's "Offer it cards" on (card
                     // #453); a spawned agent's rule is the coord's.
@@ -1115,6 +1169,22 @@ impl Core {
                         let cell = svc_cell.clone();
                         Arc::new(move |agent: &str| {
                             cell.get()?.upgrade()?.busy_outside(agent, None)
+                        })
+                    }),
+                    // Personal's boards (card #558), read from this log as
+                    // a space's are from its own.
+                    board_tag: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move |board: &str| {
+                            let st = st.upgrade()?;
+                            spaces::board_tag_in(&st, board)
+                        })
+                    }),
+                    board_tags: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move || {
+                            st.upgrade()
+                                .map_or_else(Vec::new, |st| spaces::board_tags_in(&st))
                         })
                     }),
                     ..Default::default()
@@ -1190,6 +1260,11 @@ impl Core {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
         }));
+        // Before Talk folds a row and before any space opens (card #538).
+        let dm_spaces = Arc::new(boards_own::DmSpaces::default());
+        if let Err(e) = dm_spaces.load(&st) {
+            logf(format_args!("dm spaces: load: {e}"));
+        }
         if let Err(e) = talk.load() {
             logf(format_args!("talk: load: {e}"));
         }
@@ -1350,6 +1425,7 @@ impl Core {
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
+            this: services_cell.clone(),
             members,
             names_kick: Kick::new(),
             answering,
@@ -1379,6 +1455,8 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            dm_spaces,
+            dms: dm_spaces::Dms::default(),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1413,6 +1491,14 @@ impl Core {
         s.mesh
             .node
             .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
+        // Before any space opens: every mesh carries the DM hooks (card #538).
+        {
+            let w = Arc::downgrade(&s);
+            s.mesh.set_dms(
+                Arc::new(dm_spaces::DmBridge(w.clone())),
+                Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
+            );
+        }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -1608,6 +1694,39 @@ impl Core {
             });
         }
 
+        // Card #580: small files other devices offer, fetched unasked.
+        if let Some(cap) = opts.prefetch_files {
+            let sub = Arc::new(s.store.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let p = crate::prefetch::Prefetch {
+                mesh: s.mesh.clone(),
+                store: s.store.clone(),
+                files: s.files.clone(),
+                now: s.now.clone(),
+                me: s.device.id.clone(),
+                cap,
+            };
+            let ct = self.stop_async.clone();
+            let rt = s.pairing.handle.clone();
+            self.spawn_async("prefetch", Some(&rt), async move {
+                let _reg = reg;
+                p.run(sub, ct).await
+            });
+        }
+
+        // The DM hand-offs (card #538): the mesh's hooks only queue work.
+        {
+            let s = s.clone();
+            let reg = self.stop.on_cancel({
+                let s = s.clone();
+                move || s.dms.close()
+            });
+            self.spawn("dms", move || {
+                let _reg = reg;
+                s.run_dm_jobs();
+            });
+        }
+
         // The mesh Node, its Servers fold and the address book, on the
         // net runtime; it joins nothing until there is a second device.
         {
@@ -1741,6 +1860,11 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        // Card #538: this thread doesn't wait for the
+                        // reconcile, which reads the markers too.
+                        if let Err(e) = s.dm_spaces.load(&s.store) {
+                            logf(format_args!("dm spaces: load: {e}"));
+                        }
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
@@ -1891,7 +2015,7 @@ impl Core {
                     if stop.sleep(crate::prwatch::TICK) {
                         return;
                     }
-                    s.check_prs();
+                    s.check_prs(std::time::Instant::now());
                 }
             });
         }
@@ -2435,6 +2559,12 @@ impl Core {
 
     /// This device's spawned agents (live, and starting) and its cap, for
     /// the card line "waiting: the PC is at its cap" (card #448).
+    /// What card `id` waits on for an agent (card #574); `asked`: the caller
+    /// just asked for one.
+    pub fn why_no_agent(&self, id: &str, asked: bool) -> Option<spawn_why::Why> {
+        self.s.why_no_agent(id, asked)
+    }
+
     pub fn spawn_slots(&self) -> (i64, i64) {
         (self.s.spawned_here(), self.s.spawn_cap(&self.s.device.id))
     }
@@ -2451,6 +2581,23 @@ impl Core {
         self.s.coord.is_spawned(key)
     }
 
+    /// The open cards and threads no agent can start for now, each with
+    /// why (card #541), on the private board and the shared ones.
+    pub fn no_agent(&self) -> std::collections::HashMap<String, String> {
+        self.s.no_agent_all()
+    }
+
+    /// This device never runs agents (a phone, card #541).
+    pub fn set_runs_no_agents(&self) {
+        self.s.set_runs_no_agents();
+        self.s.asks_kick.kick();
+    }
+
+    /// The devices that can't run agents (card #541).
+    pub fn cant_run_devices(&self) -> std::collections::HashSet<String> {
+        self.s.cant_run_devices()
+    }
+
     /// The person's "Offer it cards" on one of their terminal agents: the
     /// app only, never a tool (card #453).
     pub fn set_agent_offer(&self, key: &str, on: bool) -> Result<(), String> {
@@ -2462,6 +2609,57 @@ impl Core {
         self.s.set_spawn_cap(&self.s.device.id.clone(), cap)
     }
 
+    /// Claude Code's folder (its `projects/` holds the transcripts).
+    pub fn claude_dir(&self) -> PathBuf {
+        PathBuf::from(self.s.presence.claude_dir())
+    }
+
+    /// Device `device`'s cap (card #450): his pick, else its OS's default.
+    pub fn spawn_cap_of(&self, device: &str) -> i64 {
+        self.s.cap_on(device, self.s.hosts().get(device))
+    }
+
+    /// Whether he picked device `device`'s cap himself.
+    pub fn spawn_cap_set(&self, device: &str) -> bool {
+        self.s
+            .spawn
+            .caps
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(device)
+    }
+
+    /// The person sets device `device`'s cap from Settings › Agents, on any
+    /// of his devices (the row replicates; each device reads its own).
+    pub fn set_spawn_cap_of(&self, device: &str, cap: i64) -> Result<(), String> {
+        if device.trim().is_empty() {
+            return Err("spawn: no device given".into());
+        }
+        if !(0..=spawn::MAX_CAP).contains(&cap) {
+            return Err(format!("a cap is 0 to {}, not {cap}", spawn::MAX_CAP));
+        }
+        self.s.set_spawn_cap(device, cap)
+    }
+
+    /// Where the spawn queue stands here (card #450): each waiting card's
+    /// place, a usage-limit hold.
+    pub fn spawn_queue(&self) -> spawn_limits::SpawnQueue {
+        self.s.spawn_queue()
+    }
+
+    /// The person ends this device's usage hold now (card #576): if the
+    /// limit still stands, the next spawn fails on it and holds again. App
+    /// only.
+    pub fn release_usage_hold(&self) {
+        self.s.release_usage_hold()
+    }
+
+    /// The agents Irori started today for the private board, every
+    /// device's, oldest first: their keys and marks (card #450).
+    pub fn spawned_today(&self) -> Vec<(String, coord::Spawned)> {
+        self.s.spawned_today()
+    }
+
     /// The person's End on an agent Irori started: its hand-off, then
     /// stop and rm.
     pub fn end_spawned(&self, key: &str) -> Result<(), String> {
@@ -2470,6 +2668,16 @@ impl Core {
 
     /// The person asks for an agent on card `id` now, with `note` (their
     /// comment) in its brief: "Start an agent with this" (§4). App only.
+    /// "My agents may start agents on my cards" (card #575).
+    pub fn agent_starts(&self) -> spawn_agents::AgentStartsUse {
+        self.s.agent_starts_use()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_agent_starts(&self, on: bool, max: i64) -> Result<(), String> {
+        self.s.set_agent_starts(on, max)
+    }
+
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
     }
@@ -2487,10 +2695,15 @@ impl Core {
         self.s.start_agent(id, "")?;
         // The device that made the card runs its hand-out (card #485: the
         // PC's cards go out from the PC).
+        if let Some(why) = self.s.no_agent_all().remove(id) {
+            return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
+        }
         if !self.s.coord.hands_out_here(id) {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
-            if name.is_empty() {
+            if self.s.cant_run_devices().contains(&dev) {
+                name = "one of your computers".into();
+            } else if name.is_empty() {
                 name = "the device that made it".into();
             }
             return Ok(format!(
@@ -2605,7 +2818,12 @@ impl Core {
     /// Asks GitHub about the linked PRs that are due now (card #208); the
     /// Core's own loop does every [`crate::prwatch::TICK`].
     pub fn check_prs(&self) {
-        self.s.check_prs()
+        self.s.check_prs(std::time::Instant::now())
+    }
+
+    /// [`Self::check_prs`] as if it were `now`: its throttles are minutes.
+    pub fn check_prs_at(&self, now: std::time::Instant) {
+        self.s.check_prs(now)
     }
 
     /// Polls the merge desks this device polls that are due now (card
@@ -3178,7 +3396,7 @@ impl Services {
     /// the last few minutes, becomes a notification here (card #395,
     /// design §8); a plain channel post only bumps the unread count. A
     /// tap opens the conversation.
-    fn talk_note(&self, ev: &Event) {
+    pub(crate) fn talk_note(&self, ev: &Event) {
         const FRESH: Duration = Duration::from_secs(10 * 60);
         let Ok(r) = serde_json::from_slice::<coord::talk::PostRow>(&ev.payload) else {
             return;
@@ -3287,6 +3505,7 @@ impl Services {
             self.boards
                 .list()
                 .iter()
+                .filter(|b| !self.is_dm_space(&b.id))
                 .find_map(|b| b.coord().comment_attachment(sha))
         })
     }
@@ -3454,7 +3673,7 @@ impl Services {
             ..coord::TaskFilter::default()
         };
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
         let mut tasks = Vec::new();
         let mut home = std::collections::HashMap::new();
         for co in coords {
@@ -3687,10 +3906,22 @@ impl Services {
 
     /// Asks GitHub about the PRs that are due (card #208) and routes what
     /// coord says changed.
-    fn check_prs(self: &Arc<Self>) {
-        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
-            return;
-        };
+    fn check_prs(self: &Arc<Self>, now: std::time::Instant) {
+        // First, while another person's row is still theirs alone: a poll
+        // here hearing the same would count as this person's word for it.
+        self.tell_pr_news();
+        if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
+            self.ask_github(checker.as_ref(), now);
+        }
+        // And what folded while gh answered.
+        self.tell_pr_news();
+    }
+
+    fn ask_github(
+        self: &Arc<Self>,
+        checker: &dyn crate::prwatch::PrChecker,
+        now: std::time::Instant,
+    ) {
         let local: std::collections::HashSet<String> = self
             .presence
             .snapshot()
@@ -3698,15 +3929,25 @@ impl Services {
             .map(|c| c.key)
             .collect();
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
-        let due = self.pr_watch.due(
-            &coords,
-            &local,
-            &|k| self.private_key(k),
-            std::time::Instant::now(),
-        );
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
+        let due = self
+            .pr_watch
+            .due(&coords, &local, &|k| self.private_key(k), now);
         for d in due {
+            let known = |co: &coord::Coord| {
+                co.pr_state(&d.task_id, &d.url)
+                    .filter(|p| !p.state.is_empty())
+                    .map(|p| (p.state, p.review))
+            };
+            let before = known(&d.co);
             let c = checker.check(&d.url);
+            self.pr_watch
+                .answered(&d.task_id, &d.url, c.error.is_empty());
+            // Overtaken while gh answered (card #548): an OPEN from before
+            // a closing that just folded is no reopen. The next poll asks.
+            if known(&d.co) != before {
+                continue;
+            }
             match d.co.record_pr_state(&d.task_id, c) {
                 Ok((_, ns)) => {
                     for n in ns {
@@ -3803,8 +4044,37 @@ impl Services {
         }
     }
 
+    /// Waits on shared boards' cards (card #574): the wait is in this log
+    /// and the card in the board's, so its state is read here, as a branch
+    /// wait's refs are. It sees the state at each sweep, so a move and
+    /// back between two sweeps goes unseen. A card that's gone or withdrawn,
+    /// or a board this person left, ends the wait.
+    fn check_board_waits(&self) {
+        for w in self.coord.board_waits() {
+            let b = match self.board(&w.board) {
+                Ok(b) if !self.board_leaving(&b) => b,
+                _ => {
+                    self.coord.board_wait_lost(&w.id);
+                    continue;
+                }
+            };
+            let co = b.coord();
+            let Some(t) = co.get_task(&w.task_id) else {
+                self.coord.board_wait_lost(&w.id);
+                continue;
+            };
+            if let Some(was) = self.coord.board_wait_moved(&w.id, &t.state) {
+                let what = co.wait_what(&t.id, &was, &t.state);
+                self.coord.fire_wait(&w.id, &what);
+            } else if t.withdrawn {
+                self.coord.board_wait_lost(&w.id);
+            }
+        }
+    }
+
     fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         check_branch_waits(&self.coord);
+        self.check_board_waits();
         self.sweep_where();
         self.sweep_builds();
         let (ns, err) = self.coord.sweep_notices_partial();
@@ -4021,10 +4291,11 @@ impl Services {
 }
 
 impl Services {
-    /// Card #427: when a card settles, and every [`crate::buildclean::EVERY`],
-    /// clears the `target/` of each settled card's worktree here that
-    /// nothing uses, on a thread of its own (a build folder takes a while
-    /// to delete).
+    /// Cards #427 and #565: when a card settles, and every
+    /// [`crate::buildclean::EVERY`], removes each settled card's worktree
+    /// here that nothing uses and holds no work, and clears the `target/`
+    /// of one that holds work, on a thread of its own (a build folder
+    /// takes a while to delete).
     fn sweep_builds(&self) {
         let Some(idle) = self.clear_builds else {
             return;
@@ -4036,18 +4307,20 @@ impl Services {
         if self.builds_busy.swap(true, Ordering::SeqCst) {
             return;
         }
-        let mut tasks = self.coord.list_tasks(&coord::TaskFilter::default());
-        for b in self.shown_boards() {
-            tasks.extend(b.coord().list_tasks(&coord::TaskFilter::default()));
-        }
-        let trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id);
+        self.note_held_trees();
+        let (tasks, homes) = self.all_tasks();
+        self.restore_probed(&tasks);
+        let book = self.booked_trees();
+        let mut trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id, &book);
+        self.forget_gone_trees(&trees);
+        let names: Vec<String> = trees.iter().map(|t| t.worktree.clone()).collect();
         {
             // At once when a card has just settled, else every EVERY (a
             // build kept as recent may since have gone idle).
             let mut l = self.builds_looked.lock().unwrap();
             let now = Instant::now();
             l.listed = Some(now);
-            if l.seen == trees
+            if l.seen == names
                 && l.cleared
                     .is_some_and(|t| t.elapsed() < crate::buildclean::EVERY)
             {
@@ -4055,21 +4328,40 @@ impl Services {
                 return;
             }
             l.cleared = Some(now);
-            l.seen.clone_from(&trees);
+            l.seen = names;
+            // A tree kept for its work rests; one that isn't a worktree
+            // any more isn't looked at again.
+            trees.retain(|t| match l.rest.get(&t.worktree) {
+                Some(Some(until)) => *until <= now,
+                Some(None) => false,
+                None => true,
+            });
         }
+        let pass = trees::Pass {
+            trees,
+            homes,
+            live: self.session_dirs(),
+            list: self
+                .spawn
+                .spawner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .and_then(|s| s.list.clone()),
+            idle,
+            looked: self.builds_looked.clone(),
+            recheck: self.this.get().cloned().map(|w| -> trees::Recheck {
+                Arc::new(move |tree: &str| match w.upgrade() {
+                    Some(s) => s.tree_recheck(tree),
+                    None => Err("Irori is stopping".into()),
+                })
+            }),
+        };
         let busy = self.builds_busy.clone();
         let spawned = std::thread::Builder::new()
             .name("clear-builds".into())
             .spawn(move || {
-                for w in trees {
-                    match crate::buildclean::clear(Path::new(&w), idle, SystemTime::now()) {
-                        Ok(crate::buildclean::Cleared::Gone) => {
-                            logf(format_args!("cleared {w}/target: its card is settled"));
-                        }
-                        Ok(crate::buildclean::Cleared::Kept(_)) => {}
-                        Err(e) => logf(format_args!("clear build {w}: {e}")),
-                    }
-                }
+                pass.run();
                 busy.store(false, Ordering::SeqCst);
             });
         if let Err(e) = spawned {

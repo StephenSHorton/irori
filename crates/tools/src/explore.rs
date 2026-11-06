@@ -535,6 +535,11 @@ pub(crate) fn show(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let _ = write!(b, ". {CAPTURED_UNTRUSTED}\n\n");
     let _ = writeln!(b, "{}", sh.text.trim_end_matches('\n'));
+    if offset == 0
+        && let Some(id) = sh.r#ref.strip_prefix("task:")
+    {
+        b.push_str(s.no_agent_line(id, false).trim_start());
+    }
     if sh.more {
         let _ = write!(
             b,

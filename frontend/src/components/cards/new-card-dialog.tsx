@@ -24,7 +24,8 @@ import {
   useMentionCandidates,
   type AskRepo,
 } from "@/lib/cards"
-import type { BoardSummary } from "@/lib/boards"
+import { usePersonalBoards, type BoardSummary, type SpaceBoard } from "@/lib/boards"
+import { boardTarget } from "@/lib/new-card"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
@@ -44,12 +45,15 @@ import { ZapIcon } from "lucide-react"
 // spawned agents §10, sa-5) nobody picked is "A fresh agent": Irori starts
 // one for the card with the board's model and effort; "Any free agent"
 // shows only when spawning is off. Agents Irori started for other cards
-// aren't offered: one never takes a second card.
+// aren't offered: one never takes a second card. Board picks which of the
+// space's boards it goes on (card #558): the open list's, else the first;
+// with no space, one of Personal's. A space with one board shows none.
 export function NewCardDialog({
   open,
   onClose,
   onMade,
-  board,
+  board: space,
+  list,
   from,
   spawned,
 }: {
@@ -58,11 +62,28 @@ export function NewCardDialog({
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
+  // The board it goes on when made from one's list (card #558): one inside
+  // `board`, or one of Personal's with no `board`.
+  list?: SpaceBoard
   // A Talk message it's made from (card #390): the form starts filled.
   from?: { title: string; objective: string }
   // Agents Irori started for a card, left out of the picker.
   spawned?: Set<string>
 }) {
+  const { boards: personal } = usePersonalBoards()
+  const [picked, setPicked] = useState<string | null>(null)
+  // A pick lasts one opening: each time the dialog opens, or its space or
+  // list changes, it starts on the list you're on, else the first board.
+  const seenKey = `${open}|${space?.boardId ?? ""}|${list?.boardId ?? ""}`
+  const [seen, setSeen] = useState(seenKey)
+  if (seen !== seenKey) {
+    setSeen(seenKey)
+    setPicked(null)
+  }
+  const target = boardTarget(space, personal, list, picked)
+  const on = target.on
+  // The space, showing the board it goes on.
+  const board = space && on ? { ...space, name: on.name, tag: on.tag } : space
   const [title, setTitle] = useState("")
   const [objective, setObjective] = useState("")
   const [doneWhen, setDoneWhen] = useState("")
@@ -75,9 +96,12 @@ export function NewCardDialog({
   const agents = useMentionCandidates(open).filter(
     (c) => c.who.live && !c.board && !spawned?.has(c.who.key)
   )
-  // Spawning is the private board's (shared boards come with part 11).
-  const { settings: spawn } = useAgents(open && !board)
-  const fresh = !board && !!spawn?.on
+  // Each space has its own switch, off by default (card #573). The other
+  // members can be given the card: their Irori asks them first.
+  const { settings: spawn } = useAgents(open, board?.boardId ?? "")
+  const fresh = !!spawn?.on
+  const members = board?.members.filter((m) => !m.me) ?? []
+  const giving = assignTo.startsWith("person:")
 
   // A message's Make a card fills the form as it opens (once per message).
   const [filled, setFilled] = useState<typeof from>(undefined)
@@ -85,6 +109,16 @@ export function NewCardDialog({
     setFilled(from)
     setTitle(from.title)
     setObjective(from.objective)
+  }
+
+  // A member belongs to their space: a pick doesn't outlive the dialog or
+  // follow it to another board (card #573).
+  const boardId = board?.boardId ?? ""
+  const pickScope = `${open}:${boardId}`
+  const [pickedIn, setPickedIn] = useState(pickScope)
+  if (pickedIn !== pickScope) {
+    setPickedIn(pickScope)
+    setAssignTo("")
   }
 
   useEffect(() => {
@@ -102,6 +136,7 @@ export function NewCardDialog({
     setDoneWhen("")
     setRepoKey("")
     setAssignTo("")
+    setPicked(null)
     setError(null)
     attach.clear()
   }
@@ -117,7 +152,15 @@ export function NewCardDialog({
     setError(null)
     try {
       const res = await cards.create(
-        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId },
+        {
+          title,
+          objective,
+          doneWhen,
+          repoKey,
+          assignTo,
+          board: target.board,
+          spaceBoard: target.spaceBoard,
+        },
         attach.files
       )
       reset()
@@ -141,14 +184,15 @@ export function NewCardDialog({
         >
           <DialogHeader>
             <DialogTitle>
-              {board ? `New card on ${plainLine(board.name)}` : "New card"}
+              {board ? `New card in ${plainLine(board.name)}` : "New card"}
             </DialogTitle>
             <DialogDescription>
               {board
-                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
+                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}.${giving ? "" : fresh ? " Irori starts your agent for it, unless you give it to someone." : " Nobody picked: it waits there for someone in the space to take it up."}`
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}
+              {!board && on && (list || target.choices.length > 1) && ` Goes on ${plainLine(on.name)}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -182,6 +226,21 @@ export function NewCardDialog({
               onChange={(e) => setDoneWhen(e.target.value)}
             />
           </div>
+          {target.choices.length > 1 && on && (
+            <ChoiceSelect
+              label="Board"
+              showLabel
+              value={on.boardId}
+              onValueChange={setPicked}
+              className="w-full"
+              choices={target.choices.map((x) => ({
+                value: x.boardId,
+                label: x.tag
+                  ? `${plainLine(x.name) || "(unnamed)"} · ${plainLine(x.tag)}#`
+                  : plainLine(x.name) || "(unnamed)",
+              }))}
+            />
+          )}
           <div className="grid grid-cols-2 gap-3">
             <ChoiceSelect
               label="Repo"
@@ -195,7 +254,7 @@ export function NewCardDialog({
               ]}
             />
             <ChoiceSelect
-              label="Agent"
+              label={board ? "Give to" : "Agent"}
               showLabel
               value={assignTo}
               onValueChange={setAssignTo}
@@ -203,8 +262,12 @@ export function NewCardDialog({
               choices={[
                 {
                   value: "",
-                  label: board ? "Nobody yet" : fresh ? "A fresh agent" : "Any free agent",
+                  label: fresh ? "A fresh agent" : board ? "Nobody yet" : "Any free agent",
                 },
+                ...members.map((m) => ({
+                  value: `person:${m.personId}`,
+                  label: plainLine(m.name) || "A member",
+                })),
                 ...agents.map((c) => ({
                   value: c.who.key,
                   label: c.repo
@@ -214,6 +277,27 @@ export function NewCardDialog({
               ]}
             />
           </div>
+          {giving && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+              It's theirs to pick up. Their Irori asks them before it starts an
+              agent on it.
+            </p>
+          )}
+          {board && spawn && !spawn.on && assignTo === "" && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+              Irori won't start an agent for this card: your agents are off in
+              this space.{" "}
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto px-0 align-baseline"
+                onClick={() => openSettings("agents")}
+              >
+                Turn them on in Settings › Agents
+              </Button>
+            </p>
+          )}
           {fresh && spawn && assignTo === "" && (
             <p className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
               <ZapIcon className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />

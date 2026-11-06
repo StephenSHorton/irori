@@ -7,6 +7,11 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
+	 *  Writes the window's own line to `irori.log` (card #551): what its lists
+	 *  read and which signals reached it, which the Core can't see from here.
+	 */
+	windowLog: (line: string) => __TAURI_INVOKE<null>("window_log", { line }),
+	/**
 	 *  Card #232: waits until the Core has started (the window opens first and
 	 *  shows the opening screen); an error says why it couldn't start.
 	 */
@@ -149,6 +154,8 @@ export const commands = {
 	 *  board's, or with `board_id` that shared board's (card #134).
 	 */
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
+	/**  Every thread on this device, each with its space (card #558). */
+	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  Resolve on a thread: the person is done with it. */
@@ -166,12 +173,18 @@ export const commands = {
 	boardMovePin: (id: string, before: string) => __TAURI_INVOKE<null>("board_move_pin", { id, before }),
 	boardReopen: (id: string) => __TAURI_INVOKE<TaskResult>("board_reopen", { id }),
 	boardsList: () => __TAURI_INVOKE<BoardSummary[]>("boards_list"),
+	/**  How fresh the private log and each shared space are (card #580). */
+	syncFreshness: () => __TAURI_INVOKE<LogFreshness[]>("sync_freshness"),
 	/**  Pins a board to the sidebar, or unpins it (card #135). */
 	boardsPin: (boardId: string, pinned: boolean) => __TAURI_INVOKE<null>("boards_pin", { boardId, pinned }),
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
 	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
+	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
+	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -275,6 +288,12 @@ export const commands = {
 	updateSupported: () => __TAURI_INVOKE<boolean>("update_supported"),
 	updateCheckAndDownload: () => __TAURI_INVOKE<UpdateStatus>("update_check_and_download"),
 	updateRestartToUpdate: () => __TAURI_INVOKE<null>("update_restart_to_update"),
+	/**
+	 *  Keep this device up to date (card #578): null where the device doesn't
+	 *  update itself.
+	 */
+	updateGetKeepUpToDate: () => __TAURI_INVOKE<boolean | null>("update_get_keep_up_to_date"),
+	updateSetKeepUpToDate: (on: boolean) => __TAURI_INVOKE<boolean | null>("update_set_keep_up_to_date", { on }),
 	voiceStatus: () => __TAURI_INVOKE<VoiceStatus>("voice_status"),
 	voiceDownloadModel: () => __TAURI_INVOKE<null>("voice_download_model"),
 	voiceStart: () => __TAURI_INVOKE<number>("voice_start"),
@@ -301,8 +320,15 @@ export const commands = {
 	 *  space, where its members see it (card #392); none is Personal.
 	 */
 	talkChannelCreate: (name: string, topic: string | null, spaceId: string | null) => __TAURI_INVOKE<string>("talk_channel_create", { name, topic, spaceId }),
-	/**  The person's DM with an agent, opened if new; returns its conv id. */
+	/**
+	 *  The person's DM with an agent or another person (card #538), opened if
+	 *  new; returns its conv id.
+	 */
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
+	/**  Everyone the person can DM (card #538). */
+	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**  Leaves a DM with another person (card #538). */
+	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
 	talkLeave: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_leave", { convId, member }),
 	termOpen: (scope: Scope, cols: number, rows: number, cwd: string | null) => __TAURI_INVOKE<TermInfo>("term_open", { scope, cols, rows, cwd }),
@@ -326,6 +352,22 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**  "My agents may start agents on my cards" and its maximum (card #575). */
+	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
+	/**
+	 *  Settings › Agents' caps per device, today's count and cost, and any
+	 *  usage-limit hold (card #450).
+	 */
+	agentsLimits: () => __TAURI_INVOKE<AgentsLimits>("agents_limits"),
+	/**  The person sets a device's cap: the app only, never a tool. */
+	agentsCapSet: (device: string, cap: number) => __TAURI_INVOKE<AgentsLimits>("agents_cap_set", { device, cap }),
+	/**
+	 *  The person ends this device's usage hold (card #576): the app only,
+	 *  never a tool.
+	 */
+	agentsUsageRelease: () => __TAURI_INVOKE<AgentsLimits>("agents_usage_release"),
 	/**
 	 *  The person's "Offer it cards" on one of their terminal agents (card
 	 *  #453): the app only, never a tool. Spawned agents are refused.
@@ -483,6 +525,20 @@ export type AgentRef = {
 	avatar?: string,
 };
 
+/**
+ *  "My agents may start agents on my cards" (card #575): the person's, on
+ *  all their devices, set here and never by a tool.
+ */
+export type AgentStartsView = {
+	on: boolean,
+	/**  The most agents their agents may have started at once. */
+	max: number,
+	/**  How many count toward it now. */
+	used: number,
+	/**  The highest maximum the app accepts. */
+	ceiling: number,
+};
+
 /**  The person's change: the fields left `None` keep what is stored. */
 export type AgentsChange = {
 	boardId?: string,
@@ -490,6 +546,31 @@ export type AgentsChange = {
 	model?: string | null,
 	effort?: string | null,
 	idleMins?: number | null,
+	crashLimit?: number | null,
+	startTries?: number | null,
+};
+
+/**
+ *  Settings › Agents' limits (card #450, sa-6): caps per device, today's
+ *  count and cost, and a usage-limit hold.
+ */
+export type AgentsLimits = {
+	devices: DeviceCap[],
+	/**  The highest cap offered. */
+	maxCap: number,
+	/**  Agents Irori started today for the private board, every device's. */
+	today: number,
+	/**  Of those, the ones on this device, which are costed. */
+	todayHere: number,
+	/**
+	 *  What today's agents here used, in dollars at API prices (on a Claude
+	 *  plan that is plan usage, not a bill).
+	 */
+	costUsd: number | null,
+	/**  While a Claude usage limit holds new spawns here: until when, in ms. */
+	heldUntil?: number | null,
+	/**  Cards queued here for a slot. */
+	queued: number,
 };
 
 /**  What Settings › Agents shows for one board. */
@@ -519,6 +600,16 @@ export type AgentsSettings = {
 	idleMins: number,
 	/**  The idle limits Settings › Agents offers, in minutes. */
 	idleChoices: number[],
+	/**
+	 *  How many of a card's agents may crash in a row before Irori stops
+	 *  and asks (card #576).
+	 */
+	crashLimit: number,
+	/**  How many failed starts in a row before Irori stops and asks. */
+	startTries: number,
+	/**  Their defaults, for the choices' labels. */
+	defaultCrashLimit: number,
+	defaultStartTries: number,
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -550,6 +641,8 @@ export type Ask = {
 	waiting?: string[],
 	outcome?: Outcome,
 	mentions?: Mention[],
+	/**  A private thread about this shared board (card #185). */
+	board?: string,
 };
 
 /**  One choice on the ask box's repo chip. */
@@ -819,9 +912,13 @@ export type CardBlocker = {
 
 /**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
+	/**  The space's id. */
 	id: string,
 	name: string,
+	/**  The tag of the board it's on, which is the card's. */
 	tag: string,
+	/**  The board in the space it's on (see [`CardSummary::space_board`]). */
+	spaceBoard: string,
 	visibleTo: string[],
 	canWithdraw: boolean,
 	/**
@@ -1008,6 +1105,11 @@ export type CardRead = {
 export type CardRef = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), so `short` alone
+	 *  doesn't name it. "": Personal's default board.
+	 */
+	tag: string,
 	title: string,
 };
 
@@ -1057,6 +1159,8 @@ export type CardRound = {
 export type CardSubtask = {
 	id: string,
 	short: string,
+	/**  As [`CardRef::tag`]. */
+	tag: string,
 	title: string,
 	state: TaskState,
 	holder: CardHolder,
@@ -1074,7 +1178,14 @@ export type CardSummary = {
 	repoKey: string,
 	scope: string,
 	scopeLabel: string,
+	/**  The space it's in, by id (the space's first board has this id too). */
 	board?: string,
+	/**
+	 *  The board in that space it's on (card #558): the space's id for the
+	 *  first board, or a board this device hasn't heard of yet. Personal's
+	 *  default is [`irori_core::PERSONAL_BOARD`], `board` staying empty.
+	 */
+	spaceBoard?: string,
 	/**  The work/personal side it's on (card #494); empty for any side. */
 	side?: string,
 	/**  Why it waits on its side (card #495): "no device here runs Work". */
@@ -1195,6 +1306,11 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
+	 *  Why no agent can start for this card now, by device, and what
+	 *  happens next (card #541): shown in Needs you until one can.
+	 */
+	noAgent?: string,
+	/**
 	 *  The device an agent is starting on for this card ("<its own name>
 	 *  (this one)" or the other device's name, card #489), while Irori's
 	 *  spawn request waits for it (card #448).
@@ -1205,6 +1321,21 @@ export type CardSummary = {
 	 *  that device already runs as many as it may (card #448).
 	 */
 	atCap?: string,
+	/**
+	 *  The card was given to this person and they said Not now: its page
+	 *  offers Start an agent (card #573).
+	 */
+	givenNo?: boolean,
+	/**
+	 *  Its place in that device's spawn queue, from 1 (card #450): "queued:
+	 *  1st for the PC". 0 when it isn't queued.
+	 */
+	queuePlace?: number,
+	/**
+	 *  While a Claude usage limit holds spawns, when they start again
+	 *  (card #450): "queued: usage limit".
+	 */
+	usageLimit?: string | null,
 	/**  Where the card sits on the Board's canvas (card #93), once placed. */
 	pos?: CanvasPos | null,
 	/**
@@ -1521,6 +1652,23 @@ export type DeskView = {
 	authors: DeskAuthorView[],
 };
 
+/**  One device's cap in Settings › Agents (card #450, sa-6). */
+export type DeviceCap = {
+	device: string,
+	/**  "<its own name> (this one)" or the other device's name. */
+	name: string,
+	here: boolean,
+	/**
+	 *  The cap: his pick, else its default (6 on a Windows PC, 12 on a
+	 *  Mac). 0 is his: that device starts none.
+	 */
+	cap: number,
+	/**  He picked it. */
+	chosen: boolean,
+	/**  Agents Irori started that run there now, and those starting. */
+	running: number,
+};
+
 /**  One device in the dialog. */
 export type DeviceView = {
 	deviceId: string,
@@ -1731,6 +1879,21 @@ export type Link = {
 /**  coord.LinkKind. */
 export type LinkKind = "url" | "path" | "commit";
 
+/**  One log's freshness. */
+export type LogFreshness = {
+	/**  "personal", or a shared space's id. */
+	log: string,
+	/**
+	 *  When this device was last in step with another device on it; left
+	 *  out when never, as far as it knows.
+	 */
+	at?: string,
+	/**  That device as the person says it: "your PC", or "Blake". */
+	with?: string,
+	/**  Another device holds this log at all. */
+	shared: boolean,
+};
+
 /**
  *  One agent a comment, ask or message names (coord.Mention, card #77).
  *  Also what the window sends: `gone` is ignored there, the window decides.
@@ -1802,6 +1965,12 @@ export type NewCardInput = {
 	 *  from its page. "": the person's own board.
 	 */
 	board?: string,
+	/**
+	 *  The board inside that space it goes on (card #558), by id: "" or
+	 *  the space's own id for its first board. With `board` empty, one of
+	 *  Personal's, whose default is "" or [`irori_core::PERSONAL_BOARD`].
+	 */
+	spaceBoard?: string,
 	/**
 	 *  Files pasted, dropped or picked in the form (card #124): they go on
 	 *  the card as the person's first comment, and with the hand-out.
@@ -1928,6 +2097,8 @@ export type NotificationAsk = {
 export type NotificationCard = {
 	id: string,
 	short: string,
+	/**  Its board's tag: numbers are per board (card #558). */
+	tag: string,
 	title: string,
 };
 
@@ -2174,7 +2345,10 @@ export type SharedCopy = {
 
 /**  One board of a space (card #392). */
 export type SpaceBoard = {
-	/**  Its id: the space's own id for its first board. */
+	/**
+	 *  Its id: the space's own id for its first board, and
+	 *  [`irori_core::PERSONAL_BOARD`] for Personal's default.
+	 */
 	boardId: string,
 	name: string,
 	tag: string,
@@ -2272,10 +2446,17 @@ export type TalkConversation = {
 	 */
 	agentsNow: boolean,
 	/**
-	 *  The shared space a channel is in (card #461); absent for Personal,
-	 *  DMs and threads. Matches the switcher's space id (its first board's).
+	 *  The shared space a channel or thread is in (card #461, #558); absent
+	 *  for Personal and DMs. Matches the switcher's space id (its first
+	 *  board's).
 	 */
 	spaceId?: string,
+	/**
+	 *  A DM with another person that hasn't reached them yet (card #538):
+	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
+	 *  updating"). Absent otherwise. `name` is who they are.
+	 */
+	waiting?: string,
 };
 
 /**  One side of a conversation. */
@@ -2303,6 +2484,17 @@ export type TalkMemberRef = {
 	/**  `person` or `agent`. */
 	kind: string,
 	key: string,
+};
+
+/**  Someone the person can DM (card #538): the new-DM picker's people. */
+export type TalkPerson = {
+	/**  `person:<id>`, as talk_dm takes it with kind `person`. */
+	key: string,
+	name: string,
+	/**  Their own colour pick, "" for none. */
+	color: string,
+	/**  Their avatar, "" for none. */
+	avatar: string,
 };
 
 /**  One post. */
@@ -2418,6 +2610,8 @@ export type TermMsg = { t: "title"; title: string } | { t: "bell" } |
 export type ThreadCard = {
 	id: string,
 	short: string,
+	/**  As [`ThreadSummary::tag`]. */
+	tag: string,
 	title: string,
 	state: string,
 };
@@ -2426,6 +2620,11 @@ export type ThreadCard = {
 export type ThreadSummary = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), and the channel
+	 *  pointer says `mlg#5`. "": a private thread.
+	 */
+	tag: string,
 	title: string,
 	/**  What the person asked, in full. */
 	text: string,
@@ -2460,6 +2659,24 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  Why no agent can start now, by device, and what happens next (card
+	 *  #541): it needs the person to know, not to answer.
+	 */
+	noAgent?: string,
+	/**
+	 *  The shared space it is in, or a private thread is about (card #558);
+	 *  absent for Personal. Matches the switcher's space id.
+	 */
+	spaceId?: string,
+	/**
+	 *  The device whose cap it waits on, with its place in that device's
+	 *  spawn queue (card #450): "queued: 2nd for the PC".
+	 */
+	atCap?: string,
+	queuePlace?: number,
+	/**  While a Claude usage limit holds spawns, when they start again. */
+	usageLimit?: string | null,
 };
 
 /**  Who an action's notice went to. */

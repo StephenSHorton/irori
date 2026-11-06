@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from "react"
 
 import type {
   AgentsChange,
+  AgentStartsView,
+  AgentsLimits,
   AgentsSettings,
   RunningAgent,
   TermInfo,
@@ -16,7 +18,14 @@ import { AgentsService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-export type { AgentsSettings, RunningAgent, TrustedRepo }
+export type {
+  AgentsChange,
+  AgentsLimits,
+  AgentStartsView,
+  AgentsSettings,
+  RunningAgent,
+  TrustedRepo,
+}
 
 // sampleAgents is the preview's private board: chosen and on, or with
 // ?spawn=first on by default and not yet chosen, so Home shows the
@@ -34,6 +43,10 @@ export function sampleAgents(): AgentsSettings {
     defaultEffort: "medium",
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
+    crashLimit: 2,
+    startTries: 3,
+    defaultCrashLimit: 2,
+    defaultStartTries: 3,
   }
 }
 
@@ -73,13 +86,83 @@ export function idleLabel(m: number, def = 30): string {
   return m === def ? `${n} (default)` : n
 }
 
+// "My agents may start agents on my cards" (card #575): the person's own
+// limit, on all their devices. Only this pane changes it; no agent's tool can.
+// The preview's sample, read when used: tests load this file outside a page.
+function sampleStarts(): AgentStartsView {
+  return {
+    on: previewFlag("agentstarts") !== "off",
+    max: 100,
+    used: previewFlag("agentstarts") === "full" ? 100 : 3,
+    ceiling: 1000,
+  }
+}
+
+export function useAgentStarts(open: boolean) {
+  const [s, setS] = useState<AgentStartsView | null>(
+    inWails() ? null : sampleStarts()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Starts().then(
+      (v) => live && (setS(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (on: boolean, max: number) => {
+    if (!inWails()) {
+      setS((p) => p && { ...p, on, max })
+      return
+    }
+    AgentsService.SetStarts(on, max).then(
+      (v) => (setS(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { starts: s, error, set }
+}
+
+// The preview's settings by board; a space's switch starts off, as it does
+// in the app.
+const sampleSaved = new Map<string, AgentsSettings>()
+function sampleFor(boardId: string): AgentsSettings {
+  const s = sampleAgents()
+  return sampleSaved.get(boardId) ?? { ...s, boardId, on: !boardId && s.on }
+}
+
+// Every open copy of a board's settings hears a save (card #573): a
+// space's switch and its off line sit on one page.
+const saved = new Set<(s: AgentsSettings) => void>()
+function publish(s: AgentsSettings) {
+  for (const fn of saved) fn(s)
+}
+
 // useAgents loads a board's settings while open and saves a change,
 // keeping the last good settings when a save fails.
 export function useAgents(open: boolean, boardId = "") {
-  const [s, setS] = useState<AgentsSettings | null>(() =>
-    inWails() ? null : { ...sampleAgents(), boardId }
-  )
+  const first = () => (inWails() ? null : sampleFor(boardId))
+  const [s, setS] = useState<AgentsSettings | null>(first)
   const [error, setError] = useState("")
+  // Another board's settings are never shown as this one's.
+  const [shown, setShown] = useState(boardId)
+  if (shown !== boardId) {
+    setShown(boardId)
+    setS(first())
+  }
+  useEffect(() => {
+    const fn = (v: AgentsSettings) => {
+      if (v.boardId === boardId) setS(v)
+    }
+    saved.add(fn)
+    return () => {
+      saved.delete(fn)
+    }
+  }, [boardId])
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
@@ -99,30 +182,35 @@ export function useAgents(open: boolean, boardId = "") {
         model: c.model ?? null,
         effort: c.effort ?? null,
         idleMins: c.idleMins ?? null,
+        crashLimit: c.crashLimit ?? null,
+        startTries: c.startTries ?? null,
       }
       if (!inWails()) {
-        setS((x) =>
-          x
-            ? {
-                ...x,
-                on: c.on ?? x.on,
-                chosen: x.chosen || c.on != null,
-                model: c.model ?? x.model,
-                effort: c.effort ?? x.effort,
-                idleMins: c.idleMins ?? x.idleMins,
-              }
-            : x
-        )
+        const x = sampleFor(boardId)
+        const next = {
+          ...x,
+          on: c.on ?? x.on,
+          chosen: x.chosen || c.on != null,
+          model: c.model ?? x.model,
+          effort: c.effort ?? x.effort,
+          idleMins: c.idleMins ?? x.idleMins,
+          crashLimit: c.crashLimit ?? x.crashLimit,
+          startTries: c.startTries ?? x.startTries,
+        }
+        sampleSaved.set(boardId, next)
+        publish(next)
         return
       }
       AgentsService.Set(change).then(
-        (v) => (setS(v), setError("")),
+        (v) => (publish(v), setError("")),
         (e: Error) => setError(e.message)
       )
     },
     [boardId]
   )
-  return { settings: s, error, set }
+  // loading is true until the first read lands, for the pane's skeleton
+  // (card #598).
+  return { settings: s, error, loading: s === null && !error, set }
 }
 
 // sampleTrusted is the preview's repos on this computer, one not trusted.
@@ -147,12 +235,14 @@ export function useTrusted(open: boolean) {
   const [rows, setRows] = useState<TrustedRepo[]>(() =>
     inWails() ? [] : sampleTrusted()
   )
+  // An empty list is a real answer, so the first read is its own flag.
+  const [loaded, setLoaded] = useState(() => !inWails())
   const [error, setError] = useState("")
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
     AgentsService.Trusted().then(
-      (v) => live && (setRows(v), setError("")),
+      (v) => live && (setRows(v), setLoaded(true), setError("")),
       (e: Error) => live && setError(e.message)
     )
     return () => {
@@ -168,7 +258,7 @@ export function useTrusted(open: boolean) {
     }
     setRows(await AgentsService.TrustRepo(repoKey))
   }, [])
-  return { rows, error, trust }
+  return { rows, error, loading: !loaded && !error, trust }
 }
 
 // endAgent ends an agent Irori started (card #448): its hand-off on the
@@ -293,6 +383,9 @@ export function useRunning(open: boolean) {
   const [rows, setRows] = useState<RunningAgent[]>(() =>
     inWails() ? [] : sampleRunning()
   )
+  // An empty list is a real answer, so the first read is its own flag; the
+  // poll after it never shows the skeleton again (card #598).
+  const [loaded, setLoaded] = useState(() => !inWails())
   const [error, setError] = useState("")
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -300,7 +393,7 @@ export function useRunning(open: boolean) {
     let live = true
     const load = () =>
       AgentsService.Running().then(
-        (v) => live && (setRows(v), setError("")),
+        (v) => live && (setRows(v), setLoaded(true), setError("")),
         (e: Error) => live && setError(e.message)
       )
     void load()
@@ -311,7 +404,125 @@ export function useRunning(open: boolean) {
     }
   }, [open, tick])
   const refresh = useCallback(() => setTick((t) => t + 1), [])
-  return { rows, error, refresh }
+  return { rows, error, loading: !loaded && !error, refresh }
+}
+
+// TRIES_CHOICES are the crashes or failed starts before Irori asks you
+// (card #576). A number set some other way is added to the list where it's
+// shown.
+export const TRIES_CHOICES = [1, 2, 3, 5, 10, 20]
+
+// withChoice is the choices with n among them, in order.
+export function withChoice(choices: number[], n: number): number[] {
+  return choices.includes(n) ? choices : [...choices, n].sort((a, b) => a - b)
+}
+
+// countLabel names a number with its unit, marking the default.
+export function countLabel(
+  n: number,
+  def: number,
+  one: string,
+  many: string
+): string {
+  const s = `${n} ${n === 1 ? one : many}`
+  return n === def ? `${s} (default)` : s
+}
+
+// costLabel says what today's agents used at API prices: "$1.24",
+// "under $0.01", "$0".
+export function costLabel(usd: number | null | undefined): string {
+  const n = usd ?? 0
+  if (n <= 0) return "$0"
+  if (n < 0.01) return "under $0.01"
+  return `$${n.toFixed(2)}`
+}
+
+// sampleLimits is the preview's caps and today (sa-6): this Mac at 6 of
+// 12, the PC at its default, 14 agents today. ?spawn=limit holds the
+// queue on a usage limit.
+function sampleLimits(): AgentsLimits {
+  return {
+    devices: [
+      {
+        device: "mac",
+        name: "Macbook Pro (this one)",
+        here: true,
+        cap: 12,
+        chosen: false,
+        running: 6,
+      },
+      {
+        device: "pc",
+        name: "Desktop Computer",
+        here: false,
+        cap: 6,
+        chosen: true,
+        running: 1,
+      },
+    ],
+    maxCap: 200,
+    today: 14,
+    todayHere: 11,
+    costUsd: 3.42,
+    heldUntil:
+      previewFlag("spawn") === "limit" ? Date.now() + 90 * 60_000 : null,
+    queued: 2,
+  }
+}
+
+// useLimits loads Settings › Agents' caps and today's count and cost,
+// refreshed every few seconds while open, sets a device's cap, and ends a
+// usage hold here early.
+export function useLimits(open: boolean) {
+  const [l, setL] = useState<AgentsLimits | null>(() =>
+    inWails() ? null : sampleLimits()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    const load = () =>
+      AgentsService.Limits().then(
+        (v) => live && (setL(v), setError("")),
+        (e: Error) => live && setError(e.message)
+      )
+    void load()
+    const id = window.setInterval(load, 4000)
+    return () => {
+      live = false
+      window.clearInterval(id)
+    }
+  }, [open])
+  const setCap = useCallback((device: string, cap: number) => {
+    if (!inWails()) {
+      setL((x) =>
+        x
+          ? {
+              ...x,
+              devices: x.devices.map((d) =>
+                d.device === device ? { ...d, cap, chosen: true } : d
+              ),
+            }
+          : x
+      )
+      return
+    }
+    AgentsService.CapSet(device, cap).then(
+      (v) => (setL(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }, [])
+  const releaseHold = useCallback(() => {
+    if (!inWails()) {
+      setL((x) => (x ? { ...x, heldUntil: undefined } : x))
+      return
+    }
+    AgentsService.UsageRelease().then(
+      (v) => (setL(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }, [])
+  return { limits: l, error, setCap, releaseHold }
 }
 
 // runningSince says how long ago an agent was asked for: "just now",

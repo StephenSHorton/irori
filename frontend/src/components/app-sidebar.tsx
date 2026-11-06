@@ -376,7 +376,7 @@ export function AppSidebar({
 
         <nav
           aria-label="Sections"
-          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
           <NavItem
             icon={HomeIcon}
@@ -419,12 +419,12 @@ export function AppSidebar({
           />
           <NavItem
             icon={LayoutGridIcon}
-            label="Boards"
+            label="Spaces"
             folded={folded}
             current={here({ kind: "boards" })}
             count={boardsNeedYou}
             countTone="destructive"
-            countTitle="Cards on your boards waiting on you"
+            countTitle="Cards in your spaces waiting on you"
             onClick={() => go({ kind: "boards" })}
           />
           <NavItem
@@ -448,7 +448,7 @@ export function AppSidebar({
           />
 
           {pinnedBoards.length > 0 && (
-            <Group label="Pinned boards" folded={folded}>
+            <Group label="Pinned spaces" folded={folded}>
               {pinnedBoards.map((b) => (
                 <PinRow
                   key={b.boardId}
@@ -491,8 +491,8 @@ export function AppSidebar({
                   `${onCardsNow} started by Irori for a card, each ends when its card is Done`,
                 groups.starting > 0 &&
                   `${groups.starting} cards starting an agent`,
-                groups.atCap > 0 &&
-                  `${groups.atCap} cards waiting for a device to have a slot`,
+                groups.queued > 0 &&
+                  `${groups.queued} cards queued for an agent: a device's free slot or a usage limit's reset`,
                 `${n.total} of yours`,
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
                 blockedNow > 0 &&
@@ -515,9 +515,9 @@ export function AppSidebar({
                   {groups.starting} starting
                 </Badge>
               )}
-              {groups.atCap > 0 && (
+              {groups.queued > 0 && (
                 <Badge variant="warning" className="normal-case tabular-nums">
-                  {groups.atCap} waiting
+                  {groups.queued} queued
                 </Badge>
               )}
               {n.working > 0 && (

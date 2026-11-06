@@ -31,7 +31,7 @@ impl Services {
     /// note.* row would stall this device's whole stream on any member
     /// device that predates notes (nutmeg, #392). The note kinds landed
     /// before the board hello's `spaces` field (0f6544ab, then 9d5a72dc),
-    /// so a device heard to read space rows reads note rows too: the
+    /// so a device that reads space rows reads note rows too: the
     /// space gate ([`Services::space_not_ready`]) is the notes gate. Mine
     /// notes never wait.
     pub(crate) fn board_notes_ready(
@@ -45,7 +45,7 @@ impl Services {
         Err(Error::coord(
             CK::NotAllowed,
             format_args!(
-                "every device on the board must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
+                "every device in the space must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
                 waiting.join(", ")
             ),
         )
@@ -70,10 +70,19 @@ impl Services {
                 keys.to_vec(),
             ));
         }
-        let boards = self.shown_boards();
+        let boards = self.visible_boards();
         let hits: Vec<_> = boards
             .iter()
-            .filter(|b| b.id == scope || b.verifier.membership().tag.eq_ignore_ascii_case(scope))
+            .filter(|b| {
+                // A board inside a space names that space: notes are kept
+                // per space (card #558).
+                b.id == scope
+                    || b.verifier.membership().tag.eq_ignore_ascii_case(scope)
+                    || self.space_boards(&b.id).is_ok_and(|bs| {
+                        bs.iter()
+                            .any(|x| x.board_id == scope || x.tag.eq_ignore_ascii_case(scope))
+                    })
+            })
             .cloned()
             .collect();
         let b = match hits.as_slice() {
@@ -81,14 +90,14 @@ impl Services {
             [] => {
                 return Err(Error::coord(
                     CK::NotFound,
-                    format_args!("no board {scope:?}: give mine, or a board's tag or id"),
+                    format_args!("no space {scope:?}: give mine, or the tag or id of a space or one of its boards"),
                 )
                 .into_coord());
             }
             _ => {
                 return Err(Error::coord(
                     CK::Ambiguous,
-                    format_args!("two boards are tagged {scope:?}: give its id"),
+                    format_args!("two spaces are tagged {scope:?}: give its id"),
                 )
                 .into_coord());
             }
@@ -124,7 +133,7 @@ impl Services {
             scope: SCOPE_MINE.into(),
             coord: self.coord.clone(),
         }];
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             out.push(NoteLog {
                 board_id: b.id.clone(),
                 scope: b.verifier.membership().tag.clone(),
@@ -376,9 +385,14 @@ impl Services {
     /// roster card gives its repo when the card has none, and its cwd a
     /// path; the device's name is the machine. Mine's matches and the
     /// board's are merged, most specific first, [`coord::NOTES_PER_WAKE`]
-    /// at most. Runs under the inbox lock: it never calls the inbox, and
-    /// the locks it takes (the boards list, the roster, the logs' coords,
-    /// the name folds) are never held while the inbox is called.
+    /// at most.
+    ///
+    /// Runs under the inbox lock, so it never calls the inbox and never
+    /// waits on a board coord (card #561): a board coord's write takes the
+    /// inbox lock under its own (`hop_of`). Boards are only tried. A busy
+    /// board reads as no card and no notes here: a note left out goes in a
+    /// later wake. The boards list it may wait on: nothing waits on a coord
+    /// while holding that ([`Services::route`]).
     pub(crate) fn wake_notes(&self, agent: &str, refs: &[String]) -> inbox::WakeNotes {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
         // The card, and the board log it is on (None: the private log).
@@ -391,9 +405,9 @@ impl Services {
                 break;
             }
             if let Some((t, b)) = self
-                .shown_boards()
+                .visible_boards()
                 .into_iter()
-                .find_map(|b| b.coord().get_task(id).map(|t| (t, b)))
+                .find_map(|b| b.coord().try_get_task(id).flatten().map(|t| (t, b)))
             {
                 card = Some((
                     t,
@@ -458,8 +472,10 @@ impl Services {
             .map(|m| (m, true))
             .collect();
         let board = card.as_ref().and_then(|(_, b)| b.clone());
-        if let Some(b) = &board {
-            picked.extend(b.coord.notes_for(&cx).into_iter().map(|m| (m, false)));
+        let mut board_people = std::collections::HashSet::new();
+        if let Some((found, people)) = board.as_ref().and_then(|b| b.coord.try_notes_for(&cx)) {
+            picked.extend(found.into_iter().map(|m| (m, false)));
+            board_people = people;
         }
         // Most specific first (stable: each log's newest first within a
         // score, Mine's before the board's).
@@ -470,19 +486,11 @@ impl Services {
             if key.is_empty() {
                 return String::new();
             }
-            let co = if mine {
-                &self.coord
-            } else {
-                match &board {
-                    Some(b) => &b.coord,
-                    None => &self.coord,
-                }
-            };
-            if co.is_person(key) {
+            if (mine && self.coord.is_person(key)) || (!mine && board_people.contains(key)) {
                 return if mine {
                     "the person".into()
                 } else {
-                    "a person on the board".into()
+                    "a person in the space".into()
                 };
             }
             match names.get(key).filter(|n| !n.trim().is_empty()) {

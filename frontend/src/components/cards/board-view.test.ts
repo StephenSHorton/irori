@@ -50,11 +50,19 @@ describe("Home lists your agents' board cards (card #199)", () => {
     expect(inScope(priv, "b-wind")).toBe(false)
   })
   test("the board row: each board with a card on Home, once, in order", () => {
-    expect(homeBoards([priv, ours, horton, theirs])).toEqual([
+    const spaces = [
       { boardId: "b-wind", name: "Wind Waker Multiplayer", tag: "wind" },
       { boardId: "b-horton", name: "horton", tag: "horton" },
-    ])
+    ]
+    expect(homeBoards([priv, ours, horton, theirs], spaces)).toEqual(spaces)
     expect(homeBoards([priv])).toEqual([])
+  })
+  test("the board row tags a space as the space, not by its first card (card #558)", () => {
+    const net = CardSummary({ ...ours, id: "n", tag: "net", scopeLabel: "Wind · Netcode" })
+    const spaces = [{ boardId: "b-wind", name: "Wind Waker Multiplayer", tag: "wind" }]
+    expect(homeBoards([net, ours], spaces)).toEqual(spaces)
+    // A space not heard of yet: the card's label, no tag.
+    expect(homeBoards([net])).toEqual([{ boardId: "b-wind", name: "Wind · Netcode", tag: "" }])
   })
 })
 

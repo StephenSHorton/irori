@@ -16,7 +16,13 @@
 //!   this person's dedicated reviewer for the card's repo or the board;
 //! - a lease release request (§5.4), to the lease's holder only;
 //! - a post in a space's channel naming one of this person's agents (card
-//!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel.
+//!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel;
+//! - what GitHub said of a card's PR, heard on another person's device
+//!   (card #548). This one isn't a row as it arrives: the PR poller's tick
+//!   reads the fold ([`Services::tell_pr_news`]), so a row that came ahead
+//!   of the card's holder still reaches them. It crosses as a comment
+//!   does, under the receive setting: only that person's device vouches
+//!   for it.
 //!
 //! The person's own rows don't cross here: the tool that wrote one already
 //! routed its notice. Rows met on a resync aren't bridged either, so a
@@ -194,12 +200,49 @@ impl Services {
     /// Hands one plan to the inbox's bridge, for the agents this device
     /// hosts among its `to`.
     fn send_plan(&self, b: &BoardLog, t: &Task, person: &str, who: &str, ev: &Event, p: Plan) {
-        self.send_ref(b, person, who, ev, p, format!("task:{}", t.id));
+        let hop = coord::row_hop(&ev.payload);
+        self.send_ref(b, person, who, hop, p, format!("task:{}", t.id));
+    }
+
+    /// Tells the agents this device hosts what GitHub said of their cards'
+    /// PRs on another person's device (card #548). A device of this person
+    /// that wrote the same told them as it wrote, whichever row the fold
+    /// kept. The inbox bridges a mark to an agent once, so a tick with
+    /// nothing new sends nothing, across restarts too.
+    pub(crate) fn tell_pr_news(&self) {
+        let me = self.person_id();
+        for b in self.shown_boards() {
+            for n in b.coord().pr_news() {
+                let people: Vec<String> = n
+                    .writers
+                    .iter()
+                    .filter_map(|d| b.verifier.person_of(d))
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                if people.contains(&me) {
+                    continue;
+                }
+                let Some(person) = people.first() else {
+                    continue;
+                };
+                let who = self.board_person_name(&b, person);
+                let text = n.notice.text;
+                let plan = Plan {
+                    kind: row_kind::COMMENT,
+                    card_id: String::new(),
+                    to: n.notice.to,
+                    row: n.mark,
+                    wake: n.notice.wake,
+                    text: Box::new(move |name| format!("Heard on {name}'s device: {text}")),
+                };
+                self.send_ref(&b, person, &who, 0, plan, n.notice.reference);
+            }
+        }
     }
 
     /// [`Services::send_plan`] for a row whose message refers to `ref_`
     /// (a card's `task:<id>`, a channel's `talk:<conv>`).
-    fn send_ref(&self, b: &BoardLog, person: &str, who: &str, ev: &Event, p: Plan, ref_: String) {
+    fn send_ref(&self, b: &BoardLog, person: &str, who: &str, hop: i64, p: Plan, ref_: String) {
         let to: Vec<String> =
             p.to.iter()
                 .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
@@ -239,7 +282,7 @@ impl Services {
             to,
             text,
             ref_,
-            hop: coord::row_hop(&ev.payload),
+            hop,
             attachments: vec![],
         };
         if let Err(e) = self.inbox.bridge(&r) {
@@ -310,7 +353,8 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 )
             }),
         };
-        self.send_ref(b, &person, &who, ev, p, format!("talk:{}", r.conv_id));
+        let hop = coord::row_hop(&ev.payload);
+        self.send_ref(b, &person, &who, hop, p, format!("talk:{}", r.conv_id));
     }
 
     /// A board thread or ask that names this person (card #187): the same
@@ -444,12 +488,12 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 text: Box::new(move |name| {
                     if !agents_now {
                         return format!(
-                            "{name} started a thread on this board ({refs}). It's a conversation, not a card:\n{objective}\nYou see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {short} only if you have something to add or a correction. {}",
+                            "{name} started a thread in this space ({refs}). It's a conversation, not a card:\n{objective}\nYou see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {short} only if you have something to add or a correction. {}",
                             coord::THREAD_NOT_YOURS
                         );
                     }
                     format!(
-                        "{name} started a thread on this board ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {}",
+                        "{name} started a thread in this space ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {}",
                         coord::THREAD_NOT_YOURS
                     )
                 }),
@@ -466,7 +510,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                     "{name} asks the room ({refs}){why}:\n{objective}\nIf you can take it on now, ask_claim {short}: one agent takes it, and you hear if someone else got there first. If you're busy, leave it."
                 );
                 if ask_me {
-                    s.push_str(" Your autonomy on this board is Ask me: a new card from it is a request to your person first.");
+                    s.push_str(" Your autonomy in this space is Ask me: a new card from it is a request to your person first.");
                 }
                 s
             }),
@@ -495,7 +539,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 wake: true,
                 text: Box::new(move |name| {
                     format!(
-                        "{name} started a thread on this board ({refs}), and Irori handed it to you. It's a question or a conversation, not a card:\n{objective}\nAnswer it in the thread with board_comment {short}: read it first, in case an agent already answered. {} If you can't answer it now, board_leave {short} and it goes to the next idle agent; ending your turn without answering does the same.",
+                        "{name} started a thread in this space ({refs}), and Irori handed it to you. It's a question or a conversation, not a card:\n{objective}\nAnswer it in the thread with board_comment {short}: read it first, in case an agent already answered. {} If you can't answer it now, board_leave {short} and it goes to the next idle agent; ending your turn without answering does the same.",
                         coord::THREAD_NOT_YOURS
                     )
                 }),
@@ -512,7 +556,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                     "{name} asks the room ({refs}), and Irori handed it to you:\n{objective}\nYou hold it: no ask_claim needed. Take it on, or board_leave {short} and it goes to the next idle agent; ending your turn without touching it does the same."
                 );
                 if ask_me {
-                    s.push_str(" Your autonomy on this board is Ask me: a new card from it is a request to your person first.");
+                    s.push_str(" Your autonomy in this space is Ask me: a new card from it is a request to your person first.");
                 }
                 s
             }),
@@ -542,14 +586,19 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         }
     }
 
-    /// The tools' view of one board.
+    /// The tools' view of a space's first board: its own name, which a
+    /// space not ready yet doesn't have.
     fn tools_board(&self, s: super::boards::BoardSummary) -> tools::BoardInfo {
+        let first = s.boards.first().map(|b| b.name.clone());
         tools::BoardInfo {
             board_id: s.board_id,
             tag: s.tag,
-            name: s.name,
+            name: first
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| s.name.clone()),
             people: s.people,
             space_board: String::new(),
+            space_name: s.name,
         }
     }
 }
@@ -725,7 +774,7 @@ impl tools::SharedBoards for super::ToolsView {
         self.0
             .board_list()
             .into_iter()
-            .filter(|s| s.ready)
+            .filter(|s| s.ready && !self.0.is_hidden_space(&s.board_id))
             .flat_map(|s| {
                 // Each board inside a space is its own entry on the
                 // space's log (card #392).
@@ -747,7 +796,24 @@ impl tools::SharedBoards for super::ToolsView {
     }
 
     fn board_of(&self, task_id: &str) -> Option<tools::BoardInfo> {
-        self.0.board_of(task_id).map(|s| self.0.tools_board(s))
+        let s = self.0.board_of(task_id)?;
+        let inner = self
+            .0
+            .route(task_id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(task_id))
+            .and_then(|t| s.boards.iter().skip(1).find(|b| b.board_id == t.board))
+            .cloned();
+        let own = self.0.tools_board(s);
+        Some(match inner {
+            Some(b) => tools::BoardInfo {
+                tag: b.tag,
+                name: b.name,
+                space_board: b.board_id,
+                ..own
+            },
+            None => own,
+        })
     }
 
     fn board_coord(
@@ -776,13 +842,19 @@ impl tools::SharedBoards for super::ToolsView {
         Ok((co, out))
     }
 
-    fn share(&self, task_id: &str, board_id: &str, _by: &str) -> Result<coord::Task, String> {
+    fn share(
+        &self,
+        task_id: &str,
+        board_id: &str,
+        space_board: &str,
+        _by: &str,
+    ) -> Result<coord::Task, String> {
         let p = self
             .0
             .preview_share(task_id, board_id)
             .map_err(|e| e.to_string())?;
         self.0
-            .share_to_board(task_id, board_id, &p.hash)
+            .share_to_space_board(task_id, board_id, space_board, &p.hash)
             .map_err(|e| e.to_string())
     }
 
@@ -795,6 +867,21 @@ impl tools::SharedBoards for super::ToolsView {
 
     fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
         self.0.board_mentionables(board_id)
+    }
+
+    fn dm_people(&self) -> Vec<tools::PersonInfo> {
+        self.0
+            .dm_people()
+            .into_iter()
+            .map(|p| tools::PersonInfo {
+                key: p.key,
+                name: p.name,
+            })
+            .collect()
+    }
+
+    fn dm_waiting(&self, other: &str) -> &'static str {
+        self.0.dm_waiting(other)
     }
 }
 

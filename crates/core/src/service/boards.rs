@@ -30,7 +30,7 @@ use coord::roster::{AgentCard, Agents};
 use coord::{Change, Coord, ErrorKind as CK, Notice};
 use gocompat::sub::Queue;
 use irori_identity::keystore::Keystore;
-use irori_identity::membership::{BoardPerson, Conflict};
+use irori_identity::membership::{BoardPerson, Conflict, MEMBER_LEFT};
 use irori_identity::{
     BoardDevice, BoardSecrets, BoardVerifier, Identity, MemberKeyRotated, MemberPin,
     USER_KEY_PREFIX,
@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub(crate) fn no_board(id: &str) -> Error {
-        Error::NoBoard(format!("core: no such board on this device: {id}"))
+        Error::NoBoard(format!("core: no such space on this device: {id}"))
     }
     pub(crate) fn coord(kind: CK, detail: impl std::fmt::Display) -> Error {
         Error::Coord(coord::Error::new(kind, detail))
@@ -424,12 +424,16 @@ pub(crate) fn each_row(st: &Store, mut f: Filter, mut fun: impl FnMut(&Event)) -
 }
 
 /// Whether a board row changes what the boards list shows (card #233): a
-/// resync, or a board.* / member.* row (name, tag, ready, people, devices).
+/// resync, a board.* / member.* row (name, tag, ready, people, devices), or
+/// a space.board.* row (the boards in a space, card #558).
 /// A board opened from another device's board.joined is empty until its
 /// rows arrive, so the window has to read the list again as they land.
 /// agent.card rows don't change the list and come often, so they don't.
 pub(crate) fn summary_row(ev: &Event) -> bool {
-    ev.seq == 0 || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
+    ev.seq == 0
+        || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
+        || ev.kind == kinds::SPACE_BOARD_CREATED
+        || ev.kind == kinds::SPACE_BOARD_RENAMED
 }
 
 pub(crate) fn created_task_id(ev: &Event) -> String {
@@ -547,8 +551,7 @@ impl Boards {
 
     /// [`Boards::list`] without waiting (card #422): `None` while another
     /// thread holds the list. A coord's busy hook reads it under that
-    /// coord's lock, and [`Services::route`] holds the list while it reads
-    /// board coords.
+    /// coord's lock.
     fn try_list(&self) -> Option<Vec<Arc<BoardLog>>> {
         let inner = match self.inner.try_lock() {
             Ok(g) => g,
@@ -878,9 +881,8 @@ impl Services {
     /// that may be waiting on that coord. A board coord may wait on the
     /// private one (as `outside_leases` does), so a board asks the private
     /// coord outright. Everything else is tried without waiting: the
-    /// private coord never waits on a board's, two boards never wait on
-    /// each other, and the boards list is held while `route` reads board
-    /// coords. A log busy at that instant counts as not busy, i.e. as
+    /// private coord never waits on a board's and two boards never wait on
+    /// each other. A log busy at that instant counts as not busy, i.e. as
     /// before #422: the next hand-out or join reads it again.
     pub(crate) fn busy_outside(&self, agent: &str, from: Option<&str>) -> Option<String> {
         if agent.is_empty() {
@@ -979,7 +981,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -987,11 +989,14 @@ impl Services {
         if !irori_identity::membership::valid_board_tag(tag) {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
+                format_args!(
+                    "a board tag is a lowercase letter, then lowercase letters, digits or '-', {} characters at most",
+                    irori_identity::membership::MAX_BOARD_TAG
+                ),
             ));
         }
-        let other = self.tag_holder(tag);
-        if !other.is_empty() {
+        // A board inside a space holds its tag too (card #558).
+        if let Some(other) = self.board_tag_holder(tag) {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
@@ -1057,7 +1062,7 @@ impl Services {
     /// open here, or one any of the person's devices made or joined
     /// (board.joined) that hasn't opened or folded here yet. "" when none.
     pub(crate) fn tag_holder(&self, tag: &str) -> String {
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if b.verifier.membership().tag == tag {
                 return b.id.clone();
             }
@@ -1098,7 +1103,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -1108,14 +1113,14 @@ impl Services {
         if !b.verifier.membership().owner(&me) {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("only an owner renames board {board_id}"),
+                format_args!("only an owner renames this space"),
             ));
         }
         let epoch = b.verifier.epoch(&me);
         if epoch != self.ident.current().epoch {
             return Err(Error::coord(
                 CK::NotAllowed,
-                "this device's person key isn't the board's newest yet",
+                "this device's person key isn't the space's newest yet",
             ));
         }
         let row = self.ident.board_renamed_row(epoch, name, (self.now)())?;
@@ -1241,14 +1246,25 @@ impl Services {
             // A maker counts once the board certifies it, or, before the
             // board's rows arrive, when it is one of this person's own
             // devices or one of them vouched for it (board.secret on the
-            // private mesh).
-            let (chain, vouched, board) = (
+            // private mesh). A hidden DM space has one secret, its founder's,
+            // and when the founder leaves nobody is left who can make
+            // another: if that cut its maker, the founder's room would close
+            // before the `left` row could go out (card #538). Only leaving
+            // does this: a device revoked or removed stays cut.
+            let (chain, vouched, board, dms) = (
                 self.chain.clone(),
                 self.boards.vouched.clone(),
                 id.to_string(),
+                self.dm_spaces.clone(),
             );
             secrets.set_makers(Some(Box::new(move |dev: &str| {
-                v.cut(dev).is_none()
+                let left = || {
+                    let m = v.membership();
+                    v.person_of(dev)
+                        .and_then(|p| m.person(&p).map(|p| p.state == MEMBER_LEFT))
+                        .unwrap_or(false)
+                };
+                (v.cut(dev).is_none() || (dms.get(&board).is_some() && left()))
                     && (v.cert(dev).is_some()
                         || chain
                             .devices()
@@ -1318,6 +1334,12 @@ impl Services {
                     now: Some(self.now.clone()),
                     board: true,
                     done_check: true,
+                    // A board's own limit, else the person's (card #576).
+                    crash_limit: Some(super::spawn::SpawnState::limit_fn(
+                        &self.spawn,
+                        &b.id,
+                        |s| s.crash_limit,
+                    )),
                     person: me.clone(),
                     is_owner: Some(Arc::new(move |k: &str| k == person_key)),
                     revoked: Some(Arc::new(move |dev: &str| v1.cut(dev).is_some())),
@@ -1348,9 +1370,10 @@ impl Services {
                             ),
                         }
                     })),
-                    // Under the board coord's lock: takes the inbox's, which
-                    // never waits on a board coord (its stale hook reads
-                    // only the private one).
+                    // Under the board coord's lock: takes the inbox's, whose
+                    // hooks never wait on a board coord (the stale hook reads
+                    // only the private one, the notes hook tries the boards:
+                    // coord::with_inbox_lock_held).
                     hop_of: Some({
                         let s = Arc::downgrade(self);
                         Arc::new(move |actor: &str| s.upgrade().map_or(0, |s| s.board_hop(actor)))
@@ -1379,6 +1402,7 @@ impl Services {
                             s.busy_outside(&agent, Some(&b.id))
                         })
                     }),
+                    agent_devices: Some(self.spawn.agent_devices_fn()),
                     // The person's spawning switch for this board (card
                     // #455): set in the app only, off unless they set it.
                     spawning: Some({
@@ -1429,6 +1453,17 @@ impl Services {
                         Arc::new(move |board: &str| {
                             let st = st.upgrade()?;
                             super::spaces::board_tag_in(&st, board)
+                        })
+                    }),
+                    no_cards: Some({
+                        let (s, id) = (Arc::downgrade(self), b.id.clone());
+                        Arc::new(move || s.upgrade().is_some_and(|s| s.is_hidden_space(&id)))
+                    }),
+                    board_tags: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move || {
+                            st.upgrade()
+                                .map_or_else(Vec::new, |st| super::spaces::board_tags_in(&st))
                         })
                     }),
                     ..Default::default()
@@ -1543,10 +1578,14 @@ impl Services {
             };
             let s = Arc::downgrade(self);
             let co = Arc::downgrade(b.coord());
+            let id = b.id.clone();
             b.spawn("changes", move || {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
+                        // A card in a hidden DM space reaches no window or
+                        // feed (card #538).
+                        Some(s) if s.is_dm_space(&id) => {}
                         Some(s) => {
                             // A board thread goes out, and starts its
                             // agent, at once (card #512): its rows kick the
@@ -1573,10 +1612,12 @@ impl Services {
     /// board secret when a membership or identity row moves the epoch.
     fn follow_board_row(&self, b: &BoardLog, ev: &Event) {
         self.boards.kick(); // the board's member devices pull it now
+        let hidden = self.is_dm_space(&b.id);
         // One of this person's agents ticked a step or set a card's state
         // on the board: its message chains start counting again (card
-        // #488). Another member's agent keeps its board key and is skipped.
-        if let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
+        // #488). Another member's agent keeps its board key and is skipped,
+        // and no agent works in a hidden space (card #538).
+        if !hidden && let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
             let key = self.private_key(&a);
             if !key.starts_with(AGENT_ACTOR_PREFIX) {
                 self.inbox.progressed(&key, at);
@@ -1620,6 +1661,8 @@ impl Services {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if hidden && irori_identity::kinds::is_membership_kind(&ev.kind) {
+            self.dm_refold(b);
         } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
             // Re-added while still "Leaving…" (card #461): the channels
             // drop_space took out fold back; a no-op for anyone else's add.
@@ -1629,8 +1672,16 @@ impl Services {
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
             self.hub.publish(crate::events::CoreEvent::Talk);
+            // A DM from the other person rings here (card #538); the
+            // private log's follower never sees this row.
+            if hidden && row.kind == kinds::TALK_POST && ev.actor != self.person_actor() {
+                self.talk_note(&row);
+            }
         }
-        self.bridge_row(b, ev);
+        // Nothing in a hidden space reaches an agent (card #538).
+        if !hidden {
+            self.bridge_row(b, ev);
+        }
         if summary_row(ev) {
             self.boards.moved();
         }
@@ -1650,6 +1701,11 @@ impl Services {
     /// The one routing function from a taskId to its log (§2.1): "" and the
     /// private coord for a card on the private board, else the board whose
     /// log holds its task.created row. An id in no log is NotFound.
+    ///
+    /// Never holds the boards list while it reads a board coord (card
+    /// #561): a coord's holder may wait on the list (`private_key` in the
+    /// hop read, `device_presence` in the roster), and the inbox's notes
+    /// hook waits on it under the inbox lock.
     pub(crate) fn route(
         &self,
         task_id: &str,
@@ -1657,24 +1713,31 @@ impl Services {
         if self.coord.get_task(task_id).is_some() {
             return Ok((String::new(), self.coord.clone()));
         }
-        let mut inner = lock(&self.boards.inner);
-        if let Some(id) = inner.task_of.get(task_id)
-            && let Some(b) = inner.logs.get(id)
-        {
-            return Ok((id.clone(), b.coord().clone()));
-        }
+        let logs: Vec<Arc<BoardLog>> = {
+            let inner = lock(&self.boards.inner);
+            // A card in a hidden DM space is nobody's to reach (card #538):
+            // only its other member could have written one.
+            if let Some(id) = inner.task_of.get(task_id)
+                && !self.is_dm_space(id)
+                && let Some(b) = inner.logs.get(id)
+            {
+                return Ok((id.clone(), b.coord().clone()));
+            }
+            inner.logs.values().cloned().collect()
+        };
         // A row this device just appended reaches the follower a moment
         // later; its coord already has it.
-        let hit = inner
-            .logs
+        if let Some(b) = logs
             .iter()
-            .find(|(_, b)| b.coord().get_task(task_id).is_some())
-            .map(|(id, b)| (id.clone(), b.coord().clone()));
-        if let Some((id, co)) = hit {
-            inner.task_of.insert(task_id.into(), id.clone());
-            return Ok((id, co));
+            .find(|b| !self.is_dm_space(&b.id) && b.coord().get_task(task_id).is_some())
+        {
+            let mut inner = lock(&self.boards.inner);
+            // Not for a board dropped meanwhile.
+            if inner.logs.contains_key(&b.id) {
+                inner.task_of.insert(task_id.into(), b.id.clone());
+            }
+            return Ok((b.id.clone(), b.coord().clone()));
         }
-        drop(inner);
         // A card on a board still opening after the start (card #232).
         if self.boards.wait_opened() {
             return self.route(task_id);
@@ -1742,7 +1805,7 @@ impl Services {
             return Err(Error::coord(
                 CK::NotAllowed,
                 format_args!(
-                    "{} is not a person on this board",
+                    "{} is not a person in this space",
                     gocompat::quote::quote(key)
                 ),
             ));
@@ -1828,7 +1891,7 @@ impl Services {
             .map(|a| (a.key, a.status))
             .collect();
         let me = self.device.id.as_str();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mut m = lock(&b.maps);
             let mine: Vec<(String, String)> = m
                 .by_id
@@ -2176,7 +2239,7 @@ impl Services {
         if !input.repo_key.trim().is_empty() {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board ask goes to every member's free agents; leave the repo out",
+                "a space ask goes to every member's free agents; leave the repo out",
             ));
         }
         let b = self.board(board_id)?;
@@ -2243,7 +2306,7 @@ impl Services {
 
     fn sweep_boards_with(&self, notices: bool) -> std::result::Result<(), String> {
         let mut errs = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mut ns = Vec::new();
             if notices {
                 let (n, err) = b.coord().sweep_notices_partial();
@@ -2355,7 +2418,9 @@ impl super::Core {
         Ok(())
     }
 
-    /// The ids of the board logs open on this device, sorted.
+    /// The ids of the board logs open on this device, sorted, hidden DM
+    /// spaces too (card #538): no person or agent reads this, and what
+    /// they see is [`Self::board_list`].
     pub fn boards(&self) -> Vec<String> {
         self.s.boards.list().iter().map(|b| b.id.clone()).collect()
     }
@@ -2435,7 +2500,12 @@ impl super::Core {
         self.s.private_task(t)
     }
 
-    /// Every board on this device, by name.
+    /// How fresh the private log and each shared space are (card #580).
+    pub fn freshness(&self) -> Vec<crate::service::freshness::LogFreshness> {
+        self.s.freshness()
+    }
+
+    /// Every board on this device the person sees, by name.
     pub fn board_list(&self) -> Vec<BoardSummary> {
         self.s.board_list()
     }
@@ -2500,11 +2570,11 @@ impl super::Core {
     pub fn idle_report(&self) -> coord::IdleReport {
         let s = &self.s;
         let mut r = s.coord.idle_report(&s.ask_agents());
-        for b in s.shown_boards() {
+        for b in s.visible_boards() {
             let br = b.coord().idle_report(&s.board_ask_agents(&b));
             for mut u in br.unoffered {
                 if br.idle == 0 {
-                    u.why = "nobody on this board takes offered cards".into();
+                    u.why = "nobody in this space takes offered cards".into();
                 }
                 r.unoffered.push(u);
             }
@@ -2519,7 +2589,7 @@ impl super::Core {
     /// own cards come back too, with their live status.
     pub fn board_agents(&self) -> Vec<BoardAgent> {
         let mut out = Vec::new();
-        for b in self.s.shown_boards() {
+        for b in self.s.visible_boards() {
             let people: HashMap<String, String> = b
                 .verifier
                 .membership()
@@ -2565,7 +2635,7 @@ impl super::Core {
     pub fn board_people(&self) -> Vec<BoardMember> {
         let me = self.s.person_id();
         let mut out = Vec::new();
-        for b in self.s.shown_boards() {
+        for b in self.s.visible_boards() {
             for p in b.verifier.membership().members {
                 if p.person_id.is_empty() || p.person_id == me {
                     continue;
@@ -2591,12 +2661,12 @@ impl super::Core {
     #[doc(hidden)]
     pub fn board_roster(&self, board_id: &str) -> Vec<AgentCard> {
         match self.s.board(board_id) {
-            Ok(b) => BoardRoster {
+            Ok(b) if !self.s.is_dm_space(board_id) => BoardRoster {
                 s: Arc::downgrade(&self.s),
                 b: Arc::downgrade(&b),
             }
             .agents(),
-            Err(_) => Vec::new(),
+            _ => Vec::new(),
         }
     }
 
@@ -2605,6 +2675,32 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+
+    /// Whether `id` is a hidden DM space by this person's markers (tests;
+    /// card #538).
+    #[doc(hidden)]
+    pub fn is_dm_space(&self, id: &str) -> bool {
+        self.s.is_dm_space(id)
+    }
+
+    /// DM space `id`'s creator and other person (tests; card #538).
+    #[doc(hidden)]
+    pub fn dm_space(&self, id: &str) -> Option<(MemberPin, String)> {
+        self.s.dm_spaces.get(id).map(|d| (d.creator, d.with))
+    }
+
+    /// Writes a DM space's private marker (tests; card #538).
+    #[doc(hidden)]
+    pub fn write_dm_marker(&self, id: &str, creator: &MemberPin, with: &str) -> Result<()> {
+        self.s.write_dm_marker(id, creator, with)
+    }
+
+    /// Holds the boards list until the guard drops (tests: nothing may
+    /// keep it while waiting on a board coord).
+    #[doc(hidden)]
+    pub fn hold_boards_list(&self) -> impl Sized + '_ {
+        lock(&self.s.boards.inner)
     }
 }
 

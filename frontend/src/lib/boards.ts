@@ -4,16 +4,25 @@
 // here, never from src/gen. In a plain browser it runs on two sample
 // boards, and sharing moves a sample card onto one.
 
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
 import { BoardSettings, BoardSummary, InviteStatus, SharePreview, type SummaryMember } from "./models"
-import { sampleShare, sampleTransferOwner, sampleWithdraw, samplePreview, setSampleBoards } from "./cards"
+import {
+  sampleShare,
+  sampleTransferOwner,
+  sampleWithdraw,
+  samplePreview,
+  setSampleBoards,
+  setSamplePersonal,
+} from "./cards"
 import { inWails, relativeTime } from "./irori"
+import { Personal } from "./spaces"
 import { errorText } from "./talk"
 
 export { BoardSettings, BoardSummary, InviteStatus, SharePreview }
 export type { SummaryMember }
+export type SpaceBoard = BoardSummary["boards"][number]
 
 // presenceLine says how a member is on a board (card #371): "online",
 // "seen 5m ago" (heard within ten minutes) or "offline · seen 2h ago",
@@ -75,24 +84,28 @@ export const ReceivePresets = [
 // Autonomy presets (design §7.3): what your agents may do on a board
 // without asking. Trusted is the default.
 export const AutonomyPresets = [
-  { value: "ask", label: "Ask me", hint: "New cards on the board ask you first; your private cards aren't shared." },
-  { value: "trusted", label: "Trusted", hint: "They create cards on the board; sharing a private card asks you." },
+  { value: "ask", label: "Ask me", hint: "New cards in the space ask you first; your private cards aren't shared." },
+  { value: "trusted", label: "Trusted", hint: "They create cards in the space; sharing a private card asks you." },
   { value: "autonomous", label: "Autonomous", hint: "They also share private cards (after scrub) and mirror all their leases." },
 ] as const
 
 // ThreadsModes are where your threads on a shared board live (card #185).
 export const ThreadsModes = [
-  { value: "shared", label: "Shared", hint: "Every member and their agents see your threads on this board." },
+  { value: "shared", label: "Shared", hint: "Every member and their agents see your threads in this space." },
   { value: "private", label: "Private", hint: "Only you and your own agents see them; they never reach other members' devices." },
 ] as const
 
 // MaxBoardName mirrors identity.MaxBoardName.
 export const MaxBoardName = 60
 
-// validTag is identity.ValidBoardTag: a lowercase letter, then up to 15
-// lowercase letters, digits or '-'.
+// MaxBoardTag mirrors identity.MAX_BOARD_TAG (card #590): a new board's
+// tag is this long at most, so refs like agility#1234 stay short.
+export const MaxBoardTag = 8
+
+// validTag is identity.valid_board_tag: a lowercase letter, then
+// lowercase letters, digits or '-', MaxBoardTag at most.
 export function validTag(tag: string): boolean {
-  return /^[a-z][a-z0-9-]{0,15}$/.test(tag)
+  return tag.length <= MaxBoardTag && /^[a-z][a-z0-9-]*$/.test(tag)
 }
 
 // suggestTag is a tag from a board's name: its first word, lowercased,
@@ -103,7 +116,7 @@ export function suggestTag(name: string): string {
     .replace(/[^a-z0-9-\s]/g, "")
     .trim()
     .split(/\s+/)[0]
-  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, 16)
+  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, MaxBoardTag)
   return validTag(t) ? t : ""
 }
 
@@ -161,6 +174,7 @@ function boardsState(): BoardSummary[] {
       boards: [
         { boardId: "sample-board-mlg", name: "MLG", tag: "mlg" },
         { boardId: "sample-board-mlg-net", name: "Netcode", tag: "net" },
+        { boardId: "sample-board-mlg-art", name: "Art", tag: "art" },
       ],
     }),
     BoardSummary({
@@ -184,7 +198,7 @@ function sampleMoved() {
 
 function sampleFind(id: string): BoardSummary {
   const b = boardsState().find((x) => x.boardId === id)
-  if (!b) throw new Error(`core: no such board on this device: ${id}`)
+  if (!b) throw new Error(`core: no such space on this device: ${id}`)
   return b
 }
 
@@ -194,6 +208,14 @@ export function sampleBoard(id: string): BoardSummary | undefined {
 }
 
 setSampleBoards(sampleBoard)
+
+// Personal's boards on the sample (card #558), its default first.
+let samplePersonal: SpaceBoard[] = [
+  { boardId: Personal, name: "Personal", tag: "" },
+  { boardId: "sample-personal-home", name: "House", tag: "home" },
+]
+
+setSamplePersonal((id) => samplePersonal.find((x) => x.boardId === id))
 
 const sampleSettings: Record<string, BoardSettings> = {}
 
@@ -222,10 +244,10 @@ export const boards = {
     const n = name.trim()
     const t = tag.trim().toLowerCase()
     if (!n || n.length > MaxBoardName)
-      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+      throw new Error(`coord: invalid input: a space name is 1 to ${MaxBoardName} characters`)
     if (!validTag(t))
       throw new Error(
-        "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
+        `coord: invalid input: a board tag is a lowercase letter, then lowercase letters, digits or '-', ${MaxBoardTag} characters at most`
       )
     if (boardsState().some((b) => b.tag === t))
       throw new Error(`coord: invalid input: the tag "${t}" is already a board's`)
@@ -253,6 +275,51 @@ export const boards = {
     b.pinned = pinned
     b.pinRank = pinned ? top + 1 : 0
     sampleMoved()
+  },
+
+  // renameInSpace renames one board of a space, its first too (card #558):
+  // any member may, and the space keeps its own name.
+  async renameInSpace(spaceId: string, boardId: string, name: string): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.RenameInSpace(spaceId, boardId, name)
+    const b = sampleFind(spaceId)
+    const n = name.trim()
+    if (!n || n.length > MaxBoardName)
+      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+    if (!b.boards.length) b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+    b.boards = b.boards.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+    sampleMoved()
+    return b
+  },
+
+  // personal is Personal's boards, its default first (card #558): the
+  // person's own log holds them, so no BoardSummary does.
+  async personal(): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.Personal()) ?? []
+    return samplePersonal.map((x) => ({ ...x }))
+  },
+
+  async addToPersonal(name: string, tag: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.AddToPersonal(name, tag)) ?? []
+    const t = tag.trim().toLowerCase()
+    if (!validTag(t))
+      throw new Error(
+        "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
+      )
+    if (samplePersonal.some((x) => x.tag === t) || boardsState().some((x) => x.tag === t))
+      throw new Error(`core: the tag "${t}" is already a board's`)
+    samplePersonal = [...samplePersonal, { boardId: `sample-personal-${t}`, name: name.trim(), tag: t }]
+    sampleMoved()
+    return boards.personal()
+  },
+
+  async renameInPersonal(boardId: string, name: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.RenameInPersonal(boardId, name)) ?? []
+    const n = name.trim()
+    if (!n || n.length > MaxBoardName)
+      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+    samplePersonal = samplePersonal.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+    sampleMoved()
+    return boards.personal()
   },
 
   // addToSpace puts another board in space `spaceId` (card #392): one
@@ -308,7 +375,7 @@ export const boards = {
     const s = await boards.settings(boardId)
     const owners = s.members.filter((m) => m.owner).length
     const m = s.members.find((x) => x.personId === personId)
-    if (!m) throw new Error(`coord: not found: ${personId} isn't on the board`)
+    if (!m) throw new Error(`coord: not found: ${personId} isn't in the space`)
     if (role === "member" && m.owner && owners <= 1)
       throw new Error(
         "coord: not allowed: the last owner can't stop being one: make someone else an owner first"
@@ -461,7 +528,7 @@ export const boards = {
       InviteStatus({
         role: "guest",
         state: InviteState.Words,
-        boardName: "Sample board",
+        boardName: "Sample space",
         words: ["sample", "words", "to", "give", "them"],
         peerName: "Sam",
         peerFingerprint: "3f2a 91c0 7be4 d018",
@@ -495,10 +562,12 @@ export const boards = {
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.
 
-export type BoardsList = { boards: BoardSummary[]; error: string | null }
+// loaded is false until the window's first read ends, either way (card
+// #598): before it, an empty list is not yet "no boards".
+export type BoardsList = { boards: BoardSummary[]; error: string | null; loaded: boolean }
 
 const listState = {
-  value: { boards: [], error: null } as BoardsList,
+  value: { boards: [], error: null, loaded: false } as BoardsList,
   readers: new Set<() => void>(),
   off: null as (() => void) | null,
   req: 0,
@@ -520,9 +589,9 @@ export async function reloadBoards(): Promise<void> {
   const n = ++listState.req
   let next: BoardsList
   try {
-    next = { boards: await boards.list(), error: null }
+    next = { boards: await boards.list(), error: null, loaded: true }
   } catch (err) {
-    next = { ...listState.value, error: errorText(err) }
+    next = { ...listState.value, error: errorText(err), loaded: true }
   }
   if (n !== listState.req) return
   listState.value = next
@@ -554,10 +623,38 @@ export function boardsNow(): BoardsList {
 export function useBoards(): {
   boards: BoardSummary[]
   error: string | null
+  // loaded: the first read has ended.
+  loaded: boolean
   reload: () => Promise<void>
 } {
-  const { boards: value, error } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
-  return { boards: value, error, reload: reloadBoards }
+  const { boards: value, error, loaded } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
+  return { boards: value, error, loaded, reload: reloadBoards }
+}
+
+// usePersonalBoards reads Personal's boards, and again when they may have
+// moved: added here, or on another of the person's devices.
+export function usePersonalBoards(): {
+  boards: SpaceBoard[]
+  error: string | null
+  reload: () => Promise<void>
+} {
+  const [state, setState] = useState<{ boards: SpaceBoard[]; error: string | null }>({
+    boards: [],
+    error: null,
+  })
+  const reload = useCallback(async () => {
+    try {
+      const list = await boards.personal()
+      setState({ boards: list, error: null })
+    } catch (err) {
+      setState((s) => ({ ...s, error: errorText(err) }))
+    }
+  }, [])
+  useEffect(() => {
+    void reload()
+    return onBoardsMoved(() => void reload())
+  }, [reload])
+  return { ...state, reload }
 }
 
 // useInvite follows the open (or last) invite while active. An invite that

@@ -3,12 +3,12 @@
 //! does, so the bundle checks are the ones the Go updater runs on the Rust
 //! `.app.zip` (surface.md §7.3). The live bundle is passed in (the
 //! updater's `running_app` seam, Go `macPlatform(s, app, pid)`), so
-//! tests/mac.rs drives a fake Irori.app. Not yet built or run on the Mac.
+//! tests/it/mac.rs drives a fake Irori.app. Not yet built or run on the Mac.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::macapp::{BUNDLE_ID, app_bundle_root, side_paths, swap_args, translocated};
+use crate::macapp::{BUNDLE_ID, Relaunch, app_bundle_root, side_paths, swap_args, translocated};
 use crate::version::numeric_version;
 
 /// Go `runningApp`: the Irori.app this process runs from, when it can be
@@ -186,7 +186,7 @@ pub fn install_command(
     live: &Path,
     dir: &Path,
     next: &Path,
-    relaunch: bool,
+    relaunch: Relaunch,
     pid: u32,
 ) -> Result<(PathBuf, Vec<String>), String> {
     if std::fs::metadata(next.join("Contents").join("Info.plist")).is_err() {

@@ -84,6 +84,8 @@ pub(crate) struct Inner {
     mode_scan_bytes: u64,
     scan: Mutex<ScanState>,
     pubs: Mutex<PubState>,
+    /// Both file watchers are up (run.rs keeps it).
+    pub(crate) watching: std::sync::atomic::AtomicBool,
 }
 
 /// Keeps the roster current (Go `Watcher`). Cheap to clone; every clone is
@@ -98,6 +100,14 @@ impl std::fmt::Debug for Watcher {
         f.debug_struct("Watcher")
             .field("opts", &self.inner.opts)
             .finish_non_exhaustive()
+    }
+}
+
+impl Watcher {
+    /// Claude Code's folder this watcher reads (card #450: the window reads
+    /// spawned agents' transcripts for their cost).
+    pub fn claude_dir(&self) -> &str {
+        &self.inner.opts.claude_dir
     }
 }
 
@@ -138,8 +148,18 @@ impl Watcher {
                 watch_exit,
                 scan: Mutex::default(),
                 pubs: Mutex::default(),
+                watching: Default::default(),
             }),
         }
+    }
+
+    /// Whether both file watchers (sessions and projects) are up, so
+    /// changes arrive as events rather than by polling. They start on a
+    /// thread of their own after the first scan (card #601).
+    pub fn watching(&self) -> bool {
+        self.inner
+            .watching
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Go `Snapshot`: the live cards, newest activity first.

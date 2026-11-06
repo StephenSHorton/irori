@@ -66,11 +66,31 @@ pub struct TalkConversation {
     /// channel or DM, whose composer starts from the default for what the
     /// text names.
     pub agents_now: bool,
-    /// The shared space a channel is in (card #461); absent for Personal,
-    /// DMs and threads. Matches the switcher's space id (its first board's).
+    /// The shared space a channel or thread is in (card #461, #558); absent
+    /// for Personal and DMs. Matches the switcher's space id (its first
+    /// board's).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub space_id: String,
+    /// A DM with another person that hasn't reached them yet (card #538):
+    /// `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
+    /// updating"). Absent otherwise. `name` is who they are.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub waiting: String,
+}
+
+/// Someone the person can DM (card #538): the new-DM picker's people.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkPerson {
+    /// `person:<id>`, as talk_dm takes it with kind `person`.
+    pub key: String,
+    pub name: String,
+    /// Their own colour pick, "" for none.
+    pub color: String,
+    /// Their avatar, "" for none.
+    pub avatar: String,
 }
 
 /// One post.
@@ -135,6 +155,7 @@ impl Window {
                 read_only: c.read_only,
                 agents_now: c.agents_now,
                 space_id: c.space_id,
+                waiting: c.waiting,
             })
             .collect())
     }
@@ -206,9 +227,15 @@ impl Window {
     }
 
     /// The person asks about channel `conv`'s post `post_id` in a new
-    /// thread (design b2, card #454): the thread records the channel (and
-    /// its repo, [`Window::channel_repo`]), and the channel gets a one-line
-    /// pointer to it. `text` is the thread's whole ask.
+    /// thread (design b2, card #454): the thread records the channel (and,
+    /// in your own log, its repo, [`Window::channel_repo`]), and the channel
+    /// gets a one-line pointer to it. `text` is the thread's whole ask.
+    ///
+    /// A space's channel starts it in the space's log, so its members and
+    /// their agents get it, and the pointer carries the tag, as a bare #N
+    /// reads across every log (card #558). With your threads in that space
+    /// set to private it stays in your own log, and the channel gets no
+    /// pointer: nobody else could open it.
     pub fn talk_thread_from(
         &self,
         conv: &str,
@@ -216,9 +243,10 @@ impl Window {
         text: &str,
     ) -> Result<crate::board::TaskResult, String> {
         let (conv, post_id) = (crate::trim(conv), crate::trim(post_id));
-        if !coord::talk::is_channel(conv) || self.core.talk().channel(conv).is_none() {
-            return Err(format!("no channel {conv}"));
-        }
+        let channel = coord::talk::is_channel(conv)
+            .then(|| self.core.talk().channel(conv))
+            .flatten()
+            .ok_or_else(|| format!("no channel {conv}"))?;
         if !self
             .core
             .talk()
@@ -228,13 +256,19 @@ impl Window {
         {
             return Err(format!("no post {post_id} in that channel"));
         }
-        let r = self.start_thread_in(text, &[], &[], "", None, conv)?;
-        let pointer = if r.task.short.is_empty() {
-            r.task.id.clone()
-        } else {
-            format!("#{}", r.task.short)
-        };
-        self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+        let space = channel.space_id.as_str();
+        let private = !space.is_empty()
+            && self.core.inbox().threads_mode(space) == inbox::threads_mode::PRIVATE;
+        // The pointer is refused while a device can't read the space's rows:
+        // refuse first, or the thread would start with nothing to show for it.
+        if !space.is_empty() && !private {
+            self.core.space_gate(space)?;
+        }
+        let r = self.start_thread_in(text, &[], &[], space, None, conv)?;
+        if !private {
+            let pointer = r.task.short_ref();
+            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+        }
         Ok(r)
     }
 
@@ -308,12 +342,35 @@ impl Window {
         Ok(c.id)
     }
 
-    /// The person's DM with `m` (an agent), opened if it's new; returns its
-    /// id for talk_posts and talk_post.
+    /// The person's DM with `m`, opened if it's new; returns its id for
+    /// talk_posts and talk_post. `m` is one of their agents, or another
+    /// person by `person:<id>` (card #538): that opens a draft, which
+    /// writes nothing until the first post. Another person's agent is
+    /// refused.
     pub fn talk_dm(&self, m: &TalkMemberRef) -> Result<String, String> {
-        let me = self.me();
+        self.core.talk_dm(&self.me(), &m.key)
+    }
+
+    /// Everyone the person can DM (card #538): whoever shares a space with
+    /// them, by name.
+    pub fn talk_dm_people(&self) -> Vec<TalkPerson> {
         self.core
-            .talk_open_dm(&coord::talk::Member::of(&me), &member(m), &me)
+            .talk_dm_people()
+            .into_iter()
+            .map(|p| TalkPerson {
+                key: p.key,
+                name: p.name,
+                color: p.color,
+                avatar: p.avatar,
+            })
+            .collect()
+    }
+
+    /// Leaves DM `conv` with another person (card #538): what's in it goes
+    /// from all the person's devices. A later DM from either side starts a
+    /// new one.
+    pub fn talk_dm_leave(&self, conv: &str) -> Result<(), String> {
+        self.core.talk_dm_leave(conv)
     }
 
     /// Adds `m` to a channel or DM, as the person.

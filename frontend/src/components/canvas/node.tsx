@@ -43,6 +43,11 @@ export function CardBody({ n, selected }: { n: CardNode; selected?: boolean }) {
     >
       <div className="flex min-w-0 items-center gap-2">
         <StatePill card={n.card} />
+        {n.where && (
+          <span className="min-w-0 truncate text-[10.5px] text-muted-foreground" title={n.where}>
+            {n.where}
+          </span>
+        )}
         <span className="ml-auto shrink-0">
           <ShortRef card={n.card} />
         </span>
@@ -69,7 +74,54 @@ export function CardBody({ n, selected }: { n: CardNode; selected?: boolean }) {
   )
 }
 
-// BlockerBody is an open blocker beside its card: the question, red when
+// markersOf is a card's at-a-glance flags (card #587), most urgent first:
+// it waits on you, nobody live is on it, nothing happened on it a while.
+export function markersOf(n: Pick<CardNode, "needs" | "nobody" | "stale" | "done">): {
+  id: "needs" | "nobody" | "stale"
+  text: string
+  title: string
+}[] {
+  if (n.done) return []
+  const out: ReturnType<typeof markersOf> = []
+  if (n.needs) out.push({ id: "needs", text: "Waiting on you", title: "It needs your answer or your Done" })
+  if (n.nobody)
+    out.push({ id: "nobody", text: "Nobody on it", title: "No agent that is running holds it" })
+  if (n.stale)
+    out.push({ id: "stale", text: "Stale", title: "Nothing has happened on it for a while, and nobody is busy on it" })
+  return out
+}
+
+const markerLook: Record<ReturnType<typeof markersOf>[number]["id"], string> = {
+  needs: "bg-destructive text-background",
+  nobody: "bg-warning text-background",
+  stale: "bg-muted-foreground text-background",
+}
+
+// CardMarkers sits on a card's top edge, outside its clipped body, so the
+// flags read even zoomed out.
+export function CardMarkers({ n }: { n: CardNode }) {
+  const ms = markersOf(n)
+  if (!ms.length) return null
+  return (
+    <div className="pointer-events-none absolute -top-2.5 right-2 z-10 flex gap-1">
+      {ms.map((m) => (
+        <span
+          key={m.id}
+          data-marker={m.id}
+          title={m.title}
+          className={cn(
+            "rounded-sm px-1.5 py-px text-[10px] leading-4 font-semibold tracking-wide uppercase shadow-sm",
+            markerLook[m.id]
+          )}
+        >
+          {m.text}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// BlockerBody is an open blocker under its card: the question, red when
 // it waits on the person, amber when an answer waits on an agent.
 export function BlockerBody({ n }: { n: BlockerNode }) {
   const person = n.state === "open"
@@ -97,6 +149,15 @@ export function BlockerBody({ n }: { n: BlockerNode }) {
   )
 }
 
+// statusDot is an agent status tone as a colour.
+export const statusDot: Record<AgentNode["tone"], string> = {
+  working: "var(--success)",
+  job: "var(--success)",
+  warn: "var(--warning)",
+  idle: "var(--muted-foreground)",
+  muted: "color-mix(in oklch, var(--muted-foreground) 50%, transparent)",
+}
+
 // AgentBody is an agent (or the person) as a pill in its device colour.
 export function AgentBody({ n }: { n: AgentNode }) {
   // You stay in the person tint; another person on a shared board wears
@@ -106,18 +167,24 @@ export function AgentBody({ n }: { n: AgentNode }) {
       ? "var(--person)"
       : deviceVar(n.agent.color) ||
         (n.person ? "var(--person)" : "var(--primary)")
+  // Its status shows as a dot (card #587): green working (it pulses, see
+  // flow.css), amber when it needs something, grey idle.
+  const dot = statusDot[n.tone]
+  const working = n.tone === "working" || n.tone === "job"
   return (
     <div
       className={cn(
-        "flex h-full w-full items-center gap-2 rounded-full border px-3 text-xs font-medium",
+        "relative flex h-full w-full items-center gap-2 rounded-full border px-3 text-xs font-medium",
         !n.live && !n.person && "opacity-55"
       )}
+      data-working={working ? "" : undefined}
       style={{
         borderColor: `color-mix(in oklch, ${tint} 60%, transparent)`,
         background: `color-mix(in oklch, ${tint} 14%, transparent)`,
         color: tint,
+        ["--pulse" as string]: dot,
       }}
-      title={n.agent.where || n.label}
+      title={[n.person ? "you" : n.label, n.status, n.agent.where].filter(Boolean).join(" · ")}
     >
       {n.person ? (
         <span
@@ -131,6 +198,13 @@ export function AgentBody({ n }: { n: AgentNode }) {
         </span>
       )}
       <span className="truncate">{n.person ? "you" : n.label}</span>
+      {!n.person && (
+        <span
+          className="ml-auto size-2 shrink-0 rounded-full"
+          style={{ background: dot }}
+          aria-label={n.status || undefined}
+        />
+      )}
     </div>
   )
 }

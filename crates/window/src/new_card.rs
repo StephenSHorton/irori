@@ -23,6 +23,10 @@ pub struct NewCardInput {
     /// A shared board's id (card #126): the card goes on that board, made
     /// from its page. "": the person's own board.
     pub board: String,
+    /// The board inside that space it goes on (card #558), by id: "" or
+    /// the space's own id for its first board. With `board` empty, one of
+    /// Personal's, whose default is "" or [`irori_core::PERSONAL_BOARD`].
+    pub space_board: String,
     /// Files pasted, dropped or picked in the form (card #124): they go on
     /// the card as the person's first comment, and with the hand-out.
     pub files: Vec<UploadFile>,
@@ -42,7 +46,7 @@ impl Window {
         if !board.is_empty() {
             if !input.files.is_empty() {
                 return Err(format!(
-                    "{}: files on a shared board's new card aren't supported yet; add them in a comment",
+                    "{}: files on a shared space's new card aren't supported yet; add them in a comment",
                     coord::ErrorKind::Invalid.text()
                 ));
             }
@@ -57,6 +61,8 @@ impl Window {
             .collect();
         let co = self.core.coord().clone();
         let me = self.core.user_sender().key;
+        // As on a space: a card's row names only an inner board.
+        let inner = crate::trim(&input.space_board);
         let t = co
             .create_task(
                 &me,
@@ -65,6 +71,12 @@ impl Window {
                     objective: crate::trim(&input.objective).into(),
                     done_criteria: crate::trim(&input.done_when).into(),
                     repo_key: crate::trim(&input.repo_key).into(),
+                    board: if inner == irori_core::PERSONAL_BOARD {
+                        ""
+                    } else {
+                        inner
+                    }
+                    .into(),
                     ..NewTask::default()
                 },
             )
@@ -125,27 +137,29 @@ impl Window {
             .core
             .board_key(board, &self.core.user_sender().key)
             .map_err(|e| e.to_string())?;
-        let t = co
-            .create_task(
-                &me,
-                NewTask {
-                    title: title.into(),
-                    objective: crate::trim(&input.objective).into(),
-                    done_criteria: crate::trim(&input.done_when).into(),
-                    repo_key: crate::trim(&input.repo_key).into(),
-                    ..NewTask::default()
-                },
-            )
-            .map_err(|e| e.to_string())?;
+        // A card's row names only an inner board: the first has no id there.
+        let inner = crate::trim(&input.space_board);
+        let task = NewTask {
+            title: title.into(),
+            objective: crate::trim(&input.objective).into(),
+            done_criteria: crate::trim(&input.done_when).into(),
+            repo_key: crate::trim(&input.repo_key).into(),
+            board: if inner == board { "" } else { inner }.into(),
+            ..NewTask::default()
+        };
         let to = crate::trim(&input.assign_to);
         if to.is_empty() {
+            let t = co.create_task(&me, task).map_err(|e| e.to_string())?;
             return Ok(TaskResult {
                 task: t,
                 ..TaskResult::default()
             });
         }
+        // Made and given in one step: no sweep sees it unheld (card #573).
         let to = self.core.board_key(board, to).map_err(|e| e.to_string())?;
-        let (t, mut n) = co.assign(&me, &t.id, &to).map_err(|e| e.to_string())?;
+        let (t, mut n) = co
+            .create_and_assign(&me, task, &to)
+            .map_err(|e| e.to_string())?;
         n.wake = true;
         let told = self.tell_from(&self.core.user_sender(), &n);
         Ok(TaskResult {

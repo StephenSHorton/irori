@@ -281,7 +281,8 @@ impl Window {
         };
         if co.spawning() {
             self.core.start_agent(&t.id, "")?;
-            out.started = true;
+            // Nothing starts while no computer can: the card says why.
+            out.started = !self.core.no_agent().contains_key(&t.id);
         } else {
             let n = co
                 .offer_card(&me.key, &t.id, &self.core.ask_agents())

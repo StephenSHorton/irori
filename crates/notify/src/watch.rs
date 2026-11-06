@@ -807,7 +807,7 @@ impl Ctx<'_> {
     fn returned_note(&self, t: &Task) -> Note {
         let mut title = format!("Nobody is on “{}”", preview(&t.title));
         if !t.short.is_empty() {
-            title += &format!(" (#{})", t.short);
+            title += &format!(" ({})", t.short_ref());
         }
         let was = t
             .returned
@@ -887,7 +887,7 @@ impl Ctx<'_> {
     fn unclaimed_note(&self, t: &Task) -> Note {
         let mut title = format!("Nobody took “{}”", preview(&t.title));
         if !t.short.is_empty() {
-            title += &format!(" (#{})", t.short);
+            title += &format!(" ({})", t.short_ref());
         }
         let a = t.ask.clone().unwrap_or_default();
         let woken = a.reason == coord::TAKE_REOPENED;
@@ -1067,7 +1067,7 @@ impl Ctx<'_> {
             (format!("{agent} needs you"), t.title.clone())
         };
         if !t.short.is_empty() {
-            title += &format!(" (#{})", t.short); // what the person says to an agent about it
+            title += &format!(" ({})", t.short_ref()); // what the person says to an agent about it
         }
         let open = self.opener(t);
         let open2 = open.clone();
@@ -1097,7 +1097,7 @@ impl Ctx<'_> {
     fn finished_note(&self, t: &Task, agent: &str) -> Note {
         let mut title = format!("{agent} finished “{}”", preview(&t.title));
         if !t.short.is_empty() {
-            title += &format!(" (#{})", t.short);
+            title += &format!(" ({})", t.short_ref());
         }
         let open = self.opener(t);
         let open2 = open.clone();

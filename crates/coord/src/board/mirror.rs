@@ -86,7 +86,7 @@ impl Fold {
         steal: bool,
     ) -> Result<Option<Lease>> {
         if !self.on_board {
-            return Err(invalid("leases mirror only into a shared board"));
+            return Err(invalid("leases mirror only into a shared space"));
         }
         if self.mirror_tasks(card, resource, all).is_empty() {
             return Ok(None);
@@ -117,7 +117,7 @@ impl Fold {
         });
         match other {
             Some(l) => held(format!(
-                "{} is leased on the shared board by {}, another person's agent, until {}. Nobody steals another person's lease: call release with that resource to ask them on the shared card (a release request).",
+                "{} is leased in the shared space by {}, another person's agent, until {}. Nobody steals another person's lease: call release with that resource to ask them on the shared card (a release request).",
                 l.lease.resource,
                 l.lease.holder,
                 l.lease.until.format_rfc3339()

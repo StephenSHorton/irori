@@ -55,12 +55,16 @@ pub use watch::{
     preview, upper, watch,
 };
 
+/// How a "no agent can start" notification's id starts (card #541).
+pub const NO_AGENT_PREFIX: &str = "noagent:";
+
 /// Whether a card is one a phone shows (card #395): a Talk post that
-/// mentions the person or is a DM to them, or an agent's message to the
-/// person (Talk shows it as a DM). On a phone only mentions and DMs
-/// notify: asks, held messages and cards waiting on you stay off it.
+/// mentions the person or is a DM to them, an agent's message to the
+/// person (Talk shows it as a DM), or word that no agent can start for
+/// what they posted (card #541). Asks, held messages and cards waiting on
+/// you stay off it.
 pub fn on_phone(id: &str) -> bool {
-    talk_conv(id).is_some() || id.starts_with("msg:")
+    talk_conv(id).is_some() || id.starts_with("msg:") || id.starts_with(NO_AGENT_PREFIX)
 }
 
 /// Where a phone notification `id` opens when tapped: a Talk post its
@@ -70,6 +74,12 @@ pub fn phone_target(id: &str) -> Option<Target> {
         return Some(Target {
             tab: TAB_TALK.into(),
             ref_: conv.into(),
+        });
+    }
+    if let Some(card) = id.strip_prefix(NO_AGENT_PREFIX) {
+        return Some(Target {
+            tab: TAB_BOARD.into(),
+            ref_: format!("task:{card}"),
         });
     }
     id.strip_prefix("msg:")

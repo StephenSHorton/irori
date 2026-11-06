@@ -401,12 +401,12 @@ function sampleThreadSeed(now: Date): CardDetail[] {
   ]
 }
 
-// sampleThreads is BoardService.Threads on the sample.
-function sampleThreads(boardId = ""): ThreadSummary[] {
+// sampleThreads is BoardService.Threads on the sample; null is ThreadsAll.
+function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
   const all = sampleState().filter(
     (c) =>
       sampleThreadIds.has(c.id) &&
-      (sampleThreadBoard.get(c.id) ?? "") === boardId
+      (boardId === null || (sampleThreadBoard.get(c.id) ?? "") === boardId)
   )
   const rows = all.map((c) => {
     const replies = c.thread.filter((it) => it.kind === "comment")
@@ -444,6 +444,7 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
+      spaceId: sampleThreadBoard.get(c.id),
       starting:
         c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
@@ -469,6 +470,13 @@ export const threads = {
     return sampleThreads(boardId)
   },
 
+  // listAll is every thread on this device, each with its spaceId (card
+  // #558): Talk filters them by the pick, as it does channels.
+  async listAll(): Promise<ThreadSummary[]> {
+    if (inWails()) return (await BoardService.ThreadsAll()) ?? []
+    return sampleThreads(null)
+  },
+
   // start is the header box's message as a thread: the agents on the
   // cards it names (#12) and the ones it @mentions hear it, and at once
   // one idle agent or Irori's own agent gets it (card #512).
@@ -485,18 +493,20 @@ export const threads = {
   ): Promise<TaskResult> {
     checkUploads(files)
     if (inWails()) {
-      if (!files.length)
-        return BoardService.StartThread(text, mentions, boardId, agentsNow)
-      if (boardId)
+      if (boardId && files.length)
         throw new Error(
-          "files go with a thread on your own board only; on a shared board, attach them on a card"
+          "files go with a thread in Personal only; in a shared space, attach them on a card"
         )
-      return BoardService.StartThreadWithFiles(
-        text,
-        mentions,
-        await Promise.all(files.map(uploadOf)),
-        agentsNow
-      )
+      const res = files.length
+        ? await BoardService.StartThreadWithFiles(
+            text,
+            mentions,
+            await Promise.all(files.map(uploadOf)),
+            agentsNow
+          )
+        : await BoardService.StartThread(text, mentions, boardId, agentsNow)
+      rememberStarted(boardId, startedRow(res))
+      return res
     }
     const t = text.trim()
     if (!t) throw new Error("coord: invalid input: an empty comment")
@@ -700,15 +710,100 @@ export function cardStatus(c: CardSummary): RefStatus {
   })
 }
 
+// A thread the person just started shows at once (card #551), from what
+// StartThread answered: on a slow window the list's next read can be
+// seconds off, and Talk opens the new thread by finding it in the list.
+// The row stands in until a read begun after it was remembered: that read
+// is the truth, with the row in it or not.
+export type StartedThread = { seq: number; boardId: string; row: ThreadSummary }
+
+let startedThreads: StartedThread[] = []
+let startedSeq = 0
+const startedListeners = new Set<() => void>()
+
+function rememberStarted(boardId: string, row: ThreadSummary) {
+  startedThreads = [...startedThreads, { seq: ++startedSeq, boardId, row }]
+  for (const fn of startedListeners) fn()
+}
+
+function onStarted(fn: () => void): () => void {
+  startedListeners.add(fn)
+  return () => startedListeners.delete(fn)
+}
+
+// startedRow is the list's row for a thread StartThread just made. It has
+// no replies yet; who heard it comes with the next read.
+export function startedRow(res: TaskResult): ThreadSummary {
+  const t = res.task
+  return ThreadSummary({
+    id: t.id,
+    short: t.short ?? "",
+    title: t.title,
+    text: t.objective,
+    state: t.ask?.taker ? "handed" : "waiting",
+    at: t.createdAt,
+    updatedAt: t.updatedAt,
+    private: !!t.ask?.board,
+    agentsNow: !!t.ask?.wake,
+  })
+}
+
+// withStarted is rows, a read of boardId's threads begun at seq asOf, with
+// the threads started since on top, newest first.
+export function withStarted(
+  rows: ThreadSummary[],
+  asOf: number,
+  boardId: string,
+  started: StartedThread[]
+): ThreadSummary[] {
+  const fresh = started
+    .filter(
+      (s) =>
+        s.seq > asOf &&
+        s.boardId === boardId &&
+        !rows.some((r) => r.id === s.row.id)
+    )
+    .map((s) => s.row)
+    .reverse()
+  return fresh.length ? [...fresh, ...rows] : rows
+}
+
 // useThreads is the Threads panel's rows, fresh on every card change.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
   error: string | null
 } {
-  const load = useCallback(() => threads.list(boardId), [boardId])
-  const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  const load = useCallback(async () => {
+    const asOf = startedSeq
+    return { rows: await threads.list(boardId), asOf }
+  }, [boardId])
+  const { value, loading, error, reload } = useLatest(
+    load,
+    { rows: [] as ThreadSummary[], asOf: startedSeq },
+    "threads"
+  )
   useFresh(reload, error, true)
-  return { threads: value, error }
+  const started = useSyncExternalStore(onStarted, () => startedThreads)
+  const list = useMemo(
+    () => withStarted(value.rows, value.asOf, boardId, started),
+    [value, boardId, started]
+  )
+  return { threads: list, loading, error }
+}
+
+// useAllThreads is every thread on this device, fresh on every card change.
+export function useAllThreads(): {
+  threads: ThreadSummary[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
+  error: string | null
+} {
+  const load = useCallback(() => threads.listAll(), [])
+  const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  useFresh(reload, error, true)
+  return { threads: value, loading, error }
 }
 
 function sampleChanged() {
@@ -734,6 +829,7 @@ function summary(c: CardDetail): CardSummary {
     board: c.board,
     ours: c.ours,
     tag: c.tag,
+    spaceBoard: c.spaceBoard,
     progress: c.progress,
     openBlockers: c.openBlockers,
     blockerQuestion: c.blockerQuestion,
@@ -751,8 +847,11 @@ function summary(c: CardDetail): CardSummary {
     waitStuck: c.waitStuck,
     mainRed: c.mainRed,
     cantStart: c.cantStart,
+    noAgent: c.noAgent,
     starting: c.starting,
     atCap: c.atCap,
+    queuePlace: c.queuePlace,
+    usageLimit: c.usageLimit,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
     goneWait: c.goneWait,
@@ -834,6 +933,12 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
   sampleBoardOf = fn
 }
 
+// samplePersonalOf finds one of Personal's sample boards, the same way.
+let samplePersonalOf: (id: string) => { boardId: string; tag: string } | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => { boardId: string; tag: string } | undefined) {
+  samplePersonalOf = fn
+}
+
 // sampleCreate is BoardService.Create on the sample: a new open card,
 // handed to the agent picked or to sample-heron (the free one).
 function sampleCreate(input: NewCardInput): TaskResult {
@@ -841,26 +946,38 @@ function sampleCreate(input: NewCardInput): TaskResult {
   if (!title) throw new Error("coord: invalid input: give the card a title")
   const now = new Date().toISOString()
   const cs = sampleState()
-  const top = Math.max(0, ...cs.map((c) => parseInt(c.short, 10) || 0))
   // From a board's page (card #126): on that board, unheld unless picked.
   const board = input.board ? sampleBoardOf(input.board) : undefined
+  // The list it was made from (card #558), each with its own numbers.
+  const list = board
+    ? board.boards?.find((x) => x.boardId === input.spaceBoard)
+    : input.spaceBoard
+      ? samplePersonalOf(input.spaceBoard)
+      : undefined
+  const tag = list?.tag ?? board?.tag ?? ""
+  const top = Math.max(
+    0,
+    ...cs.filter((c) => (c.tag ?? "") === tag).map((c) => parseInt(c.short, 10) || 0)
+  )
   const to = input.assignTo || (board ? "" : "sample-heron")
   const onBoard = board
     ? {
         scope: "board",
         scopeLabel: board.name,
         board: board.boardId,
-        tag: board.tag,
+        tag,
+        spaceBoard: list?.boardId ?? board.boardId,
         onBoard: {
           id: board.boardId,
           name: board.name,
-          tag: board.tag,
+          tag,
+          spaceBoard: list?.boardId ?? board.boardId,
           visibleTo: board.people,
           canWithdraw: true,
           canTransfer: true,
         },
       }
-    : {}
+    : { board: "", onBoard: null, tag, spaceBoard: list?.boardId ?? "" }
   const c = {
     ...cs[0],
     id: `sample-new-${Date.now()}`,
@@ -1048,6 +1165,7 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
+  boards?: { boardId: string; name: string; tag: string }[]
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and
@@ -1072,7 +1190,7 @@ export function samplePreview(
 ): SharePreviewShape {
   const c = sampleCard(id)
   if (c.scope === "board")
-    throw new Error("coord: invalid input: the card is already on a board")
+    throw new Error("coord: invalid input: the card is already in a space")
   if (c.parent)
     throw new Error(
       `coord: invalid input: #${c.short} is a subtask of #${c.parent.short}: share #${c.parent.short} and its subtasks go with it`
@@ -1176,10 +1294,12 @@ export function sampleShare(id: string, board: SampleBoard): string {
     scopeLabel: board.name,
     board: board.boardId,
     tag: board.tag,
+    spaceBoard: board.boardId,
     onBoard: {
       id: board.boardId,
       name: board.name,
       tag: board.tag,
+      spaceBoard: board.boardId,
       visibleTo: board.people,
       canWithdraw: true,
       canTransfer: true,
@@ -1206,7 +1326,7 @@ export function sampleTransferOwner(id: string, to: string): string {
   const c = sampleCard(id)
   if (!c.onBoard)
     throw new Error(
-      `coord: invalid input: ${id} is a private card: only a card on a shared board changes owner`
+      `coord: invalid input: ${id} is a private card: only a card in a shared space changes owner`
     )
   if (c.blockers.some((b) => !b.resolved && b.transfer))
     throw new Error(
@@ -2041,7 +2161,8 @@ export type CardsState = {
 export function useCards(): CardsState {
   const { value, loading, error, reload } = useLatest<CardSummary[]>(
     loadCards,
-    []
+    [],
+    "cards"
   )
   useFresh(reload, error)
   return { cards: value, loading, error }
@@ -2054,9 +2175,12 @@ export function useCards(): CardsState {
 export function useIdleReport(
   agents: { status: string; deviceState?: string | null }[]
 ) {
-  const sampleIdle = agents.filter(
-    (a) => a.status === "idle" && a.deviceState !== "offline"
-  ).length
+  // 0 in the app: a load that changed with the count would read beside the
+  // running one and drop its answer (card #551).
+  const sampleIdle = inWails()
+    ? 0
+    : agents.filter((a) => a.status === "idle" && a.deviceState !== "offline")
+        .length
   const load = useCallback(
     async (): Promise<IdleReport> =>
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),
@@ -2085,7 +2209,7 @@ function sampleIdleReport(idle: number): IdleReport {
         id: "sample-gap-1",
         short: "wind#87",
         title: "Slot 1 rig",
-        why: "nobody on this board is free",
+        why: "nobody in this space is free",
       }),
       UnofferedCard({
         id: "sample-gap-2",

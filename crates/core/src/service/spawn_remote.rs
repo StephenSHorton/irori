@@ -63,8 +63,21 @@ pub struct SpawnHost {
     pub os: String,
     #[serde(default)]
     pub repos: Vec<HostRepo>,
+    /// It can't run agents (card #541): a phone, or a computer without
+    /// Claude Code. Older rows have no such field and could.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_agents: bool,
+    /// [`coord::HOST_MOVES`] from an Irori that reads `ask.moved` and
+    /// stands in for a phone (card #541); always written, so a row without
+    /// it is an older Irori's, which is never picked to take phone work.
+    #[serde(default)]
+    pub moves: i64,
     #[serde(default)]
     pub at: GoTime,
+    /// A Claude usage limit holds starts on this device until then (card
+    /// #450): it isn't asked to start anything meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_until: Option<GoTime>,
 }
 
 impl SpawnHost {
@@ -83,6 +96,10 @@ impl SpawnHost {
             .find(|r| coord::canonical_repo_key(&r.repo_key) == coord::canonical_repo_key(repo_key))
     }
 }
+
+/// What a `spawn.host` row last said: the OS, repos, no_agents, moves and
+/// usage hold.
+type HostShown = (String, Vec<HostRepo>, bool, i64, Option<GoTime>);
 
 /// A `spawn.end.requested` row.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -112,6 +129,10 @@ pub struct StartRequest {
     pub generation: i64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// An agent asked, not the person (card #575): the Core wrote the row
+    /// after its own checks, and the start counts toward their limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
     pub by: String,
     #[serde(default)]
     pub at_device: String,
@@ -144,13 +165,16 @@ pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>)>>,
+    host_last: Mutex<Option<HostShown>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
     /// Requests started on this device, by (card, generation): the name it
     /// was started with. Dropped once bound, or ended when superseded.
     started: Mutex<HashMap<(String, i64), String>>,
+    /// Board requests this device started, for a given card whose yes went
+    /// before its agent showed (card #573).
+    pub(super) board_started: Mutex<std::collections::HashSet<(String, i64)>>,
     /// Request rows (end, start, trust) already acted on, by (device, seq).
     seen: Mutex<HashSet<(String, i64)>>,
     /// Cards another device asked this one to trust the repo of, and which
@@ -161,6 +185,11 @@ pub(crate) struct RemoteState {
     /// the restart, and one from before an absence is the card's device's
     /// to replace with the next generation).
     held_at_start: Mutex<Option<HashSet<(String, i64)>>>,
+    /// Cards the person asked for that this device sent to another one, by
+    /// the request's generation (card #576): writing the request spent
+    /// `spawn_now`, so if a usage limit stops it there, this puts it back.
+    /// In memory, as `spawn_now` is.
+    asked_elsewhere: Mutex<HashMap<String, i64>>,
 }
 
 fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
@@ -178,7 +207,7 @@ impl Services {
 
     /// Publishes what this device can start agents in, when it changed
     /// since it last did (never on a timer: card #467's row flood).
-    pub(crate) fn publish_host(&self, sp: &Spawner) {
+    pub(crate) fn publish_host(&self, sp: Option<&Spawner>, ready: bool) {
         let now = (self.now)();
         {
             let mut at = self
@@ -193,11 +222,13 @@ impl Services {
             *at = Some(now);
         }
         let os = std::env::consts::OS.to_string();
+        let no_agents = !ready;
         let mut repos: Vec<HostRepo> = self
             .capture
             .repos()
             .into_keys()
             .filter_map(|k| {
+                let sp = sp?;
                 let folder = self.checkout_here(&k)?;
                 let trusted = (sp.trusted)(Path::new(&folder));
                 Some(HostRepo {
@@ -220,19 +251,24 @@ impl Services {
             *last = self
                 .hosts()
                 .remove(&self.device.id)
-                .map(|h| (h.os, h.repos));
+                .map(|h| (h.os, h.repos, h.no_agents, h.moves, h.held_until));
         }
-        if last.as_ref() == Some(&(os.clone(), repos.clone())) {
+        let moves = coord::HOST_MOVES;
+        let held = self.usage_held();
+        if last.as_ref() == Some(&(os.clone(), repos.clone(), no_agents, moves, held)) {
             return;
         }
         let row = SpawnHost {
             device: self.device.id.clone(),
             os: os.clone(),
             repos: repos.clone(),
+            no_agents,
+            moves,
             at: now,
+            held_until: held,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos)),
+            Ok(_) => *last = Some((os, repos, no_agents, moves, held)),
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }
@@ -337,14 +373,19 @@ impl Services {
     /// which stays on; this device. A device asked lately for this card
     /// goes last, so the next request names the next device; a card that
     /// needs a machine never moves off it. Asks and helpers start here,
-    /// and so does a card no other device can take (no repo named, nobody
-    /// published one), as before.
+    /// and so does a card nobody published a checkout of. A card that
+    /// names no repo starts here too, in the ask home (card #600); on a
+    /// device with no checkout of any repo it waits here, unasked. Never a
+    /// device that can't run agents (card #541): this one waits instead,
+    /// and is left out of the choice.
     pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
         let me = self.device.id.clone();
+        let here = self.can_run_here();
         if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
-            return Some(me);
+            return here.then_some(me);
         }
         let hosts = self.hosts();
+        let cant = self.cant_run_devices();
         let need = coord::machine_needed(t);
         let rows = self.mesh.node.devices(false);
         // (may start agents, is online)
@@ -387,7 +428,7 @@ impl Services {
                 continue;
             };
             let (usable, online) = state(dev);
-            if !usable {
+            if !usable || cant.contains(dev) {
                 continue;
             }
             // Only a device that runs the card's side (its device.sides
@@ -405,7 +446,8 @@ impl Services {
                 waits_for_machine = true;
                 continue;
             }
-            let free = self.spawned_on(dev) < self.cap_on(dev, Some(h));
+            let held = *dev != me && h.held_until.is_some_and(|u| u.secs > now.secs);
+            let free = !held && self.spawned_on(dev) < self.cap_on(dev, Some(h));
             // A full device elsewhere isn't asked: the card waits for a
             // free slot rather than for a request that goes stale.
             if !free && *dev != me {
@@ -446,7 +488,12 @@ impl Services {
             {
                 return None;
             }
-            return Some(me);
+            // Only computers without Claude Code have the repo: it waits
+            // for them, and says so, rather than fail here for no copy.
+            if !self.repo_waits_on(t).1.is_empty() {
+                return None;
+            }
+            return here.then_some(me);
         };
         // The best device was asked lately (it failed, or never answered
         // and the request went stale): wait for the retry rather than ask
@@ -471,6 +518,16 @@ impl Services {
     /// Asks device `dev` to start card t's agent: the request names it,
     /// and that device does the rest ([`Self::start_requested`]).
     pub(crate) fn request_on(&self, t: &Task, dev: &str) -> Result<bool, String> {
+        // Read before the request spends it. A stale request of his that is
+        // asked again stays his.
+        let asked = self.coord.spawn_asked_now(&t.id)
+            || self
+                .spawn
+                .remote
+                .asked_elsewhere
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&t.id);
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
         let name = self.spawn_name(t, generation);
         let setting = self.spawn_setting("");
@@ -508,21 +565,58 @@ impl Services {
             model: setting.model().into(),
             effort: setting.effort().into(),
             note,
+            counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
         let out = self
             .coord
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
-        if out.is_some() {
+        if let Some(g) = out {
+            self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
                 .answers
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&t.id);
+            if asked {
+                self.spawn
+                    .remote
+                    .asked_elsewhere
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(t.id.clone(), g);
+            }
         }
         Ok(out.is_some())
+    }
+
+    /// The person's "Start an agent" still stands after a usage limit
+    /// (card #576): a request of his that ended on one on another device
+    /// asks again here, as a local start does. Run before the queue is
+    /// walked. One bound, failed otherwise or replaced is forgotten.
+    pub(crate) fn renew_asks_sent_elsewhere(&self) {
+        self.spawn
+            .remote
+            .asked_elsewhere
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|id, g| {
+                let t = self.coord.get_task(id);
+                let Some(s) = t
+                    .as_ref()
+                    .and_then(|t| t.spawn_request())
+                    .filter(|s| s.generation == *g)
+                else {
+                    return false;
+                };
+                if coord::usage_limited(s) {
+                    self.coord.spawn_now(id);
+                    return false;
+                }
+                s.pending()
+            });
     }
 
     // ---- The device a request names ----------------------------------
@@ -573,7 +667,20 @@ impl Services {
                 *running += 1;
                 continue;
             }
-            match self.start_here(sp, &t, s.generation, &s.name, None) {
+            // A usage limit holds starts here (card #450): the request goes
+            // back to the queue, not left to go stale. The asking device
+            // sees the hold on this device's host row and asks elsewhere.
+            if let Some(until) = self.usage_held() {
+                let why = super::spawn_limits::usage_reason(&until);
+                if let Err(e) =
+                    self.coord
+                        .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)
+                {
+                    logf(format_args!("spawn {}: {e}", t.short_ref()));
+                }
+                continue;
+            }
+            match self.start_here(sp, &t, s.generation, &s.name, None, false) {
                 Ok(true) => {
                     *running += 1;
                     n += 1;
@@ -625,6 +732,7 @@ impl Services {
     /// canceled) and never bound: ended, so the card keeps one agent
     /// (§9 "if two sessions start anyway").
     pub(crate) fn end_superseded(&self, sp: &Spawner) {
+        self.end_lost_ties(sp);
         let started: Vec<((String, i64), String)> = self
             .spawn
             .remote
@@ -649,7 +757,9 @@ impl Services {
                     .is_some_and(|s| s.generation == generation && s.op == SPAWN_CANCELED);
             let mine: Option<&Spawn> = current
                 .as_ref()
-                .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED);
+                .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED)
+                // Another computer took the same generation (card #541).
+                .filter(|s| s.device.is_empty() || s.device == self.device.id);
             let session = live
                 .iter()
                 .find(|a| a.name == name && a.status != "gone")
@@ -683,6 +793,57 @@ impl Services {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&(id, generation));
+        }
+    }
+
+    /// This device's live, bound agents whose card's request for the same
+    /// generation is now another computer's (card #541: two took one card
+    /// at once, and the lowest id won): ended, so the card keeps one. Read
+    /// from the marks, not from what this run started, so it holds after a
+    /// restart too. Only the request that is still starting wins: if it
+    /// failed, the agent that did start keeps the card.
+    fn end_lost_ties(&self, sp: &Spawner) {
+        let me = self.device.id.clone();
+        for a in self.presence.snapshot() {
+            if a.device_id != me || a.status == "gone" {
+                continue;
+            }
+            let Some(m) = self.coord.spawned(&a.key) else {
+                continue;
+            };
+            if m.device != me || !m.step.is_empty() || !m.subtask.is_empty() {
+                continue;
+            }
+            let co = if m.board.is_empty() {
+                self.coord.clone()
+            } else {
+                match self.board(&m.board) {
+                    Ok(b) => b.coord().clone(),
+                    // A board it can't read now says nothing.
+                    Err(_) => continue,
+                }
+            };
+            let Some(t) = co.get_task(&m.task_id) else {
+                continue;
+            };
+            let lost = !coord::is_terminal(&t.state)
+                && t.spawn_request().is_some_and(|s| {
+                    s.generation == m.generation
+                        && s.op == coord::SPAWN_REQUESTED
+                        && !s.device.is_empty()
+                        && s.device != me
+                });
+            if !lost {
+                continue;
+            }
+            let sess = a.key.rsplit_once('/').map_or(a.key.as_str(), |(_, s)| s);
+            match (sp.end)(sess) {
+                Ok(_) => logf(format_args!(
+                    "spawn {}: ended {}, another computer took request {}",
+                    m.task_id, a.key, m.generation
+                )),
+                Err(e) => logf(format_args!("spawn {}: end {}: {e}", m.task_id, a.key)),
+            }
         }
     }
 
@@ -797,15 +958,28 @@ impl Services {
     /// The person asks for card `id`'s agent now from a device that
     /// doesn't hand it out: the card's own device acts on it.
     pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
+        self.write_start_request(id, note, false)
+    }
+
+    /// An agent's ask, passed to the device that hands the card out, after
+    /// [`Services::agent_start`]'s checks (card #575).
+    pub(crate) fn request_agent_start(&self, id: &str) -> Result<(), String> {
+        self.write_start_request(id, "", true)
+    }
+
+    fn write_start_request(&self, id: &str, note: &str, agent: bool) -> Result<(), String> {
+        // The card's own log: it may be a shared board's (card #575).
         let generation = self
-            .coord
-            .get_task(id)
+            .route(id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(id))
             .and_then(|t| t.spawn_request().map(|s| s.generation))
             .unwrap_or(0);
         let row = StartRequest {
             task_id: id.into(),
             generation,
             note: note.trim().to_string(),
+            agent,
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
             at: (self.now)(),
@@ -823,13 +997,18 @@ impl Services {
                 self.mark_seen(&ev);
                 continue;
             };
-            let Some(t) = self.coord.get_task(&r.task_id) else {
+            let Some((co, t)) = self
+                .route(&r.task_id)
+                .ok()
+                .and_then(|(_, co)| co.get_task(&r.task_id).map(|t| (co, t)))
+            else {
                 // The card hasn't reached this device yet: next sweep.
                 continue;
             };
             self.mark_seen(&ev);
-            if ev.device_id == self.device.id
-                || !self.coord.hands_out_here(&t.id)
+            // An agent's ask is read here too, for its count after a restart.
+            if (ev.device_id == self.device.id && !r.agent)
+                || !co.hands_out_here(&t.id)
                 || !self.by_person(&ev, &r.by)
             {
                 continue;
@@ -843,7 +1022,13 @@ impl Services {
             if !r.note.is_empty() {
                 self.set_brief_answer(&t.id, &r.note);
             }
-            self.coord.spawn_now(&t.id);
+            if r.agent {
+                self.note_agent_ask(&t);
+            } else {
+                self.note_person_ask(&t.id);
+                co.spawn_now(&t.id);
+                self.release_usage_hold();
+            }
             self.asks_kick.kick();
         }
     }

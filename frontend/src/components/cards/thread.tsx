@@ -192,7 +192,14 @@ export function Thread({
               />
             </div>
           ))
-        : !status && <p className="text-muted-foreground">{empty}</p>}
+        : !status &&
+          // A string is the empty line; an element (a loading skeleton,
+          // card #598) is drawn as it is, as a div can't sit in a p.
+          (typeof empty === "string" ? (
+            <p className="text-muted-foreground">{empty}</p>
+          ) : (
+            empty
+          ))}
       {status &&
         (status.tone === "working" ? (
           // Where the next comment will appear (card #317): who is on it,
@@ -226,7 +233,7 @@ export function Thread({
               el.scrollHeight - el.scrollTop - el.clientHeight < 8
           }}
           className={cn(
-            "grid min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
+            "grid min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto mac:overscroll-none",
             gap,
             // A floor, so a tall draft can't take every message away; a
             // short thread keeps its own height.

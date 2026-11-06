@@ -4,7 +4,7 @@
 //! Every kind the tree writes is a constant here, and the [`kinds!`] table
 //! that defines the constants is also the registry, so a kind can't exist
 //! without a Side and (when it replicates) a Board verdict. Go's two maps
-//! (`kindSides`, `kindBoards`) are one table here; `tests/kinds.rs` checks it
+//! (`kindSides`, `kindBoards`) are one table here; `tests/it/kinds.rs` checks it
 //! against the Go-exported table and the consistency rules Go's
 //! `TestEveryKindIsClassified` checks.
 //!
@@ -29,7 +29,8 @@ pub enum Side {
 /// A kind's verdict for a shared board's log (Go `Board`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Board {
-    /// Refused by a board log, like every kind it does not name.
+    /// Refused by a board log, like every kind it does not name, unless
+    /// [`board_tolerated`] says a pulled row of it is stored.
     Unclassified,
     /// A board log stores it.
     Accepts,
@@ -133,6 +134,8 @@ kinds! {
     TASK_EDITED = "task.edited" => Replicated, Refuses;
     TAKE_REQUESTED = "take.requested" => Replicated, Refuses;
     TAKE_STATE = "take.state" => Replicated, Refuses;
+    /// An ask's owner hands it to a device that can run agents (card #541).
+    ASK_MOVED = "ask.moved" => Replicated, Refuses;
     /// A card's parent is a card on the same board (closure checks it).
     TASK_PARENT = "task.parent" => Replicated, Accepts;
     /// The person's own card order in their window.
@@ -259,6 +262,8 @@ kinds! {
     BOARD_ASK_REQUESTED = "board.ask.requested" => Replicated, Accepts;
     /// An ask's take lock, written by the asking device (`take.state`).
     BOARD_ASK_STATE = "board.ask.state" => Replicated, Accepts;
+    /// [`ASK_MOVED`] in a board's log.
+    BOARD_ASK_MOVED = "board.ask.moved" => Replicated, Accepts;
     /// An ask's outcome edit of a card (`task.edited`).
     BOARD_ASK_EDITED = "board.ask.edited" => Replicated, Accepts;
     REVIEW_REQUESTED = "review.requested" => Replicated, Accepts;
@@ -281,7 +286,9 @@ kinds! {
     // and its id is that board's. These add more boards to it; the first
     // board is the space's own (board.created). An Irori before spaces
     // refuses them, so a space writes them only once every member device
-    // said it reads spaces (mesh SPACES_PROTOCOL).
+    // said it reads spaces (mesh SPACES_PROTOCOL). Personal's boards are
+    // these rows in the private log (card #558), where an older Irori
+    // stores them and folds past them, so they need no gate there.
     /// `{boardId, name, tag, by, at}`: another board in the space.
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.
@@ -305,6 +312,10 @@ kinds! {
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
     BOARD_FORGOT = "board.forgot" => Replicated, Refuses;
+    /// `{boardId, creator, with, at}`: a hidden two-person DM space (card
+    /// #538). It plays board.joined's part and says the space is hidden;
+    /// an older device stores it and ignores it, so it never opens one.
+    DM_SPACE_JOINED = "dm.space.joined" => Replicated, Refuses;
     RECEIVE_SET = "receive.set" => Replicated, Refuses;
     AUTONOMY_SET = "autonomy.set" => Replicated, Refuses;
     /// The person's threads on a shared board: shared with every member,
@@ -334,6 +345,10 @@ kinds! {
     BOARD_PIN = "board.pin" => Local;
     /// `{boardId, upTo}`: this device forgot the board.
     BOARD_FORGOTTEN = "board.forgotten" => Local;
+    /// `{deviceId, personId, coreVersion, spaces, spawns, tolerant, seq,
+    /// atMs}`: the last hello this device heard from `deviceId` on the
+    /// board (card #577).
+    BOARD_HELLO = "board.hello" => Local;
 }
 
 fn index() -> &'static HashMap<&'static str, (Side, Board)> {
@@ -369,6 +384,23 @@ pub fn is_person_kind(kind: &str) -> bool {
 /// Go `BoardAccepted`: a board log stores it.
 pub fn board_accepted(kind: &str) -> bool {
     !is_local(kind) && kind_board(kind) == Board::Accepts
+}
+
+/// The tolerant reader (docs/design/no-server.md §3.5): a pulled `task.*` or
+/// `space.*` row of a kind this build has never heard of. A board log stores
+/// it, so a newer Irori's kind doesn't stall this device, and it folds after
+/// the update. A kind the registry names keeps its verdict, and any other
+/// unknown family stays refused: stalling on a membership or revoke row
+/// fails closed, and skipping one fails open.
+///
+/// A kind stored this way must never become [`Board::Refuses`], or the build
+/// that says so stalls on rows already in the log: `tests/board.rs` pins the
+/// `task.*` and `space.*` kinds that are refused today.
+pub fn board_tolerated(kind: &str) -> bool {
+    let named = kind
+        .strip_prefix("task.")
+        .or_else(|| kind.strip_prefix("space."));
+    named.is_some_and(|n| !n.is_empty()) && !index().contains_key(kind)
 }
 
 /// Go `IsBoardIdentityKind`: board.*, member.* and agent.card, which a board

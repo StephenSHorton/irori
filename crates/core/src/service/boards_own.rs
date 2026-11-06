@@ -8,6 +8,9 @@
 //!   (§4.1 step 7, own devices only until invites). The board's rows then
 //!   sync between them on `board/<id>` streams of the private mesh
 //!   connection (`mesh::boards`), never on its sync channel.
+//! - A hidden DM space (card #538) reaches them the same way, on a private
+//!   dm.space.joined row. [`DmSpaces`] holds those rows, so the rest of the
+//!   Core can tell a DM space from any other without reading the log.
 //! - Forget drops a board on this device: its file and secrets go, and a
 //!   device-local forgotten marker keeps an older board.joined from
 //!   bringing it back (§4.6). Leave forgets it on every device of the
@@ -23,13 +26,13 @@
 //!   resolves a ref across every log this device holds.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use coord::{BoardFilter, BoardView, Card, Coord, ErrorKind as CK, Notice, Step, Task};
 use gocompat::quote::quote as q;
 use gocompat::time::GoTime;
 use irori_identity::MemberPin;
-use irori_identity::membership::MEMBER_ACTIVE;
+use irori_identity::membership::{MEMBER_ACTIVE, valid_pin};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use store::kinds::{self, AGENT_ACTOR_PREFIX, PERSON_ACTOR_PREFIX};
@@ -70,6 +73,113 @@ impl BoardJoinedRow {
             creator,
             at: GoTime::default(),
         })
+    }
+}
+
+/// A DM space's board name and tag (card #538). Nobody can type the tag,
+/// and neither is what makes a space hidden: only its marker does.
+pub(crate) const DM_SPACE_NAME: &str = "dm";
+pub(crate) const DM_SPACE_TAG: &str = "~dm";
+
+/// The private dm.space.joined row (card #538): the marker of a hidden
+/// two-person space. `with` is the other person's id, on either side.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DmSpaceJoinedRow {
+    pub board_id: String,
+    pub creator: MemberPin,
+    pub with: String,
+    pub at: GoTime,
+}
+
+impl DmSpaceJoinedRow {
+    /// `None` for a row that doesn't name a space, a sound creator and the
+    /// other person. Trust rests on this row, so unlike board.joined a
+    /// missing creator isn't let through.
+    pub(crate) fn decode(payload: &[u8]) -> Option<DmSpaceJoinedRow> {
+        let v: serde_json::Value = serde_json::from_slice(payload).ok()?;
+        let s = |k: &str| v.get(k)?.as_str().map(str::to_string);
+        let creator =
+            irori_identity::decode::<MemberPin>(v.get("creator")?.to_string().as_bytes())?;
+        let r = DmSpaceJoinedRow {
+            board_id: s("boardId")?,
+            creator,
+            with: s("with")?,
+            at: GoTime::default(),
+        };
+        (valid_board_id(&r.board_id) && valid_pin(&r.creator) && !r.with.is_empty()).then_some(r)
+    }
+}
+
+/// What a marker says about one DM space (card #538).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct DmSpace {
+    pub creator: MemberPin,
+    pub with: String,
+}
+
+/// The dm.space.joined rows by space id (card #538). It fills before Talk
+/// loads and before any board opens, so no space is ever seen unmarked.
+/// An id is never taken out: a forgotten space's files can outlive it, and
+/// must not come back as a plain space. Whether a space is live is
+/// `Services::board`'s to say. Never taking one out also means a reload
+/// can't race a marker being written.
+#[derive(Default)]
+pub(crate) struct DmSpaces {
+    /// Each space with its newest marker's HLC.
+    by_id: Mutex<HashMap<String, (DmSpace, u64)>>,
+}
+
+impl DmSpaces {
+    /// Reads every marker in the private log.
+    pub(crate) fn load(&self, st: &store::Store) -> Result<()> {
+        each_row(
+            st,
+            Filter {
+                kinds: vec![kinds::DM_SPACE_JOINED.into()],
+                ..Default::default()
+            },
+            |ev| {
+                self.fold(ev);
+            },
+        )
+    }
+
+    /// Takes one marker row, and gives back what it said.
+    fn fold(&self, ev: &Event) -> Option<DmSpaceJoinedRow> {
+        let r = DmSpaceJoinedRow::decode(&ev.payload)?;
+        let mut by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        if by_id.get(&r.board_id).is_none_or(|(_, t)| ev.hlc.0 >= *t) {
+            let space = DmSpace {
+                creator: r.creator.clone(),
+                with: r.with.clone(),
+            };
+            by_id.insert(r.board_id.clone(), (space, ev.hlc.0));
+        }
+        Some(r)
+    }
+
+    pub(crate) fn get(&self, id: &str) -> Option<DmSpace> {
+        let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        by_id.get(id).map(|(s, _)| s.clone())
+    }
+
+    /// Every marked space with `person`, lowest id first, live or not.
+    pub(crate) fn of(&self, person: &str) -> Vec<(String, DmSpace)> {
+        let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out: Vec<(String, DmSpace)> = by_id
+            .iter()
+            .filter(|(_, (s, _))| s.with == person)
+            .map(|(id, (s, _))| (id.clone(), s.clone()))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Everyone a marker names.
+    pub(crate) fn people(&self) -> Vec<String> {
+        let by_id = self.by_id.lock().unwrap_or_else(|e| e.into_inner());
+        by_id.values().map(|(s, _)| s.with.clone()).collect()
     }
 }
 
@@ -294,7 +404,10 @@ impl Services {
                 for b in self.boards.list() {
                     let _ = b.load(&self.store);
                 }
-            } else if ev.kind == kinds::BOARD_JOINED || ev.kind == kinds::BOARD_FORGOT {
+            } else if ev.kind == kinds::BOARD_JOINED
+                || ev.kind == kinds::DM_SPACE_JOINED
+                || ev.kind == kinds::BOARD_FORGOT
+            {
                 self.reconcile_boards();
             } else if ev.kind == kinds::SHARED_COPY {
                 self.fold_copy(&ev);
@@ -302,6 +415,10 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
+            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
+            {
+                // Personal's boards, from another of the person's devices.
+                self.boards.moved();
             }
         }
     }
@@ -327,28 +444,39 @@ impl Services {
     /// Brings the open boards in line with the private log: a board.joined
     /// opens its board (pinned to the creator it names) unless a newer
     /// board.forgot or this device's forgotten marker covers it; a
-    /// board.forgot newer than every board.joined forgets it here.
+    /// board.forgot newer than every board.joined forgets it here. A
+    /// dm.space.joined counts as a board.joined (card #538), and is in
+    /// `dm_spaces` before its space opens.
     pub(crate) fn reconcile_boards(self: &Arc<Self>) {
         let _g = self.boards.rec.lock().unwrap_or_else(|e| e.into_inner());
         if self.boards.stop.get().is_some_and(|s| s.is_canceled()) {
             return;
         }
-        let mut joined: BTreeMap<String, (BoardJoinedRow, u64)> = BTreeMap::new();
+        let mut joined: BTreeMap<String, (MemberPin, u64)> = BTreeMap::new();
         let mut forgot: BTreeMap<String, u64> = BTreeMap::new();
         let res = each_row(
             &self.store,
             Filter {
-                kinds: vec![kinds::BOARD_JOINED.into(), kinds::BOARD_FORGOT.into()],
+                kinds: vec![
+                    kinds::BOARD_JOINED.into(),
+                    kinds::DM_SPACE_JOINED.into(),
+                    kinds::BOARD_FORGOT.into(),
+                ],
                 ..Default::default()
             },
             |ev| {
                 let at = ev.hlc.0;
-                if ev.kind == kinds::BOARD_JOINED {
-                    if let Some(r) = BoardJoinedRow::decode(&ev.payload)
-                        && valid_board_id(&r.board_id)
-                        && joined.get(&r.board_id).is_none_or(|(_, t)| at >= *t)
+                if ev.kind == kinds::BOARD_JOINED || ev.kind == kinds::DM_SPACE_JOINED {
+                    let opens = if ev.kind == kinds::BOARD_JOINED {
+                        BoardJoinedRow::decode(&ev.payload).map(|r| (r.board_id, r.creator))
+                    } else {
+                        self.dm_spaces.fold(ev).map(|r| (r.board_id, r.creator))
+                    };
+                    if let Some((id, creator)) = opens
+                        && valid_board_id(&id)
+                        && joined.get(&id).is_none_or(|(_, t)| at >= *t)
                     {
-                        joined.insert(r.board_id.clone(), (r, at));
+                        joined.insert(id, (creator, at));
                     }
                 } else if let Some(r) = BoardForgotRow::decode(&ev.payload)
                     && valid_board_id(&r.board_id)
@@ -373,7 +501,7 @@ impl Services {
                 logf(format_args!("board {id}: forget: {e}"));
             }
         }
-        for (id, (row, at)) in &joined {
+        for (id, (creator, at)) in &joined {
             if forgot.get(id).is_some_and(|f| f >= at) {
                 continue;
             }
@@ -383,11 +511,42 @@ impl Services {
             if self.board(id).is_ok() {
                 continue;
             }
-            if let Err(e) = self.open_board(id, false, Some(&row.creator)) {
+            if let Err(e) = self.open_board(id, false, Some(creator)) {
                 logf(format_args!("board {id}: open from board.joined: {e}"));
                 continue;
             }
             self.boards.moved();
+        }
+    }
+
+    /// Whether `id` is a hidden DM space: a marker for it is in the private
+    /// log (card #538). `board.created`'s tag says nothing here.
+    pub(crate) fn is_dm_space(&self, id: &str) -> bool {
+        self.dm_spaces.get(id).is_some()
+    }
+
+    /// Writes the marker of DM space `board_id` and takes it into
+    /// `dm_spaces` (card #538). Call it before the space opens or takes a
+    /// row, so no row folds without it.
+    pub(crate) fn write_dm_marker(
+        &self,
+        board_id: &str,
+        creator: &MemberPin,
+        with: &str,
+    ) -> Result<()> {
+        let ev = self.store.append(
+            "irori",
+            kinds::DM_SPACE_JOINED,
+            &DmSpaceJoinedRow {
+                board_id: board_id.into(),
+                creator: creator.clone(),
+                with: with.into(),
+                at: (self.now)(),
+            },
+        )?;
+        match self.dm_spaces.fold(&ev) {
+            Some(_) => Ok(()),
+            None => Err(Error::other("core: the DM space's marker did not count")),
         }
     }
 
@@ -423,11 +582,16 @@ impl Services {
         let _ = each_row(
             &self.store,
             Filter {
-                kinds: vec![kinds::BOARD_JOINED.into()],
+                kinds: vec![kinds::BOARD_JOINED.into(), kinds::DM_SPACE_JOINED.into()],
                 ..Default::default()
             },
             |ev| {
-                if BoardJoinedRow::decode(&ev.payload).is_some_and(|r| r.board_id == board_id) {
+                let names_it = if ev.kind == kinds::BOARD_JOINED {
+                    BoardJoinedRow::decode(&ev.payload).is_some_and(|r| r.board_id == board_id)
+                } else {
+                    DmSpaceJoinedRow::decode(&ev.payload).is_some_and(|r| r.board_id == board_id)
+                };
+                if names_it {
                     up_to = up_to.max(ev.hlc.0);
                 }
             },
@@ -500,11 +664,11 @@ impl Services {
         }
     }
 
-    /// Every board on this device, by name.
+    /// Every board on this device the person sees, by name.
     pub(crate) fn board_list(&self) -> Vec<BoardSummary> {
         let me = self.person_id();
         let mut out: Vec<BoardSummary> = self
-            .shown_boards()
+            .visible_boards()
             .iter()
             .map(|b| {
                 let m = b.verifier.membership();
@@ -668,7 +832,7 @@ impl Services {
     /// The space logs holding a board tagged `tag`: the space's own board,
     /// or one inside it (card #392).
     fn boards_by_tag(&self, tag: &str) -> Vec<Arc<BoardLog>> {
-        self.shown_boards()
+        self.visible_boards()
             .into_iter()
             .filter(|b| {
                 b.verifier.membership().tag == tag
@@ -696,7 +860,17 @@ impl Services {
         let coords: Vec<Arc<Coord>> = if !tag.is_empty() {
             // A tag two boards share (made on two devices apart) names a
             // card only when one of them has it, like a bare number (B3).
-            let tagged = self.boards_by_tag(&tag);
+            let mut tagged: Vec<Arc<Coord>> = self
+                .boards_by_tag(&tag)
+                .iter()
+                .map(|b| b.coord().clone())
+                .collect();
+            if self
+                .personal_boards()
+                .is_ok_and(|bs| bs.iter().any(|b| b.tag == tag))
+            {
+                tagged.push(self.coord.clone());
+            }
             match tagged.len() {
                 0 => {
                     return Err(coord::Error::new(
@@ -704,12 +878,12 @@ impl Services {
                         format_args!("no board here is tagged {}", q(&tag)),
                     ));
                 }
-                1 => return tagged[0].coord().task_ref(v),
-                _ => tagged.iter().map(|b| b.coord().clone()).collect(),
+                1 => return tagged[0].task_ref(v),
+                _ => tagged,
             }
         } else {
             std::iter::once(self.coord.clone())
-                .chain(self.shown_boards().iter().map(|b| b.coord().clone()))
+                .chain(self.visible_boards().iter().map(|b| b.coord().clone()))
                 .collect()
         };
         let mut hits: Vec<Task> = Vec::new();
@@ -838,8 +1012,8 @@ impl Services {
         let sc = self.shared_copy_of(task_id).filter(|sc| !sc.withdrawn)?;
         let b = self.board(&sc.board_id).ok()?; // the board went just now
         Some(Error::Shared(format!(
-            "core: the card was shared to a board: it was shared to {} as {} (visible to: {}), and this private card is closed; write to {} instead",
-            or(&sc.board_name, "a board"),
+            "core: the card was shared to a space: it was shared to {} as {} (visible to: {}), and this private card is closed; write to {} instead",
+            or(&sc.board_name, "a space"),
             sc.reference,
             self.board_people(&b).join(", "),
             sc.reference
@@ -850,7 +1024,7 @@ impl Services {
     fn shareable(&self, task_id: &str) -> Result<Task> {
         let Some(t) = self.coord.get_task(task_id) else {
             if self.route(task_id).is_ok_and(|(id, _)| !id.is_empty()) {
-                return Err(Error::coord(CK::Invalid, "the card is already on a board"));
+                return Err(Error::coord(CK::Invalid, "the card is already in a space"));
             }
             return Err(Error::coord(
                 CK::NotFound,
@@ -976,7 +1150,7 @@ impl Services {
             return Err(Error::coord(
                 CK::BadState,
                 format_args!(
-                    "board {} isn't ready on this device yet",
+                    "space {} isn't ready on this device yet",
                     or(&m.name, board_id)
                 ),
             ));
@@ -1058,6 +1232,19 @@ impl Services {
         board_id: &str,
         confirmed: &str,
     ) -> Result<Task> {
+        self.share_to_space_board(task_id, board_id, "", confirmed)
+    }
+
+    /// share_to_board onto board `space_board` inside space `board_id`
+    /// (card #558), numbered there; empty is the space's first board. Its
+    /// subtasks follow it there.
+    pub(crate) fn share_to_space_board(
+        &self,
+        task_id: &str,
+        board_id: &str,
+        space_board: &str,
+        confirmed: &str,
+    ) -> Result<Task> {
         let p = self.preview_share(task_id, board_id)?;
         if confirmed.is_empty() || confirmed != p.hash {
             return Err(Error::PreviewStale(
@@ -1096,7 +1283,13 @@ impl Services {
             ..Default::default()
         };
         let actor = self.person_actor();
-        let shared = b.coord().create_task(&actor, new_card(&top, &priv_t, ""))?;
+        let shared = b.coord().create_task(
+            &actor,
+            coord::NewTask {
+                board: space_board.into(),
+                ..new_card(&top, &priv_t, "")
+            },
+        )?;
         self.boards
             .inner
             .lock()
@@ -1211,7 +1404,7 @@ impl Services {
                     return Err(Error::coord(
                         CK::NotAllowed,
                         format_args!(
-                            "{} has a subtask someone else added, {}, which only its creator or a board owner withdraws; {} stays on the board",
+                            "{} has a subtask someone else added, {}, which only its creator or a space owner withdraws; {} stays in the space",
                             t.short_ref(),
                             k.short_ref(),
                             t.short_ref()
@@ -1235,7 +1428,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "{task_id} is a private card: only a card on a shared board changes owner"
+                    "{task_id} is a private card: only a card in a shared space changes owner"
                 ),
             ));
         }
@@ -1245,7 +1438,7 @@ impl Services {
 
     /// Withdraws one board card and carries its work on privately.
     fn withdraw_one(&self, co: &Coord, task_id: &str) -> Result<Option<Task>> {
-        let t = co.withdraw(&self.person_actor(), task_id, "withdrawn from the board")?;
+        let t = co.withdraw(&self.person_actor(), task_id, "withdrawn from the space")?;
         let user = self.user_sender().key;
         let locals: Vec<String> = t
             .holders
@@ -1380,7 +1573,7 @@ impl Services {
     /// it.
     pub(crate) fn board_views(&self, f: &BoardFilter) -> Vec<BoardView> {
         let mut out = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if !b.verifier.membership().created {
                 continue;
             }

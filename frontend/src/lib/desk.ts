@@ -622,7 +622,8 @@ export const deskActions = {
   },
 }
 
-export type Desks = { desks: Desk[] }
+// loaded is false until the first read lands (card #598).
+export type Desks = { desks: Desk[]; loaded: boolean }
 
 // snapshot is the current list; a new array after every change so
 // useSyncExternalStore sees it.
@@ -648,14 +649,27 @@ function refresh(): void {
   if (!inWails()) return
   DeskService.List()
     .then((list) => {
+      const first = !hostRead
+      hostRead = true
       // An unchanged list keeps its snapshot, so App doesn't re-render on
       // every board change (0.11.1).
-      if (sameAs(shownDesks, list ?? [])) return
+      if (sameAs(shownDesks, list ?? []) && !first) return
       snapshot = (list ?? []).map(fromHost)
       for (const fn of listeners) fn()
     })
-    .catch(() => {})
+    .catch(() => {
+      // A failed first read still ends the skeleton: the pane shows what
+      // it has rather than loading for ever.
+      if (hostRead) return
+      hostRead = true
+      for (const fn of listeners) fn()
+    })
 }
+
+// hostRead is whether the window's list has answered once (card #598): the
+// Merge desks pane shows its skeleton until it has, never on a re-read.
+let hostRead = false
+const isRead = () => !inWails() || hostRead
 
 // The desk rows are coord rows, so a board change may be one; the poll's
 // own times live on this device only, so the list is also read again
@@ -686,5 +700,6 @@ function subscribe(fn: () => void): () => void {
 // useDesks is every merge desk in the person's log.
 export function useDesks(): Desks {
   const desks = useSyncExternalStore(subscribe, current, current)
-  return { desks }
+  const loaded = useSyncExternalStore(subscribe, isRead, isRead)
+  return { desks, loaded }
 }

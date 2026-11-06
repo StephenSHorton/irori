@@ -8,8 +8,9 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use gocompat::sub::{Queue, TryRecv};
 use rusqlite::types::{Value, ValueRef};
@@ -142,6 +143,8 @@ struct Inner {
     now: WallFn,
     writer: Mutex<Writer>,
     readers: Mutex<Vec<Connection>>,
+    /// Reads running now: each holds a connection outside `readers`.
+    reading: AtomicUsize,
     verify_mu: Mutex<()>,
     subs: Mutex<Subs>,
 }
@@ -152,6 +155,26 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn closed() -> Error {
     Error::sentinel(ErrorKind::Closed)
+}
+
+/// How long `close` waits for reads already running.
+const CLOSE_READS_WAIT: Duration = Duration::from_secs(2);
+
+/// Counts a read from before it checks `closed` until its connection is gone
+/// or back in the pool, so `close` sees every read that got past the check.
+struct Reading<'a>(&'a AtomicUsize);
+
+impl<'a> Reading<'a> {
+    fn start(n: &'a AtomicUsize) -> Reading<'a> {
+        n.fetch_add(1, Ordering::SeqCst);
+        Reading(n)
+    }
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A connection with Go's DSN settings (store.md §2.2).
@@ -218,6 +241,21 @@ fn newest_of_a_device(f: &Filter) -> bool {
         && f.after_seq == 0
         && f.after_hlc.0 == 0
         && f.after.is_zero()
+}
+
+/// Whether `f` reads one device's rows along the primary key. Within a device
+/// hlc rises with seq (`insert_one` refuses anything else), so seq order is
+/// `(hlc, device_id, seq)` order without reading the device's whole tail to
+/// sort it: 179 ms for a page at the start of a 170k-row device, 16 ms by seq
+/// (card #567). Not `local_events`: its rows don't seed the clock, so their
+/// hlc may step back. Not a read by hlc or cursor: the key can't seek on
+/// those. Not one exact kind from the start: the kind index reads far less.
+fn one_device_by_seq(f: &Filter) -> bool {
+    !f.local
+        && !f.device_id.is_empty()
+        && f.after_hlc.0 == 0
+        && f.after.is_zero()
+        && !(f.kinds.len() == 1 && !f.kinds[0].ends_with('.') && f.after_seq == 0)
 }
 
 fn query_one(c: &Connection, table: &str, dev: &str, seq: i64) -> Result<Option<Event>> {
@@ -530,6 +568,7 @@ impl Store {
                 hold_seq: 0,
             }),
             readers: Mutex::new(Vec::new()),
+            reading: AtomicUsize::new(0),
             verify_mu: Mutex::new(()),
             subs: Mutex::new(Subs {
                 closed: false,
@@ -638,7 +677,17 @@ impl Store {
         self.inner.missing(v, limit)
     }
 
-    /// Rows matching `f`, by `(hlc, device_id, seq)`.
+    /// [`Self::missing`], taking turns between writers instead of walking
+    /// them in byte order, so a writer with a long run can't use up `limit`
+    /// and starve the ones that sort after it (no-server.md §4.3). Each
+    /// writer's rows stay in seq order with no gap past `v`; writers are
+    /// interleaved.
+    pub fn missing_by_turns(&self, v: &Vector, limit: i64) -> Result<Vec<Event>> {
+        self.inner.missing_by_turns(v, limit)
+    }
+
+    /// Rows matching `f`, by `(hlc, device_id, seq)`. One device's rows in
+    /// `events` are in seq order too: hlc rises with seq.
     pub fn list(&self, f: &Filter) -> Result<Vec<Event>> {
         self.inner.list(f)
     }
@@ -875,10 +924,17 @@ impl Inner {
         }
         lock(&self.writer).conn = None;
         lock(&self.readers).clear();
+        // A read holds its connection until it returns, and Windows can't
+        // delete the file while one is open (#556).
+        let deadline = Instant::now() + CLOSE_READS_WAIT;
+        while self.reading.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// Run `f` on a read connection from the pool.
     fn read<R>(&self, f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
+        let _reading = Reading::start(&self.reading);
         if self.is_closed() {
             return Err(closed());
         }
@@ -1314,8 +1370,8 @@ impl Inner {
         self.check_row(ev)?;
         if let Some(b) = &self.board {
             // The allow-list and actor shape hold for forwarded rows too;
-            // closure doesn't.
-            b.check_shape(&ev.actor, &ev.kind, &ev.payload)
+            // closure doesn't. A newer Irori's task.* or space.* kind passes.
+            b.check_pulled(&ev.actor, &ev.kind, &ev.payload)
                 .map_err(|e| e.context(format!("{}/{}: ", ev.device_id, ev.seq)))?;
         }
         let last = max_seq(tx, "events", &ev.device_id)?;
@@ -1551,6 +1607,62 @@ impl Inner {
         })
     }
 
+    fn missing_by_turns(&self, v: &Vector, limit: i64) -> Result<Vec<Event>> {
+        let mut left = if limit <= 0 {
+            DEFAULT_MISSING_LIMIT
+        } else {
+            limit
+        }
+        .min(MAX_MISSING_LIMIT);
+        // Each writer still owed rows: the last seq sent, and its top.
+        let mut turns: Vec<(String, i64, i64)> = self
+            .vector()?
+            .into_iter()
+            .map(|(d, top)| {
+                let from = v.get(&d).copied().unwrap_or(0);
+                (d, from, top)
+            })
+            .filter(|(_, from, top)| top > from)
+            .collect();
+        self.read(move |c| {
+            let mut out = Vec::new();
+            while left > 0 && !turns.is_empty() {
+                // An even share of what's left. A writer with less than its
+                // share leaves the rest to the others next round.
+                let share = (left / turns.len() as i64).max(1);
+                let mut next = Vec::with_capacity(turns.len());
+                for (dev, from, top) in std::mem::take(&mut turns) {
+                    let take = share.min(left);
+                    if take == 0 {
+                        break;
+                    }
+                    let evs = query_events(
+                        c,
+                        &format!(
+                            "SELECT {COLS} FROM events
+			 WHERE device_id = ?1 AND seq > ?2 AND seq <= ?3 ORDER BY seq LIMIT ?4"
+                        ),
+                        &[
+                            Value::Text(dev.clone()),
+                            Value::Integer(from),
+                            Value::Integer(top),
+                            Value::Integer(take),
+                        ],
+                    )?;
+                    let n = evs.len() as i64;
+                    let last = evs.last().map_or(from, |e| e.seq);
+                    out.extend(evs);
+                    left -= n;
+                    if n == take && last < top {
+                        next.push((dev, last, top));
+                    }
+                }
+                turns = next;
+            }
+            Ok(out)
+        })
+    }
+
     fn list(&self, f: &Filter) -> Result<Vec<Event>> {
         let mut wh: Vec<String> = Vec::new();
         let mut args: Vec<Value> = Vec::new();
@@ -1620,7 +1732,13 @@ impl Inner {
             q.push_str(&wh.join(" AND "));
         }
         // device_id, seq break HLC ties so the order is total and repeatable.
-        if f.desc {
+        if one_device_by_seq(f) {
+            q.push_str(if f.desc {
+                " ORDER BY seq DESC"
+            } else {
+                " ORDER BY seq"
+            });
+        } else if f.desc {
             q.push_str(" ORDER BY hlc DESC, device_id DESC, seq DESC");
         } else {
             q.push_str(" ORDER BY hlc, device_id, seq");
@@ -1634,6 +1752,117 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_keyed_read_of_one_device_orders_by_seq() {
+        let f = || Filter {
+            kinds: vec!["task.".into(), "repo.seen".into()],
+            device_id: "dev".into(),
+            after_seq: 3,
+            ..Filter::default()
+        };
+        assert!(one_device_by_seq(&f()));
+        for yes in [
+            Filter {
+                after_seq: 0,
+                ..f()
+            },
+            Filter { desc: true, ..f() },
+            Filter {
+                kinds: Vec::new(),
+                after_seq: 0,
+                ..f()
+            },
+            Filter {
+                kinds: vec!["repo.seen".into()],
+                ..f()
+            },
+            Filter {
+                kinds: vec!["task.".into()],
+                after_seq: 0,
+                ..f()
+            },
+        ] {
+            assert!(one_device_by_seq(&yes), "{yes:?}");
+        }
+        for no in [
+            Filter {
+                device_id: String::new(),
+                ..f()
+            },
+            Filter { local: true, ..f() },
+            Filter {
+                after_hlc: hlc::Timestamp(9),
+                ..f()
+            },
+            Filter {
+                after: crate::Cursor {
+                    hlc: hlc::Timestamp(9),
+                    device_id: "dev".into(),
+                    seq: 1,
+                },
+                ..f()
+            },
+            Filter {
+                kinds: vec!["repo.seen".into()],
+                after_seq: 0,
+                ..f()
+            },
+        ] {
+            assert!(!one_device_by_seq(&no), "{no:?}");
+        }
+    }
+
+    /// `INDEXED BY` the kind index under `ORDER BY seq` would sort every row
+    /// of the kind: no read may take both rules.
+    #[test]
+    fn the_kind_index_and_seq_order_never_meet() {
+        let kinds: [&[&str]; 4] = [&[], &["device.started"], &["device."], &["a", "b"]];
+        for k in kinds {
+            for after_seq in [0, 3] {
+                for desc in [false, true] {
+                    let f = Filter {
+                        kinds: k.iter().map(|s| s.to_string()).collect(),
+                        device_id: "dev".into(),
+                        after_seq,
+                        desc,
+                        ..Filter::default()
+                    };
+                    assert!(!(newest_of_a_device(&f) && one_device_by_seq(&f)), "{f:?}");
+                }
+            }
+        }
+    }
+
+    /// The plan is the point of [`one_device_by_seq`], and it is SQLite's to
+    /// change: a catch-up page and a newest-row read must walk the key.
+    #[test]
+    fn one_devices_rows_walk_the_primary_key() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(MIGRATION_V1).unwrap();
+        for (sql, what) in [
+            (
+                "SELECT * FROM events WHERE (kind >= 'task.' AND kind < 'task/' OR kind = 'repo.seen') \
+                 AND device_id = 'd' AND seq > 5 ORDER BY seq LIMIT 1000",
+                "a page",
+            ),
+            (
+                "SELECT * FROM events WHERE device_id = 'd' ORDER BY seq DESC LIMIT 1",
+                "the newest row",
+            ),
+        ] {
+            let plan: Vec<String> = c
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect();
+            let plan = plan.join("; ");
+            assert!(plan.contains("PRIMARY KEY"), "{what}: {plan}");
+            assert!(!plan.contains("TEMP B-TREE"), "{what}: {plan}");
+        }
+    }
 
     #[test]
     fn only_one_kinds_newest_of_a_device_takes_the_kind_index() {

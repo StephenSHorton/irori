@@ -19,3 +19,33 @@
 .irori-flow .react-flow__node:focus-visible {
   outline: none;
 }
+
+/* Card #587: a working agent's pill pulses in its status colour, and a
+   card that just changed hands flashes once. Only when the OS allows
+   motion; React Flow's flowing edges are switched off in code. */
+@media (prefers-reduced-motion: no-preference) {
+  .irori-flow [data-working] {
+    animation: irori-pulse 2.4s ease-out infinite;
+  }
+  .irori-flow .react-flow__node.irori-handoff > .glass-panel,
+  .irori-flow .react-flow__node.irori-handoff {
+    animation: irori-handoff 1.5s ease-out 1;
+  }
+}
+@keyframes irori-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--pulse, var(--success)) 55%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in oklch, var(--pulse, var(--success)) 0%, transparent);
+  }
+}
+@keyframes irori-handoff {
+  0% {
+    box-shadow: 0 0 0 3px var(--primary), 0 0 24px 4px color-mix(in oklch, var(--primary) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+  }
+}

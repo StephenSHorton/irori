@@ -25,6 +25,9 @@ irori-attach = { workspace = true }
 irori-core = { workspace = true }
 irori-gocompat = { workspace = true }
 irori-home = { workspace = true }
+# Keep this device up to date (card #578): whether an agent is working.
+irori-presence = { workspace = true }
+irori-coord = { workspace = true }
 irori-pair = { workspace = true }
 irori-sys = { workspace = true }
 irori-store = { workspace = true }
@@ -69,7 +72,7 @@ irori-toast = { workspace = true }
 irori-capture = { workspace = true }
 irori-coord = { workspace = true }
 irori-presence = { workspace = true }
-# tests/attach_exe.rs: the real binary against a Core behind the API server.
+# tests/it/attach_exe.rs: the real binary against a Core behind the API server.
 irori-core = { workspace = true }
 irori-identity = { workspace = true }
 irori-inbox = { workspace = true }

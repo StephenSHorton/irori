@@ -36,6 +36,7 @@ impl Fold {
         if child.is_empty() {
             return;
         }
+        self.links_moved = true;
         self.links.push(ParentLink {
             child: child.into(),
             parent: parent.into(),
@@ -57,6 +58,7 @@ impl Fold {
     /// Derives every card's Parent and Subtasks from the link rows, then
     /// each parent's Rollup.
     pub(crate) fn relink(&mut self) {
+        self.links_moved = false;
         self.links.sort_by(|a, b| a.at.cmp(&b.at));
         let mut parent_of: HashMap<String, String> = HashMap::new();
         let mut kids: HashMap<String, i64> = HashMap::new();
@@ -601,7 +603,7 @@ impl Fold {
             return Err(not_allowed("only the person pauses a card"));
         }
         if self.on_board {
-            return Err(invalid("a shared board's card can't be paused"));
+            return Err(invalid("a shared space's card can't be paused"));
         }
         let Some(t) = self.tasks.get(id).cloned() else {
             return Err(not_found(format!("task {}", quote(id))));
@@ -669,6 +671,7 @@ impl Fold {
         }
         self.deleted.insert(p.task_id.clone());
         self.placed.remove(&p.task_id);
+        self.links_moved = true;
         if self.tasks.remove(&p.task_id).is_some() {
             self.order.remove(&p.task_id);
             self.pins.remove(&p.task_id);
@@ -689,7 +692,7 @@ impl Fold {
         }
         if self.on_board {
             return Err(invalid(
-                "a card on a shared board is withdrawn, not deleted",
+                "a card in a shared space is withdrawn, not deleted",
             ));
         }
         let Some(t) = self.tasks.get(id).cloned() else {

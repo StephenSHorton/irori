@@ -79,6 +79,11 @@ export const Events = {
   },
 }
 
+// WindowLog writes one line to irori.log (window-log.ts).
+export function WindowLog(line: string): Promise<void> {
+  return done(commands.windowLog(line))
+}
+
 // ---- Browser, Clipboard ---------------------------------------------------------
 
 export const Browser = {
@@ -272,6 +277,7 @@ export const BoardService = {
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
+  ThreadsAll: () => call(commands.boardThreadsAll()),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
@@ -311,6 +317,9 @@ export const TalkService = {
     spaceId: string | null = null
   ) => call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
+  // Everyone the person can DM, and leaving a DM with one of them (#538).
+  DmPeople: () => call(commands.talkDmPeople()),
+  DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
   Leave: (convId: string, member: B.TalkMemberRef) =>
@@ -335,6 +344,9 @@ export const NotesService = {
 export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
+  Starts: () => call(commands.agentsStarts()),
+  SetStarts: (on: boolean, max: number) =>
+    call(commands.agentsStartsSet(on, max)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) =>
     done(commands.agentsOfferSet(key, on)),
@@ -342,6 +354,10 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Limits: () => call(commands.agentsLimits()),
+  CapSet: (device: string, cap: number) =>
+    call(commands.agentsCapSet(device, cap)),
+  UsageRelease: () => call(commands.agentsUsageRelease()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
   // Asks the device the agent starts on to trust it there (part 11);
@@ -354,6 +370,11 @@ export const AgentsService = {
     call(commands.agentsPermissionsSet(p)),
 }
 
+// SyncService: how fresh each log is (card #580).
+export const SyncService = {
+  Freshness: () => call(commands.syncFreshness()),
+}
+
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
@@ -361,6 +382,13 @@ export const BoardsService = {
     call(commands.boardsRename(boardId, name)),
   AddToSpace: (spaceId: string, name: string, tag: string) =>
     call(commands.boardsAddToSpace(spaceId, name, tag)),
+  RenameInSpace: (spaceId: string, boardId: string, name: string) =>
+    call(commands.boardsRenameInSpace(spaceId, boardId, name)),
+  Personal: () => call(commands.boardsPersonal()),
+  AddToPersonal: (name: string, tag: string) =>
+    call(commands.boardsAddToPersonal(name, tag)),
+  RenameInPersonal: (boardId: string, name: string) =>
+    call(commands.boardsRenameInPersonal(boardId, name)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
@@ -457,6 +485,10 @@ export const UpdateService = {
   Supported: () => call(commands.updateSupported()),
   CheckAndDownload: () => call(commands.updateCheckAndDownload()),
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
+  // Keep this device up to date (card #578): null where it doesn't apply.
+  GetKeepUpToDate: () => call(commands.updateGetKeepUpToDate()),
+  SetKeepUpToDate: (on: boolean) =>
+    call(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as

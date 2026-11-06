@@ -204,7 +204,7 @@ impl Fold {
                 // without a hook to the person's own, it could never close.
                 if self.on_board && self.device_version.is_none() {
                     return Err(invalid(
-                        "a version wait goes on a card on your own board; on a shared board, wait on external or the person",
+                        "a version wait goes on a private card; in a shared space, wait on external or the person",
                     ));
                 }
                 out.reference = self.check_version_wait(&out.reference)?;
@@ -246,7 +246,8 @@ impl Fold {
             wake: self.idle(&to),
             ..Notice::default()
         };
-        if !self.is_owner(&to) && to != by {
+        // A person isn't a mailbox: their Irori asks them (card #573).
+        if !self.is_owner(&to) && to != by && !to.starts_with(kinds::PERSON_ACTOR_PREFIX) {
             n.to = vec![to.clone()];
         }
         let mut b = format!(
@@ -403,7 +404,7 @@ impl Fold {
             return Err(not_allowed("only the person takes another member off"));
         }
         let Some(kp) = self.key_person.clone().filter(|_| self.on_board) else {
-            return Err(invalid("taking a member off is for a shared board"));
+            return Err(invalid("taking a member off is for a shared space"));
         };
         if person_id.is_empty() {
             return Ok(0);
@@ -422,6 +423,11 @@ impl Fold {
                 if !keys.contains(a) {
                     keys.push(a.clone());
                 }
+            }
+            // A card given to them comes back though nobody of theirs holds
+            // it now (card #573).
+            if let Some(g) = t.given.as_ref().filter(|g| !keys.contains(&g.key)) {
+                keys.push(g.key.clone());
             }
             for who in keys.into_iter().filter(|k| kp(k) == person_id) {
                 let at = self.stamp();
@@ -449,7 +455,7 @@ impl Fold {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
                         note: format!(
-                            "{}: the person whose agent worked it left the board",
+                            "{}: the person whose agent worked it left the space",
                             super::fold::NOBODY_NOTE
                         ),
                         by: by.clone(),
@@ -1953,29 +1959,39 @@ impl Fold {
 }
 
 impl Fold {
-    /// On a card whose spawned agents crashed [`MAX_SPAWN_CRASHES`] times
-    /// in a row, stops its spawning by asking the person (§2 "Crash", card
+    /// On a card whose spawned agents crashed as many times in a row as
+    /// the crash limit allows, stops its spawning by asking the person (§2 "Crash", card
     /// #447): a card that kills its agent doesn't loop. Their answer puts
     /// it back on the Board (back_on_board) and clears the run, even one
-    /// sent as a resolve, as the window does (card #540).
+    /// sent as a resolve, as the window does (card #540). Only on the
+    /// device that hands the card out: the limit is each device's own
+    /// (#492) and the count is shared, so its number governs the card
+    /// wherever the agent ran, and the Core's sweep asks there (card #576).
     pub(crate) fn stop_crashed_spawns(&mut self, id: &str, now: &GoTime) -> Result<()> {
         let Some(t) = self.tasks.get(id).cloned() else {
             return Ok(());
         };
-        if t.spawn_crashes < super::spawn::MAX_SPAWN_CRASHES
+        let limit = self.crash_limit();
+        if t.spawn_crashes < limit
             || is_terminal(&t.state)
+            || !self.hands_out(&t)
             || t.blockers
                 .iter()
-                .any(|b| b.open() && b.question == super::spawn::CRASHED_QUESTION)
+                .any(|b| b.open() && super::spawn::is_crash_text(&b.question))
         {
             return Ok(());
         }
+        let last = match limit {
+            1 => "The last agent".to_string(),
+            2 => "The last two agents".to_string(),
+            n => format!("The last {n} agents"),
+        };
         self.raise_locked(
             SWEEPER,
             &t,
             "",
-            super::spawn::CRASHED_QUESTION,
-            "The last two agents started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief.",
+            &super::spawn::crash_question(limit),
+            &format!("{last} started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief."),
             vec![BlockerOption {
                 answer: super::spawn::CRASHED_START.into(),
                 why: "A fresh agent picks it up from Where and Left off.".into(),

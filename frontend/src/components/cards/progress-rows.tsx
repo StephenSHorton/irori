@@ -61,9 +61,19 @@ export function ProgressRows({
   const hung = new Set(all.flatMap((x) => under(x.c.id)).map((x) => x.c.id))
   const rows = all.filter((x) => !hung.has(x.c.id))
   const list = (name: string, rs: typeof rows, quiet = false) => (
-    <ul aria-label={name} className="glass-panel grid min-w-0 overflow-hidden">
+    // At sm+ the list owns the columns and each row is a subgrid of them
+    // (card #586), so the ref column fits this list's widest ref (4.5 to
+    // 10rem, see the ref span) and the titles stay lined up. A phone keeps
+    // each row's own auto column.
+    <ul
+      aria-label={name}
+      className="glass-panel grid min-w-0 overflow-hidden sm:grid-cols-[max-content_minmax(0,1fr)_minmax(0,16rem)_5.5rem_4.5rem] sm:gap-x-3"
+    >
       {rs.map(({ c, r }) => (
-        <li key={c.id} className="min-w-0 border-b border-border/60 last:border-b-0">
+        <li
+          key={c.id}
+          className="min-w-0 border-b border-border/60 last:border-b-0 sm:col-span-full sm:grid sm:grid-cols-subgrid"
+        >
           <ProgressRow
             card={c}
             row={r}
@@ -133,13 +143,18 @@ function ProgressRow({
       onClick={() => onOpen(c.id)}
       aria-current={selected || undefined}
       className={cn(
-        "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2.5 text-left outline-none hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring sm:grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,16rem)_5.5rem_4.5rem]",
+        "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2.5 text-left outline-none hover:bg-accent/50 focus-visible:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring sm:col-span-full sm:grid-cols-subgrid",
         selected && "bg-accent/40",
         quiet && "text-muted-foreground opacity-70",
         hangs && "py-1.5"
       )}
     >
-      <span className="font-mono text-xs text-muted-foreground tabular-nums">
+      {/* A cross-board ref (agility#1234) widens the list's column up
+          to 10rem; past that it is cut, the whole ref on hover. */}
+      <span
+        className="font-mono text-xs text-muted-foreground tabular-nums sm:max-w-[10rem] sm:min-w-[4.5rem] sm:truncate"
+        title={cardRef(c)}
+      >
         {hangs && <span aria-hidden>└ </span>}
         {cardRef(c)}
       </span>

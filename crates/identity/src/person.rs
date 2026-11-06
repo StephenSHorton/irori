@@ -793,7 +793,8 @@ impl Identity {
     }
 
     /// This person pinned on a board this device creates, with this device
-    /// as its board root.
+    /// as its board root. It is the current key's pin: a DM hand-off (card
+    /// #538) sends it with [`Chain::key_proof`] for its epoch and key.
     pub fn board_pin(&self) -> MemberPin {
         let g = self.lock();
         MemberPin {

@@ -46,8 +46,6 @@ crate::go_struct! {
         pub parent: String = "parent" "omit",
         /// A helper's part of its parent (spawned agents §3).
         pub spawn: bool = "spawn" "omit",
-        /// The card's own Up to N agents (§3); 0 for the board's.
-        pub agents: i64 = "agents" "omit",
         /// The thread the card was made from (card #155).
         pub from: String = "from" "omit",
         /// The board in a space it's on (card #392): a `space.board.created`
@@ -125,6 +123,9 @@ crate::go_struct! {
         pub error: String = "error" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
+        /// OPEN heard by a device that knew the PR closed: a reopen
+        /// (card #548). An OPEN without it can't undo a closing.
+        pub over_closed: bool = "overClosed" "omit",
     }
 }
 
@@ -478,6 +479,17 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// Device `owner` takes the ask (card #541); `moves` counts the takes.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct AskMovedRow {
+        pub task_id: String = "taskId",
+        pub owner: String = "owner",
+        pub moves: i64 = "moves",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TakeStateRow {
         pub task_id: String = "taskId",
@@ -503,6 +515,8 @@ crate::go_struct! {
         pub title: Option<String> = "title" "omit",
         pub objective: Option<String> = "objective" "omit",
         pub done_criteria: Option<String> = "doneCriteria" "omit",
+        /// The card's repoKey (card #600); an older Irori ignores it.
+        pub repo_key: Option<String> = "repoKey" "omit",
         pub by: String = "by",
         pub from: String = "from" "omit",
         pub note: String = "note" "omit",
@@ -539,6 +553,14 @@ crate::go_struct! {
     pub struct TaskIdRow {
         pub task_id: String = "taskId",
         pub who: String = "who",
+    }
+}
+
+crate::go_struct! {
+    /// What the fold reads of a `space.board.*` row; the Core reads the rest.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct SpaceBoardIdRow {
+        pub board_id: String = "boardId",
     }
 }
 
@@ -590,6 +612,9 @@ crate::go_struct! {
         pub note: String = "note" "omit",
         pub at: GoTime = "at",
         pub expires: GoTime = "expires",
+        pub board: String = "board" "omit",
+        pub card: String = "card" "omit",
+        pub title: String = "title" "omit",
     }
 }
 
@@ -670,6 +695,9 @@ crate::go_struct! {
         /// The person's words for the agent's brief, carried to the
         /// device that starts it (card #455).
         pub note: String = "note" "omit",
+        /// It counts toward "My agents may start agents" (card #575): an
+        /// agent asked for it, or an agent that counts went on to cause it.
+        pub counted: bool = "counted" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -689,6 +717,8 @@ crate::go_struct! {
         /// The shared board whose card it is, on the person's own mark for
         /// a board card's agent (card #455); empty for this log's card.
         pub board: String = "board" "omit",
+        /// It counts toward "My agents may start agents" (card #575).
+        pub counted: bool = "counted" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

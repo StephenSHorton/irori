@@ -2,6 +2,8 @@
 //! coord.md §3.9): derived by the fold from every task.created row's
 //! claimed number, settled the same way on every device.
 
+use std::collections::HashMap;
+
 use gocompat::quote::quote;
 use gocompat::time::GoTime;
 
@@ -62,7 +64,9 @@ pub fn parse_ref(r: &str) -> Option<(String, String)> {
     Some((tag, parse_short(s)?))
 }
 
-/// A board tag: a lowercase letter, then up to 15 of `a-z 0-9 -`.
+/// A tag in a ref: a lowercase letter, then up to 15 of `a-z 0-9 -`.
+/// Wider than a new board's tag (MAX_BOARD_TAG): boards made before
+/// card #590 keep tags up to 16, and refs to them must still read.
 pub(crate) fn valid_tag(t: &str) -> bool {
     let b = t.as_bytes();
     if b.is_empty() || b.len() > 16 || !b[0].is_ascii_lowercase() {
@@ -71,6 +75,37 @@ pub(crate) fn valid_tag(t: &str) -> bool {
     b[1..]
         .iter()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
+fn raise_top(tops: &mut HashMap<String, i64>, board: &str, n: i64) {
+    let top = tops.entry(board.into()).or_default();
+    *top = (*top).max(n);
+}
+
+/// Ambiguous, naming each card `short` could mean: boards that each have
+/// the number (card #558), or devices apart that claimed it on one board.
+pub(crate) fn ambiguous(short: &str, cards: &[&Task]) -> Error {
+    let names: Vec<String> = cards
+        .iter()
+        .map(|t| {
+            format!(
+                "{} {} (task:{})",
+                t.short_ref(),
+                quote(&one_line_title(&t.title)),
+                t.id
+            )
+        })
+        .collect();
+    let names = names.join(", ");
+    let text = if cards.iter().all(|t| t.board == cards[0].board) {
+        let tag = &cards[0].tag;
+        format!(
+            "cards made on devices that were apart each claimed {tag}#{short}, so it is now {names}"
+        )
+    } else {
+        format!("#{short} is on more than one board: {names}")
+    };
+    Error::new(ErrorKind::Ambiguous, text)
 }
 
 /// A title cut to one short line for an error's text.
@@ -86,7 +121,7 @@ fn one_line_title(s: &str) -> String {
 
 impl Fold {
     /// Records a task.created row's claim.
-    pub(crate) fn claim_short(&mut self, id: &str, at: RowPos, num: i64) {
+    pub(crate) fn claim_short(&mut self, id: &str, at: RowPos, num: i64, board: &str) {
         if self.claimed.contains(id) {
             if !self.replaying {
                 self.renumber();
@@ -97,6 +132,7 @@ impl Fold {
             id: id.into(),
             at,
             num: num.max(0),
+            board: board.into(),
         };
         self.claimed.insert(id.into());
         self.claims.push(cl.clone());
@@ -107,14 +143,17 @@ impl Fold {
             self.renumber();
             return;
         }
-        let g = self.short_groups.entry(cl.num).or_default();
+        let key = (cl.board.clone(), cl.num);
+        let g = self.short_groups.entry(key.clone()).or_default();
         let i = g.partition_point(|x| !cl.at.before(&x.at));
         g.insert(i, cl.clone());
-        self.short_top = self.short_top.max(cl.num);
-        self.settle(cl.num);
+        raise_top(&mut self.short_tops, &cl.board, cl.num);
+        self.settle(&key);
     }
 
-    /// Derives every task's short ref from the claims.
+    /// Derives every task's short ref from the claims. A row with no
+    /// number predates claims, and so predates boards: those count in one
+    /// run whatever they say.
     pub(crate) fn renumber(&mut self) {
         self.claims.sort_by(|a, b| a.at.cmp(&b.at));
         self.short_groups.clear();
@@ -125,21 +164,24 @@ impl Fold {
                 legacy += 1;
                 n = legacy;
             }
-            self.short_groups.entry(n).or_default().push(cl.clone());
-            self.short_top = self.short_top.max(n);
+            raise_top(&mut self.short_tops, &cl.board, n);
+            self.short_groups
+                .entry((cl.board.clone(), n))
+                .or_default()
+                .push(cl.clone());
         }
         self.short_idx.clear();
-        let ns: Vec<i64> = self.short_groups.keys().copied().collect();
-        for n in ns {
-            self.settle(n);
+        let keys: Vec<(String, i64)> = self.short_groups.keys().cloned().collect();
+        for key in keys {
+            self.settle(&key);
         }
     }
 
-    /// Gives number n's claimants their refs.
-    fn settle(&mut self, n: i64) {
-        let g = self.short_groups.get(&n).cloned().unwrap_or_default();
-        let base = n.to_string();
-        self.short_idx.remove(&base);
+    /// Gives one board's claimants of one number their refs.
+    fn settle(&mut self, key: &(String, i64)) {
+        let g = self.short_groups.get(key).cloned().unwrap_or_default();
+        let (board, base) = (key.0.clone(), key.1.to_string());
+        self.short_idx.remove(&(board.clone(), base.clone()));
         for (i, cl) in g.iter().enumerate() {
             let (short, was) = if g.len() > 1 {
                 (format!("{base}{}", short_suffix(i as i64)), base.clone())
@@ -149,7 +191,8 @@ impl Fold {
             let Some(old) = self.tasks.get(&cl.id).map(|t| t.short.clone()) else {
                 continue;
             };
-            self.short_idx.insert(short.clone(), cl.id.clone());
+            self.short_idx
+                .insert((board.clone(), short.clone()), cl.id.clone());
             // As Go: the move is noted while the card still has its old
             // ref, and the new one is set after.
             if old != short && !old.is_empty() && !self.replaying {
@@ -187,9 +230,83 @@ impl Fold {
         self.queue_watch(id, has_watchers, SWEEPER, &what, also);
     }
 
-    /// The number a card created now claims.
-    pub(crate) fn next_short(&self) -> i64 {
-        self.short_top + 1
+    /// The number a card created now on `board` claims: a run of its own,
+    /// carrying on from the board's highest (card #558).
+    pub(crate) fn next_short(&self, board: &str) -> i64 {
+        self.short_tops.get(board).copied().unwrap_or(0) + 1
+    }
+
+    /// The cards `short` names, across the space's boards or only among
+    /// those showing `tag`: a bare number also names the lettered cards
+    /// that share it.
+    ///
+    /// Personal's default board has no tag, so a bare number is its cards'
+    /// whole ref: it means them first, or `home#3` would leave private
+    /// card `#3` with nothing that names it (card #558). A deleted one keeps
+    /// the number, so a stale `#3` finds nothing rather than `home#3`.
+    pub(crate) fn short_hits(&self, tag: &str, short: &str) -> Vec<&Task> {
+        let bare = short_num(short) == short;
+        let hits: Vec<&Task> = self
+            .short_idx
+            .iter()
+            .filter(|((_, s), _)| s == short || (bare && short_num(s) == short))
+            .filter_map(|(_, id)| self.tasks.get(id))
+            .filter(|t| tag.is_empty() || t.tag == tag)
+            .collect();
+        if !tag.is_empty() || self.on_board {
+            return hits;
+        }
+        if hits.iter().any(|t| t.board.is_empty()) {
+            return hits.into_iter().filter(|t| t.board.is_empty()).collect();
+        }
+        if self.deleted_on("", short) {
+            return Vec::new();
+        }
+        hits
+    }
+
+    /// Whether a deleted card's claim on `board` gave it exactly `short`.
+    /// A claim outlives its card; `short_idx` doesn't keep one past a replay.
+    fn deleted_on(&self, board: &str, short: &str) -> bool {
+        let base = short_num(short);
+        let Some(g) = base
+            .parse::<i64>()
+            .ok()
+            .and_then(|n| self.short_groups.get(&(board.to_string(), n)))
+        else {
+            return false;
+        };
+        g.iter().enumerate().any(|(i, cl)| {
+            let named = if g.len() > 1 {
+                short == format!("{base}{}", short_suffix(i as i64))
+            } else {
+                short == base
+            };
+            named && self.deleted.contains(&cl.id)
+        })
+    }
+
+    /// The card `#5a` was while a space numbered in one run (card #558):
+    /// two boards' claimants of 5 had letters by row order, and now each is
+    /// plain `#5` on its own board. Old comments still say it, and so does
+    /// a device on an older Irori, which folds that way yet.
+    fn one_run_claim(&self, tag: &str, short: &str) -> Option<&str> {
+        let base = short_num(short);
+        let letters = &short[base.len()..];
+        if letters.is_empty() {
+            return None;
+        }
+        let num = base.parse::<i64>().ok()?;
+        let mut g: Vec<(&str, &ShortClaim)> = self
+            .short_groups
+            .iter()
+            .filter(|((_, n), _)| *n == num)
+            .flat_map(|((b, _), g)| g.iter().map(move |cl| (b.as_str(), cl)))
+            .collect();
+        g.sort_by(|a, b| a.1.at.cmp(&b.1.at));
+        let i = (0..g.len()).find(|i| short_suffix(*i as i64) == letters)?;
+        let (board, cl) = g[i];
+        (tag.is_empty() || self.tag_of(board) == tag).then_some(cl.id.as_str())
     }
 
     /// Resolves what someone typed for a card to its task id.
@@ -206,22 +323,29 @@ impl Fold {
         if !tag.is_empty() && !self.has_tag(&tag) {
             return Err(not_found(format!("{v} is a card on another board")));
         }
-        if let Some(id) = self.short_idx.get(&short) {
+        match self.short_hits(&tag, &short).as_slice() {
+            [t] => return Ok(t.id.clone()),
+            [] => {}
+            many => return Err(ambiguous(&short, many)),
+        }
+        let gone = self
+            .short_groups
+            .keys()
+            .filter(|(b, _)| tag.is_empty() || self.tag_of(b) == tag)
+            .any(|(b, _)| self.deleted_on(b, &short));
+        if gone {
+            return Err(not_found(format!("{v} was deleted")));
+        }
+        if let Some(id) = self.one_run_claim(&tag, &short) {
             if self.deleted.contains(id) {
                 return Err(not_found(format!("{v} was deleted")));
             }
-            // A space numbers its boards' cards in one run (card #392):
-            // net#5 is the space's #5 only when that card is on net.
-            if !tag.is_empty() && self.tasks.get(id).is_some_and(|t| t.tag != tag) {
-                return Err(not_found(format!("{v} is a card on another board")));
+            if self.tasks.contains_key(id) {
+                return Ok(id.to_string());
             }
-            return Ok(id.clone());
         }
         if self.tasks.contains_key(&v) {
             return Ok(v);
-        }
-        if let Some(e) = self.ambiguous(&short) {
-            return Err(e);
         }
         Err(Error::bare(ErrorKind::NotFound))
     }
@@ -239,58 +363,31 @@ impl Fold {
         {
             v = trim_space(id).to_string();
         }
-        let Some((_, short)) = parse_ref(&v) else {
+        let Some((tag, short)) = parse_ref(&v) else {
             return Err(e);
         };
-        if let Some(id) = self.short_idx.get(&short)
-            && self.deleted.contains(id)
-        {
-            return Ok(id.clone());
-        }
-        // After a replay a deleted card is in no index: its claim still
-        // names it, as settle would.
-        let n: Option<i64> = super::resource::go_atoi(short_num(&short));
-        let g = n.and_then(|n| self.short_groups.get(&n));
-        for (i, cl) in g.into_iter().flatten().enumerate() {
-            let s = match g.map_or(0, Vec::len) {
-                1 => short_num(&short).to_string(),
-                _ => format!("{}{}", short_num(&short), short_suffix(i as i64)),
-            };
-            if s == short && self.deleted.contains(&cl.id) {
-                return Ok(cl.id.clone());
+        let base = short_num(&short);
+        let Ok(n) = base.parse::<i64>() else {
+            return Err(e);
+        };
+        // A claim outlives its card, so it still names a deleted one. The
+        // default board ("") sorts first, as a bare number means it first.
+        for ((b, num), g) in &self.short_groups {
+            if *num != n || !(tag.is_empty() || self.tag_of(b) == tag) {
+                continue;
+            }
+            for (i, cl) in g.iter().enumerate() {
+                let named = if g.len() > 1 {
+                    short == format!("{base}{}", short_suffix(i as i64))
+                } else {
+                    short == base
+                };
+                if named && self.deleted.contains(&cl.id) {
+                    return Ok(cl.id.clone());
+                }
             }
         }
         Err(e)
-    }
-
-    /// Ambiguous, naming each card, when short is a bare number more than
-    /// one card claimed.
-    pub(crate) fn ambiguous(&self, short: &str) -> Option<Error> {
-        let n: i64 = super::resource::go_atoi(short)?;
-        let g = self.short_groups.get(&n)?;
-        if g.len() < 2 {
-            return None;
-        }
-        let names: Vec<String> = g
-            .iter()
-            .filter_map(|cl| self.tasks.get(&cl.id))
-            .map(|t| {
-                format!(
-                    "{} {} (task:{})",
-                    t.short_ref(),
-                    quote(&one_line_title(&t.title)),
-                    t.id
-                )
-            })
-            .collect();
-        Some(Error::new(
-            ErrorKind::Ambiguous,
-            format!(
-                "cards made on devices that were apart each claimed {}#{short}, so it is now {}",
-                self.tag(),
-                names.join(", ")
-            ),
-        ))
     }
 
     /// Whether id's short ref changed at or after `since`.

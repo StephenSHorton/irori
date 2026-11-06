@@ -5,6 +5,7 @@ import { ChoiceSelect } from "@/components/common/choice-select"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
 import { Switch } from "@/components/ui/switch"
 import {
   DeviceColors,
@@ -31,7 +32,7 @@ import { cn } from "@/lib/utils"
 
 const roleChoices = [
   { value: "desktop", label: "Desktop" },
-  { value: "node", label: "Always-on node" },
+  { value: "node", label: "Often-on PC" },
 ]
 
 // DevicesPanel is Settings → Devices and connections (docs/design/v0.4-devices.md §3, §9):
@@ -43,23 +44,38 @@ const roleChoices = [
 // The Home server section sits above them (§7.1). Paths and counters stay
 // in GET /v1/devices?detail=1.
 export function DevicesPanel({ open }: { open: boolean }) {
-  const { devices, error, reload } = useDevices(open)
+  const { devices, error, loading, reload } = useDevices(open)
   const { status, setStatus } = usePairing(open)
   const now = useNow(5000)
 
   return (
     <div className="grid gap-3">
-      <ul className="grid gap-1.5" aria-label="Your devices">
-        {devices.map((d) => (
-          <DeviceRow key={d.deviceId} device={d} now={now} onRemoved={reload} />
-        ))}
-      </ul>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <Sides
-        open={open}
-        here={devices.find((d) => d.this)}
-        onSaved={reload}
-      />
+      {/* The list and the sides wait on the first read of the devices
+          (card #598); a reload never shows the skeleton again. */}
+      <Loading loading={loading} label="Loading your devices">
+        {loading ? (
+          <DevicesShape />
+        ) : (
+          <div className="grid gap-3">
+            <ul className="grid gap-1.5" aria-label="Your devices">
+              {devices.map((d) => (
+                <DeviceRow
+                  key={d.deviceId}
+                  device={d}
+                  now={now}
+                  onRemoved={reload}
+                />
+              ))}
+            </ul>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <Sides
+              open={open}
+              here={devices.find((d) => d.this)}
+              onSaved={reload}
+            />
+          </div>
+        )}
+      </Loading>
       <PersonColor open={open} />
       <HomeServer open={open} />
       <div className="border-t border-border pt-3">
@@ -78,6 +94,86 @@ export function DevicesPanel({ open }: { open: boolean }) {
         there, so a secret an agent wrote that the scrubber missed is copied for
         good.
       </p>
+    </div>
+  )
+}
+
+// DevicesShape and HomeServerShape stand in while the first reads are on
+// their way (card #598): plain markup in the shape of the device list, the
+// sides and the home server section, with no hooks, for Loading to
+// measure. The words only set each line's length; skullet-block draws a
+// control's stand-in as one block.
+function DevicesShape() {
+  const rows = [
+    ["Sample PC", "this device · runs Personal"],
+    ["Sample laptop", "online · runs Work"],
+  ]
+  return (
+    <div className="grid gap-3">
+      <ul className="grid gap-1.5">
+        {rows.map(([name, state]) => (
+          <li
+            key={name}
+            className="grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-0.5 text-[13px]"
+          >
+            <span skullet-block="" className="block size-2 rounded-full" />
+            <span className="min-w-0">
+              <span className="text-ink">{name}</span>{" "}
+              <small className="text-xs text-muted-foreground">{state}</small>
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="block h-6 w-[60px] rounded-lg" />
+              <span skullet-block="" className="block size-4 rounded-full" />
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="grid gap-1.5 border-t border-border pt-3">
+        <span className="text-sm">Work and personal sides</span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span skullet-block="" className="block h-6 w-[66px] rounded-lg" />
+          <span skullet-block="" className="block h-6 w-[50px] rounded-lg" />
+        </span>
+        <span skullet-block="" className="block h-7 w-56 rounded-lg" />
+        <small className="text-xs text-muted-foreground">
+          This device runs Personal, and cards with no side. New cards typed
+          here go on Personal. Every device still shows every card.
+        </small>
+      </div>
+    </div>
+  )
+}
+
+function HomeServerShape() {
+  return (
+    <div className="grid gap-1.5 text-[13px]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-ink">Home server: run it on this PC</span>
+        <span
+          skullet-block=""
+          className="block h-5 w-9 shrink-0 rounded-full"
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Windows asks once to allow Irori on private networks; the server needs
+        it.
+      </p>
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 text-muted-foreground">
+          Meet through public relays
+          <small className="block text-xs">
+            Reach your devices and invited people from any network, no port
+            forwarding.
+          </small>
+        </span>
+        <span
+          skullet-block=""
+          className="block h-4 w-7 shrink-0 rounded-full"
+        />
+      </div>
+      <span className="justify-self-start text-xs text-muted-foreground">
+        Advanced
+      </span>
     </div>
   )
 }
@@ -215,8 +311,13 @@ export function homeLine(hs: HomeServerView): string {
   if (hs.reach === "cgnat") return relays
   if (hs.reach === "forward") {
     // Keep the router steps, for anyone who wants a direct connection too.
-    const steps = line.replace(/^Away from home your devices can't reach this PC\.\s*/, "")
-    return steps && steps !== line ? `${relays} For a direct connection: ${steps}` : relays
+    const steps = line.replace(
+      /^Away from home your devices can't reach this PC\.\s*/,
+      ""
+    )
+    return steps && steps !== line
+      ? `${relays} For a direct connection: ${steps}`
+      : relays
   }
   return line
 }
@@ -226,6 +327,9 @@ function HomeServer({ open }: { open: boolean }) {
   const [publicAddr, setPublicAddr] = useState("")
   const [advanced, setAdvanced] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A failed first read ends the skeleton; the section stays away, as it
+  // always has, until a later read answers.
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -234,7 +338,7 @@ function HomeServer({ open }: { open: boolean }) {
       void actions
         .homeServer()
         .then((v) => live && setHs(v))
-        .catch(() => {})
+        .catch(() => live && setFailed(true))
     load()
     const id = window.setInterval(load, 5000)
     return () => {
@@ -268,7 +372,14 @@ function HomeServer({ open }: { open: boolean }) {
     }
   }
 
-  if (!hs) return null
+  if (!hs) {
+    if (failed) return null
+    return (
+      <Loading key="hs" loading label="Loading the home server">
+        <HomeServerShape />
+      </Loading>
+    )
+  }
   const reach =
     hs.reach === "forward"
       ? "reachable at home; outside needs a port forward"
@@ -280,137 +391,141 @@ function HomeServer({ open }: { open: boolean }) {
   const askPublic =
     hs.on && hs.outside && (hs.reach === "forward" || !!hs.public)
   return (
-    <div className="grid gap-1.5 text-[13px]">
-      {hs.can && (hs.on || hs.suggest || !hs.elsewhere) && (
-        <>
-          <div className="flex items-center justify-between gap-2">
-            <label htmlFor="home-server" className="min-w-0 cursor-pointer">
-              <span className="text-ink">Home server: run it on this PC</span>
-              {reach && (
-                <small className="block text-xs text-muted-foreground">
-                  {reach}
-                </small>
-              )}
-            </label>
-            <Switch
-              id="home-server"
-              checked={hs.on}
-              onCheckedChange={(v) => void set(v, hs.outside, hs.public ?? "")}
-            />
-          </div>
-          {!hs.on && (
-            <p className="text-xs text-muted-foreground">
-              {hs.suggest &&
-                "This is your always-on device: run the server here so your devices reach each other from anywhere. "}
-              Windows asks once to allow Irori on private networks; the server
-              needs it.
-            </p>
-          )}
-          {hs.on && (
+    <Loading key="hs" loading={false} label="Loading the home server">
+      <div className="grid gap-1.5 text-[13px]">
+        {hs.can && (hs.on || hs.suggest || !hs.elsewhere) && (
+          <>
             <div className="flex items-center justify-between gap-2">
-              <label
-                htmlFor="home-outside"
-                className="cursor-pointer text-muted-foreground"
-              >
-                Reachable from outside home
-              </label>
-              <Switch
-                id="home-outside"
-                size="sm"
-                checked={hs.outside}
-                onCheckedChange={(v) => void set(true, v, hs.public ?? "")}
-              />
-            </div>
-          )}
-          {hs.on && (
-            <div className="flex items-center justify-between gap-2">
-              <label
-                htmlFor="home-awake"
-                className="min-w-0 cursor-pointer text-muted-foreground"
-              >
-                Keep this PC awake while it&apos;s the server
-                {hs.awakeLine && (
-                  <small
-                    className={
-                      hs.awake && hs.awakeLine === "Keeping this PC awake"
-                        ? "block text-xs"
-                        : "block text-xs text-warning"
-                    }
-                  >
-                    {hs.awakeLine}
+              <label htmlFor="home-server" className="min-w-0 cursor-pointer">
+                <span className="text-ink">Home server: run it on this PC</span>
+                {reach && (
+                  <small className="block text-xs text-muted-foreground">
+                    {reach}
                   </small>
                 )}
               </label>
               <Switch
-                id="home-awake"
-                size="sm"
-                checked={hs.awake}
-                onCheckedChange={(v) => void setAwake(v)}
+                id="home-server"
+                checked={hs.on}
+                onCheckedChange={(v) =>
+                  void set(v, hs.outside, hs.public ?? "")
+                }
               />
             </div>
-          )}
-          {homeLine(hs) && (
-            <p className="text-xs text-warning">{homeLine(hs)}</p>
-          )}
-          {askPublic && (
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void set(true, hs.outside, publicAddr.trim())
-              }}
-            >
-              <Input
-                aria-label="Public address"
-                placeholder={
-                  hs.public || "Public address (optional): IP or host name"
-                }
-                value={publicAddr}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(e) => setPublicAddr(e.target.value)}
-              />
-              <Button type="submit" variant="outline">
-                Save
-              </Button>
-            </form>
-          )}
-        </>
-      )}
-      <div className="flex items-center justify-between gap-2">
-        <label
-          htmlFor="public-relays"
-          className="min-w-0 cursor-pointer text-muted-foreground"
+            {!hs.on && (
+              <p className="text-xs text-muted-foreground">
+                {hs.suggest &&
+                  "This device is on most of the time, so it suits the server: your devices can reach each other through it from anywhere, even with public relays off. It's optional: any device that's on often keeps the others up to date. "}
+                Windows asks once to allow Irori on private networks; the server
+                needs it.
+              </p>
+            )}
+            {hs.on && (
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="home-outside"
+                  className="cursor-pointer text-muted-foreground"
+                >
+                  Reachable from outside home
+                </label>
+                <Switch
+                  id="home-outside"
+                  size="sm"
+                  checked={hs.outside}
+                  onCheckedChange={(v) => void set(true, v, hs.public ?? "")}
+                />
+              </div>
+            )}
+            {hs.on && (
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="home-awake"
+                  className="min-w-0 cursor-pointer text-muted-foreground"
+                >
+                  Keep this PC awake while it&apos;s the server
+                  {hs.awakeLine && (
+                    <small
+                      className={
+                        hs.awake && hs.awakeLine === "Keeping this PC awake"
+                          ? "block text-xs"
+                          : "block text-xs text-warning"
+                      }
+                    >
+                      {hs.awakeLine}
+                    </small>
+                  )}
+                </label>
+                <Switch
+                  id="home-awake"
+                  size="sm"
+                  checked={hs.awake}
+                  onCheckedChange={(v) => void setAwake(v)}
+                />
+              </div>
+            )}
+            {homeLine(hs) && (
+              <p className="text-xs text-warning">{homeLine(hs)}</p>
+            )}
+            {askPublic && (
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void set(true, hs.outside, publicAddr.trim())
+                }}
+              >
+                <Input
+                  aria-label="Public address"
+                  placeholder={
+                    hs.public || "Public address (optional): IP or host name"
+                  }
+                  value={publicAddr}
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(e) => setPublicAddr(e.target.value)}
+                />
+                <Button type="submit" variant="outline">
+                  Save
+                </Button>
+              </form>
+            )}
+          </>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <label
+            htmlFor="public-relays"
+            className="min-w-0 cursor-pointer text-muted-foreground"
+          >
+            Meet through public relays
+            <small className="block text-xs">
+              {hs.publicRelays
+                ? "Reach your devices and invited people from any network, no port forwarding. iroh's free relays see which devices connect, never what they say."
+                : "Only your home server connects you from outside home."}
+            </small>
+          </label>
+          <Switch
+            id="public-relays"
+            size="sm"
+            checked={hs.publicRelays}
+            onCheckedChange={(v) => void setPublicRelays(v)}
+          />
+        </div>
+        {hs.lan && <p className="text-xs text-warning">{plainLine(hs.lan)}</p>}
+        {hs.remote && (
+          <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
+        )}
+        {error && <span className="text-xs text-destructive">{error}</span>}
+        <button
+          type="button"
+          aria-expanded={advanced}
+          className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
+          onClick={() => setAdvanced((v) => !v)}
         >
-          Meet through public relays
-          <small className="block text-xs">
-            {hs.publicRelays
-              ? "Reach your devices and invited people from any network, no port forwarding. iroh's free relays see which devices connect, never what they say."
-              : "Only your home server connects you from outside home."}
-          </small>
-        </label>
-        <Switch
-          id="public-relays"
-          size="sm"
-          checked={hs.publicRelays}
-          onCheckedChange={(v) => void setPublicRelays(v)}
-        />
+          {advanced ? "Hide advanced" : "Advanced"}
+        </button>
+        {advanced && <Relay open={open} />}
       </div>
-      {hs.lan && <p className="text-xs text-warning">{plainLine(hs.lan)}</p>}
-      {hs.remote && (
-        <p className="text-xs text-warning">{plainLine(hs.remote)}</p>
-      )}
-      {error && <span className="text-xs text-destructive">{error}</span>}
-      <button
-        type="button"
-        aria-expanded={advanced}
-        className="justify-self-start text-xs text-muted-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-        onClick={() => setAdvanced((v) => !v)}
-      >
-        {advanced ? "Hide advanced" : "Advanced"}
-      </button>
-      {advanced && <Relay open={open} />}
-    </div>
+    </Loading>
   )
 }
 
@@ -1111,14 +1226,14 @@ function PersonColor({ open }: { open: boolean }) {
   return (
     <div className="grid gap-1 border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm">Your colour on shared boards</span>
+        <span className="text-sm">Your colour in shared spaces</span>
         <span className="flex items-center gap-1">
           {DeviceColors.map((c) => (
             <button
               key={c}
               type="button"
               title={c}
-              aria-label={`${c} on shared boards`}
+              aria-label={`${c} in shared spaces`}
               aria-pressed={color === c}
               className={cn(
                 "size-4 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring",

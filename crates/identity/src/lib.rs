@@ -6,6 +6,7 @@
 //! | [`person`] | `identity.go`, `rotate.go`, `device` | [`Identity`]: `device.key`, `person.json`, epochs and rotation, every person-signed row builder, `EnsureSelfCert` |
 //! | [`objects`] | `rows.go`, payload types | person-signed objects in Go field order, `Canonical`, `verifyPerson` |
 //! | [`chain`] | `chain.go` | the private cert fold |
+//! | [`keyproof`] | none | a key proven from its personId, for DMs (card #538) |
 //! | [`membership`] | `membership.go` | the board membership fold (pure) |
 //! | [`board`] | `board.go` | the board Verifier |
 //! | [`boardsecret`] | `boardsecret.go` | board secrets and HKDF topics |
@@ -22,6 +23,7 @@ pub mod board;
 pub mod boardsecret;
 pub mod chain;
 pub mod keychain;
+pub mod keyproof;
 pub mod keystore;
 pub mod kinds;
 pub mod membership;
@@ -34,6 +36,7 @@ pub mod wire;
 pub use board::{BoardDevice, BoardVerifier};
 pub use boardsecret::{BOARD_SECRET_SIZE, BoardSecrets, BoardTopic, derive_board_topic};
 pub use chain::{Chain, DeviceState, LearnError, USER_KEY_PREFIX, owner_only, user_key};
+pub use keyproof::{KeyProof, verify_key_proof};
 pub use membership::{
     BoardPerson, Conflict, Membership, MembershipKeys, MembershipRow, RowAt, fold_membership,
     valid_board_name, valid_board_tag,

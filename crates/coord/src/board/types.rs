@@ -134,6 +134,46 @@ crate::go_struct! {
     }
 }
 
+impl Task {
+    /// The person's say clears a run of crashes (cards #447, #540, #575).
+    pub(crate) fn person_cleared_crashes(&mut self) {
+        if self.spawn_crashes > 0 {
+            self.person_restart = self.spawn_request().map_or(0, |s| s.generation);
+        }
+        self.spawn_crashes = 0;
+    }
+}
+
+/// A card given to another person on a shared board (card #573). It stays
+/// when their agent takes the card over, and goes only when the card is
+/// given to someone else or they come off it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Given {
+    /// Their `person:` key.
+    pub key: String,
+    /// Their person id.
+    pub person: String,
+    /// The key that gave it.
+    pub by: String,
+    /// The device that asked them: it alone starts and binds the agent,
+    /// so one yes can't start two. Empty until it's asked.
+    pub asker: String,
+    /// The question's blocker id, once they raised it themselves: only
+    /// an answer on that one is their say.
+    pub question: String,
+}
+
+/// A person's last say on "OK to start an agent on this?" (card #573).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct GivenSaid {
+    pub person: String,
+    /// They said Start an agent, as themselves, from their own device.
+    pub yes: bool,
+    /// The card's spawn generation when they said it: a yes is spent by a
+    /// later generation's agent, never by comparing two devices' clocks.
+    pub generation: i64,
+}
+
 /// How a blocker item was resolved.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Resolution {
@@ -426,6 +466,12 @@ pub struct Task {
     /// haven't taken it up (card #85).
     #[serde(skip_serializing_if = "omit")]
     pub handoffs: BTreeMap<String, String>,
+    /// Who the card was given to on a shared board (card #573).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given: Option<Given>,
+    /// The last say on "OK to start an agent on this?", since it was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_said: Option<GivenSaid>,
     /// Agents that own an open step and don't hold the card: they hear it
     /// like a holder until their steps are done (card #86). Derived.
     #[serde(skip_serializing_if = "omit")]
@@ -474,6 +520,10 @@ pub struct Task {
     /// person says to start another; a person's state row clears it.
     #[serde(skip)]
     pub spawn_crashes: u32,
+    /// The request whose crashes the person answered (card #575): the next
+    /// agent is theirs, so it doesn't count toward their agents' limit.
+    #[serde(skip)]
+    pub person_restart: i64,
     /// Where the holder's work is (card #137), kept after it stops so
     /// whoever takes the card over can find it.
     #[serde(rename = "where", skip_serializing_if = "omit")]
@@ -504,10 +554,6 @@ pub struct Task {
     /// the person.
     #[serde(skip_serializing_if = "omit")]
     pub spawn: bool,
-    /// Its own "Up to N agents" (spawned agents §3): 0 for the board's
-    /// Agents per card, 1 for the lead alone.
-    #[serde(skip_serializing_if = "omit")]
-    pub agents: i64,
     #[serde(skip_serializing_if = "omit")]
     pub subtasks: Vec<String>,
     /// The thread this card was made from (card #155).
@@ -660,9 +706,6 @@ pub struct NewTask {
     /// On a space (card #392): another board in it, by id; empty for the
     /// space's own board.
     pub board: String,
-    /// "Up to N agents" (spawned agents §3): 0 for the board's Agents per
-    /// card, 1 for the lead alone.
-    pub agents: i64,
     /// The work/personal side (card #494). Empty: a subtask's parent's,
     /// else the side of this device (the first it runs), else none.
     /// Ignored on a shared board.
@@ -1072,7 +1115,8 @@ pub struct NewAsk {
     /// or handed it; the agents it names hear it at their next turn.
     pub quiet: bool,
     /// A thread started from a message in this Talk channel (its `ch_` id,
-    /// card #454); private log only.
+    /// card #454). On a space's log, one of that space's channels (card
+    /// #558).
     pub channel: String,
 }
 
@@ -1092,6 +1136,9 @@ pub struct TaskEdit {
     pub title: Option<String>,
     pub objective: Option<String>,
     pub done_when: Option<String>,
+    /// The card's repoKey (card #600): an agent started for a card that
+    /// names no repo sets the one it works out.
+    pub repo: Option<String>,
     /// A thread's short ref or task id: the change comes from it (card
     /// #155). Empty: the one open thread the caller answered, if any.
     pub from: String,
@@ -1161,6 +1208,17 @@ pub struct Wait {
     pub note: String,
     pub at: GoTime,
     pub expires: GoTime,
+    /// The shared board whose card this waits on (card #574); empty for a
+    /// card in this log or a branch. The wait lives in the waiter's own log
+    /// and the core reads the card's state for it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub board: String,
+    /// A board card's refs and title as they were when the wait began: this
+    /// log has no such card to read them from.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub card: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub title: String,
 }
 
 /// What a new wait waits on (the `wait` tool's arguments, resolved).
@@ -1175,6 +1233,21 @@ pub struct WaitSpec {
     /// when the ref doesn't exist yet.
     pub refs: Vec<String>,
     pub note: String,
+    /// A card on a shared board (card #574): this log can't read it, so
+    /// what the wait needs comes from the caller.
+    pub on_board: Option<BoardCard>,
+}
+
+/// A shared board's card as a wait in the private log needs it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardCard {
+    pub board: String,
+    /// Its refs, as a list line gives them.
+    pub card: String,
+    pub title: String,
+    pub state: String,
+    /// The waiter is the card's only holder.
+    pub own: bool,
 }
 
 /// Where a card's work is (card #137): the holder's session as its device
