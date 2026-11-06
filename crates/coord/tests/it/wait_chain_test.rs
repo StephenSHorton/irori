@@ -5,7 +5,9 @@
 use crate::common;
 
 use common::*;
+use coord::rows::{BlockerRow, TaskStateRow};
 use coord::*;
+use store::kinds;
 
 fn held(e: &Env, who: &str, title: &str) -> Task {
     let t =
@@ -35,6 +37,33 @@ fn wait_on(e: &Env, who: &str, id: &str, on: &Task) {
     .unwrap();
 }
 
+/// The wait that closes a loop, from another device that couldn't see the
+/// rest of it: this device refuses one itself (card #570).
+fn wait_from_afar(e: &Env, who: &str, id: &str, on: &Task) {
+    let bb = BlockedBy {
+        kind: BLOCKED_ON_TASK.into(),
+        reference: on.id.clone(),
+    };
+    let reason = format!("Waits on {}", on.title);
+    let row = TaskStateRow {
+        task_id: id.into(),
+        state: BLOCKED.into(),
+        reason: reason.clone(),
+        blocked_by: Some(bb.clone()),
+        blocker: Some(BlockerRow {
+            id: "b1".into(),
+            question: reason,
+            on: Some(bb),
+            ..BlockerRow::default()
+        }),
+        by: who.into(),
+        at: e.clk.now(),
+        ..TaskStateRow::default()
+    };
+    let at = hlc_at(e.clk.now()) + 1000;
+    e.remote("dev-b", 1, at, who, kinds::TASK_STATUS, &row);
+}
+
 fn chain(e: &Env, id: &str) -> WaitChain {
     wait_chain(&|k: &str| e.c.get_task(k), id)
 }
@@ -48,7 +77,7 @@ fn three_cards_that_wait_on_each_other_are_one_loop() {
     wait_on(&e, ALICE, &talk4.id, &talk8);
     wait_on(&e, CAROL, &talk8.id, &talk6);
     assert_eq!(chain(&e, &talk6.id), WaitChain::default(), "no loop yet");
-    wait_on(&e, BOB, &talk6.id, &talk4);
+    wait_from_afar(&e, BOB, &talk6.id, &talk4);
 
     // Every card of the loop names the same cards, in wait order from
     // the lowest id.
@@ -85,7 +114,7 @@ fn a_loop_breaks_when_one_of_its_cards_is_done() {
     let a = held(&e, ALICE, "a");
     let b = held(&e, BOB, "b");
     wait_on(&e, ALICE, &a.id, &b);
-    wait_on(&e, BOB, &b.id, &a);
+    wait_from_afar(&e, BOB, &b.id, &a);
     assert_eq!(chain(&e, &a.id).loop_ids.len(), 2);
     e.c.set_task_state(BOB, &b.id, COMPLETED, "done").unwrap();
     assert!(chain(&e, &a.id).loop_ids.is_empty());

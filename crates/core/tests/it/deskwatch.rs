@@ -185,9 +185,6 @@ fn only_the_person_sets_up_a_desk() {
     assert!(r.core.coord().set_desk(&r.key_a, d.clone()).is_err());
     let not_github = new_desk("remote:gitlab.com/a/b", r.core.device_id());
     assert!(r.core.coord().set_desk(&person(&r), not_github).is_err());
-    let mut bad = d.clone();
-    bad.merge_method = "fast-forward".into();
-    assert!(r.core.coord().set_desk(&person(&r), bad).is_err());
     r.core.coord().set_desk(&person(&r), d).unwrap();
     assert!(r.core.coord().desk(REPO).unwrap().on());
 }

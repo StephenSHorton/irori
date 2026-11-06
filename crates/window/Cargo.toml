@@ -42,6 +42,8 @@ tempfile.workspace = true
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [dev-dependencies]
+# tests/it/cards.rs: a row signed by another device.
+ed25519-dalek.workspace = true
 # tests/it/pumps.rs: pairing on loopback iroh.
 iroh = "1.4.1"
 irori-net.workspace = true

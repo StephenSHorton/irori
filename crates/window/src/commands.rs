@@ -551,6 +551,12 @@ pub async fn board_delete(w: W<'_>, id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.move_card(&id, &board).map(Typed::new)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
     w.pin(&id, pinned)
 }
@@ -561,6 +567,24 @@ pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
 #[specta::specta]
 pub async fn board_pause(w: W<'_>, id: String, paused: bool, note: String) -> R<Vec<String>> {
     w.pause(&id, paused, &note)
+}
+
+/// Not yet on a card (card #570): the person holds it back from the
+/// agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+/// "2026-12-01": the start of that day here), a version on this device
+/// ("v0.13.0"), or empty for until they say. `why` may be empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_not_yet(w: W<'_>, id: String, until: String, why: String) -> R<()> {
+    w.not_yet(&id, &until, &why)
+}
+
+/// Start now on a held card (card #570): it comes back and goes out as
+/// if just posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_start_now(w: W<'_>, id: String) -> R<()> {
+    w.start_now(&id)
 }
 
 /// Stop on an agent (card #207): cuts its running turn; `text` (empty: a
@@ -782,6 +806,22 @@ pub async fn boards_rename_in_space(
     name: String,
 ) -> R<BoardSummary> {
     w.boards_rename_in_space(&space_id, &board_id, &name)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_delete_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+) -> R<BoardSummary> {
+    w.boards_delete_in_space(&space_id, &board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_delete_in_personal(w: W<'_>, board_id: String) -> R<Vec<SpaceBoard>> {
+    w.boards_delete_in_personal(&board_id)
 }
 
 #[tauri::command]
@@ -1521,20 +1561,6 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
     w.desk_set(settings)
 }
 
-/// The person holds a desk's PR, or with `cleared` lifts the hold.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_hold(w: W<'_>, repo_key: String, pr: i64, note: String, cleared: bool) -> R<()> {
-    w.desk_hold(&repo_key, pr, &note, cleared)
-}
-
-/// The person pauses or resumes a desk.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_pause(w: W<'_>, repo_key: String, paused: bool) -> R<()> {
-    w.desk_pause(&repo_key, paused)
-}
-
 // ---- talk (card #389) -----------------------------------------------------
 
 /// Talk's list: channels, DMs and open threads, with unread counts.
@@ -1733,8 +1759,11 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_close_ask,
             board_close,
             board_delete,
+            board_move,
             board_pin,
             board_pause,
+            board_not_yet,
+            board_start_now,
             agent_stop,
             wind_down_all,
             wind_down_status,
@@ -1766,6 +1795,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_personal,
             boards_add_to_personal,
             boards_rename_in_personal,
+            boards_delete_in_space,
+            boards_delete_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,
@@ -1886,8 +1917,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_running,
             desk_list,
             desk_set,
-            desk_hold,
-            desk_pause,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()

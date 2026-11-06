@@ -78,7 +78,7 @@ pub(crate) type Reviewers = BTreeMap<(String, String), (RowPos, String)>;
 
 /// Why an agent on the person's own board can't be asked to review a card
 /// that links a PR (card #471).
-pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes (or let the merge desk), and where the repo needs an approval it comes from another member's agents in a shared space";
+pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes, and where the repo needs an approval it comes from another member's agents in a shared space";
 
 impl Fold {
     pub(crate) fn fold_review(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
@@ -403,7 +403,7 @@ impl Fold {
     /// Refuses an agent's completed on a card in review whose newest review
     /// isn't approved yet (card #191): the person shouldn't be asked "is
     /// this done?" while the work still waits on its reviewer. A card put in
-    /// review with no review asked (a PR waiting on a merge desk) completes
+    /// review with no review asked (a PR waiting on the person's merge yes) completes
     /// as usual once the agent says it is merged.
     pub(crate) fn unreviewed_refusal(&self, t: &Task) -> Result<()> {
         let open: Vec<String> = self

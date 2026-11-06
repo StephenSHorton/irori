@@ -34,11 +34,13 @@ export type CardBoard = B.CardBoard
 export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
 export type CardHolder = B.CardHolder
+export type CardLater = B.CardLater
 export type CardLeftOff = B.CardLeftOff
 export type CardLook = B.CardLook
 export type CardMention = B.CardMention
 export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
+export type CardOrder = B.CardOrder
 export type CardPR = B.CardPR
 export type CardProgress = B.CardProgress
 export type CardRead = B.CardRead
@@ -60,8 +62,6 @@ export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
 export type DeliveryMode = B.DeliveryMode
 export type DeskAuthorView = B.DeskAuthorView
-export type DeskCheckLine = B.DeskCheckLine
-export type DeskMark = B.DeskMark
 export type DeskPollView = B.DeskPollView
 export type DeskPrView = B.DeskPrView
 export type DeskSettings = B.DeskSettings
@@ -83,6 +83,7 @@ export type Identity = B.Identity
 export type IdleReport = B.IdleReport
 export type InboxCounts = B.InboxCounts
 export type InviteStatus = B.InviteStatus
+export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
@@ -101,6 +102,8 @@ export type Notification = B.Notification
 export type NotificationAsk = B.NotificationAsk
 export type NotificationCard = B.NotificationCard
 export type NotifyOptions = B.NotifyOptions
+export type OrderState = B.OrderState
+export type OrderStep = B.OrderStep
 export type Outcome = B.Outcome
 export type PairJoiner = B.PairJoiner
 export type PairStatus = B.PairStatus
@@ -295,6 +298,11 @@ export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
   return { "who": AgentRef(), "state": "", "others": 0, ...p } as B.CardHolder
 }
 
+/** CardLater with Go's zero values for every field left out. */
+export function CardLater(p: Partial<B.CardLater> = {}): B.CardLater {
+  return { "why": "", "back": "", "line": "", "by": "", ...p } as B.CardLater
+}
+
 /** CardLeftOff with Go's zero values for every field left out. */
 export function CardLeftOff(p: Partial<B.CardLeftOff> = {}): B.CardLeftOff {
   return { "text": "", "by": AgentRef(), "at": "", ...p } as B.CardLeftOff
@@ -318,6 +326,11 @@ export function CardMessage(p: Partial<B.CardMessage> = {}): B.CardMessage {
 /** CardOption with Go's zero values for every field left out. */
 export function CardOption(p: Partial<B.CardOption> = {}): B.CardOption {
   return { "answer": "", "why": "", "by": AgentRef(), "at": "", "recommended": false, ...p } as B.CardOption
+}
+
+/** CardOrder with Go's zero values for every field left out. */
+export function CardOrder(p: Partial<B.CardOrder> = {}): B.CardOrder {
+  return { "steps": [], ...p } as B.CardOrder
 }
 
 /** CardPR with Go's zero values for every field left out. */
@@ -415,16 +428,6 @@ export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorV
   return { "pr": 0, "card": "", "cardRef": "", "agent": "", ...p } as B.DeskAuthorView
 }
 
-/** DeskCheckLine with Go's zero values for every field left out. */
-export function DeskCheckLine(p: Partial<B.DeskCheckLine> = {}): B.DeskCheckLine {
-  return { "command": "", ...p } as B.DeskCheckLine
-}
-
-/** DeskMark with Go's zero values for every field left out. */
-export function DeskMark(p: Partial<B.DeskMark> = {}): B.DeskMark {
-  return { "pr": 0, "note": "", "headSha": "", "by": "", "at": "", ...p } as B.DeskMark
-}
-
 /** DeskPollView with Go's zero values for every field left out. */
 export function DeskPollView(p: Partial<B.DeskPollView> = {}): B.DeskPollView {
   return { "here": false, "lastPollAt": "", "unreachableSince": "", "error": "", ...p } as B.DeskPollView
@@ -447,7 +450,7 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
 /** DeviceCap with Go's zero values for every field left out. */
@@ -593,6 +596,11 @@ export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.Notific
 /** NotifyOptions with Go's zero values for every field left out. */
 export function NotifyOptions(p: Partial<B.NotifyOptions> = {}): B.NotifyOptions {
   return { "enabled": false, "sound": false, "volume": 0, "corner": "", ...p } as B.NotifyOptions
+}
+
+/** OrderStep with Go's zero values for every field left out. */
+export function OrderStep(p: Partial<B.OrderStep> = {}): B.OrderStep {
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.OrderStep
 }
 
 /** Outcome with Go's zero values for every field left out. */

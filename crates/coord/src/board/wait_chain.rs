@@ -124,7 +124,10 @@ pub fn wait_chain(get: &dyn Fn(&str) -> Option<Task>, start: &str) -> WaitChain 
 
 /// A loop's cards in wait order from the lowest id when each waits on
 /// exactly one other of them, else sorted.
-fn ring_order(mut ring: Vec<String>, edges: &HashMap<String, Vec<String>>) -> Vec<String> {
+pub(crate) fn ring_order(
+    mut ring: Vec<String>,
+    edges: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
     ring.sort();
     let inside: HashSet<&String> = ring.iter().collect();
     let next = |id: &String| -> Vec<&String> {

@@ -1,29 +1,15 @@
 //! Merge desks (card #417; docs/design/merge-desk.md §3, §7, §9): the
 //! desks on the person's repos for the desk page, each listing only their
-//! and their people's PRs (card #625), and the person's own writes: a
-//! desk's settings, a hold on one PR and pausing the desk. Each write goes
-//! in as the person; coord refuses the same rows from an agent.
+//! and their people's PRs (card #625), and the person's own write: a
+//! desk's settings. It goes in as the person; coord refuses the same row
+//! from an agent. The desk never merges (card #418): agents ask the person
+//! "Can I merge PR #N?" on their own cards.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
 use crate::ts;
-
-/// One check line (§7).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DeskCheckLine {
-    pub command: String,
-    #[serde(default)]
-    pub paths: Vec<String>,
-    /// An agent key; "" the holder.
-    #[serde(default)]
-    pub runner: String,
-    /// `mac`, `windows`, `linux`; "" any.
-    #[serde(default)]
-    pub device: String,
-}
 
 /// A repo's desk settings (`repo.desk`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -32,17 +18,10 @@ pub struct DeskSettings {
     pub repo_key: String,
     pub enabled: bool,
     pub takes_prs: bool,
-    /// The holder's agent key; "" unheld.
-    #[serde(default)]
-    pub holder: String,
     #[serde(default)]
     pub poll_device: String,
     #[serde(default)]
     pub trusted: Vec<String>,
-    #[serde(default)]
-    pub checks: Vec<DeskCheckLine>,
-    #[serde(default)]
-    pub merge_method: String,
     #[serde(default)]
     pub per_pr_ok: bool,
     #[serde(default)]
@@ -83,19 +62,6 @@ pub struct DeskSnapshotView {
     /// The person's own GitHub login, as the poll's gh heard it; "" not
     /// known yet. The desk trusts it (card #521).
     pub viewer: String,
-    #[specta(type = ts::Time)]
-    pub at: gocompat::time::GoTime,
-}
-
-/// A hold, a pause or the holder's run: one PR (0 for a pause).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DeskMark {
-    pub pr: i64,
-    /// A hold's note; a run's base sha.
-    pub note: String,
-    pub head_sha: String,
-    pub by: String,
     #[specta(type = ts::Time)]
     pub at: gocompat::time::GoTime,
 }
@@ -143,11 +109,6 @@ pub struct DeskView {
     pub follows_seen: bool,
     #[specta(optional)]
     pub prs: Option<DeskSnapshotView>,
-    pub holds: Vec<DeskMark>,
-    #[specta(optional)]
-    pub paused: Option<DeskMark>,
-    #[specta(optional)]
-    pub run: Option<DeskMark>,
     pub poll: DeskPollView,
     /// Each PR in the snapshot: its author card. The snapshot holds only
     /// our PRs (the person's, their members' and their agents'; card
@@ -160,20 +121,8 @@ fn settings_of(r: coord::RepoDeskRow) -> DeskSettings {
         repo_key: r.repo_key,
         enabled: r.enabled,
         takes_prs: r.takes_prs,
-        holder: r.holder,
         poll_device: r.poll_device,
         trusted: r.trusted,
-        checks: r
-            .checks
-            .into_iter()
-            .map(|c| DeskCheckLine {
-                command: c.command,
-                paths: c.paths,
-                runner: c.runner,
-                device: c.device,
-            })
-            .collect(),
-        merge_method: r.merge_method,
         per_pr_ok: r.per_pr_ok,
         by: r.by,
         at: r.at,
@@ -185,7 +134,6 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
         repo_key: s.repo_key,
         enabled: s.enabled,
         takes_prs: s.takes_prs,
-        holder: crate::trim(&s.holder).to_string(),
         poll_device: s.poll_device,
         trusted: s
             .trusted
@@ -193,22 +141,6 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
             .map(|t| crate::trim(t).to_string())
             .filter(|t| !t.is_empty())
             .collect(),
-        checks: s
-            .checks
-            .into_iter()
-            .map(|c| coord::DeskCheck {
-                command: crate::trim(&c.command).to_string(),
-                paths: c
-                    .paths
-                    .iter()
-                    .map(|p| crate::trim(p).to_string())
-                    .filter(|p| !p.is_empty())
-                    .collect(),
-                runner: c.runner,
-                device: c.device,
-            })
-            .collect(),
-        merge_method: s.merge_method,
         per_pr_ok: s.per_pr_ok,
         ..coord::RepoDeskRow::default()
     }
@@ -282,29 +214,6 @@ impl Window {
                             })
                             .collect(),
                     }),
-                    holds: d
-                        .holds
-                        .into_values()
-                        .map(|h| DeskMark {
-                            pr: h.pr,
-                            note: h.note,
-                            by: h.by,
-                            at: h.at,
-                            ..DeskMark::default()
-                        })
-                        .collect(),
-                    paused: d.pause.filter(|p| p.paused).map(|p| DeskMark {
-                        by: p.by,
-                        at: p.at,
-                        ..DeskMark::default()
-                    }),
-                    run: d.run.map(|r| DeskMark {
-                        pr: r.pr,
-                        head_sha: r.head_sha,
-                        note: r.base_sha,
-                        by: r.by,
-                        at: r.at,
-                    }),
                     poll,
                 }
             })
@@ -322,28 +231,6 @@ impl Window {
         self.core
             .coord()
             .set_desk(&self.person(), row_of(s))
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Hold: the person holds PR `pr`, or lifts the hold.
-    pub fn desk_hold(
-        &self,
-        repo_key: &str,
-        pr: i64,
-        note: &str,
-        cleared: bool,
-    ) -> Result<(), String> {
-        self.core
-            .coord()
-            .hold_desk_pr(&self.person(), repo_key, pr, note, cleared)
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Pause: the person pauses or resumes the desk.
-    pub fn desk_pause(&self, repo_key: &str, paused: bool) -> Result<(), String> {
-        self.core
-            .coord()
-            .pause_desk(&self.person(), repo_key, paused)
             .map_err(|e| e.to_string())
     }
 }

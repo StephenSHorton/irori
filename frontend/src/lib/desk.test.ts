@@ -4,7 +4,6 @@ import {
   deskQueue,
   deskShown,
   inputsOf as inputsOfDesk,
-  leaseRepo,
   queueCount,
   type Desk,
   type RepoDesk,
@@ -17,11 +16,8 @@ const desk: RepoDesk = {
   repoKey: REPO,
   enabled: true,
   takesPrs: true,
-  holder: "agent:k",
   pollDevice: "pc",
   trusted: ["StephenSHorton"],
-  checks: [{ command: "cargo test" }],
-  mergeMethod: "squash",
   perPrOk: false,
 }
 
@@ -70,88 +66,26 @@ describe("the §3 state table (card #417)", () => {
       desk: { ...desk, trusted: [] },
       snapshot: { repoKey: REPO, at: "t", truncated: false, prs: [p] },
     })[0]
-    expect(l.state).toBe("waiting")
+    expect(l.state).toBe("ready")
     expect(l.note).toBe("no author card yet")
     expect(l.author).toEqual({})
   })
   test("Draft is listed, never queued", () => {
     expect(one(pr({ isDraft: true })).state).toBe("draft")
   })
-  test("Held from a desk.hold row; a later cleared row lifts it", () => {
-    const p = pr()
-    const h = {
-      repoKey: REPO,
-      pr: p.number,
-      note: "after the playtest",
-      by: "user:s",
-      at: "1",
-    }
-    expect(one(p, { holds: [h] }).state).toBe("held")
-    expect(one(p, { holds: [h] }).note).toContain("after the playtest")
-    expect(one(p, { holds: [h, { ...h, cleared: true, at: "2" }] }).state).toBe(
-      "waiting"
-    )
-  })
-  test("Needs rebase: BEHIND, DIRTY, CONFLICTING, or the holder's trial squash", () => {
+  test("Needs rebase: BEHIND, DIRTY or CONFLICTING on GitHub", () => {
     expect(one(pr({ mergeStateStatus: "BEHIND" })).state).toBe("rebase")
     expect(one(pr({ mergeStateStatus: "DIRTY" })).state).toBe("rebase")
     expect(one(pr({ mergeable: "CONFLICTING" })).state).toBe("rebase")
-    const p = pr()
-    expect(
-      one(p, {
-        checks: [{ pr: p.number, headSha: p.headRefOid!, state: "rebase" }],
-      }).state
-    ).toBe("rebase")
   })
-  test("Checks running: a pending rollup entry or the holder's run", () => {
+  test("Checks running and failed come from GitHub's rollup", () => {
     expect(one(pr({ checks: "pending" })).state).toBe("running")
-    const p = pr()
-    expect(
-      one(p, {
-        checks: [{ pr: p.number, headSha: p.headRefOid!, state: "running" }],
-      }).state
-    ).toBe("running")
-  })
-  test("Checks failed: a failing rollup entry or the holder's line", () => {
     expect(one(pr({ checks: "failure" })).state).toBe("failed")
-    const p = pr()
-    expect(
-      one(p, {
-        checks: [
-          {
-            pr: p.number,
-            headSha: p.headRefOid!,
-            state: "failed",
-            note: "2 failed",
-          },
-        ],
-      }).note
-    ).toBe("2 failed")
   })
-  test("the holder's outcome on an older head no longer counts", () => {
-    const p = pr()
-    expect(
-      one(p, { checks: [{ pr: p.number, headSha: "old", state: "failed" }] })
-        .state
-    ).toBe("waiting")
-  })
-  test("Waiting on desk when none of the above", () => {
-    expect(one(pr({ checks: "success" })).state).toBe("waiting")
-  })
-  test("Merging: a desk.run row for this PR", () => {
-    const p = pr()
-    const l = one(p, {
-      run: {
-        repoKey: REPO,
-        pr: p.number,
-        headSha: p.headRefOid!,
-        baseSha: "b",
-        by: "agent:k",
-        at: "t",
-      },
-    })
-    expect(l.state).toBe("merging")
-    expect(l.note).toContain("desk/stephenshorton/game-repo")
+  test("Ready for review when none of the above (card #418: no merging)", () => {
+    const l = one(pr({ checks: "success" }))
+    expect(l.state).toBe("ready")
+    expect(l.note).toBe("ready for review")
   })
   test("Merged: a pr.state row for a PR no longer in the open list", () => {
     const p = pr()
@@ -164,33 +98,23 @@ describe("the §3 state table (card #417)", () => {
         { pr: p.number, title: "still open", sha: "x", at: "t" },
       ],
     })
-    expect(lines.map((l) => l.state)).toEqual(["waiting", "merged"])
+    expect(lines.map((l) => l.state)).toEqual(["ready", "merged"])
     expect(lines[1].note).toBe("merged as 3f2a9c1")
   })
 })
 
 describe("queue order (§3)", () => {
-  test("Merging first, then Waiting oldest first, then the rest", () => {
+  test("Ready for review oldest first, then the rest", () => {
     const newer = pr({ createdAt: "2026-11-03T12:00:00Z" })
     const older = pr({ createdAt: "2026-11-03T09:00:00Z" })
     const failed = pr({ createdAt: "2026-11-03T08:00:00Z", checks: "failure" })
-    const merging = pr({ createdAt: "2026-11-03T13:00:00Z" })
-    const prs = [newer, failed, merging, older]
+    const prs = [newer, failed, older]
     const lines = deskQueue({
       desk,
       snapshot: { repoKey: REPO, at: "t", truncated: false, prs },
       authors: mine(prs),
-      run: {
-        repoKey: REPO,
-        pr: merging.number,
-        headSha: merging.headRefOid!,
-        baseSha: "b",
-        by: "agent:k",
-        at: "t",
-      },
     })
     expect(lines.map((l) => l.pr)).toEqual([
-      merging.number,
       older.number,
       newer.number,
       failed.number,
@@ -208,11 +132,6 @@ describe("panel texts", () => {
       queueCount({ repoKey: REPO, at: "t", truncated: true, prs: [pr()] })
     ).toBe("showing 1 of ours; GitHub has more")
   })
-  test("the lease name is lowercase owner/name", () => {
-    expect(leaseRepo("remote:github.com/You/Game-Repo.git")).toBe(
-      "you/game-repo"
-    )
-  })
 })
 
 describe("the window's DeskView (card #417)", () => {
@@ -224,11 +143,8 @@ describe("the window's DeskView (card #417)", () => {
         repoKey: REPO,
         enabled: true,
         takesPrs: true,
-        holder: "",
         pollDevice: "pc",
         trusted: [],
-        checks: [{ command: "cargo test", paths: [], runner: "", device: "" }],
-        mergeMethod: "",
         perPrOk: false,
         by: "user:pc",
         at: Z,
@@ -242,15 +158,6 @@ describe("the window's DeskView (card #417)", () => {
         prs: [],
         viewer: "",
       },
-      holds: [
-        {
-          pr: 7,
-          note: "",
-          headSha: "",
-          by: "user:pc",
-          at: "2026-11-03T10:00:00Z",
-        },
-      ],
       poll: {
         here: true,
         lastPollAt: "2026-11-03T10:01:00Z",
@@ -264,20 +171,11 @@ describe("the window's DeskView (card #417)", () => {
       cardRef: undefined,
       agent: "dev/s1",
     })
-    expect(d.settings.holder).toBeUndefined()
-    expect(d.settings.mergeMethod).toBe("squash")
-    expect(d.settings.checks[0]).toEqual({
-      command: "cargo test",
-      paths: undefined,
-      runner: undefined,
-      device: undefined,
-    })
     expect(d.poll).toEqual({
       at: "2026-11-03T10:01:00Z",
       unreachableSince: undefined,
       device: "pc",
     })
-    expect(d.holds[7].note).toBeUndefined()
     expect(d.isDefault).toBe(false)
     expect(d.seenOn).toBeUndefined()
     expect(deskQueue(inputsOfDesk(d))).toEqual([])
@@ -292,8 +190,7 @@ describe("which desks are listed (card #625)", () => {
     prs,
   })
   const one = (over: Partial<Desk> = {}): Desk => ({
-    settings: { ...desk, holder: undefined, trusted: [], checks: [] },
-    holds: {},
+    settings: { ...desk, trusted: [] },
     isDefault: true,
     seenOn: "pc",
     ...over,

@@ -16,6 +16,7 @@ use gocompat::time::GoTime;
 use crate::args::{Args, StepArg, Ty};
 use crate::attachments::{attached_line, describe_coord, to_coord};
 use crate::format::{MAX_FIELD_RUNES, ago, in_, one_line, q, quoted, trim};
+use crate::later::Order;
 use crate::{Caller, Inner, MAX_RESULT, Names, decode, err_text, map_err, untrusted};
 
 /// A card's title in a list line.
@@ -121,6 +122,7 @@ impl Inner {
             v.blocked.extend(o.blocked);
             v.working.extend(o.working);
             v.open.extend(o.open);
+            v.later.extend(o.later);
             v.done.extend(o.done);
             v.done_total += o.done_total;
             v.leases.extend(o.leases);
@@ -169,9 +171,41 @@ impl Inner {
         now: &GoTime,
         brief: bool,
     ) -> String {
+        self.card_text_in(t, last, n, now, brief, None)
+    }
+
+    /// The order among the open cards of card `t`'s log, for one card's
+    /// lines.
+    fn order_near(&self, t: &Task) -> Option<Order> {
+        if coord::is_terminal(&t.state) {
+            return None;
+        }
+        let (co, _) = self.on(&t.id, &[]).ok()?;
+        let all = co.list_tasks(&coord::TaskFilter {
+            open: true,
+            ..coord::TaskFilter::default()
+        });
+        Some(Order::of(&all))
+    }
+
+    /// [`Self::card_text`] with the order of the cards around it, found
+    /// once for a whole list (`None`: from this card's log).
+    pub(crate) fn card_text_in(
+        &self,
+        t: &Task,
+        last: Option<&Comment>,
+        n: &Names<'_>,
+        now: &GoTime,
+        brief: bool,
+        order: Option<&Order>,
+    ) -> String {
         let mut b = String::new();
         let mut state = coord::effective_state(t).to_string();
-        if state == coord::BLOCKED && t.all_answered() {
+        let held = t.parked().is_some();
+        if held && state == coord::BLOCKED {
+            // Card #570: put aside, not stuck.
+            state = "not yet".into();
+        } else if state == coord::BLOCKED && t.all_answered() {
             // The person answered every open item (card #204): its holder's turn.
             state = "working, answered".into();
         }
@@ -346,9 +380,30 @@ impl Inner {
                 b += &format!("  left off: {}\n", quoted(&one_line(&l.text, 200), 200));
             }
         }
+        if !coord::is_terminal(&t.state) {
+            let own;
+            let order = match order {
+                Some(o) => Some(o),
+                None => {
+                    own = self.order_near(t);
+                    own.as_ref()
+                }
+            };
+            if let Some(l) = order.and_then(|o| o.line(self, t)) {
+                b += &l;
+            }
+        }
         if t.state == coord::BLOCKED {
-            let mut open = t.open_blockers();
-            if open.is_empty() {
+            // Card #570: a Not yet item says what brings the card back.
+            for bl in t.open_blockers().iter().filter(|b| !b.later.is_empty()) {
+                b += &self.not_yet_line(bl);
+            }
+            let mut open: Vec<Blocker> = t
+                .open_blockers()
+                .into_iter()
+                .filter(|b| b.later.is_empty())
+                .collect();
+            if open.is_empty() && !held {
                 // A blocked task always has an item; this is only for safety.
                 let mut bl = Blocker::default();
                 bl.question = t.reason.clone();
@@ -581,7 +636,8 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         + v.needs_you.len()
         + v.blocked.len()
         + v.working.len()
-        + v.open.len();
+        + v.open.len()
+        + v.later.len();
     let head = format!(
         "Board for {where_}: {open} open cards, {} done",
         v.done_total
@@ -596,37 +652,38 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if !v.side_line.is_empty() {
         let _ = writeln!(b, "{}", v.side_line);
     }
-    // Card #436: a red main holds every landing; it goes first.
-    for r in coord::main_reds(&v) {
-        let who = if r.task.holders.is_empty() {
-            "nobody holds it yet".to_string()
-        } else {
-            format!("{} is on it", n.who(&r.task.holders[0]))
-        };
-        let _ = writeln!(
-            b,
-            "Main is red: {} fails on clean main; {} {} on {} ({who}). Hit it too? board_block on = main-red {} waits on that card instead of fixing it again.",
-            one_line(&r.test, 80),
-            r.waiting,
-            if r.waiting == 1 {
-                "card waits"
-            } else {
-                "cards wait"
-            },
-            r.task.short_ref(),
-            one_line(&r.test, 80),
-        );
-    }
     const HINT_ROOM: usize = 200;
     let budget = MAX_RESULT - HINT_ROOM;
     let mut cut = 0;
+    // Card #570: where each card sits in its order, found once.
+    let order = Order::of(
+        [
+            &asks,
+            &took,
+            &v.needs_you,
+            &v.blocked,
+            &v.working,
+            &v.open,
+            &v.later,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|cd| &cd.task),
+    );
     let group = |b: &mut String, name: &str, cards: &[Card], cut: &mut usize| {
         if cards.is_empty() {
             return;
         }
         let _ = write!(b, "\n{name} ({}):\n", cards.len());
         for cd in cards {
-            let mut line = s.card_text(&cd.task, cd.last_comment.as_ref(), &n, &now, true);
+            let mut line = s.card_text_in(
+                &cd.task,
+                cd.last_comment.as_ref(),
+                &n,
+                &now,
+                true,
+                Some(&order),
+            );
             if !repo.is_empty() && cd.task.repo_key != repo {
                 let w = if cd.task.repo_key.is_empty() {
                     "no repo".to_string()
@@ -703,6 +760,13 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         &mut cut,
     );
     group(&mut b, "Open", &v.open, &mut cut);
+    // Card #570: put aside until something brings them back.
+    group(
+        &mut b,
+        "Not yet (put aside: don't start or join these; each comes back by itself, or when the person brings it back)",
+        &v.later,
+        &mut cut,
+    );
     if !v.leases.is_empty() && cut == 0 {
         let _ = write!(b, "\nLeases in the way ({}):\n", v.leases.len());
         for l in &v.leases {
@@ -808,7 +872,52 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
     ("parent", Ty::Str),
     ("from", Ty::Str),
     ("waits_on", Ty::Str),
+    ("after", Ty::Strs),
+    ("later", Ty::Struct(LATER_FIELDS)),
 ];
+
+/// board_create's later: what brings the card back, and why it waits.
+const LATER_FIELDS: &[(&str, Ty)] = &[("until", Ty::Str), ("why", Ty::Str)];
+
+/// What brings a card made Not yet back, and why it waits.
+pub(crate) type NewLater = Option<(coord::Back, String)>;
+
+/// board_create's after and later (card #570): the cards it comes after,
+/// and what brings it back when it is Not yet from the start, with why.
+pub(crate) fn order_of(s: &Inner, a: &Args) -> Result<(Vec<String>, NewLater), String> {
+    let after: Vec<String> = a
+        .strs("after")
+        .iter()
+        .map(|r| trim(r).to_string())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let later = match a.object("later") {
+        None => None,
+        Some(l) => Some((s.back_of(l.str("until"))?, trim(l.str("why")).to_string())),
+    };
+    Ok((after, later))
+}
+
+/// What board_create says about a card that waits from the start (card
+/// #570), "" when it doesn't.
+pub(crate) fn waits_from_start(s: &Inner, t: &Task) -> String {
+    if let Some(b) = t.parked() {
+        return format!(
+            " It is Not yet: it {}. Nobody starts it until then.",
+            s.back_text(b)
+        );
+    }
+    let af = crate::later::afters(t);
+    if af.is_empty() {
+        return String::new();
+    }
+    let names: Vec<String> = af.iter().map(|id| s.short_of(id)).collect();
+    format!(
+        " It comes after {}: Irori hands it out once {} done.",
+        names.join(", "),
+        if af.len() == 1 { "that is" } else { "they are" }
+    )
+}
 
 /// board_create's waits_on (card #400): a task (#12, or task #12) or a
 /// lease (lease <resource>) the new card waits on, as the blocker it is
@@ -892,9 +1001,14 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(w) => w,
         Err(m) => return m,
     };
+    let (after, later) = match order_of(s, &a) {
+        Ok(v) => v,
+        Err(m) => return m,
+    };
+    let ordered = !after.is_empty() || later.is_some();
     let board = trim(a.str("board"));
     if !board.is_empty() {
-        return crate::shared::create_on_board(s, c, &a, board, repo, to, waits);
+        return crate::shared::create_on_board(s, c, &a, board, repo, to, waits, after, later);
     }
     // A subtask goes in its parent's log, with the caller and assignee as
     // that log knows them.
@@ -924,8 +1038,13 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             steps: steps_of(&a.steps("steps")),
             parent,
             from: trim(a.str("from")).into(),
-            block_reason: waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+            block_reason: match &later {
+                Some((_, why)) => why.clone(),
+                None => waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+            },
             blocked_by: waits.as_ref().map(|w| w.1.clone()),
+            after,
+            later: later.map(|l| l.0),
             ..NewTask::default()
         },
     ) {
@@ -957,7 +1076,16 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         out += " Tick its steps with board_step as you go.";
     }
     let mut t = t;
-    if !to.is_empty() {
+    let waits_now = if ordered || t.parked().is_some() {
+        waits_from_start(s, &t)
+    } else {
+        String::new()
+    };
+    if !to.is_empty() && t.parked().is_some() {
+        // Card #570: nobody is given a Not yet card, even by name.
+        out += &waits_now;
+        out += " It isn't assigned: Irori hands it out once it comes back.";
+    } else if !to.is_empty() {
         match co.assign(&keys[0], &t.id, &keys[1]) {
             Err(e) => {
                 return format!(
@@ -975,6 +1103,10 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 );
             }
         }
+    } else if !waits_now.is_empty() {
+        // Card #570: Not yet, or after other cards: nobody is handed it
+        // until it is free.
+        out += &waits_now;
     } else if let Some((reason, _)) = waits.as_ref().filter(|_| private && !t.shared) {
         // Blocked from the start (card #400): nobody is handed it until the
         // work it waits on is done; then it goes out like a new card.
@@ -1347,14 +1479,9 @@ impl Inner {
             coord::BLOCKED_ON_VERSION => {
                 bb.reference = self.version_wait(&r)?;
             }
-            // Main is red (card #436): board_block turns it into a wait on
-            // the one card for that test.
-            MAIN_RED => {
-                coord::parse_main_red(&r).map_err(map_err)?;
-            }
             _ => {
                 return Err(err_text(&format!(
-                    "on starts with what it waits on: lease, task, person, agent, external, version or main-red, not {}.",
+                    "on starts with what it waits on: lease, task, person, agent, external or version, not {}.",
                     q(&one_line(kind, 40))
                 )));
             }
@@ -1366,7 +1493,7 @@ impl Inner {
     /// its name (MacBook, DESKTOP-STEPHEN; any case, or the start of one
     /// name) or id, turned into `<min> <id> …`. No device leaves it to the
     /// coord: this device.
-    fn version_wait(&self, r: &str) -> Result<String, String> {
+    pub(crate) fn version_wait(&self, r: &str) -> Result<String, String> {
         let mut it = r.split_whitespace();
         let Some(min) = it.next() else {
             return Err(err_text(
@@ -1442,45 +1569,6 @@ impl Inner {
 /// The first 8 characters of a device id, as lines print it.
 fn short_id(id: &str) -> &str {
     &id[..id.len().min(8)]
-}
-
-/// The `on` kind for a test that fails on clean main (card #436).
-const MAIN_RED: &str = "main-red";
-
-/// What board_block says about a main-red wait: the card it joined, or the
-/// card it made and who Irori handed it to.
-fn main_red_line(s: &Inner, c: &Caller, co: &coord::Coord, rt: &Task, made: bool) -> String {
-    let n = s.roster();
-    if !made {
-        let who = if rt.holders.is_empty() {
-            "nobody holds it yet".to_string()
-        } else {
-            format!("{} is on it", n.who(&rt.holders[0]))
-        };
-        return format!(
-            " Main is already red for that test: it waits on {} ({who}) instead of fixing it here, and wakes when that card completes.",
-            rt.short_ref()
-        );
-    }
-    let mut out = format!(
-        " Main is red: Irori made {} for that test, and this card waits on it, waking when it completes.",
-        rt.short_ref()
-    );
-    match co.offer_card(&c.sender.key, &rt.id, &s.b.room_agents()) {
-        Ok(offer) if !offer.to.is_empty() => {
-            let to = offer.to[0].clone();
-            out += &format!(
-                " Irori handed it to {}, the free agent idle longest.{}",
-                n.who(&to),
-                s.told(&s.tell(&inbox::system_sender(), offer), &n)
-            );
-        }
-        _ if co.spawning() => out += " Irori starts an agent for it.",
-        _ => {
-            out += " No agent takes offered cards now: it waits for one the person offers cards to."
-        }
-    }
-    out
 }
 
 /// board_block's options as coord takes them.
@@ -1665,23 +1753,6 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         b.reference = as_[1].clone();
     }
     let by = &as_[0];
-    // Main is red (card #436): one card per failing test; this card waits
-    // on it like any task wait, and a card made now is handed out below.
-    let mut red: Option<(Task, bool)> = None;
-    if let Some(b) = bb.as_mut().filter(|b| b.kind == MAIN_RED) {
-        let (test, commit) = match coord::parse_main_red(&b.reference) {
-            Ok(v) => v,
-            Err(e) => return map_err(e),
-        };
-        match co.main_red(by, &id, &test, &commit) {
-            Ok((rt, made)) => {
-                b.kind = coord::BLOCKED_ON_TASK.into();
-                b.reference = rt.id.clone();
-                red = Some((rt, made));
-            }
-            Err(e) => return map_err(e),
-        }
-    }
     let context = a.opt_str("context").unwrap_or_default();
     let context = context.as_str();
     let res = if qn.is_empty()
@@ -1740,9 +1811,6 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     if many_questions(&item.question) {
         out += &format!(" Its question asks more than one thing. {ONE_ASK_EACH}");
-    }
-    if let Some((rt, made)) = &red {
-        out += &main_red_line(s, c, &co, rt, *made);
     }
     // What it waits on as stored: an external wait that names leases held
     // now became a wait on those leases (card #339).
@@ -2469,7 +2537,17 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("done_when", Ty::OptStr),
     ("repo", Ty::OptStr),
     ("from", Ty::Str),
+    ("after", Ty::Strs),
+    ("not_after", Ty::Strs),
 ];
+
+/// A list of card refs, blanks dropped.
+fn refs_in(v: Vec<String>) -> Vec<String> {
+    v.iter()
+        .map(|r| trim(r).to_string())
+        .filter(|r| !r.is_empty())
+        .collect()
+}
 
 pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, EDIT_ARGS) {
@@ -2490,22 +2568,59 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             .filter(|r| !r.is_empty()),
         from: trim(a.str("from")).into(),
     };
-    if e.title.is_none() && e.objective.is_none() && e.done_when.is_none() && e.repo.is_none() {
-        return err_text("give title, objective, done_when or repo: what the card is for now.");
+    let (after, not_after) = (refs_in(a.strs("after")), refs_in(a.strs("not_after")));
+    let words =
+        e.title.is_some() || e.objective.is_some() || e.done_when.is_some() || e.repo.is_some();
+    if !words && after.is_empty() && not_after.is_empty() {
+        return err_text(
+            "give title, objective, done_when or repo (what the card is for now), or after or not_after (its order).",
+        );
     }
     let repo_set = e.repo.is_some();
     let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
         Ok(v) => v,
         Err(e) => return map_err(e),
     };
-    let t = match co.edit_task(&as_[0], &id, e) {
-        Ok(t) => t,
-        Err(e) => return map_err(e),
+    let mut done: Vec<String> = Vec::new();
+    let mut t = None;
+    if words {
+        match co.edit_task(&as_[0], &id, e) {
+            Ok(nt) => t = Some(nt),
+            Err(e) => return map_err(e),
+        }
+        done.push("its thread says what changed. If the plan changed too, give it new steps with board_steps".into());
+    }
+    // Card #570: its order. Each list is checked whole before it is
+    // written; a circle is refused with the cards in it.
+    let so_far = |done: &[String]| {
+        if done.is_empty() {
+            String::new()
+        } else {
+            format!(" (the rest went through: {})", done.join("; "))
+        }
     };
-    let mut out = format!(
-        "Edited {}; its thread says what changed. If the plan changed too, give it new steps with board_steps.",
-        t.short_ref()
-    );
+    if !after.is_empty() {
+        match co.add_after(&as_[0], &id, &after) {
+            Ok(nt) => {
+                done.push(format!("it comes after {}", ref_list(&after)));
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
+    if !not_after.is_empty() {
+        match co.remove_after(&as_[0], &id, &not_after) {
+            Ok(nt) => {
+                done.push(format!("it no longer comes after {}", ref_list(&not_after)));
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
+    let Some(t) = t else {
+        return need_task_id();
+    };
+    let mut out = format!("Edited {}; {}.", t.short_ref(), done.join("; "));
     // Card #600: whether the one setting it can work it where it is.
     if repo_set && t.holders.contains(&as_[0]) {
         let mine = s.caller_repo(c);
@@ -2522,12 +2637,20 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     format!("{out}\n{}", s.line(&t))
 }
 
+/// Refs as the caller gave them, for a result line.
+fn ref_list(v: &[String]) -> String {
+    one_line(&v.join(", "), 200)
+}
+
 // --- leases ---
 
 const LEASE_ARGS: &[(&str, Ty)] = &[
     ("resource", Ty::Str),
     ("ttl_minutes", Ty::OptInt),
     ("steal", Ty::Bool),
+    // Accepted and ignored (card #418): the old merge desk run passed them
+    // with a desk/<owner>/<name> lease. Kept so such a call reaches coord's
+    // refusal, which says to ask "Can I merge PR #N?" instead; not in the spec.
     ("pr", Ty::OptInt),
     ("head_sha", Ty::Str),
     ("base_sha", Ty::Str),
@@ -2580,29 +2703,6 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             return map_err(e);
         }
     };
-    let mut run_line = String::new();
-    if coord::is_desk(&l.resource)
-        && let Some(pr) = a.opt_int("pr")
-    {
-        let co = s.b.coord();
-        let rk = co
-            .desks()
-            .into_iter()
-            .map(|d| d.settings.repo_key)
-            .find(|k| {
-                coord::github_repo(k)
-                    .map(|r| coord::desk_resource(&r))
-                    .as_deref()
-                    == Some(l.resource.as_str())
-            });
-        match rk.map(|rk| {
-            co.record_desk_run(&c.sender.key, &rk, pr, a.str("head_sha"), a.str("base_sha"))
-        }) {
-            Some(Ok(())) => run_line = format!(" The desk shows PR #{pr} as Merging."),
-            Some(Err(e)) => return format!("Leased {}, but {}", l.resource, map_err(e)),
-            None => {}
-        }
-    }
     let n = s.roster();
     let mut out = format!(
         "Leased {} until {} ({}). Lease again to renew; release when done.",
@@ -2622,7 +2722,7 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             mirrored.join(", ")
         );
     }
-    out + &run_line
+    out
 }
 
 pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {

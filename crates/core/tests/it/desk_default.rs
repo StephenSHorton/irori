@@ -87,7 +87,6 @@ fn a_github_repo_an_agent_works_in_shows_its_open_prs_within_one_poll() {
     let d = r.core.coord().desk(REPO).unwrap();
     assert!(d.on() && d.is_default());
     assert_eq!(d.settings.poll_device, r.core.device_id());
-    assert_eq!(d.settings.holder, "", "nobody holds it: nothing merges");
 
     r.core.check_desks();
     let s = r.core.coord().desk(REPO).unwrap().prs.expect("one poll");

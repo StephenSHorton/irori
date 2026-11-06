@@ -188,7 +188,7 @@ pub enum Verdict {
     /// Ours, no card found: make a "PR #n" card (assigned to `author`
     /// when there is one) and link it.
     NewCard(Mapping),
-    /// Not ours (card #625): not shown, no card, no wake, never checked.
+    /// Not ours (card #625): not shown, no card.
     NotOurs,
 }
 
@@ -299,68 +299,6 @@ pub struct DeskAuthor {
     pub card_ref: String,
     /// The agent behind it: the ledger's author, else the card's holder.
     pub agent: String,
-}
-
-/// The PR the desk holder is woken for (merge-desk.md §5, card #418): the
-/// oldest of our PRs Waiting on desk, the queue's first such line, as the
-/// desk page reads it: not a draft, not held, not behind or conflicting,
-/// GitHub checks not pending or failed. `None` while the desk is off,
-/// paused, unheld or a run is on. The old per-PR OK (`perPrOk`) no longer
-/// gates it: nothing writes an OK any more (card #625).
-pub fn waiting_pr<'a>(
-    desk: &'a coord::Desk,
-    verdicts: &[(i64, Verdict)],
-) -> Option<(&'a coord::DeskPr, String)> {
-    if !desk.on()
-        || desk.settings.holder.is_empty()
-        || desk.pause.as_ref().is_some_and(|p| p.paused)
-        || desk.run.is_some()
-    {
-        return None;
-    }
-    let snap = desk.prs.as_ref()?;
-    let mut ready: Vec<(&coord::DeskPr, String)> = snap
-        .prs
-        .iter()
-        .filter_map(|p| {
-            let card = match verdicts.iter().find(|(n, _)| *n == p.number)?.1 {
-                Verdict::Card(ref m) | Verdict::NewCard(ref m) => m.task_id.clone(),
-                Verdict::NotOurs => return None,
-            };
-            let waiting = !p.is_draft
-                && !p.head_ref_oid.is_empty()
-                && !desk.holds.contains_key(&p.number)
-                && !matches!(p.merge_state_status.as_str(), "BEHIND" | "DIRTY")
-                && p.mergeable != "CONFLICTING"
-                && !matches!(p.checks.as_str(), "pending" | "failure");
-            waiting.then_some((p, card))
-        })
-        .collect();
-    ready.sort_by(|a, b| {
-        (a.0.created_at.unix_milli_value(), a.0.number)
-            .cmp(&(b.0.created_at.unix_milli_value(), b.0.number))
-    });
-    ready.into_iter().next()
-}
-
-/// The check lines as the holder's run text names them: a path-conditional
-/// line says which paths it waits on.
-pub fn check_lines(desk: &coord::Desk) -> Vec<String> {
-    desk.settings
-        .checks
-        .iter()
-        .map(|c| {
-            if c.paths.is_empty() {
-                format!("`{}`", c.command)
-            } else {
-                format!(
-                    "`{}` (only if the diff touches {})",
-                    c.command,
-                    c.paths.join(", ")
-                )
-            }
-        })
-        .collect()
 }
 
 /// What says a repo is one of the person's (card #625): the person or a

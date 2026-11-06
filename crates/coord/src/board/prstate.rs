@@ -569,7 +569,11 @@ impl Fold {
                 t,
                 pr,
                 "was closed without merging",
-                "Say on the card what happens to the work now: reopen it, link the PR that replaces it, or ask the person.".into(),
+                // Card #614: a merge card or a release batch often lands the
+                // work in another PR and closes this one with a comment.
+                format!(
+                    "Read the closing comment first (`gh pr view {pr} --comments`): a merge card or a release batch may have landed the work in another PR. Then say on the card what happens to the work now: reopen it, link the PR that replaces it, or ask the person."
+                ),
             ),
             PrChange::ChangesRequested => {
                 // Card #548: only a device of the card's author or the

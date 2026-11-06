@@ -988,58 +988,37 @@ fn talk_through_the_window() {
     assert!(j(pc).get("spaceId").is_none(), "Personal: no spaceId");
 }
 
-/// Card #417: Settings › Merge desks sets a repo's desk once, and the desk
-/// page's holds and pause go in as the person. The Outside PR OK is gone
-/// (card #625).
+/// Card #417: Settings › Merge desks sets a repo's desk once, as the
+/// person. The desk never merges (card #418): no holder, check lines,
+/// merge method, holds or pause.
 #[test]
-fn merge_desk_settings_holds_and_pause() {
-    use irori_window::desk::{DeskCheckLine, DeskSettings};
+fn merge_desk_settings() {
+    use irori_window::desk::DeskSettings;
     let r = Rig::new();
     let repo = "remote:github.com/example-org/example-app";
     assert!(r.w.desks().is_empty());
-    // No desk yet: nothing to hold.
-    assert!(r.w.desk_hold(repo, 3, "", false).is_err());
     let here = r.w.core.device_id().to_string();
     r.w.desk_set(DeskSettings {
         repo_key: repo.into(),
         enabled: true,
         takes_prs: true,
-        holder: r.key_a.clone(),
         poll_device: here.clone(),
         trusted: vec![" you ".into(), "".into()],
-        checks: vec![DeskCheckLine {
-            command: " cargo test --workspace ".into(),
-            paths: vec!["".into()],
-            ..DeskCheckLine::default()
-        }],
         ..DeskSettings::default()
     })
     .unwrap();
-    r.w.desk_hold(repo, 3, "after the playtest", false).unwrap();
-    r.w.desk_pause(repo, true).unwrap();
+    let d = r.w.core.coord().desk(repo).expect("the desk");
+    assert!(d.settings.by.starts_with("user:"));
+    // The desk page lists it once the Core counts the repo as the
+    // person's (card #625).
+    r.w.core.coord().set_desk_repos([repo.to_string()]);
     let d = r.w.desks();
     assert_eq!(d.len(), 1);
     let d = &d[0];
-    assert_eq!(d.settings.holder, r.key_a);
     assert_eq!(d.settings.poll_device, here);
     assert_eq!(d.settings.trusted, vec!["you".to_string()]);
-    assert_eq!(d.settings.checks[0].command, "cargo test --workspace");
-    assert!(d.settings.checks[0].paths.is_empty());
-    assert_eq!(d.settings.merge_method, "squash");
-    assert!(d.settings.by.starts_with("user:"));
-    assert_eq!(
-        (d.holds[0].pr, d.holds[0].note.as_str()),
-        (3, "after the playtest")
-    );
-    assert!(d.paused.is_some());
     assert!(d.poll.here, "this device polls it");
     assert!(d.prs.is_none(), "no poll in a rig without gh");
-
-    r.w.desk_hold(repo, 3, "", true).unwrap();
-    r.w.desk_pause(repo, false).unwrap();
-    let d = &r.w.desks()[0];
-    assert!(d.holds.is_empty());
-    assert!(d.paused.is_none());
 }
 
 /// Card #625: the desk page lists only the person's repos' desks, each

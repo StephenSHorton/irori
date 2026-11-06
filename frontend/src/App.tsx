@@ -30,7 +30,6 @@ import { NeedsYou } from "@/components/cards/needs-you"
 import { nobodyTook, needsOf } from "@/lib/needs"
 import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
-import { mainRedText, mainReds, type MainRed } from "@/lib/main-red"
 import {
   asFilter,
   EmptyCards,
@@ -1000,7 +999,6 @@ export function App() {
                   now={now}
                   header={
                     <>
-                      <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
                       <SpawnNotice />
                       <WindDownLine onOpen={() => setWindDown(true)} />
                       <AskBox
@@ -1154,33 +1152,6 @@ function BoardsNeedYou({
         </button>
       ))}
     </p>
-  )
-}
-
-// MainRedLines lead Home while a test fails on clean main (card #436): one
-// card owns each red test and every card that hit it waits on that card,
-// so the person sees the bottleneck before anything else.
-function MainRedLines({
-  reds,
-  onOpen,
-}: {
-  reds: MainRed[]
-  onOpen: (id: string) => void
-}) {
-  if (reds.length === 0) return null
-  return (
-    <div className="flex flex-col gap-1" role="status">
-      {reds.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => onOpen(r.id)}
-          className="border-destructive/50! px-3 py-2 text-left text-sm text-destructive underline-offset-2 glass-panel hover:underline"
-        >
-          {mainRedText(r)}
-        </button>
-      ))}
-    </div>
   )
 }
 
