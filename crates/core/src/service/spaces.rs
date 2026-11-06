@@ -253,7 +253,7 @@ impl Services {
         if !own.is_empty() {
             return Some(own);
         }
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if let Ok(bs) = self.space_boards(&b.id)
                 && let Some(x) = bs.iter().skip(1).find(|x| x.tag == tag)
             {

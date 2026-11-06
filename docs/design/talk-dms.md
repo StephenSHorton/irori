@@ -86,7 +86,15 @@ Agents don't DM other people, and people don't DM other people's agents: the too
 
 ## 5. Hiding
 
-`shown_boards()` and `boards.list()` stay whole: the mesh, followers and Talk's fold need them. What people and agents see filters on the marker cache, which fills before `talk.load` and `open_boards`: `board_list`, `boards_by_tag`, `tag_holder`, `board_tag_holder`, notes, and the card and agent board candidates. A hidden space's relays and addresses come from the person's other spaces: `Mesh::feed_now` adds what the other spaces hold for the hidden space's member devices, and direct hints are per device, so they carry over.
+`shown_boards()`, `boards.list()` and `space_names()` stay whole: the mesh, followers and Talk's fold need them. What people and agents see goes by `visible_boards()`, which is `shown_boards()` less the marker cache. The cache fills before `talk.load` and `open_boards`, so a hidden space never shows for a moment.
+
+`visible_boards()` feeds `board_list` (so the switcher, `/v1/boards`, the tools' `SharedBoards` and `find_board`, `board_of`), `boards_by_tag`, `task_ref`, `tag_holder`, `board_tag_holder`, `board_views`, notes, `board_agents`, `board_people`, `board_others`, `idle_report`, the desk's and PR watch's cards, mirrored leases, the sweeps and spawning.
+
+Hiding covers what the other person writes, not only the list. They are a member, so they can put a card, an ask, a note, an agent's card or a board inside into the log, and it folds. None of it goes anywhere: no sweep tells an agent or mints a card for it, `route` won't find it, so `task_coord` and `show` can't either, its coord's changes reach no window or feed, a comment or file in it isn't found by id, and a tag in it holds nothing here. `board_roster` is empty for one.
+
+What still sees a hidden space, and why: `Core::boards()`, `board_coord`, `board_store` and the rest that take an id (tests and the hand-off; nothing lists the id, so no window or tool gets one); `device_presence`, whose last-seen time for a device may come from its row there; `busy_card`, `private_key`, `keep_current` and `follow_person_name`, which work from this person's own rows and agents; `pinned_key`, which reads a pin and shows nothing.
+
+A hidden space's relays and addresses come from the person's other spaces: `Mesh::feed_now` adds what the other spaces hold for the hidden space's member devices, and direct hints are per device, so they carry over.
 
 ## 6. The window
 
@@ -102,7 +110,7 @@ The tools resolve a person too: `person:<id>`, or a name among the same people. 
 - **Leaving.** `talk_dm_leave` leaves every live space of the DM through `leave_board`, not Talk's leave: a hidden log refuses a `leave` row (§4), and it's the `left` row that stops the other side writing there. A later DM from either side founds a new space. What was in the old log goes from this person's devices and stays on the other side's. A per-person block list is follow-up work. `leave_board` and the secret's rule each bend for a hidden space:
   - The founder is the only owner and nobody can be made one, so the "only owner" refusal skips a marked space.
   - A space the other person never held has nobody to tell, so it's forgotten at once and no `left` row waits for ever.
-  - A board secret's maker stops counting when cut, and leaving cuts the founder, whose secret is the space's only one: her room would close before the row went out, and Bob would never hear. So a marked space's maker counts after a cut. Nothing is lost by it: only the two hold that secret, and the rule's job is keeping out a device a rotation shut out, which a hidden space never has.
+  - A board secret's maker stops counting when cut, and leaving cuts the founder, whose secret is the space's only one: her room would close before the row went out, and Bob would never hear. So on a marked space a cut maker still counts when its person left. Only leaving does this: a revoked or removed device stays cut, as on any board.
 - **Leaving as `done` is lost.** If the founder leaves a space after the other side joined but before its `done` lands, it looks pending, so she forgets it and he never gets a `left` row. His device goes on writing to a log nobody reads. Follow-up work.
 - **No mailbox.** Delivery needs one device of each person online at the same time, as boards do today.
 - **A key that changes mid hand-off.** If the other person rotates their key after the add and before an offer lands, their pin no longer matches, `check_offer` refuses it, and that space stays pending. Follow-up work.
@@ -111,7 +119,8 @@ The tools resolve a person too: `person:<id>`, or a name among the same people. 
 
 `five_cores.rs`:
 
-- `a_dm_survives_a_restart`: comes back from disk on both sides and carries on. §5's hiding adds the switcher check, and this becomes `a_dm_survives_a_restart_with_nothing_in_either_switcher`, the done test.
+- `a_dm_survives_a_restart_with_nothing_in_either_switcher`: comes back from disk on both sides and carries on, the done test.
+- `nothing_of_a_dm_space_shows_anywhere`: the other person writes all a space can hold into the log, and §5's lists, refs, feeds and tools show none of it.
 - `a_dm_starts_with_bob_already_connected`: the creation trigger.
 - `a_dm_to_an_offline_friend_lands_later`.
 - `a_two_device_person_can_start_a_dm_with_a_phone_asleep`.

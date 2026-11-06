@@ -1282,7 +1282,7 @@ impl Services {
             .count() as i64;
         // Shared boards' cards starting here (card #455).
         let on_boards: i64 = self
-            .shown_boards()
+            .visible_boards()
             .iter()
             .map(|b| {
                 b.coord()

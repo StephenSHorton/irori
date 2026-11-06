@@ -476,10 +476,12 @@ impl tools::TaskRouter for ToolsView {
         self.0.request_release(by, resource, why)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
+        // Not a hidden DM space's (card #538): no agent works there.
         self.0
             .boards
             .list()
             .into_iter()
+            .filter(|b| !self.0.is_dm_space(&b.id))
             .map(|b| b.coord().clone())
             .find(|co| co.get_comment(id).is_some())
     }
@@ -3295,6 +3297,7 @@ impl Services {
             self.boards
                 .list()
                 .iter()
+                .filter(|b| !self.is_dm_space(&b.id))
                 .find_map(|b| b.coord().comment_attachment(sha))
         })
     }
@@ -3462,7 +3465,7 @@ impl Services {
             ..coord::TaskFilter::default()
         };
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
         let mut tasks = Vec::new();
         let mut home = std::collections::HashMap::new();
         for co in coords {
@@ -3706,7 +3709,7 @@ impl Services {
             .map(|c| c.key)
             .collect();
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
         let due = self.pr_watch.due(
             &coords,
             &local,
@@ -4044,7 +4047,7 @@ impl Services {
             return;
         }
         let mut tasks = self.coord.list_tasks(&coord::TaskFilter::default());
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             tasks.extend(b.coord().list_tasks(&coord::TaskFilter::default()));
         }
         let trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id);

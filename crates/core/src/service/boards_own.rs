@@ -660,11 +660,11 @@ impl Services {
         }
     }
 
-    /// Every board on this device, by name.
+    /// Every board on this device the person sees, by name.
     pub(crate) fn board_list(&self) -> Vec<BoardSummary> {
         let me = self.person_id();
         let mut out: Vec<BoardSummary> = self
-            .shown_boards()
+            .visible_boards()
             .iter()
             .map(|b| {
                 let m = b.verifier.membership();
@@ -731,12 +731,8 @@ impl Services {
     }
 
     /// A board's name and tag from its board.joined row, for a board whose
-    /// rows haven't arrived yet. A DM space's marker names neither, and
-    /// they are always the same (card #538).
+    /// rows haven't arrived yet.
     fn joined_name(&self, id: &str) -> (String, String) {
-        if self.is_dm_space(id) {
-            return (DM_SPACE_NAME.into(), DM_SPACE_TAG.into());
-        }
         let mut out = (String::new(), String::new());
         let _ = each_row(
             &self.store,
@@ -832,7 +828,7 @@ impl Services {
     /// The space logs holding a board tagged `tag`: the space's own board,
     /// or one inside it (card #392).
     fn boards_by_tag(&self, tag: &str) -> Vec<Arc<BoardLog>> {
-        self.shown_boards()
+        self.visible_boards()
             .into_iter()
             .filter(|b| {
                 b.verifier.membership().tag == tag
@@ -873,7 +869,7 @@ impl Services {
             }
         } else {
             std::iter::once(self.coord.clone())
-                .chain(self.shown_boards().iter().map(|b| b.coord().clone()))
+                .chain(self.visible_boards().iter().map(|b| b.coord().clone()))
                 .collect()
         };
         let mut hits: Vec<Task> = Vec::new();
@@ -1523,7 +1519,7 @@ impl Services {
     /// it.
     pub(crate) fn board_views(&self, f: &BoardFilter) -> Vec<BoardView> {
         let mut out = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if !b.verifier.membership().created {
                 continue;
             }

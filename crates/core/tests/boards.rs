@@ -874,9 +874,10 @@ fn a_dm_marker_opens_its_space_and_forget_covers_it() {
         c.board_coord(DM).is_ok(),
         "the marker didn't open the space"
     );
-    let s = c.board_list().into_iter().find(|s| s.board_id == DM);
-    let s = s.expect("the space isn't filtered yet");
-    assert_eq!((s.name.as_str(), s.tag.as_str()), ("dm", "~dm"));
+    assert!(
+        c.board_list().iter().all(|s| s.board_id != DM),
+        "a marker's space shows"
+    );
 
     c.forget_board(DM).unwrap();
     assert!(c.board_coord(DM).is_err(), "the space is still open");

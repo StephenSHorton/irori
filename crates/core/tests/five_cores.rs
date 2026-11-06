@@ -1726,6 +1726,15 @@ fn forgetting_a_space_drops_its_channels_at_once() {
 
 // ---- person-to-person DMs (card #538, docs/design/talk-dms.md) ---------------
 
+/// The spaces `d`'s switcher lists.
+fn in_switcher(d: &Dev) -> Vec<String> {
+    d.core
+        .board_list()
+        .into_iter()
+        .map(|s| s.board_id)
+        .collect()
+}
+
 /// `d`'s DM with `other`, opened: nothing is written.
 fn dm_with(d: &Dev, other: &Dev) -> String {
     d.core
@@ -1883,6 +1892,7 @@ fn a_second_device_gets_the_dm() {
             .is_some_and(|v| v.cert(&b2_dev).is_some())
     });
     assert!(b2.core.is_dm_space(&id), "b2 knows what the space is");
+    assert!(!in_switcher(b2).contains(&id), "and doesn't list it");
 
     dm_post(b2, &dm, "from the other device");
     wait_for(WAIT, "alice reads b2", || {
@@ -1946,10 +1956,10 @@ fn both_first_messages_make_one_conversation() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
-/// §8: a DM comes back from disk on both sides and carries on. (Hiding it
-/// from the switcher is §5's: that check goes here with it.)
+/// §8, the done test: a DM comes back from disk on both sides and carries
+/// on, and its space is in neither switcher, before or after.
 #[test]
-fn a_dm_survives_a_restart() {
+fn a_dm_survives_a_restart_with_nothing_in_either_switcher() {
     let mut alice = person("alice", 1);
     let mut bob = person("bob", 1);
     let board = invited(&alice[0], &bob[0]);
@@ -1961,9 +1971,13 @@ fn a_dm_survives_a_restart() {
     });
     let bob_id = bob[0].core.person().id.clone();
     let id = alice[0].core.dm_spaces_with(&bob_id)[0].clone();
+    assert_eq!(in_switcher(&alice[0]), vec![board.clone()]);
+    assert_eq!(in_switcher(&bob[0]), vec![board.clone()]);
 
     let a1 = restart(alice.pop().unwrap());
     let b1 = restart(bob.pop().unwrap());
+    // At once: the markers load before any space opens.
+    assert!(!in_switcher(&a1).contains(&id) && !in_switcher(&b1).contains(&id));
     wait_for(WAIT, "the DM is back on both sides", || {
         dm_holds(&a1, &dm, "before the restart") && dm_holds(&b1, &dm, "before the restart")
     });
@@ -1979,8 +1993,171 @@ fn a_dm_survives_a_restart() {
     wait_for(WAIT, "alice reads it", || {
         dm_holds(&a1, &dm, "after the restart")
     });
+    assert_eq!(in_switcher(&a1), vec![board.clone()]);
+    assert_eq!(in_switcher(&b1), vec![board]);
     assert_eq!(a1.core.dm_spaces_with(&bob_id), vec![id]);
     close([a1, b1]);
+}
+
+/// §5: Bob founds a DM and writes into it all a space can hold: a card, an
+/// ask, a note, his agent's card, a board inside. Alice's and his own
+/// lists, tools, feeds and refs show none of it, though each log holds it.
+#[test]
+fn nothing_of_a_dm_space_shows_anywhere() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&board).unwrap().is_empty()
+    });
+    let dm = dm_with(b1, a1);
+    dm_post(b1, &dm, "hello alice");
+    wait_for(WAIT, "alice reads it", || dm_holds(a1, &dm, "hello alice"));
+    let alice_id = a1.core.person().id.clone();
+    let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
+    assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
+    let changes = a1.core.subscribe_boards();
+
+    let co = b1.core.board_coord(&id).unwrap();
+    let bob_key = b1.person_actor();
+    let card = co.create_task(&bob_key, new_task("HIDDEN card")).unwrap();
+    let (ask, _) = b1
+        .core
+        .board_ask(
+            &id,
+            coord::NewAsk {
+                text: "HIDDEN ask".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let note = coord::NewNote {
+        kind: "rule".into(),
+        text: "HIDDEN note".into(),
+        tags: vec!["everywhere".into()],
+        ..Default::default()
+    };
+    co.propose_note(&bob_key, note).unwrap();
+    let agent = b1.core.board_key(&id, &b1.agent).unwrap();
+    let inside = irori_core::new_board_id().unwrap();
+    b1.core
+        .board_store(&id)
+        .unwrap()
+        .append(
+            &bob_key,
+            kinds::SPACE_BOARD_CREATED,
+            &serde_json::json!({"boardId": inside, "name": "HIDDEN", "tag": "inner", "by": bob_key}),
+        )
+        .unwrap();
+    b1.core.kick_board(&id);
+    wait_for(WAIT, "alice's log holds all of it", || {
+        b1.core.kick_board(&id);
+        card_on(a1, &id, &card.id).is_some()
+            && card_on(a1, &id, &ask.id).is_some()
+            && !a1.core.board_rows(&id, kinds::AGENT_CARD).is_empty()
+            && a1.core.space_boards(&id).is_ok_and(|bs| bs.len() == 2)
+            && !a1.core.board_coord(&id).unwrap().notes(false).is_empty()
+    });
+
+    // A card on the shared space is what the same paths do show.
+    let seen = b1
+        .core
+        .board_coord(&board)
+        .unwrap()
+        .create_task(&bob_key, new_task("SEEN card"))
+        .unwrap();
+    b1.core.kick_board(&board);
+    let mut heard = Vec::new();
+    wait_for(WAIT, "the window hears the shared card", || {
+        b1.core.kick_board(&board);
+        while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
+            heard.push(ch.task_id);
+        }
+        heard.contains(&seen.id)
+    });
+    a1.core.sweep_coord().unwrap();
+    while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
+        heard.push(ch.task_id);
+    }
+    assert!(
+        !heard.contains(&card.id) && !heard.contains(&ask.id),
+        "{heard:?}"
+    );
+    assert!(
+        a1.core
+            .board_views(&Default::default())
+            .iter()
+            .any(|v| format!("{v:?}").contains("SEEN card")),
+        "the shared card shows"
+    );
+
+    for d in [a1, b1] {
+        assert_eq!(in_switcher(d), vec![board.clone()]);
+        assert!(d.core.board_of(&card.id).is_none());
+        assert!(d.core.route(&card.id).is_err());
+        let (co, _) = d.core.task_coord(&card.id, &[]).unwrap();
+        assert!(co.get_task(&card.id).is_none());
+        assert!(d.core.task_ref("inner#1").is_err());
+        assert_ne!(d.core.task_ref("#1").ok(), Some(card.id.clone()));
+        assert!(d.core.board_roster(&id).is_empty());
+        assert!(d.core.board_agents().iter().all(|a| a.board_id != id));
+        assert!(d.core.board_people().iter().all(|p| p.board_id != id));
+        assert!(d.core.search_notes("HIDDEN", false).is_empty());
+        assert!(d.core.notes(&id, false).is_err());
+        for got in [
+            format!("{:?}", d.core.board_views(&Default::default())),
+            format!("{:?}", d.core.idle_report()),
+            format!("{:?}", d.core.notes("", false)),
+            d.tool("board", serde_json::json!({})),
+            d.tool("overview", serde_json::json!({})),
+            d.tool("agents", serde_json::json!({})),
+        ] {
+            assert!(
+                !got.contains("HIDDEN") && !got.contains(&id) && !got.contains(&agent),
+                "{got}"
+            );
+        }
+        // Nor can an agent name it.
+        for board in [id.as_str(), "inner", "~dm"] {
+            let args = serde_json::json!({"title": "in there", "board": board});
+            let got = d.core.tools().call(
+                &tools::Caller {
+                    sender: inbox::Sender::new(&d.agent, "agent", "claude"),
+                    path: String::new(),
+                },
+                "board_create",
+                &serde_json::to_vec(&args).unwrap(),
+            );
+            let text = format!("{got:?}");
+            assert!(text.contains("no board") || text.contains("Err"), "{text}");
+        }
+        assert!(
+            d.core
+                .board_coord(&id)
+                .unwrap()
+                .list_tasks(&coord::TaskFilter::default())
+                .iter()
+                .all(|t| t.title != "in there")
+        );
+    }
+
+    // Alice's agent hears no ask from it and gets no card on it.
+    let cards = a1.core.board_rows(&id, kinds::AGENT_CARD);
+    assert!(cards.iter().all(|e| e.device_id == b1.core.device_id()));
+    assert!(
+        a1.core
+            .inbox()
+            .list(0)
+            .iter()
+            .all(|d| !d.message.text.contains("HIDDEN")),
+    );
+    // A tag used in there is free out here.
+    a1.core
+        .create_space_board(&board, "Mine", "inner")
+        .expect("a hidden space holds no tag");
+    close(alice.drain(..).chain(bob.drain(..)));
 }
 
 /// The Core's boards for `bundle::admit` in a test.
