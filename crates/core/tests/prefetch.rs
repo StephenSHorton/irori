@@ -8,6 +8,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use common::mesh::{Edit, person_with};
@@ -59,6 +60,7 @@ fn a_desktop_holds_small_offered_files_so_others_get_them_when_the_first_is_away
     let a = devs.remove(0);
     a.core.close().unwrap();
     let (b, c) = (&devs[0], &devs[1]);
+    assert!(!c.core.files().has(&rsmall.sha256), "C fetched unasked");
     let mut got = Err(irori_core::meshview::FileFetchError::TimedOut);
     wait_for(WAIT, "C fetches the small file from B", || {
         got = c.core.fetch_file_blocking(&rsmall);
@@ -115,6 +117,63 @@ fn a_desktop_holds_small_files_offered_on_a_shared_board() {
     let held = mesh::files::holders_in(&b1.core.board_store(&board).unwrap(), &sha).unwrap();
     assert!(held.contains(&b1.core.device_id().to_string()));
     for d in alice.into_iter().chain(bob) {
+        d.core.close().unwrap();
+    }
+}
+
+/// Offers older than 30 days are left alone (card #580). B's clock runs a
+/// month ahead when A offers the first file, so B skips it; then A's
+/// clock catches up, and its next offer B picks up.
+#[test]
+fn a_desktop_leaves_offers_older_than_a_month() {
+    const MONTH: i64 = 31 * 24 * 3600;
+    let skews: Vec<Arc<AtomicI64>> = (0..2).map(|_| Arc::new(AtomicI64::new(0))).collect();
+    let devs = person_with("p", 2, |i| {
+        let sk = skews[i].clone();
+        Some(Arc::new(move |o: &mut irori_core::Options| {
+            let sk = sk.clone();
+            o.now = Some(Arc::new(move || {
+                let d = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap();
+                gocompat::time::GoTime::unix(
+                    d.as_secs() as i64 + sk.load(Ordering::SeqCst),
+                    i64::from(d.subsec_nanos()),
+                )
+            }));
+            if i == 1 {
+                o.prefetch_files = Some(CAP);
+            }
+        }) as Edit)
+    });
+    let (a, b) = (&devs[0], &devs[1]);
+    let files = tempfile::tempdir().unwrap();
+    let attach = |name: &str, body: &[u8]| {
+        let p = files.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        a.core
+            .attach_files(&a.agent, &[p.to_string_lossy().into_owned()])
+            .unwrap()
+            .remove(0)
+    };
+
+    skews[1].store(MONTH, Ordering::SeqCst);
+    let old = attach("old.txt", b"from last month");
+    wait_for(WAIT, "B hears A's old offer", || {
+        mesh::files::holders_in(b.core.store(), &old.sha256)
+            .unwrap()
+            .contains(&a.core.device_id().to_string())
+    });
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!b.core.files().has(&old.sha256), "B fetched an old offer");
+
+    skews[0].store(MONTH, Ordering::SeqCst);
+    let fresh = attach("fresh.txt", b"from today");
+    wait_for(WAIT, "B picks up the fresh file", || {
+        b.core.files().has(&fresh.sha256)
+    });
+    assert!(!b.core.files().has(&old.sha256), "B fetched an old offer");
+    for d in devs {
         d.core.close().unwrap();
     }
 }

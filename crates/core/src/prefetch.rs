@@ -8,10 +8,12 @@
 //! The trigger is the `attach.offered` row: its payload names the file and
 //! its device is a holder. Offers older than [`MAX_AGE`] are left alone,
 //! so a first start on an old log doesn't pull every past attachment. A
-//! fetch that finds no holder online waits and tries again, 1 min doubling
-//! to 1 h, or at once when another device offers the same file.
+//! file is tried only while a device that offered it is connected, one
+//! fetch at a time with a pause between; a fetch that fails waits and
+//! tries again, 1 min doubling to 1 h, or at once when another device
+//! offers the same file.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,6 +38,9 @@ const LAST_RETRY: Duration = Duration::from_secs(3600);
 /// How often the board logs' rows are read and new boards looked for.
 const TICK: Duration = Duration::from_secs(2);
 const BOARDS_EVERY: Duration = Duration::from_secs(10);
+/// The least time between two fetches (card #580): each one scans the
+/// logs for holders.
+const PACE: Duration = Duration::from_millis(500);
 
 /// An attach.offered row's payload.
 #[derive(Deserialize, Default)]
@@ -65,6 +70,8 @@ pub(crate) fn wanted(
 
 struct Pending {
     r: FileRef,
+    /// Every other device that offered it, the origin first.
+    holders: Vec<String>,
     due: Instant,
     wait: Duration,
 }
@@ -88,22 +95,12 @@ impl Prefetch {
         (self.now)().unix_milli_value()
     }
 
-    /// Whether any other device is connected: one of this person's, or a
-    /// member's on an open board.
-    fn connected(&self) -> bool {
-        self.mesh.node.connected_count() > 0
-            || self.mesh.board_list().iter().any(|b| !b.peers().is_empty())
-    }
-
-    /// Queues `ev` if it offers a file to pick up. A pending file a new
-    /// device offers is tried again at once.
-    fn take(&self, q: &mut BTreeMap<String, Pending>, ev: &Event) {
+    /// The file `ev` offers, if it is one to pick up.
+    fn check(&self, ev: &Event) -> Option<FileRef> {
         if ev.kind != store::kinds::ATTACH_OFFERED {
-            return;
+            return None;
         }
-        let Ok(o) = serde_json::from_slice::<Offer>(&ev.payload) else {
-            return;
-        };
+        let o = serde_json::from_slice::<Offer>(&ev.payload).ok()?;
         if !blob::valid_id(&o.sha256)
             || !wanted(
                 &ev.device_id,
@@ -115,36 +112,45 @@ impl Prefetch {
             )
             || self.files.has(&o.sha256)
         {
-            return;
+            return None;
         }
-        let now = Instant::now();
-        match q.get_mut(&o.sha256) {
-            Some(p) => {
-                if p.r.device != ev.device_id {
-                    p.due = now;
-                }
-            }
-            None => {
-                q.insert(
-                    o.sha256.clone(),
-                    Pending {
-                        r: FileRef {
-                            sha256: o.sha256,
-                            name: o.name,
-                            size: o.size,
-                            mime: o.mime,
-                            device: ev.device_id.clone(),
-                        },
-                        due: now,
-                        wait: FIRST_RETRY,
-                    },
-                );
-            }
+        Some(FileRef {
+            sha256: o.sha256,
+            name: o.name,
+            size: o.size,
+            mime: o.mime,
+            device: ev.device_id.clone(),
+        })
+    }
+
+    /// Queues `ev` if it offers a file to pick up.
+    fn take(&self, q: &mut BTreeMap<String, Pending>, ev: &Event) {
+        if let Some(r) = self.check(ev) {
+            queue(q, r);
         }
     }
 
-    /// Queues every recent offer in `st`.
-    fn seed(&self, q: &mut BTreeMap<String, Pending>, st: &Store) {
+    /// Queues every recent offer in `st`. The listing runs off the async
+    /// workers (card #580), and `stop` ends the wait for it.
+    async fn seed(
+        self: &Arc<Self>,
+        q: &mut BTreeMap<String, Pending>,
+        st: &Arc<Store>,
+        stop: &CancellationToken,
+    ) {
+        let (me, st) = (self.clone(), st.clone());
+        let job = tokio::task::spawn_blocking(move || me.offered(&st));
+        let refs = tokio::select! {
+            _ = stop.cancelled() => return,
+            got = job => got.unwrap_or_default(),
+        };
+        for r in refs {
+            queue(q, r);
+        }
+    }
+
+    /// Every recent offer in `st` to pick up. Blocking.
+    fn offered(&self, st: &Store) -> Vec<FileRef> {
         let since = self.now_ms() - MAX_AGE.as_millis() as i64;
         let mut f = Filter {
             kinds: vec![store::kinds::ATTACH_OFFERED.into()],
@@ -152,74 +158,95 @@ impl Prefetch {
             limit: MAX_LIST_LIMIT,
             ..Filter::default()
         };
+        let mut out = Vec::new();
         loop {
             let evs = match st.list(&f) {
                 Ok(evs) => evs,
                 Err(e) => {
                     crate::logf(format_args!("prefetch: {e}"));
-                    return;
+                    return out;
                 }
             };
-            for ev in &evs {
-                self.take(q, ev);
-            }
+            out.extend(evs.iter().filter_map(|ev| self.check(ev)));
             if (evs.len() as i64) < f.limit {
-                return;
+                return out;
             }
             f.after = evs.last().map(Event::cursor).unwrap_or_default();
         }
     }
 
+    /// The first due file a holder of which is connected now, here or on
+    /// an open board. Reads only what's in memory, so files whose holders
+    /// are all away cost nothing until one comes back (card #580).
+    fn ready(&self, q: &BTreeMap<String, Pending>, now: Instant) -> Option<String> {
+        let mut due = q.iter().filter(|(_, p)| p.due <= now).peekable();
+        due.peek()?;
+        let on_boards: HashSet<String> = self
+            .mesh
+            .board_list()
+            .iter()
+            .flat_map(|b| b.peers().into_iter().map(|(_, d)| d))
+            .collect();
+        due.find(|(_, p)| {
+            p.holders
+                .iter()
+                .any(|h| on_boards.contains(h) || self.mesh.node.is_connected(h))
+        })
+        .map(|(sha, _)| sha.clone())
+    }
+
     /// Follows the private log and every open board's log until `stop`,
-    /// fetching one file at a time.
+    /// fetching one file at a time, at most one every [`PACE`].
     pub(crate) async fn run(self, sub: Arc<Subscription>, stop: CancellationToken) {
+        let this = Arc::new(self);
         let mut q: BTreeMap<String, Pending> = BTreeMap::new();
         let mut boards: HashMap<String, (Arc<Store>, Subscription)> = HashMap::new();
-        self.seed(&mut q, &self.store);
+        this.seed(&mut q, &this.store, &stop).await;
         let mut boards_at = Instant::now();
+        let mut rest = Instant::now();
         let mut look = true;
         loop {
             if look {
                 look = false;
                 boards_at = Instant::now() + BOARDS_EVERY;
-                let open = self.mesh.board_list();
+                let open = this.mesh.board_list();
                 boards.retain(|id, _| open.iter().any(|b| b.board_id() == id));
                 for b in open {
-                    if boards.contains_key(b.board_id()) {
+                    // A board closed and joined again has a new log.
+                    if boards
+                        .get(b.board_id())
+                        .is_some_and(|(st, _)| Arc::ptr_eq(st, b.log()))
+                    {
                         continue;
                     }
                     // Subscribed before the listing, so no row is missed.
                     let bsub = b.log().subscribe();
-                    self.seed(&mut q, b.log());
+                    this.seed(&mut q, b.log(), &stop).await;
                     boards.insert(b.board_id().to_string(), (b.log().clone(), bsub));
                 }
             }
+            let mut resync = Vec::new();
             for (st, bsub) in boards.values() {
                 loop {
                     match bsub.try_recv() {
-                        TryRecv::Item(ev) if ev.is_resync() => self.seed(&mut q, st),
-                        TryRecv::Item(ev) => self.take(&mut q, &ev),
+                        TryRecv::Item(ev) if ev.is_resync() => resync.push(st.clone()),
+                        TryRecv::Item(ev) => this.take(&mut q, &ev),
                         TryRecv::Empty | TryRecv::Closed => break,
                     }
                 }
             }
+            for st in resync {
+                this.seed(&mut q, &st, &stop).await;
+            }
             let now = Instant::now();
-            let next = q
-                .iter()
-                .filter(|(_, p)| p.due <= now)
-                .map(|(sha, _)| sha.clone())
-                .next();
-            // With no device connected every fetch would only say Offline
-            // (after scanning the logs for holders): wait for one, and keep
-            // the files due so the first connection picks them up.
-            let idle = next.is_some() && !self.connected();
-            if let Some(sha) = next.filter(|_| !idle) {
+            let next = (now >= rest).then(|| this.ready(&q, now)).flatten();
+            if let Some(sha) = next {
                 let r = q[&sha].r.clone();
                 let got = tokio::select! {
                     _ = stop.cancelled() => return,
                     got = tokio::time::timeout(
                         crate::meshview::FETCH_TIMEOUT,
-                        crate::meshview::fetch_any(&self.mesh, &r),
+                        crate::meshview::fetch_any(&this.mesh, &r),
                     ) => got,
                 };
                 match got {
@@ -239,28 +266,55 @@ impl Prefetch {
                         }
                     }
                 }
-                continue;
+                rest = Instant::now() + PACE;
             }
+            // Due files wait for a holder to connect: looked at each tick.
+            let now = Instant::now();
             let wake = q
                 .values()
                 .map(|p| p.due)
-                .filter(|_| !idle)
+                .filter(|d| *d > now)
                 .min()
                 .unwrap_or(boards_at)
                 .min(boards_at)
-                .min(Instant::now() + TICK);
+                .min(now + TICK)
+                .max(rest);
             tokio::select! {
                 _ = stop.cancelled() => return,
                 ev = sub.recv_async() => match ev {
                     None => return,
-                    Some(ev) if ev.is_resync() => self.seed(&mut q, &self.store),
-                    Some(ev) => self.take(&mut q, &ev),
+                    Some(ev) if ev.is_resync() => this.seed(&mut q, &this.store, &stop).await,
+                    Some(ev) => this.take(&mut q, &ev),
                 },
                 _ = tokio::time::sleep_until(wake) => {}
             }
             if Instant::now() >= boards_at {
                 look = true;
             }
+        }
+    }
+}
+
+/// Queues `r`. A pending file another device offers too is tried again
+/// at once.
+fn queue(q: &mut BTreeMap<String, Pending>, r: FileRef) {
+    match q.get_mut(&r.sha256) {
+        Some(p) => {
+            if !p.holders.contains(&r.device) {
+                p.holders.push(r.device);
+                p.due = Instant::now();
+            }
+        }
+        None => {
+            q.insert(
+                r.sha256.clone(),
+                Pending {
+                    holders: vec![r.device.clone()],
+                    r,
+                    due: Instant::now(),
+                    wait: FIRST_RETRY,
+                },
+            );
         }
     }
 }
