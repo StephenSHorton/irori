@@ -57,6 +57,7 @@ pub mod events;
 pub mod inbox;
 pub mod invites;
 pub mod mentions;
+pub mod meters;
 pub mod new_card;
 pub mod notes;
 pub mod notifications;
@@ -172,6 +173,8 @@ pub struct Window {
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,
+    /// The hardware meters' recent samples (card #599).
+    meters: meters::History,
 }
 
 impl Window {
@@ -191,6 +194,7 @@ impl Window {
             on_reset: OnceLock::new(),
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
+            meters: meters::History::default(),
         }
     }
 

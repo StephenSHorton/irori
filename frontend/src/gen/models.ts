@@ -86,6 +86,12 @@ export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
 export type Message = B.Message
+export type MetersCpu = B.MetersCpu
+export type MetersDisk = B.MetersDisk
+export type MetersGpu = B.MetersGpu
+export type MetersMem = B.MetersMem
+export type MetersNet = B.MetersNet
+export type MetersSample = B.MetersSample
 export type Mode = B.Mode
 export type NewCardInput = B.NewCardInput
 export type NoteChangeView = B.NoteChangeView
@@ -518,6 +524,36 @@ export function MentionOutcome(p: Partial<B.MentionOutcome> = {}): B.MentionOutc
 /** Message with Go's zero values for every field left out. */
 export function Message(p: Partial<B.Message> = {}): B.Message {
   return { "id": "", "from": Sender(), "to": Address(), "text": "", "hop": 0, "trust": "", "sentAt": "", ...p } as B.Message
+}
+
+/** MetersCpu with Go's zero values for every field left out. */
+export function MetersCpu(p: Partial<B.MetersCpu> = {}): B.MetersCpu {
+  return { "pct": null, "ghz": null, "cores": 0, ...p } as B.MetersCpu
+}
+
+/** MetersDisk with Go's zero values for every field left out. */
+export function MetersDisk(p: Partial<B.MetersDisk> = {}): B.MetersDisk {
+  return { "name": "", "activePct": null, "readBytesPerS": 0, "writeBytesPerS": 0, ...p } as B.MetersDisk
+}
+
+/** MetersGpu with Go's zero values for every field left out. */
+export function MetersGpu(p: Partial<B.MetersGpu> = {}): B.MetersGpu {
+  return { "name": "", "integrated": false, "utilPct": null, "tempC": null, "memUsedBytes": null, "memTotalBytes": null, ...p } as B.MetersGpu
+}
+
+/** MetersMem with Go's zero values for every field left out. */
+export function MetersMem(p: Partial<B.MetersMem> = {}): B.MetersMem {
+  return { "usedBytes": 0, "totalBytes": 0, ...p } as B.MetersMem
+}
+
+/** MetersNet with Go's zero values for every field left out. */
+export function MetersNet(p: Partial<B.MetersNet> = {}): B.MetersNet {
+  return { "rxBitsPerS": 0, "txBitsPerS": 0, ...p } as B.MetersNet
+}
+
+/** MetersSample with Go's zero values for every field left out. */
+export function MetersSample(p: Partial<B.MetersSample> = {}): B.MetersSample {
+  return { "atMs": 0, "cpu": MetersCpu(), "mem": MetersMem(), "disks": [], "net": MetersNet(), "gpus": [], ...p } as B.MetersSample
 }
 
 /** NewCardInput with Go's zero values for every field left out. */

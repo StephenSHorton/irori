@@ -17,6 +17,7 @@
 //! | `update:status` | [`UpdateStatus`] | updater transitions (M8) |
 //! | `voice:event` | `VoiceEvent` | a voice input session's words and end (#240, voice.rs) |
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
+//! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
 //! (`Core.Changes` is `presence.Subscribe`).
@@ -35,6 +36,7 @@ use crate::Window;
 use crate::roster::RosterChange;
 
 pub use crate::boards::EVENT_BOARDS_CHANGED;
+pub use crate::meters::EVENT_METERS_CHANGED;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
@@ -259,6 +261,8 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             });
         }));
     }
+    // The hardware meters (card #599): desktop only.
+    out.extend(crate::meters::start(w.clone(), stop.clone()));
     out
 }
 

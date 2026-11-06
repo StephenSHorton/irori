@@ -345,6 +345,11 @@ export const commands = {
 	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
 	/**  The person okays an Outside PR at one head. */
 	deskOk: (repoKey: string, pr: number, headSha: string) => __TAURI_INVOKE<null>("desk_ok", { repoKey, pr, headSha }),
+	/**
+	 *  This computer's recent hardware meter samples, oldest first (card #599);
+	 *  empty on the phone.
+	 */
+	metersHistory: () => __TAURI_INVOKE<MetersSample[]>("meters_history"),
 };
 
 /* Types */
@@ -1734,6 +1739,50 @@ export type Message = {
 	notice?: boolean,
 	attachments?: FileRef[],
 	mentions?: Mention[],
+};
+
+export type MetersCpu = {
+	/**  Busy, 0 to 100; null on the first read. */
+	pct: number | null,
+	ghz: number | null,
+	cores: number,
+};
+
+export type MetersDisk = {
+	name: string,
+	activePct: number | null,
+	readBytesPerS: number,
+	writeBytesPerS: number,
+};
+
+export type MetersGpu = {
+	name: string,
+	integrated: boolean,
+	utilPct: number | null,
+	tempC: number | null,
+	memUsedBytes: number | null,
+	memTotalBytes: number | null,
+};
+
+export type MetersMem = {
+	usedBytes: number,
+	totalBytes: number,
+};
+
+export type MetersNet = {
+	rxBitsPerS: number,
+	txBitsPerS: number,
+};
+
+/**  One read of every meter, as the window draws it. */
+export type MetersSample = {
+	/**  When it was read, Unix milliseconds. */
+	atMs: number,
+	cpu: MetersCpu,
+	mem: MetersMem,
+	disks: MetersDisk[],
+	net: MetersNet,
+	gpus: MetersGpu[],
 };
 
 /**  inbox.Mode (the wake policy). */

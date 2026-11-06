@@ -26,6 +26,7 @@ use crate::events::{CaptureChange, Empty};
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
+use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{TalkConversation, TalkMemberRef, TalkPost};
@@ -1566,6 +1567,14 @@ pub async fn window_log(line: String) -> R<()> {
     Ok(())
 }
 
+/// This computer's recent hardware meter samples, oldest first (card #599);
+/// empty on the phone.
+#[tauri::command]
+#[specta::specta]
+pub async fn meters_history(w: W<'_>) -> R<Vec<MetersSample>> {
+    Ok(w.meters_history())
+}
+
 /// Every command, plus the event payload types the frontend listens for.
 pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
@@ -1766,6 +1775,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_hold,
             desk_pause,
             desk_ok,
+            meters_history,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -1778,6 +1788,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<crate::cards::Holding>()
         .typ::<VoiceEvent>()
         .typ::<VoiceDownload>()
+        .typ::<MetersSample>()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()
