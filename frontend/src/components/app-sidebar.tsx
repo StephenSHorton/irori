@@ -33,6 +33,7 @@ import {
 
 import { Face } from "@/components/profile/face"
 import { SettingsMenu } from "@/components/settings/settings-menu"
+import { CallBar, callMock } from "@/components/talk/call-mock"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
@@ -546,6 +547,10 @@ export function AppSidebar({
           </section>
         )}
 
+        {/* The voice-call mock-up (card #571), browser preview only. */}
+        {!folded && (callMock() === "live" || callMock() === "share") && (
+          <CallBar />
+        )}
         <div
           className={cn(
             "flex shrink-0 items-center gap-2 border-t border-border py-3",

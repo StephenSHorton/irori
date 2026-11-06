@@ -74,6 +74,9 @@ const PAGES: Array<[name: string, query: string]> = [
   ["spaces-menu", "?spaces=open"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
+  // The voice-call mock-up (card #571).
+  ["call-live", "?call=live#talk/sample-ch-suzuri"],
+  ["call-transcript", "?call=transcript#talk/sample-ch-suzuri"],
   ["later-home", "?later=only"],
   ["later-open", "?later=only&notyet"],
   ["later-board", "?later=board#board/sample-board-mlg"],

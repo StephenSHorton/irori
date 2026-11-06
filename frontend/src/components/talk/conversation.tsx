@@ -52,7 +52,18 @@ import {
   type Member,
   type Post,
 } from "@/lib/conversations"
-import { AgentRef } from "@/lib/models"
+import { AgentRef, TalkPost } from "@/lib/models"
+import {
+  callChannel,
+  CallPanel,
+  callMock,
+  HuddleButton,
+  HuddleEnded,
+  HuddleStarted,
+  ShareStage,
+  StartHuddle,
+  TranscriptPane,
+} from "./call-mock"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
@@ -158,6 +169,9 @@ export function ConversationView({
   // 1100 px it left the box a few letters wide. Its header button still
   // opens it.
   const roomy = useMedia(membersRoomyQuery)
+  // The voice-call mock-up (card #571): the browser preview only.
+  const mock = conv.convId === callChannel ? callMock() : null
+  const inCall = mock === "live" || mock === "share"
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -252,7 +266,7 @@ export function ConversationView({
   return (
     <section
       aria-label={plainLine(conv.name)}
-      className="flex min-h-0 min-w-0 flex-1"
+      className="relative flex min-h-0 min-w-0 flex-1"
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2.5">
@@ -289,11 +303,16 @@ export function ConversationView({
               {plainLine(conv.topic)}
             </span>
           )}
+          {mock && (
+            <span className="ml-auto flex shrink-0">
+              <HuddleButton mock={mock} />
+            </span>
+          )}
           {conv.kind === "channel" && !narrow && (
             <Button
               size="xs"
               variant={showMembers ? "secondary" : "ghost"}
-              className="ml-auto shrink-0"
+              className={cn("shrink-0", !mock && "ml-auto")}
               aria-pressed={showMembers}
               onClick={() => setShowMembers((s) => !s)}
               title="Who's in this channel"
@@ -343,7 +362,11 @@ export function ConversationView({
             </span>
           )}
         </header>
-        {narrow && showMembers && conv.kind === "channel" ? (
+        {narrow && inCall ? (
+          <CallPanel channel={conv.name} wide />
+        ) : mock === "share" ? (
+          <ShareStage />
+        ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
           <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3 mac:overscroll-none">
@@ -392,6 +415,22 @@ export function ConversationView({
                       </div>
                     )
                   })}
+                  {mock === "live" && <HuddleStarted />}
+                  {mock === "transcript" && (
+                    <>
+                      <HuddleEnded />
+                      {mockAfter(conv).map((p) => (
+                        <PostRow
+                          key={p.postId}
+                          post={p}
+                          who={names.get(p.by)}
+                          names={names}
+                          live={live}
+                          channel={conv}
+                        />
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </Loading>
@@ -407,8 +446,16 @@ export function ConversationView({
           <Composer conv={conv} other={other[0]} />
         )}
       </div>
-      {showMembers && conv.kind === "channel" && !narrow && (
-        <Members members={conv.members} live={live} />
+      {mock === "start" && <StartHuddle channel={conv.name} />}
+      {inCall && !narrow ? (
+        <CallPanel channel={conv.name} sharing={mock === "share"} />
+      ) : mock === "transcript" && !narrow ? (
+        <TranscriptPane />
+      ) : (
+        showMembers &&
+        conv.kind === "channel" &&
+        !narrow &&
+        mock !== "start" && <Members members={conv.members} live={live} />
       )}
       <NewCardDialog
         open={!!making}
@@ -422,6 +469,32 @@ export function ConversationView({
       />
     </section>
   )
+}
+
+// mockAfter is what follows the ended huddle in the mock-up (card #571):
+// you ask an agent to act on the transcript, and it does.
+function mockAfter(conv: Conversation): Post[] {
+  const heron = conv.members.find((m) => m.name === "sample-heron")
+  const you = conv.members.find((m) => m.kind === "person")
+  if (!heron || !you) return []
+  const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
+  return [
+    TalkPost({
+      postId: "call-mock-1",
+      convId: conv.convId,
+      by: you.key,
+      at: at(4),
+      text: "@sample-heron make cards for the huddle's to-dos",
+      mentions: [heron.key],
+    }),
+    TalkPost({
+      postId: "call-mock-2",
+      convId: conv.convId,
+      by: heron.key,
+      at: at(3),
+      text: "Made #41 Rerun the latency test on the PC once it's idle, from the huddle at 10:07. The other to-do was the same one, so I didn't make a second card.",
+    }),
+  ]
 }
 
 // refOf is a member as a face needs it, with its live status.
