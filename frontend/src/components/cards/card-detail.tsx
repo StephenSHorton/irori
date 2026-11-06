@@ -1,3 +1,5 @@
+import { NotYetButton, WhenLine } from "@/components/cards/order"
+import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
@@ -105,10 +107,16 @@ import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
 import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard, useMissed } from "@/lib/mentions"
-import { useBoards, type BoardSummary } from "@/lib/boards"
+import { useBoards, usePersonalBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
 import { StartPastLimit } from "./start-past-limit"
-import { ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
+import {
+  MoveBoardButton,
+  ShareButton,
+  TransferButton,
+  WithdrawButton,
+} from "./share-dialog"
+import { boardsOf, Personal } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -291,6 +299,7 @@ export function CardPage({
                 onOpen={onOpen}
                 onBack={onBack}
               />
+              <NotYetButton card={detail} />
               {!detail.onBoard && <PauseButton card={detail} />}
               {!detail.onBoard && (
                 <DeleteButton detail={detail} onDeleted={onBack} />
@@ -367,7 +376,7 @@ export function CardPage({
                       )}
                     </Section>
                   )}
-                  {hasBlockers && (
+                  {hasBlockers && !laterOf(detail) && (
                     <Section title="Blockers" last>
                       {legacy && (
                         <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
@@ -838,6 +847,22 @@ function BoardActions({
             initialOpen={previewFlag("transfer") === detail.id}
           />
         )}
+        {shared &&
+          !detail.parent &&
+          !openAsk(detail) &&
+          boardsOf(shared).length > 1 && (
+            <MoveBoardButton
+              id={detail.id}
+              boards={boardsOf(shared)}
+              current={
+                !detail.spaceBoard || detail.spaceBoard === shared.boardId
+                  ? boardsOf(shared)[0].boardId
+                  : detail.spaceBoard
+              }
+              family={(detail.subtasks ?? 0) > 0}
+              initialOpen={previewFlag("move") === detail.id}
+            />
+          )}
         {/* The private card the work carries on in, else back to the grid:
             a withdrawn card is hidden and can't be reopened. */}
         {detail.onBoard.canWithdraw && !detail.parent && (
@@ -854,11 +879,30 @@ function BoardActions({
   if (over(detail) || detail.sharedTo || openAsk(detail) || detail.parent)
     return null
   return (
-    <ShareButton
-      cardId={detail.id}
+    <>
+      <PersonalMove detail={detail} />
+      <ShareButton
+        cardId={detail.id}
+        boards={boards}
+        initialOpen={previewFlag("share") === detail.id}
+        onShared={(id) => onOpen?.(id)}
+      />
+    </>
+  )
+}
+
+// PersonalMove is Move on a private card (card #563): to another of
+// Personal's boards, once there is more than one.
+function PersonalMove({ detail }: { detail: CardDetail }) {
+  const { boards } = usePersonalBoards()
+  if (boards.length < 2) return null
+  return (
+    <MoveBoardButton
+      id={detail.id}
       boards={boards}
-      initialOpen={previewFlag("share") === detail.id}
-      onShared={(id) => onOpen?.(id)}
+      current={detail.spaceBoard || Personal}
+      family={(detail.subtasks ?? 0) > 0}
+      initialOpen={previewFlag("move") === detail.id}
     />
   )
 }
@@ -938,6 +982,7 @@ function PageHeader({
           </button>
         </p>
       )}
+      <WhenLine card={card} onOpen={onOpen} />
       {card.fromThread && (
         <p className="text-sm text-muted-foreground">
           From the thread{" "}
@@ -1112,7 +1157,7 @@ function ProgressLine({ detail }: { detail: CardDetail }) {
         {detail.openBlockers} waiting on a decision
       </span>
     )
-  if (detail.waitingOn)
+  if (detail.waitingOn && !laterOf(detail))
     parts.push(
       <span key="o">{waitLabel(detail).replace(/^Waiting/, "waiting")}</span>
     )
@@ -1516,7 +1561,7 @@ export function CommentBox({
         <MentionTextarea
           card={cardId}
           autoSize
-          voice
+          voice="main"
           value={text}
           mentions={mentions}
           onChange={(v, ms) => {

@@ -13,6 +13,7 @@ use super::error::{Result, bad_state, invalid, not_allowed, not_found};
 use super::fold::{
     Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, RefusalRec, engaged, is_holder, may_record,
 };
+use super::later::Back;
 use super::links::parse_link;
 use super::resource::{RESOURCE_PATH, Resource, conflicts, normalize_resource, parse_resource};
 use super::rows::*;
@@ -30,6 +31,16 @@ use crate::names::trim_space;
 
 /// Why the sweep closes an answered item whose agent left (card #481).
 const ANSWERED_LEFT: &str = "the agent it went to left the card";
+
+/// Why a version wait closed, for the closing note.
+fn version_ran(r: &str) -> String {
+    let (min, devs) = super::version_wait::parse_version_wait(r);
+    if devs.len() > 1 {
+        format!("{min} or later running on all {} devices", devs.len())
+    } else {
+        format!("{min} or later running")
+    }
+}
 
 /// Validates a block reason or unblock note (trimmed).
 pub(crate) fn check_reason(s: &str, required: bool) -> Result<()> {
@@ -91,6 +102,18 @@ impl Fold {
         bb: Option<&BlockedBy>,
         me: &str,
     ) -> Result<Option<BlockedBy>> {
+        self.check_wait(bb, me, true)
+    }
+
+    /// [`Self::check_blocker`] for an item that may ask a question: one
+    /// with options is the person's to decide (card #347), so it is no
+    /// `edge` of a circle.
+    pub(crate) fn check_wait(
+        &self,
+        bb: Option<&BlockedBy>,
+        me: &str,
+        edge: bool,
+    ) -> Result<Option<BlockedBy>> {
         let Some(bb) = bb else {
             return Ok(None);
         };
@@ -127,8 +150,11 @@ impl Fold {
                 out.reference = names.join(" ");
             }
             BLOCKED_ON_TASK => {
-                if out.reference.is_empty() || out.reference == me {
+                if out.reference.is_empty() {
                     return Err(invalid("blocked on a task needs another task's id"));
+                }
+                if out.reference == me {
+                    return Err(invalid("a card can't wait on itself"));
                 }
                 let Some(o) = self.tasks.get(&out.reference) else {
                     return Err(not_found(format!(
@@ -138,6 +164,11 @@ impl Fold {
                 };
                 if let Some(w) = work_done(o) {
                     return Err(invalid(format!("{} is already {w}", o.short_ref())));
+                }
+                // Every wait comes through here (card #570). A new card has
+                // nothing waiting on it yet, so nothing to close a circle.
+                if edge {
+                    self.check_edge(me, Some(&out))?;
                 }
             }
             BLOCKED_ON_PERSON => {
@@ -277,6 +308,7 @@ impl Fold {
                 "task {id} isn't shared; claim it instead"
             )));
         }
+        self.parked_take_refusal(&by, t)?;
         if engaged(t, &who) && t.state != SUBMITTED {
             return Ok(t.clone());
         }
@@ -285,6 +317,7 @@ impl Fold {
         if by == who {
             self.check_side_take(&who, t)?;
         }
+        self.end_park(&by, id, "the person took it")?;
         let at = self.stamp();
         self.write(
             &by,
@@ -502,6 +535,9 @@ impl Fold {
         if t.state != BLOCKED {
             return Err(bad_state(format!("task {id} is {}, not blocked", t.state)));
         }
+        if t.parked().is_some() {
+            return self.unblock_parked(&by, id, &note);
+        }
         let now = self.stamp();
         let n = self.close_blocker(&by, id, &note, now)?;
         Ok((self.tasks[id].clone(), n))
@@ -526,8 +562,21 @@ impl Fold {
                 note: note.into(),
                 restored: restored.into(),
                 at: now,
+                // What this device sees open, and so closes (card #635).
+                blocker_ids: t
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open())
+                    .map(|b| b.id.clone())
+                    .collect(),
             },
         )?;
+        Ok(self.unblocked_notice(&t, by, note, restored))
+    }
+
+    /// The notice for a card whose blockers `by` closed: t as it was.
+    fn unblocked_notice(&self, t: &Task, by: &str, note: &str, restored: &str) -> Notice {
+        let id = t.id.as_str();
         let nt = self.tasks[id].clone();
         let who = if by == SWEEPER {
             "Irori".to_string()
@@ -543,7 +592,7 @@ impl Fold {
             cut(&t.reason, MAX_NOTICE_FIELD)
         ));
         b.push_str(&deeper(id));
-        Ok(Notice {
+        Notice {
             kind: NOTICE_UNBLOCKED.into(),
             task_id: id.into(),
             reference: format!("task:{id}"),
@@ -552,7 +601,7 @@ impl Fold {
             to: self.recipients(&nt, by),
             text: b,
             ..Notice::default()
-        })
+        }
     }
 
     /// Who hears about t: its agent holders other than by; with none, its
@@ -1205,8 +1254,13 @@ impl Fold {
     /// person closes it, so the row folds everywhere (card #242).
     fn answered_left(&self, t: &Task, b: &Blocker) -> bool {
         // A done check or an ownership change is the person's to close,
-        // never Irori's.
-        if !b.open() || b.status != BLOCKER_ANSWERED || b.done_check || b.transfer {
+        // never Irori's; a Not yet (card #570) ends by what it names.
+        if !b.open()
+            || b.status != BLOCKER_ANSWERED
+            || b.done_check
+            || b.transfer
+            || !b.later.is_empty()
+        {
             return false;
         }
         if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
@@ -1240,6 +1294,32 @@ impl Fold {
             let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
                 continue;
             };
+            // A Not yet (card #570): a card's goes by the task arm below;
+            // anything else that isn't a date or a version waits for the
+            // person, whatever its `on` says.
+            if let Some(back) = b.back() {
+                if !self.may_sweep_close(t, b) {
+                    continue;
+                }
+                match back {
+                    Back::Card(_) => {}
+                    Back::Date(d) => {
+                        if !gotime::before(now, &d) {
+                            ids.push(b.id.clone());
+                            why.push(format!("{} came", super::later::day_of(&d)));
+                        }
+                        continue;
+                    }
+                    Back::Version(r) => {
+                        if self.version_behind(&r).is_empty() {
+                            ids.push(b.id.clone());
+                            why.push(version_ran(&r));
+                        }
+                        continue;
+                    }
+                    Back::Word => continue,
+                }
+            }
             match on.kind.as_str() {
                 BLOCKED_ON_LEASE => {
                     let names: Vec<&str> = on.reference.split_whitespace().collect();
@@ -1252,22 +1332,23 @@ impl Fold {
                         });
                     }
                 }
-                BLOCKED_ON_TASK => {
-                    if let Some(o) = self.tasks.get(&on.reference)
-                        && let Some(w) = work_done(o)
-                    {
-                        ids.push(b.id.clone());
-                        why.push(w);
+                BLOCKED_ON_TASK => match self.tasks.get(&on.reference) {
+                    Some(o) => {
+                        if let Some(w) = work_done(o) {
+                            ids.push(b.id.clone());
+                            why.push(w);
+                        }
                     }
-                }
+                    // Only a deleted card: one not synced yet may still come.
+                    None if self.deleted.contains(&on.reference) => {
+                        ids.push(b.id.clone());
+                        why.push("task deleted".into());
+                    }
+                    None => {}
+                },
                 BLOCKED_ON_VERSION if self.version_behind(&on.reference).is_empty() => {
-                    let (min, devs) = super::version_wait::parse_version_wait(&on.reference);
                     ids.push(b.id.clone());
-                    why.push(if devs.len() > 1 {
-                        format!("{min} or later running on all {} devices", devs.len())
-                    } else {
-                        format!("{min} or later running")
-                    });
+                    why.push(version_ran(&on.reference));
                 }
                 BLOCKED_ON_EXTERNAL if self.outside_wait_gone(&t.id, b) => {
                     ids.push(b.id.clone());
@@ -1313,6 +1394,8 @@ impl Fold {
         let agent_viewer = !viewer.is_empty() && !self.is_owner(&viewer);
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let rs = self.roster_status();
+        // Found once per read, and only when a held card asks (finding 6).
+        let mut loops: Option<super::later::OrderLoops> = None;
         for t in self.tasks.values() {
             if !f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key) {
                 continue;
@@ -1353,10 +1436,19 @@ impl Fold {
                 }
             }
             let state = effective_state(t);
+            // A Later section must not hide a loop (card #570): the one
+            // time a held card is the person's.
+            let looped = !agent_viewer
+                && t.parked().is_some()
+                && loops
+                    .get_or_insert_with(|| self.order_loops())
+                    .contains(&t.id);
             if is_terminal(state) {
                 v.done.push(card);
-            } else if self.needs_you(t, &viewer, agent_viewer, &rs) {
+            } else if looped || self.needs_you(t, &viewer, agent_viewer, &rs) {
                 v.needs_you.push(card);
+            } else if t.parked().is_some() {
+                v.later.push(card);
             } else if state == BLOCKED && !t.all_answered() {
                 v.blocked.push(card);
             } else if !t.holders.is_empty() {
@@ -1370,6 +1462,7 @@ impl Fold {
             &mut v.blocked,
             &mut v.working,
             &mut v.open,
+            &mut v.later,
             &mut v.done,
         ] {
             g.sort_by(|a, b| {
@@ -1457,6 +1550,7 @@ impl Fold {
             }
             return t.blockers.iter().any(|b| {
                 b.open()
+                    && b.later.is_empty()
                     && b.status == BLOCKER_ANSWERED
                     && (b.sent_to == viewer || b.sent_to.is_empty() && b.raised_by == viewer)
             });
@@ -1512,6 +1606,10 @@ impl Fold {
     fn sweep_rest(&mut self, now: &GoTime, out: &mut Vec<Notice>) -> Result<()> {
         let now = *now;
         self.return_gone(&now, out)?;
+        self.hold_old_subtasks()?;
+        self.end_kid_holds()?;
+        self.end_held_spawns()?;
+        self.take_off_held(out)?;
         self.return_unheld_prs()?;
         self.tell_not_answering(out)?;
         self.tell_idle_holders(out);
@@ -1523,7 +1621,22 @@ impl Fold {
             .collect();
         for id in todo {
             let t = self.tasks[&id].clone();
-            let (ids, why) = self.gone_away(&t, &now);
+            // Only items this device's close would count for (section 5
+            // bug 1): any other row is dead, and written every sweep.
+            let (ids, why): (Vec<String>, Vec<String>) = {
+                let (ids, why) = self.gone_away(&t, &now);
+                ids.into_iter()
+                    .zip(why)
+                    .filter(|(bid, _)| {
+                        t.blockers
+                            .iter()
+                            .any(|b| &b.id == bid && self.may_sweep_close(&t, b))
+                    })
+                    .unzip()
+            };
+            if ids.is_empty() {
+                continue;
+            }
             // An answered item keeps the person's answer, so it goes one
             // by one, never through the close of the whole card.
             let left: Vec<bool> = ids
@@ -1535,10 +1648,9 @@ impl Fold {
                         .is_some_and(|b| self.answered_left(&t, b))
                 })
                 .collect();
-            if ids.len() == count_open(&t) && !left.contains(&true) {
-                out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
-                continue;
-            }
+            // Never blocker.closed (card #570): it names no item, so on a
+            // device with a hold this one hasn't seen it ends the hold.
+            let whole = ids.len() == count_open(&t) && !left.contains(&true);
             // An agent that left the card (card #481) isn't told.
             let raisers: Vec<String> = t
                 .blockers
@@ -1555,21 +1667,38 @@ impl Fold {
                     Some(a) => (a.text.clone(), a.pick - 1, why[i].clone()),
                     None => (why[i].clone(), -1, String::new()),
                 };
-                self.write(
-                    SWEEPER,
-                    kinds::BLOCKER_RESOLVED,
-                    &BlockerResolvedRow {
-                        task_id: id.clone(),
-                        blocker_id: bid.clone(),
-                        answer,
-                        option,
-                        note,
-                        by: SWEEPER.into(),
-                        closed: true,
-                        at: now,
-                        ..BlockerResolvedRow::default()
-                    },
-                )?;
+                let cur = &self.tasks[&id];
+                let restored = if count_open(cur) == 1 {
+                    self.restore_for(cur).to_string()
+                } else {
+                    String::new()
+                };
+                // And the raises merged into it (card #570): another
+                // device may have one of them as the item.
+                let merged = super::later::merged_into(cur, bid);
+                for x in std::iter::once(bid.clone()).chain(merged) {
+                    self.write(
+                        SWEEPER,
+                        kinds::BLOCKER_RESOLVED,
+                        &BlockerResolvedRow {
+                            task_id: id.clone(),
+                            blocker_id: x,
+                            answer: answer.clone(),
+                            option,
+                            note: note.clone(),
+                            by: SWEEPER.into(),
+                            closed: true,
+                            restored: restored.clone(),
+                            at: now,
+                        },
+                    )?;
+                }
+            }
+            // All of it closed: told as an unblock, as before.
+            if whole {
+                let now_in = self.tasks[&id].state.clone();
+                out.push(self.unblocked_notice(&t, SWEEPER, &why[0], &now_in));
+                continue;
             }
             // Nobody holds it (its spawned agent went while it waited on
             // other work, card #474) and what is still open the person
@@ -1598,12 +1727,17 @@ impl Fold {
                 .zip(&why)
                 .map(|(i, w)| format!("{i} ({w})"))
                 .collect();
+            let rest = match count_open(&nt) {
+                0 => format!("It is {} again.", nt.state),
+                n => format!(
+                    "{n} more blockers are still open; board_unblock with blocker_id answers one."
+                ),
+            };
             n.text = format!(
-                "Irori closed {} on {} ({}): what it waited on went away. {} more blockers are still open; board_unblock with blocker_id answers one.{}",
+                "Irori closed {} on {} ({}): what it waited on went away. {rest}{}",
                 items.join(", "),
                 quote(&nt.title),
                 nt.refs(),
-                count_open(&nt),
                 deeper(&id)
             );
             if !n.to.is_empty() {
@@ -1939,12 +2073,13 @@ pub(crate) fn names_lease(text: &str, name: &str) -> bool {
 /// Whether a card another waits on has finished its work (card #347): it
 /// ended, it's in review, or an agent said it's done and it waits on the
 /// person's Done. A wait on it is over; what's left is the person's.
-/// Says how, for the closing note.
+/// Says how, for the closing note. A parent's lane is its rollup.
 fn work_done(o: &Task) -> Option<String> {
-    if is_terminal(&o.state) {
-        return Some(format!("task {}", o.state));
+    let state = effective_state(o);
+    if is_terminal(state) {
+        return Some(format!("task {state}"));
     }
-    if o.state == IN_REVIEW {
+    if state == IN_REVIEW {
         return Some("task in review".into());
     }
     o.blockers

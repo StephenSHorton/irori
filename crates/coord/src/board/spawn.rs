@@ -18,6 +18,7 @@ use store::{Event, kinds};
 
 use super::error::{Result, bad_state, not_allowed};
 use super::fold::Fold;
+use super::later::HELD_SPAWN;
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, caller, contains};
@@ -548,6 +549,9 @@ impl Fold {
                 op: op.into(),
                 device: s.device,
                 permission_mode: s.permission_mode,
+                // So a session started under that name can still be found
+                // and ended (card #570).
+                name: s.name,
                 reason: reason.into(),
                 by,
                 at: now,
@@ -555,6 +559,43 @@ impl Fold {
             },
         )?;
         Ok(true)
+    }
+
+    /// Whether a cancel `by` writes here for card t counts: on a board
+    /// only from the device of the person serving it, who it was given to
+    /// else its author (see spawn_writer_ok, card #573).
+    fn may_end_spawn(&self, by: &str, t: &Task) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let serves = self.serving_person(t);
+        !serves.is_empty() && serves == dp(&self.dev) && (by == SWEEPER || kp(by) == serves)
+    }
+
+    /// Ends every request of card `id` still waiting for its agent (card
+    /// #570), where this device's cancel counts. Anywhere else the serving
+    /// person's device ends it: bind_spawn and the sweep both do.
+    pub(crate) fn end_pending_spawns(&mut self, by: &str, id: &str, reason: &str) -> Result<()> {
+        let by = if self.may_end_spawn(by, &self.tasks[id]) {
+            by
+        } else if self.may_end_spawn(SWEEPER, &self.tasks[id]) {
+            SWEEPER
+        } else {
+            return Ok(());
+        };
+        let pending: Vec<Spawn> = self.tasks[id]
+            .spawns
+            .iter()
+            .filter(|s| s.pending())
+            .cloned()
+            .collect();
+        for s in pending {
+            self.end_spawn(by, id, s.part(), s.generation, SPAWN_CANCELED, reason)?;
+        }
+        Ok(())
     }
 
     /// Binds agent `key` to request `generation` of card `id` once presence
@@ -581,6 +622,11 @@ impl Fold {
         }
         // Another computer's request won this generation (card #541).
         if !same_device(&s.device, &self.dev) {
+            return Ok(false);
+        }
+        // A held card gets no agent (card #570): its request ends here.
+        if t.parked().is_some() {
+            self.end_pending_spawns(SWEEPER, id, HELD_SPAWN)?;
             return Ok(false);
         }
         let now = self.stamp();
@@ -692,7 +738,12 @@ impl Fold {
             // A request that didn't count was the person's Start, which
             // holds through a retry; a crash they answered is theirs too.
             Some(s) => s.counted && t.person_restart != s.generation,
-            None => self.spawned.get(&t.created_by).is_some_and(|m| m.counted),
+            // An agent's own thread starts one only on its person's post
+            // (card #631), so its opener's mark doesn't carry.
+            None => {
+                t.ask.as_ref().is_none_or(|a| a.opener.is_empty())
+                    && self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
+            }
         }
     }
 
@@ -1258,6 +1309,7 @@ impl Fold {
                     && a.reason != super::threads::TAKE_ANSWERED
                     && (a.thread || a.mentions.is_empty())
                     && (!a.thread || a.wake)
+                    && !self.agent_thread_rests(t)
             }
             None => super::offers::needs_agent(t) || self.needs_lead(t),
         }
@@ -1358,6 +1410,9 @@ impl Fold {
     pub(crate) fn queue_class(&self, t: &Task) -> u8 {
         if self.spawn_now.contains(&t.id)
             || (t.parent.is_empty() && self.is_owner(&t.created_by) && !self.in_chain(t))
+            // An agent's thread its person wrote in is theirs (card #631).
+            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty())
+                && !self.agent_thread_rests(t))
         {
             0
         } else if t.spawn && !t.parent.is_empty() {

@@ -1,14 +1,15 @@
-# Sourced by scripts/check.sh (card #437): take one of this device's check
-# slots before the build, so at most CHECK_SLOTS full runs build at once
+# Sourced by scripts/check.sh (card #437), which calls slot_take: take one
+# of this device's check slots before the build, so at most CHECK_SLOTS full runs build at once
 # (30 at once on Nov 3 put the Mac's load at 60 and filled its disk). A
 # third run waits its turn. The slot is an Irori lease (POST /v1/slots,
 # crates/api/src/slots.rs) on check/<host>/slot-N, held by this run, so
 # the Board's leases show who has them.
 #
 # The lease is short (SLOT_TTL) and a watcher renews it while this shell
-# lives. Exit, a failure, Ctrl+C or TERM releases it at once (the trap); a
-# kill -9 is seen by the watcher within a few seconds, which releases it;
-# if both die, the lease ends by itself after SLOT_TTL.
+# lives. Exit, a failure, Ctrl+C or TERM releases it at once (check.sh's
+# trap calls slot_release); a kill -9 is seen by the watcher within a few
+# seconds, which releases it; if both die, the lease ends by itself after
+# SLOT_TTL. scripts/check-stop.sh releases it itself (card #609).
 #
 # With Irori not running (no lockfile, no answer, no curl), or
 # CHECK_SLOTS=0, it does nothing and check.sh runs as before.
@@ -54,24 +55,36 @@ slot_release() {
   fi
 }
 
+# Finds the running Irori (slot_port, slot_token); fails, saying why,
+# when there is none to ask.
+slot_connect() {
+  command -v curl >/dev/null 2>&1 || { slot_log "no curl"; return 1; }
+  lock="$(slot_home)/irori.json"
+  [ -f "$lock" ] || { slot_log "Irori isn't running"; return 1; }
+  slot_port=$(slot_field port "$lock")
+  slot_token=$(slot_field token "$lock")
+  if [ -z "$slot_port" ] || [ -z "$slot_token" ] ||
+    ! curl -sf --max-time 3 "http://127.0.0.1:$slot_port/v1/health" >/dev/null 2>&1; then
+    slot_log "Irori isn't answering"
+    return 1
+  fi
+}
+
+# The lease resource and the run name of check.sh's shell $1, run from
+# this worktree: check-<worktree>-<pid>.
+slot_ids() {
+  host=$(hostname 2>/dev/null | sed 's/\..*//' | tr 'A-Z' 'a-z' | tr -c 'a-z0-9.\n_-' '-')
+  slot_res="check/${host:-device}"
+  slot_run=$(printf 'check-%s-%s' "$(basename "$PWD")" "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9._-' '-' | cut -c 1-64)
+}
+
 slot_take() {
   case "$CHECK_SLOTS" in
     '' | *[!0-9]*) slot_log "CHECK_SLOTS must be a number, not $CHECK_SLOTS"; return 0 ;;
     0) return 0 ;;
   esac
-  command -v curl >/dev/null 2>&1 || { slot_log "no curl: running without a slot"; return 0; }
-  lock="$(slot_home)/irori.json"
-  [ -f "$lock" ] || { slot_log "Irori isn't running: running without a slot"; return 0; }
-  slot_port=$(slot_field port "$lock")
-  slot_token=$(slot_field token "$lock")
-  if [ -z "$slot_port" ] || [ -z "$slot_token" ] ||
-    ! curl -sf --max-time 3 "http://127.0.0.1:$slot_port/v1/health" >/dev/null 2>&1; then
-    slot_log "Irori isn't answering: running without a slot"
-    return 0
-  fi
-  host=$(hostname 2>/dev/null | sed 's/\..*//' | tr 'A-Z' 'a-z' | tr -c 'a-z0-9.\n_-' '-')
-  slot_res="check/${host:-device}"
-  slot_run=$(printf 'check-%s-%s' "$(basename "$PWD")" "$$" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9._-' '-' | cut -c 1-64)
+  slot_connect || { slot_log "running without a slot"; return 0; }
+  slot_ids "$$"
   said=""
   while :; do
     out=$(slot_post "/v1/slots?resource=$slot_res&slots=$CHECK_SLOTS&ttl=$SLOT_TTL&run=$slot_run")
@@ -101,9 +114,6 @@ slot_take() {
         ;;
     esac
   done
-  trap 'slot_release' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
   # The watcher renews while this shell lives and releases once it is
   # gone (a kill -9 runs no trap).
   parent=$$
@@ -122,5 +132,3 @@ slot_take() {
   ) </dev/null >/dev/null 2>&1 &
   slot_watcher=$!
 }
-
-slot_take

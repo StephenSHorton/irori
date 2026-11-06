@@ -9,8 +9,10 @@
 //   ?boards         opens the Boards dialog
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there
+//   ?move=<card>    opens Move to another board there
 //   ?update=ready   shows the update card (also downloading, installing)
-//   ?voice=ready    shows the mic on the text boxes (also needs-model, denied)
+//   ?voice=ready    shows the mic on the text boxes (also needs-model, denied);
+//                   pressing it hears a sample sentence (lib/voice.ts)
 //   ?spawn=first    shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)

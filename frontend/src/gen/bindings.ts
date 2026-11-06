@@ -98,12 +98,25 @@ export const commands = {
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
 	boardClose: (id: string, state: string, note: string) => __TAURI_INVOKE<Task>("board_close", { id, state, note }),
 	boardDelete: (id: string) => __TAURI_INVOKE<null>("board_delete", { id }),
+	boardMove: (id: string, board: string) => __TAURI_INVOKE<Task>("board_move", { id, board }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
 	 *  refused until Resume (`paused: false`). Returns who was told.
 	 */
 	boardPause: (id: string, paused: boolean, note: string) => __TAURI_INVOKE<string[]>("board_pause", { id, paused, note }),
+	/**
+	 *  Not yet on a card (card #570): the person holds it back from the
+	 *  agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+	 *  "2026-12-01": the start of that day here), a version on this device
+	 *  ("v0.13.0"), or empty for until they say. `why` may be empty.
+	 */
+	boardNotYet: (id: string, until: string, why: string) => __TAURI_INVOKE<null>("board_not_yet", { id, until, why }),
+	/**
+	 *  Start now on a held card (card #570): it comes back and goes out as
+	 *  if just posted.
+	 */
+	boardStartNow: (id: string) => __TAURI_INVOKE<null>("board_start_now", { id }),
 	/**
 	 *  Stop on an agent (card #207): cuts its running turn; `text` (empty: a
 	 *  plain "stop and wait") is its next prompt.
@@ -173,6 +186,8 @@ export const commands = {
 	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
 	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
 	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
+	boardsDeleteInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_delete_in_space", { spaceId, boardId }),
+	boardsDeleteInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_delete_in_personal", { boardId }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -968,6 +983,22 @@ export type CardHolder = {
 	others: number,
 };
 
+/**  A held card's Not yet (card #570). */
+export type CardLater = {
+	/**  Why it was held, as it was given. */
+	why: string,
+	back: LaterBack,
+	/**
+	 *  What brings it back, plainly: "when #12 is done", "on 1 Dec",
+	 *  "when this Mac runs v0.13.0", "when you say".
+	 */
+	line: string,
+	/**  Who held it, by name. */
+	by: string,
+	/**  The card it waits on, for a card hold. */
+	card?: string,
+};
+
 /**  A holder's one line on what's done and what's next (card #137). */
 export type CardLeftOff = {
 	text: string,
@@ -1021,6 +1052,16 @@ export type CardOption = {
 	at: string,
 	recommended: boolean,
 	link?: Link | null,
+};
+
+/**  The run of cards a card is in (card #570): each after the one before. */
+export type CardOrder = {
+	/**  First to last; the card itself among them. */
+	steps: OrderStep[],
+	/**  The card it comes after, if any. */
+	previous?: OrderStep | null,
+	/**  The card that comes after it, if any. */
+	next?: OrderStep | null,
 };
 
 /**  A pull request linked from the card. */
@@ -1191,16 +1232,8 @@ export type CardSummary = {
 	 */
 	waitGone?: boolean,
 	waitQuestion?: string,
-	/**
-	 *  The card the first wait is on, by id (Home counts the cards that
-	 *  wait on a red main's card by it, card #436).
-	 */
+	/**  The card the first wait is on, by id. */
 	waitTask?: string,
-	/**
-	 *  A "main is red" card's failing test (card #436): Home leads with
-	 *  it while it is open.
-	 */
-	mainRed?: string,
 	/**
 	 *  Where the first wait's chain of cards ends at the person (card
 	 *  #347): "your answer on #12". A PR never waits on the person (card
@@ -1319,6 +1352,13 @@ export type CardSummary = {
 	 *  board can't say.
 	 */
 	owner?: string,
+	/**
+	 *  The card is held back as Not yet (card #570): why, and what brings
+	 *  it back.
+	 */
+	later?: CardLater | null,
+	/**  The run of cards it is in, each after the one before (card #570). */
+	order?: CardOrder | null,
 };
 
 /**  One entry of a card's thread. */
@@ -1813,6 +1853,17 @@ export type InviteStatus = {
 	error?: string,
 };
 
+/**  What brings a held card back. */
+export type LaterBack = 
+/**  Another card finishing. */
+"card" | 
+/**  A day coming. */
+"date" | 
+/**  A device running an Irori version. */
+"version" | 
+/**  The person's word. */
+"word";
+
 /**  coord.Link. */
 export type Link = {
 	kind: LinkKind,
@@ -2056,6 +2107,23 @@ export type NotifyOptions = {
 	corner: string,
 	/**  A confetti burst from each success card ("Confetti on good news"). */
 	confetti?: boolean,
+};
+
+/**  Where a step of an order stands. */
+export type OrderState = "done" | "working" | "waiting" | "later";
+
+/**  One card of an order. */
+export type OrderStep = {
+	id: string,
+	/**  Its number on its board, as the card's own `short`: "12". */
+	short: string,
+	/**
+	 *  Its board's tag (card #558): one log holds several boards, each
+	 *  numbered from 1, and an order may cross them. "": Personal's own.
+	 */
+	tag: string,
+	title: string,
+	state: OrderState,
 };
 
 /**  coord.Outcome: how an ask ended. */
@@ -2606,6 +2674,12 @@ export type ThreadSummary = {
 	queuePlace?: number,
 	/**  While a Claude usage limit holds spawns, when they start again. */
 	usageLimit?: string | null,
+	/**
+	 *  The agent that opened it (card #631); absent for the person's own.
+	 *  Until the person writes in it, it waits on them and no agent is
+	 *  started for it.
+	 */
+	openedBy?: AgentRef | null,
 };
 
 /**  Who an action's notice went to. */

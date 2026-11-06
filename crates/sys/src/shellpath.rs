@@ -71,6 +71,11 @@ pub fn fallback_path() -> Vec<String> {
 
 /// $PATH as the user's login shell sets it, or `""`.
 pub fn login_shell_path() -> String {
+    login_shell_path_within(SHELL_TIMEOUT)
+}
+
+/// [`login_shell_path`], giving the shell `timeout` to answer.
+fn login_shell_path_within(timeout: Duration) -> String {
     let shell = std::env::var("SHELL")
         .ok()
         .filter(|s| std::path::Path::new(s).is_absolute())
@@ -94,7 +99,7 @@ pub fn login_shell_path() -> String {
         let _ = tx.send(buf);
     });
     // Wait for the shell, killing it at the timeout.
-    let deadline = std::time::Instant::now() + SHELL_TIMEOUT;
+    let deadline = std::time::Instant::now() + timeout;
     let ok = loop {
         match child.try_wait() {
             Ok(Some(st)) => break st.success(),
@@ -176,10 +181,13 @@ mod tests {
     }
 
     /// This machine's login shell answers with a PATH that has /usr/bin.
+    /// It gets 60 s, not the app's 5: under parallel builds (load ~40) a
+    /// login shell starts late, and the test checks the answer, not the
+    /// timeout.
     #[cfg(unix)]
     #[test]
     fn login_shell_answers() {
-        let p = login_shell_path();
+        let p = login_shell_path_within(Duration::from_secs(60));
         assert!(p.contains("/usr/bin"), "login shell PATH = {p:?}");
     }
 }

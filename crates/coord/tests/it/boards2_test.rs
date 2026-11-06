@@ -3051,6 +3051,98 @@ fn a_board_thread_spawns_on_the_posters_device_at_once() {
     );
 }
 
+/// Card #631: p1's agent opens a thread in the space's log. It holds it on
+/// both sides, nothing hands it out or starts an agent for it on either
+/// device, even after it gives it back and p2 writes in it; p1's own post
+/// lists it on p1's device only, and p1 resolves it.
+#[test]
+fn an_agents_board_thread_waits_for_its_own_person() {
+    let (a, b, owners) = two_people();
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    let (tk, _) =
+        a.c.post_agent_thread(
+            CARD1,
+            NewAsk {
+                text: "The deploy needs a key only you have. Can you add it?".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+        )
+        .unwrap();
+    // p2's agent can't open one from p1's device.
+    want_err(
+        a.c.post_agent_thread(
+            CARD2,
+            NewAsk {
+                text: "Not mine to write".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+        ),
+        ErrorKind::NotAllowed,
+    );
+    sync(&a, &b);
+    let quiet = |why: &str| {
+        a.c.sweep_asks(&[]).unwrap();
+        b.c.sweep_asks(&[]).unwrap();
+        sync(&a, &b);
+        for s in [&a, &b] {
+            assert!(s.c.cards_to_spawn().is_empty(), "{why}");
+            let t = s.c.get_task(&tk.id).unwrap();
+            assert!(!s.c.waits_for_agent(&t), "{why}");
+        }
+        assert_eq!(
+            a.c.request_spawn("irori", spawn_ask(&tk.id, "dev-a")).ok(),
+            Some(None),
+            "{why}"
+        );
+    };
+    for s in [&a, &b] {
+        let ask = s.c.get_task(&tk.id).unwrap().ask.unwrap();
+        assert!(ask.opener == CARD1 && ask.taker == CARD1, "{ask:?}");
+    }
+    quiet("held by its opener");
+    a.c.leave(CARD1, &tk.id, CARD1).unwrap();
+    quiet("given back");
+    let ask = a.c.get_task(&tk.id).unwrap().ask.unwrap();
+    assert!(
+        ask.taker.is_empty() && ask.reason == TAKE_ANSWERED,
+        "{ask:?}"
+    );
+    // Another member's words never start p1's agent.
+    b.c.person_comment(P2, &tk.id, "I can add it too.", true, &[], None)
+        .unwrap();
+    sync(&a, &b);
+    quiet("p2 wrote");
+    // p1 writes: while its opener is live, the post goes to it.
+    let (_, ns) =
+        a.c.person_comment(P1, &tk.id, "Done, it's in.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&CARD1.to_string())),
+        "{ns:?}"
+    );
+    // Its opener is live (this rig has no presence to lose it): it answers,
+    // and no other agent starts on either device.
+    quiet("p1 wrote, its opener live");
+    // p1 resolves the thread their agent opened; p2 can't.
+    want_err(b.c.resolve_thread(P2, &tk.id), ErrorKind::NotAllowed);
+    a.c.resolve_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    // And reopens it: open again on both sides, as a thread.
+    a.c.reopen_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&tk.id).unwrap();
+        assert!(t.open_ask().is_some_and(|a| a.thread), "{t:?}");
+    }
+}
+
 /// Card #477 (docs/design/work-personal-separation.md §3): on one space,
 /// p2's card is never p1's to start, and the reverse. Both sides turn
 /// spawning on here: each lists only its own person's card. Since #455 a
@@ -3496,6 +3588,37 @@ fn changing_the_cards_words_asks_again() {
     sync(&a, &b);
     assert!(a.c.given_to_spawn().is_empty(), "a yes outlived its words");
     assert_eq!(a.c.given_to_ask().len(), 1, "asked again");
+}
+
+/// A move (card #563) changes the card's board and number, not its words:
+/// the yes stands.
+#[test]
+fn a_move_by_another_leaves_the_yes_standing() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    assert_eq!(a.c.given_to_spawn().len(), 1);
+    let ev =
+        b.st.append(
+            P2,
+            kinds::BOARD_ASK_EDITED,
+            &coord::rows::TaskEditedRow {
+                task_id: t.id.clone(),
+                board: Some("b-net".into()),
+                num: 1,
+                by: P2.into(),
+                at: b.clk.now(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    sync(&a, &b);
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.board, "b-net", "the move folded");
+    assert_eq!(a.c.given_to_spawn().len(), 1, "a move asked again");
+    assert!(a.c.given_to_ask().is_empty());
 }
 
 #[test]
