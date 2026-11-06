@@ -536,7 +536,7 @@ fn a_space_channel_goes_in_the_space_log_behind_the_gate() {
     assert!(err.to_string().contains("waiting on Bob/abc123"), "{err}");
     assert!(t.channel_named_in("netcode", "s1").is_none());
     assert!(kinds_in(&sp.st).is_empty());
-    // Personal channels and DMs are never gated.
+    // Personal channels and DMs with an agent are never gated.
     let mine = t.create_channel(USER, "notes", "").unwrap();
     post(&t, &mine.id, USER, "personal");
     let dm = t
@@ -880,8 +880,26 @@ fn a_space_row_only_touches_its_own_spaces_channels() {
         !t.apply(&post(22, "ch_s1", "s2")),
         "another space's channel"
     );
+    // Card #538: a DM only through the stamp a hidden space's row gets
+    // from the Core, and only the DM the stamp names.
     assert!(!t.apply(&post(23, "dm:a|b", "s1")), "a DM");
+    let stamped = |seq, conv: &str, stamp: &str| {
+        ev(
+            seq,
+            kinds::TALK_POST,
+            serde_json::json!({
+                "postId": format!("p{seq}"), "convId": conv, "by": "user:dev-b",
+                "text": "hi", "spaceId": "s1", "dmConv": stamp
+            }),
+        )
+    };
+    assert!(
+        !t.apply(&stamped(24, "dm:a|b", "dm:c|d")),
+        "a stamp for another DM"
+    );
     assert!(t.posts("ch_mine").is_empty() && t.posts("dm:a|b").is_empty());
+    assert!(t.apply(&stamped(25, "dm:a|b", "dm:a|b")), "its own stamp");
+    assert_eq!(t.posts("dm:a|b").len(), 1);
     assert_eq!(t.posts("ch_s1").len(), 1);
 
     let join = ev(
@@ -953,4 +971,224 @@ fn a_posts_card_link_follows_row_order_not_arrival() {
     assert!(other.apply(&early));
     assert!(other.apply(&late));
     assert_eq!(other.posts(&c.id)[0].card.as_deref(), Some("t-late"));
+}
+
+/// Space logs for person DMs (card #538): the Core's side, as far as Talk
+/// sees it. `dm_for` picks `space`; each row comes back with the spaceId
+/// and dmConv the Core stamps, keys as written.
+struct PairSpaces {
+    st: std::sync::Arc<store::Store>,
+    space: std::sync::Mutex<Result<String, String>>,
+    asked: std::sync::atomic::AtomicUsize,
+    route: Option<String>,
+}
+
+const ME: &str = "person:me";
+const THEM: &str = "person:them";
+
+impl PairSpaces {
+    fn stamped(&self, mut ev: store::Event, space: &str) -> store::Event {
+        let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).unwrap();
+        v["spaceId"] = space.into();
+        v["dmConv"] = talk::pair_dm_id(ME, THEM).into();
+        ev.payload = serde_json::to_vec(&v).unwrap();
+        ev
+    }
+}
+
+impl talk::SpaceLogs for PairSpaces {
+    fn append(
+        &self,
+        space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        let ev = self
+            .st
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())?;
+        Ok(self.stamped(ev, space))
+    }
+
+    fn rows(&self) -> Vec<store::Event> {
+        Vec::new()
+    }
+
+    fn person_id(&self) -> Option<String> {
+        Some("me".into())
+    }
+
+    fn dm_for(&self, other: &str) -> Result<String, String> {
+        assert_eq!(other, THEM);
+        self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.space.lock().unwrap().clone()
+    }
+
+    fn dm_route(&self, conv: &str) -> Option<String> {
+        self.route
+            .clone()
+            .filter(|k| talk::pair_dm_id(ME, k) == conv)
+    }
+}
+
+fn pair_talk(e: &Env, space: Result<&str, &str>) -> (Talk, std::sync::Arc<PairSpaces>) {
+    let t = talk(e);
+    let sp = std::sync::Arc::new(PairSpaces {
+        st: Env::on("dev-a").st.clone(),
+        space: std::sync::Mutex::new(space.map(str::to_string).map_err(str::to_string)),
+        asked: 0.into(),
+        route: None,
+    });
+    t.set_spaces(sp.clone());
+    (t, sp)
+}
+
+/// Card #538: opening a DM with a person writes nothing and lists a draft;
+/// the first post goes to the space `dm_for` picks, with both joins first.
+#[test]
+fn a_person_dm_opens_as_a_draft_and_its_first_post_finds_a_space() {
+    let e = Env::new();
+    let (t, sp) = pair_talk(&e, Ok("s1"));
+    let (me, them) = (Member::of(USER), Member::of(THEM));
+    let dm = t.open_dm(&me, &them, USER).unwrap();
+    assert_eq!(dm, talk::pair_dm_id(ME, THEM));
+    assert_eq!(t.open_dm(&them, &me, USER).unwrap(), dm, "either way round");
+
+    assert!(kinds_in(&sp.st).is_empty() && kinds_in(&e.st).is_empty());
+    assert_eq!(sp.asked.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let listed = t.dms();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].0, dm);
+    assert!(t.is_member(&dm, USER) && t.is_member(&dm, THEM));
+    t.load().unwrap();
+    assert_eq!(t.dms().len(), 1, "a refold keeps a draft");
+
+    let p = post(&t, &dm, USER, "hello");
+    assert_eq!(p.space, "s1");
+    assert_eq!(
+        kinds_in(&sp.st),
+        [kinds::TALK_MEMBER, kinds::TALK_MEMBER, kinds::TALK_POST]
+    );
+    assert!(kinds_in(&e.st).is_empty(), "nothing in the private log");
+    let ms = t.members(&dm);
+    assert_eq!(ms.len(), 2, "{ms:?}");
+    assert!(ms.iter().all(|m| m.kind == talk::PERSON), "{ms:?}");
+
+    // The next post in that log writes only the post.
+    post(&t, &dm, USER, "again");
+    assert_eq!(kinds_in(&sp.st).len(), 4);
+    // A second log of the same DM gets its own joins.
+    *sp.space.lock().unwrap() = Ok("s2".into());
+    assert_eq!(post(&t, &dm, USER, "other log").space, "s2");
+    assert_eq!(kinds_in(&sp.st).len(), 7);
+}
+
+/// Card #538: agents don't DM other people, a person DM has no member
+/// row to leave by, and mentions never go in its rows.
+#[test]
+fn a_person_dm_takes_only_its_two_people() {
+    let e = Env::new();
+    let (t, sp) = pair_talk(&e, Ok("s1"));
+    let them = Member::of(THEM);
+    want(
+        t.open_dm(&Member::of(ALICE), &them, ALICE),
+        ErrorKind::NotAllowed,
+    );
+    let dm = t.open_dm(&Member::of(USER), &them, USER).unwrap();
+    want(
+        t.post(NewPost {
+            conv_id: dm.clone(),
+            text: "from an agent".into(),
+            by: ALICE.into(),
+            ..NewPost::default()
+        }),
+        ErrorKind::NotAllowed,
+    );
+    want(t.leave(&dm, &them, USER), ErrorKind::NotAllowed);
+    assert!(kinds_in(&sp.st).is_empty());
+
+    let p = t
+        .post(NewPost {
+            conv_id: dm.clone(),
+            text: "hi @alpha".into(),
+            mentions: vec![ALICE.into()],
+            by: USER.into(),
+            ..NewPost::default()
+        })
+        .unwrap();
+    assert!(p.mentions.is_empty(), "{:?}", p.mentions);
+
+    // An older DM with a board key stays what it was.
+    let board = Member::of("board:b3f5/person:pSpencer");
+    let old = t.open_dm(&Member::of(USER), &board, USER).unwrap();
+    assert_eq!(old, talk::dm_id(USER, &board.key));
+    assert!(kinds_in(&e.st).contains(&kinds::TALK_MEMBER.to_string()));
+}
+
+/// Card #538: with no shared space, `dm_for` refuses and nothing is written;
+/// the draft stays, so the person can try again.
+#[test]
+fn a_person_dm_with_no_shared_space_is_refused_and_stays_a_draft() {
+    let e = Env::new();
+    let (t, sp) = pair_talk(&e, Err("you share no space with them"));
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(THEM), USER)
+        .unwrap();
+    let err = want(
+        t.post(NewPost {
+            conv_id: dm.clone(),
+            text: "hi".into(),
+            by: USER.into(),
+            ..NewPost::default()
+        }),
+        ErrorKind::NotAllowed,
+    );
+    assert!(err.to_string().contains("share no space"), "{err}");
+    assert!(kinds_in(&sp.st).is_empty() && t.posts(&dm).is_empty());
+    assert_eq!(t.dms().len(), 1);
+}
+
+/// Card #538: both people wrote first, so one DM spans two logs. Losing
+/// one takes only its posts; losing the last takes the DM.
+#[test]
+fn dropping_a_person_dm_log_keeps_what_the_other_holds() {
+    let e = Env::new();
+    let (t, sp) = pair_talk(&e, Ok("s1"));
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(THEM), USER)
+        .unwrap();
+    let first = post(&t, &dm, USER, "in s1");
+    *sp.space.lock().unwrap() = Ok("s2".into());
+    let second = post(&t, &dm, USER, "in s2");
+
+    assert!(t.drop_space("s1"));
+    let left: Vec<String> = t.posts(&dm).into_iter().map(|p| p.post_id).collect();
+    assert_eq!(left, std::slice::from_ref(&second.post_id));
+    assert!(!t.has_post(&first.post_id), "a re-join folds it back");
+    assert_eq!(t.dms().len(), 1, "the other log still holds the DM");
+    assert_eq!(t.members(&dm).len(), 2);
+
+    assert!(t.drop_space("s2"));
+    assert!(t.posts(&dm).is_empty());
+    assert!(t.dms().is_empty(), "its last log took it");
+    assert!(!t.drop_space("s2"));
+}
+
+/// Card #538: a device holding the space with no row folded yet still
+/// knows who the DM is with.
+#[test]
+fn a_person_dm_is_found_by_its_space_before_any_row_folds() {
+    let e = Env::new();
+    let t = talk(&e);
+    t.set_spaces(std::sync::Arc::new(PairSpaces {
+        st: Env::on("dev-a").st.clone(),
+        space: std::sync::Mutex::new(Ok("s1".into())),
+        asked: 0.into(),
+        route: Some(THEM.into()),
+    }));
+    let dm = talk::pair_dm_id(ME, THEM);
+    assert_eq!(t.pair_other(&dm).as_deref(), Some(THEM));
+    assert_eq!(post(&t, &dm, USER, "hi").space, "s1");
+    assert_eq!(t.pair_other(&talk::dm_id(USER, ALICE)), None);
 }

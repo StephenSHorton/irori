@@ -452,7 +452,9 @@ export function BoardView({
               now={now}
             />
           ) : view === "canvas" ? (
-            <BoardCanvas cards={shown} onOpen={onOpen} fill={fill} />
+            // The canvas is the whole map (card #587): a card the lead
+            // lists (Needs you) stays on it, marked, not taken out.
+            <BoardCanvas cards={all} onOpen={onOpen} fill={fill} />
           ) : shown.length && rows ? (
             <>
               {pinnedGroup.length > 0 && (

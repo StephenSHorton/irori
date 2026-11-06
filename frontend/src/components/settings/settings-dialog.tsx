@@ -33,7 +33,7 @@ import { useBoards, useInvite } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { corners, useSettings, useYourName } from "@/lib/settings"
-import { UpdateStatusLine } from "@/updater"
+import { UpdateStatusLine, useKeepUpToDate } from "@/updater"
 import { VoiceNote } from "@/components/settings/voice-note"
 
 export type SettingsSection =
@@ -325,6 +325,7 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
 
 function AppPane({ open, version }: { open: boolean; version?: string }) {
   const s = useSettings(open)
+  const keep = useKeepUpToDate(open)
   return (
     <div className="grid gap-3">
       <Toggle
@@ -338,6 +339,19 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
+        {keep.on !== null && (
+          <div className="pt-2">
+            <Toggle
+              label="Keep this device up to date"
+              hint="Checks every few hours and restarts Irori when no agent is working. If that hasn't happened within a day, it asks you."
+              checked={keep.on}
+              onChange={(v) => void keep.set(v)}
+            />
+          </div>
+        )}
+        {keep.error && (
+          <p className="text-xs text-destructive">{keep.error}</p>
+        )}
       </div>
       {version && (
         <div className="flex items-center justify-between gap-3 border-t border-border pt-3">

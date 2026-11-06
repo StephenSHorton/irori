@@ -523,6 +523,19 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     }
 }
 
+/// Card #590: a new board's tag is 8 characters at most, so a ref like
+/// `agility#1234` stays short; the error says so.
+#[test]
+fn a_new_board_tag_is_eight_at_most() {
+    let r = Rig::new();
+    let c = &r.core;
+    c.create_board("Agility", "agility").unwrap();
+    c.create_board("Eight", "abcdefgh").unwrap();
+    let e = c.create_board("Nine", "abcdefghi").unwrap_err();
+    assert_eq!(coord_kind(&e), Some(CK::Invalid), "{e}");
+    assert!(e.to_string().contains("8 characters at most"), "{e}");
+}
+
 /// Card #411: a board note waits, like a space row, while a member device
 /// is known to be too old for note.* (an older Irori would stall on it); a
 /// Mine note never waits. Card #577: one nobody has heard from yet doesn't
@@ -928,6 +941,134 @@ fn forget_board_stays_forgotten() {
         "a restart brought a forgotten board back"
     );
     c2.close().unwrap();
+}
+
+/// A made-up DM space's id (card #538).
+const DM: &str = "0123456789abcdef0123456789abcdef";
+
+/// This person's pin, from a board made for it (card #538).
+fn my_pin(c: &Core) -> irori_identity::MemberPin {
+    let id = c.create_board("pin", "pin").unwrap();
+    let me = c.identity().current().id;
+    c.board_verifier(&id).unwrap().pinned(&me).unwrap()
+}
+
+/// Card #538: a marker opens its space as board.joined would and fills the
+/// cache at once. Forget has to cover the marker, or the next reconcile
+/// brings the space back. A newer marker (a later DM offers the space
+/// again) does bring it back.
+#[test]
+fn a_dm_marker_opens_its_space_and_forget_covers_it() {
+    let r = Rig::new();
+    let c = &r.core;
+    let pin = my_pin(c);
+    let plain = c.create_board("plain", "plain").unwrap();
+    c.write_dm_marker(DM, &pin, "bob").unwrap();
+    assert_eq!(c.dm_space(DM), Some((pin.clone(), "bob".to_string())));
+    assert!(!c.is_dm_space(&plain), "a plain board has no marker");
+    c.reconcile_boards();
+    assert!(
+        c.board_coord(DM).is_ok(),
+        "the marker didn't open the space"
+    );
+    assert!(
+        c.board_list().iter().all(|s| s.board_id != DM),
+        "a marker's space shows"
+    );
+
+    c.forget_board(DM).unwrap();
+    assert!(c.board_coord(DM).is_err(), "the space is still open");
+    c.reconcile_boards();
+    assert!(
+        c.board_coord(DM).is_err(),
+        "the marker brought a forgotten space back"
+    );
+    for name in [format!("{DM}.db"), format!("{DM}.secrets")] {
+        assert!(
+            !r.data.join(BOARDS_DIR).join(&name).exists(),
+            "{name} is still there"
+        );
+    }
+    assert!(c.is_dm_space(DM), "a forgotten space lost its marker");
+
+    c.write_dm_marker(DM, &pin, "bob").unwrap();
+    c.reconcile_boards();
+    assert!(c.board_coord(DM).is_ok(), "a newer marker didn't reopen it");
+}
+
+/// Card #538: a board.forgot newer than the marker forgets the space on
+/// this device, and the marker before it doesn't reopen it, then or after
+/// a restart. The cache is full as soon as the Core starts, whether or not
+/// the space is live.
+#[test]
+fn board_forgot_beats_an_older_dm_marker_and_a_restart_keeps_the_cache() {
+    let r = Rig::new();
+    let c = &r.core;
+    let pin = my_pin(c);
+    c.write_dm_marker(DM, &pin, "bob").unwrap();
+    c.reconcile_boards();
+    assert!(
+        c.board_coord(DM).is_ok(),
+        "the marker didn't open the space"
+    );
+    c.store()
+        .append(
+            "irori",
+            kinds::BOARD_FORGOT,
+            &serde_json::json!({ "boardId": DM }),
+        )
+        .unwrap();
+    c.reconcile_boards();
+    assert!(c.board_coord(DM).is_err(), "board.forgot didn't forget it");
+    assert!(!r.data.join(BOARDS_DIR).join(format!("{DM}.db")).exists());
+    c.reconcile_boards();
+    assert!(c.board_coord(DM).is_err(), "an older marker reopened it");
+
+    let (c2, _r) = restart(r);
+    assert_eq!(c2.dm_space(DM), Some((pin, "bob".to_string())));
+    c2.reconcile_boards();
+    assert!(c2.board_coord(DM).is_err(), "a restart brought it back");
+    c2.close().unwrap();
+}
+
+/// Card #538: trust rests on the marker, so one that doesn't name a space,
+/// a sound creator and the other person opens nothing and marks nothing.
+#[test]
+fn a_bad_dm_marker_opens_nothing() {
+    let r = Rig::new();
+    let c = &r.core;
+    let pin = serde_json::to_value(my_pin(c)).unwrap();
+    let bare = serde_json::json!({ "personId": "someone" });
+    for row in [
+        serde_json::json!({ "boardId": DM, "with": "bob" }),
+        serde_json::json!({ "boardId": DM, "creator": pin }),
+        serde_json::json!({ "boardId": DM, "creator": pin, "with": "" }),
+        serde_json::json!({ "boardId": DM, "creator": bare, "with": "bob" }),
+        serde_json::json!({ "boardId": "nope", "creator": pin, "with": "bob" }),
+    ] {
+        c.store()
+            .append("irori", kinds::DM_SPACE_JOINED, &row)
+            .unwrap();
+        c.reconcile_boards();
+        assert!(!c.is_dm_space(DM), "{row} marked the space");
+        assert!(c.board_coord(DM).is_err(), "{row} opened the space");
+        assert!(!c.is_dm_space("nope"), "{row} marked a bad id");
+    }
+}
+
+/// Card #538: another device of the person opens the space from the
+/// marker when it arrives, with nobody calling reconcile.
+#[test]
+fn a_dm_marker_reaches_the_persons_other_device() {
+    let (a, b) = paired();
+    let pin = my_pin(&a.core);
+    a.core.write_dm_marker(DM, &pin, "bob").unwrap();
+    wait_for(45, "b opens the space from the marker", || {
+        b.core.board_coord(DM).is_ok()
+    });
+    assert_eq!(b.core.dm_space(DM), Some((pin, "bob".to_string())));
+    a.core.close().unwrap();
+    b.core.close().unwrap();
 }
 
 /// TestShareAndWithdraw: Share to board (§5.2) writes a fresh card with the

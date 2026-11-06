@@ -27,12 +27,6 @@ use super::fold::Fold;
 use super::types::*;
 use super::util::{SWEEPER, cut};
 
-/// A card's agents at once, lead and helpers, when neither the card nor
-/// the board says (decision 12).
-pub const DEFAULT_AGENTS_PER_CARD: i64 = 4;
-/// The most a card may ask for: the Mac's device cap (decision 11).
-pub const MAX_AGENTS_PER_CARD: i64 = 12;
-
 /// The thread line's tail when a row's marks were set aside.
 pub(crate) const SPAWN_REFUSED: &str =
     "its spawn marks were set aside: only the card's owner or their agents ask for helpers";
@@ -91,7 +85,7 @@ impl Fold {
                 !is_terminal(&p.state)
                     && p.holders.is_empty()
                     && !p.shared
-                    && p.spawn_crashes < super::spawn::MAX_SPAWN_CRASHES
+                    && p.spawn_crashes < self.crash_limit()
             })
     }
 
@@ -123,76 +117,6 @@ impl Fold {
                             .iter()
                             .any(|b| b.open() && b.question == PART_QUESTION)
                 })
-    }
-
-    /// How many agents card t may have at once: its own Up to N, else the
-    /// board's Agents per card, else [`DEFAULT_AGENTS_PER_CARD`].
-    pub(crate) fn agent_limit(&self, t: &Task) -> usize {
-        let board = self
-            .agents_per_card
-            .as_ref()
-            .map(|f| f())
-            .filter(|n| *n >= 1)
-            .unwrap_or(DEFAULT_AGENTS_PER_CARD);
-        let n = if t.agents >= 1 { t.agents } else { board };
-        n.clamp(1, MAX_AGENTS_PER_CARD) as usize
-    }
-
-    /// The agents on card t now, and those starting: its holders and step
-    /// owners, and the holders of its open marked subtasks, or a pending
-    /// request for one with nobody on it yet.
-    pub(crate) fn agents_on(&self, t: &Task) -> usize {
-        let now = self.stamp();
-        let mut keys: Vec<&str> = t
-            .holders
-            .iter()
-            .chain(&t.co_holders)
-            .map(String::as_str)
-            .collect();
-        let mut starting = 0;
-        for k in t.subtasks.iter().filter_map(|id| self.tasks.get(id)) {
-            if !k.spawn || is_terminal(&k.state) {
-                continue;
-            }
-            if k.holders.is_empty() {
-                if k.spawn_request()
-                    .is_some_and(|s| s.pending() && !s.stale(&now))
-                {
-                    starting += 1;
-                }
-                continue;
-            }
-            keys.extend(k.holders.iter().map(String::as_str));
-        }
-        keys.sort_unstable();
-        keys.dedup();
-        keys.len() + starting
-    }
-
-    /// Of `cards` (oldest first), the marked subtasks that would take a
-    /// parent past its agent limit are left out: they queue on the card
-    /// until a helper there finishes (§3, "Limits").
-    pub(crate) fn within_limits(&self, cards: Vec<Task>) -> Vec<Task> {
-        let mut used: std::collections::HashMap<String, usize> = Default::default();
-        cards
-            .into_iter()
-            .filter(|k| {
-                if !k.spawn {
-                    return true;
-                }
-                let Some(p) = self.tasks.get(&k.parent).filter(|_| !k.parent.is_empty()) else {
-                    return true;
-                };
-                let n = used
-                    .entry(p.id.clone())
-                    .or_insert_with(|| self.agents_on(p));
-                if *n >= self.agent_limit(p) {
-                    return false;
-                }
-                *n += 1;
-                true
-            })
-            .collect()
     }
 
     /// An unmarked subtask of a led card (§3): it isn't spawned on its own,

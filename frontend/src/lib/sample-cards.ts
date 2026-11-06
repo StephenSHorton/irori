@@ -462,6 +462,19 @@ export function sampleCards(now: Date): CardDetail[] {
             state: TaskState.Submitted,
             working: [],
             atCap: "Macbook Pro (this one)",
+            queuePlace: 1,
+            updatedAt: at(1),
+          }),
+          // Card #450: 2nd in the queue.
+          card({
+            id: "sample-card-spawn-queued",
+            short: "68",
+            title: "Tidy the settings copy",
+            goal: "Second in the queue.",
+            state: TaskState.Submitted,
+            working: [],
+            atCap: "Macbook Pro (this one)",
+            queuePlace: 2,
             updatedAt: at(1),
           }),
           // Card #456 (sa-7): Irori's own decisions on spawned cards.
@@ -1691,6 +1704,9 @@ export function sampleCards(now: Date): CardDetail[] {
       title: "Release notes",
       repoKey: "remote:github.com/sample-org/example-app",
       working: [heron],
+      // sample-heron and sample-mink are messaging each other about it:
+      // a talk line between them on the canvas (card #587).
+      talking: [heron, mink],
       updatedAt: at(7),
       parent: CardRef({
         id: "sample-card-7",

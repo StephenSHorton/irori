@@ -205,10 +205,19 @@ impl Services {
             .members
             .iter()
             .any(|p| p.person_id != me && m.active(&p.person_id));
-        if !others || !m.active(&me) {
+        // A DM space nobody else has heard of has nobody to tell (card
+        // #538): a `left` row would wait for ever.
+        let dm = self.dm_spaces.get(board_id);
+        let unheard = dm.as_ref().is_some_and(|d| self.dm_pending(&b, d));
+        if !others || !m.active(&me) || unheard {
             return self.forget_everywhere(board_id);
         }
-        if m.owner(&me) && m.members.iter().filter(|p| m.owner(&p.person_id)).count() <= 1 {
+        // A DM space's founder is its only owner, and the other person is
+        // never made one: it's the `left` row that tells them to start again.
+        if dm.is_none()
+            && m.owner(&me)
+            && m.members.iter().filter(|p| m.owner(&p.person_id)).count() <= 1
+        {
             return Err(Error::coord(
                 CK::NotAllowed,
                 "you're this space's only owner: make someone else an owner before you leave",
@@ -267,16 +276,29 @@ impl Services {
         Ok(())
     }
 
-    /// The boards the person sees: every open board but the ones they
-    /// left whose `left` row is still on its way out (§4.4, card #304).
-    /// The window, the tools' Board, card refs, asks, notices, leases and
-    /// tags all go by it; syncing and the sweep that forgets a left board
-    /// go by `boards.list()`.
+    /// Every open board but the ones the person left whose `left` row is
+    /// still on its way out (§4.4, card #304). Hidden DM spaces are in it:
+    /// Talk's fold and the hand-off go by it, and a person's view goes by
+    /// [`Services::visible_boards`]. Syncing and the sweep that forgets a
+    /// left board go by `boards.list()`.
     pub(crate) fn shown_boards(&self) -> Vec<Arc<BoardLog>> {
         self.boards
             .list()
             .into_iter()
             .filter(|b| !self.board_leaving(b))
+            .collect()
+    }
+
+    /// The boards the person sees: [`Services::shown_boards`] less the
+    /// hidden DM spaces (card #538). The window, the tools' Board, card
+    /// refs, asks, notices, leases, notes, spawning and tags all go by it,
+    /// so what a DM's other member writes into its log, a card or a note or
+    /// a board inside, reaches nobody here. `dm_spaces` fills before any
+    /// space opens, so a hidden one never shows for a moment.
+    pub(crate) fn visible_boards(&self) -> Vec<Arc<BoardLog>> {
+        self.shown_boards()
+            .into_iter()
+            .filter(|b| !self.is_dm_space(&b.id))
             .collect()
     }
 

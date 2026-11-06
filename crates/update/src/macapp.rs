@@ -49,7 +49,11 @@ pub fn side_paths(app: &Path) -> (PathBuf, PathBuf) {
 /// Go `swapScript`, byte for byte: the detached helper that finishes a macOS
 /// update.
 ///
-/// `sh -c SWAP_SCRIPT irori-update <pid> <live .app> <staged .app> <relaunch 0|1> <log>`
+/// `sh -c SWAP_SCRIPT irori-update <pid> <live .app> <staged .app> <relaunch 0|1|2> <log>`
+///
+/// Relaunch 2 (card #578) opens the app in the background (`open -g`): an
+/// automatic restart must not take focus from the app the person is using.
+/// Go's script knew 0 and 1 only; those lines are unchanged.
 pub const SWAP_SCRIPT: &str = r#"pid=$1 live=$2 next=$3 relaunch=$4
 exec >>"$5" 2>&1
 old="${live%/*}/.${live##*/}.old"
@@ -77,11 +81,42 @@ else
 fi
 if [ "$relaunch" = 1 ]; then
 	exec /usr/bin/open "$live"
+elif [ "$relaunch" = 2 ]; then
+	exec /usr/bin/open -g "$live"
 fi
 "#;
 
+/// Whether and how Irori comes back after an install.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relaunch {
+    /// Install on quit: Irori stays closed.
+    No,
+    /// The person pressed Install: Irori comes back in front.
+    Front,
+    /// An automatic restart (card #578): Irori comes back without taking
+    /// focus.
+    Background,
+}
+
+impl Relaunch {
+    /// The swap helper's relaunch argument.
+    pub fn arg(self) -> &'static str {
+        match self {
+            Relaunch::No => "0",
+            Relaunch::Front => "1",
+            Relaunch::Background => "2",
+        }
+    }
+}
+
 /// The swap helper's argv after `/bin/sh` (Go mac_darwin.go:283-300).
-pub fn swap_args(pid: u32, live: &Path, next: &Path, relaunch: bool, log: &Path) -> Vec<String> {
+pub fn swap_args(
+    pid: u32,
+    live: &Path,
+    next: &Path,
+    relaunch: Relaunch,
+    log: &Path,
+) -> Vec<String> {
     vec![
         "-c".into(),
         SWAP_SCRIPT.into(),
@@ -89,7 +124,7 @@ pub fn swap_args(pid: u32, live: &Path, next: &Path, relaunch: bool, log: &Path)
         pid.to_string(),
         live.to_string_lossy().into_owned(),
         next.to_string_lossy().into_owned(),
-        if relaunch { "1" } else { "0" }.into(),
+        relaunch.arg().into(),
         log.to_string_lossy().into_owned(),
     ]
 }
@@ -138,7 +173,7 @@ mod tests {
             42,
             Path::new("/Applications/Irori.app"),
             Path::new("/Applications/.Irori.app.new"),
-            true,
+            Relaunch::Front,
             Path::new("/u/.irori/updates/update.log"),
         );
         assert_eq!(a[0], "-c");
@@ -156,6 +191,14 @@ mod tests {
         assert!(
             SWAP_SCRIPT.starts_with("pid=$1 live=$2 next=$3 relaunch=$4\nexec >>\"$5\" 2>&1\n")
         );
-        assert!(SWAP_SCRIPT.ends_with("\texec /usr/bin/open \"$live\"\nfi\n"));
+        assert!(
+            SWAP_SCRIPT
+                .contains("if [ \"$relaunch\" = 1 ]; then\n\texec /usr/bin/open \"$live\"\n")
+        );
+        assert!(SWAP_SCRIPT.ends_with(
+            "elif [ \"$relaunch\" = 2 ]; then\n\texec /usr/bin/open -g \"$live\"\nfi\n"
+        ));
+        assert_eq!(Relaunch::No.arg(), "0");
+        assert_eq!(Relaunch::Background.arg(), "2");
     }
 }

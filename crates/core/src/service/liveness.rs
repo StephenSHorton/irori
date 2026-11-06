@@ -98,7 +98,7 @@ impl Services {
     pub(crate) fn board_others(&self) -> Vec<BoardAgent> {
         let me = self.person_id();
         let mut out = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mem = b.verifier.membership();
             if !mem.created {
                 continue;

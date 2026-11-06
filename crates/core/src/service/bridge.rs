@@ -868,6 +868,21 @@ impl tools::SharedBoards for super::ToolsView {
     fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
         self.0.board_mentionables(board_id)
     }
+
+    fn dm_people(&self) -> Vec<tools::PersonInfo> {
+        self.0
+            .dm_people()
+            .into_iter()
+            .map(|p| tools::PersonInfo {
+                key: p.key,
+                name: p.name,
+            })
+            .collect()
+    }
+
+    fn dm_waiting(&self, other: &str) -> &'static str {
+        self.0.dm_waiting(other)
+    }
 }
 
 impl Services {

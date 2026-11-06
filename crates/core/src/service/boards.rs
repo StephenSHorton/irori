@@ -30,7 +30,7 @@ use coord::roster::{AgentCard, Agents};
 use coord::{Change, Coord, ErrorKind as CK, Notice};
 use gocompat::sub::Queue;
 use irori_identity::keystore::Keystore;
-use irori_identity::membership::{BoardPerson, Conflict};
+use irori_identity::membership::{BoardPerson, Conflict, MEMBER_LEFT};
 use irori_identity::{
     BoardDevice, BoardSecrets, BoardVerifier, Identity, MemberKeyRotated, MemberPin,
     USER_KEY_PREFIX,
@@ -989,7 +989,10 @@ impl Services {
         if !irori_identity::membership::valid_board_tag(tag) {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
+                format_args!(
+                    "a board tag is a lowercase letter, then lowercase letters, digits or '-', {} characters at most",
+                    irori_identity::membership::MAX_BOARD_TAG
+                ),
             ));
         }
         // A board inside a space holds its tag too (card #558).
@@ -1059,7 +1062,7 @@ impl Services {
     /// open here, or one any of the person's devices made or joined
     /// (board.joined) that hasn't opened or folded here yet. "" when none.
     pub(crate) fn tag_holder(&self, tag: &str) -> String {
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if b.verifier.membership().tag == tag {
                 return b.id.clone();
             }
@@ -1243,14 +1246,25 @@ impl Services {
             // A maker counts once the board certifies it, or, before the
             // board's rows arrive, when it is one of this person's own
             // devices or one of them vouched for it (board.secret on the
-            // private mesh).
-            let (chain, vouched, board) = (
+            // private mesh). A hidden DM space has one secret, its founder's,
+            // and when the founder leaves nobody is left who can make
+            // another: if that cut its maker, the founder's room would close
+            // before the `left` row could go out (card #538). Only leaving
+            // does this: a device revoked or removed stays cut.
+            let (chain, vouched, board, dms) = (
                 self.chain.clone(),
                 self.boards.vouched.clone(),
                 id.to_string(),
+                self.dm_spaces.clone(),
             );
             secrets.set_makers(Some(Box::new(move |dev: &str| {
-                v.cut(dev).is_none()
+                let left = || {
+                    let m = v.membership();
+                    v.person_of(dev)
+                        .and_then(|p| m.person(&p).map(|p| p.state == MEMBER_LEFT))
+                        .unwrap_or(false)
+                };
+                (v.cut(dev).is_none() || (dms.get(&board).is_some() && left()))
                     && (v.cert(dev).is_some()
                         || chain
                             .devices()
@@ -1320,6 +1334,12 @@ impl Services {
                     now: Some(self.now.clone()),
                     board: true,
                     done_check: true,
+                    // A board's own limit, else the person's (card #576).
+                    crash_limit: Some(super::spawn::SpawnState::limit_fn(
+                        &self.spawn,
+                        &b.id,
+                        |s| s.crash_limit,
+                    )),
                     person: me.clone(),
                     is_owner: Some(Arc::new(move |k: &str| k == person_key)),
                     revoked: Some(Arc::new(move |dev: &str| v1.cut(dev).is_some())),
@@ -1557,10 +1577,14 @@ impl Services {
             };
             let s = Arc::downgrade(self);
             let co = Arc::downgrade(b.coord());
+            let id = b.id.clone();
             b.spawn("changes", move || {
                 let _reg = reg;
                 while let Some(ch) = q.recv() {
                     match s.upgrade() {
+                        // A card in a hidden DM space reaches no window or
+                        // feed (card #538).
+                        Some(s) if s.is_dm_space(&id) => {}
                         Some(s) => {
                             // A board thread goes out, and starts its
                             // agent, at once (card #512): its rows kick the
@@ -1587,10 +1611,12 @@ impl Services {
     /// board secret when a membership or identity row moves the epoch.
     fn follow_board_row(&self, b: &BoardLog, ev: &Event) {
         self.boards.kick(); // the board's member devices pull it now
+        let hidden = self.is_dm_space(&b.id);
         // One of this person's agents ticked a step or set a card's state
         // on the board: its message chains start counting again (card
-        // #488). Another member's agent keeps its board key and is skipped.
-        if let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
+        // #488). Another member's agent keeps its board key and is skipped,
+        // and no agent works in a hidden space (card #538).
+        if !hidden && let Some((inbox::ProgressBy::Actor(a), at)) = inbox::progress_of(ev) {
             let key = self.private_key(&a);
             if !key.starts_with(AGENT_ACTOR_PREFIX) {
                 self.inbox.progressed(&key, at);
@@ -1634,6 +1660,8 @@ impl Services {
             // The space's channels fold again with everything else.
             let _ = self.talk.load();
             self.hub.publish(crate::events::CoreEvent::Talk);
+        } else if hidden && irori_identity::kinds::is_membership_kind(&ev.kind) {
+            self.dm_refold(b);
         } else if ev.kind == kinds::BOARD_MEMBER_ADDED {
             // Re-added while still "Leaving…" (card #461): the channels
             // drop_space took out fold back; a no-op for anyone else's add.
@@ -1643,8 +1671,16 @@ impl Services {
             // folded when it was written; the window still hears it.
             self.talk.apply(&row);
             self.hub.publish(crate::events::CoreEvent::Talk);
+            // A DM from the other person rings here (card #538); the
+            // private log's follower never sees this row.
+            if hidden && row.kind == kinds::TALK_POST && ev.actor != self.person_actor() {
+                self.talk_note(&row);
+            }
         }
-        self.bridge_row(b, ev);
+        // Nothing in a hidden space reaches an agent (card #538).
+        if !hidden {
+            self.bridge_row(b, ev);
+        }
         if summary_row(ev) {
             self.boards.moved();
         }
@@ -1678,7 +1714,10 @@ impl Services {
         }
         let logs: Vec<Arc<BoardLog>> = {
             let inner = lock(&self.boards.inner);
+            // A card in a hidden DM space is nobody's to reach (card #538):
+            // only its other member could have written one.
             if let Some(id) = inner.task_of.get(task_id)
+                && !self.is_dm_space(id)
                 && let Some(b) = inner.logs.get(id)
             {
                 return Ok((id.clone(), b.coord().clone()));
@@ -1687,7 +1726,10 @@ impl Services {
         };
         // A row this device just appended reaches the follower a moment
         // later; its coord already has it.
-        if let Some(b) = logs.iter().find(|b| b.coord().get_task(task_id).is_some()) {
+        if let Some(b) = logs
+            .iter()
+            .find(|b| !self.is_dm_space(&b.id) && b.coord().get_task(task_id).is_some())
+        {
             let mut inner = lock(&self.boards.inner);
             // Not for a board dropped meanwhile.
             if inner.logs.contains_key(&b.id) {
@@ -1848,7 +1890,7 @@ impl Services {
             .map(|a| (a.key, a.status))
             .collect();
         let me = self.device.id.as_str();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mut m = lock(&b.maps);
             let mine: Vec<(String, String)> = m
                 .by_id
@@ -2263,7 +2305,7 @@ impl Services {
 
     fn sweep_boards_with(&self, notices: bool) -> std::result::Result<(), String> {
         let mut errs = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mut ns = Vec::new();
             if notices {
                 let (n, err) = b.coord().sweep_notices_partial();
@@ -2375,7 +2417,9 @@ impl super::Core {
         Ok(())
     }
 
-    /// The ids of the board logs open on this device, sorted.
+    /// The ids of the board logs open on this device, sorted, hidden DM
+    /// spaces too (card #538): no person or agent reads this, and what
+    /// they see is [`Self::board_list`].
     pub fn boards(&self) -> Vec<String> {
         self.s.boards.list().iter().map(|b| b.id.clone()).collect()
     }
@@ -2455,7 +2499,7 @@ impl super::Core {
         self.s.private_task(t)
     }
 
-    /// Every board on this device, by name.
+    /// Every board on this device the person sees, by name.
     pub fn board_list(&self) -> Vec<BoardSummary> {
         self.s.board_list()
     }
@@ -2520,7 +2564,7 @@ impl super::Core {
     pub fn idle_report(&self) -> coord::IdleReport {
         let s = &self.s;
         let mut r = s.coord.idle_report(&s.ask_agents());
-        for b in s.shown_boards() {
+        for b in s.visible_boards() {
             let br = b.coord().idle_report(&s.board_ask_agents(&b));
             for mut u in br.unoffered {
                 if br.idle == 0 {
@@ -2539,7 +2583,7 @@ impl super::Core {
     /// own cards come back too, with their live status.
     pub fn board_agents(&self) -> Vec<BoardAgent> {
         let mut out = Vec::new();
-        for b in self.s.shown_boards() {
+        for b in self.s.visible_boards() {
             let people: HashMap<String, String> = b
                 .verifier
                 .membership()
@@ -2585,7 +2629,7 @@ impl super::Core {
     pub fn board_people(&self) -> Vec<BoardMember> {
         let me = self.s.person_id();
         let mut out = Vec::new();
-        for b in self.s.shown_boards() {
+        for b in self.s.visible_boards() {
             for p in b.verifier.membership().members {
                 if p.person_id.is_empty() || p.person_id == me {
                     continue;
@@ -2611,12 +2655,12 @@ impl super::Core {
     #[doc(hidden)]
     pub fn board_roster(&self, board_id: &str) -> Vec<AgentCard> {
         match self.s.board(board_id) {
-            Ok(b) => BoardRoster {
+            Ok(b) if !self.s.is_dm_space(board_id) => BoardRoster {
                 s: Arc::downgrade(&self.s),
                 b: Arc::downgrade(&b),
             }
             .agents(),
-            Err(_) => Vec::new(),
+            _ => Vec::new(),
         }
     }
 
@@ -2625,6 +2669,25 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+
+    /// Whether `id` is a hidden DM space by this person's markers (tests;
+    /// card #538).
+    #[doc(hidden)]
+    pub fn is_dm_space(&self, id: &str) -> bool {
+        self.s.is_dm_space(id)
+    }
+
+    /// DM space `id`'s creator and other person (tests; card #538).
+    #[doc(hidden)]
+    pub fn dm_space(&self, id: &str) -> Option<(MemberPin, String)> {
+        self.s.dm_spaces.get(id).map(|d| (d.creator, d.with))
+    }
+
+    /// Writes a DM space's private marker (tests; card #538).
+    #[doc(hidden)]
+    pub fn write_dm_marker(&self, id: &str, creator: &MemberPin, with: &str) -> Result<()> {
+        self.s.write_dm_marker(id, creator, with)
     }
 
     /// Holds the boards list until the guard drops (tests: nothing may

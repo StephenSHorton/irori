@@ -36,6 +36,11 @@ pub const MEMBER_LEFT: &str = "left";
 /// A board's name cap, in runes.
 pub const MAX_BOARD_NAME: usize = 80;
 
+/// The longest tag a new board may take (card #590), so a cross-board
+/// ref like `agility#1234` stays short. Boards made before keep their
+/// longer tags (up to 16), and refs to them still parse.
+pub const MAX_BOARD_TAG: usize = 8;
+
 /// A row's place in fold order (GUI JSON `{hlc, device, seq}`). The derived
 /// order is Go's `RowAt.less`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
@@ -737,11 +742,12 @@ fn go_trim_space(s: &str) -> &str {
     s.trim_matches(gocompat::text::is_space)
 }
 
-/// A board's short handle: a lowercase letter, then up to 15 lowercase
-/// letters, digits or `-` (Go `ValidBoardTag`).
+/// A new board's short handle: a lowercase letter, then lowercase
+/// letters, digits or `-`, [`MAX_BOARD_TAG`] at most (Go `ValidBoardTag`
+/// allowed 16; card #590 lowered it).
 pub fn valid_board_tag(tag: &str) -> bool {
     let b = tag.as_bytes();
-    if b.is_empty() || b.len() > 16 || !b[0].is_ascii_lowercase() {
+    if b.is_empty() || b.len() > MAX_BOARD_TAG || !b[0].is_ascii_lowercase() {
         return false;
     }
     b[1..]

@@ -114,6 +114,25 @@ describe("spaces (card #393)", () => {
     expect(ids("b-mlg")).toEqual(["c2"])
     expect(ids("b-iro")).toEqual([])
   })
+
+  test("a DM with another person shows under every pick (card #538)", () => {
+    const bob = TalkConversation({
+      convId: "d2",
+      kind: "dm",
+      members: [
+        { kind: "person", key: "user", name: "you", status: "", owner: "" },
+        {
+          kind: "person",
+          key: "person:bob",
+          name: "Bob",
+          status: "",
+          owner: "",
+        },
+      ],
+    })
+    for (const space of [AllSpaces, Personal, "b-mlg", "b-iro"])
+      expect(convInSpace(bob, space)).toBe(true)
+  })
 })
 
 describe("avatars (card #393)", () => {

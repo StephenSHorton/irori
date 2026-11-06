@@ -28,7 +28,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use irori_identity::{Identity, MemberPin};
+use irori_identity::{Identity, MemberPin, ROLE_DESKTOP};
 use irori_meshseam::{Conn, MAX_MESSAGE};
 use irori_pair::wire::WireRow;
 use serde::{Deserialize, Serialize};
@@ -687,6 +687,7 @@ impl Guest {
             &self.ident,
             &self.ticket.board_id,
             &host.person_id,
+            ROLE_DESKTOP,
             &bundle,
         )
         .map_err(fail)?;

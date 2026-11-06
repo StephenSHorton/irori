@@ -45,7 +45,7 @@ impl Services {
     ) -> Result<Vec<String>, coord::Error> {
         let mut done: Vec<(Arc<BoardLog>, String)> = Vec::new();
         let mut tags = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let Some((card, all)) = self.mirror_card(&b, agent, resource) else {
                 continue;
             };
@@ -69,7 +69,7 @@ impl Services {
     /// Releases `agent`'s mirrored lease on `resource` wherever it is.
     pub(crate) fn mirror_release(&self, agent: &str, resource: &str) {
         let agent = agent.strip_prefix("api:").unwrap_or(agent);
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let Some(id) = lock(&b.maps).keys.get(agent).cloned() else {
                 continue;
             };
@@ -93,7 +93,7 @@ impl Services {
         let resource = coord::normalize_resource(resource)?;
         let resource = resource.as_str();
         let mut last = None;
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let co = b.coord();
             if !co.leases().iter().any(|l| l.resource == resource) {
                 continue;

@@ -14,6 +14,7 @@ import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
 import { Thread } from "@/components/cards/thread"
 import { spawnLine } from "@/lib/spawn-line"
+import { StartPastLimit } from "@/components/cards/start-past-limit"
 import {
   displayName,
   threads as threadsApi,
@@ -86,10 +87,7 @@ export function stateLine(t: ThreadSummary, why = ""): string {
       return "Resolved"
     default:
       // An agent Irori starts for it, or why it can't (card #470).
-      return (
-        spawnLine(t)?.text ??
-        (why || "Waiting for an agent")
-      )
+      return spawnLine(t)?.text ?? (why || "Waiting for an agent")
   }
 }
 
@@ -220,6 +218,9 @@ export function ThreadView({
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
         scroll
       />
+      {t.state === "waiting" && (
+        <StartPastLimit id={t.id} state={t} size="xs" />
+      )}
       <div className="flex shrink-0 items-center gap-2">
         {resolved ? (
           <Button

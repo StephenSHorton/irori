@@ -9,14 +9,18 @@
 //!   update card.
 //! - The shell spawns `update::Updater::auto_update` at start and
 //!   calls `update::Updater::install_on_exit` on the way out.
+//! - With Keep this device up to date on (card #578, [`super::keep`]), the
+//!   shell's loop checks every few hours and restarts when no agent works,
+//!   and the card waits a day for that before it shows Install.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use ::update as upd;
 use irori_window::update::UpdateStatus;
 use tauri::{AppHandle, Emitter as _};
 
+use super::keep::Keeper;
 use super::tray::Tray;
 
 /// This build's updater, downloading into `<data dir>/updates`. Its lines
@@ -44,8 +48,14 @@ fn to_window(st: upd::Status) -> UpdateStatus {
     }
 }
 
-/// The window's updater seam (Go's bound `UpdateService`).
-pub struct WindowUpdater(pub Arc<upd::Updater>);
+/// The window's updater seam (Go's bound `UpdateService`), with Keep this
+/// device up to date: the setting and the loop's wake (turned on, it
+/// checks at once).
+pub struct WindowUpdater(
+    pub Arc<upd::Updater>,
+    pub Arc<Keeper>,
+    pub Mutex<mpsc::Sender<()>>,
+);
 
 impl irori_window::seams::Updater for WindowUpdater {
     fn status(&self) -> UpdateStatus {
@@ -53,6 +63,20 @@ impl irori_window::seams::Updater for WindowUpdater {
     }
     fn supported(&self) -> bool {
         self.0.supported()
+    }
+    fn keep_up_to_date(&self) -> Option<bool> {
+        // A phone updates through its own install screen (card #270).
+        (self.0.supported() && !cfg!(target_os = "android")).then(|| self.1.on())
+    }
+    fn set_keep_up_to_date(&self, on: bool) -> Result<Option<bool>, String> {
+        if self.keep_up_to_date().is_none() {
+            return Err("this device doesn't update itself".into());
+        }
+        let now = self.1.set_on(on)?;
+        if now {
+            let _ = self.2.lock().unwrap_or_else(|e| e.into_inner()).send(());
+        }
+        Ok(Some(now))
     }
     fn check_and_download(&self) -> UpdateStatus {
         let u = self.0.clone();
@@ -120,10 +144,14 @@ struct Card {
     /// Restart to update (Go `install`).
     install: Install,
     open: notify::Callback,
+    /// Card #578: wait before posting for this version (Keep this device up
+    /// to date restarts by itself within a day; the card goes up after).
+    hold: Hold,
     st: Mutex<CardState>,
 }
 
 type Install = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+type Hold = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 #[derive(Default)]
 struct CardState {
@@ -143,6 +171,7 @@ impl Card {
                 st.phase == upd::PHASE_READY && !st.version.is_empty() && st.version != g.announced;
             (drop, post)
         };
+        let post = post && !(self.hold)(&st.version);
         if !drop.is_empty() {
             self.n.clear(&card_id(&drop));
         }
@@ -208,7 +237,16 @@ impl Card {
 
 /// Go `setupUpdater` minus the start and shutdown calls, which the shell
 /// makes: hooks to the app, the tray item (when there is a tray), the card.
-pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: &notify::Notifier) {
+///
+/// Returns the card's re-check, which Keep this device up to date's loop
+/// calls so a held card goes up once its day has passed.
+pub fn wire(
+    app: &AppHandle,
+    u: &Arc<upd::Updater>,
+    tray: Option<Arc<Tray>>,
+    n: &notify::Notifier,
+    keeper: &Arc<Keeper>,
+) -> Box<dyn Fn(&upd::Status) + Send> {
     let h = app.clone();
     let hq = app.clone();
     u.set_hooks(
@@ -223,8 +261,16 @@ pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: 
         n: n.clone(),
         install: Arc::new(move || ui.restart_to_update()),
         open: Arc::new(move || super::show(&h)),
+        hold: {
+            let k = keeper.clone();
+            Arc::new(move |v: &str| k.hold_card(v))
+        },
         st: Mutex::default(),
     });
+    let recheck = {
+        let card = card.clone();
+        Box::new(move |st: &upd::Status| card.on_status(st))
+    };
     let uu = u.clone();
     u.set_on_change(Arc::new(move |st| {
         if let Some(t) = &tray {
@@ -241,6 +287,7 @@ pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: 
             card.on_status(st);
         }
     }));
+    recheck
 }
 
 /// Go's update_card_test.go: the card on a fake card system.
@@ -252,7 +299,7 @@ mod tests {
 
     use ::update as upd;
 
-    use super::{Card, Install};
+    use super::{Card, Hold, Install};
 
     /// Go `cardToaster`: keeps the live cards and presses a button the
     /// way the engine does (the card closes, then its run).
@@ -303,6 +350,14 @@ mod tests {
     }
 
     fn card_with(headless: bool, install: Install) -> (Arc<Card>, Arc<Fake>, notify::Notifier) {
+        card_held(headless, install, Arc::new(|_| false))
+    }
+
+    fn card_held(
+        headless: bool,
+        install: Install,
+        hold: Hold,
+    ) -> (Arc<Card>, Arc<Fake>, notify::Notifier) {
         let fake = Arc::new(Fake::default());
         let n = notify::Notifier::new(notify::Config {
             headless,
@@ -313,6 +368,7 @@ mod tests {
             n: n.clone(),
             install,
             open: Arc::new(|| {}),
+            hold,
             st: Mutex::default(),
         });
         (c, fake, n)
@@ -433,6 +489,27 @@ mod tests {
         n.set_options(o).1.unwrap();
         c.on_status(&ready("0.4.0"));
         assert!(f.live("update:0.4.0").is_some(), "no card after back on");
+    }
+
+    /// Card #578: held while Keep this device up to date waits for a quiet
+    /// moment, then posted once by a later re-check.
+    #[test]
+    fn held_until_released() {
+        let held = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let h = held.clone();
+        let (c, f, _) = card_held(
+            false,
+            no_install(),
+            Arc::new(move |_| h.load(Ordering::SeqCst)),
+        );
+        c.on_status(&ready("0.4.0"));
+        c.on_status(&ready("0.4.0"));
+        assert_eq!(f.post_count(), 0, "posted while held");
+        held.store(false, Ordering::SeqCst);
+        c.on_status(&ready("0.4.0"));
+        c.on_status(&ready("0.4.0"));
+        assert!(f.live("update:0.4.0").is_some(), "not posted once released");
+        assert_eq!(f.post_count(), 1, "posted more than once");
     }
 
     #[test]
