@@ -37,6 +37,8 @@ const HEARTBEAT: Duration = Duration::from_secs(15);
 const LIVE_FOR: Duration = Duration::from_secs(50);
 /// While ringing, the ring goes out again this often.
 const RING_AGAIN: Duration = Duration::from_secs(5);
+/// The most devices a call holds (the card says 2 to 6; a little room).
+const MAX_DEVICES: usize = 8;
 /// How often the window hears about a call in progress (health, speaking).
 const TICK: Duration = Duration::from_millis(400);
 
@@ -68,6 +70,26 @@ struct Inner {
     ringing: BTreeMap<String, Ring>,
     live: BTreeMap<String, Live>,
     dismissed: BTreeSet<String>,
+    /// A start or join is opening the devices and the call: no second
+    /// one may begin until it is in (or failed).
+    entering: bool,
+    /// The phone's Hang up or a failure while entering, for when it's in.
+    pending_hangup: bool,
+    pending_error: Option<String>,
+    /// Counts calls entered: a ticker serves only its own.
+    generation: u64,
+}
+
+/// Clears [`Inner::entering`] however `call_enter` ends.
+struct Entering<'a>(&'a Calls);
+
+impl Drop for Entering<'_> {
+    fn drop(&mut self) {
+        let mut g = self.0.inner.lock().expect("calls");
+        g.entering = false;
+        g.pending_hangup = false;
+        g.pending_error = None;
+    }
 }
 
 struct Ring {
@@ -97,6 +119,8 @@ struct Active {
     /// This device started the call: it keeps ringing for a while.
     started_here: bool,
     muted: bool,
+    /// Which call this is, of those this device entered.
+    generation: u64,
     engine: Arc<call::Engine>,
     handle: irori_net::call::CallHandle,
     mesh: Arc<BoardMesh>,
@@ -225,12 +249,44 @@ impl Services {
         });
     }
 
-    fn on_call_frame(&self, via: &str, peer: &LivePeer, f: CallFrame) {
+    fn on_call_frame(self: &Arc<Self>, via: &str, peer: &LivePeer, mut f: CallFrame) {
         if f.space_id != via || !irori_net::call::is_call_id(&f.call_id) {
             return;
         }
+        // A frame names its conversation: it must be one of this space's,
+        // or a member could make a huddle show (and its posts land) in a
+        // conversation of another space or a DM.
+        if matches!(f.op.as_str(), "ring" | "join")
+            && self.call_space(&f.conv_id).ok().as_deref() != Some(via)
+        {
+            return;
+        }
+        let Some(m) = self.mesh.board(via) else {
+            return;
+        };
+        // Only devices of this space, and no more than a call holds.
+        let known: BTreeMap<String, String> = m
+            .member_devices()
+            .into_iter()
+            .map(|d| (d.device_id, d.person_id))
+            .chain(
+                m.live_peers()
+                    .into_iter()
+                    .map(|p| (p.device_id, p.person_id)),
+            )
+            .collect();
+        f.devices.retain(|d| known.contains_key(d));
+        f.devices.dedup();
+        f.devices.truncate(MAX_DEVICES);
+        // A start time far from now is a wrong clock or a lie: ignore it.
+        let now_ms = now_ms();
+        if (f.at_ms - now_ms).abs() > 2 * RING_FOR.as_millis() as i64 {
+            f.at_ms = 0;
+        }
+        let me_person = self.person_id();
         let now = SystemTime::now();
         let mut changed = true;
+        let mut expire = None;
         // Devices of my call I've just heard of: dial them (whoever joined
         // may not have known the whole roster).
         let mut dial = Vec::new();
@@ -255,7 +311,11 @@ impl Services {
                     }
                     live.devices
                         .insert(peer.device_id.clone(), peer.person_id.clone());
-                    if f.op == "ring"
+                    expire = Some(LIVE_FOR);
+                    if f.op == "join" && peer.person_id == me_person {
+                        // Answered on another of this person's devices.
+                        g.ringing.remove(&f.call_id);
+                    } else if f.op == "ring"
                         && !mine
                         && !g.dismissed.contains(&f.call_id)
                         && !g.ringing.contains_key(&f.call_id)
@@ -269,15 +329,16 @@ impl Services {
                                     space_id: f.space_id.clone(),
                                     by_device: peer.device_id.clone(),
                                     by_person: peer.person_id.clone(),
-                                    at_ms: f.at_ms,
+                                    at_ms: if f.at_ms > 0 { f.at_ms } else { now_ms },
                                 },
                                 devices: f.devices.clone(),
                                 until: now + RING_FOR,
                             },
                         );
+                        expire = Some(RING_FOR);
                     } else if let Some(r) = g.ringing.get_mut(&f.call_id) {
                         for d in &f.devices {
-                            if !r.devices.contains(d) {
+                            if !r.devices.contains(d) && r.devices.len() < MAX_DEVICES {
                                 r.devices.push(d.clone());
                             }
                         }
@@ -288,23 +349,20 @@ impl Services {
                         let named = std::iter::once(peer.device_id.clone())
                             .chain(f.devices.iter().cloned());
                         for d in named.filter(|d| d != me) {
-                            let person = if d == peer.device_id {
-                                peer.person_id.clone()
-                            } else {
-                                a.mesh
-                                    .member_devices()
-                                    .into_iter()
-                                    .find(|m| m.device_id == d)
-                                    .map(|m| m.person_id)
-                                    .unwrap_or_default()
-                            };
+                            if a.peers.len() >= MAX_DEVICES && !a.peers.contains_key(&d) {
+                                continue;
+                            }
                             let slot = a.peers.entry(d.clone()).or_insert(Slot {
-                                person_id: person,
+                                person_id: known.get(&d).cloned().unwrap_or_default(),
                                 conn: None,
                                 gone: false,
                             });
-                            if slot.conn.is_none() {
+                            // A device that left comes back only on its own
+                            // word, never on a roster someone else sent.
+                            if d == peer.device_id {
                                 slot.gone = false;
+                            }
+                            if slot.conn.is_none() && !slot.gone {
                                 dial.push(d);
                             }
                         }
@@ -325,8 +383,20 @@ impl Services {
                     }
                 }
                 "end" => {
-                    g.live.remove(&f.call_id);
-                    g.ringing.remove(&f.call_id);
+                    // Only from a device that was in it (or rang it).
+                    let in_it = g
+                        .live
+                        .get(&f.call_id)
+                        .is_some_and(|l| l.devices.contains_key(&peer.device_id))
+                        || g.ringing
+                            .get(&f.call_id)
+                            .is_some_and(|r| r.r.by_device == peer.device_id);
+                    if in_it {
+                        g.live.remove(&f.call_id);
+                        g.ringing.remove(&f.call_id);
+                    } else {
+                        changed = false;
+                    }
                 }
                 _ => changed = false,
             }
@@ -334,9 +404,24 @@ impl Services {
         for d in dial {
             self.call_dial(&f.call_id, d);
         }
+        if let Some(d) = expire {
+            self.publish_after(d + Duration::from_secs(1));
+        }
         if changed {
             self.calls_changed();
         }
+    }
+
+    /// Tells the window again after `d`: rings and live huddles expire by
+    /// time, and nothing else would make it look.
+    fn publish_after(self: &Arc<Self>, d: Duration) {
+        let w = Arc::downgrade(self);
+        self.pairing.handle.spawn(async move {
+            tokio::time::sleep(d).await;
+            if let Some(s) = w.upgrade() {
+                s.calls_changed();
+            }
+        });
     }
 
     pub(crate) fn call_snapshot(&self) -> CallSnapshot {
@@ -403,7 +488,12 @@ impl Services {
                 muted: a.muted,
                 speaking: st.speaking,
                 peers,
-                error: a.error.clone(),
+                error: a.error.clone().or_else(|| {
+                    st.device_failed.then(|| {
+                        "The microphone or speaker stopped: leave the huddle and join again"
+                            .to_string()
+                    })
+                }),
             }
         });
         let mine_id = g.mine.as_ref().map(|a| a.call_id.clone());
@@ -486,6 +576,10 @@ impl Services {
             }
         };
         let started = if started > 0 { started } else { now_ms() };
+        // The conversation must still be one of the call's space.
+        if self.call_space(&conv)? != space {
+            return Err("that huddle isn't in this conversation's space".into());
+        }
         self.call_enter(call_id, &conv, &space, devices, false, started)
     }
 
@@ -500,9 +594,14 @@ impl Services {
         started_here: bool,
         started_at_ms: i64,
     ) -> Result<(), String> {
-        if self.calls.inner.lock().expect("calls").mine.is_some() {
-            return Err("you're already in a huddle: leave it first".into());
+        {
+            let mut g = self.calls.inner.lock().expect("calls");
+            if g.mine.is_some() || g.entering {
+                return Err("you're already in a huddle: leave it first".into());
+            }
+            g.entering = true;
         }
+        let _entering = Entering(&self.calls);
         let m = self.mesh.board(space).ok_or("this space isn't open here")?;
         let keys = m.topic_keys();
         if keys.is_empty() {
@@ -518,13 +617,24 @@ impl Services {
                 if let Some(s) = w.upgrade() {
                     match e {
                         call::PlatformEvent::HangUp => {
+                            let mut g = s.calls.inner.lock().expect("calls");
+                            if g.mine.is_none() && g.entering {
+                                // Still coming up: hang up once it's in.
+                                g.pending_hangup = true;
+                                return;
+                            }
+                            drop(g);
                             std::thread::spawn(move || {
                                 let _ = s.call_leave();
                             });
                         }
                         call::PlatformEvent::Failed(why) => {
-                            if let Some(a) = s.calls.inner.lock().expect("calls").mine.as_mut() {
-                                a.error = Some(why);
+                            {
+                                let mut g = s.calls.inner.lock().expect("calls");
+                                match g.mine.as_mut() {
+                                    Some(a) => a.error = Some(why),
+                                    None => g.pending_error = Some(why),
+                                }
                             }
                             s.calls_changed();
                         }
@@ -615,9 +725,14 @@ impl Services {
         let mut people: BTreeSet<String> = peers.values().map(|s| s.person_id.clone()).collect();
         people.insert(self.person_id());
         people.retain(|p| !p.is_empty());
-        {
+        let (generation, hang_up) = {
             let mut g = self.calls.inner.lock().expect("calls");
+            g.generation += 1;
+            let generation = g.generation;
+            let error = g.pending_error.take();
+            let hang_up = std::mem::take(&mut g.pending_hangup);
             g.mine = Some(Active {
+                generation,
                 call_id: call_id.to_string(),
                 conv_id: conv.to_string(),
                 space_id: space.to_string(),
@@ -630,11 +745,17 @@ impl Services {
                 mesh: m.clone(),
                 peers,
                 people,
-                error: None,
+                error,
             });
             g.dismissed.remove(call_id);
-        }
+            g.entering = false;
+            (generation, hang_up)
+        };
+        drop(_entering);
         self.calls_changed();
+        if hang_up {
+            return self.call_leave();
+        }
 
         let mut roster = vec![me.clone()];
         roster.extend(devices.iter().filter(|d| **d != me).cloned());
@@ -642,7 +763,7 @@ impl Services {
         for d in devices.into_iter().filter(|d| *d != me) {
             self.call_dial(call_id, d);
         }
-        self.call_ticker(call_id.to_string());
+        self.call_ticker(call_id.to_string(), generation);
         Ok(())
     }
 
@@ -767,7 +888,7 @@ impl Services {
     /// While in call `call_id`: the window hears about health and speaking
     /// every tick, and the space hears this device is still in it every
     /// heartbeat.
-    fn call_ticker(self: &Arc<Self>, call_id: String) {
+    fn call_ticker(self: &Arc<Self>, call_id: String, generation: u64) {
         let w = Arc::downgrade(self);
         self.pairing.handle.spawn(async move {
             let mut beat = tokio::time::Instant::now();
@@ -776,26 +897,29 @@ impl Services {
                 let Some(s) = w.upgrade() else { return };
                 let here = {
                     let g = s.calls.inner.lock().expect("calls");
-                    g.mine.as_ref().filter(|a| a.call_id == call_id).map(|a| {
-                        let mut roster = vec![s.device.id.clone()];
-                        roster.extend(
-                            a.peers
-                                .iter()
-                                .filter(|(_, p)| !p.gone)
-                                .map(|(d, _)| d.clone()),
-                        );
-                        // The one who started it rings on for a while, for
-                        // devices that weren't reachable at first.
-                        let ringing = a.started_here
-                            && now_ms() - a.joined_at_ms < RING_FOR.as_millis() as i64;
-                        (
-                            a.mesh.clone(),
-                            a.conv_id.clone(),
-                            a.space_id.clone(),
-                            roster,
-                            ringing,
-                        )
-                    })
+                    g.mine
+                        .as_ref()
+                        .filter(|a| a.generation == generation)
+                        .map(|a| {
+                            let mut roster = vec![s.device.id.clone()];
+                            roster.extend(
+                                a.peers
+                                    .iter()
+                                    .filter(|(_, p)| !p.gone)
+                                    .map(|(d, _)| d.clone()),
+                            );
+                            // The one who started it rings on for a while, for
+                            // devices that weren't reachable at first.
+                            let ringing = a.started_here
+                                && now_ms() - a.joined_at_ms < RING_FOR.as_millis() as i64;
+                            (
+                                a.mesh.clone(),
+                                a.conv_id.clone(),
+                                a.space_id.clone(),
+                                roster,
+                                ringing,
+                            )
+                        })
                 };
                 let Some((m, conv, space, roster, ringing)) = here else {
                     return;
@@ -812,11 +936,22 @@ impl Services {
     }
 
     pub(crate) fn call_leave(&self) -> Result<(), String> {
-        let Some(a) = self.calls.inner.lock().expect("calls").mine.take() else {
-            return Ok(());
-        };
-        let others = a.peers.values().any(|p| p.conn.is_some() && !p.gone);
         let me = self.device.id.clone();
+        let (a, others) = {
+            let mut g = self.calls.inner.lock().expect("calls");
+            let Some(a) = g.mine.take() else {
+                return Ok(());
+            };
+            // Don't ring here again for the call just left.
+            g.dismissed.insert(a.call_id.clone());
+            // Others are still in it if connected now, or if the space's
+            // frames say so (a connection may be between redials).
+            let others = a.peers.values().any(|p| p.conn.is_some() && !p.gone)
+                || g.live
+                    .get(&a.call_id)
+                    .is_some_and(|l| l.devices.keys().any(|d| *d != me));
+            (a, others)
+        };
         if others {
             self.tell_space(
                 &a.mesh,
@@ -859,7 +994,15 @@ impl Services {
         }
         a.handle.leave();
         drop(a.engine);
-        if let Some(p) = &self.calls.platform {
+        // Not if another call has begun since: its service is the phone's
+        // one now.
+        let newer = {
+            let g = self.calls.inner.lock().expect("calls");
+            g.mine.is_some() || g.entering
+        };
+        if let Some(p) = &self.calls.platform
+            && !newer
+        {
             p.end();
         }
         self.calls_changed();

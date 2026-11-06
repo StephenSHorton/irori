@@ -215,6 +215,10 @@ fn own_devices_huddle_and_a_third_device_joins() {
     wait_for(WAIT, "a1 sees a3 gone", || live_peers(a1) == 1);
     a2.core.call_leave().unwrap();
     wait_for(WAIT, "a1 is alone", || live_peers(a1) == 0);
+    // a1 still rings for its first minute; a2, which left, isn't rung
+    // again for it.
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(!rung(a2, &call_id, &s.ch), "a2 is rung again for the call it left");
     assert!(
         mark(a1, &s.ch, &call_id, CALL_END).is_none(),
         "ended while a1 is still in it"

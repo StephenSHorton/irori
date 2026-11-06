@@ -20,6 +20,9 @@ pub struct DeviceLatency {
     pub output_us: AtomicU32,
     /// Speaker callbacks that found too little to play.
     pub underruns: AtomicU64,
+    /// Errors the devices reported (unplugged, taken away): the call can't
+    /// hear or play until it is joined again.
+    pub errors: AtomicU64,
 }
 
 /// Open devices: a ring of mono mic samples to read, and one of mono
@@ -90,7 +93,13 @@ fn open_default() -> Result<Devices, String> {
                 // newest rather than block the device.
                 let _ = mic_prod.push_slice(&mono);
             },
-            |e| eprintln!("call: mic: {e}"),
+            {
+                let lat = latency.clone();
+                move |e| {
+                    eprintln!("call: mic: {e}");
+                    lat.errors.fetch_add(1, Ordering::Relaxed);
+                }
+            },
             None,
         )
         .map_err(|e| format!("open the microphone: {e}"))?;
@@ -119,7 +128,13 @@ fn open_default() -> Result<Devices, String> {
                     f.fill(*s);
                 }
             },
-            |e| eprintln!("call: speaker: {e}"),
+            {
+                let lat = latency.clone();
+                move |e| {
+                    eprintln!("call: speaker: {e}");
+                    lat.errors.fetch_add(1, Ordering::Relaxed);
+                }
+            },
             None,
         )
         .map_err(|e| format!("open the speaker: {e}"))?;

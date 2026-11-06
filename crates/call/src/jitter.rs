@@ -29,6 +29,11 @@ pub const MIN_TARGET_MS: f64 = 20.0;
 pub const MAX_TARGET_MS: f64 = 140.0;
 /// How long arrival delays are remembered for the estimate, ms.
 const WINDOW_MS: f64 = 4000.0;
+/// And at most this many of them, so a flood can't make each insert slow.
+const WINDOW_MAX: usize = 256;
+/// This many late frames in a row mean the delay stepped up for good (a
+/// new path, or a sender that skipped ahead): start over on the new delay.
+const LATE_RUN: u32 = 8;
 /// Room above the 95th percentile, ms.
 const MARGIN_MS: f64 = 10.0;
 /// No packet for this long while not in DTX: the peer is gone or stuck.
@@ -102,6 +107,8 @@ pub struct JitterBuffer {
     seq_hi: Option<i64>,
     seq_lo: i64,
     last_seq: u16,
+    /// Late frames in a row.
+    late_run: u32,
     /// Probe frames played, waiting to be collected (call-dev).
     probes: Vec<i64>,
     stats: JitterStats,
@@ -123,6 +130,7 @@ impl JitterBuffer {
             seq_hi: None,
             seq_lo: 0,
             last_seq: 0,
+            late_run: 0,
             probes: Vec::new(),
             stats: JitterStats {
                 target_ms: MIN_TARGET_MS,
@@ -135,23 +143,35 @@ impl JitterBuffer {
     pub fn insert(&mut self, h: Header, data: &[u8], now_ms: f64) {
         self.stats.received += 1;
         self.stats.muted = h.flags & FLAG_MUTED != 0;
-        self.last_arrival = now_ms;
         self.count_seq(h.seq);
 
         let ts = self.unwrap_ts(h.ts);
         if let Some(n) = self.next {
             if (ts - n).abs() > RESET_FRAMES * FRAME as i64 {
                 self.restart();
+                self.last_arrival = now_ms;
                 return self.insert_fresh(h, data, ts, now_ms);
             }
             if ts < n {
                 self.stats.late += 1;
+                self.late_run += 1;
+                if self.late_run >= LATE_RUN {
+                    // Everything comes late now: the one-way delay stepped
+                    // past what the target can cover. Start over on it
+                    // rather than conceal every frame.
+                    self.restart();
+                    self.last_arrival = now_ms;
+                    return self.insert_fresh(h, data, ts, now_ms);
+                }
                 // Still a delay sample: it is how late frames teach the
-                // estimate to wait longer.
+                // estimate to wait longer. It doesn't count as the sender
+                // being heard, for the stall check.
                 self.note_delay(ts, now_ms);
                 return;
             }
         }
+        self.late_run = 0;
+        self.last_arrival = now_ms;
         self.insert_fresh(h, data, ts, now_ms);
     }
 
@@ -211,6 +231,7 @@ impl JitterBuffer {
             .delays
             .front()
             .is_some_and(|&(t, _)| now_ms - t > WINDOW_MS)
+            || self.delays.len() > WINDOW_MAX
         {
             self.delays.pop_front();
         }
@@ -232,6 +253,7 @@ impl JitterBuffer {
         self.next = None;
         self.last_ts = None;
         self.quiet = false;
+        self.late_run = 0;
         self.dec.reset_state().ok();
     }
 
@@ -285,6 +307,23 @@ impl JitterBuffer {
 
         // Too deep: behind the ideal play point by more than two frames.
         // Skip ahead in silence, or past six frames even in speech.
+        let behind = ideal - next;
+        // Far behind (this thread stalled, or the sender burst): jump to the
+        // ideal point at once instead of one frame per pull, which would
+        // play speech garbled for as long as the stall was.
+        let max_behind = ((MAX_TARGET_MS / 1000.0 * 48_000.0) as i64) + 2 * f;
+        if behind > max_behind {
+            let skip = (behind / f) * f;
+            next += skip;
+            self.stats.dropped += (skip / f) as u64;
+            while let Some((&t, _)) = self.frames.first_key_value() {
+                if t >= next {
+                    break;
+                }
+                self.frames.remove(&t);
+            }
+            self.dec.reset_state().ok();
+        }
         let behind = ideal - next;
         if behind > 2 * f && (silent_here || behind > 6 * f) {
             self.frames.remove(&next);
@@ -496,6 +535,39 @@ mod tests {
         assert!(st.target_ms >= 60.0, "{st:?}");
         let tail = &played[150..300];
         assert!(tail.iter().all(|p| *p == Played::Normal), "{tail:?}");
+    }
+
+    /// The path gains 250 ms for good (direct to relay): after a moment of
+    /// loss the buffer starts over on the new delay and plays every frame
+    /// again, instead of concealing everything from then on.
+    #[test]
+    fn a_lasting_delay_step_is_followed() {
+        let (jb, played) = run(400, |i| Some(if i < 150 { 10.0 } else { 260.0 }));
+        let tail = &played[260..400];
+        assert!(
+            tail.iter().all(|p| *p == Played::Normal),
+            "{tail:?} {:?}",
+            jb.stats()
+        );
+    }
+
+    /// A flood of datagrams keeps the delay window small.
+    #[test]
+    fn a_flood_keeps_the_estimate_bounded() {
+        let mut s = Sender::new();
+        let mut jb = JitterBuffer::new().unwrap();
+        let (h, p) = s.next();
+        for i in 0..5000 {
+            jb.insert(
+                Header {
+                    seq: h.seq.wrapping_add(i as u16),
+                    ..h
+                },
+                &p,
+                1000.0 + i as f64 * 0.1,
+            );
+        }
+        assert!(jb.delays.len() <= WINDOW_MAX);
     }
 
     #[test]

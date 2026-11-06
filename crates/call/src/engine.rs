@@ -33,6 +33,11 @@ const SPEAKER_QUEUE_MS: u32 = 20;
 const DTX_KEEPALIVE: u32 = 20;
 /// Mic audio waiting longer than this is dropped (the thread fell behind).
 const MIC_BACKLOG_MS: u32 = 60;
+/// Commands handled per loop at most, so a flood of datagrams can't keep
+/// playout and capture from running.
+const DRAIN_MAX: usize = 256;
+/// No mic audio for this long: the mic stopped.
+const MIC_DEAD: Duration = Duration::from_millis(1500);
 /// How often the shared stats are refreshed.
 const STATS_EVERY: Duration = Duration::from_millis(100);
 
@@ -100,6 +105,8 @@ pub struct Stats {
     pub sent: u64,
     /// Speaker callbacks that ran dry.
     pub underruns: u64,
+    /// The mic or speaker failed or went away: leave and join again.
+    pub device_failed: bool,
     pub mic_rate: u32,
     pub speaker_rate: u32,
     pub input_latency_ms: f64,
@@ -273,6 +280,8 @@ struct Core {
     probe_in_frame: bool,
     m2e: Vec<f64>,
     mic_buf: Vec<f32>,
+    /// When the mic last gave audio.
+    mic_heard: Instant,
     last_stats: Instant,
 }
 
@@ -313,6 +322,7 @@ impl Core {
             probe_in_frame: false,
             m2e: Vec::new(),
             mic_buf: vec![0.0; 4096],
+            mic_heard: Instant::now(),
             last_stats: Instant::now(),
             t0: Instant::now(),
             shared,
@@ -330,7 +340,8 @@ impl Core {
                 Ok(Cmd::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 Ok(c) => {
                     self.command(c);
-                    while let Ok(c) = rx.try_recv() {
+                    for _ in 0..DRAIN_MAX {
+                        let Ok(c) = rx.try_recv() else { break };
                         if matches!(c, Cmd::Stop) {
                             return;
                         }
@@ -436,12 +447,16 @@ impl Core {
     fn capture(&mut self) {
         let n = self.dev.mic.pop_slice(&mut self.mic_buf);
         if n > 0 {
+            self.mic_heard = Instant::now();
             let chunk = self.mic_buf[..n].to_vec();
             self.mic_in.push(&chunk);
         }
         // Fell behind: keep only the newest audio.
         let backlog = 48 * MIC_BACKLOG_MS as usize;
-        self.mic_in.trim(backlog);
+        let dropped = self.mic_in.trim(backlog);
+        // Keep the timestamps on wall time: the far end plays by them, and
+        // a gap it doesn't see would look like a lasting delay.
+        self.ts = self.ts.wrapping_add(((dropped / F) * F) as u32);
         let mut x = [0f32; dsp::CHUNK];
         while self.mic_in.take(&mut x) {
             // The probe times sound at the raw mic, before any cleaning.
@@ -560,6 +575,8 @@ impl Core {
             echo: self.dsp.echo(),
             sent: self.sent,
             underruns: self.dev.latency.underruns.load(Ordering::Relaxed),
+            device_failed: self.dev.latency.errors.load(Ordering::Relaxed) > 0
+                || self.mic_heard.elapsed() > MIC_DEAD,
             mic_rate: self.dev.mic_rate,
             speaker_rate: self.dev.speaker_rate,
             input_latency_ms: self.dev.latency.input_us.load(Ordering::Relaxed) as f64 / 1000.0,

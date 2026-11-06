@@ -57,6 +57,9 @@ use tokio_util::sync::CancellationToken;
 use crate::admit::Admit;
 use crate::endpoint::{IpMode, RelaySpec};
 
+/// The QUIC datagram send buffer, bytes (see `Inner::build`).
+const DATAGRAM_SEND_BUFFER: usize = 4096;
+
 /// The private mesh's ALPN (architecture §3.1).
 pub const MESH_ALPN: &[u8] = b"irori/mesh/1";
 /// Pairing (M7).
@@ -912,6 +915,11 @@ impl Inner {
         nr.captive_portal_check = false;
         let tc = QuicTransportConfig::builder()
             .max_concurrent_bidi_streams(VarInt::from_u32(IN_STREAMS))
+            // Only calls send datagrams (#654): a small send buffer drops
+            // stale audio on a congested link instead of queueing seconds
+            // of it (the default is 1 MiB). 4 KiB is about a second of
+            // voice for one peer.
+            .datagram_send_buffer_size(DATAGRAM_SEND_BUFFER)
             .build();
         let mut alpns = vec![
             MESH_ALPN.to_vec(),
