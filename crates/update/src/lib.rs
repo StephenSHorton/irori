@@ -6,8 +6,10 @@
 //! release's `SHA256SUMS`, and parks in `ready`. The person then restarts
 //! ([`Updater::restart_to_update`]: install, quit, Irori comes back) or keeps
 //! working, and the install runs on quit ([`Updater::install_on_exit`], no
-//! relaunch). Nothing installs or quits behind the person's back, and `dev`
-//! builds never touch the network.
+//! relaunch). This crate never installs or quits on its own. The app's
+//! Keep this device up to date setting (card #578, app/src/shell/keep.rs)
+//! calls `restart_to_update` when the person has it on and no agent is
+//! working. `dev` builds never touch the network.
 //!
 //! The feed and the asset names are Go's, so the Go v0.5.x updater installs
 //! the first Rust release (v0.6.0) and this one installs later ones:
