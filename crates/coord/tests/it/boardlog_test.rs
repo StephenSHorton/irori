@@ -20,9 +20,10 @@ const BOARD_PERSON: &str = "person:p1";
 const BOARD_CARD: &str = "agent:c1";
 
 struct Board {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     clk: Clk,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 fn board_store(dev: &str) -> Board {

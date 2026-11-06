@@ -28,10 +28,11 @@ const CARD3: &str = "agent:c3";
 type Owners = Arc<Mutex<Vec<(String, u64, u64)>>>;
 
 struct Side {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     clk: Clk,
     c: Coord,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 fn key_person(k: &str) -> String {

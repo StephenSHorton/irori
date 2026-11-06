@@ -141,9 +141,10 @@ fn test_picks_keep_the_newest_user_row() {
 // --- roster ---
 
 struct Rig {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     seq: HashMap<String, i64>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 fn now_ms() -> i64 {
