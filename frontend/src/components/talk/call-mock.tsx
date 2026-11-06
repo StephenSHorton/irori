@@ -106,8 +106,12 @@ const people: Who[] = [
   },
 ]
 
-const deviceIcon = (d: Device) =>
-  d === "phone" ? SmartphoneIcon : d === "pc" ? MonitorIcon : LaptopIcon
+function DeviceIcon({ d }: { d: Device }) {
+  const cls = "size-3 shrink-0"
+  if (d === "phone") return <SmartphoneIcon className={cls} />
+  if (d === "pc") return <MonitorIcon className={cls} />
+  return <LaptopIcon className={cls} />
+}
 
 // Lines as each speaker's own device writes them down.
 const lines: { at: string; who: string; text: string; tag?: string }[] = [
@@ -308,7 +312,6 @@ function TranscriptOn() {
 }
 
 function Tile({ w, compact }: { w: Who; compact?: boolean }) {
-  const DevIcon = deviceIcon(w.device)
   return (
     <div
       className={cn(
@@ -330,7 +333,7 @@ function Tile({ w, compact }: { w: Who; compact?: boolean }) {
               <span className="truncate">{w.link}</span>
             ) : (
               <>
-                <DevIcon className="size-3 shrink-0" />
+                <DeviceIcon d={w.device} />
                 <span className="truncate">
                   {w.deviceName} · {w.link}
                 </span>
