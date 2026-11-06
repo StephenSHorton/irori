@@ -932,3 +932,100 @@ mod held_parents {
         assert!(!held(&a.c, id2));
     }
 }
+
+// ---- finding 10: step owners on a held card ----
+
+mod held_steps {
+    use super::*;
+
+    fn step(text: &str, owner: &str) -> Step {
+        Step {
+            text: text.into(),
+            owner: owner.into(),
+            ..Step::default()
+        }
+    }
+
+    /// A one-step card the person holds on their word.
+    fn held_card(e: &Env) -> Task {
+        let t = make(e, "with a step");
+        e.c.set_steps(USER, &t.id, vec![step("one", "")]).unwrap();
+        e.c.park(USER, &t.id, "not now", Back::Word).unwrap();
+        e.c.get_task(&t.id).unwrap()
+    }
+
+    fn still_held(e: &Env, id: &str) {
+        let t = e.c.get_task(id).unwrap();
+        assert!(t.parked().is_some(), "{:?}", t.blockers);
+        assert!(t.co_holders.is_empty(), "{:?}", t.co_holders);
+        assert!(t.steps.iter().all(|s| s.owner.is_empty()), "{:?}", t.steps);
+    }
+
+    /// Finding 10: claim refuses an agent on a held card, and so does
+    /// giving itself a step.
+    #[test]
+    fn an_agent_cant_take_a_step_on_a_held_card() {
+        let e = Env::new();
+        let t = held_card(&e);
+        want_err(e.c.claim_task(BOB, &t.id), ErrorKind::NotAllowed);
+        want_err(
+            e.c.set_step_owner(BOB, &t.id, "s1", BOB),
+            ErrorKind::NotAllowed,
+        );
+        still_held(&e, &t.id);
+    }
+
+    /// Finding 10: an agent can't hand a step on a held card to another,
+    /// so nobody is woken onto it.
+    #[test]
+    fn an_agent_cant_hand_a_step_on_a_held_card() {
+        let e = Env::new();
+        let t = held_card(&e);
+        want_err(
+            e.c.set_step_owner(ALICE, &t.id, "s1", CAROL),
+            ErrorKind::NotAllowed,
+        );
+        want_err(
+            e.c.set_steps_notice(ALICE, &t.id, vec![step("one", CAROL)]),
+            ErrorKind::NotAllowed,
+        );
+        want_err(
+            e.c.set_steps(ALICE, &t.id, vec![step("one", ""), step("two", BOB)]),
+            ErrorKind::NotAllowed,
+        );
+        still_held(&e, &t.id);
+    }
+
+    /// Steps with no new owner are still the agent's to edit.
+    #[test]
+    fn an_agent_may_still_edit_a_held_cards_steps() {
+        let e = Env::new();
+        let t = held_card(&e);
+        let (got, ns) =
+            e.c.set_steps_notice(ALICE, &t.id, vec![step("one", ""), step("two", "")])
+                .unwrap();
+        assert_eq!(got.steps.len(), 2);
+        assert!(ns.is_empty(), "{ns:?}");
+        still_held(&e, &t.id);
+    }
+
+    /// A person giving a step is their word, as assign is: the card
+    /// comes back and the owner hears it.
+    #[test]
+    fn a_person_giving_a_step_brings_the_card_back() {
+        let e = Env::new();
+        let t = held_card(&e);
+        let (got, ns) = e.c.set_step_owner(USER, &t.id, "s1", BOB).unwrap();
+        assert!(got.parked().is_none(), "{:?}", got.blockers);
+        assert_eq!(got.co_holders, [BOB.to_string()]);
+        assert_eq!(ns.len(), 1, "{ns:?}");
+        assert_eq!(ns[0].kind, NOTICE_STEP_OWNER);
+
+        let t = held_card(&e);
+        let (got, ns) =
+            e.c.set_steps_notice(USER, &t.id, vec![step("one", CAROL)])
+                .unwrap();
+        assert!(got.parked().is_none(), "{:?}", got.blockers);
+        assert_eq!(ns[0].to, [CAROL.to_string()]);
+    }
+}

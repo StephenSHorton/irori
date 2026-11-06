@@ -148,6 +148,7 @@ devices.
 | `board_unblock`, no id | Agents refused on a parked card |
 | `board_unblock blocker_id` | Allowed, except a `word` item: person only |
 | `claim_task`, `assign` | Agents refused; a person's assign is their word |
+| `board_step owner`, `board_steps` with a new owner | Agents refused, so nobody is woken onto it; a person's is their word, as assign |
 | `back_on_board` | Another item's answer can't unpark the card |
 | `answered_left` | Skips `later` items |
 | `hand_on` | Refused on a parked card |

@@ -2079,6 +2079,7 @@ impl Fold {
         let mut seq = self.step_seq.get(id).copied().unwrap_or(0);
         let mut used: Vec<String> = Vec::new();
         let mut out = Vec::with_capacity(input.len());
+        let mut new_owner = false;
         for s in &input {
             let mut sid = String::new();
             if !s.id.is_empty() && t.steps.iter().any(|o| o.id == s.id) && !used.contains(&s.id) {
@@ -2102,7 +2103,9 @@ impl Fold {
             // A new step owner co-holds the card: kept to its side (card #496).
             let owner = self.check_owner(&s.owner)?;
             if !owner.is_empty() && !t.steps.iter().any(|o| o.id == sid && o.owner == owner) {
+                self.parked_owner_refusal(&by, &t)?;
                 self.check_side_assign(&by, &t, &owner)?;
+                new_owner = true;
             }
             out.push(Step {
                 spawn: had || (s.spawn && may_spawn),
@@ -2115,6 +2118,9 @@ impl Fold {
         }
         if out == t.steps {
             return Ok(t);
+        }
+        if new_owner {
+            self.end_park(&by, id, "the person gave a step")?;
         }
         let at = self.stamp();
         self.write(
@@ -2326,7 +2332,9 @@ impl Fold {
         }
         // A step owner co-holds the card: kept to its side (card #496).
         if !owner.is_empty() {
+            self.parked_owner_refusal(&by, &t)?;
             self.check_side_assign(&by, &t, &owner)?;
+            self.end_park(&by, id, "the person gave a step")?;
         }
         let at = self.stamp();
         self.write(

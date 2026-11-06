@@ -878,6 +878,16 @@ impl Fold {
         Ok(())
     }
 
+    /// A new step owner on held card t (finding 10): refused for an agent,
+    /// as claim is. A person's is their word, as assign is: the caller
+    /// ends the hold before its row.
+    pub(crate) fn parked_owner_refusal(&self, by: &str, t: &Task) -> Result<()> {
+        if t.parked().is_some() && !self.is_person(by) {
+            return Err(parked_refusal(t, "nobody is given a step on it for now"));
+        }
+        Ok(())
+    }
+
     /// Brings card `id` back now. A hold on the person's word is theirs to
     /// end; anyone may end the others early.
     pub(crate) fn bring_back(

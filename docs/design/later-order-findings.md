@@ -36,11 +36,7 @@ Release build, a chain where each card is parked until the one before. board() a
 
 Next to doc section 5 bug 3. A is after #1, the person deletes #1, and the sweep leaves A blocked with the wait still open. remove_after(A, ['#1']) fails with 'no such task or lease: #1 was deleted', because task_ref_locked refuses deleted short refs. remove_after(A, [raw id]) works and A goes to submitted. Someone holding only the short ref is told the card is gone while A stays stuck. Fix: resolve deleted refs for removal, or match against the item's on.reference.
 
-## 10. An agent can take or be handed a held card through a step owner (high)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/cards.rs:2270`
-
-VERIFIED by running probes a1, a2 and a3 (all probes are in /tmp/rv570/crates/coord/tests/review_probe.rs, a scratch copy of 5898f117; the worktree is unchanged). set_step_owner (:2270) and set_steps (:2027) have no parked check, and both are agent tools (board_step at tools/src/board.rs:1989, board_steps at :1896). Scenario: a person parks a one-step card on Back::Word. claim_task(BOB) is refused NotAllowed, but set_step_owner(BOB, id, s1, BOB) returns Ok and co_holders becomes [bob]: the agent is on a card claim just refused it. Handing it to someone else: set_step_owner(ALICE, id, s1, CAROL) sends CAROL a step_owner notice with wake=true saying 'gave you a step... You hear the card like a holder', so an idle agent is woken onto a held card. set_steps_notice with an owner does the same. Read, not run: co_holders then makes held_by_someone true, so kids_to_park refuses parking its parent, and park refuses agents on that card. Fix at write time: refuse a new owner on a parked card for agents, and treat a person's as their word or refuse it too.
+## 10. An agent can take or be handed a held card through a step owner — fixed: set_step_owner and set_steps refuse a new owner on a held card for an agent, as claim does; a person's ends the hold first, as assign does.
 
 ## 11. A block or raise with the hold's own words rewrites its `on` — fixed: raise_locked (block too) refuses when the same-question item is a hold.
 
