@@ -90,6 +90,13 @@ export function NewCardDialog({
     setObjective(from.objective)
   }
 
+  // A member belongs to their space: a pick doesn't outlive the dialog or
+  // follow it to another board (card #573).
+  const boardId = board?.boardId ?? ""
+  useEffect(() => {
+    setAssignTo("")
+  }, [open, boardId])
+
   useEffect(() => {
     if (!open) return
     let live = true
@@ -148,7 +155,7 @@ export function NewCardDialog({
             </DialogTitle>
             <DialogDescription>
               {board
-                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
+                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}.${giving ? "" : fresh ? " Irori starts your agent for it, unless you give it to someone." : " Nobody picked: it waits there for someone on the board to take it up."}`
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}

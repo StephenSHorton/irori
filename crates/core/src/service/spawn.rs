@@ -1239,6 +1239,16 @@ impl Services {
         self.reap_ended();
         self.sweep_permission_waits();
         self.say_ask_crashes();
+        // A device that runs agents asks about given cards, paused or not.
+        if self
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            self.ask_given_cards();
+        }
         if self.inbox.policy().paused {
             return;
         }
@@ -2449,6 +2459,11 @@ impl Services {
     /// brief ("Start an agent with this", §4): the card goes back on the
     /// Board if nobody holds it, and the next sweep starts its agent.
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
+        // A card given to them, after their Not now (card #573).
+        if self.coord.get_task(id).is_none() && self.ask_given_again(id)? {
+            self.asks_kick.kick();
+            return Ok(());
+        }
         let t = self
             .coord
             .get_task(id)

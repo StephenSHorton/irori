@@ -122,6 +122,33 @@ fn nobody_on(t: &Task) -> bool {
         && t.open_ask().is_none()
 }
 
+/// Closes card t's open "OK to start an agent on this?": what it asked no
+/// longer holds (the card went to someone else, they came off it, or its
+/// text changed). A fold's own step, so every member does the same.
+pub(crate) fn close_given_question(t: &mut Task, at: GoTime) {
+    let mut closed = false;
+    for b in t
+        .blockers
+        .iter_mut()
+        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION)
+    {
+        b.resolved = Some(Resolution {
+            option: -1,
+            by: super::util::SWEEPER.into(),
+            at,
+            closed: true,
+            ..Resolution::default()
+        });
+        closed = true;
+    }
+    if closed && t.state == BLOCKED && count_open(t) == 0 {
+        t.state = super::fold::restore_state(t).into();
+    }
+    if closed {
+        sync_reason(t);
+    }
+}
+
 fn trim_resolved(t: &mut Task) {
     let n = t.blockers.len() - count_open(t);
     if n <= KEEP_RESOLVED {
@@ -804,7 +831,7 @@ impl Fold {
                     return;
                 };
                 let person = self.person_row(ev, &p.by);
-                let said = self.given_say(ev, &p, person, at(p.at));
+                let said = self.given_say(&p, person);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -1630,7 +1657,11 @@ impl Fold {
             None
         };
         let (mut opt, mut rec_by, mut rec, mut note) = (-1i64, String::new(), false, String::new());
-        if let Some(last) = last.as_ref().filter(|_| a.pick == 0) {
+        // "OK to start an agent?" stands only on the person's own pick: an
+        // earlier reply, maybe another member's, is never carried into it
+        // (card #573).
+        let carried = b.question != super::spawn::GIVEN_QUESTION;
+        if let Some(last) = last.as_ref().filter(|_| a.pick == 0 && carried) {
             if !self.is_owner(&by) {
                 if text.is_empty() {
                     return Err(invalid(

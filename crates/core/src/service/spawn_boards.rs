@@ -13,8 +13,8 @@
 //!
 //! A card another person gave this person (assigned to their `person:` key,
 //! card #573) is the one exception: Irori stops and asks them in Needs you,
-//! whatever the switch says. Their yes starts it on the device they said it
-//! on, as their own card would, and one yes starts one agent.
+//! whatever the switch says. Their yes starts it as their own card would,
+//! on the device that asked, wherever they said it; one yes, one agent.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -108,7 +108,6 @@ impl Services {
             let co = b.coord().clone();
             // A card given to this person: never by the switch, which is
             // for cards they made; only on their yes (card #573).
-            self.ask_given_cards(&b);
             for t in co.given_to_spawn() {
                 if *running >= cap {
                     break;
@@ -141,37 +140,84 @@ impl Services {
         }
     }
 
+    /// The question's context: who gave it, what it asks, and why the
+    /// last yes didn't start one if it didn't.
+    fn given_context(&self, log: &SpawnLog, t: &Task) -> String {
+        let giver = t
+            .given
+            .as_ref()
+            .map(|g| (log.named)(&g.by))
+            .unwrap_or_else(|| "Another member".into());
+        let asks = if t.objective.trim().is_empty() {
+            &t.title
+        } else {
+            &t.objective
+        };
+        let cut: String = asks.chars().take(GIVEN_CONTEXT_CHARS).collect();
+        let more = if cut.len() < asks.len() {
+            "… (open the card for the rest)"
+        } else {
+            ""
+        };
+        let failed = coord::Coord::given_failed(t)
+            .map(|why| {
+                format!(
+                    "The last try couldn't start: {why}. Check its repo is on this computer and \
+                     trusted in Settings › Agents, then start it again.\n\n"
+                )
+            })
+            .unwrap_or_default();
+        format!(
+            "{failed}{giver} gave you this card. It asks: {cut}{more}\n\nIrori stopped here \
+             because someone else wrote it. An agent would run on this computer, under your own \
+             settings and cap, and treat the card as {giver}'s request."
+        )
+    }
+
     /// Stops at each card another person gave this person: it asks them
-    /// in Needs you, with who gave it and what it asks (card #573).
-    fn ask_given_cards(&self, b: &Arc<BoardLog>) {
-        if !self.board_spawns_ready(b) {
-            return;
-        }
-        let co = b.coord();
-        let log = SpawnLog::board(self, b);
-        let me = self.person_actor();
-        for t in co.given_to_ask() {
-            let giver = t
-                .given
-                .iter()
-                .find(|(to, _)| **to == me)
-                .map(|(_, by)| (log.named)(by))
-                .unwrap_or_else(|| "Another member".into());
-            let asks = if t.objective.trim().is_empty() {
-                &t.title
-            } else {
-                &t.objective
-            };
-            let asks: String = asks.chars().take(GIVEN_CONTEXT_CHARS).collect();
-            let context = format!(
-                "{giver} gave you this card. It asks: {asks}\n\nIrori stopped here because \
-                 someone else wrote it. An agent would run on this device, under your own \
-                 settings and cap, and treat the card as {giver}'s request."
-            );
-            if let Err(e) = co.ask_given(&me, &t.id, &context) {
-                logf(format_args!("given card {}: {e}", t.short_ref()));
+    /// in Needs you, with who gave it and what it asks (card #573). One of
+    /// their devices asks, the one that would start the agent, and only it
+    /// starts and binds one. Runs even while paused: it starts nothing.
+    pub(crate) fn ask_given_cards(&self) {
+        for b in self.shown_boards() {
+            if !self.board_spawns_ready(&b) {
+                continue;
+            }
+            let co = b.coord();
+            let log = SpawnLog::board(self, &b);
+            let me = self.person_actor();
+            for t in co.given_to_ask() {
+                let first = t.given.as_ref().is_some_and(|g| g.asker.is_empty());
+                if first && self.spawn_device(&t).is_none_or(|d| d != self.device.id) {
+                    continue;
+                }
+                let context = self.given_context(&log, &t);
+                if let Err(e) = co.ask_given(&me, &t.id, &context) {
+                    logf(format_args!("given card {}: {e}", t.short_ref()));
+                }
             }
         }
+    }
+
+    /// The person asks for an agent on a card given to them after their
+    /// Not now: the question comes back on this device, which then starts
+    /// it on their yes. False when `id` is no such card.
+    pub(crate) fn ask_given_again(&self, id: &str) -> Result<bool, String> {
+        for b in self.shown_boards() {
+            let co = b.coord();
+            let Some(t) = co.get_task(id) else {
+                continue;
+            };
+            if !co.mine_to_serve(&t) || t.given_said.as_ref().is_none_or(|y| y.yes) {
+                return Ok(false);
+            }
+            let log = SpawnLog::board(self, &b);
+            let context = self.given_context(&log, &t);
+            co.ask_given(&self.person_actor(), id, &context)
+                .map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn spawn_board_card(&self, sp: &Spawner, b: &Arc<BoardLog>, t: &Task) -> Result<bool, String> {
@@ -279,11 +325,7 @@ impl Services {
             }
             let Some(s) = t
                 .spawn_request()
-                .filter(|s| {
-                    s.pending()
-                        && s.device == me
-                        && (s.by == SWEEPER || b.verifier.key_person(&s.by) == self.person_id())
-                })
+                .filter(|s| s.pending() && s.device == me && co.mine_to_start(&t, s))
                 .cloned()
             else {
                 continue;

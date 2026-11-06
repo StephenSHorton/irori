@@ -451,11 +451,15 @@ impl Inner {
         let sb = self.b.shared_boards()?;
         let lower = gocompat::text::to_lower_str;
         let want = lower(trim(want));
-        sb.board_mentionables(board_id)
+        let mut found: Vec<String> = sb
+            .board_mentionables(board_id)
             .into_iter()
             .filter(|c| c.key.starts_with(store::kinds::PERSON_ACTOR_PREFIX))
-            .find(|c| lower(&c.key) == want || lower(trim(&c.name)) == want)
+            .filter(|c| lower(&c.key) == want || lower(trim(&c.name)) == want)
             .map(|c| c.key)
+            .collect();
+        // Two members with that name: only a key says which.
+        (found.len() == 1).then(|| found.remove(0))
     }
 
     /// An agent name or key (live or gone, the caller too), or a person's

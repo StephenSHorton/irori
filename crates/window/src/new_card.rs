@@ -125,27 +125,26 @@ impl Window {
             .core
             .board_key(board, &self.core.user_sender().key)
             .map_err(|e| e.to_string())?;
-        let t = co
-            .create_task(
-                &me,
-                NewTask {
-                    title: title.into(),
-                    objective: crate::trim(&input.objective).into(),
-                    done_criteria: crate::trim(&input.done_when).into(),
-                    repo_key: crate::trim(&input.repo_key).into(),
-                    ..NewTask::default()
-                },
-            )
-            .map_err(|e| e.to_string())?;
+        let task = NewTask {
+            title: title.into(),
+            objective: crate::trim(&input.objective).into(),
+            done_criteria: crate::trim(&input.done_when).into(),
+            repo_key: crate::trim(&input.repo_key).into(),
+            ..NewTask::default()
+        };
         let to = crate::trim(&input.assign_to);
         if to.is_empty() {
+            let t = co.create_task(&me, task).map_err(|e| e.to_string())?;
             return Ok(TaskResult {
                 task: t,
                 ..TaskResult::default()
             });
         }
+        // Made and given in one step: no sweep sees it unheld (card #573).
         let to = self.core.board_key(board, to).map_err(|e| e.to_string())?;
-        let (t, mut n) = co.assign(&me, &t.id, &to).map_err(|e| e.to_string())?;
+        let (t, mut n) = co
+            .create_and_assign(&me, task, &to)
+            .map_err(|e| e.to_string())?;
         n.wake = true;
         let told = self.tell_from(&self.core.user_sender(), &n);
         Ok(TaskResult {

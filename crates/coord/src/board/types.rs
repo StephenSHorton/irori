@@ -134,16 +134,31 @@ crate::go_struct! {
     }
 }
 
+/// A card given to another person on a shared board (card #573). It stays
+/// when their agent takes the card over, and goes only when the card is
+/// given to someone else or they come off it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Given {
+    /// Their `person:` key.
+    pub key: String,
+    /// Their person id.
+    pub person: String,
+    /// The key that gave it.
+    pub by: String,
+    /// The device that asked them: it alone starts and binds the agent,
+    /// so one yes can't start two. Empty until it's asked.
+    pub asker: String,
+}
+
 /// A person's last say on "OK to start an agent on this?" (card #573).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct GivenSaid {
-    /// The person the card was given to, by person id.
     pub person: String,
     /// They said Start an agent, as themselves, from their own device.
     pub yes: bool,
-    /// The device they said it on: that one starts the agent.
-    pub device: String,
-    pub at: GoTime,
+    /// The card's spawn generation when they said it: a yes is spent by a
+    /// later generation's agent, never by comparing two devices' clocks.
+    pub generation: i64,
 }
 
 /// How a blocker item was resolved.
@@ -429,10 +444,9 @@ pub struct Task {
     /// haven't taken it up (card #85).
     #[serde(skip_serializing_if = "omit")]
     pub handoffs: BTreeMap<String, String>,
-    /// On a shared board, who gave the card to each person it was assigned
-    /// to (card #573): their `person:` key to the key that gave it.
-    #[serde(skip_serializing_if = "omit")]
-    pub given: BTreeMap<String, String>,
+    /// Who the card was given to on a shared board (card #573).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given: Option<Given>,
     /// The last say on "OK to start an agent on this?", since it was given.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub given_said: Option<GivenSaid>,

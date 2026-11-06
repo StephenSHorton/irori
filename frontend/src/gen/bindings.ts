@@ -1126,6 +1126,11 @@ export type CardSummary = {
 	 *  that device already runs as many as it may (card #448).
 	 */
 	atCap?: string,
+	/**
+	 *  The card was given to this person and they said Not now: its page
+	 *  offers Start an agent (card #573).
+	 */
+	givenNo?: boolean,
 	/**  Where the card sits on the Board's canvas (card #93), once placed. */
 	pos?: CanvasPos | null,
 	/**

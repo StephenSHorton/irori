@@ -340,9 +340,11 @@ impl Fold {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(&t, "nobody is assigned one"));
         }
-        if is_holder(&t, &to) {
+        // After their Not now, a give from someone else asks them again.
+        if is_holder(&t, &to) && !self.gives_again(&t, &by, &to) {
             return Ok((t, false));
         }
+        self.check_give(&t, &by, &to)?;
         // An agent hands a card only to a device that runs its side, unless
         // the person asked (card #496).
         self.check_side_assign(&by, &t, &to)?;
