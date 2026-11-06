@@ -76,11 +76,19 @@ fn route_name(to: AudioRoute) -> &'static str {
 /// The sink of the call running now; None between calls.
 type Current = Arc<Mutex<Option<call::PlatformSink>>>;
 
+/// The current call's sink and the event a service message carries, or
+/// None. The sink is picked when the message arrives, so a late message
+/// from one call never reaches the next.
+fn route(current: &Current, json: &str) -> Option<(call::PlatformSink, call::PlatformEvent)> {
+    let ev = event(json)?;
+    let sink = current.lock().ok().and_then(|g| g.clone())?;
+    Some((sink, ev))
+}
+
 /// Hand a service message to the current call, if there is one.
+#[cfg(test)]
 fn deliver(current: &Current, json: &str) {
-    let Some(ev) = event(json) else { return };
-    let sink = current.lock().ok().and_then(|g| g.clone());
-    if let Some(sink) = sink {
+    if let Some((sink, ev)) = route(current, json) {
         sink(ev);
     }
 }
@@ -95,7 +103,7 @@ mod phone {
     use tauri::ipc::{Channel, InvokeResponseBody};
     use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 
-    use super::{Current, Started, deliver, route_name};
+    use super::{Current, Started, route, route_name};
 
     /// The Kotlin plugin, once the app has set it up.
     pub type Slot = Arc<OnceLock<PluginHandle<Wry>>>;
@@ -137,10 +145,12 @@ mod phone {
                 let current = current.clone();
                 move |body: InvokeResponseBody| {
                     // The service sends from Android's main thread, and a
-                    // sink may well call end(): hand it on from another.
-                    if let InvokeResponseBody::Json(json) = body {
-                        let current = current.clone();
-                        std::thread::spawn(move || deliver(&current, &json));
+                    // sink may well call end(): pick the sink now, call it
+                    // from another thread.
+                    if let InvokeResponseBody::Json(json) = body
+                        && let Some((sink, ev)) = route(&current, &json)
+                    {
+                        std::thread::spawn(move || sink(ev));
                     }
                     Ok(())
                 }

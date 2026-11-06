@@ -451,14 +451,14 @@ fn start_core(
     data: std::path::PathBuf,
     s: Started,
 ) -> Result<Running, String> {
-    let hosted = match host::options(rt, data.clone(), false, Some(s.notifier.clone()))
-        .and_then(|mut o| {
+    let hosted =
+        match host::options(rt, data.clone(), false, Some(s.notifier.clone())).and_then(|mut o| {
             o.call_platform = s.call_platform.clone();
             host::start_with(rt, o)
         }) {
-        Ok(h) => h,
-        Err(e) => return Err(format!("start: {e}")),
-    };
+            Ok(h) => h,
+            Err(e) => return Err(format!("start: {e}")),
+        };
     let core = hosted.core.clone();
     let api_port = hosted.port;
     irori_core::log(&format!(

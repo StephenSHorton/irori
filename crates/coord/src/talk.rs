@@ -259,11 +259,23 @@ pub struct PostRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attach: Option<Vec<serde_json::Value>>,
     /// A huddle's start or end (#654). An older reader ignores it and
-    /// shows the post's text.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// shows the post's text; a mark this version can't read is dropped
+    /// the same way, never the post.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_call"
+    )]
     pub call: Option<CallMark>,
     pub by: String,
     pub at: GoTime,
+}
+
+/// A call mark, or None for one of a shape this version doesn't know.
+fn lenient_call<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<CallMark>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
 }
 
 /// What a huddle's start or end post carries (#654): which call, and for

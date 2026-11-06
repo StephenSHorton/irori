@@ -1299,6 +1299,20 @@ fn a_post_row_with_objects_it_does_not_know_still_decodes() {
     let c = r.call.unwrap();
     assert_eq!((c.call_id.as_str(), c.op.as_str()), ("call_1", "start"));
 
+    // A mark of a shape this version can't read drops the mark, never the
+    // post.
+    for bad in [
+        serde_json::json!({"callId": "call_1", "op": "end", "durationMs": "long"}),
+        serde_json::json!({"callId": "call_1", "people": [{"key": "x"}]}),
+        serde_json::json!("not an object"),
+    ] {
+        let mut row = raw.clone();
+        row["call"] = bad;
+        let r: talk::PostRow = serde_json::from_value(row).unwrap();
+        assert_eq!(r.text, "started a huddle");
+        assert!(r.call.is_none());
+    }
+
     // As a reader from before #654 has it: no call field at all.
     #[derive(Default, serde::Deserialize)]
     #[serde(rename_all = "camelCase", default)]
