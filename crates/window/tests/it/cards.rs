@@ -835,6 +835,45 @@ fn a_thread_from_the_header_box() {
     );
 }
 
+/// Card #631: a thread an agent opened shows as that agent's, waiting on
+/// the person (answered, its words last), never as told to its opener; the
+/// person's reply goes to it, and they resolve it.
+#[test]
+fn a_thread_an_agent_opened_shows_as_its() {
+    let r = Rig::new();
+    let (t, _) =
+        r.w.core
+            .coord()
+            .post_agent_thread(
+                &r.key_a,
+                coord::NewAsk {
+                    text: "Should the beta ship today?".into(),
+                    thread: true,
+                    ..coord::NewAsk::default()
+                },
+            )
+            .unwrap();
+    let ts = r.w.threads("");
+    assert_eq!(ts.len(), 1);
+    let s = &ts[0];
+    assert_eq!(
+        s.opened_by.as_ref().map(|a| a.key.as_str()),
+        Some(r.key_a.as_str())
+    );
+    assert_eq!(s.state, "answered", "waits on the person");
+    assert!(s.told.is_empty(), "{:?}", s.told);
+    assert_eq!(
+        s.last_by.as_ref().map(|a| a.key.as_str()),
+        Some(r.key_a.as_str())
+    );
+    assert_eq!(s.last_text, "Should the beta ship today?");
+    assert!(s.no_agent.is_empty() && s.starting.is_empty(), "{s:?}");
+    let c = r.w.comment(&t.id, "Yes, today.", "wake", &[], &[]).unwrap();
+    assert_eq!(c.told.to, vec![r.key_a.clone()], "its opener hears it");
+    r.w.resolve_thread(&t.id).unwrap();
+    assert_eq!(r.w.threads("")[0].state, "resolved");
+}
+
 /// Card #124: files go with a thread, a reply in it, and a new card; the
 /// agent that hears each gets them with the message, for attachment_get.
 #[test]

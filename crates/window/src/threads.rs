@@ -111,6 +111,12 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional, type = Option<ts::Time>)]
     pub usage_limit: Option<GoTime>,
+    /// The agent that opened it (card #631); absent for the person's own.
+    /// Until the person writes in it, it waits on them and no agent is
+    /// started for it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub opened_by: Option<AgentRef>,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -444,13 +450,18 @@ impl Window {
                     answered.push(k);
                 }
             }
+            // An agent's own thread (card #631) waits on the person until
+            // they write in it: no agent is handed or started for it.
+            let person_wrote = raw.iter().any(|c| co.is_any_person(&c.by));
             let cs = self.priv_comments(raw);
             let t = self.priv_task(t);
             let a = t.ask.clone().unwrap_or_default();
+            let opener = self.core.private_key(&a.opener);
+            let rests = !opener.is_empty() && !person_wrote;
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
             let state = if resolved {
                 THREAD_RESOLVED
-            } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED {
+            } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
                 THREAD_ANSWERED
             } else if !a.taker.is_empty() {
                 THREAD_HANDED
@@ -462,11 +473,18 @@ impl Window {
             if !taker.is_empty() && !told.contains(&taker) {
                 told.push(taker);
             }
+            told.retain(|k| *k != opener);
             let last = cs.iter().filter(|c| c.msg_id.is_empty()).max_by(|x, y| {
                 x.at.unix_nano()
                     .cmp(&y.at.unix_nano())
                     .then_with(|| x.id.cmp(&y.id))
             });
+            // Nothing written yet: its newest word is its opener's.
+            let (last_by, last_text) = match last {
+                Some(c) => (Some(p.ref_(&c.by)), c.text.clone()),
+                None if !opener.is_empty() => (Some(p.ref_(&opener)), t.objective.clone()),
+                None => (None, String::new()),
+            };
             let s = ThreadSummary {
                 id: t.id.clone(),
                 short: t.short.clone(),
@@ -477,8 +495,9 @@ impl Window {
                 told: p.refs(&told),
                 answered_by: p.refs(&answered),
                 replies: cs.iter().filter(|c| c.msg_id.is_empty()).count() as i64,
-                last_by: last.map(|c| p.ref_(&c.by)),
-                last_text: last.map(|c| c.text.clone()).unwrap_or_default(),
+                last_by,
+                last_text,
+                opened_by: (!opener.is_empty()).then(|| p.ref_(&opener)),
                 cards: t
                     .made
                     .iter()
