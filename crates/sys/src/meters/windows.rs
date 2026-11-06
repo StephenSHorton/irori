@@ -75,21 +75,19 @@ impl Sampler {
 
         let mut engine: HashMap<u64, f64> = HashMap::new();
         let mut dedicated: HashMap<u64, u64> = HashMap::new();
-        if let Some(p) = &self.pdh {
-            if unsafe { PdhCollectQueryData(p.query) } == 0 {
-                out.cpu.pct = p.cpu_util.and_then(single).and_then(clamp_pct);
-                out.cpu.ghz = match (p.cpu_perf.and_then(single), self.base_mhz) {
-                    (Some(perf), Some(mhz)) if perf > 0.0 => {
-                        Some((perf / 100.0 * mhz / 1000.0) as f32)
-                    }
-                    _ => None,
-                };
-                out.disks = p.disks();
-                engine = gpu_engines(p.gpu_engine.map(array).unwrap_or_default());
-                for (name, v) in p.gpu_mem.map(array).unwrap_or_default() {
-                    if let Some((luid, _)) = parse_luid(&name) {
-                        *dedicated.entry(luid).or_default() += v.max(0.0) as u64;
-                    }
+        if let Some(p) = &self.pdh
+            && unsafe { PdhCollectQueryData(p.query) } == 0
+        {
+            out.cpu.pct = p.cpu_util.and_then(single).and_then(clamp_pct);
+            out.cpu.ghz = match (p.cpu_perf.and_then(single), self.base_mhz) {
+                (Some(perf), Some(mhz)) if perf > 0.0 => Some((perf / 100.0 * mhz / 1000.0) as f32),
+                _ => None,
+            };
+            out.disks = p.disks();
+            engine = gpu_engines(p.gpu_engine.map(array).unwrap_or_default());
+            for (name, v) in p.gpu_mem.map(array).unwrap_or_default() {
+                if let Some((luid, _)) = parse_luid(&name) {
+                    *dedicated.entry(luid).or_default() += v.max(0.0) as u64;
                 }
             }
         }
@@ -329,7 +327,7 @@ fn single(c: PDH_HCOUNTER) -> Option<f64> {
             &mut v,
         )
     };
-    (st == 0 && PDH_OK.contains(&v.CStatus)).then(|| unsafe { v.Anonymous.doubleValue })
+    (st == 0 && PDH_OK.contains(&v.CStatus)).then_some(unsafe { v.Anonymous.doubleValue })
 }
 
 /// A wildcard counter's instances and values; instances with no valid data
@@ -478,7 +476,7 @@ fn adapters() -> Vec<Adapter> {
         }
         out.push(a);
     }
-    out.sort_by(|a, b| b.dedicated.cmp(&a.dedicated));
+    out.sort_by_key(|a| std::cmp::Reverse(a.dedicated));
     out
 }
 
