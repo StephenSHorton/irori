@@ -118,6 +118,27 @@ fn a_card_made_not_yet_says_what_brings_it_back() {
     );
 }
 
+/// A card made Not yet with assign_to isn't given to anyone (card #570).
+#[test]
+fn a_card_made_not_yet_isnt_assigned() {
+    let h = new_harness();
+    let out = h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "assign_to": KEY_B, "later": {"why": "after the move"}}),
+    );
+    has(
+        &out,
+        &[
+            "It is Not yet: it comes back when the person says.",
+            "It isn't assigned",
+        ],
+    );
+    has_not(&out, &["Assigning it failed", "Assigned to"]);
+    let t = h.b.co.get_task(&created_id(&out)).unwrap();
+    assert!(t.parked().is_some() && t.holders.is_empty() && t.assigned.is_empty());
+}
+
 #[test]
 fn board_edit_sets_the_order_and_refuses_a_circle() {
     let h = new_harness();

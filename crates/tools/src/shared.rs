@@ -323,8 +323,19 @@ impl Inner {
             t.id,
             b.label()
         );
+        // Card #570: a card that waits from the start isn't taken now.
+        let waits = crate::board::waits_from_start(self, &t);
+        if !waits.is_empty() {
+            out += &waits;
+            if !assign_to.is_empty() && t.parked().is_some() {
+                out += " It isn't assigned: Irori hands it out once it comes back.";
+                return Ok(format!("{out}\n{}", b.visible_to()));
+            }
+        }
         if assign_to.is_empty() {
-            out += " Take it up with board_join, or hand it over with board_assign.";
+            if waits.is_empty() {
+                out += " Take it up with board_join, or hand it over with board_assign.";
+            }
         } else {
             match co.assign(&keys[0], &t.id, &keys[1]) {
                 Ok((_, notice)) => {

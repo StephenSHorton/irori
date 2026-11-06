@@ -130,7 +130,7 @@ impl Order {
 
 impl Inner {
     /// board_later's `until` as what brings a card back. A date is the
-    /// start of that day on this device's clock.
+    /// start of that day in this device's time zone.
     pub(crate) fn back_of(&self, until: &str) -> Result<Back, String> {
         let u = trim(until);
         if u.is_empty() {
@@ -152,7 +152,11 @@ impl Inner {
                     q(&one_line(u, 40))
                 )));
             };
-            let off = i64::from(self.now().offset);
+            // The offset that day has, not today's: a hold across a clock
+            // change still comes back at midnight.
+            let guess = day.secs - i64::from(self.now().offset);
+            let off = i64::from(self.zone_at(guess));
+            let off = i64::from(self.zone_at(day.secs - off));
             return Ok(Back::Date(GoTime::unix(day.secs - off, 0)));
         }
         let card = u.strip_prefix("task ").map(trim).unwrap_or(u);
@@ -166,12 +170,22 @@ impl Inner {
         Err(err_text(UNTIL_TAKES))
     }
 
+    /// This device's offset from UTC at `secs`. A clock that isn't the
+    /// local one (a test's) keeps its own offset.
+    fn zone_at(&self, secs: i64) -> i32 {
+        let now = self.now();
+        if presence::local(now).offset != now.offset {
+            return now.offset;
+        }
+        presence::local(GoTime::unix(secs, 0)).offset
+    }
+
     /// What brings a held card back, for a list line.
     pub(crate) fn back_text(&self, b: &Blocker) -> String {
         match b.back() {
             Some(Back::Card(id)) => format!("comes back when {} is done", self.short_of(&id)),
             Some(Back::Date(d)) => {
-                let (y, m, day, ..) = d.with_offset(self.now().offset).civil();
+                let (y, m, day, ..) = d.with_offset(self.zone_at(d.secs)).civil();
                 format!("comes back on {y:04}-{m:02}-{day:02}")
             }
             Some(Back::Version(r)) => {

@@ -407,6 +407,7 @@ fn dump(home: &Path, out: &Path, now: Option<&str>) -> Result<(), String> {
             + board_user.blocked.len()
             + board_user.working.len()
             + board_user.open.len()
+            + board_user.later.len()
             + board_user.done.len(),
         board_user.done_total,
         co.leases().len(),

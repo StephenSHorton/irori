@@ -881,7 +881,7 @@ pub(crate) fn order_of(s: &Inner, a: &Args) -> Result<(Vec<String>, NewLater), S
 
 /// What board_create says about a card that waits from the start (card
 /// #570), "" when it doesn't.
-fn waits_from_start(s: &Inner, t: &Task) -> String {
+pub(crate) fn waits_from_start(s: &Inner, t: &Task) -> String {
     if let Some(b) = t.parked() {
         return format!(
             " It is Not yet: it {}. Nobody starts it until then.",
@@ -1047,7 +1047,11 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     } else {
         String::new()
     };
-    if !to.is_empty() {
+    if !to.is_empty() && t.parked().is_some() {
+        // Card #570: nobody is given a Not yet card, even by name.
+        out += &waits_now;
+        out += " It isn't assigned: Irori hands it out once it comes back.";
+    } else if !to.is_empty() {
         match co.assign(&keys[0], &t.id, &keys[1]) {
             Err(e) => {
                 return format!(

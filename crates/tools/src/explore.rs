@@ -87,7 +87,8 @@ fn task_overview_line(t: &Task, n: &Names<'_>) -> capture::Line {
         one_line(&t.title, MAX_CARD_TITLE)
     );
     if let Some(b) = held {
-        text += &format!(": {}", one_line(&b.question, 80));
+        let why = b.question.strip_prefix("Not yet: ").unwrap_or(&b.question);
+        text += &format!(": {}", one_line(why, 80));
     } else if t.state == coord::BLOCKED {
         text += &format!(": {}", one_line(&t.reason, 80));
     } else if let Some(h) = t.holders.first() {
