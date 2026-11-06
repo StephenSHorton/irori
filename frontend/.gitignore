@@ -25,3 +25,6 @@ dist-ssr
 
 # Screenshots of the browser preview (PREVIEW.md)
 preview-shots/
+
+# The URL `bun run preview:look` picked (PREVIEW.md)
+.preview-url
