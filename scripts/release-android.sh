@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the signed Android release APK on the Mac and, with --publish, adds
 # it to the draft release scripts/release.ps1 made on the PC (card #269;
-# there is no CI). Run it beside scripts/release-mac.sh, before --finalize.
+# there is no CI). Run it after scripts/release-mac.sh, before --finalize.
+# Run at the same time, the two wait for each other where they would clash:
+# the frontend build and the draft's SHA256SUMS (scripts/release-lock.sh).
 #
 #   scripts/release-android.sh 0.11.0              # build, sign, verify (dry run)
 #   scripts/release-android.sh 0.11.0 --publish    # + upload to the draft, extend SHA256SUMS
@@ -110,6 +112,11 @@ export CXX_aarch64_linux_android="$P/bin/aarch64-linux-android26-clang++"
 export BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$P/sysroot --target=aarch64-linux-android26"
 export CMAKE_TOOLCHAIN_FILE_aarch64_linux_android="$ROOT/scripts/android/arm64.toolchain.cmake"
 
+# release-mac.sh may be running too: frontend/dist is shared, so this
+# tree's frontend lock is held until the app that embeds it is built.
+. scripts/release-lock.sh
+release_lock "$ROOT/dist/release/frontend.lock" "building with frontend/dist"
+
 (cd frontend && bun install --frozen-lockfile && bun run build)
 
 # app/gen/android is committed. The release build type is unsigned here; it
@@ -124,6 +131,7 @@ version_config="{\"version\":\"${v%%[-+]*}\",\"bundle\":{\"android\":{\"versionC
 out="$ROOT/app/gen/android/app/build/outputs/apk/universal/release"
 unsigned="$(ls "$out"/*-release-unsigned.apk 2>/dev/null | head -1)"
 [[ -n "$unsigned" ]] || { echo "no unsigned release APK in $out" >&2; exit 1; }
+release_unlock "$ROOT/dist/release/frontend.lock"
 
 rm -f "$DIST/$apk" "$DIST/aligned.apk"
 "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$unsigned" "$DIST/aligned.apk"
@@ -146,6 +154,10 @@ if [[ "$MODE" != "--publish" ]]; then
   exit 0
 fi
 
+# Download to upload holds the tag's SHA256SUMS lock (as release-mac.sh),
+# so neither script's lines are lost to the other's upload.
+sums_lock="$(git rev-parse --path-format=absolute --git-common-dir)/irori-release-$tag-SHA256SUMS.lock"
+release_lock "$sums_lock" "updating SHA256SUMS on the draft $tag"
 rm -f "$DIST/SHA256SUMS"
 gh release download "$tag" --repo "$REPO" --pattern SHA256SUMS --dir "$DIST"
 grep -v -e "  $apk\$" "$DIST/SHA256SUMS" >"$DIST/SHA256SUMS.new" || true
@@ -153,4 +165,5 @@ grep -v -e "  $apk\$" "$DIST/SHA256SUMS" >"$DIST/SHA256SUMS.new" || true
 mv "$DIST/SHA256SUMS.new" "$DIST/SHA256SUMS"
 cat "$DIST/SHA256SUMS"
 gh release upload "$tag" --repo "$REPO" --clobber "$DIST/$apk" "$DIST/SHA256SUMS"
+release_unlock "$sums_lock"
 echo "Android APK added to the draft $tag; publish it with --finalize"
