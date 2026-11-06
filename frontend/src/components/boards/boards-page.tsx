@@ -7,6 +7,7 @@
 import { cardTone, type Tone } from "@/components/cards/bits"
 import { Face } from "@/components/cards/faces"
 import { Button } from "@/components/ui/button"
+import { Loading } from "@/components/ui/loading"
 import { useBoards, useInvite, type BoardSummary } from "@/lib/boards"
 import { AllSpaces, Personal, boardsInSpace } from "@/lib/spaces"
 import { TaskState, type CardSummary } from "@/lib/cards"
@@ -18,6 +19,7 @@ import { InvitePanel, NewBoardDialog } from "./parts"
 
 export function BoardsPage({
   cards,
+  cardsLoading = false,
   now,
   newBoard,
   onNewBoard,
@@ -26,13 +28,16 @@ export function BoardsPage({
   // The sidebar's space (card #393): only its boards show.
   space?: string
   cards: CardSummary[]
+  // cardsLoading: the cards' first read hasn't landed (the tiles' bars).
+  cardsLoading?: boolean
   now: Date
   // The header's New board dialog is open (card #126).
   newBoard: boolean
   onNewBoard: (open: boolean) => void
 }) {
-  const { boards: all, error, reload } = useBoards()
+  const { boards: all, error, loaded, reload } = useBoards()
   const boards = boardsInSpace(all, space)
+  const first = !loaded || cardsLoading
   const { invite, setInvite } = useInvite(true)
   const inviting = !!invite && invite.state !== ""
   return (
@@ -40,16 +45,16 @@ export function BoardsPage({
       <div className="grid gap-1">
         <h1 className="text-lg font-semibold text-ink">Boards</h1>
         <p className="max-w-2xl text-[13px] text-muted-foreground">
-          A board is a project you share: its cards, the people on it and
-          their agents. Make one per project; anyone can be on as many as
-          they like. Boards are private: only the people you invite see them.
+          A board is a project you share: its cards, the people on it and their
+          agents. Make one per project; anyone can be on as many as they like.
+          Boards are private: only the people you invite see them.
         </p>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       {/* An open invite sits over the list, never in its place (card
           #103): your boards stay one click away while it waits. */}
       {inviting && (
-        <div className="glass-panel max-w-xl p-4">
+        <div className="max-w-xl p-4 glass-panel">
           <InvitePanel
             s={invite}
             onClose={() => {
@@ -61,28 +66,36 @@ export function BoardsPage({
       )}
       {space === Personal ? (
         <p className="max-w-2xl text-[13px] text-muted-foreground">
-          Personal holds no shared boards: your own cards are on Home. Pick
-          All spaces or a shared space in the sidebar to see its boards.
+          Personal holds no shared boards: your own cards are on Home. Pick All
+          spaces or a shared space in the sidebar to see its boards.
         </p>
-      ) : boards.length > 0 ? (
-        <ul
-          className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
-          aria-label="Your boards"
-        >
-          {boards.map((b) => (
-            <BoardTile key={b.boardId} board={b} cards={cards} now={now} />
-          ))}
-        </ul>
       ) : (
-        <div className="grid justify-items-start gap-2">
-          <p className="text-[13px] text-muted-foreground">
-            No boards yet. Make one for a project, then invite people to it;
-            or join one with an invite link someone sent you.
-          </p>
-          <Button size="sm" onClick={() => onNewBoard(true)}>
-            + New board
-          </Button>
-        </div>
+        // Until the first reads of the boards and the cards land (card
+        // #598), the tiles' shape: not "No boards yet", nor empty bars.
+        <Loading loading={first} label="Loading the boards" className="min-w-0">
+          {first ? (
+            <BoardTilesShape />
+          ) : boards.length > 0 ? (
+            <ul
+              className="grid [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))] gap-3"
+              aria-label="Your boards"
+            >
+              {boards.map((b) => (
+                <BoardTile key={b.boardId} board={b} cards={cards} now={now} />
+              ))}
+            </ul>
+          ) : (
+            <div className="grid justify-items-start gap-2">
+              <p className="text-[13px] text-muted-foreground">
+                No boards yet. Make one for a project, then invite people to it;
+                or join one with an invite link someone sent you.
+              </p>
+              <Button size="sm" onClick={() => onNewBoard(true)}>
+                + New board
+              </Button>
+            </div>
+          )}
+        </Loading>
       )}
       <NewBoardDialog
         open={newBoard}
@@ -94,6 +107,54 @@ export function BoardsPage({
         onJoined={setInvite}
       />
     </div>
+  )
+}
+
+// BoardTilesShape is the boards' skeleton: tiles in BoardTile's frame,
+// plain markup with no hooks.
+function BoardTilesShape() {
+  const tiles = [
+    ["MLG", "mlg", "Stephen, Blake, Casey"],
+    ["Netcode", "net", "Stephen, Casey"],
+    ["Irori", "irori", "Stephen"],
+  ]
+  return (
+    <ul className="grid [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))] gap-3">
+      {tiles.map(([name, tag, people]) => (
+        <li key={tag} className="grid content-start gap-2 p-3 glass-panel">
+          <span className="flex items-center gap-2">
+            <span className="block size-2 shrink-0 rounded-full" />
+            <span className="text-sm font-medium text-ink">{name}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {tag}#
+            </span>
+          </span>
+          <span className="text-xs text-muted-foreground">{people}</span>
+          <span className="grid gap-1">
+            <span className="block h-1.5 w-full rounded-full bg-muted" />
+            <span className="text-[11px] text-muted-foreground">
+              2 working · 1 open · 3 done this week
+            </span>
+          </span>
+          <span className="grid gap-1">
+            {["Tune the boost pads", "Lobby sync for the boat race"].map(
+              (t) => (
+                <span key={t} className="flex items-center gap-2 text-[12.5px]">
+                  <span className="block size-5 shrink-0" />
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {tag}#3
+                  </span>
+                  <span className="text-ink-2">{t}</span>
+                </span>
+              )
+            )}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Active 4 min ago
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -120,7 +181,8 @@ export function boardSegs(mine: CardSummary[], doneWeek: number): Seg[] {
     if (t === "destructive") blocked++
     else if (t === "info") working++
     else if (t === "success") doneWeek++
-    else if (c.state !== TaskState.Canceled && c.state !== TaskState.Failed) open++
+    else if (c.state !== TaskState.Canceled && c.state !== TaskState.Failed)
+      open++
   }
   return [
     { key: "working", label: "working", n: working, tone: "info" },
@@ -152,7 +214,7 @@ function StateBar({ segs }: { segs: Seg[] }) {
             />
           ))}
       </span>
-      <span className="text-[11px] tabular-nums text-muted-foreground">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {text || "No cards yet"}
       </span>
     </span>
@@ -176,7 +238,9 @@ function BoardTile({
   const decide = mine.filter((c) => c.openBlockers > 0).length
   const ok = b.ready && !b.warnings?.length
   const recent = [...mine]
-    .sort((x, y) => (y.updatedAt > x.updatedAt ? 1 : y.updatedAt < x.updatedAt ? -1 : 0))
+    .sort((x, y) =>
+      y.updatedAt > x.updatedAt ? 1 : y.updatedAt < x.updatedAt ? -1 : 0
+    )
     .slice(0, 3)
   // The board's own last activity, else its newest live card's.
   const last = b.lastAt || recent[0]?.updatedAt
@@ -184,27 +248,42 @@ function BoardTile({
     <li>
       <button
         type="button"
-        className="glass-panel grid h-full w-full content-start gap-2 p-3 text-left transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
+        className="grid h-full w-full content-start gap-2 p-3 text-left glass-panel transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
         onClick={() => go({ kind: "board", id: b.boardId })}
       >
         <span className="flex items-center gap-2">
-          <span className={cn("size-2 shrink-0 rounded-full", ok ? "bg-success" : "bg-warning")} aria-hidden />
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              ok ? "bg-success" : "bg-warning"
+            )}
+            aria-hidden
+          />
           <span className="min-w-0 truncate text-sm font-medium text-ink">
             {plainLine(b.name) || "(unnamed)"}
           </span>
-          <span className="font-mono text-xs text-muted-foreground">{plainLine(b.tag)}#</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {plainLine(b.tag)}#
+          </span>
           {b.owner && (
-            <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+            <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">
+              owner
+            </span>
           )}
         </span>
         <span className="text-xs text-muted-foreground">
-          {b.ready ? b.people.map(plainLine).join(", ") : "Arriving from your other device"}
+          {b.ready
+            ? b.people.map(plainLine).join(", ")
+            : "Arriving from your other device"}
         </span>
         {b.ready && <StateBar segs={boardSegs(mine, b.doneWeek ?? 0)} />}
         {recent.length > 0 && (
           <ul className="grid gap-1" aria-label="Recently active cards">
             {recent.map((c) => (
-              <li key={c.id} className="flex min-w-0 items-center gap-2 text-[12.5px]">
+              <li
+                key={c.id}
+                className="flex min-w-0 items-center gap-2 text-[12.5px]"
+              >
                 {c.holder.who.key ? (
                   <Face who={c.holder.who} noHover noDot className="size-5" />
                 ) : (
@@ -217,7 +296,9 @@ function BoardTile({
                 <span className="font-mono text-[11px] text-muted-foreground">
                   {c.tag ?? ""}#{c.short}
                 </span>
-                <span className="min-w-0 truncate text-ink-2">{plainLine(c.title)}</span>
+                <span className="min-w-0 truncate text-ink-2">
+                  {plainLine(c.title)}
+                </span>
               </li>
             ))}
           </ul>
@@ -230,7 +311,8 @@ function BoardTile({
           )}
           {decide > 0 && (
             <span className="text-destructive">
-              {decide === 1 ? "1 card needs" : `${decide} cards need`} a decision
+              {decide === 1 ? "1 card needs" : `${decide} cards need`} a
+              decision
             </span>
           )}
         </span>

@@ -122,7 +122,9 @@ export function useAgents(open: boolean, boardId = "") {
     },
     [boardId]
   )
-  return { settings: s, error, set }
+  // loading is true until the first read lands, for the pane's skeleton
+  // (card #598).
+  return { settings: s, error, loading: s === null && !error, set }
 }
 
 // sampleTrusted is the preview's repos on this computer, one not trusted.
@@ -147,12 +149,14 @@ export function useTrusted(open: boolean) {
   const [rows, setRows] = useState<TrustedRepo[]>(() =>
     inWails() ? [] : sampleTrusted()
   )
+  // An empty list is a real answer, so the first read is its own flag.
+  const [loaded, setLoaded] = useState(() => !inWails())
   const [error, setError] = useState("")
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
     AgentsService.Trusted().then(
-      (v) => live && (setRows(v), setError("")),
+      (v) => live && (setRows(v), setLoaded(true), setError("")),
       (e: Error) => live && setError(e.message)
     )
     return () => {
@@ -168,7 +172,7 @@ export function useTrusted(open: boolean) {
     }
     setRows(await AgentsService.TrustRepo(repoKey))
   }, [])
-  return { rows, error, trust }
+  return { rows, error, loading: !loaded && !error, trust }
 }
 
 // endAgent ends an agent Irori started (card #448): its hand-off on the
@@ -293,6 +297,9 @@ export function useRunning(open: boolean) {
   const [rows, setRows] = useState<RunningAgent[]>(() =>
     inWails() ? [] : sampleRunning()
   )
+  // An empty list is a real answer, so the first read is its own flag; the
+  // poll after it never shows the skeleton again (card #598).
+  const [loaded, setLoaded] = useState(() => !inWails())
   const [error, setError] = useState("")
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -300,7 +307,7 @@ export function useRunning(open: boolean) {
     let live = true
     const load = () =>
       AgentsService.Running().then(
-        (v) => live && (setRows(v), setError("")),
+        (v) => live && (setRows(v), setLoaded(true), setError("")),
         (e: Error) => live && setError(e.message)
       )
     void load()
@@ -311,7 +318,7 @@ export function useRunning(open: boolean) {
     }
   }, [open, tick])
   const refresh = useCallback(() => setTick((t) => t + 1), [])
-  return { rows, error, refresh }
+  return { rows, error, loading: !loaded && !error, refresh }
 }
 
 // runningSince says how long ago an agent was asked for: "just now",

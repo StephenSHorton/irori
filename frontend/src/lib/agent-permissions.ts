@@ -53,7 +53,7 @@ export const sampleAgentPermissions: AgentPermissions = {
 // a change, keeping the last good ones when a save fails.
 export function usePermissions(open: boolean, boardId = "") {
   const [p, setP] = useState<AgentPermissions | null>(() =>
-    inWails() ? null : { ...sampleAgentPermissions, boardId },
+    inWails() ? null : { ...sampleAgentPermissions, boardId }
   )
   const [error, setError] = useState("")
   useEffect(() => {
@@ -61,7 +61,7 @@ export function usePermissions(open: boolean, boardId = "") {
     let live = true
     AgentsService.Permissions(boardId).then(
       (v) => live && (setP(v), setError("")),
-      (e: Error) => live && setError(e.message),
+      (e: Error) => live && setError(e.message)
     )
     return () => {
       live = false
@@ -83,7 +83,8 @@ export function usePermissions(open: boolean, boardId = "") {
         return false
       }
     },
-    [],
+    []
   )
-  return { permissions: p, error, save }
+  // loading is true until the first read lands (card #598).
+  return { permissions: p, error, loading: p === null && !error, save }
 }

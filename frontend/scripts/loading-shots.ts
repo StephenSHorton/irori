@@ -38,6 +38,10 @@ const PAGES: Array<[name: string, query: string]> = [
   ["settings-agents", "?slow&settings=agents"],
   ["settings-devices", "?slow&settings=devices"],
   ["settings-people", "?slow&settings=people"],
+  ["settings-app", "?slow&settings=app"],
+  ["settings-desks", "?slow&settings=desks"],
+  ["boards", "?slow#boards"],
+  ["board", "?slow#board/sample-board-mlg"],
 ]
 
 function findBrowser(): string {

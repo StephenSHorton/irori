@@ -10,6 +10,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Loading } from "@/components/ui/loading"
+import { TileGridShape } from "@/components/common/loading-shapes"
 import {
   busy,
   withLive,
@@ -287,7 +289,10 @@ export function MemberBar({
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
-  members: (OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>)[]
+  members: (OwnerMember &
+    Partial<
+      Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">
+    >)[]
   now: Date
 }) {
   if (members.length < 2) return null
@@ -312,7 +317,9 @@ export function MemberBar({
               (m.me
                 ? "Your cards: made by you or your agents"
                 : `${name}'s cards: made by them or their agents`) +
-              (m.presence ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}` : "")
+              (m.presence
+                ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}`
+                : "")
             }
           >
             <span className="relative inline-flex">
@@ -338,9 +345,15 @@ export function MemberBar({
 // withPresence fills the counts presenceLine reads, for a member from a
 // summary that has none.
 function withPresence(
-  m: OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
+  m: OwnerMember &
+    Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
 ): SummaryMember {
-  return { ...m, presence: m.presence ?? "", working: m.working ?? 0, free: m.free ?? 0 }
+  return {
+    ...m,
+    presence: m.presence ?? "",
+    working: m.working ?? 0,
+    free: m.free ?? 0,
+  }
 }
 
 // CardGrid is the cards of shared work, one button each; a button opens
@@ -707,14 +720,26 @@ export function ofOutcome(cs: CardSummary[], o: Outcome): CardSummary[] {
 // by outcome.
 // DoneGrid is the Closed tab. With a search query (card #171) it shows only
 // the loaded closed cards that match.
-export function DoneGrid({
-  done: all,
-  query = "",
-  selected,
-  onSelect,
-  now,
-  byAge,
-}: {
+export function DoneGrid(props: DoneProps) {
+  const { done } = props
+  // The first read draws the tab's shape (card #598); a failed one ends
+  // loading, so DoneBody shows the error. The grid is the board column's
+  // gap, which DoneBody's rows had from their parent.
+  const first = done.loading && !done.cards.length
+  return (
+    <Loading
+      loading={first}
+      label="Loading the closed cards"
+      className="min-w-0"
+    >
+      <div className="grid min-w-0 gap-3.5">
+        {first ? <DoneShape /> : <DoneBody {...props} />}
+      </div>
+    </Loading>
+  )
+}
+
+type DoneProps = {
   done: DoneState
   query?: string
   selected: string
@@ -723,7 +748,17 @@ export function DoneGrid({
   // byAge: offer clearing by age here, within this scope ("" all, "own"
   // Home's, else a board id; card #138).
   byAge?: string
-}) {
+}
+
+// DoneBody is the Closed tab once its first read is in.
+function DoneBody({
+  done: all,
+  query = "",
+  selected,
+  onSelect,
+  now,
+  byAge,
+}: DoneProps) {
   const done = { ...all, cards: matching(all.cards, query) }
   const [outcome, setOutcome] = useState<Outcome>("any")
   // Select mode (card #138): clicks tick cards to clear or delete.
@@ -746,8 +781,6 @@ export function DoneGrid({
         Could not load the closed cards: {done.error}
       </p>
     )
-  if (done.loading && !done.cards.length)
-    return <p className="px-1 text-sm text-muted-foreground">Loading…</p>
   if (!done.cards.length && !all.cards.length)
     return (
       <p className="px-1 text-[12.5px] text-muted-foreground">
@@ -845,6 +878,21 @@ export function DoneGrid({
           Show more
         </Button>
       )}
+    </>
+  )
+}
+
+// DoneShape is the Closed tab's skeleton: the outcome row, then tiles.
+function DoneShape() {
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        {outcomes.map((o) => (
+          <span key={o.id} className="block h-6 w-20 rounded-md" />
+        ))}
+        <span className="ml-auto block h-6 w-14 rounded-md" />
+      </div>
+      <TileGridShape tiles={3} />
     </>
   )
 }

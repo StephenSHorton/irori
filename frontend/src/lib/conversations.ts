@@ -190,16 +190,18 @@ function useTalkFresh(reload: () => Promise<void>) {
 
 export function useConversations(): {
   conversations: Conversation[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
   error: string | null
 } {
   const load = useCallback(() => talkApi.conversations(), [])
-  const { value, error, reload } = useLatest<Conversation[]>(
+  const { value, loading, error, reload } = useLatest<Conversation[]>(
     load,
     [],
     "conversations"
   )
   useTalkFresh(reload)
-  return { conversations: value, error }
+  return { conversations: value, loading, error }
 }
 
 export function usePosts(convId: string): {
