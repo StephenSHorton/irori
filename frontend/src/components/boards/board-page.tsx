@@ -30,6 +30,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
+import {
+  AskBoxShape,
+  FilterRowShape,
+  TileGridShape,
+} from "@/components/common/loading-shapes"
 import {
   boards as actions,
   MaxBoardName,
@@ -51,6 +57,7 @@ import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./pa
 export function BoardPage({
   boardId,
   cards,
+  cardsLoading = false,
   done,
   filter,
   onFilter,
@@ -64,6 +71,8 @@ export function BoardPage({
 }: {
   boardId: string
   cards: CardSummary[]
+  // cardsLoading: the cards' first read hasn't landed.
+  cardsLoading?: boolean
   done: DoneState
   filter: Filter
   onFilter: (f: Filter) => void
@@ -75,7 +84,7 @@ export function BoardPage({
   onOpen: (id: string) => void
   now: Date
 }) {
-  const { boards } = useBoards()
+  const { boards, loaded } = useBoards()
   const { threads } = useThreads(boardId)
   // Presence on the member chips (card #371) moves without a
   // boards:changed: read the list again while the page is open.
@@ -89,6 +98,16 @@ export function BoardPage({
   // The board in the space whose cards show (card #392); "" is all.
   const [inSpace, setInSpace] = useState("")
   const b = boards.find((x) => x.boardId === boardId)
+  // A cold open (card #598): until the boards and the cards are first
+  // read, the page's shape, not "isn't here" or "No cards yet". Only the
+  // skeleton sits in Loading: around BoardView it would break the
+  // column's scroll.
+  if ((!b && !loaded) || cardsLoading)
+    return (
+      <Loading loading label="Loading the board" className="min-h-0 flex-1">
+        <BoardPageShape />
+      </Loading>
+    )
   if (!b)
     return (
       <div className="grid gap-2">
@@ -147,6 +166,38 @@ export function BoardPage({
   )
 }
 
+// BoardPageShape is a board page's skeleton: the space's board chips,
+// the ask box, the filter row and a few tiles.
+function BoardPageShape() {
+  return (
+    <div className="grid min-w-0 content-start gap-3.5">
+      <span className="flex items-center gap-1">
+        <span className="block h-7 w-24 rounded-md" />
+        <span className="block h-7 w-20 rounded-md" />
+      </span>
+      <AskBoxShape />
+      <FilterRowShape />
+      <TileGridShape tiles={4} />
+    </div>
+  )
+}
+
+// BoardHeaderShape is the header's skeleton: dot, name, tag, people.
+function BoardHeaderShape() {
+  return (
+    <span className="flex min-w-0 items-center gap-x-3">
+      <span className="flex items-baseline gap-2 text-lg font-semibold text-ink">
+        <span className="block size-2 self-center rounded-full" />
+        <span>Sample board</span>
+        <span className="font-mono text-sm font-normal">mlg#</span>
+      </span>
+      <span className="hidden text-xs text-muted-foreground lg:inline">
+        4 cards · visible to Stephen, Blake
+      </span>
+    </span>
+  )
+}
+
 function BackToBoards() {
   return (
     <Button variant="ghost" size="sm" className="w-fit px-1.5" onClick={() => go({ kind: "boards" })}>
@@ -161,7 +212,7 @@ function BackToBoards() {
 // Pin to the sidebar and Rename (owners) in the open; Leave and Forget here
 // in its ⋯ menu (card #211).
 export function BoardHeaderBar({ boardId }: { boardId: string }) {
-  const { boards, reload } = useBoards()
+  const { boards, loaded, reload } = useBoards()
   const b = boards.find((x) => x.boardId === boardId)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState("")
@@ -198,7 +249,13 @@ export function BoardHeaderBar({ boardId }: { boardId: string }) {
       : []
   )
   if (!b)
-    return <h1 className="text-lg font-semibold text-ink">Board</h1>
+    return loaded ? (
+      <h1 className="text-lg font-semibold text-ink">Board</h1>
+    ) : (
+      <Loading loading label="Loading the board" className="min-w-0 flex-1">
+        <BoardHeaderShape />
+      </Loading>
+    )
   const rename = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)

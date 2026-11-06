@@ -1480,3 +1480,85 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
     s.core.close().unwrap();
     b.core.close().unwrap();
 }
+
+/// Card #603: the "Waiting for your permission" blocker is raised and
+/// resolved only by the device that runs the card's agent. Presence on the
+/// PC never sees the Mac agent's prompt, so before the fix the PC resolved
+/// the Mac's blocker every sweep and the Mac raised it again. Here the
+/// agent runs on B and stops on a prompt: one raise, never resolved by A,
+/// and resolved by B once the agent is past it.
+#[test]
+fn a_permission_wait_is_raised_and_resolved_only_on_the_agents_device() {
+    let t2 = Two::new();
+    let (a_id, b_id) = (t2.a_id(), t2.b_id());
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+
+    let t = t2.card("Stops on a prompt on the Mac");
+    t2.spawning_on_a();
+    let spawned = format!("{b_id}/{SESS_B}");
+    wait_for(WAIT, "the agent on B bound to the card", || {
+        t2.on_a(&t.id).holders.contains(&spawned)
+    });
+
+    let set_status = |status: &str, waiting_for: &str| {
+        let f = t2.b.claude.join("sessions").join("900003.json");
+        let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+        m["status"] = status.into();
+        m["waitingFor"] = waiting_for.into();
+        m["updatedAt"] = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64)
+            .into();
+        std::fs::write(&f, serde_json::to_vec(&m).unwrap()).unwrap();
+    };
+    // Every permission wait the card has had, open or resolved.
+    let waits = |d: &Dev| -> Vec<coord::Blocker> {
+        d.core
+            .coord()
+            .get_task(&t.id)
+            .map(|t| t.blockers)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| b.question.starts_with("Waiting for your permission"))
+            .collect()
+    };
+
+    set_status("waiting", "permission prompt");
+    wait_for(WAIT, "B's permission wait reaches A", || {
+        t2.b.core.set_spawn_cap(t2.b.core.spawn_cap()).unwrap();
+        !waits(&t2.a).is_empty()
+    });
+    // Several sweeps on both, each longer than the 5 s loop.
+    for _ in 0..3 {
+        t2.kick();
+        let got = waits(&t2.a);
+        assert_eq!(got.len(), 1, "raised more than once: {got:?}");
+        assert!(got[0].open(), "resolved while the agent waits: {got:?}");
+    }
+    assert!(
+        rows(&t2.a, kinds::BLOCKER_RESOLVED)
+            .iter()
+            .all(|e| e.device_id != a_id),
+        "A resolved a blocker"
+    );
+
+    // Past the prompt: B, which runs it, resolves it, once.
+    set_status("busy", "");
+    wait_for(WAIT, "B resolves the permission wait", || {
+        t2.b.core.set_spawn_cap(t2.b.core.spawn_cap()).unwrap();
+        waits(&t2.a).iter().all(|b| !b.open())
+    });
+    t2.kick();
+    let got = waits(&t2.a);
+    assert_eq!(got.len(), 1, "raised again: {got:?}");
+    assert!(
+        rows(&t2.a, kinds::BLOCKER_RESOLVED)
+            .iter()
+            .all(|e| e.device_id != a_id),
+        "A resolved a blocker"
+    );
+    t2.close();
+}
