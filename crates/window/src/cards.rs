@@ -380,6 +380,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub at_cap: String,
+    /// The card was given to this person and they said Not now: its page
+    /// offers Start an agent (card #573).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub given_no: bool,
     /// Where the card sits on the Board's canvas (card #93), once placed.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
@@ -2202,6 +2206,7 @@ impl Window {
                 let mut cs = card_summary(&pt, p);
                 let private = |k: &str| self.core.private_key(k);
                 // Comments are read only when nothing cheaper already said so.
+                cs.given_no = co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
                 cs.ours = ours(&t, [], private)
                     || (t.comments > 0
                         && ours(

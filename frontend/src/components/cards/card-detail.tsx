@@ -774,6 +774,15 @@ function BoardActions({
     const shared = sharedBoard(detail, boards)
     return (
       <>
+        {detail.givenNo && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void cards.startAgent(detail.id, "")}
+          >
+            Start an agent…
+          </Button>
+        )}
         {detail.onBoard.canTransfer && shared && (
           <TransferButton
             cardId={detail.id}

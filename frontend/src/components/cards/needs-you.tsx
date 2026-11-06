@@ -748,14 +748,17 @@ export function BlockerAnswer({
                 )}
               </Button>
             ))}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={act.busy}
-            onClick={() => setOwn(true)}
-          >
-            {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
-          </Button>
+          {/* The given question is its two answers: words aren't a yes. */}
+          {b.question !== GIVEN_QUESTION && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={act.busy}
+              onClick={() => setOwn(true)}
+            >
+              {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onOpen}>
             Open card
           </Button>

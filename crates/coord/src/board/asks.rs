@@ -474,6 +474,7 @@ impl Fold {
                     .tasks
                     .get(&p.from)
                     .is_some_and(|f| f.ask.as_ref().is_some_and(|a| a.thread));
+                let kp = self.key_person.clone();
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -502,6 +503,16 @@ impl Fold {
                         changed.push(set_or_cleared("done when", d));
                     }
                     t.done_criteria = d.clone();
+                }
+                // A yes is for the words they read: someone else changing
+                // them asks again (card #573).
+                if !changed.is_empty()
+                    && t.given
+                        .as_ref()
+                        .is_some_and(|g| kp.as_ref().is_none_or(|f| f(&p.by) != g.person))
+                {
+                    super::cards::close_given_question(t, at(p.at));
+                    t.given_said = None;
                 }
                 // A thread's "Agents answer now" (card #391); edit_gate let
                 // only a person's row carry it.

@@ -1444,6 +1444,22 @@ impl Coord {
     pub fn mine_to_serve(&self, t: &Task) -> bool {
         self.lock().mine_to_serve(t)
     }
+    /// Whether this device may start or bind card t's request s on a
+    /// shared board. See [`Fold::mine_to_start`].
+    pub fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
+        self.lock().mine_to_start(t, s)
+    }
+    /// Why the agent card t's yes asked for couldn't start (card #573).
+    pub fn given_failed(t: &Task) -> Option<String> {
+        Fold::given_failed(t)
+    }
+    /// Makes a card and gives it in one step, so no sweep sees it unheld
+    /// and starts its author's agent first (card #573).
+    pub fn create_and_assign(&self, by: &str, task: NewTask, to: &str) -> Result<(Task, Notice)> {
+        let mut f = self.lock();
+        let t = f.create_task(by, task)?;
+        f.assign_notice(by, &t.id, to, "")
+    }
     /// The cards given to this person that wait on "OK to start an agent
     /// on this?" (card #573). See [`Fold::given_to_ask`].
     pub fn given_to_ask(&self) -> Vec<Task> {
@@ -1486,7 +1502,7 @@ impl Coord {
     /// starts only on their own yes.
     pub fn given_to_me(&self, t: &Task) -> bool {
         let f = self.lock();
-        f.given_person(t).is_some() && f.mine_to_serve(t)
+        t.given.is_some() && f.mine_to_serve(t)
     }
     /// Whether agent `key`, started by Irori, hasn't gone (card #575).
     pub fn spawned_live(&self, key: &str) -> bool {

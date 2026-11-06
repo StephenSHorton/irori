@@ -309,9 +309,19 @@ impl Inner {
         let (co, keys) = sb
             .board_coord(&b.board_id, &[agent.to_string(), assign_to.to_string()])
             .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
-        let t = co
-            .create_task(&keys[0], task)
-            .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+        // Given to a member: made and given in one step, so no sweep sees
+        // it unheld and starts its author's agent first (card #573).
+        let (t, given) = if keys[1].starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
+            let (t, n) = co
+                .create_and_assign(&keys[0], task, &keys[1])
+                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+            (t, Some(n))
+        } else {
+            let t = co
+                .create_task(&keys[0], task)
+                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+            (t, None)
+        };
         let n = self.roster();
         let mut out = format!(
             "Created {} (task:{}) on {}.",
@@ -322,7 +332,11 @@ impl Inner {
         if assign_to.is_empty() {
             out += " Take it up with board_join, or hand it over with board_assign.";
         } else {
-            match co.assign(&keys[0], &t.id, &keys[1]) {
+            let assigned = match given {
+                Some(notice) => Ok((t.clone(), notice)),
+                None => co.assign(&keys[0], &t.id, &keys[1]),
+            };
+            match assigned {
                 Ok((_, notice)) => {
                     out += &format!(
                         " Assigned to {}.{}",

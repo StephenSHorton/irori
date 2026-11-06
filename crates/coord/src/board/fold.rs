@@ -710,8 +710,15 @@ impl Fold {
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
-                if gave {
-                    t.given.insert(p.to.clone(), p.by.clone());
+                if let Some(person) = gave {
+                    // A say and a question were about the last give.
+                    super::cards::close_given_question(&mut t, at(p.at));
+                    t.given = Some(Given {
+                        key: p.to.clone(),
+                        person,
+                        by: p.by.clone(),
+                        asker: String::new(),
+                    });
                     t.given_said = None;
                 }
                 let engaged = is_holder(&t, &p.to) && !contains(&t.assigned, &p.to);
@@ -777,6 +784,17 @@ impl Fold {
                     t.holders = remove_str(&t.holders, &p.who);
                     if !contains(&t.left, &p.who) {
                         t.left.push(p.who.clone());
+                    }
+                    // They came off it: the card is its author's again.
+                    let kp = self.key_person.clone();
+                    if t.given.as_ref().is_some_and(|g| {
+                        g.key == p.who
+                            || (p.reason == LEFT_REMOVED
+                                && kp.as_ref().is_some_and(|f| f(&p.who) == g.person))
+                    }) {
+                        super::cards::close_given_question(&mut t, at(p.at));
+                        t.given = None;
+                        t.given_said = None;
                     }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
@@ -1268,8 +1286,14 @@ impl Fold {
         if self.person_row(ev, &p.by) {
             t.person_cleared_crashes();
         }
-        t.state = p.state.clone();
-        t.note = p.note.clone();
+        // The question raised by two of the person's devices at once is one
+        // question: the second row leaves the card as the first left it,
+        // which may already be answered, and the lowest device acts on it.
+        let again = self.given_raised(&mut t, &p, ev);
+        if !again {
+            t.state = p.state.clone();
+            t.note = p.note.clone();
+        }
         t.assigned = remove_str(&t.assigned, &p.by);
         sync_holder(&mut t);
         let mut what = String::new();
@@ -2091,7 +2115,16 @@ impl Fold {
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,
-                Some(t) => self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev))),
+                // Or a given card's person's device: their agent left it,
+                // and it goes back to them (card #573).
+                Some(t) => {
+                    self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev)))
+                        || t.given.as_ref().is_some_and(|g| {
+                            self.dev_person
+                                .as_ref()
+                                .is_some_and(|dp| dp(&ev.device_id) == g.person)
+                        })
+                }
             },
             _ => false,
         }
@@ -2134,7 +2167,7 @@ impl Fold {
     }
 
     fn unresolved(&self, ev: &Event) -> bool {
-        self.st.as_ref().is_some_and(|s| s.unresolved(ev).is_err())
+        self.st.as_ref().is_some_and(|s| s.unresolved(ev).is_err()) || self.ahead_of_give(ev)
     }
 
     /// Sets ev aside when it names something the board log doesn't hold
