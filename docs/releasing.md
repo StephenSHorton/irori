@@ -187,14 +187,17 @@ timestamp and `app/macos/entitlements.plist`, whose one key,
 `com.apple.security.device.audio-input`, voice needs: without it the mic
 gives silence and no error. `app/macos/check-signed.sh` then checks all of
 that on the zip that ships. `package.sh` called directly still signs ad hoc
-with no identity, for scratch builds and `tools/rehearse`.
+with no identity, for scratch builds and `tools/rehearse`. The updater's
+signing paths have a test that needs the identity, so it is ignored by
+default: `mac_update_developer_id_paths` in `crates/update/tests/mac.rs`.
 
-Notarization follows when credentials are set (`notarize.sh`, `xcrun
-notarytool submit --wait`, then stapled): `APPLE_API_KEY_ID`,
-`APPLE_API_ISSUER_ID` and `APPLE_API_KEY_P8` (a path), or `APPLE_ID`,
-`APPLE_TEAM_ID` and `APPLE_APP_SPECIFIC_PASSWORD`. Without them the build is
-signed but not notarized: updates and permissions work, and a fresh DMG
-download gets Gatekeeper's warning.
+Notarization (`notarize.sh`, `xcrun notarytool submit --wait`, then stapled)
+uses the login keychain's `irori-notary` profile, made once with `xcrun
+notarytool store-credentials irori-notary --apple-id <id> --team-id
+GP6632G333` and an app-specific password from https://account.apple.com. The
+environment credentials `notarize.sh` lists work too. Without any the build
+is signed but not notarized, with a warning: updates and permissions work,
+and a fresh DMG download gets Gatekeeper's warning.
 
 ## Android
 

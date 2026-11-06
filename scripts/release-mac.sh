@@ -14,9 +14,9 @@
 # script stops rather than fall back. It uses the one "Developer ID
 # Application" identity in the login keychain; with several, name one in
 # MACOS_CODESIGN_IDENTITY. check-signed.sh checks the zip that ships.
-# Notarization: set APPLE_API_KEY_ID + APPLE_API_ISSUER_ID + APPLE_API_KEY_P8
-# (path), or APPLE_ID + APPLE_TEAM_ID + APPLE_APP_SPECIFIC_PASSWORD
-# (app/macos/notarize.sh). Without them the build is signed, not notarized.
+# Notarization: the keychain profile "irori-notary" (docs/releasing.md), or
+# the credentials app/macos/notarize.sh lists. Without any the build is
+# signed, not notarized, and says so.
 #
 # The asset names are a contract with crates/update and the Go updater
 # (crates/update/tests/release_names.rs reads them below).
@@ -125,7 +125,14 @@ IRORI_VERSION="$v" TAURI_CONFIG="{\"version\":\"${v%%[-+]*}\"}" \
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/aarch64-apple-darwin/release/irori"
 file "$BIN"
 
-if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then export IRORI_NOTARIZE=0; fi
+if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then
+  if xcrun notarytool history --keychain-profile "${IRORI_NOTARY_PROFILE:-irori-notary}" >/dev/null 2>&1; then
+    export IRORI_NOTARY_PROFILE="${IRORI_NOTARY_PROFILE:-irori-notary}"
+  else
+    echo "warning: no notary credentials, so this build won't be notarized" >&2
+    export IRORI_NOTARIZE=0
+  fi
+fi
 bash app/macos/package.sh --binary "$BIN" --version "$v" --out "$DIST" --zip "$appzip" --dmg "$dmg"
 bash app/macos/check-signed.sh "$DIST/$appzip" "$team"
 
