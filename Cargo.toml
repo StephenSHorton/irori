@@ -35,6 +35,7 @@ members = [
   "crates/notify",
   "crates/update",
   "crates/voice",
+  "crates/call",
   "crates/term",
 ]
 
