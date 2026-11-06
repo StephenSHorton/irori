@@ -798,7 +798,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
     >
       {/* Too tight for the box and its controls (members open on a smaller
         window), the controls drop under the box rather than squeeze it to
-        a few letters (card #639). */}
+        a few letters (card #639). A phone keeps them on one row. */}
       <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
@@ -819,7 +819,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
             }}
             placeholder={placeholder}
             aria-label={placeholder}
-            className="max-h-40 min-h-9 min-w-48 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
             readOnly={busy}
             aria-busy={busy}
           />
