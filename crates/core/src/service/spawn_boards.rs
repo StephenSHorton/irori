@@ -15,13 +15,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use coord::roster::Agents;
-use coord::{Coord, SpawnAsk, Task, TaskFilter};
+use coord::{Coord, SPAWN_CANCELED, SpawnAsk, Task, TaskFilter};
 use irori_identity::owner::device_of;
 
 use super::Services;
 use super::boards::BoardLog;
 use super::spawn::{BriefMore, Spawner, build_brief, spawn_permissions};
 use crate::logf;
+
+/// Why a held card's starting agent was called off.
+const HELD: &str = "the card is Not yet";
 
 const SWEEPER: &str = "irori";
 
@@ -96,7 +99,7 @@ impl Services {
     /// under this device's cap.
     pub(crate) fn sweep_board_spawns(&self, sp: &Spawner, cap: i64, running: &mut i64) {
         for b in self.shown_boards() {
-            self.bind_board_spawns(&b);
+            self.bind_board_spawns(sp, &b);
             let co = b.coord().clone();
             if !co.spawning() {
                 continue;
@@ -205,7 +208,7 @@ impl Services {
     /// the agent card know Irori started it), then the agent put on the
     /// board (`card_for`, marked on its agent card), then the board's mark
     /// and the card assigned to its `agent:<cardId>` (§9).
-    fn bind_board_spawns(&self, b: &Arc<BoardLog>) {
+    fn bind_board_spawns(&self, sp: &Spawner, b: &Arc<BoardLog>) {
         if !self.board_spawns_ready(b) {
             return;
         }
@@ -242,6 +245,12 @@ impl Services {
             }) else {
                 continue;
             };
+            // A held card gets no agent (card #570): its request ends and
+            // the session started for it goes, unmarked.
+            if t.parked().is_some() {
+                self.end_held_start(sp, co, &t, s.generation, &a.key);
+                continue;
+            }
             if let Err(e) =
                 self.coord
                     .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me, &b.id)
@@ -263,6 +272,23 @@ impl Services {
             if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
                 logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
             }
+        }
+    }
+
+    /// Ends held card t's request `generation` and session `key`, started
+    /// for it before it was held.
+    fn end_held_start(&self, sp: &Spawner, co: &Coord, t: &Task, generation: i64, key: &str) {
+        if let Err(e) = co.end_spawn(SWEEPER, &t.id, generation, SPAWN_CANCELED, HELD) {
+            logf(format_args!("spawn {}: end request: {e}", t.short_ref()));
+            return;
+        }
+        let sess = key.rsplit_once('/').map_or(key, |(_, s)| s);
+        match (sp.end)(sess) {
+            Ok(_) => logf(format_args!(
+                "spawn {}: ended {key}, the card is held",
+                t.short_ref()
+            )),
+            Err(e) => logf(format_args!("spawn {}: end {key}: {e}", t.short_ref())),
         }
     }
 

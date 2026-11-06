@@ -2498,6 +2498,16 @@ impl Services {
         // His ask skips a failed spawn's wait (card #464).
         self.coord.spawn_now(id);
         let person = format!("user:{}", self.device.id);
+        // Asking for an agent on a held card is his word to bring it back
+        // (card #570): no agent starts on a held card.
+        let t = if t.parked().is_some() {
+            self.coord
+                .bring_back(&person, id, "the person asked for an agent")
+                .map_err(|e| e.to_string())?
+                .0
+        } else {
+            t
+        };
         if t.state != coord::SUBMITTED {
             self.coord
                 .back_on_board(&person, id, "the person asked for an agent")

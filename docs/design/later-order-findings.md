@@ -54,11 +54,7 @@ VERIFIED by running probes a1, a2 and a3 (all probes are in /tmp/rv570/crates/co
 
 ## 12. A sweep that hasn't seen the hold writes blocker.closed and ends a word hold on the device that has it — fixed: sweep_rest closes every item per item with blocker.resolved, never blocker.closed.
 
-## 13. On a board, another person's park can't end a pending spawn, so an agent binds onto the held card (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/spawn.rs:449`
-
-VERIFIED by running probe i1. The builder's report mentions the row being ignored; this probe shows what follows, which breaks 'never spawned' now rather than in a later stage. On two_people, p1 makes a card and request_spawn is pending on dev-a. p2 parks it on dev-b. end_pending_spawns writes the cancel, but spawn_writer_ok ignores it on both folds (ignored_rows=1 on each side) and park still returns Ok. After sync the spawn is still pending on dev-a. bind_spawn(id, g, agent:c1) returns Ok(true) and leaves holders=[agent:c1] on a parked BLOCKED card. spawns_here stops a session that hasn't started, so this needs one already starting. The bind loops (core spawn.rs:1945, spawn_boards.rs:263) have no state check. Read, not run: when the hold ends, restore_state gives WORKING if that agent has taken the card up, which is the silent return the doc's holder rule exists to prevent. Fix: bind_spawn refuses on a parked card and ends the spawn from the author's device, or park refuses when it can't cancel.
+## 13. On a board, another person's park can't end a pending spawn, so an agent binds onto the held card — fixed: bind_spawn refuses a held card and ends its request from the author's device; the board bind loop ends that session.
 
 ## 14. A wait on a gone agent beside a hold puts the held card in Needs you (medium)
 
@@ -102,17 +98,7 @@ VERIFIED by running probe l1. A parent is parked on Back::Word. BOB claims an as
 
 ## 22. Changing a hold races its close: the card sticks BLOCKED with no open item and the devices disagree — fixed: park and a hold's revise close the old item and raise a new one with a fresh id, never a replace; no sweep heal, see later-order.md section 4.
 
-## 23. A board park by anyone but the card author's person leaves the pending spawn, and the agent binds onto the held card (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/spawn.rs:185`
-
-Ran on a temp copy of HEAD. Board card by P1 with a pending spawn on dev-a. P2 parks it from dev-b. end_pending_spawns (later.rs:606) writes task.spawn canceled, but spawn_writer_ok requires the writer to be the author's person, so the row is dead.
-
-Result on dev-a: spawn_pending=true, ignored_rows=1, parked=true. Then bind_spawn(id, g, CARD1) returned Ok(true), because bind_spawn (spawn.rs:465) has no parked check and writes task.spawned and task.assigned as Irori. Both devices then show state=blocked, holders=[agent:c1], assigned=[agent:c1], parked=true. That breaks 'never spawned', and section 3 says a kept holder comes back silently as WORKING.
-
-The builder noted only that the spawn isn't really ended, not that the agent lands on the card. The same park by P1, by CARD1 or on the private log ended the spawn cleanly (pending=false, ignored=0).
-
-Fix at write time, never in the fold: bind_spawn skips or ends a parked card's request on the author's device, or park refuses while another person's spawn is pending.
+## 23. A board park by anyone but the card author's person leaves the pending spawn, and the agent binds onto the held card — fixed: a park writes a cancel only where it counts, and the author's device ends the request on bind or in its sweep.
 
 ## 24. Two devices raising on one card share a blocker id: one row is dropped, and a date close can end a word hold — fixed: hold and after items take a b<n>-<random> id no other device picks; plain questions keep the counter, see later-order.md section 4.
 

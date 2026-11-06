@@ -127,7 +127,10 @@ Field rules:
 - A block or question with the hold's own words is refused: the fold's
   same-question merge would rewrite the hold's `on`. A hold takes no options
   through revise either.
-- A pending spawn is ended on park, since `bind_spawns` has no state check.
+- A pending spawn is ended on park, where the cancel counts. Binding an agent
+  to a held card is refused, and ends its request; the session started for it
+  is ended. "Start an agent" on a held card is the person's word: it brings
+  the card back first.
 - A held card: parking drops its holders, because a kept holder would come back
   silently as `WORKING`. Only the holder or a person may park a held card.
 - Order keeps the holder, as `board_block` does.
@@ -197,6 +200,9 @@ devices.
   is grouping by `spaceBoard` at read time, with nothing stored per board.
 - A version park keeps `check_version_wait`'s board refusal.
 - `word` on a board means any member person.
+- Only the card author's device may end its spawn request. Another member's
+  park writes no cancel there; the author's device ends it, on bind or in its
+  sweep.
 - Sharing a parked card to a board is refused in the preview: blockers stay
   private, so it would go out at once.
 
@@ -229,6 +235,10 @@ devices.
 10. **Plain question ids still collide.** Two devices raising questions on
    one card apart both pick `b<n>`, and one is dropped. Pre-existing; holds
    and after items no longer do this.
+11. **A bind racing a park.** If the author's device binds the agent before
+   another member's park reaches it, the park's device can't drop a holder it
+   hasn't seen, so the agent stays on the held card. Old author devices bind
+   with no check at all.
 
 ## 5. Bugs found on the way
 

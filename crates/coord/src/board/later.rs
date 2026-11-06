@@ -29,6 +29,9 @@ use crate::names::trim_space;
 /// What a held card's question starts with: the person's word for it.
 const NOT_YET: &str = "Not yet";
 
+/// Why a held card's starting agent was called off.
+pub(crate) const HELD_SPAWN: &str = "the card is Not yet";
+
 /// How many cards a circle's message names before it skips some.
 const MAX_CIRCLE_NAMES: usize = 8;
 
@@ -341,7 +344,22 @@ impl Fold {
             return Ok(());
         }
         self.write_park(by, k, &kt.note, &Park::of(&item))?;
-        self.end_pending_spawns(by, k, "the card is Not yet")
+        self.end_pending_spawns(by, k, HELD_SPAWN)
+    }
+
+    /// The sweep's part (finding 23): ends held cards' requests that a
+    /// park on another person's device couldn't.
+    pub(crate) fn end_held_spawns(&mut self) -> Result<()> {
+        let ids: Vec<String> = self
+            .tasks
+            .values()
+            .filter(|t| t.parked().is_some() && t.spawns.iter().any(|s| s.pending()))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in ids {
+            self.end_pending_spawns(SWEEPER, &id, HELD_SPAWN)?;
+        }
+        Ok(())
     }
 
     // ---- holding a card ----
@@ -620,10 +638,10 @@ impl Fold {
         }
         self.write_park(&by, id, &t.note, &item)?;
         self.drop_holders(&by, &t)?;
-        self.end_pending_spawns(&by, id, "the card is Not yet")?;
+        self.end_pending_spawns(&by, id, HELD_SPAWN)?;
         for k in kids {
             self.write_park(&by, &k.id, &k.note, &item)?;
-            self.end_pending_spawns(&by, &k.id, "the card is Not yet")?;
+            self.end_pending_spawns(&by, &k.id, HELD_SPAWN)?;
         }
 
         let nt = self.tasks[id].clone();

@@ -481,3 +481,82 @@ mod sweep_closes {
         }
     }
 }
+
+// ---- findings 13, 23: a held card's pending spawn on a board ----
+
+mod held_spawns {
+    use super::*;
+    use crate::common::two_people::*;
+
+    fn ask(id: &str) -> SpawnAsk {
+        SpawnAsk {
+            task_id: id.into(),
+            device: "dev-a".into(),
+            folder: "/repo".into(),
+            permission_mode: "bypassPermissions".into(),
+            name: "for-1".into(),
+            ..SpawnAsk::default()
+        }
+    }
+
+    /// p1's card with a spawn pending on dev-a, parked by p2 on dev-b.
+    fn parked_by_p2() -> (Side, Side, Task, i64) {
+        let (a, b, _) = two_people();
+        let t = a.c.create_task(P1, nt("Voice calls")).unwrap();
+        let g = a.c.request_spawn("irori", ask(&t.id)).unwrap().unwrap();
+        sync(&a, &b);
+        b.c.park(P2, &t.id, "not now", Back::Word).unwrap();
+        sync(&a, &b);
+        (a, b, t, g)
+    }
+
+    /// Finding 13 and 23: p2's park writes no dead cancel, and the agent
+    /// starting on dev-a isn't bound to the held card: dev-a ends the
+    /// request instead.
+    #[test]
+    fn another_persons_park_never_binds_the_starting_agent() {
+        let (mut a, mut b, t, g) = parked_by_p2();
+        assert_eq!(b.c.ignored_rows(), 0, "dev-b wrote a dead cancel");
+        assert!(
+            !a.c.bind_spawn(&t.id, g, CARD1).unwrap(),
+            "bound a held card"
+        );
+        sync(&a, &b);
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                let got = s.c.get_task(&t.id).unwrap();
+                assert!(got.holders.is_empty(), "{name} {round}: {:?}", got.holders);
+                assert!(got.assigned.is_empty(), "{name} {round}");
+                assert!(!got.spawn_pending(), "{name} {round}: {:?}", got.spawns);
+                assert!(got.parked().is_some(), "{name} {round}");
+                assert_eq!(got.state, BLOCKED, "{name} {round}");
+                assert!(!s.c.is_spawned(CARD1), "{name} {round}");
+                assert_eq!(s.c.ignored_rows(), 0, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+    }
+
+    /// Finding 23: with no agent showing yet, dev-a's sweep ends the held
+    /// card's request, once.
+    #[test]
+    fn the_authors_sweep_ends_a_held_cards_spawn() {
+        let (a, b, t, _) = parked_by_p2();
+        a.c.sweep_notices().unwrap();
+        let after = a.st.vector().unwrap();
+        a.c.sweep_notices().unwrap();
+        assert_eq!(a.st.vector().unwrap(), after, "a second sweep wrote");
+        sync(&a, &b);
+        for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+            let got = s.c.get_task(&t.id).unwrap();
+            assert!(!got.spawn_pending(), "{name}: {:?}", got.spawns);
+            assert_eq!(got.spawns[0].op, SPAWN_CANCELED, "{name}");
+            assert_eq!(s.c.ignored_rows(), 0, "{name}");
+        }
+        // dev-b's sweep never writes for p1's card.
+        let before = b.st.vector().unwrap();
+        b.c.sweep_notices().unwrap();
+        assert_eq!(b.st.vector().unwrap(), before);
+    }
+}

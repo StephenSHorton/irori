@@ -18,6 +18,7 @@ use store::{Event, kinds};
 
 use super::error::{Result, bad_state};
 use super::fold::Fold;
+use super::later::HELD_SPAWN;
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, caller, contains};
@@ -444,9 +445,30 @@ impl Fold {
         Ok(true)
     }
 
+    /// Whether a cancel `by` writes here for card t counts: on a board
+    /// only from the author's person's device (see spawn_writer_ok).
+    fn may_end_spawn(&self, by: &str, t: &Task) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let author = kp(&t.created_by);
+        !author.is_empty() && author == dp(&self.dev) && (by == SWEEPER || kp(by) == author)
+    }
+
     /// Ends every request of card `id` still waiting for its agent (card
-    /// #570): binding one has no state check, so it would land on the card.
+    /// #570), where this device's cancel counts. Anywhere else the
+    /// author's device ends it: bind_spawn and the sweep both do.
     pub(crate) fn end_pending_spawns(&mut self, by: &str, id: &str, reason: &str) -> Result<()> {
+        let by = if self.may_end_spawn(by, &self.tasks[id]) {
+            by
+        } else if self.may_end_spawn(SWEEPER, &self.tasks[id]) {
+            SWEEPER
+        } else {
+            return Ok(());
+        };
         let pending: Vec<Spawn> = self.tasks[id]
             .spawns
             .iter()
@@ -480,6 +502,11 @@ impl Fold {
         };
         if s.op != SPAWN_REQUESTED || !s.key.is_empty() {
             return Ok(s.key == key);
+        }
+        // A held card gets no agent (card #570): its request ends here.
+        if t.parked().is_some() {
+            self.end_pending_spawns(SWEEPER, id, HELD_SPAWN)?;
+            return Ok(false);
         }
         let now = self.stamp();
         self.write_as(

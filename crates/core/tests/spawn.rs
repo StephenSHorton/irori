@@ -919,3 +919,29 @@ fn a_sibling_started_later_reads_the_persons_words_in_its_brief() {
     );
     assert!(!brief.contains("AGENT-LINE"), "{brief}");
 }
+
+/// Card #570: "Start an agent" on a held card is the person's word to
+/// bring it back, so no agent starts on a card that is still held.
+#[test]
+fn starting_an_agent_on_a_held_card_brings_it_back_first() {
+    let r = Rig::new();
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Voice calls".into(),
+                objective: "later".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.park(&person, &t.id, "not now", coord::Back::Word)
+        .unwrap();
+    assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    r.core.start_agent(&t.id, "").unwrap();
+    let got = co.get_task(&t.id).unwrap();
+    assert!(got.parked().is_none(), "{:?}", got.blockers);
+    assert_eq!(got.state, coord::SUBMITTED);
+}
