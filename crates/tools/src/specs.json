@@ -1851,6 +1851,43 @@
     ]
   },
   {
+    "name": "talk_thread",
+    "description": "Open a Talk thread with the person: a question or a conversation, not a card. You hold it: their replies come to you, and Irori starts no other agent for it, even after you end, until they write in it. The agents it names are woken. Answer in it with talk_post conv=#N; only the person resolves it. Talk is for talking: put work on a card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "What you want to ask or tell the person, plain text, at most 4000 characters. Its first line is the thread's title."
+        },
+        "conv": {
+          "type": "string",
+          "description": "Optional: the channel it's about (#name, or an id from talk_list); a pointer goes there. Without it, the thread is in Personal (or space)."
+        },
+        "mention": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional agents to bring in, by name or key, besides the @names in text: each is woken."
+        },
+        "space": {
+          "type": "string",
+          "description": "Optional: the shared space it goes in, or the one conv's name is in, by its tag or id. Without it, Personal."
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
     "name": "talk_read",
     "description": "Read a Talk conversation, oldest first: what is new since you last read it (or since a post), else the latest posts. Reading marks it read for you.",
     "inputSchema": {

@@ -25,7 +25,7 @@
 //! | `capturetools` | `capture.go` (timeline, why, agent resolution) |
 //! | `attachments` | `attachments.go` |
 //! | [`notify`] | `notify.go` |
-//! | [`talk`] | (Rust only, card #389) talk_post, talk_read, talk_list, talk_join, talk_leave |
+//! | [`talk`] | (Rust only, card #389) talk_post, talk_thread (#631), talk_read, talk_list, talk_join, talk_leave |
 //!
 //! Wiring notes (for the merge):
 //! - The Core implements [`Backend`] (Go's `core.Core` does). Optional
@@ -356,7 +356,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 56] = [
+    let list: [(&'static str, Handler); 57] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -407,6 +407,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("waits", waits::waits),
         ("wait_cancel", waits::wait_cancel),
         ("talk_post", talk::talk_post),
+        ("talk_thread", talk::talk_thread),
         ("talk_read", talk::talk_read),
         ("talk_list", talk::talk_list),
         ("talk_join", talk::talk_join),

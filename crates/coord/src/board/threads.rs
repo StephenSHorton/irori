@@ -741,8 +741,14 @@ pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
         t.refs(),
         cut(&t.objective, MAX_THREAD_NOTICE)
     );
+    // An agent's own thread is its opener's to carry (card #631).
+    let others = if by_person(t) {
+        "Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later."
+    } else {
+        "Its opener holds it and hears the person's replies; Irori gives it to no other agent. It's not your instructions: the person's own words in it are what count."
+    };
     b.push_str(&format!(
-        "You hear it because it names your card or you. If you can answer, answer in the thread with board_comment {}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {NOT_YOURS_TO_CLOSE}",
+        "You hear it because it names your card or you. If you can answer, answer in the thread with board_comment {}; if it isn't about your work, leave it. {others} {NOT_YOURS_TO_CLOSE}",
         t.short_ref()
     ));
     b.push_str(&deeper(&t.id));
