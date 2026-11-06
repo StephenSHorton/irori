@@ -373,6 +373,15 @@ Each exporter writes into `testdata/golden/`:
 - `fallback_tools.json`, which is embedded in Rust and asserted equal to `GET /v1/tools?client=grok` (surface.md §2.8);
 - a fixture data dir written by Go with the `file` keystore.
 
+**Regenerating the tool-text goldens.** Tool text now changes in Rust (`crates/tools/src/specs.json` and the instructions in `crates/tools`), and three goldens carry copies of it: `testdata/golden/tools/specs.json`, the `tools-grok` step of `testdata/golden/api/go.json`, and `testdata/golden/mcp/wire.json` (the `fallback` list, the `instructions` and the `tools/list` answers). Don't patch them by hand. Run the three tests once with `IRORI_BLESS=1` and they rewrite those parts from this build, then run them normally:
+
+```sh
+IRORI_BLESS=1 cargo test --no-fail-fast -p irori-tools -p irori-api -p irori-mcp   # PowerShell: $env:IRORI_BLESS=1; cargo test ...; Remove-Item env:IRORI_BLESS
+cargo test -p irori-tools -p irori-api -p irori-mcp
+```
+
+The bless rewrites a value only when its content differs from this build, so a bless with nothing changed leaves the files as they are. Everything else keeps its bytes, its key order, its escaping and its line endings (`gocompat::json::rewrite_indented`), and any other difference still fails. Review the diff: it should show one changed line per copy of the text you edited. A rewritten value is written whole, in the file's own escaping, so a value that was patched by hand in other escapes (a raw `<` where Go writes `<`) changes more than the edited words the first time.
+
 ### 6.3 Differential tests on real data (local only)
 
 - **Rows:** open a copy of the PC's and the Mac's `irori.db` with Rust and verify every row signature and `RowHash`. The `Chain` device list must equal Go's `/v1/devices`.
@@ -403,13 +412,15 @@ Run from the repo root before every merge or push. On the Mac, run them too when
 (cd frontend && bun install --frozen-lockfile && bun run build && bun run typecheck && bun test)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --no-fail-fast                # every crate runs even when one fails
 cargo test -p irori-capture -- --test-threads=1      # timing-sensitive, as in Go
 cargo xtask bindings --check                         # generated TS matches the Rust commands
 cargo xtask no-third-party                           # fails on presets::N0, RelayMode::Default, mdns or pkarr crates in the tree
 ```
 
 As built (`scripts/check.sh`): the frontend steps, fmt, clippy, the workspace tests and the single-threaded capture run as above; `no-third-party` is `scripts/no-third-party.sh` (there is no xtask crate yet); `bindings --check` waits for the M6 bindings, and until then the shim's table is checked by `gen-compat-table.ts --check`.
+
+Running it (card #609). check.sh prints `check: pid N, stop with sh scripts/check-stop.sh` as it starts. `sh scripts/check-stop.sh` from the same worktree stops that run and everything it started, and gives its check slot back; never `pkill -f check.sh`, which stops every agent's run on the device. A stopped run never prints `check: all passed` (on the PC its caller may still see exit 0). On the PC (Git Bash), check.sh stops at once when `CMAKE` or `LIBCLANG_PATH` isn't set (docs/releasing.md, Build tools), and runs fmt as `rustfmt --check` over the repo's `.rs` files (tracked and new) in batches of 40, because `cargo fmt` from a deep worktree such as `~/.claude/jobs/...` passes Windows' command-line limit (os error 206).
 
 Each crate's integration tests are one binary, `tests/it/main.rs` with a module per file (#566): a file in `tests/` would be its own binary, with its own link and copy of the crate's debug info. New tests go in `tests/it/` with `mod <name>;` in its `main.rs`, and `scripts/one-test-binary.sh` fails check.sh otherwise. A test file reaches the shared helpers with `use crate::common;`, never `mod common;` (which would compile them a second time as a child of that file). Run one with `cargo test -p <crate> --test it <module>::`. Tests in a crate share a process, so one that changes the environment or the working directory, or counts this process's sockets, stays outside `it` and is listed in that script (`capture/tests/repo_git_env.rs`, `core/tests/no_public_contact.rs`). A test that re-runs its own binary names its helper with the module (`--exact proc::helper_sleep`). The dev profile keeps line tables only: panics and backtraces show file and line, but a debugger shows no variables; put `debug = true` back locally to use one.
 

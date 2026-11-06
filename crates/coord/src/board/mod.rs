@@ -27,10 +27,6 @@ mod idle;
 mod later;
 pub use later::{Back, OrderLoops};
 mod links;
-mod main_red;
-pub use main_red::{
-    MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
-};
 mod mention;
 mod stranded;
 mod version_wait;
@@ -790,12 +786,6 @@ impl Coord {
         }
         Ok(t)
     }
-    /// Finds or makes the one open card for main failing `test` (card
-    /// #436), reported from card `from`; true when it was made now, so the
-    /// caller hands it out. Block `from` on it with a task wait.
-    pub fn main_red(&self, by: &str, from: &str, test: &str, commit: &str) -> Result<(Task, bool)> {
-        self.lock().main_red(by, from, test, commit)
-    }
     pub fn unblock(&self, by: &str, id: &str, note: &str) -> Result<(Task, Notice)> {
         self.lock().unblock(by, id, note)
     }
@@ -1452,6 +1442,19 @@ impl Coord {
         agents: &[AgentCard],
     ) -> Result<(Task, Notice)> {
         self.lock().post_ask(by, input, agents)
+    }
+
+    /// An agent opens a thread it holds itself (card #631): never handed
+    /// out, and no agent is started for it until its person writes in it.
+    /// The notice is for the agents it names, if any.
+    pub fn post_agent_thread(&self, by: &str, input: NewAsk) -> Result<(Task, Option<Notice>)> {
+        self.lock().post_agent_thread(by, input)
+    }
+
+    /// Whether t is an agent's thread its person hasn't written in yet
+    /// (card #631): it waits on them, and no agent is started for it.
+    pub fn agent_thread_rests(&self, t: &Task) -> bool {
+        self.lock().agent_thread_rests(t)
     }
     /// Asks for an ask's take and waits up to `wait` for the owner's answer.
     pub fn ask_claim(&self, by: &str, id: &str, wait: Duration) -> Result<ClaimResult> {
