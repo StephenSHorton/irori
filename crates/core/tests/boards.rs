@@ -1970,6 +1970,14 @@ fn sync_out_waits_until_another_device_holds_the_last_row() {
     );
     let id = a.core.create_board("Sync out", "out").unwrap();
     wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    // The board connection is up: sync_out counts a's own device on the
+    // private mesh for a board only for a short dial grace.
+    wait_for(45, "a in step with b on the board", || {
+        a.core
+            .freshness()
+            .iter()
+            .any(|f| f.log == id && f.at_ms > 0)
+    });
     let seen = |key: &str| serde_json::json!({"key": format!("{ai}/{key}"), "agent": "claude"});
 
     let by = a.core.board_key(&id, &a.user()).unwrap();
