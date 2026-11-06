@@ -520,6 +520,49 @@ fn share_follows_the_autonomy_setting() {
     has(&r.told_a(), &["withdrew mlg#2"]);
 }
 
+/// Card #570: a card made Not yet, or after another, on a shared board
+/// says so, and isn't offered to be taken now.
+#[test]
+fn a_card_made_not_yet_on_a_board_isnt_taken_now() {
+    let r = rig();
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Tune the loader", "board": "mlg"}),
+    );
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Ship the loader", "board": "mlg", "after": ["mlg#1"]}),
+    );
+    has(&out, &["Created mlg#2", "It comes after mlg#1"]);
+    has_not(&out, &["Take it up with board_join"]);
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "board": "mlg", "assign_to": KEY_B,
+               "later": {"why": "after the move"}}),
+    );
+    has(
+        &out,
+        &[
+            "Created mlg#3",
+            "It is Not yet: it comes back when the person says.",
+            "It isn't assigned",
+        ],
+    );
+    has_not(&out, &["Take it up with board_join", "Assigning it failed"]);
+    assert!(out.ends_with("Visible to: Stephen, Blake"), "{out}");
+    let t = r
+        .fake
+        .co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.title == "Voice calls")
+        .unwrap();
+    assert!(t.parked().is_some() && t.holders.is_empty(), "{t:?}");
+}
+
 #[test]
 fn the_board_tool_lists_shared_boards() {
     let r = rig();
@@ -779,6 +822,23 @@ fn a_shared_card_can_be_given_to_a_member_by_name() {
         json!({"task_id": id, "to": "nobody-here"}),
         &["nobody-here"],
     );
+}
+
+/// Card #570 with #573: a shared card made Not yet with a member named
+/// isn't given to them (nobody takes a held card), and making it doesn't
+/// fail half way with the card already on the board.
+#[test]
+fn a_shared_card_made_not_yet_isnt_given() {
+    let r = rig();
+    r.autonomy("trusted");
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "board": "mlg", "assign_to": "blake", "later": {"why": "after the move"}}),
+    );
+    has(&out, &["It isn't assigned"]);
+    let t = r.fake.co.get_task(&created_id(&out)).unwrap();
+    assert!(t.parked().is_some() && t.assigned.is_empty() && t.given.is_none());
 }
 
 #[test]

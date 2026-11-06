@@ -14,6 +14,15 @@
 //! left running if the file says `session`, otherwise stopped with the
 //! model still loaded; it notes `voice-loaded`.
 //!
+//! And it lets a test look at the real window (card #570's end-to-end
+//! pass), since an agent session can't screencapture but a process may
+//! always capture its own windows: `<file>.show` puts the window on screen
+//! after all (the one exception to the rule above), `<file>.eval` runs the
+//! script it holds in the webview (clicks and typing through the DOM), and
+//! `<file>.shot` saves the window as the PNG it names, noting `shot <path>`
+//! or `shot error: …`. Each file is removed once handled, so it can be
+//! written again.
+//!
 //! A debug build honours the variable alone. A release build honours it
 //! only together with `IRORI_DEV_OFFLINE=1` (a Core with no network), so
 //! the rehearsal runs the exact exe `scripts/release.ps1` builds through
@@ -193,6 +202,158 @@ impl Probe {
                 Err(e) => probe.note(&format!("voice error: {e}")),
             }
         });
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Probe {
+    /// Watches `<file>.show`, `<file>.eval` and `<file>.shot` (see the
+    /// module docs), in the order they are listed, every 100 ms.
+    pub fn watch_window(&self, app: &tauri::AppHandle) {
+        let (Some(show), Some(eval), Some(shot)) = (
+            self.beside("show"),
+            self.beside("eval"),
+            self.beside("shot"),
+        ) else {
+            return;
+        };
+        let probe = self.clone();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            use tauri::Manager;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let Some(w) = app.get_webview_window(super::MAIN) else {
+                    continue;
+                };
+                if show.exists() {
+                    let _ = std::fs::remove_file(&show);
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                    probe.note("shown");
+                }
+                if let Ok(js) = std::fs::read_to_string(&eval) {
+                    let _ = std::fs::remove_file(&eval);
+                    match w.eval(&js) {
+                        Ok(()) => probe.note("eval"),
+                        Err(e) => probe.note(&format!("eval error: {e}")),
+                    }
+                }
+                if let Ok(to) = std::fs::read_to_string(&shot) {
+                    let _ = std::fs::remove_file(&shot);
+                    let to = PathBuf::from(to.trim());
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let w2 = w.clone();
+                    // The window number is AppKit's, read on the main thread.
+                    let _ = app.run_on_main_thread(move || {
+                        let _ = tx.send(window_number(&w2));
+                    });
+                    let n = rx.recv().ok().flatten();
+                    match n.ok_or_else(|| "no window".to_string()).and_then(|n| {
+                        // SAFETY: CoreGraphics and ImageIO calls with
+                        // their documented types (shot_window).
+                        unsafe { shot_window(n, &to) }
+                    }) {
+                        Ok(()) => probe.note(&format!("shot {}", to.display())),
+                        Err(e) => probe.note(&format!("shot error: {e}")),
+                    }
+                }
+            }
+        });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn window_number(w: &tauri::WebviewWindow) -> Option<u32> {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    let ns = w.ns_window().ok()? as *mut AnyObject;
+    if ns.is_null() {
+        return None;
+    }
+    // SAFETY: a live NSWindow, on the main thread.
+    let n: isize = unsafe { msg_send![&*ns, windowNumber] };
+    u32::try_from(n).ok().filter(|n| *n > 0)
+}
+
+/// The window numbered `n`, without its shadow, as a PNG at `path`.
+#[cfg(target_os = "macos")]
+unsafe fn shot_window(n: u32, path: &std::path::Path) -> Result<(), String> {
+    use std::ffi::c_void;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[repr(C)]
+    struct CGRect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGWindowListCreateImage(r: CGRect, opt: u32, id: u32, img: u32) -> *mut c_void;
+        fn CGImageRelease(i: *mut c_void);
+    }
+    #[link(name = "ImageIO", kind = "framework")]
+    unsafe extern "C" {
+        fn CGImageDestinationCreateWithURL(
+            url: *const c_void,
+            ty: *const c_void,
+            count: usize,
+            opts: *const c_void,
+        ) -> *mut c_void;
+        fn CGImageDestinationAddImage(d: *mut c_void, i: *mut c_void, p: *const c_void);
+        fn CGImageDestinationFinalize(d: *mut c_void) -> bool;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFURLCreateFromFileSystemRepresentation(
+            a: *const c_void,
+            buf: *const u8,
+            len: isize,
+            dir: bool,
+        ) -> *const c_void;
+        fn CFStringCreateWithCString(a: *const c_void, s: *const i8, enc: u32) -> *const c_void;
+        fn CFRelease(p: *const c_void);
+    }
+    // SAFETY: the caller's; CGRectNull asks for the window's own bounds.
+    unsafe {
+        let null = CGRect {
+            x: f64::INFINITY,
+            y: f64::INFINITY,
+            w: 0.0,
+            h: 0.0,
+        };
+        // kCGWindowListOptionIncludingWindow, kCGWindowImageBoundsIgnoreFraming.
+        let img = CGWindowListCreateImage(null, 8, n, 1);
+        if img.is_null() {
+            return Err("no image".into());
+        }
+        let p = path.as_os_str().as_bytes();
+        let url = CFURLCreateFromFileSystemRepresentation(
+            std::ptr::null(),
+            p.as_ptr(),
+            p.len() as isize,
+            false,
+        );
+        let ty = CFStringCreateWithCString(std::ptr::null(), c"public.png".as_ptr(), 0x0800_0100);
+        let dest = CGImageDestinationCreateWithURL(url, ty, 1, std::ptr::null());
+        let ok = !dest.is_null() && {
+            CGImageDestinationAddImage(dest, img, std::ptr::null());
+            CGImageDestinationFinalize(dest)
+        };
+        if !dest.is_null() {
+            CFRelease(dest);
+        }
+        CFRelease(ty);
+        CFRelease(url);
+        CGImageRelease(img);
+        if ok {
+            Ok(())
+        } else {
+            Err("can't write the PNG".into())
+        }
     }
 }
 

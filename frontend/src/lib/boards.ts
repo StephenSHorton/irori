@@ -15,6 +15,7 @@ import {
   type SummaryMember,
 } from "./models"
 import {
+  sampleBoardGone,
   sampleShare,
   sampleTransferOwner,
   sampleWithdraw,
@@ -434,6 +435,41 @@ export const boards = {
     ]
     sampleMoved()
     return b
+  },
+
+  // deleteFromSpace deletes a board (card #563): its cards go to the space's
+  // first board with new numbers there, and their old refs still find them.
+  // Any member may. The first board can't go, and it's refused, naming the
+  // devices, until every member device runs an Irori that reads spaces.
+  async deleteFromSpace(
+    spaceId: string,
+    boardId: string
+  ): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.DeleteInSpace(spaceId, boardId)
+    const b = sampleFind(spaceId)
+    if (b.boards[0]?.boardId === boardId)
+      throw new Error(
+        "coord: not allowed: a space's first board can't be deleted"
+      )
+    b.boards = b.boards.filter((x) => x.boardId !== boardId)
+    sampleBoardGone(boardId, b.tag)
+    sampleMoved()
+    return b
+  },
+
+  // deleteFromPersonal deletes one of Personal's boards (card #563): its
+  // cards go to the default board with new numbers there, and their old
+  // refs still find them. The default board can't go.
+  async deleteFromPersonal(boardId: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.DeleteInPersonal(boardId)) ?? []
+    if (boardId === Personal)
+      throw new Error(
+        "coord: not allowed: Personal's default board can't be deleted"
+      )
+    samplePersonal = samplePersonal.filter((x) => x.boardId !== boardId)
+    sampleBoardGone(boardId, "")
+    sampleMoved()
+    return boards.personal()
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {

@@ -16,7 +16,9 @@ import {
   boards as actions,
   type BoardSummary,
   type SharePreview,
+  type SpaceBoard,
 } from "@/lib/boards"
+import { cards } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import type { Owner, OwnerMember } from "@/lib/owners"
 import { errorText } from "@/lib/talk"
@@ -370,6 +372,97 @@ export function TransferButton({
                 : offering
                   ? `Offer it to ${pickName}`
                   : `Ask ${ownerName}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+// MoveBoardButton puts a card on another board in its space, or another of
+// Personal's boards (card #563). It takes the next number there; its old
+// ref still finds it. A parent takes its subtasks along.
+export function MoveBoardButton({
+  id,
+  boards,
+  current,
+  family,
+  initialOpen = false,
+}: {
+  id: string
+  boards: SpaceBoard[]
+  // The card's board now, by id.
+  current: string
+  family: boolean
+  initialOpen?: boolean
+}) {
+  const others = boards.filter((b) => b.boardId !== current)
+  const [open, setOpen] = useState(initialOpen)
+  const [to, setTo] = useState(others[0]?.boardId ?? "")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const move = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await cards.move(id, to)
+      setOpen(false)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          // The boards may have changed since it last opened.
+          setTo(others[0]?.boardId ?? "")
+          setError(null)
+          setOpen(true)
+        }}
+      >
+        Move
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move to another board</DialogTitle>
+            <DialogDescription>
+              It takes the next number on that board. Links to its old number
+              still find it.{family ? " Its subtasks move with it." : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <ChoiceSelect
+            label="Board"
+            showLabel
+            size="sm"
+            value={to}
+            onValueChange={setTo}
+            choices={others.map((b) => ({
+              value: b.boardId,
+              label: plainLine(b.name),
+            }))}
+          />
+          {error && (
+            <p className="text-xs text-destructive" role="alert">
+              {plainLine(error)}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy || !to}
+              onClick={() => void move()}
+            >
+              Move
             </Button>
           </DialogFooter>
         </DialogContent>

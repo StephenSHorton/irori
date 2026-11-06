@@ -171,7 +171,7 @@ desk.run   {repoKey, pr, headSha, baseSha, by, at} # the holder's run under the 
 
 ## 8. Phone
 
-The phone's Talk tab (Talk build step 7) lists desks under Channels. The badge is Talk's usual unread/mentions count (talk-channels.md:79); the open-PR count is in the subtitle ("desk · kowhai · 8 open"), so the one badge never means two things. Opening one shows the queue panel collapsed to chips and the desk log. Tapping a PR opens the author's card. Desk log posts only bump the unread count; the person is notified only when they are @mentioned or when the desk is stuck and asks them (main red, holder gone with a lease held, a runner gone). Before the Talk tab exists, the phone shows the desk queue as a read-only list on the repo's board. (desk-7)
+The phone's Talk tab (Talk build step 7) lists desks under Channels. The badge is Talk's usual unread/mentions count (talk-channels.md:79); the open-PR count is in the subtitle ("desk · kowhai · 8 open"), so the one badge never means two things. Opening one shows the queue panel collapsed to chips and the desk log. Tapping a PR opens the author's card. Desk log posts only bump the unread count; the person is notified only when they are @mentioned or when the desk is stuck and asks them (holder gone with a lease held, a runner gone). Before the Talk tab exists, the phone shows the desk queue as a read-only list on the repo's board. (desk-7)
 
 ## 9. What stays with Stephen
 
