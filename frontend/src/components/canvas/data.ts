@@ -43,12 +43,13 @@ export type FaceRef = {
 }
 
 // GroupNode is an area on the canvas: an agent's hub (the agent and the
-// cards it holds), the cards nobody is on, or the done cards.
+// cards it holds), the cards nobody is on, the agents here that hold
+// nothing (watching, talking), or the done cards.
 export type GroupNode = {
   kind: "group"
-  id: string // "group:agent:<key>", "group:unheld" or "group:done"
+  id: string // "group:agent:<key>", "group:unheld", "group:others" or "group:done"
   label: string // "working · 3 cards", "Nobody on these", "Done"
-  by: "agent" | "unheld" | "done"
+  by: "agent" | "unheld" | "others" | "done"
   key: string // the agent's key, "" for the other two
 }
 
@@ -94,7 +95,7 @@ export type AgentNode = {
   agent: AgentRef
   live: boolean
   person: boolean
-  group: string // its hub's GroupNode id
+  group: string // its hub's GroupNode id, or "group:others"
   status: string // agentStatus's words: "working", "idle", ...
   tone: StatusTone // agentStatus's tone: working pulses
 }
@@ -111,6 +112,9 @@ export type GraphEdge = {
   source: string // parent card / blocker / agent node id
   target: string // child card / blocked card / held card / agent id
   label?: string // a talk line's cards: "#12, #14"
+  // A holder line to a card in that agent's own hub: the box already
+  // says it, so the canvas shows it only on hover.
+  inHub?: boolean
 }
 
 export type Graph = {
@@ -164,6 +168,7 @@ export function here(a: AgentRef): boolean {
 }
 
 const UnheldId = "group:unheld"
+const OthersId = "group:others"
 const DoneId = "group:done"
 const hubId = (key: string) => `group:agent:${key}`
 
@@ -320,22 +325,40 @@ export function toGraph(
   for (const t of talk.values())
     edge("talk", `agent:${t.a}`, `agent:${t.b}`, t.cards.join(", "))
 
-  // Every agent that is here has a hub, even one only watching.
-  const hubs: GroupNode[] = [...agents.values()]
-    .map((a) => {
-      const n = held.get(a.group) ?? 0
-      const what = n ? plural(n, "card") : a.person ? "" : "on no card of its own"
-      return {
-        kind: "group" as const,
-        id: a.group,
-        label: [a.person ? "You" : a.status, what].filter(Boolean).join(" · "),
-        by: "agent" as const,
-        key: a.agent.key,
-      }
+  // An agent that holds a card here (or you) has a hub; the rest that
+  // are here (watching, talking) share one strip.
+  const hubs: GroupNode[] = []
+  let others = 0
+  for (const a of agents.values()) {
+    const n = held.get(a.group) ?? 0
+    if (!n && !a.person) {
+      a.group = OthersId
+      others++
+      continue
+    }
+    hubs.push({
+      kind: "group",
+      id: a.group,
+      label: [a.person ? "You" : a.status, plural(n, "card")].filter(Boolean).join(" · "),
+      by: "agent",
+      key: a.agent.key,
     })
+  }
+  const groupOf = new Map<string, string>()
+  for (const x of nodes) if (x.kind === "card") groupOf.set(x.id, x.group)
+  for (const e of edges)
+    if (e.kind === "holder" && groupOf.get(e.target) === agents.get(e.source)?.group) e.inHub = true
   const areas: GroupNode[] = []
   if (unheld)
     areas.push({ kind: "group", id: UnheldId, label: `Nobody on these · ${unheld}`, by: "unheld", key: "" })
+  if (others)
+    areas.push({
+      kind: "group",
+      id: OthersId,
+      label: `Also here, on no card of their own · ${others}`,
+      by: "others",
+      key: "",
+    })
   if (done) areas.push({ kind: "group", id: DoneId, label: `Done · ${done}`, by: "done", key: "" })
   return { nodes: [...hubs, ...areas, ...nodes, ...agents.values()], edges }
 }
@@ -372,6 +395,8 @@ const BlockerInset = 20 // a blocker under its card, set in a little
 const BlockerGap = 8 // between a card and its blockers, and between blockers
 const HubCols = 4 // an agent's grid is at most this wide
 const AreaCols = 6 // the unheld and done grids
+const PillCols = 6 // agents in the others strip
+const PillGap = 12
 
 // colsFor is how wide a grid of n cards is: about square, so a hub of 16
 // cards is 4 by 4, never 16 tall.
@@ -406,10 +431,11 @@ function depthFirst(cards: CardNode[]): CardNode[] {
 
 type Placed = { w: number; h: number; at: [string, Point, Size][] }
 
-// placeArea lays one area out from (0, 0): its label strip, its agent
-// (for a hub), then its cards in a grid, each card's blockers under it.
+// placeArea lays one area out from (0, 0): its label strip, its agents
+// (a hub's one, or the others strip's several, in rows), then its cards
+// in a grid, each card's blockers under it.
 function placeArea(
-  agent: AgentNode | undefined,
+  agents: AgentNode[],
   cards: CardNode[],
   blockersOf: Map<string, BlockerNode[]>,
   maxCols: number
@@ -417,11 +443,15 @@ function placeArea(
   const at: Placed["at"] = []
   let y = Head + Pad
   let w = 0
-  if (agent) {
-    at.push([agent.id, { x: Pad, y }, NodeSize.agent])
-    w = NodeSize.agent.w
-    y += NodeSize.agent.h + Gap
+  const pillCols = Math.min(PillCols, agents.length)
+  for (let r = 0; r * pillCols < agents.length; r++) {
+    agents
+      .slice(r * pillCols, (r + 1) * pillCols)
+      .forEach((a, i) => at.push([a.id, { x: Pad + i * (NodeSize.agent.w + PillGap), y }, NodeSize.agent]))
+    w = Math.max(w, pillCols * NodeSize.agent.w + (pillCols - 1) * PillGap)
+    y += NodeSize.agent.h + PillGap
   }
+  if (agents.length) y += Gap - PillGap
   const cols = colsFor(cards.length, maxCols)
   for (let r = 0; r * cols < cards.length; r++) {
     const row = cards.slice(r * cols, (r + 1) * cols)
@@ -437,8 +467,7 @@ function placeArea(
     w = Math.max(w, row.length * NodeSize.card.w + (row.length - 1) * Gap)
     y += rowH + Gap
   }
-  if (cards.length) y -= Gap
-  else if (agent) y -= Gap
+  if (cards.length || agents.length) y -= Gap
   return { w: w + 2 * Pad, h: y + Pad, at }
 }
 
@@ -454,8 +483,10 @@ export function autoLayout(g: Graph): Layout {
   const blockersOf = new Map<string, BlockerNode[]>()
   for (const n of g.nodes)
     if (n.kind === "blocker") blockersOf.set(n.card, [...(blockersOf.get(n.card) ?? []), n])
-  const agentOf = new Map<string, AgentNode>()
-  for (const n of g.nodes) if (n.kind === "agent") agentOf.set(n.group, n)
+  const agentsOf = new Map<string, AgentNode[]>()
+  for (const n of g.nodes)
+    if (n.kind === "agent") agentsOf.set(n.group, [...(agentsOf.get(n.group) ?? []), n])
+  const agentOf = (id: string) => agentsOf.get(id)?.[0]
   const members = new Map<string, CardNode[]>()
   for (const c of cards) members.set(c.group, [...(members.get(c.group) ?? []), c])
   const count = (id: string) => members.get(id)?.length ?? 0
@@ -464,25 +495,26 @@ export function autoLayout(g: Graph): Layout {
   const hubs = areas
     .filter((a) => a.by === "agent")
     .sort((a, b) => {
-      const pa = agentOf.get(a.id)?.person ? 1 : 0
-      const pb = agentOf.get(b.id)?.person ? 1 : 0
+      const pa = agentOf(a.id)?.person ? 1 : 0
+      const pb = agentOf(b.id)?.person ? 1 : 0
       return (
         pb - pa || // you first
         count(b.id) - count(a.id) ||
-        (agentOf.get(a.id)?.label ?? "").localeCompare(agentOf.get(b.id)?.label ?? "") ||
+        (agentOf(a.id)?.label ?? "").localeCompare(agentOf(b.id)?.label ?? "") ||
         a.key.localeCompare(b.key)
       )
     })
   const order = [
     ...hubs,
     ...areas.filter((a) => a.by === "unheld"),
+    ...areas.filter((a) => a.by === "others"),
     ...areas.filter((a) => a.by === "done"),
   ]
 
   const placedAreas = order.map((a) => ({
     a,
     placed: placeArea(
-      agentOf.get(a.id),
+      agentsOf.get(a.id) ?? [],
       depthFirst(members.get(a.id) ?? []),
       blockersOf,
       a.by === "agent" ? HubCols : AreaCols

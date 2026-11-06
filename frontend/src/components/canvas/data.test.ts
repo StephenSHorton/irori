@@ -169,6 +169,19 @@ describe("canvas markers and lines (card #587)", () => {
     expect(talk[0].label).toBe(`#${c1.short}, #${c2.short}`)
   })
 
+  test("agents with no card of their own share one strip; in-hub holder lines are marked", () => {
+    const w1 = busy("w1")
+    const w2 = idle("w2")
+    const c = card({ working: [busy("a")], watching: [w1, w2] })
+    const g = toGraph([c])
+    const l = autoLayout(g)
+    const areas = g.nodes.filter((x) => x.kind === "group").map((x) => x.id)
+    expect(areas).toEqual(["group:agent:a", "group:others"])
+    for (const k of ["agent:w1", "agent:w2"])
+      expect(inside(l.groups["group:others"], l.pos[k], NodeSize.agent)).toBe(true)
+    expect(g.edges.find((e) => e.kind === "holder")?.inHub).toBe(true)
+  })
+
   test("agent status tone comes from agentStatus", () => {
     const g = toGraph([card({ working: [busy("a")] }), card({ working: [idle("b")] })])
     const tone = (id: string) => g.nodes.find((x) => x.id === id)

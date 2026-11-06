@@ -101,6 +101,7 @@ function AgentNodeView({ data }: NodeProps<Node<AgentData>>) {
 const areaLook: Record<GroupNode["by"], { box: string; label: string }> = {
   agent: { box: "border-border/70 bg-foreground/[0.02]", label: "text-muted-foreground" },
   unheld: { box: "border-warning/60 bg-warning/[0.04]", label: "text-warning" },
+  others: { box: "border-border/40 bg-transparent", label: "text-muted-foreground" },
   done: { box: "border-border/40 bg-transparent opacity-70", label: "text-muted-foreground/70" },
 }
 
@@ -200,6 +201,8 @@ const handlesFor: Record<GraphEdge["kind"], { sourceHandle: string; targetHandle
 
 // toEdges is every line. still: Reduce Motion is on, so nothing flows.
 // A holder line flows while its agent works; a talk line always flows.
+// A holder line inside its agent's hub (the box says it) and a watcher
+// line wait for a hover (see Canvas), so the map isn't a web.
 export function toEdges(graph: Graph, still: boolean): Edge[] {
   const working = new Set(
     graph.nodes
@@ -217,6 +220,7 @@ export function toEdges(graph: Graph, still: boolean): Edge[] {
       ...handlesFor[e.kind],
       type: e.kind === "subtask" || e.kind === "holder" ? "smoothstep" : "default",
       animated: flows,
+      hidden: e.kind === "watcher" || !!e.inHub,
       label: e.label,
       labelStyle: e.label ? { fill: "var(--info)", fontSize: 11 } : undefined,
       labelBgStyle: e.label ? { fill: "var(--card)" } : undefined,
@@ -330,6 +334,7 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
             const o = Number(e.style?.opacity ?? 1)
             return {
               ...e,
+              hidden: lit ? false : e.hidden,
               zIndex: lit ? 10 : e.zIndex,
               style: { ...e.style, opacity: lit ? 1 : o * 0.5 },
             }

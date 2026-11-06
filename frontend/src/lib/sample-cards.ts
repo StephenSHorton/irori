@@ -1690,6 +1690,9 @@ export function sampleCards(now: Date): CardDetail[] {
       title: "Release notes",
       repoKey: "remote:github.com/sample-org/example-app",
       working: [heron],
+      // sample-heron and sample-mink are messaging each other about it:
+      // a talk line between them on the canvas (card #587).
+      talking: [heron, mink],
       updatedAt: at(7),
       parent: CardRef({
         id: "sample-card-7",
