@@ -890,10 +890,12 @@ fn talk_through_the_window() {
     let ch = w
         .talk_channel_create("general", Some("the room"), None)
         .unwrap();
-    let p = w.talk_post(&ch, "hello room", &[], true, None).unwrap();
-    assert!(w.talk_post(&ch, "  ", &[], true, None).is_err());
+    let p = w
+        .talk_post(&ch, "hello room", &[], true, None, &[])
+        .unwrap();
+    assert!(w.talk_post(&ch, "  ", &[], true, None, &[]).is_err());
     let from = w
-        .talk_post(&ch, "about that", &[], false, Some(p.clone()))
+        .talk_post(&ch, "about that", &[], false, Some(p.clone()), &[])
         .unwrap();
     let posts = w.talk_posts(&ch, None, 0).unwrap();
     assert_eq!(posts.len(), 2);
@@ -908,7 +910,9 @@ fn talk_through_the_window() {
     };
     let dm = w.talk_dm(&agent).unwrap();
     assert_eq!(w.talk_dm(&agent).unwrap(), dm, "one DM per pair");
-    let id = w.talk_post(&dm, "got a minute?", &[], true, None).unwrap();
+    let id = w
+        .talk_post(&dm, "got a minute?", &[], true, None, &[])
+        .unwrap();
     let ds = w.core.inbox().for_agent(&r.key_a, false, 10);
     assert!(ds.iter().any(|d| d.message_id == id), "{ds:?}");
 
@@ -926,7 +930,9 @@ fn talk_through_the_window() {
             &[],
         )
         .unwrap();
-    let cid = w.talk_post(&t.id, "still slow", &[], false, None).unwrap();
+    let cid = w
+        .talk_post(&t.id, "still slow", &[], false, None, &[])
+        .unwrap();
     let tp = w.talk_posts(&t.id, None, 50).unwrap();
     assert_eq!(tp.len(), 2);
     assert_eq!(tp[1].post_id, cid);
@@ -949,6 +955,60 @@ fn talk_through_the_window() {
     check_shape(&src, "TalkConversation", &j(c));
     check_shape(&src, "TalkMember", &j(&c.members[0]));
     check_shape(&src, "TalkPost", &j(&posts[1]));
+
+    // Card #643: a picture alone in a channel and in a DM. The posts carry
+    // it, and the route and the attachment calls find it on the post.
+    {
+        use base64::Engine as _;
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let up = |name: &str| irori_window::board::UploadFile {
+            name: name.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(png),
+        };
+        let id = w
+            .talk_post(&ch, "", &[], true, None, &[up("shot.png")])
+            .unwrap();
+        let ps = w.talk_posts(&ch, None, 50).unwrap();
+        let p = ps.iter().find(|p| p.post_id == id).unwrap();
+        assert_eq!(p.text, "");
+        assert_eq!(p.attachments.len(), 1);
+        assert_eq!(p.attachments[0].name, "shot.png");
+        check_shape(&src, "TalkPost", &j(p));
+        let sha = p.attachments[0].sha256.clone();
+        let info = w.attachment_info(&sha).unwrap();
+        assert_eq!((info.name.as_str(), info.here), ("shot.png", true));
+        let ok = w.serve_attachment(&Request {
+            method: "GET".into(),
+            path: format!("{}{sha}", attachments::ROUTE),
+            ..Request::default()
+        });
+        assert_eq!(ok.status, 200);
+        assert_eq!(ok.body, png);
+        assert_eq!(ok.get("Content-Type"), Some("image/png"));
+
+        // A DM with an agent: the message carries it as well.
+        let id = w
+            .talk_post(&dm, "this one", &[], true, None, &[up("dm.png")])
+            .unwrap();
+        let ps = w.talk_posts(&dm, None, 50).unwrap();
+        let p = ps.iter().find(|p| p.post_id == id).unwrap();
+        assert_eq!(p.attachments.len(), 1);
+        let ds = w.core.inbox().for_agent(&r.key_a, false, 10);
+        let d = ds.iter().find(|d| d.message_id == id).unwrap();
+        assert_eq!(d.message.attachments.len(), 1);
+        assert!(w.attachment_info(&p.attachments[0].sha256).is_ok());
+
+        // Nothing at all is still refused, and a file nobody posted isn't
+        // served.
+        assert!(w.talk_post(&ch, " ", &[], true, None, &[]).is_err());
+        let none = w.serve_attachment(&Request {
+            method: "GET".into(),
+            path: format!("{}{}", attachments::ROUTE, "e".repeat(64)),
+            ..Request::default()
+        });
+        assert_eq!(none.status, 404);
+        assert!(w.attachment_info(&"e".repeat(64)).is_err());
+    }
 
     // Card #538: nobody to DM yet, a person you share no space with is
     // refused, and an agent's DM is no person DM to leave. A row that isn't
@@ -1144,7 +1204,7 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     seen("remote:github.com/t/game-repo", &game);
     let ch = w.talk_channel_create("Game-Repo", None, None).unwrap();
     let p = w
-        .talk_post(&ch, "main is red after #212", &[], true, None)
+        .talk_post(&ch, "main is red after #212", &[], true, None, &[])
         .unwrap();
     assert_eq!(w.channel_repo(&ch), "remote:github.com/t/game-repo");
     let other = w.talk_channel_create("general", None, None).unwrap();

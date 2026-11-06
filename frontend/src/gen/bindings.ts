@@ -308,6 +308,12 @@ export const commands = {
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
 	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
+	/**
+	 *  Posts with files (card #643): pasted, dropped or picked in a channel's
+	 *  or DM's composer; the text may then be empty. Returns the post's id (a
+	 *  thread's: the comment's).
+	 */
+	talkPostWithFiles: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null, files: UploadFile[]) => __TAURI_INVOKE<string>("talk_post_with_files", { convId, text, mentions, agentsNow, threadFrom, files }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**
@@ -2505,6 +2511,8 @@ export type TalkPost = {
 	threadFrom?: string | null,
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
+	/**  The files sent with it (card #643), as a comment's are. */
+	attachments: FileRef[],
 	at: string,
 };
 

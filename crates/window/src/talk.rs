@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
+use crate::board::UploadFile;
 use crate::ts;
 
 /// One side of a conversation.
@@ -108,6 +109,9 @@ pub struct TalkPost {
     /// The card made from it (always null in Talk 1).
     #[specta(optional)]
     pub card: Option<String>,
+    /// The files sent with it (card #643), as a comment's are.
+    #[specta(type = Vec<ts::FileRef>)]
+    pub attachments: Vec<coord::FileRef>,
     #[specta(type = ts::Time)]
     pub at: gocompat::time::GoTime,
 }
@@ -187,6 +191,7 @@ impl Window {
                 agents_now: p.agents_now,
                 thread_from: p.thread_from,
                 card: p.card,
+                attachments: p.files.iter().map(crate::coord_ref).collect(),
                 at: p.at,
             })
             .collect())
@@ -197,7 +202,11 @@ impl Window {
     /// next turn); a channel's or DM's is a `talk.post` (a DM with an agent
     /// wakes it, an @name in the text wakes that agent). `mentions` are
     /// the keys the composer's picker recorded: one names exactly the agent
-    /// picked, another person's in a space too (card #461).
+    /// picked, another person's in a space too (card #461). `files` go
+    /// with it (card #643), the text then optional: a thread's with its
+    /// comment, under the comment's rules; a channel's or DM's are stored
+    /// here and named on the post, and in a space's channel or a DM with
+    /// another person offered in that log so its members can fetch them.
     pub fn talk_post(
         &self,
         conv: &str,
@@ -205,6 +214,7 @@ impl Window {
         mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
+        files: &[UploadFile],
     ) -> Result<String, String> {
         let conv = crate::trim(conv);
         if conv.is_empty() {
@@ -212,9 +222,10 @@ impl Window {
         }
         if is_thread_id(conv) {
             let tell = if agents_now { "wake" } else { "next_turn" };
-            let r = self.comment(conv, text, tell, &[], &[])?;
+            let r = self.comment(conv, text, tell, &[], files)?;
             return Ok(r.comment.id);
         }
+        let refs = self.store_uploads(files)?;
         let p = self.core.talk_post(
             &self.core.user_sender(),
             conv,
@@ -222,6 +233,7 @@ impl Window {
             mentions,
             agents_now,
             thread_from,
+            refs,
         )?;
         Ok(p.post.post_id)
     }
@@ -267,7 +279,7 @@ impl Window {
         let r = self.start_thread_in(text, &[], &[], space, None, conv)?;
         if !private {
             let pointer = r.task.short_ref();
-            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()), &[])?;
         }
         Ok(r)
     }

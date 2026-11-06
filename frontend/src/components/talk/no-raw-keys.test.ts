@@ -120,6 +120,35 @@ describe("no raw key reaches a person (card #478)", () => {
     }
   })
 
+  test("a post's files show under it, and a post of files alone (card #643)", () => {
+    const m = others[0]
+    const names = new Map(others.map((x) => [x.key, x]))
+    const attachments = [
+      {
+        sha256: "e".repeat(64),
+        name: "firewall-prompt.png",
+        size: 61442,
+        mime: "image/png",
+        device: "d",
+      },
+      { sha256: "f".repeat(64), name: "build.log", size: 900, device: "d" },
+    ]
+    for (const text of ["see these", ""]) {
+      const post = TalkPost({
+        postId: "p",
+        convId: "c",
+        by: m.key,
+        text,
+        attachments,
+      })
+      const out = html(createElement(PostRow, { post, who: m, names, live }))
+      expect(out).toContain("firewall-prompt.png")
+      expect(out).toContain("build.log")
+      if (text) expect(out).toContain(text)
+      noKeys(out)
+    }
+  })
+
   test("the members list", () => {
     noKeys(html(createElement(Members, { members: [you, ...others], live })))
   })

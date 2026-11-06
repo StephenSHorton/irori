@@ -305,6 +305,25 @@ export const TalkService = {
     agentsNow: boolean,
     threadFrom: string | null
   ) => call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
+  // A post with files (card #643): the text may be empty then.
+  PostWithFiles: (
+    convId: string,
+    text: string,
+    mentions: string[],
+    agentsNow: boolean,
+    threadFrom: string | null,
+    files: B.UploadFile[]
+  ) =>
+    call(
+      commands.talkPostWithFiles(
+        convId,
+        text,
+        mentions,
+        agentsNow,
+        threadFrom,
+        files
+      )
+    ),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),

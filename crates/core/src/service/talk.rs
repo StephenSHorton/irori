@@ -40,6 +40,10 @@ impl Core {
 
     /// Posts to channel or DM `conv` as `from` ([`tools::talk::post`]); a
     /// thread's posts are its comments, so a thread id is refused here.
+    /// `files` are stored files sent with it (card #643): in a space's
+    /// channel or a DM with another person they're offered in that log
+    /// as the row goes in, so its members' devices may fetch them.
+    #[allow(clippy::too_many_arguments)]
     pub fn talk_post(
         &self,
         from: &Sender,
@@ -48,6 +52,7 @@ impl Core {
         mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
+        files: Vec<blob::FileRef>,
     ) -> Result<Posted, String> {
         let conv = conv.trim();
         let target = if coord::talk::is_channel(conv) {
@@ -67,6 +72,7 @@ impl Core {
             mentions,
             agents_now,
             thread_from,
+            &files,
         )
     }
 

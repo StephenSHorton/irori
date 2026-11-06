@@ -1620,7 +1620,35 @@ pub async fn talk_post(
         &mentions,
         agents_now,
         thread_from.filter(|t| !t.is_empty()),
+        &[],
     )
+}
+
+/// Posts with files (card #643): pasted, dropped or picked in a channel's
+/// or DM's composer; the text may then be empty. Returns the post's id (a
+/// thread's: the comment's).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_post_with_files(
+    w: W<'_>,
+    conv_id: String,
+    text: String,
+    mentions: Vec<String>,
+    agents_now: bool,
+    thread_from: Option<String>,
+    files: Vec<UploadFile>,
+) -> R<String> {
+    blocking(&w, move |w| {
+        w.talk_post(
+            &conv_id,
+            &text,
+            &mentions,
+            agents_now,
+            thread_from.filter(|t| !t.is_empty()),
+            &files,
+        )
+    })
+    .await
 }
 
 /// The person asks about channel `conv_id`'s post `post_id` in a new
@@ -1901,6 +1929,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_conversations,
             talk_posts,
             talk_post,
+            talk_post_with_files,
             talk_link_card,
             talk_thread_from,
             talk_read,

@@ -752,7 +752,7 @@ export function TalkPerson(p: Partial<B.TalkPerson> = {}): B.TalkPerson {
 
 /** TalkPost with Go's zero values for every field left out. */
 export function TalkPost(p: Partial<B.TalkPost> = {}): B.TalkPost {
-  return { "postId": "", "convId": "", "by": "", "text": "", "mentions": [], "agentsNow": false, "at": "", ...p } as B.TalkPost
+  return { "postId": "", "convId": "", "by": "", "text": "", "mentions": [], "agentsNow": false, "attachments": [], "at": "", ...p } as B.TalkPost
 }
 
 /** Target with Go's zero values for every field left out. */

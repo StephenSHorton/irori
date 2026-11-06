@@ -1,11 +1,13 @@
 //! Board attachments in the window (I:attachments_service.go,
 //! I:internal/core/attachview.go; surface.md 2.11, 7.7): Info, Save and
-//! Open, and the `irori` URI scheme that serves a comment's file to the
-//! webview. Only Board comments' files count, never a message's.
+//! Open, and the `irori` URI scheme that serves a comment's or a Talk
+//! post's file to the webview (card #643). Only Board comments' and Talk
+//! posts' files count, never a message's.
 //!
 //! The scheme answers `<origin>/irori/attachment/<sha256>`, where the
-//! origin is `http://irori.localhost` on Windows and `irori://localhost`
-//! elsewhere (Tauri's custom-scheme URLs), so [`AttachmentInfo::url`] is
+//! origin is `http://irori.localhost` on Windows and Android and
+//! `irori://localhost` elsewhere (Tauri's custom-scheme URLs: its webviews
+//! there serve the page at `http://tauri.localhost`), so [`AttachmentInfo::url`] is
 //! absolute; the page's CSP (`app/tauri.conf.json`) allows that origin in
 //! `connect-src img-src media-src`.
 
@@ -18,7 +20,7 @@ use specta::Type;
 use crate::Window;
 use crate::seams::FetchError;
 
-/// The path prefix a comment's file loads from.
+/// The path prefix a comment's or post's file loads from.
 pub const ROUTE: &str = "/irori/attachment/";
 /// The URI scheme the app registers.
 pub const SCHEME: &str = "irori";
@@ -29,11 +31,15 @@ pub const MAX_PREVIEW: i64 = 32 << 20;
 
 /// Go `core.ErrNoAttachment`.
 pub const NO_ATTACHMENT: &str = "no message or card you can read carries that attachment";
+
+/// Whether the webview serves custom schemes as `http://<scheme>.localhost`
+/// (WebView2 on Windows, Android's WebView) rather than `<scheme>://localhost`.
+const HTTP_SCHEMES: bool = cfg!(any(windows, target_os = "android"));
 const NOT_OPENABLE: &str = "Irori opens pictures, PDFs, text, documents and media only; save this one and open it yourself if you trust it";
 
 /// The origin the scheme is served at in the webview.
 pub fn origin() -> &'static str {
-    if cfg!(windows) {
+    if HTTP_SCHEMES {
         "http://irori.localhost"
     } else {
         "irori://localhost"
@@ -43,14 +49,14 @@ pub fn origin() -> &'static str {
 /// The app's own origin, the only one the scheme answers a `fetch` from
 /// (the page and the scheme are different origins under Tauri).
 pub fn app_origin() -> &'static str {
-    if cfg!(windows) {
+    if HTTP_SCHEMES {
         "http://tauri.localhost"
     } else {
         "tauri://localhost"
     }
 }
 
-/// Where the window loads a comment's file.
+/// Where the window loads a comment's or post's file.
 pub fn url(sha: &str) -> String {
     format!("{}{ROUTE}{sha}", origin())
 }
@@ -115,8 +121,10 @@ fn fetch_text(e: FetchError) -> String {
 }
 
 impl Window {
-    /// Go `Core.CommentFile`.
-    fn comment_file(&self, sha: &str) -> Result<FileRef, String> {
+    /// Go `Core.CommentFile`, and a Talk post's file (card #643): a
+    /// comment's first, then one on a post in a channel or DM the person
+    /// may read ([`irori_core::Core::post_attachment`]).
+    fn file_ref(&self, sha: &str) -> Result<FileRef, String> {
         let sha = crate::trim(sha).to_lowercase();
         if !blob::valid_id(&sha) {
             return Err("blob: id must be 64 lowercase hex characters".into());
@@ -125,6 +133,10 @@ impl Window {
             .core
             .comment_attachment(&sha)
             .map(|r| crate::blob_ref(&r))
+            .or_else(|| {
+                self.core
+                    .post_attachment(&self.core.user_sender().key, &sha)
+            })
             .ok_or_else(|| NO_ATTACHMENT.to_string())?;
         r.sha256 = sha;
         Ok(r)
@@ -154,15 +166,15 @@ impl Window {
         }
     }
 
-    /// AttachmentsService.Info: a comment's file, without fetching it.
+    /// AttachmentsService.Info: a comment's or post's file, without fetching it.
     pub fn attachment_info(&self, sha: &str) -> Result<AttachmentInfo, String> {
-        let r = self.comment_file(sha)?;
+        let r = self.file_ref(sha)?;
         Ok(self.info(&r))
     }
 
     /// AttachmentsService.Fetch: brings the file here and describes it.
     pub fn attachment_fetch(&self, sha: &str) -> Result<AttachmentInfo, String> {
-        let r = self.comment_file(sha)?;
+        let r = self.file_ref(sha)?;
         self.seams.mesh.fetch_file(&r).map_err(fetch_text)?;
         Ok(self.info(&r))
     }
@@ -172,7 +184,7 @@ impl Window {
     pub fn attachment_save(&self, sha: &str) -> Result<String, String> {
         let dir = (self.cfg.downloads)()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let r = self.comment_file(sha)?;
+        let r = self.file_ref(sha)?;
         self.save_ref(&r, &dir)
             .map(|p| p.to_string_lossy().into_owned())
     }
@@ -183,7 +195,7 @@ impl Window {
         let Some(open) = self.open_file.get() else {
             return Err("this Irori has no window to open files from".into());
         };
-        let r = self.comment_file(sha)?;
+        let r = self.file_ref(sha)?;
         if !openable_name(&blob::safe_name(&r.name, &r.sha256)) {
             return Err(NOT_OPENABLE.into());
         }
@@ -275,7 +287,7 @@ impl Window {
         let Some(sha) = req.path.strip_prefix(ROUTE).filter(|s| !s.contains('/')) else {
             return resp.text(404, "404 page not found");
         };
-        let r = match self.comment_file(sha) {
+        let r = match self.file_ref(sha) {
             Ok(r) => r,
             Err(_) => return resp.no_store().text(404, NO_ATTACHMENT),
         };

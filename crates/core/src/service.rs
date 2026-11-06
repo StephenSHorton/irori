@@ -2416,12 +2416,13 @@ impl Core {
     }
 
     /// Go `GetAttachment`: fetches a file `reader` may read (on a message it
-    /// sent or received, or on any Board comment) and writes it to `to`, or
+    /// sent or received, on any Board comment, or on a Talk post in a
+    /// channel or DM it may read, card #643) and writes it to `to`, or
     /// by default to `<data>/received/<reader>/<name>`. Returns the local
     /// path and the device it came from ("" when it was already here). A
     /// `to` inside the data dir is refused, and an existing file is never
-    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message
-    /// or card the reader may read carries it. Blocks on the mesh's runtime
+    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message,
+    /// card or post the reader may read carries it. Blocks on the mesh's runtime
     /// when another device holds it: call it off that runtime's workers.
     pub fn get_attachment(
         &self,
@@ -3146,6 +3147,12 @@ impl Core {
         self.s.comment_attachment(sha)
     }
 
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read, the earliest such post's; None when there is none.
+    pub fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        self.s.post_attachment(reader, sha)
+    }
+
     /// The Core's network side: the Node and every open board's mesh.
     pub(crate) fn mesh_net(&self) -> &Arc<crate::meshnode::Mesh> {
         &self.s.mesh
@@ -3517,6 +3524,24 @@ impl Services {
         })
     }
 
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read ([`tools::talk::posts`]'s rule: anyone reads a channel this
+    /// device folds, a DM its parties and the person): the earliest such
+    /// post's. A post in a conversation the reader can't read never
+    /// lends its file, even when the same file is on one they can.
+    pub(crate) fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        let found = self.talk.attachments(sha);
+        if found.is_empty() {
+            return None;
+        }
+        let me = self.this.get().and_then(Weak::upgrade)?;
+        let view = ToolsView(me);
+        found
+            .into_iter()
+            .find(|(conv, _)| tools::talk::posts(&view, reader, conv).is_ok())
+            .map(|(_, f)| f)
+    }
+
     /// Go `GetAttachment` ([`Core::get_attachment`]).
     fn get_attachment(
         &self,
@@ -3547,7 +3572,12 @@ impl Services {
                     mime: f.mime,
                     device: f.device,
                 },
-                None => return Err(at::NO_ATTACHMENT.into()),
+                // A Talk post's in a conversation the reader may read
+                // (card #643).
+                None => match self.post_attachment(reader, &sha) {
+                    Some(f) => f,
+                    None => return Err(at::NO_ATTACHMENT.into()),
+                },
             },
         };
         let name = blob::safe_name(&r.name, &sha);

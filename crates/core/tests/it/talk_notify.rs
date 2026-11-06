@@ -54,10 +54,18 @@ fn only_mentions_and_dms_notify() {
         .unwrap();
 
     r.core
-        .talk_post(&me, &ch.id, "a note to the room", &[], true, None)
+        .talk_post(&me, &ch.id, "a note to the room", &[], true, None, vec![])
         .unwrap();
     r.core
-        .talk_post(&alpha, &ch.id, "the build is green", &[], true, None)
+        .talk_post(
+            &alpha,
+            &ch.id,
+            "the build is green",
+            &[],
+            true,
+            None,
+            vec![],
+        )
         .unwrap();
     let tagged = r
         .core
@@ -68,6 +76,7 @@ fn only_mentions_and_dms_notify() {
             &["person".into()],
             true,
             None,
+            vec![],
         )
         .unwrap();
     let id = notify::talk_id(&ch.id, &tagged.post.post_id);
@@ -85,7 +94,7 @@ fn only_mentions_and_dms_notify() {
         .unwrap();
     let said = r
         .core
-        .talk_post(&alpha, &dm, "took #371", &[], true, None)
+        .talk_post(&alpha, &dm, "took #371", &[], true, None, vec![])
         .unwrap();
     let dm_id = notify::talk_id(&dm, &said.post.post_id);
     wait_for(10, "the DM's card", || {

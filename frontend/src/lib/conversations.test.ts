@@ -6,13 +6,14 @@ import {
   dmPerson,
   fromPost,
   listed,
+  postLine,
   readAll,
   talkApi,
   talkWaiting,
   waitingText,
   type Conversation,
 } from "./conversations"
-import { TalkConversation } from "./models"
+import { TalkConversation, TalkPost, type FileRef } from "./models"
 
 const conv = (p: Partial<Conversation>): Conversation => TalkConversation(p)
 
@@ -99,6 +100,88 @@ describe("Make a card from a message (design §4, card #390)", () => {
     const f = fromPost("x".repeat(200), "a DM")
     expect(f.title.length).toBe(80)
     expect(f.title.endsWith("…")).toBe(true)
+  })
+  test("a message of files alone takes its first file's name (card #643)", () => {
+    const f = fromPost("", "#suzuri", [ref("shot.png"), ref("log.txt")])
+    expect(f.title).toBe("shot.png")
+    expect(f.objective).toBe(
+      "Files: shot.png, log.txt\n\n(From a message in #suzuri.)"
+    )
+  })
+})
+
+const ref = (name: string): FileRef => ({
+  sha256: "a".repeat(64),
+  name,
+  size: 10,
+  device: "d",
+})
+
+describe("files on a post (card #643)", () => {
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+  const file = (name: string, type = "image/png") =>
+    new File([new Uint8Array(1234)], name, { type })
+
+  test("the sample keeps each file's name and size, with its own sha", async () => {
+    const id = await talkApi.post(
+      "sample-ch-releases",
+      "the installer",
+      true,
+      null,
+      [],
+      [file("a.png"), file("b.png")]
+    )
+    const p = (await talkApi.posts("sample-ch-releases")).find(
+      (x) => x.postId === id
+    )
+    expect(p?.attachments.map((f) => [f.name, f.size, f.mime])).toEqual([
+      ["a.png", 1234, "image/png"],
+      ["b.png", 1234, "image/png"],
+    ])
+    const [a, b] = p?.attachments ?? []
+    expect(a.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(a.sha256).not.toBe(b.sha256)
+  })
+
+  test("files alone make a post, and the list shows the file's name", async () => {
+    const id = await talkApi.post(
+      "sample-ch-irori",
+      "  ",
+      true,
+      null,
+      [],
+      [file("shot.png")]
+    )
+    const p = (await talkApi.posts("sample-ch-irori")).find(
+      (x) => x.postId === id
+    )
+    expect(p?.attachments[0]?.name).toBe("shot.png")
+    const c = (await talkApi.conversations()).find(
+      (x) => x.convId === "sample-ch-irori"
+    )
+    expect(c?.lastText).toBe("📎 shot.png")
+  })
+
+  test("no text and no files is refused", async () => {
+    await expect(talkApi.post("sample-ch-irori", " ", true)).rejects.toThrow()
+  })
+
+  test("postLine: the text, else the first file and how many more", () => {
+    expect(postLine(undefined)).toBe("")
+    expect(postLine(TalkPost({ text: " a\n b " }))).toBe("a b")
+    expect(
+      postLine(TalkPost({ attachments: [ref("x.png"), ref("y.png")] }))
+    ).toBe("📎 x.png +1")
+  })
+
+  test("the sample's suzuri channel and heron DM each have a picture", async () => {
+    for (const id of ["sample-ch-suzuri", "sample-dm-heron"]) {
+      const ps = await talkApi.posts(id)
+      expect(
+        ps.some((p) => p.attachments.some((f) => f.mime === "image/png"))
+      ).toBe(true)
+    }
   })
 })
 

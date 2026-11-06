@@ -95,7 +95,7 @@ pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
     REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
-    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
+    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};

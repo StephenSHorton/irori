@@ -1314,7 +1314,15 @@ fn a_space_thread_reaches_the_other_members_agent_talk_tools() {
     // one stays Alice's link.
     let post = |text: &str| {
         a1.core
-            .talk_post(&a1.core.user_sender(), &ch.id, text, &[], false, None)
+            .talk_post(
+                &a1.core.user_sender(),
+                &ch.id,
+                text,
+                &[],
+                false,
+                None,
+                vec![],
+            )
             .unwrap()
             .post
             .post_id
@@ -1488,6 +1496,7 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
             &[],
             false,
             None,
+            vec![],
         )
         .unwrap();
     a1.core.kick_board(&space);
@@ -1534,7 +1543,15 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
     // his own.
     let reply = b1
         .core
-        .talk_post(&b1.core.user_sender(), &ch.id, "hi alice", &[], false, None)
+        .talk_post(
+            &b1.core.user_sender(),
+            &ch.id,
+            "hi alice",
+            &[],
+            false,
+            None,
+            vec![],
+        )
         .unwrap();
     b1.core.kick_board(&space);
     wait_for(WAIT, "alice gets bob's reply", || {
@@ -1654,7 +1671,15 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
         let e = d
             .core
-            .talk_post(&d.core.user_sender(), &ch.id, "too soon", &[], false, None)
+            .talk_post(
+                &d.core.user_sender(),
+                &ch.id,
+                "too soon",
+                &[],
+                false,
+                None,
+                vec![],
+            )
             .unwrap_err();
         assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
         let e = d
@@ -1728,7 +1753,15 @@ fn a_restart_remembers_a_sleeping_device_and_nothing_refuses() {
         .talk_channel_create_in(&a1.user(), "netcode", "", &space)
         .unwrap();
     a1.core
-        .talk_post(&a1.core.user_sender(), &ch.id, "hi", &[], false, None)
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "hi",
+            &[],
+            false,
+            None,
+            vec![],
+        )
         .unwrap();
     close([a1]);
 }
@@ -1777,6 +1810,7 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
             &[],
             true,
             None,
+            vec![],
         )
         .unwrap();
     assert!(
@@ -1829,6 +1863,7 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
             &[],
             false,
             None,
+            vec![],
         )
         .unwrap();
     a1.core.kick_board(&space);
@@ -1933,6 +1968,7 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
             &[],
             true,
             None,
+            vec![],
         )
         .unwrap();
     a1.core.kick_board(&space);
@@ -2004,6 +2040,7 @@ fn space_with_a_channel(a1: &Dev, bobs: &[&Dev]) -> (String, String) {
             &[],
             false,
             None,
+            vec![],
         )
         .unwrap();
     a1.core.kick_board(&space);
@@ -2135,7 +2172,7 @@ fn dm_with(d: &Dev, other: &Dev) -> String {
 
 fn dm_post(d: &Dev, conv: &str, text: &str) {
     d.core
-        .talk_post(&d.core.user_sender(), conv, text, &[], false, None)
+        .talk_post(&d.core.user_sender(), conv, text, &[], false, None, vec![])
         .unwrap();
 }
 
@@ -2330,7 +2367,7 @@ fn both_first_messages_make_one_conversation() {
     });
     let from = |d: &Dev, text: &str| {
         d.core
-            .talk_post(&d.core.user_sender(), &dm, text, &[], false, None)
+            .talk_post(&d.core.user_sender(), &dm, text, &[], false, None, vec![])
             .unwrap()
             .post
             .space
@@ -2863,6 +2900,7 @@ fn a_third_member_cant_touch_a_dm() {
         &[],
         false,
         None,
+        vec![],
     );
     let t = t.unwrap();
     assert_ne!(t.post.space, id, "the broken space took a post");
@@ -2901,7 +2939,7 @@ fn a_dm_refuses_what_wouldnt_fold_before_it_writes() {
     let as_agent = inbox::Sender::new(&a1.agent, "agent", "claude");
     assert!(
         a1.core
-            .talk_post(&as_agent, &dm, "psst", &[], false, None)
+            .talk_post(&as_agent, &dm, "psst", &[], false, None, vec![])
             .is_err(),
         "an agent's post"
     );
@@ -2918,6 +2956,7 @@ fn a_dm_refuses_what_wouldnt_fold_before_it_writes() {
             std::slice::from_ref(&a1.agent),
             true,
             None,
+            vec![],
         )
         .unwrap();
     assert_eq!(count().2, before.2, "a mention minted a card");
@@ -2939,7 +2978,7 @@ fn a_pending_dm_stops_at_what_an_offer_can_carry() {
     let me = a1.core.user_sender();
     let mut sent = 0;
     let why = loop {
-        match a1.core.talk_post(&me, &dm, &long, &[], false, None) {
+        match a1.core.talk_post(&me, &dm, &long, &[], false, None, vec![]) {
             Ok(_) => sent += 1,
             Err(e) => break e,
         }
@@ -3050,5 +3089,126 @@ fn a_dm_from_bob_rings_once_on_alices_device() {
     wait_for(WAIT, "the DM's card", || !talk().is_empty());
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(talk(), ["hi alice"]);
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// Card #643: a file on a Talk post reaches the other person's device. In
+/// a space's channel it's offered in the space's log with the post, and
+/// any reader there fetches it; in a DM between the two people it's
+/// offered in the DM's hidden space, and only its parties read it: an
+/// agent on Bob's device that isn't in the DM gets NO_ATTACHMENT.
+#[test]
+fn a_file_on_a_post_reaches_the_other_person_and_a_dm_file_only_its_parties() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    a1.core.space_gate(&space).unwrap();
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "general", "", &space)
+        .unwrap();
+    let files = tempfile::tempdir().unwrap();
+    let attach = |name: &str, body: &[u8]| {
+        let p = files.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        a1.core
+            .attach_files(&a1.agent, &[p.to_string_lossy().into_owned()])
+            .unwrap()
+            .remove(0)
+    };
+    let offered = |d: &Dev, board: &str, sha: &str| {
+        mesh::files::holders_in(&d.core.board_store(board).unwrap(), sha).unwrap()
+    };
+
+    // A space's channel: a picture alone.
+    let shot = attach("shot.png", b"\x89PNG\r\n\x1a\nthe red build");
+    assert!(offered(a1, &space, &shot.sha256).is_empty(), "not yet");
+    let p = a1
+        .core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "",
+            &[],
+            false,
+            None,
+            vec![shot.clone()],
+        )
+        .unwrap();
+    assert_eq!(p.post.files.len(), 1);
+    assert_eq!(
+        offered(a1, &space, &shot.sha256),
+        vec![a1.core.device_id().to_string()],
+        "offered in the space's log with the post"
+    );
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets the post", || {
+        b1.core
+            .talk()
+            .posts(&ch.id)
+            .iter()
+            .any(|q| q.post_id == p.post.post_id && q.files.len() == 1)
+    });
+    // Any reader of the channel on Bob's device fetches it: his agent too.
+    let (path, _) = b1.core.get_attachment(&b1.agent, &shot.sha256, "").unwrap();
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        b"\x89PNG\r\n\x1a\nthe red build"
+    );
+    assert!(b1.core.files().has(&shot.sha256));
+    assert_eq!(
+        b1.core
+            .post_attachment(&b1.user(), &shot.sha256)
+            .map(|f| f.name),
+        Some("shot.png".to_string())
+    );
+
+    // A DM between the two people.
+    let dm = a1.core.talk_dm(&a1.user(), &b1.person_actor()).unwrap();
+    let note = attach("note.txt", b"for bob only");
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &dm,
+            "this one",
+            &[],
+            false,
+            None,
+            vec![note.clone()],
+        )
+        .unwrap();
+    wait_for(WAIT, "bob gets the DM", || {
+        b1.core
+            .talk_posts(&b1.user(), &dm, None, 50)
+            .is_ok_and(|ps| ps.iter().any(|q| q.files.len() == 1))
+    });
+    let spaces = a1.core.dm_spaces_with(&b1.core.person().id);
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert_eq!(
+        offered(a1, &spaces[0], &note.sha256),
+        vec![a1.core.device_id().to_string()],
+        "offered in the DM's space"
+    );
+    assert!(offered(a1, &space, &note.sha256).is_empty());
+    // Bob's agent isn't in the DM: it never reads the file.
+    let e = b1
+        .core
+        .get_attachment(&b1.agent, &note.sha256, "")
+        .unwrap_err();
+    assert_eq!(e, irori_core::attachments::NO_ATTACHMENT);
+    assert!(b1.core.post_attachment(&b1.agent, &note.sha256).is_none());
+    // Bob does.
+    wait_for(WAIT, "the DM's space stops being pending", || {
+        !a1.core.dm_pending(&spaces[0])
+    });
+    let (path, _) = b1
+        .core
+        .get_attachment(&b1.user(), &note.sha256, "")
+        .unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"for bob only");
     close(alice.drain(..).chain(bob.drain(..)));
 }

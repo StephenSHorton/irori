@@ -24,6 +24,12 @@ import {
   UsersIcon,
 } from "lucide-react"
 
+import {
+  AttachButton,
+  AttachmentList,
+  PendingFiles,
+  useFileAttach,
+} from "@/components/attachments"
 import { MentionTextarea } from "@/components/common/mention-textarea"
 import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
 import { RichText } from "@/components/common/rich-text"
@@ -45,6 +51,7 @@ import {
   dmPerson,
   dmWith,
   fromPost,
+  postLine,
   talkApi,
   usePosts,
   waitingText,
@@ -166,7 +173,10 @@ export function ConversationView({
   const { boards } = useBoards()
   const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
   const prefill = useMemo(
-    () => (making ? fromPost(making.text, where) : undefined),
+    () =>
+      making
+        ? fromPost(making.text, where, making.attachments ?? [])
+        : undefined,
     [making, where]
   )
   const names = useMemo(() => {
@@ -557,11 +567,15 @@ export function PostRow({
             </button>
           )}
         </div>
-        <RichText
-          text={post.text}
-          mentions={mentions}
-          className="text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2"
-        />
+        {/* A post may be files alone (card #643). */}
+        {post.text.trim() && (
+          <RichText
+            text={post.text}
+            mentions={mentions}
+            className="text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2"
+          />
+        )}
+        <AttachmentList attachments={post.attachments ?? []} />
         {post.card && <CardChip id={post.card} />}
         {asking && channel && (
           <ThreadFrom
@@ -642,7 +656,7 @@ function ThreadFrom({
           await talkApi.threadFrom(
             channel.convId,
             post.postId,
-            threadText(text, author, post.text, channel.name)
+            threadText(text, author, postLine(post), channel.name)
           )
           onDone()
         } catch (err) {
@@ -759,6 +773,10 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   const [mentions, setMentions] = useState<Mention[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Files go with a post (card #643), as on a comment: the clip, a drop on
+  // the box, or a pasted screenshot. With files the text may be empty.
+  const attach = useFileAttach(busy)
+  const files = attach.files
   // A channel post carries the "Agents answer now" toggle (card #391); a DM
   // always wakes the other side, so it keeps the default.
   const agentsNow = useAgentsNow(mentions)
@@ -766,7 +784,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     const body = text.trim()
-    if (!body || busy) return
+    if ((!body && !files.length) || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -776,11 +794,13 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
         body,
         now,
         null,
-        mentions.map((m) => m.key)
+        mentions.map((m) => m.key),
+        files
       )
       setText("")
       setMentions([])
       agentsNow.reset()
+      attach.clear()
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -795,21 +815,29 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
     <form
       className="grid gap-1 border-t border-border px-3 py-2.5"
       onSubmit={(e) => void submit(e)}
+      {...attach.drop}
     >
       {/* Too tight for the box and its controls (members open on a smaller
         window), the controls drop under the box rather than squeeze it to
-        a few letters (card #639). A phone keeps them on one row. */}
+        a few letters (card #639). On a phone a DM's box, mic, clip and Send
+        fit one row; a channel's toggle drops them under it (card #643). */}
       <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
+          {/* The mic (card #643): "main", since the ask box, the other
+            "main" composer, never shows beside a conversation. */}
           <MentionTextarea
             autoSize
+            voice="main"
             rows={1}
             value={text}
             mentions={mentions}
             onChange={(v, ms) => {
               setText(v)
               setMentions(ms)
+            }}
+            onPaste={(e) => {
+              if (attach.onPaste(e)) setError(null)
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
@@ -819,7 +847,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
             }}
             placeholder={placeholder}
             aria-label={placeholder}
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
+            className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
             readOnly={busy}
             aria-busy={busy}
           />
@@ -832,11 +860,22 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
               disabled={busy}
             />
           )}
-          <Button type="submit" size="sm" disabled={busy || !text.trim()}>
+          {attach.input}
+          <AttachButton attach={attach} disabled={busy} />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={busy || (!text.trim() && !files.length)}
+          >
             {busy ? "Sending…" : "Send"}
           </Button>
         </div>
       </div>
+      <PendingFiles
+        attach={attach}
+        disabled={busy}
+        label="Files with the message"
+      />
       {error && (
         <p className="px-1 text-xs text-destructive" role="alert">
           {error}

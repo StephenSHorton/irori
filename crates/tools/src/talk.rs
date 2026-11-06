@@ -314,6 +314,11 @@ pub fn thread_posts(co: &Coord, t: &Task) -> Vec<Post> {
             text: c.text.clone(),
             mentions: c.mentions.iter().map(|m| m.key.clone()).collect(),
             agents_now: c.wake,
+            files: c
+                .attachments
+                .iter()
+                .map(crate::attachments::from_coord)
+                .collect(),
             at: c.at,
             ord: (c.hlc, c.device.clone(), c.seq),
             ..Post::default()
@@ -473,6 +478,11 @@ fn mirrored(b: &dyn Backend, talk: &Talk) -> BTreeMap<String, (Vec<Member>, Vec<
             text: m.text.clone(),
             mentions: m.mentions.iter().map(|x| x.key.clone()).collect(),
             agents_now: d.mode == mode::WAKE,
+            files: m
+                .attachments
+                .iter()
+                .map(crate::attachments::from_inbox)
+                .collect(),
             at: m.sent_at,
             ..Post::default()
         });
@@ -506,12 +516,22 @@ fn last_at(posts: &[Post]) -> GoTime {
 /// message sent to many agents from two that only start alike.
 pub const LAST_TEXT: usize = 2000;
 
-/// The newest post's text on one line, and who wrote it.
+/// The newest post's text on one line, and who wrote it. A post of files
+/// alone (card #643) shows their names.
 fn last_line(posts: &[Post]) -> (String, String) {
     posts
         .last()
-        .map(|p| (one_line(&p.text, LAST_TEXT), p.by.clone()))
+        .map(|p| (one_line(&post_line(p), LAST_TEXT), p.by.clone()))
         .unwrap_or_default()
+}
+
+/// A post's text, or, with none, the names of its files (card #643).
+fn post_line(p: &Post) -> String {
+    if !p.text.trim().is_empty() || p.files.is_empty() {
+        return p.text.clone();
+    }
+    let names: Vec<&str> = p.files.iter().map(|f| f.name.as_str()).collect();
+    names.join(", ")
 }
 
 /// `reader`'s conversations: the person sees every open channel, every
@@ -994,7 +1014,9 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
 /// with a mention notice, and in a channel joins it. A DM with an agent
 /// goes to it as a message that wakes it (the inbox's limits apply: a
 /// refused message posts nothing). A thread isn't Talk's to write: post
-/// there with the card's comments.
+/// there with the card's comments. `files` are stored files sent with it
+/// (card #643); with files the text may be empty.
+#[allow(clippy::too_many_arguments)]
 pub fn post(
     b: &dyn Backend,
     from: &Sender,
@@ -1003,10 +1025,12 @@ pub fn post(
     given: &[String],
     agents_now: bool,
     thread_from: Option<String>,
+    files: &[blob::FileRef],
 ) -> Result<Posted, String> {
     let talk = talk_of(b)?;
     let by = from.key.clone();
-    let text_ok = ct::check_text(&by, text).map_err(|e| e.to_string())?;
+    let files = ct::check_files(files).map_err(|e| e.to_string())?;
+    let text_ok = ct::check_post(&by, text, !files.is_empty()).map_err(|e| e.to_string())?;
     // "person" is the person, not an agent to resolve (card #395).
     let agents_given: Vec<String> = given
         .iter()
@@ -1092,6 +1116,7 @@ pub fn post(
                     mode: mode::WAKE.into(),
                     ref_: format!("talk:{id}"),
                     mentions: crate::mention::to_inbox(&res.mentions),
+                    attachments: files.iter().map(crate::attachments::to_inbox).collect(),
                     ..SendOptions::default()
                 };
                 let (m, d) = b
@@ -1108,9 +1133,9 @@ pub fn post(
                         mentions: live.clone(),
                         agents_now,
                         thread_from: thread_from.clone(),
+                        files: files.clone(),
                         by: by.clone(),
                         stay_out: false,
-                        ..NewPost::default()
                     })
                     .map_err(|e| e.to_string())?;
                 out.post = p;
@@ -1134,6 +1159,7 @@ pub fn post(
             mentions: live.clone(),
             agents_now,
             thread_from,
+            files,
             by: by.clone(),
             // An agent Irori started posts without joining (card #454).
             stay_out: b.coord().is_spawned(&by),
@@ -1273,10 +1299,16 @@ fn tell_mentions(
         let n = Book::new(b).name(&from.key);
         one_line(&n, 80)
     };
+    let mut body = p.text.clone();
+    for f in &p.files {
+        if !body.is_empty() {
+            body.push('\n');
+        }
+        body += &format!("file: {} (attachment_get)", f.describe());
+    }
     let text = format!(
         "{who} mentioned you in {where_} (Talk, conv={conv}):\n{body}\n\nAnswer there with talk_post conv={conv} if you have something to add; talk_read conv={conv} shows the rest.\n",
         conv = p.conv_id,
-        body = p.text,
     );
     let n = Notice {
         kind: NOTICE_MENTIONED.into(),
@@ -1302,6 +1334,7 @@ const POST_ARGS: &[(&str, Ty)] = &[
     ("text", Ty::Str),
     ("mention", Ty::Strs),
     ("space", Ty::Str),
+    ("attach", Ty::Strs),
 ];
 
 pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
@@ -1325,6 +1358,11 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         if !ms.is_empty() {
             args["mention"] = serde_json::json!(ms);
         }
+        // Its files go with the comment, stored by board_comment (#643).
+        let at = a.strs("attach");
+        if !at.is_empty() {
+            args["attach"] = serde_json::json!(at);
+        }
         // Through the shared-space rules, as the tool itself runs: a card
         // in a space replicates to its members (card #558).
         let raw = args.to_string();
@@ -1332,6 +1370,10 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             crate::board::board_comment(s, c, raw.as_bytes())
         });
     }
+    let files = match s.attach_files(c, &a.strs("attach")) {
+        Ok(f) => f,
+        Err(m) => return m,
+    };
     match post(
         b,
         &c.sender,
@@ -1340,10 +1382,16 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         &a.strs("mention"),
         true,
         None,
+        &files,
     ) {
         Ok(p) => {
             let n = s.roster();
-            let mut out = format!("Posted {} to {}.", p.post.post_id, p.post.conv_id);
+            let mut out = format!(
+                "Posted {} to {}{}.",
+                p.post.post_id,
+                p.post.conv_id,
+                crate::attachments::attached_line(&p.post.files)
+            );
             if let Some(d) = &p.sent {
                 out += &s.outcome(d);
             }
@@ -1456,6 +1504,9 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             ago(&now, &p.at),
             one_line(&p.text, READ_TEXT)
         );
+        for f in &p.files {
+            out += &format!("    file: {} (attachment_get)\n", f.describe());
+        }
     }
     if let Some(last) = shown.last() {
         let left = all.len()

@@ -1055,24 +1055,28 @@ impl Talk {
             .collect()
     }
 
-    /// The posts of `conv`, oldest first.
-    /// The file with hash `sha` on a post (card #643), the earliest post
-    /// first, with the conversation it is in; None when no post has it.
-    pub fn attachment(&self, sha: &str) -> Option<(String, blob::FileRef)> {
+    /// The posts with the file whose hash is `sha` (card #643), the
+    /// earliest first, each with the conversation it is in and the file
+    /// as that post names it. Empty when no post has it. A caller that
+    /// checks a reader takes the first conversation the reader may read.
+    pub fn attachments(&self, sha: &str) -> Vec<(String, blob::FileRef)> {
         let s = self.lock();
-        let mut best: Option<(&Ord3, &String, &blob::FileRef)> = None;
+        let mut found: Vec<(&Ord3, &String, &blob::FileRef)> = Vec::new();
         for (conv, ps) in &s.posts {
             for p in ps {
-                if let Some(f) = p.files.iter().find(|f| f.sha256 == sha)
-                    && best.is_none_or(|b| p.ord < *b.0)
-                {
-                    best = Some((&p.ord, conv, f));
+                if let Some(f) = p.files.iter().find(|f| f.sha256 == sha) {
+                    found.push((&p.ord, conv, f));
                 }
             }
         }
-        best.map(|(_, conv, f)| (conv.clone(), f.clone()))
+        found.sort_by(|a, b| a.0.cmp(b.0));
+        found
+            .into_iter()
+            .map(|(_, conv, f)| (conv.clone(), f.clone()))
+            .collect()
     }
 
+    /// The posts of `conv`, oldest first.
     pub fn posts(&self, conv: &str) -> Vec<Post> {
         self.lock()
             .posts

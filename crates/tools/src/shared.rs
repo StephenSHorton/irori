@@ -874,7 +874,7 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
 /// answered.
 fn reply_in_channel(s: &Inner, c: &Caller, did: &str, conv: &str, text: &str) -> String {
     let target = crate::talk::Target::Channel(conv.to_string());
-    let p = match crate::talk::post(s.b.as_ref(), &c.sender, &target, text, &[], true, None) {
+    let p = match crate::talk::post(s.b.as_ref(), &c.sender, &target, text, &[], true, None, &[]) {
         Ok(p) => p,
         Err(e) => return err_text(&e),
     };

@@ -1845,26 +1845,7 @@ impl Fold {
                 files.extend(a.iter());
             }
         }
-        if files.is_empty() {
-            return Ok(());
-        }
-        let mut offered = offered_by(st, &self.dev)?;
-        for f in files {
-            let sha = f.get("sha256").and_then(|s| s.as_str()).unwrap_or_default();
-            if sha.is_empty() || offered.contains(sha) || !holds(sha) {
-                continue;
-            }
-            let s = |k: &str| f.get(k).and_then(|x| x.as_str()).unwrap_or_default();
-            let row = OfferRow {
-                sha256: sha,
-                size: f.get("size").and_then(|x| x.as_i64()).unwrap_or(0),
-                name: s("name"),
-                mime: s("mime"),
-            };
-            st.append("irori", store::kinds::ATTACH_OFFERED, &row)?;
-            offered.insert(sha.to_string());
-        }
-        Ok(())
+        offer_files_in(st, &self.dev, holds.as_ref(), &files)
     }
 
     /// A caller as the store's actor.
@@ -2660,6 +2641,40 @@ pub(crate) fn line_of(ev: &Event, at: GoTime, by: &str, what: &str) -> Activity 
         seq: ev.seq,
         ..Activity::default()
     }
+}
+
+/// Writes device `dev`'s `attach.offered` row in `st` for each of `files`
+/// (FileRef-shaped JSON: `sha256`, `size`, `name`, `mime`) that `holds`
+/// says this device has and `dev` hasn't offered in `st` yet: a board
+/// row's attachments, or a Talk post's in a space log (card #643). A peer
+/// may fetch a file only where such an offer is (v0.5 §5.5), so it goes in
+/// before the row that names it.
+pub fn offer_files_in(
+    st: &Store,
+    dev: &str,
+    holds: &(dyn Fn(&str) -> bool + Send + Sync),
+    files: &[&serde_json::Value],
+) -> Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let mut offered = offered_by(st, dev)?;
+    for f in files {
+        let sha = f.get("sha256").and_then(|s| s.as_str()).unwrap_or_default();
+        if sha.is_empty() || offered.contains(sha) || !holds(sha) {
+            continue;
+        }
+        let s = |k: &str| f.get(k).and_then(|x| x.as_str()).unwrap_or_default();
+        let row = OfferRow {
+            sha256: sha,
+            size: f.get("size").and_then(|x| x.as_i64()).unwrap_or(0),
+            name: s("name"),
+            mime: s("mime"),
+        };
+        st.append("irori", store::kinds::ATTACH_OFFERED, &row)?;
+        offered.insert(sha.to_string());
+    }
+    Ok(())
 }
 
 /// An `attach.offered` payload (mesh `FileOffer`'s shape).
