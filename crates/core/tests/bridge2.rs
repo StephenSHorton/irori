@@ -634,11 +634,9 @@ fn a_merge_heard_on_another_persons_device_reaches_the_holder_once() {
         "{}",
         m.text
     );
-    assert!(
-        m.text.contains("bob") || m.text.contains("Heard on"),
-        "{}",
-        m.text
-    );
+    // It names the writer's person, not the reader.
+    assert!(m.text.starts_with("Heard on "), "{}", m.text);
+    assert!(!m.text.starts_with("Heard on bob"), "{}", m.text);
     assert!(bridged(t.b(), &t.rb.key_b).is_empty(), "beta holds nothing");
 
     for _ in 0..3 {

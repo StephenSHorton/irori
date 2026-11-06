@@ -1223,7 +1223,8 @@ fn a_pr_row_ahead_of_its_holder_folds_when_the_holder_does() {
 }
 
 /// Card #548: the same for a wait, raised on one device of the person and
-/// polled from another, and a row that never earns its place stays out.
+/// polled from another. (The raiser held the card, so its claim lets the
+/// row in first; either counts for good.)
 #[test]
 fn a_pr_row_ahead_of_its_wait_folds_when_the_wait_does() {
     const PR: &str = "https://github.com/a/b/pull/41";
@@ -1648,6 +1649,62 @@ fn a_review_after_a_reopen_doesnt_hide_it() {
     assert!(a.c.pr_news().is_empty());
 }
 
+/// Card #548, third review: an OPEN from a device that hadn't heard of
+/// the closing is stale, not a reopen: the PR stays closed on every
+/// device, whichever row came first, and nobody hears "reopened".
+#[test]
+fn an_open_from_a_device_that_missed_the_closing_is_no_reopen() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, a2, t) = four_sides(PR);
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    for s in [&a, &b2, &a2] {
+        pull(&b, s);
+    }
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    // dev-b2 hasn't heard: to it the review is news.
+    b2.clk.add(Duration::from_secs(120));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, "APPROVED"))
+        .unwrap();
+    pull_dev(&b2, &a, "dev-b2");
+    pull_dev(&b, &a, "dev-b");
+    pull_dev(&b, &a2, "dev-b");
+    pull_dev(&b2, &a2, "dev-b2");
+    for c in [&a.c, &a2.c] {
+        assert_eq!(c.pr_state(&t.id, PR).unwrap().state, PR_CLOSED);
+        let news = c.pr_news();
+        assert_eq!(news.len(), 1);
+        assert!(news[0].mark.ends_with("Closed#1"), "{}", news[0].mark);
+    }
+}
+
+/// Card #548, third review: two devices that each heard the reopen, with
+/// different reviews, both told their own agents: the news names both.
+#[test]
+fn a_reopen_two_devices_heard_names_both() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, _, t) = four_sides(PR);
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    pull(&b, &b2);
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    b2.clk.add(Duration::from_secs(120));
+    let (_, ns) =
+        b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, "APPROVED"))
+            .unwrap();
+    assert!(ns[0].text.contains("was reopened"));
+    pull(&b, &a);
+    pull(&b2, &a);
+    let news = a.c.pr_news();
+    assert_eq!(news.len(), 1);
+    assert!(news[0].mark.ends_with("Reopened#1"), "{}", news[0].mark);
+    assert_eq!(news[0].writers, vec!["dev-b", "dev-b2"]);
+}
+
 /// Card #548, second review: gh's error shows beside OPEN on every device,
 /// whichever of the two rows came first.
 #[test]
@@ -1680,6 +1737,71 @@ fn an_error_beside_open_shows_in_any_arrival_order() {
             (PR_OPEN, "gh broke")
         );
     }
+}
+
+/// Card #548, third review: a device whose clock is behind the error's
+/// can't clear it, so it doesn't write OPEN at every poll trying; once its
+/// clock is past it, one row clears it.
+#[test]
+fn a_device_behind_the_errors_clock_writes_nothing_until_it_is_past() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (_, b, b2, _, t) = four_sides(PR);
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(600));
+    b2.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            error: "gh broke".into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    pull(&b2, &b);
+    let rows = || {
+        b.st.missing(&store::Vector::default(), 10_000)
+            .unwrap()
+            .len()
+    };
+    let before = rows();
+    for _ in 0..3 {
+        b.clk.add(Duration::from_secs(60));
+        b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+            .unwrap();
+    }
+    assert_eq!(rows(), before, "nothing it writes could clear the error");
+    assert_eq!(b.c.pr_state(&t.id, PR).unwrap().error, "gh broke");
+    b.clk.add(Duration::from_secs(600));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    assert_eq!(rows(), before + 1);
+    assert!(b.c.pr_state(&t.id, PR).unwrap().error.is_empty());
+}
+
+/// Card #548, third review: changes requested heard on the device of a
+/// member who neither made the card nor owns the board: the sweeper can't
+/// move it back to working there, so the notice asks the holder to.
+#[test]
+fn changes_requested_on_a_members_device_asks_the_holder_to_move_the_card() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, _, _, t) = four_sides(PR);
+    b.c.set_task_state(CARD2, &t.id, IN_REVIEW, "PR open")
+        .unwrap();
+    b.clk.add(Duration::from_secs(60));
+    let (_, ns) =
+        b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, PR_CHANGES_REQUESTED))
+            .unwrap();
+    assert_eq!(b.c.get_task(&t.id).unwrap().state, IN_REVIEW);
+    assert!(ns[0].text.contains("state=working"), "{}", ns[0].text);
+    pull(&b, &a);
+    let news = a.c.pr_news();
+    assert!(
+        news[0].notice.text.contains("state=working"),
+        "{}",
+        news[0].notice.text
+    );
 }
 
 /// Card #548, second review: a device's error row kept beside its OPEN row

@@ -97,6 +97,8 @@ pub struct PrHeard {
     device: String,
     state: String,
     review: String,
+    merged_at: GoTime,
+    over_closed: bool,
 }
 
 impl PrState {
@@ -107,6 +109,21 @@ impl PrState {
                 crate::gotime::cmp(&a.at, &b.at).then_with(|| a.device.cmp(&b.device))
             });
         }
+    }
+
+    /// The rows that stand, oldest first: an OPEN after a closing counts
+    /// only from a device that knew of the closing (card #548). Another
+    /// device's OPEN from before it heard is stale, not a reopen.
+    fn standing(&self) -> Vec<&PrHeard> {
+        let mut out: Vec<&PrHeard> = Vec::new();
+        for h in &self.heard {
+            let closed = out.last().is_some_and(|w| w.state == PR_CLOSED);
+            if closed && h.state == PR_OPEN && !h.over_closed {
+                continue;
+            }
+            out.push(h);
+        }
+        out
     }
 
     /// What the holders should have heard of this PR by now: the change,
@@ -126,14 +143,15 @@ impl PrState {
         if !merged.is_empty() {
             return Some((PrChange::Merged, PR_MERGED.into(), merged));
         }
+        let standing = self.standing();
         // A review means nothing once a PR is closed.
         let says = |h: &PrHeard| {
             let review = if h.state == PR_OPEN { &h.review } else { "" };
             (h.state.clone(), review.to_string())
         };
-        let runs: Vec<&[PrHeard]> = self.heard.chunk_by(|a, b| says(a) == says(b)).collect();
+        let runs: Vec<&[&PrHeard]> = standing.chunk_by(|a, b| says(a) == says(b)).collect();
         let change_at = |i: usize| {
-            let (state, review) = says(&runs[i][0]);
+            let (state, review) = says(runs[i][0]);
             let was = i.checked_sub(1).and_then(|j| runs[j].last());
             if state == PR_CLOSED {
                 Some(PrChange::Closed)
@@ -159,7 +177,18 @@ impl PrState {
         }
         let nth = (0..=at).filter(|&i| change_at(i) == Some(change)).count();
         let name = format!("{change:?}#{nth}");
-        Some((change, name, devices(&mut runs[at].iter())))
+        // A device that wrote OPEN since a reopen told its own agents of
+        // it, by its own notice or by this news before it polled.
+        let told = if change == PrChange::Reopened {
+            &runs[at..]
+        } else {
+            &runs[at..=at]
+        };
+        Some((
+            change,
+            name,
+            devices(&mut told.iter().flat_map(|r| r.iter().copied())),
+        ))
     }
 }
 
@@ -232,15 +261,21 @@ impl Fold {
                 device: ev.device_id.clone(),
                 state: p.state.clone(),
                 review: p.review.clone(),
+                merged_at: p.merged_at,
+                over_closed: p.over_closed,
             });
-            // Card #542: the stronger row wins whatever their times, so every
-            // device ends on the same one in whatever order they arrive.
-            let (new, known) = (certainty(&p.state), certainty(&st.state));
-            if new > known || new == known && !crate::gotime::before(&p.at, &st.at) {
-                st.state = p.state;
-                st.review = p.review;
-                st.merged_at = p.merged_at;
-                st.at = p.at;
+            // Card #542: a merge wins whatever the times, else the newest
+            // row that stands, read from the sorted rows so every device
+            // ends on the same one in whatever order they arrive.
+            let standing = st.standing();
+            let won = standing
+                .iter()
+                .rev()
+                .find(|h| h.state == PR_MERGED)
+                .or(standing.last())
+                .map(|h| (h.state.clone(), h.review.clone(), h.merged_at, h.at));
+            if let Some((state, review, merged_at, at)) = won {
+                (st.state, st.review, st.merged_at, st.at) = (state, review, merged_at, at);
             }
         } else if !crate::gotime::before(&p.at, &st.error_at) {
             // An error says nothing of the PR, so it changes nothing known.
@@ -399,10 +434,13 @@ impl Fold {
             .cloned()
             .unwrap_or_default();
         // What the fold wouldn't take isn't written: it would only repeat.
+        let at = self.stamp();
         let beside_open = !c.error.is_empty() && old.state == PR_OPEN;
         let unchanged = !beside_open && certainty(&c.state) < certainty(&old.state)
             || if c.error.is_empty() {
-                old.error.is_empty()
+                // Clearing an error takes a row after it: one this clock
+                // stamps before it would clear nothing, at every poll.
+                (old.error.is_empty() || crate::gotime::before(&at, &old.error_at))
                     && old.state == c.state
                     && old.review == c.review
                     && !old.at.is_zero()
@@ -413,7 +451,6 @@ impl Fold {
         if unchanged {
             return Ok((t, Vec::new()));
         }
-        let at = self.stamp();
         self.write_as(
             SWEEPER,
             kinds::PR_STATE,
@@ -426,6 +463,7 @@ impl Fold {
                 error: c.error.clone(),
                 by: SWEEPER.into(),
                 at,
+                over_closed: c.state == PR_OPEN && old.state == PR_CLOSED,
             },
         )?;
         // A row this log didn't take (a board's writer rules) changes
@@ -518,12 +556,19 @@ impl Fold {
                 "was closed without merging",
                 "Say on the card what happens to the work now: reopen it, link the PR that replaces it, or ask the person.".into(),
             ),
-            PrChange::ChangesRequested => self.pr_notice(
-                t,
-                pr,
-                "has changes requested on GitHub",
-                "Read the review with `gh pr view --comments`, make the changes, push, then set board_status in_review again.".into(),
-            ),
+            PrChange::ChangesRequested => {
+                // Card #548: only a device of the card's author or the
+                // board's owner moves it back; anyone else's agent does.
+                let hint = if self.tasks.get(&t.id).is_some_and(|c| c.state == IN_REVIEW) {
+                    format!(
+                        "The card is still in review: set board_status task_id={} state=working now. Read the review with `gh pr view --comments`, make the changes, push, then set board_status in_review again.",
+                        t.id
+                    )
+                } else {
+                    "Read the review with `gh pr view --comments`, make the changes, push, then set board_status in_review again.".into()
+                };
+                self.pr_notice(t, pr, "has changes requested on GitHub", hint)
+            }
             PrChange::Reopened => {
                 let mut n = self.pr_notice(
                     t,
