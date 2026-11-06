@@ -81,9 +81,7 @@ describe("sample notes (the browser preview)", () => {
   })
 
   test("Keep makes a proposal live; Remove turns it down", async () => {
-    const waiting = (await notes.list()).filter(
-      (n) => n.state === "proposed"
-    )
+    const waiting = (await notes.list()).filter((n) => n.state === "proposed")
     expect(waiting.length).toBe(2)
     await notes.accept(waiting[0].id)
     await notes.remove(waiting[1].id)
