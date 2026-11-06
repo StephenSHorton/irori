@@ -56,6 +56,7 @@ import { AgentRef } from "@/lib/models"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
+import { useMedia } from "@/lib/media"
 import { errorText } from "@/lib/talk"
 import { agentStatus } from "@/lib/agent-status"
 import { isOthersKey, memberName, nameOr } from "@/lib/names"
@@ -132,6 +133,10 @@ export function mentionKinds(ms: readonly Mention[]): { kind: string }[] {
   }))
 }
 
+// membersRoomyQuery is a window wide enough (Tailwind's xl) for a channel's
+// members column to open by itself beside the posts (card #639).
+export const membersRoomyQuery = "(min-width: 1280px)"
+
 export function ConversationView({
   conv,
   now,
@@ -148,8 +153,13 @@ export function ConversationView({
   // The posts are a skeleton until their first read lands (card #598), not
   // "Nothing here yet"; a reload never brings it back.
   const firstLoad = loading && !error
+  // The members column opens by itself only on a window wide enough to
+  // keep the message box roomy beside it (card #639): at the default
+  // 1100 px it left the box a few letters wide. Its header button still
+  // opens it.
+  const roomy = useMedia(membersRoomyQuery)
   const [showMembers, setShowMembers] = useState(
-    !narrow && conv.kind === "channel"
+    !narrow && roomy && conv.kind === "channel"
   )
   // Make a card (design §4): the post it's made from, while the form is up.
   const [making, setMaking] = useState<Post | null>(null)
@@ -786,7 +796,10 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
       className="grid gap-1 border-t border-border px-3 py-2.5"
       onSubmit={(e) => void submit(e)}
     >
-      <div className="flex items-start gap-2 p-1.5 glass-panel">
+      {/* Too tight for the box and its controls (members open on a smaller
+        window), the controls drop under the box rather than squeeze it to
+        a few letters (card #639). */}
+      <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
           <MentionTextarea
@@ -806,12 +819,12 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
             }}
             placeholder={placeholder}
             aria-label={placeholder}
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+            className="max-h-40 min-h-9 min-w-48 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
             readOnly={busy}
             aria-busy={busy}
           />
         </MentionBoard.Provider>
-        <div className="flex h-9 shrink-0 items-center gap-2">
+        <div className="ml-auto flex h-9 shrink-0 items-center gap-2">
           {channel && (
             <AgentsNowToggle
               on={agentsNow.on}
