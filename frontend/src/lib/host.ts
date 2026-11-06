@@ -513,3 +513,23 @@ export const DeskService = {
   Ok: (repoKey: string, pr: number, headSha: string) =>
     done(commands.deskOk(repoKey, pr, headSha)),
 }
+
+// Hardware meters (card #599): the last two minutes of this computer's
+// readings, oldest first.
+export const MetersService = {
+  History: () => call(commands.metersHistory()),
+}
+
+// Claude usage left (card #599). usage_limits may not be in the bindings
+// yet, so it is looked up by name and reads as null while it is missing.
+const optionalCommands = commands as unknown as Record<
+  string,
+  (() => Promise<unknown>) | undefined
+>
+
+export const UsageService = {
+  Limits: (): Promise<unknown> => {
+    const limits = optionalCommands.usageLimits
+    return typeof limits === "function" ? call(limits()) : Promise.resolve(null)
+  },
+}

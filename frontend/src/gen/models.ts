@@ -148,6 +148,8 @@ export type TrustedRepo = B.TrustedRepo
 export type UnofferedCard = B.UnofferedCard
 export type UpdateStatus = B.UpdateStatus
 export type UploadFile = B.UploadFile
+export type UsageLimits = B.UsageLimits
+export type UsageWindow = B.UsageWindow
 export type Value = B.Value
 export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
@@ -804,6 +806,16 @@ export function UpdateStatus(p: Partial<B.UpdateStatus> = {}): B.UpdateStatus {
 /** UploadFile with Go's zero values for every field left out. */
 export function UploadFile(p: Partial<B.UploadFile> = {}): B.UploadFile {
   return { "name": "", "data": "", ...p } as B.UploadFile
+}
+
+/** UsageLimits with Go's zero values for every field left out. */
+export function UsageLimits(p: Partial<B.UsageLimits> = {}): B.UsageLimits {
+  return { "observedAtMs": 0, "windows": [], ...p } as B.UsageLimits
+}
+
+/** UsageWindow with Go's zero values for every field left out. */
+export function UsageWindow(p: Partial<B.UsageWindow> = {}): B.UsageWindow {
+  return { "kind": "", "percentUsed": 0, "resetsAtMs": null, ...p } as B.UsageWindow
 }
 
 /** VoiceDownload with Go's zero values for every field left out. */

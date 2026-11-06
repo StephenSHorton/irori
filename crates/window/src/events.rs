@@ -18,6 +18,7 @@
 //! | `voice:event` | `VoiceEvent` | a voice input session's words and end (#240, voice.rs) |
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
 //! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
+//! | `usage:changed` | `UsageLimits` | coalesced, 250 ms: a session reported Claude usage (#599, usage.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
 //! (`Core.Changes` is `presence.Subscribe`).
@@ -40,6 +41,7 @@ pub use crate::meters::EVENT_METERS_CHANGED;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
+pub use crate::usage::EVENT_USAGE_CHANGED;
 
 pub const EVENT_ROSTER_CHANGED: &str = "roster:changed";
 pub const EVENT_INBOX_CHANGED: &str = "inbox:changed";
@@ -258,6 +260,18 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
                 if let Some(c) = capture_change(&batch) {
                     w.emit(EVENT_CAPTURE_CHANGED, &c);
                 }
+            });
+        }));
+    }
+    {
+        // Claude usage left (card #599): a session's mod reported the plan's
+        // rate-limit windows.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Usage]);
+        out.push(spawn("irori-window-usage", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_USAGE_CHANGED, &w.usage_limits());
             });
         }));
     }

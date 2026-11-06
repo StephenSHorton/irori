@@ -72,6 +72,7 @@ pub mod terms;
 pub mod threads;
 pub mod ts;
 pub mod update;
+pub mod usage;
 pub mod voice;
 pub mod wind_down;
 

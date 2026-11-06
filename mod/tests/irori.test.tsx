@@ -140,6 +140,8 @@ function world(
   })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }) as never)
+  // The engine echoes a measurement's changed units (card #599).
+  on('session.measure', ($, e) => ({ changed: e.changed }))
   // No settings hooks beneath: the classic events answer with nothing.
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
@@ -183,7 +185,7 @@ describe('attach', () => {
       await band.unmount()
     }
     const ran = await $.command.run(irori(''))
-    expect(ran.text).toContain('irori mod 0.6.0')
+    expect(ran.text).toContain('irori mod 0.7.0')
     expect(ran.text).toContain('set iroriPath')
   })
 
@@ -191,7 +193,7 @@ describe('attach', () => {
     const w = world(on)
     await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
     await until(() => w.children.length === 1, 'spawn')
-    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.6.0'])
+    expect(w.spawned[0]).toEqual([IRORI, 'attach', '--session', SESSION, '--cwd', 'C:/work/api', '--mod-version', '0.7.0'])
 
     // hello split across two pieces, a blank keepalive, and a stray log line.
     const h = line(hello)
@@ -836,7 +838,7 @@ describe('/irori', () => {
     }
     expect(w.calls.filter(c => c.url.endsWith('/v1/policy'))).toEqual([])
     const status = await $.command.run(irori(''))
-    expect(status.text).toContain('irori mod 0.6.0')
+    expect(status.text).toContain('irori mod 0.7.0')
     expect(status.text).toContain('Attached as api work')
   })
 
@@ -986,5 +988,44 @@ describe('stop and pause (card #207)', () => {
     await pause(50)
     const refused = await $.tool.call({ tool: 'Bash', command: 'ls' } as never)
     expect(String(refused.result)).toContain('paused #7')
+  })
+})
+
+describe('Claude usage (card #599)', () => {
+  const FIVE = { kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-11-06T03:00:00.000Z' }
+  const WEEK = { kind: 'seven_day', percentUsed: 41.2, resetsAt: '2026-11-10T00:00:00.000Z' }
+  const CONTEXT = { window: 200_000, tokens: 1_000, percent: 1 }
+
+  test('hello posts what the session has; a measurement posts only when the windows moved', OPTIONS, async ($, on) => {
+    const w = world(on)
+    on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [FIVE] } }) as never)
+    await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
+    await until(() => w.children.length === 1, 'spawn')
+    w.children[0]!.write(line(hello))
+    await until(() => posts(w.calls, '/v1/usage/limits').length === 1, 'usage at hello')
+    const first = posts(w.calls, '/v1/usage/limits')[0]!
+    expect(first.body).toBe(JSON.stringify({ rateLimits: [FIVE] }))
+    expect(first.headers['X-Irori-Attach']).toBe('secret-1')
+
+    // The windows moved: posted, and the measurement goes on unchanged.
+    const moved = await $.session.measure({ context: CONTEXT, rateLimits: [FIVE, WEEK], changed: ['context', 'rateLimits'] } as never)
+    expect(moved).toEqual({ changed: ['context', 'rateLimits'] })
+    await until(() => posts(w.calls, '/v1/usage/limits').length === 2, 'usage on measure')
+    expect(posts(w.calls, '/v1/usage/limits')[1]!.body).toBe(JSON.stringify({ rateLimits: [FIVE, WEEK] }))
+
+    // Only the context moved, or no window to send: nothing posted.
+    await $.session.measure({ context: CONTEXT, rateLimits: [FIVE, WEEK], changed: ['context'] } as never)
+    await $.session.measure({ context: CONTEXT, rateLimits: [], changed: ['rateLimits'] } as never)
+    await pause(50)
+    expect(posts(w.calls, '/v1/usage/limits').length).toBe(2)
+  })
+
+  test('a measurement before the attach posts nothing and never fails', OPTIONS, async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: 'C:/work/api', surface: 'terminal', isInteractive: true })
+    const r = await $.session.measure({ context: CONTEXT, rateLimits: [FIVE], changed: ['rateLimits'] } as never)
+    expect(r).toEqual({ changed: ['rateLimits'] })
+    await pause(50)
+    expect(posts(w.calls, '/v1/usage/limits')).toEqual([])
   })
 })

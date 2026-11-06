@@ -350,6 +350,12 @@ export const commands = {
 	 *  empty on the phone.
 	 */
 	metersHistory: () => __TAURI_INVOKE<MetersSample[]>("meters_history"),
+	/**
+	 *  Claude usage left (card #599): the plan's rate-limit windows as this
+	 *  device's Claude Code sessions last measured them, any past its reset
+	 *  left out.
+	 */
+	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 };
 
 /* Types */
@@ -2525,6 +2531,27 @@ export type UploadFile = {
 	name: string,
 	/**  base64. */
 	data: string,
+};
+
+/**  Claude usage: `usage_limits`, and the `usage:changed` payload. */
+export type UsageLimits = {
+	/**  When the newest reading came in, Unix ms; 0 for none yet. */
+	observedAtMs: number,
+	windows: UsageWindow[],
+};
+
+/**  One rate-limit window. */
+export type UsageWindow = {
+	/**  `five_hour`, `seven_day`, or another (a gateway's `spend_limit`). */
+	kind: string,
+	/**
+	 *  How much is used, 0 to 100 (past 100 on an exceeded spend limit).
+	 *  Always finite (the Core refuses anything else), so `number`, never
+	 *  the `null` specta gives an f64 for NaN.
+	 */
+	percentUsed: number,
+	/**  When it resets, Unix ms; null when the session didn't say. */
+	resetsAtMs: number | null,
 };
 
 export type Value = null | boolean | number | string | Value[] | { [key in string]: Value };

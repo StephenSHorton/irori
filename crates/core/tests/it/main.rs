@@ -39,3 +39,4 @@ mod spawn_helpers;
 mod spawn_paths;
 mod spawn_settings_devices;
 mod talk_notify;
+mod usage;

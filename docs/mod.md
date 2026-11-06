@@ -47,7 +47,7 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 
 ## What it does
 
-- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.4.1` and reads its NDJSON stream.
+- **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.7.0` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
   - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then waits: it runs `irori attach --standby`, which asks every 2 s and is refused (409) while another attach holds the session, so two live copies never kick each other off. The child says `standby` once per wait, so the band shows why instead of an old outage. When the holder leaves, the waiting copy attaches within seconds (GitHub #57). `standby` needs hello `v` 3; on an older Core the mod stops after `superseded`, as it always did, and `/irori reconnect` brings it back.
@@ -64,6 +64,9 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
   - Reminder wakes (`[irori-reminder:…]`) are submitted but never engaged.
   - A wake the Core hands over twice is submitted once.
 - **Tools.** After `hello`, the mod lists the Core's tools (`GET /v1/tools?client=claude`) and registers each one. Calls are proxied to `POST /v1/tools/<name>`, and the Core decides who the caller is from the attach secret, never from the arguments.
+- **Claude usage left** (card #599, mod 0.7.0). The app's top bar shows how much of the plan's 5-hour and weekly windows is left. The mod hooks `session.measure`, which Claude Code raises after each main-thread turn and when a rate-limit window moves a whole point. When its `changed` names `rateLimits`, the mod posts the windows (`{ rateLimits: [{ kind, percentUsed, resetsAt? }] }`, Claude Code's `SessionRateLimit`s) to `POST /v1/usage/limits` with the attach secret, fire and forget: the hook only observes and returns `next(e)` at once, and a failed post is a debug line. At each `hello` it also posts what `$.session.usage()` already has, so a fresh or restarted Irori shows usage without waiting for a turn.
+  - The Core takes the route only with a live `X-Irori-Attach` secret (403 otherwise, as the deliveries routes), checks each window (kind of `A-Z a-z 0-9 _ -`, at most 32; a finite figure, clamped to 0-1000; `resetsAt` RFC 3339; at most 8), and keeps the newest reading in `usage-limits.json` in the data dir. Every session reports the same account, so readings merge by kind: a later reset is a newer window and wins, the same reset keeps the higher figure (a session that hasn't made a request lately can't pull it back), and a window past its reset time is dropped. The window reads it with `usage_limits` and hears `usage:changed`.
+  - An engine without `session.measure` refuses the hook at registration; the mod catches that and loads without usage. One without `$.session.usage` skips the hello post. Sessions off a subscription (an API key) report no windows, so nothing is posted.
 - **Messages are untrusted.** The mod never renders message text and never acts on it. It only hands the Core's fenced prompt to the model, which is told the text is untrusted.
 
 ## The band

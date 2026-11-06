@@ -47,6 +47,8 @@ pub enum Topic {
     Talk,
     /// The notification history changed (card #377).
     Notifications,
+    /// Claude usage left changed (`usage:changed`, card #599).
+    Usage,
 }
 
 /// One change.
@@ -67,6 +69,9 @@ pub enum CoreEvent {
     Talk,
     /// A notification was kept or read (card #377), here or synced.
     Notifications,
+    /// A session reported the plan's rate-limit windows and what they
+    /// show moved (card #599).
+    Usage,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -83,6 +88,7 @@ impl CoreEvent {
             CoreEvent::Devices => Topic::Devices,
             CoreEvent::Talk => Topic::Talk,
             CoreEvent::Notifications => Topic::Notifications,
+            CoreEvent::Usage => Topic::Usage,
             CoreEvent::Resync => return None,
         })
     }

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { MenuIcon, PlusIcon } from "lucide-react"
 
+import { MetersStrip } from "@/components/meters/meters-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import type { Roster } from "@/lib/irori"
@@ -42,7 +43,7 @@ export function AppHeader({
 }) {
   return (
     <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pl-[var(--safe-left)] pr-[var(--safe-right)] glass-panel">
-      <div className="mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
+      <div className="@container/header mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
         {onMenu && (
           <Button
             variant="ghost"
@@ -70,6 +71,8 @@ export function AppHeader({
           </Badge>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* This computer's meters (card #599): desktop only. */}
+          <MetersStrip crowded={Boolean(bar)} />
           {actions}
           {onWindDown && roster.source !== "sample" && (
             <Button

@@ -62,3 +62,9 @@ shot 22-boards "?boards"                                     # the Boards dialog
 shot 23-grid-board "?filter=board:sample-board-mlg"          # the grid on a board's chip: mlg#1, mlg#2
 shot 24-page-shared "?open=board:task:sample-board-1"        # a shared card: mlg#1, Visible to, Withdraw
 shot 25-share-preview "?share=sample-card-10#card/sample-card-10" # Share to board: the scrubbed preview
+shot 26-meters "?meters=open"                                # hardware meters panel and Claude usage left (card #599)
+shot 27-meters-900 "?meters=open" 900 900                    # a narrower window: CPU, Mem and Claude in the strip
+shot 28-meters-board "#board/sample-board-mlg" 1440 300      # a board's page: the strip gives the board's name room
+shot 29-usage-none "?meters=open&usage=none"                 # no Claude usage reading yet
+shot 30-usage-stale "?meters=open&usage=stale"               # an old usage reading: "as of"
+shot 31-meters-nogpu "?meters=open&gpu=none"                 # a machine with no GPU
