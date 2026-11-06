@@ -62,6 +62,7 @@ import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
+import { startWindowLog } from "@/lib/window-log"
 import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
@@ -133,6 +134,7 @@ if ("scrollRestoration" in window.history)
 // the mouse's) back, Esc and the page's Back return to the grid, with its
 // filter and scroll where they were.
 export function App() {
+  useEffect(() => startWindowLog(), [])
   const roster = useRoster()
   const desks = useDesks()
   // Threads show "<agent> is working…" from the live roster (card #299);
@@ -1119,7 +1121,7 @@ export default App
 // it scrolls by itself under the header (card #170).
 function Scroll({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10">
+    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none">
       {children}
     </div>
   )

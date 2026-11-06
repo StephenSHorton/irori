@@ -9,9 +9,10 @@
 //! moved to loopback (IP transport on 127.0.0.1, the LAN lookup bound and
 //! sending on 127.0.0.1). On Windows a socket guard then reads this
 //! process's rows from `netstat` and requires every local and remote
-//! address to be loopback. Alone in its file so this process holds no
-//! other test's sockets.
+//! address to be loopback. Its own binary, outside tests/it, so this
+//! process holds no other test's sockets.
 
+#[path = "it/common/mod.rs"]
 mod common;
 
 use std::net::{Ipv4Addr, SocketAddr};

@@ -4,9 +4,11 @@
 # build/darwin/notarize.sh (Go be67a86), unchanged in behaviour.
 #
 # Credentials (first match wins):
-#   1. App Store Connect API key: APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and
+#   1. IRORI_NOTARY_PROFILE: a profile `xcrun notarytool store-credentials`
+#      saved in the login keychain (release-mac.sh looks for "irori-notary")
+#   2. App Store Connect API key: APPLE_API_KEY_ID, APPLE_API_ISSUER_ID and
 #      APPLE_API_KEY_P8_BASE64 (or APPLE_API_KEY_P8, a path to the .p8)
-#   2. Apple ID: APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
+#   3. Apple ID: APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
 #
 #   app/macos/notarize.sh dist/release/v0.6.0-mac/Irori.app
 set -euo pipefail
@@ -28,7 +30,10 @@ if [[ -d "$TARGET" && "$TARGET" == *.app ]]; then
 fi
 
 AUTH=()
-if [[ -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER_ID:-}" ]]; then
+if [[ -n "${IRORI_NOTARY_PROFILE:-}" ]]; then
+  AUTH=(--keychain-profile "$IRORI_NOTARY_PROFILE")
+  echo "==> notary auth: keychain profile $IRORI_NOTARY_PROFILE"
+elif [[ -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER_ID:-}" ]]; then
   KEY="${APPLE_API_KEY_P8:-}"
   if [[ -z "$KEY" && -n "${APPLE_API_KEY_P8_BASE64:-}" ]]; then
     KEY="$WORK/AuthKey.p8"

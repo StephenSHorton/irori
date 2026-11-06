@@ -137,6 +137,11 @@ specta = { version = "=2.0.0-rc.26", features = ["derive", "function", "serde_js
 specta-typescript = "=0.0.13"
 tauri-specta = { version = "=2.0.0-rc.26", features = ["typescript"] }
 
+# Line tables only: panics and backtraces keep file and line, without the
+# full type and variable info that made one debug target about 90 GB (#566).
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 codegen-units = 1
 lto = true

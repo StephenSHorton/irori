@@ -1,4 +1,4 @@
-//! A hook for the shell's end-to-end test (app/tests/shell_exe.rs) and the
+//! A hook for the shell's end-to-end test (app/tests/it/shell_exe.rs) and the
 //! rehearsal's update leg (tools/rehearse).
 //!
 //! With `IRORI_DEV_SHELL_LOG=<file>` set, the window role appends one line

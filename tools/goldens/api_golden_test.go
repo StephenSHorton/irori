@@ -11,7 +11,7 @@ package api_test
 // every answer to testdata/golden/api/go.json, with each run's random
 // values (device id, token, secrets, port, pid, temp dir) replaced by
 // their {name}. Windows only, as Claude Code's procStart is (export.sh
-// runs there). crates/api/tests/api_golden.rs runs the same scenario on
+// runs there). crates/api/tests/it/api_golden.rs runs the same scenario on
 // the Rust Core and compares.
 
 import (
