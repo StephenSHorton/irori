@@ -204,7 +204,7 @@ devices.
 ### Circles
 
 - `order_reaches(from, to)` runs in the task arm of `check_blocker`, which every
-  wait passes through, `main-red` included. `wait_chain` isn't reused: its
+  wait passes through. `wait_chain` isn't reused: its
   64-card cap would silently pass a long chain.
 - Edges are `task_waits` plus parent to open subtasks, because a parent can't
   finish first. `split` adopting a card makes the same check.
