@@ -385,9 +385,11 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
 /// nothing in the window or the agent tools reaches it.
 const MOVE_TO_PERSONAL: &str = "/v1/spaces/move-to-personal";
 
-/// `POST /v1/spaces/move-to-personal?space=<id>[&keep=1]`: moves a space
-/// nobody else is in into Personal as a board, every card with it, and
-/// forgets it on every device (`keep=1` copies and checks, and keeps it).
+/// `POST /v1/spaces/move-to-personal?space=<id>[&keep=1][&missing=1]`:
+/// moves a space nobody else is in into Personal as a board, every card
+/// with it, and forgets it on every device (`keep=1` copies and checks, and
+/// keeps it; `missing=1` goes on when an attached file is on no device that
+/// answers).
 /// 409 with the reason when the move refuses.
 fn move_to_personal(s: &Arc<Shared>, r: &Req) -> Resp {
     if r.method != "POST" {
@@ -397,8 +399,11 @@ fn move_to_personal(s: &Arc<Shared>, r: &Req) -> Resp {
     if space.is_empty() {
         return http::error(400, "space=<id> is required");
     }
-    let keep = matches!(r.query.get("keep").as_str(), "1" | "true");
-    match s.b.move_space_to_personal(&space, keep) {
+    let yes = |k: &str| matches!(r.query.get(k).as_str(), "1" | "true");
+    match s
+        .b
+        .move_space_to_personal(&space, yes("keep"), yes("missing"))
+    {
         Some(Ok(v)) => http::json(200, &v),
         Some(Err(e)) => http::error(409, &e),
         None => http::error(503, "this Core has no spaces"),

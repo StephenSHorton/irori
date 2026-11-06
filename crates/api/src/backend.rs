@@ -65,8 +65,9 @@ pub trait Backend: Send + Sync + 'static {
         &self,
         space_id: &str,
         keep_space: bool,
+        allow_missing_files: bool,
     ) -> Option<Result<serde_json::Value, String>> {
-        let _ = (space_id, keep_space);
+        let _ = (space_id, keep_space, allow_missing_files);
         None
     }
     /// The net layer's state and how many other devices are connected now
@@ -132,10 +133,11 @@ impl Backend for Core {
         &self,
         space_id: &str,
         keep_space: bool,
+        allow_missing_files: bool,
     ) -> Option<Result<serde_json::Value, String>> {
         let o = irori_core::MoveOpts {
             keep_space,
-            allow_missing_files: false,
+            allow_missing_files,
         };
         Some(
             Core::move_space_to_personal(self, space_id, &o)

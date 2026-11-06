@@ -8,14 +8,14 @@
 - **Cards keep their task id, number and times.** wind#N and lemmings#N find the same card, and every `task:<id>` in old messages, parents and blockers still resolves. `Services::route` (boards.rs:1717) asks the private log first, so the copy answers as soon as it is written.
 - **Who can move:** a space where nobody but its owner (this person) is an active member. That is the test `leave_board` already uses to forget everywhere (boards_members.rs:207-212). Horton has another person, so it is refused. A hidden DM space is refused, and so is a space with boards of its own inside (none of the three has any).
 - **The new board gets a new id** (`new_board_id()`), never the space's id, so nothing keyed by board id (switcher pins, `board:<id>`) mixes the gone space with the new board.
-- **How it runs (Stephen, b1 on #640):** nothing in the window and no agent tool. The installed Irori has one local call, `POST /v1/spaces/move-to-personal?space=<id>[&keep=1]` (the lockfile's token, like the other POST routes), and an agent makes it once per space on the Mac after the Mac has the release. Running inside the live app means it is online (files fetch over the space), the forget reaches the other devices at once, and Irori is never quit or opened by another build.
+- **How it runs (Stephen, b1 on #640):** nothing in the window and no agent tool. The installed Irori has one local call, `POST /v1/spaces/move-to-personal?space=<id>[&keep=1][&missing=1]` (the lockfile's token, like the other POST routes), and an agent makes it once per space on the Mac after the Mac has the release. Running inside the live app means it is online (files fetch over the space), the forget reaches the other devices at once, and Irori is never quit or opened by another build.
 
 ## 2. The steps, in one Core call
 
 `Core::move_space_to_personal(space_id, MoveOpts)` (`crates/core/src/service/space_move.rs`), run on one device:
 
 1. **Check.** One-person space, open on this device, not hidden, one board. Its tag is held by nobody but this space, or by the board an earlier run of this move made (§2.7).
-2. **Files.** Every file a comment or a blocker attaches is made local (fetched over the person's devices, then the open space's) and offered in the private log (`attach.offered`), so the other devices can fetch it after the space is gone. A file no device gives stops the move before anything is written, unless `allow_missing_files`.
+2. **Files.** Every file a comment or a blocker attaches is made local (fetched over the person's devices, then the open space's) and offered in the private log (`attach.offered`), so the other devices can fetch it after the space is gone. A file no device gives stops the move before anything is written, unless `allow_missing_files` (`missing=1` on the route). Each fetch has 120 s; Wind's seven PC-only files are about 1.1 GB, so they are best fetched to the Mac before the run.
 3. **Board.** `space.board.created {boardId: new, name, tag, moved: <spaceId>}` in the private log. The space's own name and tag carry over.
 4. **Copy.** Every row of the space log, in fold order (`Store::list`: hlc, device, seq), that is card content is appended to the private log in that order (§3).
 5. **Fold, quietly.** The private fold never sees this device's own rows coming back from the store (its writes fold as they're made, `Coord::handle`), so after the copy it is rebuilt once as a replay (`Coord::refold`). A replay queues nothing for watchers and runs no duty, so no old row sends an update note, and no duty acts on a card that is half copied.
@@ -44,7 +44,8 @@ Because a device's private rows reach the others in order, the copies land befor
 
 - Personal has hand-out and spawning on, and a device hands out only the open cards it made (`hands_out`, offers.rs:546). A card made by `agent:<cardId>` names no device, so nobody hands it out or starts an agent for it. The open cards today (wind#1, wind#4, lemmings#1, #29 and #43) were all made by agents, so they stay open with nobody on them, as in the space. The move lists any open card the person made, which the device that ran it would hand out.
 - **On the other devices** the copied rows arrive by sync and fold live, which no Irori can change for 0.12.4. Their fold queues update notes for the cards' old watchers, which go to those agents' long-gone sessions: stored only, never shown to the person, and nothing revives or starts an agent for them (inbox/sweep.rs:107-118). On the Mac copy the live fold wrote 184 such messages; the quiet fold on the moving device writes none.
-- Alerts: none of the moved cards has an open blocker, so nothing enters Needs you.
+- Alerts: none of the moved cards has an open blocker, so nothing enters Needs you. The open cards Irori had already put back with "nobody is on it" (wind#1, wind#4, lemmings#29, #43) can each post that alert once more on each device, since the alert is keyed by the row and the copy's row is new.
+- Each move rebuilds the private fold once; on the Mac's copy that took 6 to 10 s, during which the window and agents' tool calls wait.
 
 ## 5. What is left behind
 
