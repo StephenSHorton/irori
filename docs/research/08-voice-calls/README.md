@@ -59,13 +59,15 @@ Same probe, same commands, with the PC idle (CPU sampled every 5 s: mostly
 | --- | --- | --- | --- | --- | --- | --- |
 | Mac → PC | direct within 1 s | 3.9 ms | 6.6 ms | 18.6 ms | 0 of 3000 | 269 ms |
 | Mac → PC, relay only (n0) | relay | 109 ms | 121 ms | 131 ms | 0 of 3000 | 656 ms |
+| Pixel → PC | direct within 1 s | 7.5 ms | 12.1 ms | 23.9 ms | 0 of 3000 (1 lost) | 682 ms |
+| Pixel → PC, relay only (n0) | relay | 115 ms | 129 ms | 140 ms | 0 of 3000 | — |
+| Pixel → Mac, relay only (control, no PC) | relay | 118 ms | 131 ms | 139 ms | 0 of 3000 | — |
 
 **The spikes were the busy PC, not the double NAT.** With the PC idle the
 direct path through both NATs is as clean as the LAN, and the relay adds only
-its fixed ~100 ms (the n0 relay is usw1-1, in the US west). The Pixel legs
-were not rerun (the phone wasn't visible on the Mac's USB); the Mac result
-already separates load from the NAT, since the Mac crosses the same double
-NAT.
+its fixed ~110-120 ms round trip (n0's usw1-1, in the US west) with ~7 ms
+jitter, the same whether or not the PC is on the path. No second of any run
+had a p95 over 300 ms.
 
 Takeaway for the build: a busy PC (agents building) hurts its calls far more
 than the network does. The call layer's audio and network threads should not
@@ -95,6 +97,7 @@ lost QUIC packet per run:
 | PC → Mac | n0 | 8 Mbps | 123 / 141 ms | 203 / 1508 ms | 8 | 126 ms (0) |
 | Mac → PC | PC home relay | 8 Mbps | 10 / 22 ms | 27 / 145 ms | 0 | 10 ms (0) |
 | PC → Mac | PC home relay | 8 Mbps | 9 / 14 ms | 23 / 132 ms | 0 | 10 ms (0) |
+| PC → Pixel (Wi-Fi) | n0 (phone's home use1-1, US east) | 2.5 Mbps | 180 / 207 ms | 306 / 1777 ms | 12 | 185 ms (0) |
 
 - **A 1080p 10 fps share works relay only on both relays Irori uses.** n0's
   public relays (the default relay map, [public-relays.md](../../design/public-relays.md))
@@ -112,7 +115,13 @@ lost QUIC packet per run:
 - Keyframes are the slow frames on n0 (up to ~0.8-1.5 s once in a while). A
   share should send keyframes rarely (on a scene change or a viewer's ask),
   not every 2 s as this test does.
-- Not measured: the phone as a viewer, and n0 relays other than usw1-1.
+- The phone views a 2.5 Mbps share fine over n0 (frames ~180 ms through the
+  US east relay). All its slow frames (12 over 500 ms) came in the first
+  second, while the connection's send window was still growing; after that
+  it was steady. A real share should start at a lower rate and ramp up, or
+  open the stream before the first keyframe.
+- Not measured: the phone as a sharer (a later phase), cellular, and two
+  devices homed on far-apart relays outside the US.
 
 Run it: on the receiver `spike-call listen` (n0) or `spike-call listen
 --home-relay-port 25930` (runs the relay; the port needs inbound TCP and UDP
