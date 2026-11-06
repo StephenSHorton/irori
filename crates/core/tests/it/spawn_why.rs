@@ -625,7 +625,7 @@ fn a_part_says_its_lead_and_a_card_its_side() {
         .split(
             &r.key_a,
             &p.id,
-            vec![sub("plain", false), sub("one", true), sub("two", true)],
+            vec![sub("plain", false), sub("helper", true)],
             vec![],
         )
         .unwrap();

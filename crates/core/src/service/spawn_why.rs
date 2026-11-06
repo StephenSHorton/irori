@@ -502,8 +502,8 @@ impl Services {
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);
         }
-        // Blocked before an old failure: the failure's
-        // fix (Trust and start, a folder) starts nothing until they clear.
+        // Blocked before an old failure: the failure's fix (Trust and
+        // start, a folder) starts nothing until the blocker clears.
         if hold == SpawnHold::Blocked {
             return Some(Why::Blocked);
         }
