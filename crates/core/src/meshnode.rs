@@ -176,16 +176,31 @@ impl Mesh {
         self.refeed.notify_one();
     }
 
-    /// B1 (v0.5 §6.2): a server device writes its `board.server` row into
-    /// each board it is a counted member device of, only when it changes.
+    /// This device's `board.server` row: its home server's port and public
+    /// address when it has one, and what it reads, always (card #577). The
+    /// one builder, so the two never write over each other's fields.
+    fn board_server_row(&self) -> mesh::boardmesh::BoardServer {
+        let home = self.home.get().and_then(|h| h.board_server().ok());
+        mesh::boardmesh::BoardServer {
+            device_id: self.net.self_id().to_string(),
+            reads: Some(mesh::boardmesh::BoardReads::ours()),
+            version: self.version.clone(),
+            ..home.unwrap_or_default()
+        }
+    }
+
+    /// B1 (v0.5 §6.2), card #577: every device writes its `board.server`
+    /// row into each board it is a counted member device of, only when it
+    /// changes.
     fn write_board_servers(&self, boards: &[Arc<BoardMesh>]) {
-        let Some(h) = self.home.get() else { return };
-        let Ok(row) = h.board_server() else {
-            return; // never served here: not a server device
-        };
+        let row = self.board_server_row();
         let me = self.net.self_id();
         for m in boards {
-            if m.verifier().cert(me).is_none() || m.verifier().cut(me).is_some() {
+            let v = m.verifier();
+            if v.cert(me).is_none()
+                || v.cut(me).is_some()
+                || !v.person_of(me).is_some_and(|p| v.membership().active(&p))
+            {
                 continue;
             }
             if let Err(e) = mesh::boardmesh::write_board_server(m.log(), &row) {

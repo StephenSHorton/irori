@@ -79,6 +79,8 @@ unchanged.
 | `/?settings` | Settings (card #132): Notifications; `?settings=devices`, `=people`, `=app` open those sections |
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?android&update=available` | the phone's update bar (card #270): Update downloads, checks SHA256SUMS and opens Android's install screen; `update=ready` says Install, `update=error` Try again |
+| `/?refs` | Home's Working rows with a cross-board ref, `agility#1234` (card #586): at sm+ the list's ref column widens to fit it whole and every title in the list stays lined up |
+| `/?refs=long` | the same plus `platform-infrastructure#98765`: the ref column stops at 10rem, the ref is cut with "…" and its full ref on hover |
 | `/?notes` | Notes (card #413): Mine, with New from agents at the top (two proposals and an agent's proposed edit, each with Keep / Accept, Edit, Remove), the kind chips, and the live notes with their tags, source chip, author and who kept them; one says Still true? |
 | `/?notes=mlg` | Notes on the MLG board's tab: kite's proposal waits on anyone's Accept |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
