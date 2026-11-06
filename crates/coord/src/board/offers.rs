@@ -547,6 +547,79 @@ impl Fold {
         owner::device_of(&t.created_by) == self.dev
     }
 
+    /// The device that made card t.
+    fn made_on(&self, t: &Task) -> String {
+        if self.on_board {
+            return self.origin.get(&t.id).cloned().unwrap_or_default();
+        }
+        owner::device_of(&t.created_by).to_string()
+    }
+
+    /// Whether device `dev` can run agents (card #541).
+    pub(crate) fn can_run(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_none_or(|f| !f().cant.contains(dev))
+    }
+
+    /// Whether device `dev` has been away for at least `d` (card #541).
+    pub(crate) fn away_for(&self, dev: &str, d: std::time::Duration) -> bool {
+        let Some(f) = self.agent_devices.as_ref() else {
+            return false;
+        };
+        let a = f();
+        if !a.away.contains(dev) {
+            return false;
+        }
+        let now = i128::from(self.stamp().unix_nano());
+        a.away_since
+            .get(dev)
+            .is_some_and(|s| now - i128::from(*s) >= d.as_nanos() as i128)
+    }
+
+    /// Whether device `dev`'s Irori reads `ask.moved` (card #541); every
+    /// device when nothing says (tests without a sweep).
+    pub(crate) fn reads_moves(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_none_or(|f| f().moves.contains(dev))
+    }
+
+    /// The device agent work on `side` goes to when it lands on one that
+    /// can't run agents: the first of the person's computers that runs
+    /// the side (card #541).
+    pub(crate) fn agent_home(&self, side: &str) -> Option<String> {
+        let d = self.agent_devices.as_ref()?();
+        d.homes
+            .into_iter()
+            .find(|h| self.sides.runs(h, side) && self.same_person_dev(h, &self.dev))
+    }
+
+    /// Whether this device starts the agent of a card made on a device
+    /// that can't run agents (card #541). No device is asked to: a phone
+    /// asleep hands nothing out, so a computer does it for the phone, and
+    /// the first computer back takes up what waited.
+    fn stands_in(&self, t: &Task) -> bool {
+        let made = self.made_on(t);
+        !made.is_empty()
+            && made != self.dev
+            && !self.can_run(&made)
+            && self.same_person_dev(&made, &self.dev)
+            && self.agent_home(&t.side).as_deref() == Some(self.dev.as_str())
+            // The phone's hand-out already gave it to an idle agent.
+            && t.live_offer().is_none()
+    }
+
+    /// Whether this device starts card t's agent (card #541): the ask's
+    /// owner, the device that made the card when it can run agents, or
+    /// the computer standing in for it.
+    pub(crate) fn spawns_out(&self, t: &Task) -> bool {
+        if let Some(a) = t.open_ask() {
+            return a.owner == self.dev;
+        }
+        (self.hands_out(t) && self.can_run(&self.dev)) || self.stands_in(t)
+    }
+
     /// Whether this device runs card t's side (card #495): a card with no
     /// side, or a device with no pin, runs anywhere. A card this device
     /// hands out on a side it doesn't run waits: nothing here spawns it or

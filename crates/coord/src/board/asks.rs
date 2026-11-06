@@ -85,11 +85,18 @@ pub(crate) struct TakeMark {
     pub taker: String,
 }
 
+/// How long an ask waits for an owner that's away before a connected
+/// computer takes it (card #541): a link that dropped for a moment doesn't
+/// move anything.
+pub const ASK_AWAY: Duration = Duration::from_secs(30);
+
 /// The take lock's fold beside the tasks.
 #[derive(Debug, Default)]
 pub(crate) struct AskBook {
     pub reqs: HashMap<String, Vec<TakeReq>>,
     pub state_seq: HashMap<String, i64>,
+    /// Asks that moved (card #541): how many times, and who has them.
+    pub moved: HashMap<String, (i64, String)>,
     pub seen: HashMap<String, BTreeMap<String, i64>>,
     pub notices: Vec<Notice>,
     pub again: BTreeMap<String, AskAgain>,
@@ -162,6 +169,7 @@ impl Fold {
             kinds::TAKE_REQUESTED => kinds::BOARD_ASK_REQUESTED,
             kinds::TAKE_STATE => kinds::BOARD_ASK_STATE,
             kinds::TASK_EDITED => kinds::BOARD_ASK_EDITED,
+            kinds::ASK_MOVED => kinds::BOARD_ASK_MOVED,
             k => k,
         }
     }
@@ -361,7 +369,11 @@ impl Fold {
                     return;
                 };
                 if ev.device_id != owner_dev {
-                    self.ignore(&ev.device_id);
+                    // A former owner's row in flight as the ask moved isn't
+                    // a device writing what it mustn't (card #541).
+                    if !self.asks.moved.contains_key(&p.task_id) {
+                        self.ignore(&ev.device_id);
+                    }
                     return;
                 }
                 self.asks.mark(&p.task_id, RowPos::of(ev), &p.taker);
@@ -1054,7 +1066,7 @@ impl Fold {
             .filter(|a| self.takes_handout(&a.key))
             .filter(|a| self.sides.runs(&dev_of(a), side))
             .collect();
-        if roster.iter().any(|a| dev_of(a) == self.dev) {
+        if roster.iter().any(|a| dev_of(a) == self.dev) && self.can_run(&self.dev) {
             return self.dev.clone();
         }
         let mut devs: BTreeMap<String, (u8, usize)> = BTreeMap::new();
@@ -1078,9 +1090,103 @@ impl Fold {
             e.0 = e.0.min(rank);
             e.1 += 1;
         }
-        devs.into_iter()
+        let pick = devs
+            .into_iter()
+            .filter(|(d, _)| self.can_run(d))
             .min_by(|(x, (rx, nx)), (y, (ry, ny))| rx.cmp(ry).then(ny.cmp(nx)).then(x.cmp(y)))
-            .map_or_else(|| self.dev.clone(), |(d, _)| d)
+            .map_or_else(|| self.dev.clone(), |(d, _)| d);
+        // A device that can't run agents never keeps an ask (card #541):
+        // with no agent offered anywhere, a computer starts one.
+        if self.can_run(&pick) {
+            return pick;
+        }
+        self.agent_home(side).unwrap_or(pick)
+    }
+
+    /// Takes to this device the waiting asks whose owner can't serve them
+    /// (card #541), when this is the computer such work goes to: the owner
+    /// can't run agents, or has been away for [`ASK_AWAY`]. The computer
+    /// pulls rather than the owner giving: a phone asleep or a computer
+    /// with its lid shut writes nothing, and all the rows that follow
+    /// (take lock, spawn) are this device's own, in order.
+    pub(crate) fn pull_asks(&mut self) -> Result<()> {
+        if !self.can_run(&self.dev) {
+            return Ok(());
+        }
+        let now = self.stamp();
+        let lost: Vec<(String, i64)> = self
+            .tasks
+            .values()
+            .filter(|t| self.waits_for_agent(t))
+            .filter(|t| {
+                t.open_ask().is_some_and(|a| {
+                    a.owner != self.dev
+                        && self.same_person_dev(&a.owner, &self.dev)
+                        // On a board every member's hello says so instead.
+                        && (self.on_board || self.reads_moves(&a.owner))
+                        && (!self.can_run(&a.owner)
+                            || (self.away_for(&a.owner, ASK_AWAY)
+                                && gotime::at_least(&now, &t.created_at, ASK_AWAY)))
+                })
+            })
+            .filter(|t| self.agent_home(&t.side).as_deref() == Some(self.dev.as_str()))
+            .map(|t| {
+                let moves = self.asks.moved.get(&t.id).map_or(0, |m| m.0);
+                (t.id.clone(), moves + 1)
+            })
+            .collect();
+        for (id, moves) in lost {
+            let row = AskMovedRow {
+                task_id: id,
+                owner: self.dev.clone(),
+                moves,
+                at: now,
+            };
+            self.write_as(SWEEPER, self.ask_kind(kinds::ASK_MOVED), &row)?;
+        }
+        Ok(())
+    }
+
+    /// An `ask.moved` row: a device of the same person takes the ask. The
+    /// most moves wins, then the lowest device id, whatever order the rows
+    /// arrive in, so two computers taking one ask at once agree on which.
+    pub(crate) fn apply_ask_moved(&mut self, ev: &Event) {
+        let Some(p) = row::<AskMovedRow>(&ev.payload) else {
+            return;
+        };
+        let Some(owner) = self
+            .tasks
+            .get(&p.task_id)
+            .and_then(|t| t.ask.as_ref())
+            .map(|a| a.owner.clone())
+        else {
+            return;
+        };
+        if p.owner != ev.device_id || !self.same_person_dev(&owner, &ev.device_id) {
+            self.ignore(&ev.device_id);
+            return;
+        }
+        let wins =
+            self.asks.moved.get(&p.task_id).is_none_or(|(moves, dev)| {
+                p.moves > *moves || (p.moves == *moves && p.owner < *dev)
+            });
+        if !wins {
+            return;
+        }
+        self.asks
+            .moved
+            .insert(p.task_id.clone(), (p.moves, p.owner.clone()));
+        if let Some(a) = self.tasks.get_mut(&p.task_id).and_then(|t| t.ask.as_mut()) {
+            a.owner = p.owner;
+        }
+        // Rows are ordered within one device's log: the new owner's seqs
+        // start over.
+        self.asks.state_seq.remove(&p.task_id);
+        self.note(Change {
+            kind: TASK_CHANGED.into(),
+            task_id: p.task_id,
+            ..Change::default()
+        });
     }
 
     /// Whether devices a and b are the same person's: on the private log

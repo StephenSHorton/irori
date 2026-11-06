@@ -488,6 +488,8 @@ fn start_core(
     if !crate::host::offline() {
         core.set_spawner(Some(spawner()));
     }
+    #[cfg(not(desktop))]
+    core.set_runs_no_agents();
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);
@@ -862,5 +864,6 @@ fn spawner() -> irori_core::spawn::Spawner {
                     .collect()
             })
         })),
+        ready: Some(Arc::new(spawn::claude_installed)),
     }
 }

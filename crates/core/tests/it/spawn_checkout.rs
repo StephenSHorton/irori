@@ -33,6 +33,7 @@ struct Fake {
 fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
     let a = f.clone();
     Spawner {
+        ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
             *a.tries.lock().unwrap() += 1;
             if a.fail.load(Ordering::SeqCst) {

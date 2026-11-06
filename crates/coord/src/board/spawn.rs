@@ -301,16 +301,37 @@ impl Fold {
             key: String::new(),
         };
         match t.spawns.iter_mut().find(|o| o.part() == s.part()) {
-            // Only a newer generation moves a request on; its own generation may end it.
+            // Only a newer generation moves a request on.
+            Some(o) if s.generation > o.generation => *o = s,
+            // Its own generation's rows from the same device may end it;
+            // a cancel (the person's) ends the generation, whichever
+            // computer's request it named.
             Some(o)
-                if s.generation > o.generation
-                    || (s.generation == o.generation && s.op != SPAWN_REQUESTED) =>
+                if s.generation == o.generation
+                    && s.op != SPAWN_REQUESTED
+                    && o.op != SPAWN_CANCELED
+                    && (s.op == SPAWN_CANCELED || same_device(&s.device, &o.device)) =>
             {
-                let same = s.generation == o.generation;
-                let key = if same { o.key.clone() } else { String::new() };
                 // A request's end doesn't repeat that it counts (card #575).
-                let counted = s.counted || (same && o.counted);
-                *o = Spawn { key, counted, ..s };
+                *o = Spawn {
+                    key: o.key.clone(),
+                    counted: s.counted || o.counted,
+                    ..s
+                };
+            }
+            // Two computers took one card at once (card #541): the lowest
+            // device id's request wins over anything of the other's in
+            // that generation, so every device ends with the same request
+            // whatever order the rows arrive in. The other one's session
+            // ends as superseded.
+            Some(o)
+                if s.generation == o.generation
+                    && s.op == SPAWN_REQUESTED
+                    && o.op != SPAWN_CANCELED
+                    && !same_device(&s.device, &o.device)
+                    && s.device < o.device =>
+            {
+                *o = s;
             }
             Some(_) => return,
             None => t.spawns.push(s),
@@ -380,11 +401,14 @@ impl Fold {
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             return;
         };
-        if let Some(s) = t
-            .spawns
-            .iter_mut()
-            .find(|s| s.generation == p.generation && s.step == p.step && s.subtask == p.subtask)
-        {
+        // Only on the request of the device that started it: the losing
+        // computer's agent never binds the winner's (card #541).
+        if let Some(s) = t.spawns.iter_mut().find(|s| {
+            s.generation == p.generation
+                && s.step == p.step
+                && s.subtask == p.subtask
+                && same_device(&s.device, &p.device)
+        }) {
             s.key = p.key.clone();
         }
         let holder = t.holder.clone();
@@ -461,6 +485,28 @@ impl Fold {
         Ok(Some(generation))
     }
 
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it (card #541): Ok(false), writing nothing, when the
+    /// request is now another computer's, which this failure isn't about.
+    pub(crate) fn fail_own_spawn(
+        &mut self,
+        id: &str,
+        generation: i64,
+        reason: &str,
+    ) -> Result<bool> {
+        let theirs = self.tasks.get(id).is_some_and(|t| {
+            t.spawns.iter().any(|s| {
+                s.part() == ("", "")
+                    && s.generation == generation
+                    && !same_device(&s.device, &self.dev)
+            })
+        });
+        if theirs {
+            return Ok(false);
+        }
+        self.end_spawn(SWEEPER, id, ("", ""), generation, SPAWN_FAILED, reason)
+    }
+
     /// Ends request `generation` for card `id`'s part as failed or canceled, with
     /// the reason the card shows. Ok(false) when it isn't the newest.
     pub(crate) fn end_spawn(
@@ -532,6 +578,10 @@ impl Fold {
         };
         if s.op != SPAWN_REQUESTED || !s.key.is_empty() {
             return Ok(s.key == key);
+        }
+        // Another computer's request won this generation (card #541).
+        if !same_device(&s.device, &self.dev) {
+            return Ok(false);
         }
         let now = self.stamp();
         self.write_as(
@@ -1166,6 +1216,53 @@ impl Fold {
         })
     }
 
+    /// Whether card t is this device's person's to start agents for: every
+    /// card on the private log; on a shared board, one they made. A
+    /// teammate's card waits on the teammate's computers, not theirs.
+    pub(crate) fn persons_card(&self, t: &Task) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && kp(&t.created_by) == me
+    }
+
+    /// Whether card t waits for an agent Irori starts for it, wherever it
+    /// would start (card #541): nobody has it, none is starting, and it's
+    /// no agent's turn to end. Unlike [`Self::ask_needs_agent`] it doesn't
+    /// ask who owns an ask or whether the hand-out ran, so the device the
+    /// person posted on can tell them. A request past its grace isn't
+    /// starting: the device it named went away.
+    pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
+        let now = self.stamp();
+        if !self.spawning_on()
+            || !self.persons_card(t)
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+            || t.spawn_crashes >= self.crash_limit()
+            || self.ask_resting(t)
+            || self.waits_for_lead(t)
+        {
+            return false;
+        }
+        match t.open_ask() {
+            Some(a) => {
+                (!self.on_board || a.thread)
+                    && !is_terminal(&t.state)
+                    && !t.withdrawn
+                    && !t.shared
+                    && a.taker.is_empty()
+                    && a.reason != super::threads::TAKE_ANSWERED
+                    && (a.thread || a.mentions.is_empty())
+                    && (!a.thread || a.wake)
+            }
+            None => super::offers::needs_agent(t) || self.needs_lead(t),
+        }
+    }
+
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
     /// See [`SpawnHold`]. Sides are judged on the device that hands the
@@ -1231,7 +1328,7 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.hands_out(t))
+                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.spawns_out(t))
                     || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
@@ -1282,6 +1379,12 @@ impl Fold {
         v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.cmp(&b.0)));
         v
     }
+}
+
+/// Whether two spawn rows' devices are the same one; a row from before
+/// devices were named matches any.
+fn same_device(a: &str, b: &str) -> bool {
+    a.is_empty() || b.is_empty() || a == b
 }
 
 impl Fold {

@@ -29,7 +29,7 @@ use coord::{BlockedBy, Blocker, BlockerAnswer, BlockerOption, NewBlocker, Task, 
 use super::Services;
 use crate::logf;
 
-const SWEEPER: &str = "irori";
+pub(crate) const SWEEPER: &str = "irori";
 
 /// In every "no copy" question: how a sweep finds its own blocker, whatever
 /// the device is called today.

@@ -46,6 +46,7 @@ fn spawner(claude: &Path, started: Arc<Mutex<Vec<String>>>) -> Spawner {
         }),
         trusted: Arc::new(|_: &Path| true),
         list: None,
+        ready: None,
     }
 }
 

@@ -38,6 +38,7 @@ mod prwatch;
 mod search;
 mod space_boards;
 mod spawn;
+mod spawn_capable;
 mod spawn_checkout;
 mod spawn_devices;
 mod spawn_helpers;

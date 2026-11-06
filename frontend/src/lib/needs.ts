@@ -67,10 +67,16 @@ export const rowStateLabel: Record<RowState, string> = {
 export const IDLE_LINE = "Idle, no reason given"
 
 // needsYou says the card waits on the person: an open blocker or done
-// check, or its question (input required).
+// check, its question (input required), or no computer can start its agent
+// (card #541), which they need to know even with nothing to answer.
 export function needsYou(c: CardSummary): boolean {
   if (over(c)) return false
-  return c.openBlockers > 0 || !!c.ready || c.state === TaskState.InputRequired
+  return (
+    c.openBlockers > 0 ||
+    !!c.ready ||
+    c.state === TaskState.InputRequired ||
+    !!c.noAgent
+  )
 }
 
 // RowLine is a row's state, the line under its title, and whether an
@@ -104,6 +110,8 @@ type Row = RowLine & { nobody?: boolean }
 function row(c: CardSummary, now: number): Row {
   if (over(c)) return { state: "done", line: overLabel(c) }
   if (needsYou(c)) {
+    if (c.noAgent && !c.ready && !c.openBlockers)
+      return { state: "needs", line: c.noAgent }
     if (c.ready && c.openBlockers <= 1)
       return { state: "needs", line: "Says it's done: is it?" }
     if (c.openBlockers > 1)
@@ -366,6 +374,8 @@ export type Need =
   | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
+  // Card #541: no computer can start its agent, and nothing to decide.
+  | { kind: "noAgent"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
@@ -438,6 +448,11 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   for (const c of cards) {
     if (!needsYou(c)) continue
     const check = !!c.ready && c.openBlockers <= 1
+    // Card #541: nothing to decide, so it never reads as a decision.
+    if (c.noAgent && !check && !c.openBlockers) {
+      out.push({ kind: "noAgent", id: c.id, at: time(c.updatedAt), card: c })
+      continue
+    }
     out.push({
       kind: check ? "check" : "decision",
       id: c.id,

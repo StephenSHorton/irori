@@ -4101,3 +4101,25 @@ fn a_card_can_be_given_to_its_new_owner() {
     sync(&a, &b);
     assert!(a.c.get_task(&t.id).unwrap().given.is_some());
 }
+
+/// Card #541: a teammate's card waits on the teammate's computers. p2's
+/// device never counts p1's card as waiting for an agent of its own, so it
+/// shows no "No agent" words for it and never takes it.
+#[test]
+fn a_teammates_card_waits_on_nobody_here() {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    let t = a.c.create_task(P1, nt("Fix the loader", "")).unwrap();
+    sync(&a, &b);
+    assert!(a.c.waits_for_agent(&a.c.get_task(&t.id).unwrap()), "p1's");
+    assert!(
+        !b.c.waits_for_agent(&b.c.get_task(&t.id).unwrap()),
+        "not p2's to start"
+    );
+}

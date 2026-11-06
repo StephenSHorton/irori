@@ -607,6 +607,197 @@ fn a_thread_answered_while_its_agent_starts_stays_answered() {
     assert!(e.c.cards_to_spawn().is_empty());
 }
 
+/// Card #541's words: what a person is told waits for an agent is only what
+/// would really start one. An answered thread needs nobody until they
+/// reply, and a stale request is no agent starting.
+#[test]
+fn waits_for_agent_is_only_work_that_would_start() {
+    let mut e = Env::on("dev-a");
+    let _r = rig(&mut e, &[]);
+    let (t, _) =
+        e.c.post_ask(
+            "user:dev-a",
+            NewAsk {
+                text: "Why?".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+            &[],
+        )
+        .unwrap();
+    assert!(e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()));
+    e.c.request_spawn(SWEEPER_KEY, sask(&t.id)).unwrap();
+    assert!(
+        !e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()),
+        "a fresh request is starting"
+    );
+    e.clk.add(SPAWN_GRACE + secs(1));
+    assert!(
+        e.c.waits_for_agent(&e.c.get_task(&t.id).unwrap()),
+        "past its grace it isn't"
+    );
+    // The normal end of a thread: answered, its agent wound down, nobody
+    // holds it. It waits on the person, not on an agent.
+    e.write_raw(
+        SWEEPER_KEY,
+        store::kinds::TAKE_STATE,
+        &serde_json::json!({ "taskId": t.id, "reason": TAKE_ANSWERED }),
+    );
+    let t2 = e.c.get_task(&t.id).unwrap();
+    assert!(t2.open_ask().is_some(), "still open");
+    assert!(
+        !e.c.waits_for_agent(&t2),
+        "an answered thread needs no agent"
+    );
+}
+
+/// Two computers take one ask at once: every device ends on the same one,
+/// whatever order the rows reach it in, and a later take beats both.
+#[test]
+fn an_ask_taken_twice_settles_the_same_on_every_device() {
+    fn moved(dev: &str, moves: i64) -> serde_json::Value {
+        serde_json::json!({ "taskId": "", "owner": dev, "moves": moves })
+    }
+    let owner_after = |rows: &[(&str, i64)]| {
+        let mut e = Env::on("phone");
+        let _r = rig(&mut e, &[]);
+        let (t, _) =
+            e.c.post_ask(
+                "user:phone",
+                NewAsk {
+                    text: "Why?".into(),
+                    thread: true,
+                    ..NewAsk::default()
+                },
+                &[],
+            )
+            .unwrap();
+        for (dev, moves) in rows {
+            let mut row = moved(dev, *moves);
+            row["taskId"] = t.id.clone().into();
+            e.remote(dev, 1, 1, SWEEPER_KEY, store::kinds::ASK_MOVED, &row);
+        }
+        e.c.get_task(&t.id).unwrap().ask.unwrap().owner
+    };
+    assert_eq!(owner_after(&[("mac", 1), ("pc", 1)]), "mac");
+    assert_eq!(owner_after(&[("pc", 1), ("mac", 1)]), "mac");
+    assert_eq!(owner_after(&[("mac", 1), ("pc", 2)]), "pc");
+    assert_eq!(owner_after(&[("pc", 2), ("mac", 1)]), "pc");
+}
+
+/// Two computers both ask for one card's agent at the same generation: the
+/// lowest device id keeps it on every device, whatever the order.
+#[test]
+fn one_generation_on_two_computers_settles_the_same_on_every_device() {
+    let spawn_of = |rows: &[&str]| {
+        let mut e = Env::on("phone");
+        let _r = rig(&mut e, &[]);
+        let t =
+            e.c.create_task(
+                "user:phone",
+                NewTask {
+                    title: "Rename".into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap();
+        for dev in rows {
+            let row = serde_json::json!({
+                "taskId": t.id, "op": SPAWN_REQUESTED, "gen": 1, "device": dev,
+                "by": "irori", "permissionMode": "acceptEdits", "name": "a",
+            });
+            e.remote(dev, 1, 1, SWEEPER_KEY, store::kinds::TASK_SPAWN, &row);
+        }
+        e.c.get_task(&t.id)
+            .unwrap()
+            .spawn_request()
+            .unwrap()
+            .device
+            .clone()
+    };
+    assert_eq!(spawn_of(&["mac", "pc"]), "mac");
+    assert_eq!(spawn_of(&["pc", "mac"]), "mac");
+}
+
+/// The phone (dev-a) posts a thread it owns; the Mac (dev-b) hears it, with
+/// spawning on and `devs` saying which devices can run agents.
+fn phone_thread_on_mac(devs: Arc<RwLock<AgentDevices>>) -> (Env, Task) {
+    // One person's two devices: both read the person's rows as theirs.
+    let owner: KeyFn = Arc::new(|k: &str| k == USER);
+    let phone = Env::with("dev-a", Some(owner.clone()));
+    let mut mac = Env::with("dev-b", Some(owner));
+    let _r = rig(&mut mac, &[]);
+    let d = devs.clone();
+    mac.c = mac.reopen_with(Options {
+        spawning: Some(Arc::new(|| true)),
+        agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+        ..mac.opts()
+    });
+    let t = post(&phone, "Why is the sync stuck?", true, &[]);
+    assert_eq!(t.ask.as_ref().unwrap().owner, "dev-a");
+    let rows = phone.st.missing(&mac.st.vector().unwrap(), 1000).unwrap();
+    let (_, r) = mac.st.insert_batch(&rows);
+    r.unwrap();
+    for ev in &rows {
+        mac.c.handle(ev).unwrap();
+    }
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a");
+    (mac, t)
+}
+
+/// Card #541: an ask moves off a computer that went away only once it has
+/// been away a while, counted from when it went, not from when the ask was
+/// made: a link that dropped a moment ago moves nothing.
+#[test]
+fn an_ask_moves_off_an_owner_only_once_it_has_been_away_a_while() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into(), "dev-a".into()],
+        moves: HashSet::from(["dev-a".to_string(), "dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    // The ask is old, and dev-a's link only now drops.
+    mac.clk.add(mins(5));
+    {
+        let mut d = devs.write().unwrap();
+        d.away.insert("dev-a".into());
+        d.away_since
+            .insert("dev-a".into(), mac.clk.now().unix_nano());
+    }
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "gone a moment");
+    mac.clk.add(secs(31));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "gone a while");
+}
+
+/// Card #541: an ask moves only off a device whose Irori reads
+/// `ask.moved`: an older one would ignore the move and keep handing the
+/// ask out, so two agents would answer it.
+#[test]
+fn an_ask_stays_with_an_owner_that_does_not_read_moves() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into()],
+        cant: HashSet::from(["dev-a".to_string()]),
+        moves: HashSet::from(["dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(
+        ask_of(&mac, &t.id).owner,
+        "dev-a",
+        "an older phone keeps it"
+    );
+    devs.write().unwrap().moves.insert("dev-a".into());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(
+        ask_of(&mac, &t.id).owner,
+        "dev-b",
+        "a phone that reads moves"
+    );
+}
+
 /// An ask whose agent Irori ended on a Claude usage limit (card #450) is
 /// no crash and doesn't wait for the person: it is spawned for again (the
 /// Core holds the start until the reset).

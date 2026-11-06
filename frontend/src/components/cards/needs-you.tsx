@@ -94,6 +94,8 @@ export function NeedsYou({
                 <MergeNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "gone" ? (
                 <GoneNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "noAgent" ? (
+                <NoAgentNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
@@ -130,6 +132,8 @@ const kinds = {
   merge: { label: "Merge", variant: "warning" },
   // Card #520: a wait on an agent that is gone, on a card nobody holds.
   gone: { label: "Gone", variant: "warning" },
+  // Card #541: no computer can start its agent. Nothing to decide.
+  noAgent: { label: "No agent", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
@@ -558,6 +562,28 @@ export function trustFromReason(reason: string): TrustInfo {
 // CardNeed is a card waiting on the person: its done check (Done, or Not
 // done with a reason) or each of its decisions (the options, recommended
 // first, or an answer in their own words).
+function NoAgentNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "noAgent" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const c = need.card
+  return (
+    <Row kind="noAgent" where={<Where card={c} />} at={need.at} now={now} title={plainLine(c.title)}>
+      <p className="text-sm break-words">{c.noAgent}</p>
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
+          Open card
+        </Button>
+      </span>
+    </Row>
+  )
+}
+
 function CardNeed({
   need,
   now,
