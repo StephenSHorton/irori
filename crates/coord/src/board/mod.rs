@@ -50,11 +50,11 @@ mod threads;
 pub use offers::{
     IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered, machine_needed,
 };
-pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
+pub use parts::PART_QUESTION;
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
-    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
-    is_crash_question,
+    CRASHED_QUESTION, CRASHED_START, GONE_USAGE_LIMIT, MAX_SPAWN_CRASHES, PERMISSION_MODES,
+    SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk,
+    Spawned, USAGE_LIMIT, crash_question, is_crash_question, usage_limited,
 };
 mod resource;
 mod review;
@@ -304,10 +304,10 @@ pub struct Options {
     /// a mention, its own board_join or ask_claim). Read when the hand-out
     /// runs. `None`: every agent does, as before.
     pub offers: Option<OffersFn>,
-    /// The board's "Agents per card" (spawned agents §3, part 7): how many
-    /// agents a card may have at once, its lead and helpers, unless the
-    /// card sets its own. `None` or below 1: [`DEFAULT_AGENTS_PER_CARD`].
-    pub agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (card #576). Read when it's needed. `None` or
+    /// below 1: [`MAX_SPAWN_CRASHES`].
+    pub crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// On a board, the names of the live leases this person's agents hold
     /// on their private board (card #339). Named leases never show on a
     /// board, so a board card's external wait that names some held ones is
@@ -1448,6 +1448,33 @@ impl Coord {
         let mut f = self.lock();
         f.gone_rows.insert(key.to_string(), at);
         f.ended_by_irori.insert(key.to_string());
+    }
+    /// Irori ended agent `key` at `at` on a Claude usage limit (card #450):
+    /// as [`Self::mark_ended`], and an ask it served doesn't wait for the
+    /// person before its next agent.
+    pub fn mark_usage_limited(&self, key: &str, at: GoTime) {
+        let mut f = self.lock();
+        f.gone_rows.insert(key.to_string(), at);
+        f.ended_by_irori.insert(key.to_string());
+        f.usage_limited.insert(key.to_string());
+    }
+    /// The crash limit in force (card #576).
+    pub fn crash_limit(&self) -> u32 {
+        self.lock().crash_limit()
+    }
+    /// Asks the person about card `id` if its crashes reached the limit,
+    /// it doesn't ask yet and this device hands it out: the limit was
+    /// lowered under it, or its agent crashed on another device (card
+    /// #576).
+    pub fn stop_crashed(&self, id: &str) -> Result<()> {
+        let mut f = self.lock();
+        let now = f.stamp();
+        f.stop_crashed_spawns(id, &now)
+    }
+    /// The spawned_for marks written at or after `since`, oldest first
+    /// (card #450).
+    pub fn spawned_since(&self, since: &GoTime) -> Vec<(String, Spawned)> {
+        self.lock().spawned_since(since)
     }
     /// Whether Irori ended agent `key` (its own `agent.gone` "finished",
     /// replayed from the log): it is never ended a second time (card #474).

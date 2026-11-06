@@ -102,7 +102,9 @@ impl Services {
                 continue;
             }
             for t in co.cards_to_spawn() {
-                if *running >= cap {
+                // A usage limit holds starts here on every board (card
+                // #450), and the cap counts them all.
+                if *running >= cap || self.usage_held().is_some() {
                     break;
                 }
                 // A plain board ask is served by the members' idle agents,
@@ -197,7 +199,7 @@ impl Services {
         else {
             return Ok(false);
         };
-        self.start_in(sp, &log, t, g, &name, Some(folder))
+        self.start_in(sp, &log, t, g, &name, Some(folder), asked_now)
     }
 
     /// Binds each board card's agent started here once presence lists it:
@@ -291,6 +293,39 @@ impl Services {
             t,
             format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX),
         ))
+    }
+
+    /// The person's Start an agent on their own waiting card or thread on
+    /// a shared board (card #576): it ends a usage hold here, so the card
+    /// tries now. The window offers it on the card's waiting line, on the
+    /// device that made the card, which is the device its agent starts on;
+    /// the card is waiting for an agent already, and takes no note.
+    pub(crate) fn start_board_agent(&self, id: &str) -> Result<(), String> {
+        let (b, t) = self
+            .shown_boards()
+            .into_iter()
+            .find_map(|b| {
+                let t = b.coord().get_task(id)?;
+                Some((b, t))
+            })
+            .ok_or_else(|| format!("no card {id}"))?;
+        let co = b.coord();
+        if b.verifier.key_person(&t.created_by) != self.person_id() {
+            return Err(format!("{} is another member's card", t.short_ref()));
+        }
+        if !t.holders.is_empty() {
+            return Err(format!("{} has an agent on it", t.short_ref()));
+        }
+        if !co.hands_out_here(id) {
+            return Err(format!(
+                "{} starts on the computer that made it: start it there",
+                t.short_ref()
+            ));
+        }
+        co.spawn_now(id);
+        self.release_usage_hold();
+        self.asks_kick.kick();
+        Ok(())
     }
 
     /// Whether every member device of board b reads the spawn rows

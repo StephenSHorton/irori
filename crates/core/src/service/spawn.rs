@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use coord::roster::Agents;
-use coord::{BLOCKED, Notice, SPAWN_CANCELED, SPAWN_FAILED, SpawnAsk, Task, TaskFilter};
+use coord::{BLOCKED, Coord, Notice, SPAWN_CANCELED, SPAWN_FAILED, SpawnAsk, Task, TaskFilter};
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
 use store::{Filter, Store, kinds};
@@ -27,7 +27,7 @@ use super::Services;
 use crate::logf;
 
 /// Irori's own key on the Board.
-const SWEEPER: &str = "irori";
+pub(crate) const SWEEPER: &str = "irori";
 
 fn before(a: &GoTime, b: &GoTime) -> bool {
     a.unix_nano() < b.unix_nano()
@@ -247,7 +247,19 @@ pub struct SpawnSetting {
     /// [`DEFAULT_EFFORT`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub effort: String,
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (§2, card #576). 0 is
+    /// [`coord::MAX_SPAWN_CRASHES`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub crash_limit: i64,
+    /// How many failed starts in a row before Irori stops and asks the
+    /// person (card #576). 0 is [`super::spawn_stop::SPAWN_TRIES`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_tries: i64,
 }
+
+/// The most tries Settings › Agents takes, crashes or failed starts.
+pub const MAX_TRIES: i64 = 20;
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
@@ -364,6 +376,11 @@ impl SpawnSetting {
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
+        for n in [self.crash_limit, self.start_tries] {
+            if !(0..=MAX_TRIES).contains(&n) {
+                return Err(format!("tries are 1 to {MAX_TRIES}, not {n}"));
+            }
+        }
         if !self.model.is_empty() && !MODELS.contains(&self.model.as_str()) {
             return Err(format!(
                 "unknown model {:?}: pick one of {}",
@@ -427,6 +444,9 @@ pub struct SpawnCap {
     #[serde(default)]
     pub at: GoTime,
 }
+
+/// The highest cap Settings › Agents takes.
+pub const MAX_CAP: i64 = 200;
 
 /// The cap a device starts with (§6): 6 on Windows, 12 elsewhere.
 pub fn default_cap() -> i64 {
@@ -503,6 +523,15 @@ pub const DONE_GRACE: Duration = Duration::from_secs(300);
 
 /// Why an ask's agents stopped starting (card #470).
 pub const ASK_CRASHED: &str = "its agent crashed twice in a row: ask again to start another";
+
+/// [`ASK_CRASHED`] at a crash limit of `n` (card #576).
+fn ask_crashed(n: u32) -> String {
+    match n {
+        1 => "its agent crashed: ask again to start another".into(),
+        coord::MAX_SPAWN_CRASHES => ASK_CRASHED.into(),
+        n => format!("its agent crashed {n} times in a row: ask again to start another"),
+    }
+}
 
 /// The start of the line Irori leaves when `claude rm` kept an ended
 /// agent's worktree (card #474); what `rm` said follows.
@@ -938,6 +967,11 @@ pub(crate) struct SpawnState {
     /// not start the request another's spawn_for just wrote and is still
     /// starting (two sessions for one generation).
     pub sweeping: Mutex<()>,
+    /// New spawns wait until then on a Claude usage limit (card #450).
+    pub usage_hold: Mutex<Option<GoTime>>,
+    /// Each spawned agent's status and last words when the usage-limit
+    /// pass last read them, so a session is read again only on a change.
+    pub limit_seen: Mutex<HashMap<String, String>>,
 }
 
 impl SpawnState {
@@ -968,6 +1002,27 @@ impl SpawnState {
                 on: Self::switch(&self.on, &self.private_default, board_id),
                 ..SpawnSetting::default()
             })
+    }
+
+    /// What the coords read for one of the limits in a [`SpawnSetting`]
+    /// (card #576): the board's own, else the private board's, else 0 (the
+    /// default). It reads the live map, so a change holds at once, and
+    /// never the store: the hand-out calls it under the coord's lock.
+    pub(crate) fn limit_fn(
+        &self,
+        board_id: &str,
+        pick: fn(&SpawnSetting) -> i64,
+    ) -> Arc<dyn Fn() -> i64 + Send + Sync> {
+        let on = self.on.clone();
+        let board = board_id.to_string();
+        Arc::new(move || {
+            let m = on.read().unwrap_or_else(|e| e.into_inner());
+            m.get(&board)
+                .map(pick)
+                .filter(|n| *n > 0)
+                .or_else(|| m.get("").map(pick))
+                .unwrap_or(0)
+        })
     }
 
     /// Whether he has set board `board_id`'s switch himself (else it is
@@ -1039,6 +1094,8 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                 if r.s.check().is_err() {
                     r.s.model.clear();
                     r.s.effort.clear();
+                    r.s.crash_limit = 0;
+                    r.s.start_tries = 0;
                 }
                 let board = r.s.board_id.clone();
                 newest.insert(board.clone(), r.clone());
@@ -1264,6 +1321,7 @@ impl Services {
         // devices (card #455): acted on even while paused.
         self.serve_end_requests();
         self.serve_trust_requests();
+        self.sweep_usage_limits();
         self.end_finished();
         self.sweep_ending();
         self.reap_ended();
@@ -1284,10 +1342,16 @@ impl Services {
         self.lift_no_copy(&sp);
         self.publish_host(&sp);
         self.serve_start_requests();
+        self.renew_asks_sent_elsewhere();
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
+        // In queue order (§6): what the person asked for, helpers, the rest.
+        // A usage limit holds every start here until it resets (card #450).
         for t in self.coord.cards_to_spawn() {
+            if self.usage_held().is_some() {
+                break;
+            }
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
             let Some(dev) = self.spawn_device(&t) else {
@@ -1316,29 +1380,63 @@ impl Services {
         self.end_superseded(&sp);
     }
 
-    /// An open ask here whose agents crashed twice in a row (card #470)
-    /// gets no more: its last request is marked failed with why, so the
-    /// thread says it rather than waiting in silence (an open ask can't
-    /// carry a card's crash question). The person asking it
-    /// again starts the count over.
+    /// An open ask here whose agents crashed up to the crash limit (card
+    /// #470) gets no more: its last request is marked failed with why, so
+    /// the thread says it rather than waiting in silence (an open ask can't
+    /// carry a card's crash question). The person asking it again starts
+    /// the count over. A card already past a limit he lowered asks him now
+    /// rather than wait unsaid (card #576), on shared boards too.
     fn say_ask_crashes(&self) {
         let me = self.device.id.as_str();
+        let limit = self.coord.crash_limit();
         for t in self.open_cards() {
             let Some(a) = t.open_ask() else {
+                self.ask_past_crash_limit(&self.coord, &t);
                 continue;
             };
-            if a.owner != me || t.spawn_crashes < coord::MAX_SPAWN_CRASHES {
+            if a.owner != me || t.spawn_crashes < limit {
                 continue;
             }
             let Some(s) = t.spawn_request().filter(|s| s.op != SPAWN_FAILED) else {
                 continue;
             };
-            if let Err(e) =
-                self.coord
-                    .end_spawn(SWEEPER, &t.id, s.generation, SPAWN_FAILED, ASK_CRASHED)
-            {
+            if let Err(e) = self.coord.end_spawn(
+                SWEEPER,
+                &t.id,
+                s.generation,
+                SPAWN_FAILED,
+                &ask_crashed(limit),
+            ) {
                 logf(format_args!("spawn {}: {e}", t.short_ref()));
             }
+        }
+        let person = self.person_id();
+        for b in self.shown_boards() {
+            let co = b.coord();
+            if !co.spawning() {
+                continue;
+            }
+            for t in co.list_tasks(&TaskFilter {
+                open: true,
+                ..TaskFilter::default()
+            }) {
+                if t.open_ask().is_none() && b.verifier.key_person(&t.created_by) == person {
+                    self.ask_past_crash_limit(co, &t);
+                }
+            }
+        }
+    }
+
+    /// Asks the person about card t of `co` if its crashes reached the
+    /// limit and nothing is on its way. Asked only on the device that hands
+    /// it out ([`Coord::stop_crashed`]), whose number governs it.
+    fn ask_past_crash_limit(&self, co: &Coord, t: &Task) {
+        if t.spawn_crashes >= co.crash_limit()
+            && t.holders.is_empty()
+            && !t.spawn_request().is_some_and(|s| s.pending())
+            && let Err(e) = co.stop_crashed(&t.id)
+        {
+            logf(format_args!("spawn {}: {e}", t.short_ref()));
         }
     }
 
@@ -1380,7 +1478,7 @@ impl Services {
         live + starting + on_boards
     }
 
-    fn open_cards(&self) -> Vec<Task> {
+    pub(crate) fn open_cards(&self) -> Vec<Task> {
         self.coord.list_tasks(&TaskFilter {
             open: true,
             ..TaskFilter::default()
@@ -1541,14 +1639,15 @@ impl Services {
             return Ok(false);
         };
         self.note_tried(&t.id, &me);
-        self.start_here(sp, t, g, &name, Some(folder))
+        self.start_here(sp, t, g, &name, Some(folder), asked_now)
     }
 
     /// Starts request `g` (named `name`) of card t on this device: its
     /// folder, trust, brief and permissions worked out here, from the card
     /// as this device has it (card #455: the request may come from another
     /// of the person's devices). A refusal ends the request as failed with
-    /// its reason. `folder` when the caller already found it.
+    /// its reason. `folder` when the caller already found it; `asked` when
+    /// this request came from the person's "Start an agent".
     pub(crate) fn start_here(
         &self,
         sp: &Spawner,
@@ -1556,15 +1655,17 @@ impl Services {
         g: i64,
         name: &str,
         folder: Option<Option<String>>,
+        asked: bool,
     ) -> Result<bool, String> {
         let log = super::spawn_boards::SpawnLog::private(self);
-        self.start_in(sp, &log, t, g, name, folder)
+        self.start_in(sp, &log, t, g, name, folder, asked)
     }
 
     /// [`Self::start_here`] for a card of `log`: the private board's or a
     /// shared board's (card #455). On a shared board the board's own
     /// setting is used, its other members' lines are left out of the brief
     /// and bypass is never passed (§7).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in(
         &self,
         sp: &Spawner,
@@ -1573,6 +1674,7 @@ impl Services {
         g: i64,
         name: &str,
         folder: Option<Option<String>>,
+        asked: bool,
     ) -> Result<bool, String> {
         let me = self.device.id.clone();
         let name = name.to_string();
@@ -1717,13 +1819,34 @@ impl Services {
                 self.note_started(&t.id);
                 Ok(true)
             }
-            Err(e) => {
-                let r = refuse(SpawnRefusal::Failed(e.clone()));
-                if private {
-                    self.note_start_failed(t, &e);
+            // A usage limit isn't a failure (card #450): the card waits in
+            // the queue for the reset, and nothing counts toward its tries.
+            Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
+                Some(l) => {
+                    let until = self.hold_usage(&l);
+                    // His "Start an agent" still stands after the reset.
+                    if asked {
+                        log.co.spawn_now(&t.id);
+                    }
+                    log.co
+                        .end_spawn(
+                            SWEEPER,
+                            &t.id,
+                            g,
+                            SPAWN_FAILED,
+                            &super::spawn_limits::usage_reason(&until),
+                        )
+                        .map_err(|e| e.to_string())?;
+                    Ok(false)
                 }
-                r
-            }
+                None => {
+                    let r = refuse(SpawnRefusal::Failed(e.clone()));
+                    if private {
+                        self.note_start_failed(t, &e);
+                    }
+                    r
+                }
+            },
         }
     }
 
@@ -2375,7 +2498,7 @@ impl Services {
     /// `claude stop` and `rm` for spawned agent `key`. A worktree `rm`
     /// kept (unpushed work) is said once on its card, with what `rm` said,
     /// so the person knows where the work is.
-    fn remove_job(&self, key: &str) -> Result<(), String> {
+    pub(crate) fn remove_job(&self, key: &str) -> Result<(), String> {
         let end = self
             .spawn
             .spawner
@@ -2481,12 +2604,12 @@ impl Services {
 
     /// The person asks for an agent on card `id` now, with `note` in its
     /// brief ("Start an agent with this", §4): the card goes back on the
-    /// Board if nobody holds it, and the next sweep starts its agent.
+    /// Board if nobody holds it, and the next sweep starts its agent. His
+    /// ask ends a usage hold here (card #576).
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
-        let t = self
-            .coord
-            .get_task(id)
-            .ok_or_else(|| format!("no card {id}"))?;
+        let Some(t) = self.coord.get_task(id) else {
+            return self.start_board_agent(id);
+        };
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }
@@ -2497,6 +2620,9 @@ impl Services {
         }
         // His ask skips a failed spawn's wait (card #464).
         self.coord.spawn_now(id);
+        if self.coord.hands_out_here(id) {
+            self.release_usage_hold();
+        }
         let person = format!("user:{}", self.device.id);
         if t.state != coord::SUBMITTED {
             self.coord

@@ -246,8 +246,8 @@ pub struct Fold {
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// See [`super::Options::offers`].
     pub(crate) offers: Option<super::OffersFn>,
-    /// See [`super::Options::agents_per_card`].
-    pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
+    /// See [`super::Options::crash_limit`].
+    pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
     /// See [`super::Options::device_version`].
@@ -293,6 +293,8 @@ pub struct Fold {
     /// Spawned agents Irori ended itself (End, or done): they leave their
     /// card as finished, not gone (a crash).
     pub(crate) ended_by_irori: HashSet<String>,
+    /// Of those, the ones it ended on a Claude usage limit (card #450).
+    pub(crate) usage_limited: HashSet<String>,
     /// (agent, card) pairs already told that the agent isn't answering
     /// (card #110), while it still isn't.
     pub(crate) mute_told: HashSet<(String, String)>,
@@ -438,7 +440,7 @@ impl Fold {
             sides: crate::sides::Sides::new(),
             spawning: o.spawning,
             offers: o.offers,
-            agents_per_card: o.agents_per_card,
+            crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,
             outside_waits: Default::default(),
@@ -463,6 +465,7 @@ impl Fold {
             spawned: HashMap::new(),
             spawned_keys: Arc::new(RwLock::new(HashSet::new())),
             ended_by_irori: HashSet::new(),
+            usage_limited: HashSet::new(),
             mute_told: HashSet::new(),
             idle_told: HashMap::new(),
             comments: HashMap::new(),
@@ -578,6 +581,10 @@ impl Fold {
                 }
                 if ev.kind == kinds::AGENT_GONE && r.reason == "finished" {
                     self.ended_by_irori.insert(k.clone());
+                }
+                if ev.kind == kinds::AGENT_GONE && r.reason == super::spawn::GONE_USAGE_LIMIT {
+                    self.ended_by_irori.insert(k.clone());
+                    self.usage_limited.insert(k.clone());
                 }
                 if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));
@@ -1185,7 +1192,6 @@ impl Fold {
             side: crate::sides::clean(&p.side),
             own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
-            agents: p.agents.clamp(0, super::MAX_AGENTS_PER_CARD),
             ..Task::default()
         };
         self.fold_ask_created(&mut task, p.ask.as_ref(), ev, &p.by);
@@ -2103,6 +2109,18 @@ impl Fold {
             // A spawned agent's request and mark (card #455): from a device
             // of the card's author, which spawn_writer_ok checks itself.
             kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            // Irori's line on a card about its spawned agent (ended on a
+            // usage limit, no hand-off, a kept worktree; card #576): from a
+            // device of the card's author, the only one that runs its agent.
+            kinds::TASK_COMMENT => {
+                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                    return false;
+                };
+                self.tasks.get(&p.task_id).is_some_and(|t| {
+                    let author = kp(&t.created_by);
+                    !author.is_empty() && author == dp(&ev.device_id)
+                })
+            }
             // Binding a spawned agent assigns the card to it: from a device
             // of the card's author, and only to the agent marked as started
             // for this card in this log.

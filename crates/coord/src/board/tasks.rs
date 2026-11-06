@@ -38,8 +38,6 @@ pub(crate) struct CleanTask {
     pub parent: String,
     /// A helper's part of its parent (spawned agents §3).
     pub spawn: bool,
-    /// Up to N agents (§3); 0 for the board's.
-    pub agents: i64,
     /// The thread it was made from (card #155).
     pub from: String,
     /// The board in its space (card #392).
@@ -106,12 +104,6 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         return Err(invalid("BlockedBy needs a BlockReason"));
     }
     check_reason(&reason, false)?;
-    if !(0..=super::MAX_AGENTS_PER_CARD).contains(&nt.agents) {
-        return Err(invalid(format!(
-            "agents is 1 to {} (0 for the board's Agents per card)",
-            super::MAX_AGENTS_PER_CARD
-        )));
-    }
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
     Ok(CleanTask {
@@ -128,7 +120,6 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         parent: String::new(),
         spawn: false,
-        agents: nt.agents,
         from: String::new(),
         board: String::new(),
         side: String::new(),
@@ -211,7 +202,6 @@ impl Fold {
                 links: ct.links.clone(),
                 parent: ct.parent.clone(),
                 spawn: ct.spawn,
-                agents: ct.agents,
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),

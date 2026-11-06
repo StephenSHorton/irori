@@ -9,6 +9,7 @@ export type AgentCard = B.AgentCard
 export type AgentPermissions = B.AgentPermissions
 export type AgentRef = B.AgentRef
 export type AgentsChange = B.AgentsChange
+export type AgentsLimits = B.AgentsLimits
 export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
@@ -65,6 +66,7 @@ export type DeskPrView = B.DeskPrView
 export type DeskSettings = B.DeskSettings
 export type DeskSnapshotView = B.DeskSnapshotView
 export type DeskView = B.DeskView
+export type DeviceCap = B.DeviceCap
 export type DeviceView = B.DeviceView
 export type DonePage = B.DonePage
 export type Empty = B.Empty
@@ -176,9 +178,14 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
   return { ...p } as B.AgentsChange
 }
 
+/** AgentsLimits with Go's zero values for every field left out. */
+export function AgentsLimits(p: Partial<B.AgentsLimits> = {}): B.AgentsLimits {
+  return { "devices": [], "maxCap": 0, "today": 0, "todayHere": 0, "costUsd": null, "queued": 0, ...p } as B.AgentsLimits
+}
+
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AnswerResult with Go's zero values for every field left out. */
@@ -434,6 +441,11 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
   return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+}
+
+/** DeviceCap with Go's zero values for every field left out. */
+export function DeviceCap(p: Partial<B.DeviceCap> = {}): B.DeviceCap {
+  return { "device": "", "name": "", "here": false, "cap": 0, "chosen": false, "running": 0, ...p } as B.DeviceCap
 }
 
 /** DeviceView with Go's zero values for every field left out. */

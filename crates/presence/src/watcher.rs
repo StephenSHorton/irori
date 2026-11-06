@@ -101,6 +101,14 @@ impl std::fmt::Debug for Watcher {
     }
 }
 
+impl Watcher {
+    /// Claude Code's folder this watcher reads (card #450: the window reads
+    /// spawned agents' transcripts for their cost).
+    pub fn claude_dir(&self) -> &str {
+        &self.inner.opts.claude_dir
+    }
+}
+
 fn nonzero(d: Duration, def: Duration) -> Duration {
     if d.is_zero() { def } else { d }
 }

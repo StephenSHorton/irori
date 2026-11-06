@@ -1330,6 +1330,12 @@ impl Services {
                     now: Some(self.now.clone()),
                     board: true,
                     done_check: true,
+                    // A board's own limit, else the person's (card #576).
+                    crash_limit: Some(super::spawn::SpawnState::limit_fn(
+                        &self.spawn,
+                        &b.id,
+                        |s| s.crash_limit,
+                    )),
                     person: me.clone(),
                     is_owner: Some(Arc::new(move |k: &str| k == person_key)),
                     revoked: Some(Arc::new(move |dev: &str| v1.cut(dev).is_some())),

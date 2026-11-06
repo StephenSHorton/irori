@@ -12,6 +12,7 @@
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied)
 //   ?spawn=first    shows the spawned agents' first-run notice on Home
+//   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
 //   ?slots          shows two check.sh runs in the sidebar's Check slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
