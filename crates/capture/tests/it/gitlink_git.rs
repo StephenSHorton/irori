@@ -73,6 +73,11 @@ fn repo_in_dir(autocrlf: &str) -> (tempfile::TempDir, String, String) {
     std::fs::create_dir_all(&root).unwrap();
     git(&root, &["init", "-q", "-b", "main"]);
     git(&root, &["config", "core.autocrlf", autocrlf]);
+    // No maintenance detached after a commit: describe_max_files' 500-file
+    // commit set it off, and it wrote into the repo after the TempDir went
+    // (check.sh's temp check, git 2.54).
+    git(&root, &["config", "maintenance.auto", "false"]);
+    git(&root, &["config", "gc.auto", "0"]);
     (d, base, root)
 }
 
