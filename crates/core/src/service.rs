@@ -454,6 +454,9 @@ impl tools::TaskRouter for ToolsView {
     fn private_notice(&self, n: Notice) -> Notice {
         self.0.private_notice(n)
     }
+    fn private_key(&self, key: &str) -> String {
+        self.0.private_key(key)
+    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
     }

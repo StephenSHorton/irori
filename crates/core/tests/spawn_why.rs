@@ -395,11 +395,23 @@ fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     let mine = new(&sco, s.person_actor(), "Stephen's card");
     assert_eq!(s.core.why_no_agent(&mine.id, true), Some(Why::SwitchOff));
 
+    let on_board = |c: &irori_core::Core| {
+        c.board_agents()
+            .iter()
+            .filter(|a| a.board_id == board && a.person_id == s.core.person().id)
+            .count()
+    };
+    let before = on_board(&s.core);
     let out = s.tool(
         "wait",
         serde_json::json!({"task_id": theirs.id, "until": ["done"], "note": "private words"}),
     );
     assert!(out.contains("Only you see this wait"), "{out}");
+    assert_eq!(
+        on_board(&s.core),
+        before,
+        "waiting puts no agent of Stephen's on the board"
+    );
     assert!(
         s.tool("board", serde_json::json!({"repo": "*"}))
             .contains("(until done)"),

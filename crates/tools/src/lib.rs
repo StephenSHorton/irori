@@ -133,6 +133,12 @@ pub trait TaskRouter: Send + Sync {
         keys: &[String],
     ) -> Result<(Arc<coord::Coord>, Vec<String>), coord::Error>;
     fn private_notice(&self, n: coord::Notice) -> coord::Notice;
+    /// A board key as this device knows it (the session key of one of the
+    /// person's cards), or `key` unchanged. Read only: unlike `task_coord`
+    /// with keys, it never puts an agent on a board (card #574).
+    fn private_key(&self, key: &str) -> String {
+        key.into()
+    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error>;
     /// Mirrors an agent's lease into every shared board where it works a
     /// shared card in the resource's repo (v0.5 §5.4, `Coord::mirror_acquire`

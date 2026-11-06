@@ -87,7 +87,9 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Ok(id) => id,
             Err(m) => return m,
         };
-        let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        // No keys: mapping the caller to a board key would put it on the
+        // shared board, and this wait stays off it (card #574).
+        let (co, _) = match s.on(&id, &[]) {
             Ok(v) => v,
             Err(e) => return map_err(e),
         };
@@ -107,7 +109,10 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 card: t.refs(),
                 title: t.title.clone(),
                 state: t.state.clone(),
-                own: t.holders.len() == 1 && as_.first() == t.holders.first(),
+                own: t.holders.len() == 1
+                    && s.b
+                        .router()
+                        .is_some_and(|r| r.private_key(&t.holders[0]) == c.sender.key),
             })
         };
         let shared = on_board.is_some();
