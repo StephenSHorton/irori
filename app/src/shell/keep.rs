@@ -411,8 +411,10 @@ mod tests {
     use super::*;
 
     fn card(status: &str, since: i64) -> presence::AgentCard {
-        let mut c = presence::AgentCard::default();
-        c.status = status.into();
+        let mut c = presence::AgentCard {
+            status: status.into(),
+            ..presence::AgentCard::default()
+        };
         c.status_since.secs = since;
         c
     }
@@ -421,8 +423,10 @@ mod tests {
     fn setting_follows_home_server_until_chosen() {
         let d = tempfile::tempdir().unwrap();
         assert!(!on(d.path()), "off with no home server and no choice");
-        let mut h = home::settings::Settings::default();
-        h.on = true;
+        let mut h = home::settings::Settings {
+            on: true,
+            ..home::settings::Settings::default()
+        };
         home::settings::save(d.path(), &h).unwrap();
         assert!(on(d.path()), "on where the home server is on");
         assert!(saved(d.path()).is_none(), "the default was written");
