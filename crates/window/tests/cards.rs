@@ -1464,6 +1464,8 @@ fn cards_that_wait_on_each_other_name_the_loop() {
         let s = summary(&t.id);
         assert_eq!((s.open_blockers, s.waiting_on), (0, 1), "{}", t.title);
         assert!(s.wait_stuck.is_none());
+        // Card #570: a loop is named as a loop, never shown as an order.
+        assert!(s.order.is_none(), "{}: {:?}", t.title, s.order);
     }
     let s = summary(&t4.id);
     let named = s.wait_loop.iter().find(|c| c.id == t6.id).unwrap();

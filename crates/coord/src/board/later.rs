@@ -104,6 +104,19 @@ impl Blocker {
 }
 
 impl Task {
+    /// The cards this one comes after (card #570): its open plain after
+    /// items, in the order they were raised. A hold until a card, a
+    /// reason-only block and a question are no order.
+    pub fn after_cards(&self) -> Vec<String> {
+        after_items(self)
+    }
+
+    /// The cards this one came after and no longer waits on: its closed
+    /// plain after items, for the window's order to show the done steps.
+    pub fn after_cards_ended(&self) -> Vec<String> {
+        after_where(self, |b| !b.open())
+    }
+
     /// The open item that holds this card as Not yet, if any.
     pub fn parked(&self) -> Option<&Blocker> {
         self.blockers
@@ -1522,13 +1535,23 @@ impl Fold {
 /// The cards `t` is after: open task waits that are no hold, no
 /// reason-only item (a later block replaces it) and no question.
 fn after_items(t: &Task) -> Vec<String> {
-    t.blockers
+    after_where(t, |b| b.open())
+}
+
+fn after_where(t: &Task, keep: impl Fn(&Blocker) -> bool) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for on in t
+        .blockers
         .iter()
-        .filter(|b| b.open() && b.later.is_empty() && !b.legacy && b.options.is_empty())
+        .filter(|b| keep(b) && b.later.is_empty() && !b.legacy && b.options.is_empty())
         .filter_map(|b| b.on.as_ref())
-        .filter(|on| on.kind == BLOCKED_ON_TASK)
-        .map(|on| on.reference.clone())
-        .collect()
+        .filter(|on| on.kind == BLOCKED_ON_TASK && !on.reference.is_empty())
+    {
+        if !out.contains(&on.reference) {
+            out.push(on.reference.clone());
+        }
+    }
+    out
 }
 
 /// The raises folded into card t's item `bid`: another device may have

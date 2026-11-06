@@ -563,6 +563,24 @@ pub async fn board_pause(w: W<'_>, id: String, paused: bool, note: String) -> R<
     w.pause(&id, paused, &note)
 }
 
+/// Not yet on a card (card #570): the person holds it back from the
+/// agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+/// "2026-12-01": the start of that day here), a version on this device
+/// ("v0.13.0"), or empty for until they say. `why` may be empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_not_yet(w: W<'_>, id: String, until: String, why: String) -> R<()> {
+    w.not_yet(&id, &until, &why)
+}
+
+/// Start now on a held card (card #570): it comes back and goes out as
+/// if just posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_start_now(w: W<'_>, id: String) -> R<()> {
+    w.start_now(&id)
+}
+
 /// Stop on an agent (card #207): cuts its running turn; `text` (empty: a
 /// plain "stop and wait") is its next prompt.
 #[tauri::command]
@@ -1603,6 +1621,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_delete,
             board_pin,
             board_pause,
+            board_not_yet,
+            board_start_now,
             agent_stop,
             wind_down_all,
             wind_down_status,
