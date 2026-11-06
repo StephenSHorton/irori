@@ -10,7 +10,10 @@ import { displayName, type AgentRef, type CardSummary } from "./cards"
 // queryWords are a query's words, lower-cased; an empty or blank query has
 // none and matches every card.
 export function queryWords(query: string): string[] {
-  return query.toLowerCase().split(/\s+/).filter((w) => w && w !== "#")
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w && w !== "#")
 }
 
 function names(rs: (AgentRef | null | undefined)[]): string[] {
@@ -30,7 +33,13 @@ function haystack(c: CardSummary): string {
     c.title,
     c.blockerQuestion,
     c.searchText ?? "",
-    ...names([...c.working, ...c.watching, c.holder?.who, c.ask?.taker, c.returned]),
+    ...names([
+      ...c.working,
+      ...c.watching,
+      c.holder?.who,
+      c.ask?.taker,
+      c.returned,
+    ]),
   ]
     .join("\n")
     .toLowerCase()
@@ -58,7 +67,10 @@ export function cardMatches(c: CardSummary, query: string): boolean {
 }
 
 // matching is the cards every word of query matches, in their order.
-export function matching<T extends CardSummary>(cards: T[], query: string): T[] {
+export function matching<T extends CardSummary>(
+  cards: T[],
+  query: string
+): T[] {
   if (!queryWords(query).length) return cards
   return cards.filter((c) => cardMatches(c, query))
 }

@@ -45,8 +45,14 @@ describe("a board's list", () => {
   })
 
   test("a board renames apart from its space", async () => {
-    const before = (await boards.list()).find((b) => b.boardId === "sample-board-mlg")!
-    const s = await boards.renameInSpace("sample-board-mlg", "sample-board-mlg-net", "Sockets")
+    const before = (await boards.list()).find(
+      (b) => b.boardId === "sample-board-mlg"
+    )!
+    const s = await boards.renameInSpace(
+      "sample-board-mlg",
+      "sample-board-mlg-net",
+      "Sockets"
+    )
     expect(s.boards.find((x) => x.tag === "net")?.name).toBe("Sockets")
     expect(s.name).toBe(before.name)
   })
@@ -57,6 +63,8 @@ describe("a board's list", () => {
     expect(list.at(-1)?.tag).toBe("garden")
     const named = await boards.renameInPersonal(list.at(-1)!.boardId, "Yard")
     expect(named.at(-1)?.name).toBe("Yard")
-    await expect(boards.addToPersonal("Again", "garden")).rejects.toThrow("already")
+    await expect(boards.addToPersonal("Again", "garden")).rejects.toThrow(
+      "already"
+    )
   })
 })

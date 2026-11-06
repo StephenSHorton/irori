@@ -14,7 +14,10 @@ export function uaIsAndroid(ua: string): boolean {
 // isAndroid: this page is Irori on a phone, or the browser preview's
 // ?android.
 export function isAndroid(): boolean {
-  return previewFlag("android") !== null || uaIsAndroid(globalThis.navigator?.userAgent ?? "")
+  return (
+    previewFlag("android") !== null ||
+    uaIsAndroid(globalThis.navigator?.userAgent ?? "")
+  )
 }
 
 // The backend's line when installing unknown apps had to be allowed first
@@ -29,7 +32,8 @@ export function updateErrorLine(error: string): string {
   const e = error.trim()
   if (/checksum mismatch/i.test(e))
     return "The download didn't match the release's checksum, so it was deleted. Nothing was installed."
-  if (/has no .*APK asset/i.test(e)) return "This release has no Android app yet."
+  if (/has no .*APK asset/i.test(e))
+    return "This release has no Android app yet."
   if (/no SHA256SUMS/i.test(e))
     return "This release can't be checked (no checksum), so it won't be installed."
   if (!e) return "The update didn't finish."

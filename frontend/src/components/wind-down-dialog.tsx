@@ -36,7 +36,10 @@ const stateText: Record<string, string> = {
   no_answer: "No answer",
 }
 
-const stateVariant: Record<string, "secondary" | "warning" | "success" | "destructive"> = {
+const stateVariant: Record<
+  string,
+  "secondary" | "warning" | "success" | "destructive"
+> = {
   waiting: "secondary",
   winding: "warning",
   done: "success",
@@ -57,7 +60,8 @@ export function WindDownDialog({
   onClose: () => void
 }) {
   const loadStatus = useCallback(
-    async () => (inWails() ? WindDownService.Status() : (windDownSample() ?? empty)),
+    async () =>
+      inWails() ? WindDownService.Status() : (windDownSample() ?? empty),
     []
   )
   const live = useLatest<WindDownStatus>(loadStatus, empty)
@@ -111,14 +115,18 @@ export function WindDownDialog({
           <DialogDescription>
             Each agent finishes the step in hand, pushes its work, posts a
             hand-off on each card it holds and leaves it, releases its leases
-            and answers you. Nothing is cut: a busy agent stops at its next
-            safe point.
+            and answers you. Nothing is cut: a busy agent stops at its next safe
+            point.
           </DialogDescription>
         </DialogHeader>
 
         {(!st.id || st.finished) && (
           <div className="flex flex-col gap-2 text-sm">
-            <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Which agents">
+            <div
+              className="flex flex-wrap items-center gap-1"
+              role="group"
+              aria-label="Which agents"
+            >
               <Button
                 size="sm"
                 aria-pressed={scope === "this"}
@@ -144,7 +152,9 @@ export function WindDownDialog({
               />
               Pause all after, so nothing wakes them until you resume
               {scope === "all" && (
-                <span className="text-xs text-muted-foreground">(this device's wakes)</span>
+                <span className="text-xs text-muted-foreground">
+                  (this device's wakes)
+                </span>
               )}
             </label>
           </div>
@@ -157,18 +167,28 @@ export function WindDownDialog({
               {st.finished && st.paused && " · Pause all is on"}
               {st.finished && !st.pauseAfter && " · Pause all left as it was"}
             </p>
-            <ul className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto" aria-label="Agents">
+            <ul
+              className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto"
+              aria-label="Agents"
+            >
               {st.rows.map((r) => (
                 <li
                   key={r.key || r.name}
-                  className="glass-panel flex flex-col gap-1 px-3 py-2 text-sm"
+                  className="flex flex-col gap-1 px-3 py-2 text-sm glass-panel"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="min-w-0 truncate font-medium">{nameOr(r.name)}</span>
+                    <span className="min-w-0 truncate font-medium">
+                      {nameOr(r.name)}
+                    </span>
                     {r.device && (
-                      <span className="text-xs text-muted-foreground">{plainLine(r.device)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {plainLine(r.device)}
+                      </span>
                     )}
-                    <Badge variant={stateVariant[r.state] ?? "secondary"} className="ml-auto">
+                    <Badge
+                      variant={stateVariant[r.state] ?? "secondary"}
+                      className="ml-auto"
+                    >
                       {stateText[r.state] ?? r.state}
                     </Badge>
                     {(r.state === "waiting" || r.state === "winding") && (
@@ -188,7 +208,9 @@ export function WindDownDialog({
                       {plainBlock(r.reply)}
                     </p>
                   )}
-                  {r.error && <p className="text-xs text-destructive">{r.error}</p>}
+                  {r.error && (
+                    <p className="text-xs text-destructive">{r.error}</p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -210,7 +232,9 @@ export function WindDownDialog({
               disabled={busy === "start" || n === 0}
               onClick={() => void start()}
             >
-              {st.id ? "Wind down again" : `Wind down ${n} agent${n === 1 ? "" : "s"}`}
+              {st.id
+                ? "Wind down again"
+                : `Wind down ${n} agent${n === 1 ? "" : "s"}`}
             </Button>
           )}
         </DialogFooter>

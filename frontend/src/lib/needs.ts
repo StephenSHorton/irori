@@ -333,7 +333,9 @@ export const GIVEN_QUESTION = "OK to start an agent on this?"
 // a permission prompt nobody is there to answer, or its agents kept going
 // away before finishing, so Irori stopped starting them, or another person
 // gave them the card and Irori stopped to ask (card #573).
-export function spawnNeed(c: CardSummary): "permission" | "crashed" | "given" | null {
+export function spawnNeed(
+  c: CardSummary
+): "permission" | "crashed" | "given" | null {
   const q = c.blockerQuestion ?? ""
   if (q.startsWith(WAITING_PERMISSION)) return "permission"
   if (q.startsWith("Its agent crashed") && q.endsWith(": start another?"))

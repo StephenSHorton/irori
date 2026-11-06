@@ -66,7 +66,10 @@ export function SentBackSigns({ blocker: b }: { blocker: CardBlocker }) {
   const r = sentBack(b.thread ?? [])
   if (!r) return null
   return (
-    <RoundSigns round={r} agent={agentOf(r, displayName(b.sentTo ?? b.raisedBy))} />
+    <RoundSigns
+      round={r}
+      agent={agentOf(r, displayName(b.sentTo ?? b.raisedBy))}
+    />
   )
 }
 
@@ -99,14 +102,16 @@ export function EarlierRound({
       </div>
       <Said who="You said" text={r.reason} compact={compact} />
       {r.replies.length > 0 ? (
-        (compact ? r.replies.slice(-1) : r.replies).map((it: CardThreadItem) => (
-          <Said
-            key={it.id}
-            who={`${displayName(it.who)} answered`}
-            text={it.text}
-            compact={compact}
-          />
-        ))
+        (compact ? r.replies.slice(-1) : r.replies).map(
+          (it: CardThreadItem) => (
+            <Said
+              key={it.id}
+              who={`${displayName(it.who)} answered`}
+              text={it.text}
+              compact={compact}
+            />
+          )
+        )
       ) : (
         <p className="text-warning">
           {who} didn't answer your reason before asking again.
@@ -127,7 +132,9 @@ export function EarlierRound({
               aria-expanded={proof}
               onClick={() => setProof((v) => !v)}
             >
-              {proof ? "Hide the proof you sent back" : "The proof you sent back"}
+              {proof
+                ? "Hide the proof you sent back"
+                : "The proof you sent back"}
             </button>
             {proof && (
               <RichText

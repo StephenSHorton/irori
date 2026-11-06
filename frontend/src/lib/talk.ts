@@ -59,14 +59,15 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
   // A string: the inbox also has holds the window's enum doesn't list.
   const h: string = d.hold || d.heldFor || ""
   const named = (key: string) => (key ? (w.name?.(key) ?? "") : "")
-  const from =
-    d.message.from.key.startsWith("user:")
-      ? "you"
-      : named(d.message.from.key) || d.message.from.name || "an agent"
+  const from = d.message.from.key.startsWith("user:")
+    ? "you"
+    : named(d.message.from.key) || d.message.from.name || "an agent"
   // An agent's name starts the sentence as it is ("sample-otter"): it's
   // a handle, not a word to capitalize.
   const lead = from === "you" ? "You" : from
-  const to = d.to?.startsWith("user:") ? "you" : named(d.to) || "the other agent"
+  const to = d.to?.startsWith("user:")
+    ? "you"
+    : named(d.to) || "the other agent"
   const repo = d.repoKey ? (w.repo ?? repoShort)(d.repoKey) : "its repo"
   switch (h) {
     case HoldReason.HoldBlocked:
@@ -107,8 +108,10 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
 // startedLine is what Start an agent did, in the person's words (card
 // #488): an agent starting, a free agent handed it, or a card waiting.
 export function startedLine(s: StartedAgent): string {
-  if (s.started) return `Starting an agent in ${s.repo} on ${s.cardRef}, with your message.`
-  if (s.offered) return `Your message is card ${s.cardRef} in ${s.repo}, handed to a free agent.`
+  if (s.started)
+    return `Starting an agent in ${s.repo} on ${s.cardRef}, with your message.`
+  if (s.offered)
+    return `Your message is card ${s.cardRef} in ${s.repo}, handed to a free agent.`
   return `Your message is card ${s.cardRef} in ${s.repo}; it waits for a free agent.`
 }
 
@@ -118,7 +121,11 @@ export function startedLine(s: StartedAgent): string {
 export function repoShort(key: string): string {
   if (key.startsWith("root:")) return `local repo ${key.slice(5, 12)}`
   const k = key.replace(/\/+$/, "").replace(/\.git$/, "")
-  const i = Math.max(k.lastIndexOf("/"), k.lastIndexOf(":"), k.lastIndexOf("\\"))
+  const i = Math.max(
+    k.lastIndexOf("/"),
+    k.lastIndexOf(":"),
+    k.lastIndexOf("\\")
+  )
   return i >= 0 && i < k.length - 1 ? k.slice(i + 1) : k
 }
 
@@ -336,7 +343,12 @@ export const talk = {
     if (d.state !== State.Held || d.hold !== HoldReason.HoldUnowned)
       throw new Error("inbox: not allowed in the delivery's current state")
     sampleSetState(id, State.Dismissed)
-    return { cardRef: "#99", repo: "ww-multiplayer", started: true, offered: false }
+    return {
+      cardRef: "#99",
+      repo: "ww-multiplayer",
+      started: true,
+      offered: false,
+    }
   },
 
   async allowAndRelease(id: string): Promise<void> {
@@ -626,14 +638,20 @@ const sampleRepoNames: Array<[string, string]> = [
 
 async function loadRepoNames(): Promise<Array<[string, string]>> {
   if (!inWails()) return sampleRepoNames
-  return ((await InboxService.RepoNames()) ?? []).map((r): [string, string] => [r.repoKey, r.name])
+  return ((await InboxService.RepoNames()) ?? []).map((r): [string, string] => [
+    r.repoKey,
+    r.name,
+  ])
 }
 
 // useRepoNames names repo keys (card #488): the checkout folder's name for
 // a repo this device has one of ("ww-multiplayer"), else repoShort. Read
 // once a held message to a repo shows, and again on each inbox change.
 export function useRepoNames(): (key: string) => string {
-  const { value, reload } = useLatest<Array<[string, string]>>(loadRepoNames, [])
+  const { value, reload } = useLatest<Array<[string, string]>>(
+    loadRepoNames,
+    []
+  )
   useEffect(() => {
     void reload()
     if (!inWails()) return

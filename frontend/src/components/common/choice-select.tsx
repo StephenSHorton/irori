@@ -62,10 +62,7 @@ export function ChoiceSelect({
         id={id}
         size={size}
         aria-label={showLabel ? undefined : label}
-        className={cn(
-          "min-w-0 bg-transparent text-ink",
-          className
-        )}
+        className={cn("min-w-0 bg-transparent text-ink", className)}
       >
         <SelectValue />
       </SelectTrigger>

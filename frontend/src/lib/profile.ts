@@ -32,7 +32,10 @@ async function readMe(): Promise<Me> {
 }
 
 export function useMe(): Me {
-  const { value, reload } = useLatest<Me>(readMe, inWails() ? { name: "", color: "", avatar: "" } : sampleMe)
+  const { value, reload } = useLatest<Me>(
+    readMe,
+    inWails() ? { name: "", color: "", avatar: "" } : sampleMe
+  )
   useEffect(() => {
     void reload()
     const on = () => void reload()

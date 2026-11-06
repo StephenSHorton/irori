@@ -135,7 +135,7 @@ export function ProfilePage({
     <div className="grid grid-cols-[minmax(0,1fr)] gap-6 pb-8 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
       <div className="grid min-w-0 content-start gap-6">
         <Column title="You">
-          <div className="glass-panel grid gap-4 p-4">
+          <div className="grid gap-4 p-4 glass-panel">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -172,7 +172,11 @@ export function ProfilePage({
                     disabled={busy}
                     onClick={() => file.current?.click()}
                   >
-                    {busy ? "Shrinking…" : avatar ? "Change picture" : "Add a picture"}
+                    {busy
+                      ? "Shrinking…"
+                      : avatar
+                        ? "Change picture"
+                        : "Add a picture"}
                   </Button>
                   {avatar && (
                     <Button
@@ -202,7 +206,7 @@ export function ProfilePage({
                     aria-label={`${c} as your colour`}
                     aria-pressed={color === c}
                     className={cn(
-                      "size-6 rounded-full outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-ring",
+                      "size-6 rounded-full ring-offset-2 ring-offset-background outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       color === c && "ring-2 ring-ink"
                     )}
                     style={{ background: `var(--device-${c})` }}
@@ -216,10 +220,11 @@ export function ProfilePage({
                 <span className="text-destructive">{error}</span>
               ) : (
                 <>
-                  Others see your name, colour and picture everywhere you
-                  share: spaces, channels, DMs. Your agents wear the colour as
-                  a stripe.
-                  {!color && " With no pick, each friend's screen picks one none of their devices wear."}
+                  Others see your name, colour and picture everywhere you share:
+                  spaces, channels, DMs. Your agents wear the colour as a
+                  stripe.
+                  {!color &&
+                    " With no pick, each friend's screen picks one none of their devices wear."}
                 </>
               )}
             </p>
@@ -227,15 +232,23 @@ export function ProfilePage({
         </Column>
 
         <Column title="Friends">
-          <div className="glass-panel grid gap-1 p-3">
+          <div className="grid gap-1 p-3 glass-panel">
             {friends.length === 0 ? (
               <p className="px-1 text-xs text-muted-foreground">
                 Nobody yet. Invite someone to a space and they show here.
               </p>
             ) : (
               friends.map((f) => (
-                <div key={f.personId} className="flex items-center gap-2.5 px-1 py-1">
-                  <Face name={f.name} color={f.color} avatar={f.avatar} size="md" />
+                <div
+                  key={f.personId}
+                  className="flex items-center gap-2.5 px-1 py-1"
+                >
+                  <Face
+                    name={f.name}
+                    color={f.color}
+                    avatar={f.avatar}
+                    size="md"
+                  />
                   <span className="min-w-0 flex-1 truncate text-sm text-ink">
                     {plainLine(f.name)}
                   </span>
@@ -290,9 +303,13 @@ export function ProfilePage({
                   ))}
                 </span>
               }
-              boards={(b.boards?.length ? b.boards : [{ boardId: b.boardId, name: b.name, tag: b.tag }]).map(
-                (x) => ({ id: x.boardId, name: plainLine(x.name) || plainLine(x.tag) })
-              )}
+              boards={(b.boards?.length
+                ? b.boards
+                : [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+              ).map((x) => ({
+                id: x.boardId,
+                name: plainLine(x.name) || plainLine(x.tag),
+              }))}
               onBoard={() => go({ kind: "board", id: b.boardId })}
               note={
                 b.members.length > 1
@@ -336,19 +353,25 @@ function SpaceCard({
   return (
     <div
       className={cn(
-        "glass-panel grid gap-3 p-4",
+        "grid gap-3 p-4 glass-panel",
         current && "border-primary/70!"
       )}
     >
       <div className="flex items-center gap-3">
-        <h3 className="flex-1 truncate text-[15px] font-semibold text-ink">{name}</h3>
+        <h3 className="flex-1 truncate text-[15px] font-semibold text-ink">
+          {name}
+        </h3>
         {people}
         <Button
           size="xs"
           variant={current ? "secondary" : "outline"}
           onClick={onPick}
           aria-pressed={current}
-          title={current ? "The sidebar shows this space" : "Show this space in the sidebar"}
+          title={
+            current
+              ? "The sidebar shows this space"
+              : "Show this space in the sidebar"
+          }
         >
           {current ? "Showing" : "Show"}
         </Button>
@@ -365,13 +388,18 @@ function SpaceCard({
               onClick={() => onBoard?.(x.id)}
               className="flex items-center gap-2 justify-self-start text-sm text-ink-2 hover:text-ink"
             >
-              <LayoutGridIcon className="size-3.5 text-muted-foreground" aria-hidden />
+              <LayoutGridIcon
+                className="size-3.5 text-muted-foreground"
+                aria-hidden
+              />
               {x.name}
             </button>
           ))}
         </div>
       )}
-      <p className="border-t border-border pt-2.5 text-xs text-muted-foreground">{note}</p>
+      <p className="border-t border-border pt-2.5 text-xs text-muted-foreground">
+        {note}
+      </p>
     </div>
   )
 }
@@ -399,7 +427,10 @@ function NameField({
   }
   return (
     <div className="grid gap-1">
-      <label htmlFor={id} className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+      <label
+        htmlFor={id}
+        className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      >
         Your name
       </label>
       <div className="flex items-center gap-2">
@@ -418,7 +449,12 @@ function NameField({
           }}
           className="h-8 text-[13px]"
         />
-        <Button size="sm" variant="outline" disabled={!changed || !value.trim()} onClick={() => void keep()}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!changed || !value.trim()}
+          onClick={() => void keep()}
+        >
           Save
         </Button>
       </div>

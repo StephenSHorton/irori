@@ -3,7 +3,11 @@ import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react"
 
 import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   cards,
   cardStatus,
@@ -17,7 +21,13 @@ import {
 import { copyText } from "@/lib/clipboard"
 import { plainLine } from "@/lib/irori"
 import { useCardRef } from "@/lib/cards"
-import { cardRefs, isGone, localRef, refText, splitMentions } from "@/lib/mentions"
+import {
+  cardRefs,
+  isGone,
+  localRef,
+  refText,
+  splitMentions,
+} from "@/lib/mentions"
 import { richBlocks, richInline, safeHref, type Inline } from "@/lib/rich"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +59,11 @@ export function RichText({
             {b.lines.map((l, j) => (
               <span key={j}>
                 {j > 0 && <br />}
-                <Pieces pieces={l} interactive={interactive} mentions={mentions} />
+                <Pieces
+                  pieces={l}
+                  interactive={interactive}
+                  mentions={mentions}
+                />
               </span>
             ))}
           </p>
@@ -110,7 +124,11 @@ function Pieces({
   return pieces.map((p, i) => {
     if (p.kind === "text") {
       if (!mentions?.length)
-        return <span key={i}><CardRefs text={p.text} interactive={interactive} /></span>
+        return (
+          <span key={i}>
+            <CardRefs text={p.text} interactive={interactive} />
+          </span>
+        )
       return (
         <span key={i}>
           {splitMentions(p.text, mentions).map((s, j) =>
@@ -134,7 +152,13 @@ function Pieces({
 // done card or an old thread once the backend has looked it up (card
 // #144). Each shows its state and moves with the card. A ref nothing
 // has, or text outside the app's context, stays text.
-function CardRefs({ text, interactive }: { text: string; interactive: boolean }) {
+function CardRefs({
+  text,
+  interactive,
+}: {
+  text: string
+  interactive: boolean
+}) {
   const ctx = useContext(AgentCards)
   if (!ctx || !text.includes("#")) return text
   const refs = cardRefs(text)
@@ -171,12 +195,19 @@ function CardRefs({ text, interactive }: { text: string; interactive: boolean })
             blocked: false,
           })}
           interactive={interactive}
-          onOpen={() => (ctx.onOpenThread ? ctx.onOpenThread(hit.id) : ctx.onOpen(hit.id))}
+          onOpen={() =>
+            ctx.onOpenThread ? ctx.onOpenThread(hit.id) : ctx.onOpen(hit.id)
+          }
         />
       )
     } else {
       out.push(
-        <LookedUpRef key={r.start} r={refText(r)} label={label} interactive={interactive} />
+        <LookedUpRef
+          key={r.start}
+          r={refText(r)}
+          label={label}
+          interactive={interactive}
+        />
       )
     }
     last = r.end
@@ -188,7 +219,15 @@ function CardRefs({ text, interactive }: { text: string; interactive: boolean })
 // LookedUpRef is a ref the window doesn't hold: a done card, a card on
 // a board it isn't showing, or a thread past the panel's list. Text until
 // (and unless) the backend finds it; fresh on every board change.
-function LookedUpRef({ r, label, interactive }: { r: string; label: string; interactive: boolean }) {
+function LookedUpRef({
+  r,
+  label,
+  interactive,
+}: {
+  r: string
+  label: string
+  interactive: boolean
+}) {
   const ctx = useContext(AgentCards)
   const t = useCardRef(r)
   if (!ctx || !t) return label
@@ -216,11 +255,21 @@ const dotTone: Record<RefStatus["tone"], string> = {
 const closedTone = new Set(["Done", "Failed", "Canceled", "Resolved"])
 
 // RefDot is a card's state as a dot in its status colour (card #343).
-export function RefDot({ status, className }: { status: RefStatus; className?: string }) {
+export function RefDot({
+  status,
+  className,
+}: {
+  status: RefStatus
+  className?: string
+}) {
   return (
     <span
       aria-hidden
-      className={cn("inline-block size-1.5 shrink-0 rounded-full", dotTone[status.tone], className)}
+      className={cn(
+        "inline-block size-1.5 shrink-0 rounded-full",
+        dotTone[status.tone],
+        className
+      )}
     />
   )
 }
@@ -245,8 +294,12 @@ function RefChip({
   onOpen: () => void
 }) {
   const name = plainLine(title)
-  const steps = status?.progress ? `${status.progress.done}/${status.progress.total}` : ""
-  const tip = [name, status?.label, steps && `${steps} steps`].filter(Boolean).join(" · ")
+  const steps = status?.progress
+    ? `${status.progress.done}/${status.progress.total}`
+    : ""
+  const tip = [name, status?.label, steps && `${steps} steps`]
+    .filter(Boolean)
+    .join(" · ")
   const body = (
     <>
       {status && <RefDot status={status} className="self-center" />}
@@ -257,14 +310,18 @@ function RefChip({
             "max-w-[22ch] min-w-0 truncate",
             // A closed card's title steps back, so done reads at a glance
             // beside the dot, not by colour alone.
-            status && closedTone.has(status.label) ? "text-muted-foreground" : "text-ink/85"
+            status && closedTone.has(status.label)
+              ? "text-muted-foreground"
+              : "text-ink/85"
           )}
         >
           {name}
         </span>
       )}
       {steps && (
-        <span className="shrink-0 text-[0.85em] text-muted-foreground tabular-nums">{steps}</span>
+        <span className="shrink-0 text-[0.85em] text-muted-foreground tabular-nums">
+          {steps}
+        </span>
       )}
     </>
   )
@@ -296,7 +353,13 @@ function RefChip({
 // MentionChip is one "@name" a mention names: in the agent's device
 // colour, its face on hover. Gone (stored gone, or gone now) is greyed and
 // struck through: it was never delivered.
-function MentionChip({ text, mention: m }: { text: string; mention: CardMention }) {
+function MentionChip({
+  text,
+  mention: m,
+}: {
+  text: string
+  mention: CardMention
+}) {
   const gone = m.gone || isGone(m.who)
   const tint = deviceVar(m.who.color)
   const chip = (
@@ -309,7 +372,10 @@ function MentionChip({ text, mention: m }: { text: string; mention: CardMention 
       )}
       style={
         !gone && tint
-          ? { color: tint, background: `color-mix(in oklch, ${tint} 14%, transparent)` }
+          ? {
+              color: tint,
+              background: `color-mix(in oklch, ${tint} 14%, transparent)`,
+            }
           : undefined
       }
       title={gone ? `${plainLine(m.name)} is gone; not delivered` : undefined}
@@ -356,7 +422,8 @@ function InlineLink({
       />
     </>
   )
-  const look = "break-all text-primary decoration-primary/40 underline underline-offset-2"
+  const look =
+    "break-all text-primary decoration-primary/40 underline underline-offset-2"
   if (!interactive) return <span className={look}>{body}</span>
   return (
     <button
@@ -402,7 +469,9 @@ export function CopyButton({
   return (
     <button
       type="button"
-      title={done === false ? "Couldn't copy" : done ? "Copied" : `${label}: ${text}`}
+      title={
+        done === false ? "Couldn't copy" : done ? "Copied" : `${label}: ${text}`
+      }
       aria-label={done ? "Copied" : `${label} ${text}`}
       onClick={() => void copyText(text).then(setDone)}
       className={cn(
@@ -424,7 +493,13 @@ export function CopyButton({
 // in the person's browser (its label and host, the full URL on hover); a
 // repo path or commit can't be opened from here, so it shows in full with
 // a Copy.
-export function LinkChip({ link, className }: { link: Link; className?: string }) {
+export function LinkChip({
+  link,
+  className,
+}: {
+  link: Link
+  className?: string
+}) {
   const ref = plainLine(link.ref)
   // A URL that can't be opened safely (an old row with user@ in it) shows
   // as text with a Copy, like a path, instead of a button that does nothing.

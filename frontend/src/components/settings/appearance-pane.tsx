@@ -44,7 +44,11 @@ export function AppearancePane() {
   const custom: Custom = a.custom ?? {
     base,
     accent: oklchToHex(themeTokens(baseTheme, "light").primary),
-    tint: oklchToHex({ l: 0.6, c: baseTheme.seed.nc / 0.3, h: baseTheme.seed.nh }),
+    tint: oklchToHex({
+      l: 0.6,
+      c: baseTheme.seed.nc / 0.3,
+      h: baseTheme.seed.nh,
+    }),
   }
   const pick = (patch: Partial<Custom>) =>
     set({ theme: "custom", custom: { ...custom, base, ...patch } })
@@ -89,7 +93,10 @@ export function AppearancePane() {
           text stays readable in light and dark.
         </p>
         <div className="flex flex-wrap items-center gap-4">
-          <label htmlFor={accentId} className="flex items-center gap-2 text-[13px] text-ink">
+          <label
+            htmlFor={accentId}
+            className="flex items-center gap-2 text-[13px] text-ink"
+          >
             <input
               id={accentId}
               type="color"
@@ -99,7 +106,10 @@ export function AppearancePane() {
             />
             Accent
           </label>
-          <label htmlFor={tintId} className="flex items-center gap-2 text-[13px] text-ink">
+          <label
+            htmlFor={tintId}
+            className="flex items-center gap-2 text-[13px] text-ink"
+          >
             <input
               id={tintId}
               type="color"
@@ -127,7 +137,9 @@ export function AppearancePane() {
           variant="outline"
           size="sm"
           value={[a.mode]}
-          onValueChange={(v: string[]) => v[0] && set({ mode: v[0] as ModeChoice })}
+          onValueChange={(v: string[]) =>
+            v[0] && set({ mode: v[0] as ModeChoice })
+          }
         >
           {modeChoices.map((m) => (
             <ToggleGroupItem key={m.value} value={m.value}>
@@ -148,9 +160,7 @@ export function AppearancePane() {
           className="text-[13px]"
         />
       </div>
-      <p className="text-xs text-muted-foreground">
-        Saved on this device.
-      </p>
+      <p className="text-xs text-muted-foreground">Saved on this device.</p>
     </div>
   )
 }
@@ -177,7 +187,9 @@ function Swatch({
       onClick={onPick}
       className={cn(
         "flex w-full flex-col items-stretch gap-1.5 rounded-lg border p-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        checked ? "border-primary ring-1 ring-primary" : "border-border hover:border-ring/60"
+        checked
+          ? "border-primary ring-1 ring-primary"
+          : "border-border hover:border-ring/60"
       )}
     >
       <span
@@ -185,8 +197,14 @@ function Swatch({
         className="flex h-10 w-full items-center gap-1.5 rounded-md border border-border px-2"
         style={{ background: colors.bg }}
       >
-        <span className="size-4 rounded-full" style={{ background: colors.accent }} />
-        <span className="h-1.5 flex-1 rounded-full opacity-70" style={{ background: colors.text }} />
+        <span
+          className="size-4 rounded-full"
+          style={{ background: colors.accent }}
+        />
+        <span
+          className="h-1.5 flex-1 rounded-full opacity-70"
+          style={{ background: colors.text }}
+        />
       </span>
       <span className="flex w-full items-center justify-between gap-1 text-[13px] text-ink">
         {name}

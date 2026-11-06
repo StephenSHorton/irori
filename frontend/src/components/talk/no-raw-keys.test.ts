@@ -20,7 +20,11 @@ import { LiveRoster } from "@/lib/thread"
 // Server rendering with no DOM: what the components read off window.
 const g = globalThis as unknown as { window?: unknown }
 g.window ??= {
-  matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  matchMedia: () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  }),
   addEventListener() {},
   removeEventListener() {},
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -42,19 +46,34 @@ const billing: Member = {
   owner: "Spencer",
 }
 // What an older Core sent, or a key nothing names.
-const raw: Member = { kind: "agent", key: `board:${board}/c0ffee00c0ffee00`, name: `board:${board}/c0ffee00c0ffee00` }
+const raw: Member = {
+  kind: "agent",
+  key: `board:${board}/c0ffee00c0ffee00`,
+  name: `board:${board}/c0ffee00c0ffee00`,
+}
 const nameless: Member = { kind: "agent", key: `agent:${card}` }
-const goneMine: Member = { kind: "agent", key: "3dc30c94c6a74af3c59d39f4ca02d6f1/7ff86a62-6cc4-4916-be2d-602034fc281a", name: "" }
+const goneMine: Member = {
+  kind: "agent",
+  key: "3dc30c94c6a74af3c59d39f4ca02d6f1/7ff86a62-6cc4-4916-be2d-602034fc281a",
+  name: "",
+}
 const others = [billing, raw, nameless, goneMine]
 
 const live = new Map<string, { status: string }>()
 
 function html(el: ReactElement): string {
-  return renderToStaticMarkup(createElement(LiveRoster.Provider, { value: live }, el))
+  return renderToStaticMarkup(
+    createElement(LiveRoster.Provider, { value: live }, el)
+  )
 }
 
 function dm(m: Member): Conversation {
-  return TalkConversation({ convId: `dm:${m.key.length}`, kind: "dm", name: m.name ?? m.key, members: [you, m] })
+  return TalkConversation({
+    convId: `dm:${m.key.length}`,
+    kind: "dm",
+    name: m.name ?? m.key,
+    members: [you, m],
+  })
 }
 
 function noKeys(out: string) {
@@ -66,8 +85,23 @@ function noKeys(out: string) {
 
 describe("no raw key reaches a person (card #478)", () => {
   test("Talk's list rows", () => {
-    for (const m of others) noKeys(html(createElement(ConvItem, { c: dm(m), current: false, onClick: () => {} })))
-    const row = html(createElement(ConvItem, { c: dm(billing), current: false, onClick: () => {} }))
+    for (const m of others)
+      noKeys(
+        html(
+          createElement(ConvItem, {
+            c: dm(m),
+            current: false,
+            onClick: () => {},
+          })
+        )
+      )
+    const row = html(
+      createElement(ConvItem, {
+        c: dm(billing),
+        current: false,
+        onClick: () => {},
+      })
+    )
     expect(row).toContain("BillingEng1 · Spencer")
     expect(row).toContain("Spencer&#x27;s agent · idle")
   })
@@ -75,7 +109,13 @@ describe("no raw key reaches a person (card #478)", () => {
   test("posts from another member's agent, and their mentions", () => {
     for (const m of others) {
       const names = new Map(others.map((x) => [x.key, x]))
-      const post = TalkPost({ postId: "p", convId: "c", by: m.key, text: "taken", mentions: others.map((x) => x.key) })
+      const post = TalkPost({
+        postId: "p",
+        convId: "c",
+        by: m.key,
+        text: "taken",
+        mentions: others.map((x) => x.key),
+      })
       noKeys(html(createElement(PostRow, { post, who: m, names, live })))
     }
   })
@@ -89,8 +129,16 @@ describe("no raw key reaches a person (card #478)", () => {
       const r = AgentRef({ key: m.key, name: m.name ?? "", status: "gone" })
       expect(displayName(r)).not.toMatch(rawKey)
       noKeys(html(createElement(Face, { who: r })))
-      for (const state of [Holding.HoldIdle, Holding.HoldGone, Holding.HoldActive])
-        noKeys(holderText({ state, who: r, others: 0 } as Parameters<typeof holderText>[0]))
+      for (const state of [
+        Holding.HoldIdle,
+        Holding.HoldGone,
+        Holding.HoldActive,
+      ])
+        noKeys(
+          holderText({ state, who: r, others: 0 } as Parameters<
+            typeof holderText
+          >[0])
+        )
     }
     expect(nameLookup()(spencersKey)).toBe("unknown agent")
   })
@@ -99,9 +147,16 @@ describe("no raw key reaches a person (card #478)", () => {
 describe("another member's agent isn't gone for not being on my roster (card #478)", () => {
   test("its board status, or unknown, never gone", () => {
     expect(statusOf(billing, live)).toBe("idle")
-    expect(statusOf({ kind: "agent", key: spencersKey, owner: "Spencer" }, live)).toBe("unknown")
+    expect(
+      statusOf({ kind: "agent", key: spencersKey, owner: "Spencer" }, live)
+    ).toBe("unknown")
     expect(statusOf(nameless, live)).toBe("unknown")
-    expect(whoseWord({ kind: "agent", key: spencersKey, owner: "Spencer" }, "unknown")).toBe("Spencer's agent")
+    expect(
+      whoseWord(
+        { kind: "agent", key: spencersKey, owner: "Spencer" },
+        "unknown"
+      )
+    ).toBe("Spencer's agent")
     // One of mine that left the roster is gone, as before.
     expect(statusOf(goneMine, live)).toBe("gone")
     // Its board card says gone: it is.

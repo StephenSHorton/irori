@@ -54,7 +54,7 @@ export function BoardsPage({
       {/* An open invite sits over the list, never in its place (card
           #103): your boards stay one click away while it waits. */}
       {inviting && (
-        <div className="glass-panel max-w-xl p-4">
+        <div className="max-w-xl p-4 glass-panel">
           <InvitePanel
             s={invite}
             onClose={() => {
@@ -80,7 +80,7 @@ export function BoardsPage({
             <BoardTilesShape />
           ) : boards.length > 0 ? (
             <ul
-              className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+              className="grid [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))] gap-3"
               aria-label="Your spaces"
             >
               {boards.map((b) => (
@@ -182,7 +182,8 @@ export function boardSegs(mine: CardSummary[], doneWeek: number): Seg[] {
     if (t === "destructive") blocked++
     else if (t === "info") working++
     else if (t === "success") doneWeek++
-    else if (c.state !== TaskState.Canceled && c.state !== TaskState.Failed) open++
+    else if (c.state !== TaskState.Canceled && c.state !== TaskState.Failed)
+      open++
   }
   return [
     { key: "working", label: "working", n: working, tone: "info" },
@@ -214,7 +215,7 @@ export function StateBar({ segs }: { segs: Seg[] }) {
             />
           ))}
       </span>
-      <span className="text-[11px] tabular-nums text-muted-foreground">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {text || "No cards yet"}
       </span>
     </span>
@@ -228,7 +229,10 @@ export function RecentCards({ cards }: { cards: CardSummary[] }) {
   return (
     <ul className="grid gap-1" aria-label="Recently active cards">
       {cards.map((c) => (
-        <li key={c.id} className="flex min-w-0 items-center gap-2 text-[12.5px]">
+        <li
+          key={c.id}
+          className="flex min-w-0 items-center gap-2 text-[12.5px]"
+        >
           {c.holder.who.key ? (
             <Face who={c.holder.who} noHover noDot className="size-5" />
           ) : (
@@ -241,7 +245,9 @@ export function RecentCards({ cards }: { cards: CardSummary[] }) {
           <span className="font-mono text-[11px] text-muted-foreground">
             {c.tag ?? ""}#{c.short}
           </span>
-          <span className="min-w-0 truncate text-ink-2">{plainLine(c.title)}</span>
+          <span className="min-w-0 truncate text-ink-2">
+            {plainLine(c.title)}
+          </span>
         </li>
       ))}
     </ul>
@@ -265,7 +271,9 @@ function BoardTile({
   const decide = mine.filter((c) => c.openBlockers > 0).length
   const ok = b.ready && !b.warnings?.length
   const recent = [...mine]
-    .sort((x, y) => (y.updatedAt > x.updatedAt ? 1 : y.updatedAt < x.updatedAt ? -1 : 0))
+    .sort((x, y) =>
+      y.updatedAt > x.updatedAt ? 1 : y.updatedAt < x.updatedAt ? -1 : 0
+    )
     .slice(0, 3)
   // The board's own last activity, else its newest live card's.
   const last = b.lastAt || recent[0]?.updatedAt
@@ -273,24 +281,36 @@ function BoardTile({
     <li>
       <button
         type="button"
-        className="glass-panel grid h-full w-full content-start gap-2 p-3 text-left transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
+        className="grid h-full w-full content-start gap-2 p-3 text-left glass-panel transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
         onClick={() => go({ kind: "board", id: b.boardId })}
       >
         <span className="flex items-center gap-2">
-          <span className={cn("size-2 shrink-0 rounded-full", ok ? "bg-success" : "bg-warning")} aria-hidden />
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              ok ? "bg-success" : "bg-warning"
+            )}
+            aria-hidden
+          />
           <span className="min-w-0 truncate text-sm font-medium text-ink">
             {plainLine(b.name) || "(unnamed)"}
           </span>
           {b.owner && (
-            <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+            <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">
+              owner
+            </span>
           )}
         </span>
         <span className="text-xs text-muted-foreground">
-          {b.ready ? b.people.map(plainLine).join(", ") : "Arriving from your other device"}
+          {b.ready
+            ? b.people.map(plainLine).join(", ")
+            : "Arriving from your other device"}
         </span>
         {b.ready && (
           <span className="truncate text-xs text-ink-2">
-            {boardsOf(b).map((x) => plainLine(x.name)).join(" · ")}
+            {boardsOf(b)
+              .map((x) => plainLine(x.name))
+              .join(" · ")}
           </span>
         )}
         {b.ready && <StateBar segs={boardSegs(mine, b.doneWeek ?? 0)} />}
@@ -304,7 +324,8 @@ function BoardTile({
           <FreshnessShort log={b.boardId} />
           {decide > 0 && (
             <span className="text-destructive">
-              {decide === 1 ? "1 card needs" : `${decide} cards need`} a decision
+              {decide === 1 ? "1 card needs" : `${decide} cards need`} a
+              decision
             </span>
           )}
         </span>

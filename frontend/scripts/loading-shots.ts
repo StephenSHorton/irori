@@ -13,7 +13,13 @@
 //
 // Only Chrome's DevTools protocol over a WebSocket, as phone-check.ts.
 /* eslint-disable @typescript-eslint/no-explicit-any -- DevTools replies are untyped JSON */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
@@ -25,7 +31,9 @@ const frames = Number(process.env.SHOT_FRAMES ?? 0)
 // SHOT_LOADED=1 shoots the same pages without ?slow: the loaded page, to
 // compare with its skeleton.
 const loaded = process.env.SHOT_LOADED === "1"
-const out = process.env.SHOT_OUT ?? join(import.meta.dir, "..", "preview-shots", "loading")
+const out =
+  process.env.SHOT_OUT ??
+  join(import.meta.dir, "..", "preview-shots", "loading")
 
 // The loading spots moved onto Loading, each held on its skeleton by ?slow.
 const PAGES: Array<[name: string, query: string]> = [
@@ -81,7 +89,11 @@ class Cdp {
     const id = ++this.id
     this.ws.send(JSON.stringify({ id, method, params, sessionId }))
     return new Promise((res, rej) =>
-      this.waiting.set(id, (m) => (m.error ? rej(new Error(`${method}: ${m.error.message}`)) : res(m.result))),
+      this.waiting.set(id, (m) =>
+        m.error
+          ? rej(new Error(`${method}: ${m.error.message}`))
+          : res(m.result)
+      )
     )
   }
 }
@@ -97,20 +109,32 @@ async function main() {
   mkdirSync(out, { recursive: true })
   const only = process.argv.slice(2)
   const pages = only.length ? PAGES.filter(([n]) => only.includes(n)) : PAGES
-  if (!pages.length) throw new Error(`no page named ${only.join(", ")}; pages: ${PAGES.map(([n]) => n).join(" ")}`)
+  if (!pages.length)
+    throw new Error(
+      `no page named ${only.join(", ")}; pages: ${PAGES.map(([n]) => n).join(" ")}`
+    )
   const profile = mkdtempSync(join(tmpdir(), "loading-shots-"))
   const port = 9500 + (process.pid % 200)
   const chrome = spawn(
     findBrowser(),
-    ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-      `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank"],
-    { stdio: "ignore" },
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--hide-scrollbars",
+      "--no-first-run",
+      `--remote-debugging-port=${port}`,
+      `--user-data-dir=${profile}`,
+      "about:blank",
+    ],
+    { stdio: "ignore" }
   )
   let empty = 0
   try {
     let ver: any
     for (let i = 0; i < 100 && !ver; i++) {
-      ver = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => null)
+      ver = await fetch(`http://127.0.0.1:${port}/json/version`)
+        .then((r) => r.json())
+        .catch(() => null)
       if (!ver) await Bun.sleep(100)
     }
     if (!ver) throw new Error("Chrome's DevTools port never answered")
@@ -118,36 +142,81 @@ async function main() {
     await new Promise((r, j) => ((ws.onopen = r), (ws.onerror = j)))
     const cdp = new Cdp(ws)
     await fetch(base).catch(() => {
-      throw new Error(`nothing at ${base}: start \`bun run preview:look\` or set PREVIEW_URL`)
+      throw new Error(
+        `nothing at ${base}: start \`bun run preview:look\` or set PREVIEW_URL`
+      )
     })
     for (const [name, query] of pages)
       for (const mode of ["dark", "light"])
         for (const reduce of [false, true]) {
-          const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" })
-          const { sessionId: s } = await cdp.send("Target.attachToTarget", { targetId, flatten: true })
-          await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false }, s)
-          await cdp.send("Emulation.setEmulatedMedia", {
-            features: [{ name: "prefers-reduced-motion", value: reduce ? "reduce" : "no-preference" }],
-          }, s)
+          const { targetId } = await cdp.send("Target.createTarget", {
+            url: "about:blank",
+          })
+          const { sessionId: s } = await cdp.send("Target.attachToTarget", {
+            targetId,
+            flatten: true,
+          })
+          await cdp.send(
+            "Emulation.setDeviceMetricsOverride",
+            { width, height, deviceScaleFactor: 1, mobile: false },
+            s
+          )
+          await cdp.send(
+            "Emulation.setEmulatedMedia",
+            {
+              features: [
+                {
+                  name: "prefers-reduced-motion",
+                  value: reduce ? "reduce" : "no-preference",
+                },
+              ],
+            },
+            s
+          )
           const [raw, hash = ""] = query.split("#")
-          const path = loaded ? raw.replace(/^\?slow&?/, "?").replace(/^\?$/, "") : raw
+          const path = loaded
+            ? raw.replace(/^\?slow&?/, "?").replace(/^\?$/, "")
+            : raw
           const url = `${base}${path}${path ? "&" : "?"}mode=${mode}${hash ? `#${hash}` : ""}`
           await cdp.send("Page.navigate", { url }, s)
           await Bun.sleep(1800)
-          const { result } = await cdp.send("Runtime.evaluate", { expression: PROBE, returnByValue: true }, s)
+          const { result } = await cdp.send(
+            "Runtime.evaluate",
+            { expression: PROBE, returnByValue: true },
+            s
+          )
           const v = result.value
           const tag = `${name}-${mode}${reduce ? "-reduced" : ""}${loaded ? "-loaded" : ""}`
-          const shot = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
-          writeFileSync(join(out, `${tag}.png`), Buffer.from(shot.data, "base64"))
+          const shot = await cdp.send(
+            "Page.captureScreenshot",
+            { format: "png" },
+            s
+          )
+          writeFileSync(
+            join(out, `${tag}.png`),
+            Buffer.from(shot.data, "base64")
+          )
           if (frames && mode === "dark")
             for (let f = 0; f < frames; f++) {
-              const fr = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
-              writeFileSync(join(out, `${name}${reduce ? "-reduced" : ""}-frame-${String(f).padStart(3, "0")}.png`), Buffer.from(fr.data, "base64"))
+              const fr = await cdp.send(
+                "Page.captureScreenshot",
+                { format: "png" },
+                s
+              )
+              writeFileSync(
+                join(
+                  out,
+                  `${name}${reduce ? "-reduced" : ""}-frame-${String(f).padStart(3, "0")}.png`
+                ),
+                Buffer.from(fr.data, "base64")
+              )
               await Bun.sleep(120)
             }
           await cdp.send("Target.closeTarget", { targetId })
           if (!v.busy && !loaded) empty++
-          console.log(`${v.busy ? "ok  " : "NONE"} ${tag.padEnd(34)} ${v.busy} skeleton(s), ${v.moving} animation(s)`)
+          console.log(
+            `${v.busy ? "ok  " : "NONE"} ${tag.padEnd(34)} ${v.busy} skeleton(s), ${v.moving} animation(s)`
+          )
         }
     ws.close()
   } finally {
@@ -160,7 +229,11 @@ async function main() {
       // left in the temp folder
     }
   }
-  console.log(empty ? `${empty} shot(s) showed no skeleton; PNGs in ${out}` : `PNGs in ${out}`)
+  console.log(
+    empty
+      ? `${empty} shot(s) showed no skeleton; PNGs in ${out}`
+      : `PNGs in ${out}`
+  )
   process.exit(empty ? 1 : 0)
 }
 
