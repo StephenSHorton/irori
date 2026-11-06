@@ -13,6 +13,8 @@ import { CommentBox } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { Face } from "@/components/cards/faces"
 import { Thread } from "@/components/cards/thread"
+import { MessageRowsShape } from "@/components/common/loading-shapes"
+import { Loading } from "@/components/ui/loading"
 import { spawnLine } from "@/lib/spawn-line"
 import { StartPastLimit } from "@/components/cards/start-past-limit"
 import {
@@ -146,7 +148,10 @@ export function ThreadView({
   // Talk's pane does: everything but the messages keeps its height.
   bound?: string
 }) {
-  const { detail } = useCard(t.id)
+  const { detail, error: readError } = useCard(t.id)
+  // The answers are a skeleton until the card's first read lands (card
+  // #598), not "No answer yet"; a failed read keeps the plain line.
+  const reading = !detail && !readError
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const resolved = t.state === "resolved"
@@ -209,11 +214,17 @@ export function ThreadView({
         on={{ agents: [...t.told, ...t.answeredBy], over: resolved }}
         compact
         empty={
-          t.state === "waiting" && t.agentsNow
-            ? "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
-            : t.agentsNow
-              ? "No answer yet."
-              : "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+          reading ? (
+            <Loading loading label="Loading the answers">
+              <MessageRowsShape rows={2} />
+            </Loading>
+          ) : t.state === "waiting" && t.agentsNow ? (
+            "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
+          ) : t.agentsNow ? (
+            "No answer yet."
+          ) : (
+            "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+          )
         }
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
         scroll

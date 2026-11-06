@@ -21,6 +21,7 @@ import { AppearancePane } from "@/components/settings/appearance-pane"
 import { MaintenancePane } from "@/components/settings/maintenance-pane"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
 import {
   Dialog,
   DialogContent,
@@ -185,77 +186,88 @@ function NotificationsPane({ open }: { open: boolean }) {
   const n = s.notify
   if (!n) {
     return (
-      <p className="text-muted-foreground">
-        {s.error ? `Could not load: ${s.error}` : "Loading…"}
-      </p>
+      <Loading
+        key="pane"
+        loading={s.loading}
+        label="Loading notification settings"
+        error={
+          s.error && (
+            <p className="text-muted-foreground">Could not load: {s.error}</p>
+          )
+        }
+      >
+        <NotificationsShape />
+      </Loading>
     )
   }
   const off = !n.enabled
   return (
-    <div className="grid gap-3">
-      <Toggle
-        label="Show notifications"
-        hint="Held messages, cards blocked on you, and agents asking you to choose."
-        checked={n.enabled}
-        onChange={(v) => s.setNotify({ enabled: v })}
-      />
-      <Toggle
-        label="Sound"
-        checked={n.sound}
-        disabled={off}
-        onChange={(v) => s.setNotify({ sound: v })}
-      />
-      <Toggle
-        label="Confetti on good news"
-        hint={
-          reducedMotion
-            ? "Off while Reduce Motion is on."
-            : "A burst across the screen when a card is done."
-        }
-        checked={n.confetti ?? false}
-        disabled={off}
-        onChange={(v) => s.setNotify({ confetti: v })}
-      />
-      <Row label="Volume" disabled={off || !n.sound}>
-        <Slider
-          min={0}
-          max={100}
-          step={5}
-          value={[Math.round(n.volume * 100)]}
-          disabled={off || !n.sound}
-          thumbLabel="Volume"
-          className="w-40"
-          onValueChange={(v) =>
-            s.setNotify({ volume: (Array.isArray(v) ? v[0] : v) / 100 })
+    <Loading key="pane" loading={false} label="Loading notification settings">
+      <div className="grid gap-3">
+        <Toggle
+          label="Show notifications"
+          hint="Held messages, cards blocked on you, and agents asking you to choose."
+          checked={n.enabled}
+          onChange={(v) => s.setNotify({ enabled: v })}
+        />
+        <Toggle
+          label="Sound"
+          checked={n.sound}
+          disabled={off}
+          onChange={(v) => s.setNotify({ sound: v })}
+        />
+        <Toggle
+          label="Confetti on good news"
+          hint={
+            reducedMotion
+              ? "Off while Reduce Motion is on."
+              : "A burst across the screen when a card is done."
           }
-        />
-      </Row>
-      <Row label="Corner" disabled={off}>
-        <ChoiceSelect
-          label="Corner"
-          size="sm"
-          value={n.corner}
+          checked={n.confetti ?? false}
           disabled={off}
-          choices={cornerChoices}
-          onValueChange={(v) => s.setNotify({ corner: v })}
-          className="text-[13px]"
+          onChange={(v) => s.setNotify({ confetti: v })}
         />
-      </Row>
-      <div className="flex flex-col items-start gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={off}
-          onClick={() => void s.test()}
-        >
-          Send a test notification
-        </Button>
-        {s.tested && (
-          <p className="text-xs text-muted-foreground">{s.tested}</p>
-        )}
+        <Row label="Volume" disabled={off || !n.sound}>
+          <Slider
+            min={0}
+            max={100}
+            step={5}
+            value={[Math.round(n.volume * 100)]}
+            disabled={off || !n.sound}
+            thumbLabel="Volume"
+            className="w-40"
+            onValueChange={(v) =>
+              s.setNotify({ volume: (Array.isArray(v) ? v[0] : v) / 100 })
+            }
+          />
+        </Row>
+        <Row label="Corner" disabled={off}>
+          <ChoiceSelect
+            label="Corner"
+            size="sm"
+            value={n.corner}
+            disabled={off}
+            choices={cornerChoices}
+            onValueChange={(v) => s.setNotify({ corner: v })}
+            className="text-[13px]"
+          />
+        </Row>
+        <div className="flex flex-col items-start gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={off}
+            onClick={() => void s.test()}
+          >
+            Send a test notification
+          </Button>
+          {s.tested && (
+            <p className="text-xs text-muted-foreground">{s.tested}</p>
+          )}
+        </div>
+        {s.error && <p className="text-xs text-destructive">{s.error}</p>}
       </div>
-      {s.error && <p className="text-xs text-destructive">{s.error}</p>}
-    </div>
+    </Loading>
   )
 }
 
@@ -263,49 +275,55 @@ function NotificationsPane({ open }: { open: boolean }) {
 // someone on the board's own page (an invite is always to one board), and
 // Join with an invite someone sent you.
 function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
-  const { boards, error, reload } = useBoards()
+  const { boards, error, loaded, reload } = useBoards()
   const { invite, setInvite } = useInvite(true)
   const inviting = !!invite && invite.state !== ""
   return (
     <div className="grid gap-3">
       <YourName />
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {boards.length === 0 ? (
-        <p className="text-[13px] text-muted-foreground">
-          No spaces yet. Make one on the Spaces page, then invite people to it.
-        </p>
-      ) : (
-        <ul className="grid gap-1.5" aria-label="People in your spaces">
-          {boards.map((b) => (
-            <li
-              key={b.boardId}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-            >
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate font-medium text-ink">
-                  {plainLine(b.name) || "(unnamed)"}
-                  <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
-                    {plainLine(b.tag)}#
+      {/* "No spaces yet" only once the spaces are read (card #598). */}
+      <Loading loading={!loaded} label="Loading your spaces">
+        {!loaded ? (
+          <BoardRowsShape />
+        ) : boards.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">
+            No spaces yet. Make one on the Spaces page, then invite people to
+            it.
+          </p>
+        ) : (
+          <ul className="grid gap-1.5" aria-label="People in your spaces">
+            {boards.map((b) => (
+              <li
+                key={b.boardId}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate font-medium text-ink">
+                    {plainLine(b.name) || "(unnamed)"}
+                    <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+                      {plainLine(b.tag)}#
+                    </span>
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {b.people.map(plainLine).join(", ") || "Just you"}
                   </span>
                 </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {b.people.map(plainLine).join(", ") || "Just you"}
-                </span>
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  onOpenBoard()
-                  go({ kind: "board", id: b.boardId })
-                }}
-              >
-                {b.owner ? "Invite…" : "Open"}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    onOpenBoard()
+                    go({ kind: "board", id: b.boardId })
+                  }}
+                >
+                  {b.owner ? "Invite…" : "Open"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Loading>
       {inviting ? (
         <div className="border-t border-border pt-3">
           <InvitePanel
@@ -323,18 +341,30 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
   )
 }
 
+const launchHint =
+  "Irori starts in the tray when you sign in. The tray offers it too."
+
 function AppPane({ open, version }: { open: boolean; version?: string }) {
   const s = useSettings(open)
+  const launchUnknown = s.launchAtLogin === null && s.loading
   const keep = useKeepUpToDate(open)
   return (
     <div className="grid gap-3">
-      <Toggle
-        label="Launch at login"
-        hint="Irori starts in the tray when you sign in. The tray offers it too."
-        checked={Boolean(s.launchAtLogin)}
-        disabled={s.launchAtLogin === null}
-        onChange={(v) => void s.setLaunchAtLogin(v)}
-      />
+      {/* Until it's read, a skeleton rather than a switch shown off (card
+          #598); a failed read leaves the switch off and disabled. */}
+      <Loading loading={launchUnknown} label="Loading Launch at login">
+        {launchUnknown ? (
+          <ToggleShape label="Launch at login" hint={launchHint} />
+        ) : (
+          <Toggle
+            label="Launch at login"
+            hint={launchHint}
+            checked={Boolean(s.launchAtLogin)}
+            disabled={s.launchAtLogin === null}
+            onChange={(v) => void s.setLaunchAtLogin(v)}
+          />
+        )}
+      </Loading>
       <VoiceNote open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
@@ -429,10 +459,83 @@ function Row({
   )
 }
 
+// ToggleShape, BoardRowsShape and NotificationsShape stand in while a
+// pane's first read is on its way (card #598): plain markup in the shape of
+// Toggle, the boards list and the Notifications pane, with no hooks, for
+// Loading to measure. skullet-block draws a control's stand-in as one
+// block, as the control would be.
+function ToggleShape({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="flex flex-col">
+        <span className="text-ink">{label}</span>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </span>
+      <span
+        skullet-block=""
+        className="mt-0.5 block h-5 w-9 shrink-0 rounded-full"
+      />
+    </div>
+  )
+}
+
+function BoardRowsShape() {
+  const rows = [
+    ["Sample space", "sam", "Stephen, sample-heron, Casey"],
+    ["Website refresh", "site", "Stephen"],
+  ]
+  return (
+    <ul className="grid gap-1.5">
+      {rows.map(([name, tag, people]) => (
+        <li
+          key={tag}
+          className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="font-medium text-ink">
+              {name}
+              <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+                {tag}#
+              </span>
+            </span>
+            <span className="text-xs text-muted-foreground">{people}</span>
+          </span>
+          <span skullet-block="" className="block h-8 w-[66px] rounded-lg" />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function NotificationsShape() {
+  return (
+    <div className="grid gap-3">
+      <ToggleShape
+        label="Show notifications"
+        hint="Held messages, cards blocked on you, and agents asking you to choose."
+      />
+      <ToggleShape label="Sound" />
+      <ToggleShape
+        label="Confetti on good news"
+        hint="A burst across the screen when a card is done."
+      />
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-ink">Volume</span>
+        <span className="block h-3.5 w-full rounded-full" />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-ink">Corner</span>
+        <span skullet-block="" className="block h-7 w-[91px] rounded-lg" />
+      </div>
+      <span skullet-block="" className="block h-8 w-[152px] rounded-lg" />
+    </div>
+  )
+}
+
 // YourName is the person's one name (card #183): what every board they're
 // on shows them as, and their other devices too. Enter or Save keeps it.
 function YourName() {
-  const { name, error, save } = useYourName(true)
+  const { name, error, loading, save } = useYourName(true)
   const [draft, setDraft] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const id = useId()
@@ -450,34 +553,43 @@ function YourName() {
       <label htmlFor={id} className="text-[13px] font-medium text-ink">
         Your name
       </label>
-      <div className="flex items-center gap-2">
-        <Input
-          id={id}
-          value={value}
-          maxLength={60}
-          disabled={name === null}
-          onChange={(e) => {
-            setDraft(e.target.value)
-            setSaved(false)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void keep()
-            if (e.key === "Escape" && draft !== null) {
-              e.stopPropagation()
-              setDraft(null)
-            }
-          }}
-          className="h-8 w-64 text-[13px]"
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!changed || !value.trim()}
-          onClick={() => void keep()}
-        >
-          Save
-        </Button>
-      </div>
+      <Loading loading={loading} label="Loading your name">
+        {loading ? (
+          <div className="flex items-center gap-2">
+            <span skullet-block="" className="block h-8 w-64 rounded-lg" />
+            <span skullet-block="" className="block h-8 w-14 rounded-lg" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Input
+              id={id}
+              value={value}
+              maxLength={60}
+              disabled={name === null}
+              onChange={(e) => {
+                setDraft(e.target.value)
+                setSaved(false)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void keep()
+                if (e.key === "Escape" && draft !== null) {
+                  e.stopPropagation()
+                  setDraft(null)
+                }
+              }}
+              className="h-8 w-64 text-[13px]"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!changed || !value.trim()}
+              onClick={() => void keep()}
+            >
+              Save
+            </Button>
+          </div>
+        )}
+      </Loading>
       <p className="text-xs text-muted-foreground">
         {error
           ? error

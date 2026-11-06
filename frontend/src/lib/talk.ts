@@ -568,6 +568,8 @@ export type HeldState = {
   // history is past held messages, the most recently decided first; only
   // loaded while asked for.
   history: Delivery[]
+  // loading is true until the first read lands, never again (card #598).
+  loading: boolean
   error: string | null
   reload: () => Promise<void>
 }
@@ -603,7 +605,7 @@ export function useHeld(history: boolean): HeldState {
     ])
     return { held: held ?? [], history: past ?? [] }
   }, [history])
-  const { value, error, reload } = useLatest<HeldValue>(load, {
+  const { value, loading, error, reload } = useLatest<HeldValue>(load, {
     held: [],
     history: [],
   })
@@ -614,7 +616,7 @@ export function useHeld(history: boolean): HeldState {
     return Events.On(EventInboxChanged, () => void reload())
   }, [reload])
 
-  return { ...value, error, reload }
+  return { ...value, loading, error, reload }
 }
 
 // sampleRepoNames are the sample checkouts' folder names.

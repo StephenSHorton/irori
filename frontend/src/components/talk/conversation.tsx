@@ -32,6 +32,8 @@ import { AgentCards } from "@/components/cards/agent-hover"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
 import { useBoards } from "@/lib/boards"
+import { PostRowsShape } from "@/components/common/loading-shapes"
+import { Loading } from "@/components/ui/loading"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -142,7 +144,10 @@ export function ConversationView({
   onBack: () => void
 }) {
   const live = useContext(LiveRoster)
-  const { posts, error } = usePosts(conv.convId)
+  const { posts, loading, error } = usePosts(conv.convId)
+  // The posts are a skeleton until their first read lands (card #598), not
+  // "Nothing here yet"; a reload never brings it back.
+  const firstLoad = loading && !error
   const [showMembers, setShowMembers] = useState(
     !narrow && conv.kind === "channel"
   )
@@ -337,36 +342,49 @@ export function ConversationView({
                 Could not load the posts: {error}
               </p>
             )}
-            {posts.length === 0 && !error && (
-              <p className="px-2 py-1 text-[12.5px] text-muted-foreground">
-                {conv.kind === "channel"
-                  ? "Nothing here yet. Agents wake only when you @-mention them; the rest read it at their next turn."
-                  : conv.readOnly
-                    ? "Nothing between them yet."
-                    : person
-                      ? `Nothing yet. Only you and ${personName} can read this.`
-                      : "Nothing yet. Every message here wakes the agent."}
-              </p>
-            )}
-            {posts.map((p, i) => {
-              const at = parseTime(p.at)
-              const prev = i > 0 ? parseTime(posts[i - 1].at) : null
-              const newDay =
-                at && (!prev || dayLabel(prev, now) !== dayLabel(at, now))
-              return (
-                <div key={p.postId} className="grid grid-cols-[minmax(0,1fr)]">
-                  {newDay && at && <DayLine label={dayLabel(at, now)} />}
-                  <PostRow
-                    post={p}
-                    who={names.get(p.by)}
-                    names={names}
-                    live={live}
-                    onMakeCard={conv.readOnly ? undefined : () => setMaking(p)}
-                    channel={conv.kind === "channel" ? conv : undefined}
-                  />
+            <Loading loading={firstLoad} label="Loading the messages">
+              {firstLoad ? (
+                <PostRowsShape />
+              ) : (
+                <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
+                  {posts.length === 0 && !error && (
+                    <p className="px-2 py-1 text-[12.5px] text-muted-foreground">
+                      {conv.kind === "channel"
+                        ? "Nothing here yet. Agents wake only when you @-mention them; the rest read it at their next turn."
+                        : conv.readOnly
+                          ? "Nothing between them yet."
+                          : person
+                            ? `Nothing yet. Only you and ${personName} can read this.`
+                            : "Nothing yet. Every message here wakes the agent."}
+                    </p>
+                  )}
+                  {posts.map((p, i) => {
+                    const at = parseTime(p.at)
+                    const prev = i > 0 ? parseTime(posts[i - 1].at) : null
+                    const newDay =
+                      at && (!prev || dayLabel(prev, now) !== dayLabel(at, now))
+                    return (
+                      <div
+                        key={p.postId}
+                        className="grid grid-cols-[minmax(0,1fr)]"
+                      >
+                        {newDay && at && <DayLine label={dayLabel(at, now)} />}
+                        <PostRow
+                          post={p}
+                          who={names.get(p.by)}
+                          names={names}
+                          live={live}
+                          onMakeCard={
+                            conv.readOnly ? undefined : () => setMaking(p)
+                          }
+                          channel={conv.kind === "channel" ? conv : undefined}
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
+              )}
+            </Loading>
             <div ref={bottom} />
           </div>
         )}

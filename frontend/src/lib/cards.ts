@@ -769,13 +769,15 @@ export function withStarted(
 // useThreads is the Threads panel's rows, fresh on every card change.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
   error: string | null
 } {
   const load = useCallback(async () => {
     const asOf = startedSeq
     return { rows: await threads.list(boardId), asOf }
   }, [boardId])
-  const { value, error, reload } = useLatest(
+  const { value, loading, error, reload } = useLatest(
     load,
     { rows: [] as ThreadSummary[], asOf: startedSeq },
     "threads"
@@ -786,18 +788,20 @@ export function useThreads(boardId = ""): {
     () => withStarted(value.rows, value.asOf, boardId, started),
     [value, boardId, started]
   )
-  return { threads: list, error }
+  return { threads: list, loading, error }
 }
 
 // useAllThreads is every thread on this device, fresh on every card change.
 export function useAllThreads(): {
   threads: ThreadSummary[]
+  // True until the first read lands (card #598), never on a reload.
+  loading: boolean
   error: string | null
 } {
   const load = useCallback(() => threads.listAll(), [])
-  const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
   useFresh(reload, error, true)
-  return { threads: value, error }
+  return { threads: value, loading, error }
 }
 
 function sampleChanged() {

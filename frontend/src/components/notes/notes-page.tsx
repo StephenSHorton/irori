@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
 import type { BoardSummary } from "@/lib/boards"
 import { plainLine, relativeTime, type Roster } from "@/lib/irori"
 import {
@@ -161,52 +162,68 @@ export function NotesPage({
       )}
 
       <section aria-label={`${scopeLabel} notes`} className="grid gap-2">
-        <div
-          role="group"
-          aria-label="Kind"
-          className="flex flex-wrap items-center gap-1.5 text-[12px]"
+        {/* The kind chips and the list wait for the first read together
+            (card #598), so neither shows a false 0 or a blank. Another
+            scope's read keeps the shown list; loading never comes back. */}
+        <Loading
+          loading={loading}
+          label="Loading the notes"
+          className="min-w-0"
         >
-          {counts.map((c) => (
-            <button
-              key={c.kind}
-              type="button"
-              aria-pressed={kind === c.kind}
-              onClick={() => setKind(c.kind)}
-              className={cn(
-                "rounded-full px-2.5 py-1 text-ink-2 capitalize",
-                kind === c.kind
-                  ? "bg-secondary text-ink"
-                  : "border border-border hover:bg-secondary/60"
+          {loading ? (
+            <NotesShape />
+          ) : (
+            <div className="grid gap-2">
+              <div
+                role="group"
+                aria-label="Kind"
+                className="flex flex-wrap items-center gap-1.5 text-[12px]"
+              >
+                {counts.map((c) => (
+                  <button
+                    key={c.kind}
+                    type="button"
+                    aria-pressed={kind === c.kind}
+                    onClick={() => setKind(c.kind)}
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-ink-2 capitalize",
+                      kind === c.kind
+                        ? "bg-secondary text-ink"
+                        : "border border-border hover:bg-secondary/60"
+                    )}
+                  >
+                    {c.kind === "all" ? "All" : `${c.kind}s`} {c.count}
+                  </button>
+                ))}
+              </div>
+              {shown.length > 0 ? (
+                <ul
+                  className="overflow-hidden p-0! glass-panel"
+                  aria-label="Notes"
+                >
+                  {shown.map((n) => (
+                    <NoteRow
+                      key={n.id}
+                      n={n}
+                      who={who}
+                      boardName={boardName}
+                      onOpen={onOpen}
+                      now={now}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
+                  {query || kind !== "all"
+                    ? "No notes match."
+                    : board
+                      ? `No notes on ${scopeLabel} yet. Agents propose them here, or write one with New note.`
+                      : "No notes yet. Agents propose them here, or write one with New note."}
+                </p>
               )}
-            >
-              {c.kind === "all" ? "All" : `${c.kind}s`} {c.count}
-            </button>
-          ))}
-        </div>
-        {shown.length > 0 ? (
-          <ul className="overflow-hidden p-0! glass-panel" aria-label="Notes">
-            {shown.map((n) => (
-              <NoteRow
-                key={n.id}
-                n={n}
-                who={who}
-                boardName={boardName}
-                onOpen={onOpen}
-                now={now}
-              />
-            ))}
-          </ul>
-        ) : (
-          !loading && (
-            <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
-              {query || kind !== "all"
-                ? "No notes match."
-                : board
-                  ? `No notes on ${scopeLabel} yet. Agents propose them here, or write one with New note.`
-                  : "No notes yet. Agents propose them here, or write one with New note."}
-            </p>
-          )
-        )}
+            </div>
+          )}
+        </Loading>
       </section>
 
       <NoteForm
@@ -224,6 +241,52 @@ export function NotesPage({
           await notes.create(n)
         }}
       />
+    </div>
+  )
+}
+
+// NotesShape is the notes list's skeleton: the kind chips, then rows in
+// NoteRow's frame, plain markup with no hooks.
+function NotesShape() {
+  const chips = ["All 14", "rules 5", "gotchas 3", "decisions 4", "pointers 2"]
+  const rows = [
+    "Run the two-PC check before calling a netcode change done.",
+    "The dock colliders live in the harbour scene, not the prefab; edit them there.",
+    "Prefer the smaller change first, then ask.",
+    "Release builds sign on the Mac only.",
+  ]
+  return (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+        {chips.map((c) => (
+          <span
+            key={c}
+            className="rounded-full border border-border px-2.5 py-1"
+          >
+            {c}
+          </span>
+        ))}
+      </div>
+      <ul className="overflow-hidden p-0! glass-panel">
+        {rows.map((t) => (
+          <li
+            key={t}
+            className="grid gap-1.5 border-b border-border/70 px-4 py-3 last:border-b-0"
+          >
+            <div className="flex items-start gap-2">
+              <span className="block h-5 w-12 rounded-md" />
+              <span className="flex-1 text-[13px] leading-snug text-ink">
+                {t}
+              </span>
+              <span className="block size-7 rounded-md" />
+              <span className="block size-7 rounded-md" />
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              everywhere · sample-heron · 3 days ago
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

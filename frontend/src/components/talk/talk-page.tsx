@@ -22,6 +22,11 @@ import {
 } from "lucide-react"
 
 import { AskBox } from "@/components/cards/ask-box"
+import {
+  ListRowsShape,
+  MessageRowsShape,
+} from "@/components/common/loading-shapes"
+import { Loading } from "@/components/ui/loading"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Face } from "@/components/cards/faces"
@@ -111,9 +116,18 @@ export function TalkPage({
   space = AllSpaces,
   desks = [],
   onOpenDesk,
+  threadsLoading = false,
+  conversationsLoading = false,
+  desksLoading = false,
 }: {
   // Every log's, each with its space (card #558).
   threads: ThreadSummary[]
+  // True until each list's first read lands (card #598): its section is a
+  // skeleton till then, not "No open threads", and never on a reload.
+  threadsLoading?: boolean
+  conversationsLoading?: boolean
+  // The desks listed at the top of Channels have their own first read.
+  desksLoading?: boolean
   // Merge desks, listed in Channels (card #521); opening one opens its
   // queue on the desk page until it is a Talk channel (slice 8).
   desks?: Desk[]
@@ -213,34 +227,42 @@ export function TalkPage({
         }
       >
         {extra}
-        {!folded(k) &&
-          lead.map((d) => (
-            <DeskItem
-              key={d.repoKey}
-              d={d}
-              onClick={() => onOpenDesk?.(d.repoKey)}
-            />
-          ))}
-        {items.length === 0 && lead.length === 0 && !extra && !folded(k) && (
-          <p className="px-2 py-1 text-[12px] text-muted-foreground">{empty}</p>
-        )}
-        {rows.map((c) => (
-          <ConvItem
-            key={c.convId}
-            c={c}
-            now={now}
-            current={c.convId === open}
-            onClick={() => onOpen(c.convId)}
-          />
-        ))}
-        {hidden > 0 && !folded(k) && (
-          <button
-            type="button"
-            className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
-            onClick={() => setAllShown({ ...allShown, [k]: true })}
+        {!folded(k) && (
+          <Rows
+            loading={conversationsLoading || (k === "channels" && desksLoading)}
+            label={label}
           >
-            Show {hidden} more
-          </button>
+            {lead.map((d) => (
+              <DeskItem
+                key={d.repoKey}
+                d={d}
+                onClick={() => onOpenDesk?.(d.repoKey)}
+              />
+            ))}
+            {items.length === 0 && lead.length === 0 && !extra && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {empty}
+              </p>
+            )}
+            {rows.map((c) => (
+              <ConvItem
+                key={c.convId}
+                c={c}
+                now={now}
+                current={c.convId === open}
+                onClick={() => onOpen(c.convId)}
+              />
+            ))}
+            {hidden > 0 && (
+              <button
+                type="button"
+                className="px-2 py-0.5 text-left text-[11px] text-muted-foreground hover:text-ink"
+                onClick={() => setAllShown({ ...allShown, [k]: true })}
+              >
+                Show {hidden} more
+              </button>
+            )}
+          </Rows>
         )}
       </Group>
     )
@@ -347,22 +369,26 @@ export function TalkPage({
         folded={folded("threads")}
         onToggle={searching ? undefined : () => toggleFold("threads")}
       >
-        {live.length === 0 && !folded("threads") && (
-          <p className="px-2 py-1 text-[12px] text-muted-foreground">
-            {query.trim()
-              ? "No open thread matches."
-              : "No open threads. Start one with the pen above."}
-          </p>
+        {!folded("threads") && (
+          <Rows loading={threadsLoading} label="Threads">
+            {live.length === 0 && (
+              <p className="px-2 py-1 text-[12px] text-muted-foreground">
+                {query.trim()
+                  ? "No open thread matches."
+                  : "No open threads. Start one with the pen above."}
+              </p>
+            )}
+            {liveThreads.map((t) => (
+              <ThreadItem
+                key={t.id}
+                t={t}
+                current={t.id === open}
+                why={why}
+                onClick={() => onOpen(t.id)}
+              />
+            ))}
+          </Rows>
         )}
-        {liveThreads.map((t) => (
-          <ThreadItem
-            key={t.id}
-            t={t}
-            current={t.id === open}
-            why={why}
-            onClick={() => onOpen(t.id)}
-          />
-        ))}
       </Group>
       {convSection(
         "channels",
@@ -438,6 +464,13 @@ export function TalkPage({
     </nav>
   )
 
+  // A link straight to a thread or channel (a reload, /#talk/<id>) waits
+  // for the lists' first read to find it (card #598): a skeleton of the
+  // pane till then, not the new-thread box. Thread or channel isn't known
+  // yet, so the shape is a plain header over messages.
+  const finding =
+    !!open && !current && !conv && (threadsLoading || conversationsLoading)
+
   const conversation = current ? (
     <Conversation
       key={current.id}
@@ -455,6 +488,14 @@ export function TalkPage({
       narrow={narrow}
       onBack={() => onOpen("")}
     />
+  ) : finding ? (
+    <Loading
+      loading
+      label="Loading the conversation"
+      className={cn("min-w-0 flex-1", narrow ? "px-1 py-2" : "p-4")}
+    >
+      <PaneShape />
+    </Loading>
   ) : (
     <div className="grid min-w-0 flex-1 content-start gap-3 p-4">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink">
@@ -489,13 +530,53 @@ export function TalkPage({
   if (narrow)
     return (
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden">
-        {current || conv || composing ? conversation : list}
+        {current || conv || finding || composing ? conversation : list}
       </div>
     )
   return (
     <div className="mb-4 flex min-h-0 flex-1 overflow-hidden glass-panel">
       {list}
       {conversation}
+    </div>
+  )
+}
+
+// Rows are a section's rows inside Loading (card #598): a skeleton of
+// list rows until the list's first read lands, then the rows in place.
+// Loading puts its own block between, so the rows keep their grid here.
+function Rows({
+  loading,
+  label,
+  children,
+}: {
+  loading: boolean
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <Loading loading={loading} label={`Loading ${label}`}>
+      {loading ? (
+        <ListRowsShape rows={3} className="gap-0.5" />
+      ) : (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">{children}</div>
+      )}
+    </Loading>
+  )
+}
+
+// PaneShape is the right pane's skeleton while a linked conversation is
+// still being found: a title line, a line under it, then messages.
+function PaneShape() {
+  return (
+    <div className="grid content-start gap-3">
+      <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
+        <span className="block size-4 shrink-0 rounded" />
+        Talk: channels and threads
+      </h2>
+      <p className="text-[12.5px] text-ink-2">
+        Looked at the list read; it waits on the store's lock.
+      </p>
+      <MessageRowsShape rows={4} />
     </div>
   )
 }
