@@ -10,8 +10,14 @@ import { applyAppearance, clean, loadAppearance, onAppearanceApplied } from "./l
 import { sendCardLook } from "./lib/card-look"
 import { previewFlag } from "./lib/preview"
 import { followInsets } from "./lib/insets"
+import { isMac } from "./lib/commands"
 
 followInsets()
+
+// Card #585: macOS rubber-bands every scroller past its ends. The mac:
+// variant in index.css keys off this to turn that off on a Mac only, so
+// scroll chaining on touch and Windows stays as it was.
+if (isMac()) document.documentElement.dataset.os = "mac"
 
 // Card #232: index.html shows the opening screen while the Core starts on
 // its own thread (a fully synced log takes a while on a phone); every
