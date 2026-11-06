@@ -12,9 +12,16 @@
 //! after an Irori restart, say) must not pull a newer, higher figure back.
 //! For one kind, a later reset time is a newer window and wins; the same
 //! reset time keeps the higher figure (use only grows inside a window); an
-//! earlier reset time is an old window and is ignored. A kind a reading
-//! leaves out stays until its reset time passes. A window past its reset
-//! time is dropped wherever it is read.
+//! earlier reset time is an old window and is ignored. A window with no
+//! reset time (a gateway's spend limit) has no window to compare, so the
+//! newest reading that reports it wins. A kind a reading leaves out stays:
+//! until its reset time passes, or, with no reset time, until a reading
+//! reports it again. A window past its reset time is dropped wherever it
+//! is read.
+//!
+//! A reading is checked window by window: one with a kind or reset time
+//! the Core can't take is logged and left out, and the rest still count,
+//! so a new kind from a newer Claude Code can't blank the others.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -27,7 +34,8 @@ use crate::reset::write_private;
 pub const FILE: &str = "usage-limits.json";
 /// At most this many windows in one reading (there are three kinds today).
 pub const MAX_WINDOWS: usize = 8;
-/// A window's kind: ASCII letters, digits, `_` or `-`, at most this long.
+/// A window's kind: ASCII letters, digits, `_`, `-` or `.` (as in
+/// `seven_day.opus`), at most this long.
 pub const MAX_KIND: usize = 32;
 /// The highest figure kept: past 100 is an exceeded spend limit.
 pub const MAX_PERCENT: f64 = 1000.0;
@@ -80,39 +88,56 @@ fn stale(w: &UsageWindow, now_ms: i64) -> bool {
     w.resets_at_ms.is_some_and(|r| r <= now_ms)
 }
 
-/// Checks a reading: each window's kind, figure and reset time. Windows
-/// already past their reset time drop, and a kind given twice keeps its
-/// last. `Err` is the 400's text.
+fn good_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.len() <= MAX_KIND
+        && kind
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+/// One reported window as kept, or why it can't be.
+fn check(r: &RateLimit) -> Result<UsageWindow, String> {
+    let kind = r.kind.trim();
+    if !good_kind(kind) {
+        return Err(format!(
+            "kind {kind:?} is not 1-{MAX_KIND} of A-Z a-z 0-9 _ - ."
+        ));
+    }
+    if !r.percent_used.is_finite() {
+        return Err(format!("{kind}: percentUsed is not a number"));
+    }
+    let resets_at_ms = match r.resets_at.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(s) => Some(
+            GoTime::parse_rfc3339(s)
+                .map(|t| t.unix_milli_value())
+                .ok_or_else(|| format!("{kind}: resetsAt {s:?} is not an RFC 3339 time"))?,
+        ),
+    };
+    Ok(UsageWindow {
+        kind: kind.to_string(),
+        percent_used: r.percent_used.clamp(0.0, MAX_PERCENT),
+        resets_at_ms,
+    })
+}
+
+/// Checks a reading window by window. A window the Core can't take (its
+/// kind, figure or reset time) is logged and left out; so is one already
+/// past its reset time. A kind given twice keeps its last. `Err`, the
+/// 400's text, is only for a reading too long to be one.
 pub fn validate(input: &[RateLimit], now_ms: i64) -> Result<Vec<UsageWindow>, String> {
     if input.len() > MAX_WINDOWS {
         return Err(format!("at most {MAX_WINDOWS} rate-limit windows"));
     }
     let mut out: Vec<UsageWindow> = Vec::new();
     for r in input {
-        let kind = r.kind.trim();
-        if kind.is_empty()
-            || kind.len() > MAX_KIND
-            || !kind
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-        {
-            return Err(format!("kind is required: 1-{MAX_KIND} of A-Z a-z 0-9 _ -"));
-        }
-        if !r.percent_used.is_finite() {
-            return Err("percentUsed must be a number".into());
-        }
-        let resets_at_ms = match r.resets_at.as_deref().map(str::trim) {
-            None | Some("") => None,
-            Some(s) => Some(
-                GoTime::parse_rfc3339(s)
-                    .map(|t| t.unix_milli_value())
-                    .ok_or_else(|| format!("resetsAt must be an ISO 8601 time, not {s:?}"))?,
-            ),
-        };
-        let w = UsageWindow {
-            kind: kind.to_string(),
-            percent_used: r.percent_used.clamp(0.0, MAX_PERCENT),
-            resets_at_ms,
+        let w = match check(r) {
+            Ok(w) => w,
+            Err(e) => {
+                crate::logf(format_args!("usage limits: window left out: {e}"));
+                continue;
+            }
         };
         if stale(&w, now_ms) {
             continue;
@@ -123,16 +148,26 @@ pub fn validate(input: &[RateLimit], now_ms: i64) -> Result<Vec<UsageWindow>, St
     Ok(out)
 }
 
+/// A kept reading from the file, held to what [`validate`] lets in.
+fn sane(mut m: UsageLimits) -> UsageLimits {
+    let mut windows: Vec<UsageWindow> = Vec::new();
+    for mut w in m.windows {
+        if !good_kind(&w.kind) || !w.percent_used.is_finite() {
+            continue;
+        }
+        w.percent_used = w.percent_used.clamp(0.0, MAX_PERCENT);
+        windows.retain(|o| o.kind != w.kind);
+        windows.push(w);
+    }
+    windows.truncate(MAX_WINDOWS);
+    m.windows = windows;
+    m
+}
+
 /// `kept` with `reading` merged in (the module's rules), stale windows
 /// gone, in kind order.
 pub fn merge(kept: &[UsageWindow], reading: Vec<UsageWindow>, now_ms: i64) -> Vec<UsageWindow> {
-    let mut out: Vec<UsageWindow> = kept
-        .iter()
-        .filter(|w| !stale(w, now_ms))
-        // A window with no reset time lives only as long as its reading.
-        .filter(|w| w.resets_at_ms.is_some() || reading.iter().any(|r| r.kind == w.kind))
-        .cloned()
-        .collect();
+    let mut out: Vec<UsageWindow> = kept.iter().filter(|w| !stale(w, now_ms)).cloned().collect();
     for r in reading {
         match out.iter_mut().find(|o| o.kind == r.kind) {
             None => out.push(r),
@@ -157,13 +192,14 @@ pub struct Usage {
 }
 
 impl Usage {
-    /// Loads `<data_dir>/usage-limits.json`; an absent or unreadable file
-    /// is no reading.
+    /// Loads `<data_dir>/usage-limits.json`, held to the same checks as a
+    /// posted reading; an absent or unreadable file is no reading.
     pub fn new(data_dir: &Path) -> Usage {
         let path = data_dir.join(FILE);
         let m = std::fs::read(&path)
             .ok()
             .and_then(|raw| serde_json::from_slice(&raw).ok())
+            .map(sane)
             .unwrap_or_default();
         Usage {
             path,
@@ -176,20 +212,21 @@ impl Usage {
         self.lock().clone().fresh(now_ms)
     }
 
-    /// Takes a session's reading at `now_ms` and saves it. `Ok(true)` when
-    /// what the window shows changed.
+    /// Takes a session's reading at `now_ms` and saves it. `Ok(false)`
+    /// when no window in it survived the checks: nothing changes, not even
+    /// the observed time.
     pub fn record(&self, input: &[RateLimit], now_ms: i64) -> Result<bool, String> {
         let reading = validate(input, now_ms)?;
+        if reading.is_empty() {
+            return Ok(false);
+        }
         let mut m = self.lock();
-        let before = m.clone().fresh(now_ms);
-        let next = UsageLimits {
+        *m = UsageLimits {
             observed_at_ms: now_ms,
             windows: merge(&m.windows, reading, now_ms),
         };
-        let changed = next.windows != before.windows;
-        *m = next;
         self.save(&m);
-        Ok(changed)
+        Ok(true)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, UsageLimits> {
@@ -259,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn bad_readings_are_refused() {
+    fn a_bad_window_is_left_out_and_the_rest_kept() {
         let future = iso(NOW + 3_600_000);
         for bad in [
             rl("", 1.0, None),
@@ -269,12 +306,20 @@ mod tests {
             rl("five_hour", f64::NAN, None),
             rl("five_hour", f64::INFINITY, None),
             rl("five_hour", 1.0, Some("tomorrow")),
+            rl("five_hour", 1.0, Some("2027-01-16T08:00:00")),
         ] {
-            assert!(
-                validate(std::slice::from_ref(&bad), NOW).is_err(),
+            assert_eq!(
+                validate(&[bad.clone(), rl("seven_day", 9.0, Some(&future))], NOW),
+                Ok(vec![win("seven_day", 9.0, Some(NOW + 3_600_000))]),
                 "{bad:?}"
             );
         }
+        // A kind with a dot, as a per-model weekly window might be.
+        assert_eq!(
+            validate(&[rl("seven_day.opus", 3.0, Some(&future))], NOW),
+            Ok(vec![win("seven_day.opus", 3.0, Some(NOW + 3_600_000))])
+        );
+        // Only a reading too long to be one is refused whole.
         let many: Vec<_> = (0..=MAX_WINDOWS)
             .map(|i| rl(&format!("k{i}"), 1.0, Some(&future)))
             .collect();
@@ -335,12 +380,24 @@ mod tests {
             )[0],
             win("five_hour", 40.0, Some(h5))
         );
-        // A stale kept window goes, and one with no reset time lives only with its reading.
+        // A stale kept window goes. One with no reset time stays through a
+        // reading that leaves it out, and the newest that reports it wins,
+        // lower figure and all.
         let kept = vec![
             win("five_hour", 40.0, Some(NOW - 1)),
             win("spend_limit", 3.0, None),
         ];
-        assert_eq!(merge(&kept, vec![], NOW), vec![]);
+        assert_eq!(
+            merge(&kept, vec![], NOW),
+            vec![win("spend_limit", 3.0, None)]
+        );
+        assert_eq!(
+            merge(&kept, vec![win("seven_day", 5.0, Some(d7))], NOW),
+            vec![
+                win("seven_day", 5.0, Some(d7)),
+                win("spend_limit", 3.0, None)
+            ]
+        );
         assert_eq!(
             merge(&kept, vec![win("spend_limit", 1.0, None)], NOW),
             vec![win("spend_limit", 1.0, None)]
@@ -357,11 +414,19 @@ mod tests {
             u.record(&[rl("five_hour", 23.5, Some(&iso(h5)))], NOW)
                 .unwrap()
         );
-        // The same figures again: saved (a newer observed time), no change shown.
+        // The same figures again: taken, so the observed time moves.
         assert!(
-            !u.record(&[rl("five_hour", 23.5, Some(&iso(h5)))], NOW + 5)
+            u.record(&[rl("five_hour", 23.5, Some(&iso(h5)))], NOW + 5)
                 .unwrap()
         );
+        // Nothing usable in it: not taken, nothing moves.
+        for empty in [
+            vec![],
+            vec![rl("bad kind", 1.0, None)],
+            vec![rl("seven_day", 1.0, Some(&iso(NOW - 1)))],
+        ] {
+            assert!(!u.record(&empty, NOW + 7).unwrap(), "{empty:?}");
+        }
         let again = Usage::new(d.path());
         assert_eq!(
             again.get(NOW + 10),
@@ -374,5 +439,26 @@ mod tests {
         assert!(again.get(h5).windows.is_empty());
         std::fs::write(d.path().join(FILE), b"junk").unwrap();
         assert_eq!(Usage::new(d.path()).get(NOW), UsageLimits::default());
+    }
+
+    #[test]
+    fn a_kept_file_is_held_to_the_same_checks() {
+        let d = tempfile::tempdir().unwrap();
+        let h5 = NOW + 3_600_000;
+        let mut windows = vec![
+            serde_json::json!({"kind": "five hour", "percentUsed": 5.0, "resetsAtMs": h5}),
+            serde_json::json!({"kind": "five_hour", "percentUsed": 1.0, "resetsAtMs": h5}),
+            serde_json::json!({"kind": "five_hour", "percentUsed": 4000.0, "resetsAtMs": h5}),
+        ];
+        windows.extend((0..MAX_WINDOWS).map(|i| {
+            serde_json::json!({"kind": format!("k{i}"), "percentUsed": -3.0, "resetsAtMs": null})
+        }));
+        let raw = serde_json::json!({"observedAtMs": NOW, "windows": windows});
+        std::fs::write(d.path().join(FILE), raw.to_string()).unwrap();
+        let got = Usage::new(d.path()).get(NOW);
+        assert_eq!(got.observed_at_ms, NOW);
+        assert_eq!(got.windows.len(), MAX_WINDOWS);
+        assert_eq!(got.windows[0], win("five_hour", MAX_PERCENT, Some(h5)));
+        assert_eq!(got.windows[1], win("k0", 0.0, None));
     }
 }

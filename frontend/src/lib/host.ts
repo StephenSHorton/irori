@@ -520,16 +520,7 @@ export const MetersService = {
   History: () => call(commands.metersHistory()),
 }
 
-// Claude usage left (card #599). usage_limits may not be in the bindings
-// yet, so it is looked up by name and reads as null while it is missing.
-const optionalCommands = commands as unknown as Record<
-  string,
-  (() => Promise<unknown>) | undefined
->
-
+// Claude usage left (card #599): the newest reading of the plan's windows.
 export const UsageService = {
-  Limits: (): Promise<unknown> => {
-    const limits = optionalCommands.usageLimits
-    return typeof limits === "function" ? call(limits()) : Promise.resolve(null)
-  },
+  Limits: () => call(commands.usageLimits()),
 }

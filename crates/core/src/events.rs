@@ -69,8 +69,9 @@ pub enum CoreEvent {
     Talk,
     /// A notification was kept or read (card #377), here or synced.
     Notifications,
-    /// A session reported the plan's rate-limit windows and what they
-    /// show moved (card #599).
+    /// A session's reading of the plan's rate-limit windows was taken
+    /// (card #599): on every one, as its observed time moves even when
+    /// the figures don't.
     Usage,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,

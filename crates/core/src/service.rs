@@ -2121,13 +2121,15 @@ impl Core {
     }
 
     /// Takes one session's rate-limit windows (`POST /v1/usage/limits`):
-    /// checked, merged into the kept reading and saved. Every reading is
-    /// `usage:changed`, so the window's "as of" moves too. `Err` is why
-    /// the reading was refused.
+    /// checked, merged into the kept reading and saved. Every reading taken
+    /// is `usage:changed`, so the window's "as of" moves too; one with no
+    /// window left after the checks changes nothing and is no event. `Err`
+    /// is why the reading was refused.
     pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
         let now = (self.s.now)().unix_milli_value();
-        self.s.usage.record(input, now)?;
-        self.s.hub.publish(CoreEvent::Usage);
+        if self.s.usage.record(input, now)? {
+            self.s.hub.publish(CoreEvent::Usage);
+        }
         Ok(())
     }
     pub fn version(&self) -> &str {

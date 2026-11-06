@@ -72,17 +72,57 @@ fn an_attached_mod_posts_the_windows() {
         Ok(Some(irori_core::CoreEvent::Usage))
     );
 
-    // A refused reading changes nothing.
+    // A body that isn't a reading is refused; one with no window the Core
+    // can take is fine but moves nothing, not even the observed time.
+    let many = format!(
+        r#"{{"rateLimits":[{}]}}"#,
+        [r#"{"kind":"k","percentUsed":1}"#; irori_core::usage::MAX_WINDOWS + 1].join(",")
+    );
     for bad in [
-        r#"{"rateLimits":[{"kind":"five hour","percentUsed":1}]}"#,
-        r#"{"rateLimits":[{"kind":"five_hour","percentUsed":1,"resetsAt":"soon"}]}"#,
         r#"{"rateLimits":[{"kind":"five_hour","percentUsed":"lots"}]}"#,
         r#"{"rateLimits":"#,
+        many.as_str(),
     ] {
         let (s, v) = post(&rig, &[("X-Irori-Attach", secret)], bad);
         assert_eq!(s, 400, "{bad}: {v}");
     }
+    for empty in [
+        r#"{}"#,
+        r#"{"rateLimits":[]}"#,
+        r#"{"rateLimits":[{"kind":"five hour","percentUsed":1}]}"#,
+        r#"{"rateLimits":[{"kind":"five_hour","percentUsed":1,"resetsAt":"soon"}]}"#,
+        r#"{"rateLimits":[{"kind":"five_hour","percentUsed":1,"resetsAt":"2001-01-01T00:00:00Z"}]}"#,
+    ] {
+        let (s, v) = post(&rig, &[("X-Irori-Attach", secret)], empty);
+        assert_eq!((s, &v), (200, &serde_json::json!({"ok": true})), "{empty}");
+    }
     assert_eq!(rig.core.usage_limits(), got);
+    assert_eq!(
+        feed.queue().recv_timeout(Duration::from_millis(200)),
+        Err(())
+    );
+
+    // One bad window leaves out only itself; a dotted kind is a kind.
+    let body = format!(
+        r#"{{"rateLimits":[{{"kind":"five hour","percentUsed":99}},{{"kind":"seven_day.opus","percentUsed":7,"resetsAt":"{reset}"}}]}}"#
+    );
+    let (s, v) = post(&rig, &[("X-Irori-Attach", secret)], &body);
+    assert_eq!(s, 200, "{v}");
+    let kinds: Vec<_> = rig
+        .core
+        .usage_limits()
+        .windows
+        .iter()
+        .map(|w| (w.kind.clone(), w.percent_used))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("five_hour".to_string(), 23.5),
+            ("seven_day".to_string(), 41.2),
+            ("seven_day.opus".to_string(), 7.0)
+        ]
+    );
 }
 
 #[test]

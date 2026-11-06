@@ -41,7 +41,16 @@ describe("Claude usage left (card #599)", () => {
     expect(staleLine(0, now)).toBeNull()
   })
   test("the strip's line", () => {
-    expect(stripLine(sampleUsage(now), now)).toBe("5h 62% · wk 39%")
+    expect(stripLine(sampleUsage(now), now)).toEqual({
+      text: "62% · 39% left",
+      title: "5-hour 62% left, weekly 39% left",
+    })
+    // A gateway's spend limit only: the strip still says something.
+    const spend = { observedAtMs: now, windows: [{ kind: "spend_limit", percentUsed: 60, resetsAtMs: null }] }
+    expect(stripLine(spend, now)).toEqual({ text: "40% left", title: "Spend limit 40% left" })
+    // Weekly only.
+    const wk = { observedAtMs: now, windows: [{ kind: "seven_day", percentUsed: 10, resetsAtMs: null }] }
+    expect(stripLine(wk, now)).toEqual({ text: "90% left", title: "Weekly 90% left" })
     expect(stripLine(NO_USAGE, now)).toBeNull()
     expect(stripLine(sampleUsage(now, "none"), now)).toBeNull()
   })
@@ -56,7 +65,7 @@ describe("Claude usage left (card #599)", () => {
     ])
     expect(ws.map((w) => w.kind)).toEqual(["five_hour", "seven_day", "spend_limit"])
   })
-  test("the host's answer, or nothing while usage_limits is missing", () => {
+  test("the host's answer, or nothing without one", () => {
     expect(asLimits(null)).toEqual(NO_USAGE)
     expect(hasUsage(asLimits(null))).toBe(false)
     const u = asLimits({ observedAtMs: 5, windows: [{ kind: "five_hour", percentUsed: 1, resetsAtMs: null }] })

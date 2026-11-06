@@ -4,6 +4,7 @@ import { cn } from "cn"
 import { Sparkline } from "@/components/meters/sparkline"
 import { PopoverContent, PopoverTitle } from "@/components/ui/popover"
 import {
+  diskByName,
   diskName,
   fmtByteRate,
   fmtCpu,
@@ -12,6 +13,7 @@ import {
   fmtMemory,
   fmtNet,
   fmtPct,
+  gpuByName,
   memPct,
   RING,
   type MetersSample,
@@ -35,9 +37,10 @@ export const meterColor = {
   gpu: "var(--meter-gpu, var(--chart-4))",
 } as const
 
-// MetersPanel is what the top bar's meters open (card #599): this
+// MetersPanel is what the top bar's meters open (card #599): how much of
+// Claude's plan is left first, as it is what people come for, then this
 // computer's last two minutes, one row per meter like Task Manager's left
-// column, then how much of Claude's plan is left.
+// column.
 export function MetersPanel({
   samples,
   usage,
@@ -53,7 +56,8 @@ export function MetersPanel({
       align="end"
       className="max-h-[min(85vh,44rem)] w-[22rem] gap-0 overflow-y-auto p-0"
     >
-      <PopoverTitle className="px-3 pt-3 pb-1.5 text-xs font-medium text-muted-foreground">
+      <UsageSection usage={usage} now={now} />
+      <PopoverTitle className="border-t border-border/70 px-3 pt-2.5 pb-1.5 text-xs font-medium text-muted-foreground">
         This computer
       </PopoverTitle>
       {!last ? (
@@ -72,11 +76,11 @@ export function MetersPanel({
             title="Memory"
             lines={[fmtMemory(last.mem)]}
           />
-          {last.disks.map((d, i) => (
+          {last.disks.map((d) => (
             <Row
-              key={`disk-${i}`}
+              key={`disk:${d.name}`}
               color={meterColor.disk}
-              values={samples.map((s) => s.disks[i]?.activePct ?? null)}
+              values={samples.map((s) => diskByName(s, d.name)?.activePct ?? null)}
               title={diskName(d.name)}
               lines={[
                 `${fmtPct(d.activePct)} active`,
@@ -95,9 +99,9 @@ export function MetersPanel({
             const mem = fmtGpuMemory(g)
             return (
               <Row
-                key={`gpu-${i}`}
+                key={`gpu:${g.name}`}
                 color={meterColor.gpu}
-                values={samples.map((s) => s.gpus[i]?.utilPct ?? null)}
+                values={samples.map((s) => gpuByName(s, g.name)?.utilPct ?? null)}
                 title={`GPU ${i}`}
                 lines={[g.name, mem ? `${fmtGpu(g)} · ${mem}` : fmtGpu(g)]}
               />
@@ -105,7 +109,6 @@ export function MetersPanel({
           })}
         </div>
       )}
-      <UsageSection usage={usage} now={now} />
     </PopoverContent>
   )
 }
@@ -159,7 +162,7 @@ function Row({
 function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
   const stale = staleLine(usage.observedAtMs, now)
   return (
-    <section className="border-t border-border/70 px-3 pt-2.5 pb-3">
+    <section className="px-3 pt-3 pb-3">
       <div className="flex items-baseline justify-between gap-2 text-xs">
         <h3 className="font-medium text-muted-foreground">Claude usage left</h3>
         {stale && hasUsage(usage) && (

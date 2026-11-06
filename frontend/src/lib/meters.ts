@@ -148,23 +148,52 @@ export function diskName(name: string): string {
   return m ? `Disk ${m[1]} (${m[2]})` : name
 }
 
-// pickGpu is the GPU the strip shows: the busiest discrete one, else the first.
-export function pickGpu(gpus: readonly B.MetersGpu[]): number {
-  let best = -1
-  gpus.forEach((g, i) => {
-    if (g.integrated) return
-    if (best < 0 || (g.utilPct ?? -1) > (gpus[best].utilPct ?? -1)) best = i
-  })
-  return best >= 0 ? best : gpus.length ? 0 : -1
+// pickGpu is the GPU the strip shows, by name: the discrete one busiest
+// on average over the window (so the pick holds still), else the first.
+// null with no GPU.
+export function pickGpu(samples: readonly MetersSample[]): string | null {
+  const last = samples.at(-1)
+  if (!last?.gpus.length) return null
+  let best: string | null = null
+  let bestAvg = -1
+  for (const g of last.gpus) {
+    if (g.integrated) continue
+    const avg = average(samples.map((s) => gpuByName(s, g.name)?.utilPct ?? null))
+    if (best == null || avg > bestAvg) {
+      best = g.name
+      bestAvg = avg
+    }
+  }
+  return best ?? last.gpus[0].name
 }
 
-// pickDisk is the busiest disk now, for the strip.
-export function pickDisk(disks: readonly B.MetersDisk[]): number {
-  let best = -1
-  disks.forEach((d, i) => {
-    if (best < 0 || (d.activePct ?? -1) > (disks[best].activePct ?? -1)) best = i
-  })
-  return best
+// pickDisk is the disk the strip shows, by name: the system disk (C:), else
+// the first. null with no disk.
+export function pickDisk(samples: readonly MetersSample[]): string | null {
+  const disks = samples.at(-1)?.disks ?? []
+  if (!disks.length) return null
+  return (disks.find((d) => /(^|\s)C:/i.test(d.name)) ?? disks[0]).name
+}
+
+// gpuByName and diskByName find a device in one reading, so a graph follows
+// the device even when the list changes order.
+export function gpuByName(s: MetersSample, name: string): B.MetersGpu | undefined {
+  return s.gpus.find((g) => g.name === name)
+}
+export function diskByName(s: MetersSample, name: string): B.MetersDisk | undefined {
+  return s.disks.find((d) => d.name === name)
+}
+
+// average of the readings there are; -1 with none.
+function average(values: readonly (number | null)[]): number {
+  let sum = 0
+  let n = 0
+  for (const v of values) {
+    if (v == null || Number.isNaN(v)) continue
+    sum += v
+    n++
+  }
+  return n ? sum / n : -1
 }
 
 // ---- the made-up machine (a plain browser) ---------------------------------------
@@ -258,14 +287,21 @@ function follow(): () => void {
   if (isAndroid()) return () => {}
   if (!inWails()) return startSample(push, set)
   let live = true
-  const off = Events.On<MetersSample>(EventMetersChanged, (ev) => {
-    if (ev.data) push(ev.data)
-  })
-  MetersService.History()
-    .then((history) => {
-      if (live) set(mergeHistory(history, state.value))
-    })
-    .catch(() => {})
+  // The history is asked for once the listener is live, so no reading
+  // falls between the two.
+  const off = Events.On<MetersSample>(
+    EventMetersChanged,
+    (ev) => {
+      if (ev.data) push(ev.data)
+    },
+    () => {
+      MetersService.History()
+        .then((history) => {
+          if (live) set(mergeHistory(history, state.value))
+        })
+        .catch(() => {})
+    }
+  )
   return () => {
     live = false
     off()

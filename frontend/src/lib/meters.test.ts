@@ -11,6 +11,8 @@ import {
   fmtNet,
   fmtPct,
   mergeHistory,
+  diskByName,
+  gpuByName,
   pickDisk,
   pickGpu,
   pushRing,
@@ -98,15 +100,44 @@ describe("what the strip picks (card #599)", () => {
     memUsedBytes: null,
     memTotalBytes: null,
   })
-  test("the busiest discrete GPU, else the first", () => {
-    expect(pickGpu([g(true, 90), g(false, 10), g(false, 30)])).toBe(2)
-    expect(pickGpu([g(true, 90), g(true, 10)])).toBe(0)
-    expect(pickGpu([])).toBe(-1)
+  // at is a reading with just these GPUs and disks.
+  const at = (gpus: MetersGpu[], disks: { name: string; activePct: number | null }[] = []) => ({
+    ...sampleAt(0),
+    gpus,
+    disks: disks.map((d) => ({ ...d, readBytesPerS: 0, writeBytesPerS: 0 })),
   })
-  test("the busiest disk", () => {
-    const d = (activePct: number | null) => ({ name: "", activePct, readBytesPerS: 0, writeBytesPerS: 0 })
-    expect(pickDisk([d(2), d(40), d(null)])).toBe(1)
-    expect(pickDisk([])).toBe(-1)
+  test("the discrete GPU busiest over the window, else the first", () => {
+    const a = (u: number) => ({ ...g(false, u), name: "A" })
+    const b = (u: number) => ({ ...g(false, u), name: "B" })
+    const igpu = { ...g(true, 90), name: "iGPU" }
+    // B is busier on average though A is busier now.
+    const window = [at([igpu, a(5), b(60)]), at([igpu, a(5), b(60)]), at([igpu, a(40), b(30)])]
+    expect(pickGpu(window)).toBe("B")
+    // The list changing order doesn't change the pick.
+    expect(pickGpu([...window, at([b(50), igpu, a(10)])])).toBe("B")
+    expect(pickGpu([at([igpu, { ...g(true, 10), name: "i2" }])])).toBe("iGPU")
+    expect(pickGpu([at([])])).toBeNull()
+    expect(pickGpu([])).toBeNull()
+  })
+  test("the system disk, else the first", () => {
+    const disks = [
+      { name: "1 D:", activePct: 90 },
+      { name: "0 C:", activePct: 2 },
+    ]
+    expect(pickDisk([at([], disks)])).toBe("0 C:")
+    const noC = [
+      { name: "1 D:", activePct: 9 },
+      { name: "2 E:", activePct: 50 },
+    ]
+    expect(pickDisk([at([], noC)])).toBe("1 D:")
+    expect(pickDisk([at([], [])])).toBeNull()
+    expect(pickDisk([])).toBeNull()
+  })
+  test("a device is found by name", () => {
+    const s = at([{ ...g(false, 7), name: "X" }], [{ name: "0 C:", activePct: 3 }])
+    expect(gpuByName(s, "X")?.utilPct).toBe(7)
+    expect(gpuByName(s, "Y")).toBeUndefined()
+    expect(diskByName(s, "0 C:")?.activePct).toBe(3)
   })
   test("the made-up machine has two GPUs, or none with ?gpu=none", () => {
     const s = sampleAt(1_000_000)

@@ -7,28 +7,18 @@
 
 import { useSyncExternalStore } from "react"
 
+import type * as B from "../gen/bindings"
 import { isAndroid } from "../updater/android"
 import { Events, UsageService } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
-// TODO: swap to gen/models types once usage bindings land.
-export type UsageWindow = {
-  // "five_hour", "seven_day", or another kind the gateway reports
-  // ("spend_limit").
-  kind: string
-  // 0 to 100; a spend limit can go past 100.
-  percentUsed: number
-  // When the window starts over, Unix ms; null when not said.
-  resetsAtMs: number | null
-}
-
-// TODO: swap to gen/models types once usage bindings land.
-export type UsageLimits = {
-  // When the newest reading was taken, Unix ms; 0 before the first.
-  observedAtMs: number
-  windows: UsageWindow[]
-}
+// One plan window: kind is "five_hour", "seven_day", or another the
+// gateway reports ("spend_limit"); percentUsed is 0 to 100 (a spend limit
+// can go past 100); resetsAtMs is null when not said.
+export type UsageWindow = B.UsageWindow
+// observedAtMs is when the newest reading was taken, 0 before the first.
+export type UsageLimits = B.UsageLimits
 
 export const EventUsageChanged = "usage:changed"
 
@@ -123,29 +113,30 @@ export function staleLine(observedAtMs: number, now: number): string | null {
   return `as of ${day}${clock(observedAtMs)}`
 }
 
-// stripLine is the top bar's "5h 62% · wk 39%" (left), or null with no reading.
-export function stripLine(u: UsageLimits, now: number): string | null {
+// StripLine is the top bar's reading of what is left: text is "62% · 39%
+// left" (5-hour, then weekly), title spells it out.
+export type StripLine = { text: string; title: string }
+
+// stripLine is the top bar's Claude reading, or null with no reading. With
+// no 5-hour or weekly window (a gateway's spend limit only) it shows the
+// first window there is.
+export function stripLine(u: UsageLimits, now: number): StripLine | null {
   if (!hasUsage(u)) return null
-  const parts: string[] = []
-  for (const [kind, short] of [
-    ["five_hour", "5h"],
-    ["seven_day", "wk"],
-  ] as const) {
-    const w = u.windows.find((x) => x.kind === kind)
-    if (w) parts.push(`${short} ${percentLeft(w, now)}%`)
-  }
-  return parts.length ? parts.join(" · ") : null
+  let shown = u.windows.filter((w) => ORDER.includes(w.kind))
+  shown = shown.length ? sortWindows(shown) : sortWindows(u.windows).slice(0, 1)
+  const pcts = shown.map((w) => `${percentLeft(w, now)}%`)
+  const title = shown
+    .map((w, i) => {
+      const label = windowLabel(w.kind)
+      return `${i ? label.toLowerCase() : label} ${pcts[i]} left`
+    })
+    .join(", ")
+  return { text: `${pcts.join(" · ")} left`, title }
 }
 
-// asLimits reads the host's answer, which is null while usage_limits isn't
-// in this build.
-export function asLimits(v: unknown): UsageLimits {
-  if (!v || typeof v !== "object") return NO_USAGE
-  const u = v as Partial<UsageLimits>
-  return {
-    observedAtMs: typeof u.observedAtMs === "number" ? u.observedAtMs : 0,
-    windows: Array.isArray(u.windows) ? u.windows : [],
-  }
+// asLimits reads the host's answer: no answer is no reading.
+export function asLimits(v: UsageLimits | null | undefined): UsageLimits {
+  return v ?? NO_USAGE
 }
 
 // sampleUsage is the preview's reading, taken two minutes before now.
@@ -182,15 +173,22 @@ function follow(): () => void {
   }
   let live = true
   let heard = false
-  const off = Events.On<UsageLimits>(EventUsageChanged, (ev) => {
-    heard = true
-    set(asLimits(ev.data))
-  })
-  UsageService.Limits()
-    .then((v) => {
-      if (live && !heard) set(asLimits(v))
-    })
-    .catch(() => {})
+  // The reading so far is asked for once the listener is live, so a
+  // usage:changed can't fall between the two.
+  const off = Events.On<UsageLimits>(
+    EventUsageChanged,
+    (ev) => {
+      heard = true
+      set(asLimits(ev.data))
+    },
+    () => {
+      UsageService.Limits()
+        .then((v) => {
+          if (live && !heard) set(asLimits(v))
+        })
+        .catch(() => {})
+    }
+  )
   return () => {
     live = false
     off()

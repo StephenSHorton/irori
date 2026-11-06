@@ -38,12 +38,16 @@ fn a_reading_outlives_a_restart() {
         feed.queue().recv_timeout(Duration::from_secs(5)),
         Ok(Some(CoreEvent::Usage))
     );
-    // A refused reading is no event and changes nothing.
+    // A reading with no window left after the checks, and one too long to
+    // be a reading, are no event and change nothing.
     let before = core.usage_limits();
-    assert!(
-        core.record_usage_limits(&[rl("bad kind", 1.0, None)])
-            .is_err()
-    );
+    core.record_usage_limits(&[rl("bad kind", 1.0, None)])
+        .unwrap();
+    core.record_usage_limits(&[]).unwrap();
+    let many: Vec<_> = (0..=irori_core::usage::MAX_WINDOWS)
+        .map(|i| rl(&format!("k{i}"), 1.0, None))
+        .collect();
+    assert!(core.record_usage_limits(&many).is_err());
     assert_eq!(core.usage_limits(), before);
     assert_eq!(
         feed.queue().recv_timeout(Duration::from_millis(200)),

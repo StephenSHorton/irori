@@ -6,7 +6,11 @@
 //!
 //! Body: `{"rateLimits": [{"kind", "percentUsed", "resetsAt"?}]}`, Claude
 //! Code's `SessionRateLimit`s as they come. The Core checks, merges and
-//! keeps them ([`irori_core::usage`]); a refused reading is 400 with why.
+//! keeps them ([`irori_core::usage`]). A window it can't take is logged
+//! and left out, and a reading with none left is 200 that changes nothing
+//! (a session idle past its resets has only stale windows to report). A
+//! body that isn't a reading (bad JSON, a figure that isn't a number,
+//! more than `MAX_WINDOWS` windows) is 400 with why.
 
 use serde::{Deserialize, Serialize};
 
