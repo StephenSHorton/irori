@@ -1019,6 +1019,47 @@ impl Fold {
         best.map(|(f, _, _)| f)
     }
 
+    /// Every comment and blocker that carries sha (card #659), as
+    /// [`Self::comment_attachment`] orders them (comments earliest first,
+    /// then blockers), each with the device whose row put the file there.
+    pub(crate) fn attachment_rows(&self, sha: &str) -> Vec<(FileRef, String)> {
+        let order = |a: &(GoTime, String), b: &(GoTime, String)| {
+            if a.0.equal(&b.0) {
+                a.1.cmp(&b.1)
+            } else if gotime::after(&a.0, &b.0) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        };
+        let mut cms: Vec<((GoTime, String), FileRef, String)> = self
+            .comments
+            .values()
+            .filter_map(|cm| {
+                let f = cm.attachments.iter().find(|f| f.sha256 == sha)?;
+                Some(((cm.at, cm.id.clone()), f.clone(), cm.device.clone()))
+            })
+            .collect();
+        cms.sort_by(|a, b| order(&a.0, &b.0));
+        let mut bls: Vec<((GoTime, String), FileRef, String)> = Vec::new();
+        for t in self.tasks.values() {
+            for b in &t.blockers {
+                let Some(f) = b.attachments.iter().find(|f| f.sha256 == sha) else {
+                    continue;
+                };
+                let dev = b
+                    .file_devs
+                    .iter()
+                    .find(|(s, _)| s == sha)
+                    .map(|(_, d)| d.clone())
+                    .unwrap_or_default();
+                bls.push(((b.at, format!("{}/{}", t.id, b.id)), f.clone(), dev));
+            }
+        }
+        bls.sort_by(|a, b| order(&a.0, &b.0));
+        cms.into_iter().chain(bls).map(|(_, f, d)| (f, d)).collect()
+    }
+
     pub(crate) fn list_comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.tasks.get(id)?;
         Some(

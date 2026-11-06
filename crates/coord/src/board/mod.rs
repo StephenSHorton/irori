@@ -1240,6 +1240,12 @@ impl Coord {
     pub fn comment_attachment(&self, sha: &str) -> Option<FileRef> {
         self.lock().comment_attachment(sha)
     }
+    /// Every comment and blocker carrying sha, with the device whose row
+    /// put it there (card #659): a shared board's caller counts one only
+    /// where that device offered the file in the board's log.
+    pub fn attachment_rows(&self, sha: &str) -> Vec<(FileRef, String)> {
+        self.lock().attachment_rows(sha)
+    }
 
     // ---- links, leases ----
 

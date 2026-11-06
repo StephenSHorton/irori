@@ -1235,7 +1235,10 @@ fn posts_carry_files() {
     })
     .unwrap();
     assert_eq!(
-        t.attachments(&shot.sha256),
+        t.attachments(&shot.sha256)
+            .into_iter()
+            .map(|a| (a.conv, a.file))
+            .collect::<Vec<_>>(),
         vec![(c.id.clone(), shot.clone()), (dm.clone(), shot.clone())],
         "earliest first"
     );
