@@ -602,7 +602,10 @@ impl Fold {
                 at,
                 ..TaskStateRow::default()
             },
-        )
+        )?;
+        // Under a held parent it takes the hold (finding 18).
+        let parent = t.parent.clone();
+        self.inherit_park(by, &parent, id)
     }
 
     /// Why t can't be reopened.

@@ -6,11 +6,7 @@ From the review of the coord build. None checked or fixed yet: the fix stage was
 
 ## 2. raise with options on a same-question item writes an unchecked edge — fixed: raise_locked checks the circle when the same-question item it merges into has no options.
 
-## 3. ask_close into a held parent inherits a hold with no circle check (medium)
-
-`crates/coord/src/board/asks.rs:1814`
-
-Ask A is open. add_after(X, [A]). park(P, Back::Card(X)). The person runs ask_close(A, outcome card, parent=P). This path calls only check_parent (asks.rs:1723) and then inherit_park, never check_adopt, so A takes P's item on X. Observed: close returns Ok with state blocked, A waits on X, X waits on A, and wait_chain shows the loop. P waits on X, so it never comes back either. split refuses the same case through check_adopt's Back::Card branch. Fix: call check_adopt(&pid, id) before the first write. Its held check needs care for an ask whose taker keeps it.
+## 3. ask_close into a held parent inherits a hold with no circle check — fixed: ask_close runs the adopt check, circle included, before its first write.
 
 ## 4. add_after treats a hold or a reason-only waits_on as order, so the order can vanish (medium)
 
@@ -30,11 +26,7 @@ Doc section 3 says a loop two devices make must still show. The write check uses
 
 Release build, a chain where each card is parked until the one before. board() as a person: 500 cards 30ms, 2000 cards 0.89s, 5000 cards 7.0s. The same 5000-card log read as an agent takes 5.9ms; a plain after chain read as a person takes 12.6ms. Each parked card runs its own BFS via order_loop, all inside the lock. notify/src/watch.rs:583 reads as the person; api/src/board.rs:135 passes the caller's key, so the cost lands there only when the caller is the person. Write time is fine: one order_reaches across 5000 cards took 2.5ms, a refused add_after 7.7ms. Date and word parks have no edges, so only long card chains pay this. Fix: find loops once per read in one pass over the graph.
 
-## 7. A parent can't be held until its own held subtask (low)
-
-`crates/coord/src/board/later.rs:519`
-
-kids_to_park checks held_by_someone(k) before the 'hold names this very subtask' skip, and check_adopt does the same at later.rs:293. K is a subtask of P with BOB on it. park(USER, P, why, Back::Card(K)) is refused: 'subtask #2 of #1 is held: it finishes first'. With K unheld the same call succeeds and K stays free, so the hold never touches K. Adopt case: P is parked until K, BOB claims K, then split(P, adopt K) is refused with '#2 is held, and #1 is Not yet', although inherit_park would leave K alone. Doc section 3 says 'Parking a parent with a held subtask is refused', so the park case follows the doc's letter. It still contradicts the builder's rule that this subtask stays free, so the person should decide. The fix is to move the skip above the held check in both places.
+## 7. A parent can't be held until its own held subtask — fixed: park and adopt skip the hold's own subtask before the held check, so it stays free.
 
 ## 8. New-card question clash overwrites a wait instead of refusing — fixed: new_waits compares after items, the card's own reason and the inherited hold, and refuses a clash.
 
@@ -62,25 +54,13 @@ VERIFIED by running probes a1, a2 and a3 (all probes are in /tmp/rv570/crates/co
 
 VERIFIED by running probes c1 and c2. check_parkable only refuses person items, so these waits are allowed beside a park. c1: agent BOB holds a card, raises an external wait 'Vendor reply' (no PR), then parks it; the lane is later. BOB goes gone and the lane becomes needs_you through gone_waits_in at :1551. Read, not run: a spawned holder is ended right after a park, so this may need no extra step. c2: a wait on agent CAROL plus a park, CAROL gone, also gives needs_you. The looped branch in board() is the spec's one exception, and this isn't it. Read, not run: hand_on_refusal now returns 'bring it back first', so the row offers only bring-back. c1 can't be refused at write time because the agent goes after the park, so the fix belongs at read time: skip gone waits for a parked card when only held items and waits remain.
 
-## 15. Revising a parent's hold breaks same_hold, so bringing it back leaves its subtasks held on the person's word (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/later.rs:139`
-
-VERIFIED by running probe e1. A person parks a parent on Back::Word, and its subtask takes the same item. Any agent revises the parent's item with board_block blocker_id, setting the question to 'Not yet: until the spring'. revise has no parked check, and only the parent's row changes. The person calls bring_back(parent). The parent returns, but same_hold compares later and question, so close_kid_parks finds no match. The result is subtask state=blocked parked=true on 'word', with no way back except a separate bring-back by a person. Read, not run: revising the subtask instead has the same effect, and a later park replace misses it too because `same` comes back None. Fix: match on something revise doesn't change, or keep the question in step.
+## 15. Revising a parent's hold breaks same_hold, so bringing it back leaves its subtasks held on the person's word — fixed: rewording a hold rewords what its subtasks took too, and a revise of an inherited hold on the subtask is refused.
 
 ## 16. A hold accepts options through revise — fixed: revise refuses options on a hold.
 
-## 17. Changing a parent's word hold to wait on its own subtask leaves that subtask held, so neither comes back (medium)
+## 17. Changing a parent's word hold to wait on its own subtask leaves that subtask held, so neither comes back — fixed: changing a hold closes what every subtask took before raising the new one (a67c7a55); regression test added.
 
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/later.rs:526`
-
-VERIFIED by running probe f1. A parent with two subtasks is parked on Back::Word, and both subtasks take the item. The person changes the hold with park(p, 'after part 0', Back::Card(k0)). kids_to_park hits `continue` at :526 for k0 before it looks at k0's old item, so k0 keeps 'Not yet: not now' on word. The parent now waits for k0 to finish while k0 waits for a person, and the two are no longer the same hold, so bring_back(parent) wouldn't reach k0 (read, not run). This goes against the builder's rule that a parent parked until its own subtask leaves that subtask free. Fix: close k0's matching item in that branch.
-
-## 18. Reopening a finished subtask of a held parent sends it out with no hold (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/tasks.rs:572`
-
-VERIFIED by running probes b1 and b2. A parent has two subtasks. One is canceled, so parking skips it as terminal, and then the parent is parked on Back::Word. The person reopens the canceled subtask from the window. reopen_locked only looks at a terminal parent, so the subtask is state=submitted with no hold. sweep_asks makes 1 offer (b1) and cards_to_spawn lists it (b2), although doc section 3 says subtasks of a held parent carry the hold. waits_for_lead doesn't help, because the parent's holders were dropped. Only a person can trigger this: there is no reopen in tools/src/board.rs, tools/src/lib.rs or api/src. Fix: run inherit_park after the reopen row.
+## 18. Reopening a finished subtask of a held parent sends it out with no hold — fixed: reopen_locked runs inherit_park after the reopen row.
 
 ## 19. A park replace crossing a close of the same id leaves one device BLOCKED with nothing open, and ends the new hold on the other — fixed: changing a hold closes the old item per item and raises a fresh id, so no replace crosses its close.
 
@@ -90,11 +70,7 @@ VERIFIED by running probes b1 and b2. A parent has two subtasks. One is canceled
 
 VERIFIED by running probes h1 and h2. These are doc section 5 bugs 3 and 2, left alone as the task allowed, and listed because a hold makes them lasting. h2: park T with Back::Card(P), then complete P's only subtask. P's raw state stays submitted while its lane is done, so work_done (:2019) never fires, and after a sweep T stays blocked and parked with nothing shown. h1: park T with Back::Card(X), then the person deletes X. gone_away acts only on Some(o) at :1318, so T stays parked. check_back accepts a parent target, and agents are refused on the held card, so only a person's bring-back recovers it. Consider fixing bug 2 before the agent tool ships, since 'not yet, until that parent is done' is a natural thing to ask for.
 
-## 21. A taken ask closed as a card under a held parent stays WORKING with no hold (low)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/asks.rs:1814`
-
-VERIFIED by running probe l1. A parent is parked on Back::Word. BOB claims an ask and closes it with outcome card, parent=P. asks.rs writes state working with BOB as holder, and inherit_park returns silently because held_by_someone is true. The result is state=working, holders=[bob], parked=false, parent=P: a working subtask under a held parent, which the park path refuses for a held subtask. No hand-out happens, since BOB already had the ask. There is no write-time refusal or notice. Fix: refuse a held parent as the outcome's parent, or take the taker off and hold the card.
+## 21. A taken ask closed as a card under a held parent stays WORKING with no hold — fixed: ask_close refuses a held parent when the taker keeps the card.
 
 ## 22. Changing a hold races its close: the card sticks BLOCKED with no open item and the devices disagree — fixed: park and a hold's revise close the old item and raise a new one with a fresh id, never a replace; no sweep heal, see later-order.md section 4.
 
@@ -116,10 +92,5 @@ Section 3's 'answered_left skips later items' holds only on new builds, and know
 
 ## 26. A non-raiser's sweep writes a dead blocker.resolved every pass for plain after items — fixed: sweep_rest runs may_sweep_close (raiser's, creator's person or owner) before every item it closes, plain ones included.
 
-## 27. A subtask made on an old device under a held parent is not held, and an old origin hands it out (low)
+## 27. A subtask made on an old device under a held parent is not held, and an old origin hands it out — fixed: a new device's sweep puts the parent's hold on a never-held subtask nobody is on, where the row counts; limit 1 corrected.
 
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/later.rs:313`
-
-From reading only, not run. inherit_park runs only in this build's write paths (create_locked, split, asks.rs). A v0.12.3 agent running board_split on a parked parent writes a plain task.created and task.parent with no item. The subtask is SUBMITTED on every device. waits_for_lead at v0.12.3 (parts.rs:146) needs the parent to have holders, and park just dropped them. So the card's old origin offers or spawns it while the parent is held.
-
-No fold rule can fix this, by design. But known limit 1 says 'Hand-out isn't affected', which is wrong for this case, and section 3 says new subtasks inherit the hold without the limit. Either state the limit in section 4, or have a new device's sweep put the parent's item on an unheld, unassigned open subtask of a parked parent.

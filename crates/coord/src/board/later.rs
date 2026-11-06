@@ -303,6 +303,17 @@ impl Fold {
     /// Whether `k` may become a subtask of `parent`: a card that needs its
     /// new parent makes a circle, and a held parent holds it too.
     pub(crate) fn check_adopt(&self, parent: &str, k: &str) -> Result<()> {
+        let on_it = self.tasks.get(k).is_some_and(held_by_someone);
+        self.adopt_check(parent, k, on_it)
+    }
+
+    /// [`Self::check_adopt`] for an ask closed as a card under `parent`
+    /// that goes out with nobody on it.
+    pub(crate) fn check_ask_adopt(&self, parent: &str, k: &str) -> Result<()> {
+        self.adopt_check(parent, k, false)
+    }
+
+    fn adopt_check(&self, parent: &str, k: &str, on_it: bool) -> Result<()> {
         if let Some(path) = self.order_path(k, parent) {
             let mut ids = vec![parent.to_string()];
             ids.extend(path);
@@ -312,14 +323,18 @@ impl Fold {
             return Ok(());
         };
         let kt = &self.tasks[k];
-        if held_by_someone(kt) {
+        // A hold until k itself leaves k free (finding 7).
+        if item.on.as_ref().is_some_and(|on| on.reference == k) {
+            return Ok(());
+        }
+        if on_it {
             return Err(bad_state(format!(
                 "{} is held, and {} is Not yet: it can't take a card someone is on",
                 kt.short_ref(),
                 self.ref_of(parent)
             )));
         }
-        if kt.parked().is_some() || item.on.as_ref().is_some_and(|on| on.reference == k) {
+        if kt.parked().is_some() {
             return Ok(());
         }
         self.check_parkable(kt)?;
@@ -345,6 +360,46 @@ impl Fold {
         }
         self.write_park(by, k, &kt.note, &Park::of(&item))?;
         self.end_pending_spawns(by, k, HELD_SPAWN)
+    }
+
+    /// The sweep's part (finding 27): an old device's subtask of a held
+    /// parent has no hold, so its origin would hand it out. This device
+    /// puts the parent's hold on it, as ordinary rows, where that row
+    /// counts. Only a subtask never held, with nobody on it: one a person
+    /// freed stays free.
+    pub(crate) fn hold_old_subtasks(&mut self) -> Result<()> {
+        let mut todo: Vec<(String, Park)> = Vec::new();
+        for p in self.tasks.values() {
+            let Some(item) = p.parked() else {
+                continue;
+            };
+            for k in p.subtasks.iter().filter_map(|id| self.tasks.get(id)) {
+                let free = !is_terminal(&k.state)
+                    && k.open_ask().is_none()
+                    && !held_by_someone(k)
+                    && k.assigned.is_empty()
+                    && k.blockers.iter().all(|b| b.later.is_empty())
+                    && item.on.as_ref().is_none_or(|on| on.reference != k.id);
+                if !free
+                    || !self.may_cancel(k, &self.dev, None)
+                    || self.check_parkable(k).is_err()
+                    || self.check_room(k).is_err()
+                {
+                    continue;
+                }
+                if let Some(Back::Card(_)) = item.back()
+                    && self.check_blocker(item.on.as_ref(), &k.id).is_err()
+                {
+                    continue;
+                }
+                todo.push((k.id.clone(), Park::of(item)));
+            }
+        }
+        for (id, park) in todo {
+            let note = self.tasks[&id].note.clone();
+            self.write_park(SWEEPER, &id, &note, &park)?;
+        }
+        Ok(())
     }
 
     /// The sweep's part (finding 23): ends held cards' requests that a
@@ -549,15 +604,16 @@ impl Fold {
             if is_terminal(&k.state) {
                 continue;
             }
+            // A hold until this very subtask leaves it free (finding 7).
+            if matches!(back, Back::Card(c) if *c == k.id) {
+                continue;
+            }
             if held_by_someone(k) {
                 return Err(bad_state(format!(
                     "subtask {} of {} is held: it finishes first, or its holder leaves it",
                     k.short_ref(),
                     t.short_ref()
                 )));
-            }
-            if matches!(back, Back::Card(c) if *c == k.id) {
-                continue;
             }
             let same = old.is_some_and(|o| k.blockers.iter().any(|b| b.open() && same_hold(b, o)));
             if !same {
@@ -670,7 +726,8 @@ impl Fold {
     }
 
     /// Revise of hold b on t: closes it and raises the same hold with
-    /// question q and context cx under a new id.
+    /// question q and context cx under a new id, on t and on the subtasks
+    /// that took it, so bringing t back still finds them (finding 15).
     pub(crate) fn reword_hold(
         &mut self,
         by: &str,
@@ -679,11 +736,35 @@ impl Fold {
         q: String,
         cx: String,
     ) -> Result<(Task, Blocker)> {
+        if let Some(p) = self.tasks.get(&t.parent)
+            && Self::parks_of(p).iter().any(|o| same_hold(b, o))
+        {
+            return Err(invalid(format!(
+                "{} took this hold from {}: change it there",
+                t.short_ref(),
+                p.short_ref()
+            )));
+        }
         if q != b.question && open_with_question(t, &q).is_some() {
             return Err(invalid(format!(
                 "{} already has an item with that question",
                 t.short_ref()
             )));
+        }
+        let kids: Vec<Task> = t
+            .subtasks
+            .iter()
+            .filter_map(|id| self.tasks.get(id))
+            .filter(|k| k.blockers.iter().any(|x| x.open() && same_hold(x, b)))
+            .cloned()
+            .collect();
+        for k in &kids {
+            if q != b.question && open_with_question(k, &q).is_some() {
+                return Err(invalid(format!(
+                    "its subtask {} already has an item with that question",
+                    k.short_ref()
+                )));
+            }
         }
         let p = Park {
             reason: q.clone(),
@@ -695,7 +776,11 @@ impl Fold {
             attachments: b.attachments.clone(),
         };
         self.close_items(by, &t.id, std::slice::from_ref(&b.id), "reworded")?;
+        self.close_kid_parks(by, t, std::slice::from_ref(b), "reworded")?;
         let bid = self.write_park(by, &t.id, &t.note, &p)?;
+        for k in &kids {
+            self.write_park(by, &k.id, &k.note, &p)?;
+        }
         let nt = self.tasks[&t.id].clone();
         let out = nt
             .blockers

@@ -119,8 +119,10 @@ Field rules:
 - One park per card. Changing it closes the old item with a per-item
   `blocker.resolved` and raises a new item with a fresh id, on the card and
   on the subtasks that took it. A revise of a hold's words does the same on
-  the card. Close first: the fold merges a raise into an open item with the
-  same question. Never a `replace`: one crossing a close of the same id
+  the card and on the subtasks that took it, so bringing the parent back
+  still finds them. A subtask's inherited hold is changed on its parent: a
+  revise of it on the subtask is refused. Close first: the fold merges a
+  raise into an open item with the same question. Never a `replace`: one crossing a close of the same id
   leaves the card `BLOCKED` with nothing open, on every tag.
 - Two devices can each park a card apart. It then has two holds and stays
   held until the last one closes.
@@ -182,9 +184,17 @@ devices.
 ### Subtasks and parents
 
 - A parked parent doesn't hold its children, so parking a parent writes the same
-  item on each open, unheld subtask, and new subtasks inherit it. Real rows mean
-  old origins honour it.
-- Parking a parent with a held subtask is refused.
+  item on each open, unheld subtask, and new subtasks inherit it: made, adopted,
+  closed from an ask, or reopened. Real rows mean old origins honour it.
+- Parking a parent with a held subtask is refused, unless the hold waits on
+  that very subtask: it stays free, and a parent held until a card may adopt
+  that card while someone is on it.
+- An ask its taker keeps can't be closed as a card under a held parent; one
+  nobody keeps takes the hold. Either way the circle check runs first.
+- A subtask an old device makes under a held parent has no hold. A new
+  device's sweep puts the parent's item on it, where that row counts (the
+  subtask's creator's person or a board owner), when nobody is on or assigned
+  to it and it was never held. One a person freed stays free.
 - Bringing back a `word` parent closes the items on its subtasks too.
 - A parked child doesn't set the parent's rollup to `BLOCKED`. Old windows still
   will, with "A subtask needs a call".
@@ -210,8 +220,10 @@ devices.
 
 1. **Older agents can bypass a park.** Refusals are at write time, so an agent
    on an old core can still `board_unblock`, `board_status working` or
-   `board_join`. Hand-out isn't affected. Old windows' Stop waiting also closes
-   a park, which is a confirmed act by the person.
+   `board_join`. A subtask an old device makes under a held parent has no hold,
+   so its old origin can hand it out until a new device allowed to write it
+   sweeps; one claimed before that stays with its agent. Old windows' Stop
+   waiting also closes a park, which is a confirmed act by the person.
 2. **Board returns need a device up.** With the raiser's, creator's and owner's
    devices off or old, a date or word park waits.
 3. **Phones never sweep.** With only a phone on, nothing returns until a desktop
@@ -231,7 +243,9 @@ devices.
    cross that item's close and leave the card `BLOCKED` with nothing open.
    No sweep heals it: the heal would be a status row, which closes every
    open item on a device whose fold disagrees, and would send out a card
-   whose hold was lost.
+   whose hold was lost. An older build's revise of a parent's hold also
+   leaves its subtasks' items out of step, so bringing the parent back
+   misses them.
 10. **Plain question ids still collide.** Two devices raising questions on
    one card apart both pick `b<n>`, and one is dropped. Pre-existing; holds
    and after items no longer do this.

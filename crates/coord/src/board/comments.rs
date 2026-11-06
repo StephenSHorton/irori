@@ -1578,6 +1578,7 @@ impl Fold {
     fn sweep_rest(&mut self, now: &GoTime, out: &mut Vec<Notice>) -> Result<()> {
         let now = *now;
         self.return_gone(&now, out)?;
+        self.hold_old_subtasks()?;
         self.end_held_spawns()?;
         self.return_unheld_prs()?;
         self.tell_not_answering(out)?;
