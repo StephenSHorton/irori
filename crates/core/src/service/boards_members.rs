@@ -205,10 +205,19 @@ impl Services {
             .members
             .iter()
             .any(|p| p.person_id != me && m.active(&p.person_id));
-        if !others || !m.active(&me) {
+        // A DM space nobody else has heard of has nobody to tell (card
+        // #538): a `left` row would wait for ever.
+        let dm = self.dm_spaces.get(board_id);
+        let unheard = dm.as_ref().is_some_and(|d| self.dm_pending(&b, d));
+        if !others || !m.active(&me) || unheard {
             return self.forget_everywhere(board_id);
         }
-        if m.owner(&me) && m.members.iter().filter(|p| m.owner(&p.person_id)).count() <= 1 {
+        // A DM space's founder is its only owner, and the other person is
+        // never made one: it's the `left` row that tells them to start again.
+        if dm.is_none()
+            && m.owner(&me)
+            && m.members.iter().filter(|p| m.owner(&p.person_id)).count() <= 1
+        {
             return Err(Error::coord(
                 CK::NotAllowed,
                 "you're this board's only owner: make someone else an owner before you leave",

@@ -75,6 +75,32 @@ impl Core {
         self.s.talk.open_dm(a, b, by).map_err(|e| e.to_string())
     }
 
+    /// `me`'s DM with `key`, an agent or another person, opened if it's new
+    /// ([`tools::talk::open_dm`]): the window's way in, with its refusals.
+    pub fn talk_dm(&self, me: &str, key: &str) -> Result<String, String> {
+        tools::talk::open_dm(&self.talk_view(), me, key)
+    }
+
+    /// Everyone the person can DM (card #538), by name. Their keys are
+    /// `person:<id>`, as `talk_dm` takes them.
+    pub fn talk_dm_people(&self) -> Vec<super::boards::BoardMember> {
+        self.s.dm_people()
+    }
+
+    /// Leaves person DM `conv` (card #538): its spaces, on every device of
+    /// the person, with what's in them. A later DM from either side starts
+    /// a new one.
+    pub fn talk_dm_leave(&self, conv: &str) -> Result<(), String> {
+        let conv = conv.trim();
+        let Some(other) = self.s.talk.pair_other(conv) else {
+            return Err("that isn't a DM with another person".into());
+        };
+        self.s.dm_leave(&other).map_err(|e| e.to_string())?;
+        self.s.talk.drop_draft(conv);
+        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        Ok(())
+    }
+
     /// Makes a Personal channel; `by` joins it.
     pub fn talk_channel_create(
         &self,

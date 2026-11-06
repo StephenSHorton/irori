@@ -90,12 +90,20 @@ Agents don't DM other people, and people don't DM other people's agents: the too
 
 ## 6. The window
 
-A person DM has an empty `spaceId`, and `convInSpace` shows it under every pick. The new-DM picker has a people section (everyone you share a space with). A conversation carries `waiting` while pending, shown as "Waiting for Bob's Irori". If Bob's device says no `dms` in its hello, it reads "Bob's Irori needs updating". Opening a DM writes nothing; the first post does.
+A person DM has an empty `spaceId`, and `convInSpace` shows it under every pick. The new-DM picker has a people section: `talk_dm_people` lists everyone active in a space you're active in, hidden spaces aside, once each by name, and `talk_dm` with their `person:<id>` opens the DM. It refuses a person you share no space and no DM with, and another person's agent. Opening a DM writes nothing; the first post does.
+
+A conversation names the other person, and carries `waiting` while the log it writes to is pending: `them`, shown as "Waiting for Bob's Irori", or `update`, "Bob's Irori needs updating", when every device of Bob's connected on a shared space said no `dms` in its hello. One device new enough, or none connected, is `them`. A draft isn't waiting: nothing is on its way. A too-old hello tells the window Talk changed, since no hand-off will.
+
+The tools resolve a person too: `person:<id>`, or a name among the same people. Your own agent's name comes first for an agent; for the person, an agent and a person of one name are refused with both keys, as two people of one name are. An agent gets a refusal in words for a person or another person's agent, by key or name, and `talk_list` never shows it a person DM. Every tool caller is an agent, so `talk_dm_leave` is a window command and no tool: nothing that can't read a DM ends one.
 
 ## 7. Changes from the card and from §5
 
 - **The gate (§3).** The card says gate `talk.*` writes with `not_ready_for_spaces`. Its every-device rule can't be met by a log's first write, so the hidden log counts only devices known to be too old.
-- **Leaving.** `talk_dm_leave` leaves the space, and a later DM from that person offers it again. A per-person block list is follow-up work.
+- **Leaving.** `talk_dm_leave` leaves every live space of the DM through `leave_board`, not Talk's leave: a hidden log refuses a `leave` row (§4), and it's the `left` row that stops the other side writing there. A later DM from either side founds a new space. What was in the old log goes from this person's devices and stays on the other side's. A per-person block list is follow-up work. `leave_board` and the secret's rule each bend for a hidden space:
+  - The founder is the only owner and nobody can be made one, so the "only owner" refusal skips a marked space.
+  - A space the other person never held has nobody to tell, so it's forgotten at once and no `left` row waits for ever.
+  - A board secret's maker stops counting when cut, and leaving cuts the founder, whose secret is the space's only one: her room would close before the row went out, and Bob would never hear. So a marked space's maker counts after a cut. Nothing is lost by it: only the two hold that secret, and the rule's job is keeping out a device a rotation shut out, which a hidden space never has.
+- **Leaving as `done` is lost.** If the founder leaves a space after the other side joined but before its `done` lands, it looks pending, so she forgets it and he never gets a `left` row. His device goes on writing to a log nobody reads. Follow-up work.
 - **No mailbox.** Delivery needs one device of each person online at the same time, as boards do today.
 - **A key that changes mid hand-off.** If the other person rotates their key after the add and before an offer lands, their pin no longer matches, `check_offer` refuses it, and that space stays pending. Follow-up work.
 
@@ -116,6 +124,15 @@ A person DM has an empty `spaceId`, and `convInSpace` shows it under every pick.
 - `a_pending_dm_stops_at_what_an_offer_can_carry`.
 - `a_person_holds_at_most_four_dm_spaces_with_one_other`.
 
+`dm_people.rs`:
+
+- `the_picker_lists_who_you_share_a_space_with`.
+- `a_dm_row_says_it_waits_until_the_hand_off_is_over`.
+- `the_founder_leaves_a_dm_and_a_later_post_offers_a_new_one`.
+- `the_founder_leaves_a_dm_while_the_other_person_is_away`.
+- `the_other_person_leaves_a_dm_and_a_later_post_offers_a_new_one`.
+- `leaving_a_dm_nobody_heard_of_leaves_nothing_behind`.
+
 Hostile frames reach a Core through `dm_take_frame` (`doc(hidden)`), since no real device can send them.
 
-Units: `verify_key_proof` (good chain, bad link, a pre-v0.5 rotation), each §4 rule (`dm_spaces.rs`), the fold's door and the draft (`talk_test.rs`), a `dms` hello round trip, unknown `Wire` types skipped, and an old device never asked (`crates/mesh/tests/dms.rs`: a Core can't play a build from before `dms`).
+Units: `verify_key_proof` (good chain, bad link, a pre-v0.5 rotation), each §4 rule and the `waiting` pick (`dm_spaces.rs`), the fold's door and the draft (`talk_test.rs`), resolving a person, the tools' refusals and a row's `waiting` (`crates/tools/tests/talk.rs`), a `dms` hello round trip, unknown `Wire` types skipped, and an old device never asked (`crates/mesh/tests/dms.rs`: a Core can't play a build from before `dms`).

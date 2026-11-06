@@ -921,6 +921,28 @@ fn talk_through_the_window() {
     check_shape(&src, "TalkMember", &j(&c.members[0]));
     check_shape(&src, "TalkPost", &j(&posts[1]));
 
+    // Card #538: nobody to DM yet, a person you share no space with is
+    // refused, and an agent's DM is no person DM to leave. A row that isn't
+    // waiting leaves `waiting` out, and one that is carries it.
+    assert!(w.talk_dm_people().is_empty());
+    let bob = irori_window::talk::TalkMemberRef {
+        kind: "person".into(),
+        key: "person:pBob".into(),
+    };
+    let e = w.talk_dm(&bob).unwrap_err();
+    assert!(e.contains("don't share a space"), "{e}");
+    assert!(w.talk_dm_leave(&dm).is_err());
+    assert!(j(c).get("waiting").is_none());
+    let mut waits = c.clone();
+    waits.waiting = "them".into();
+    assert_eq!(j(&waits)["waiting"], "them");
+    check_shape(&src, "TalkConversation", &j(&waits));
+    check_shape(
+        &src,
+        "TalkPerson",
+        &j(&irori_window::talk::TalkPerson::default()),
+    );
+
     // A channel in a shared space carries its spaceId (card #461); a
     // Personal one leaves it out.
     let space = w.core.create_board("one", "one").unwrap();

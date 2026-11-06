@@ -96,7 +96,22 @@ pub struct Conversation {
     /// a DM shows under every space, even when its rows ride on a hidden
     /// space (card #538), and these threads are the private log's.
     pub space_id: String,
+    /// A DM with another person that hasn't reached them yet (card #538):
+    /// [`WAITING_FOR_THEM`] or [`WAITING_FOR_UPDATE`], else "".
+    pub waiting: String,
 }
+
+/// A DM's first posts wait for one of the other person's devices.
+pub const WAITING_FOR_THEM: &str = "them";
+/// The other person's devices that are online are too old to take a DM.
+pub const WAITING_FOR_UPDATE: &str = "update";
+
+/// Why an agent can't DM another person (card #538).
+const NO_DM_TO_PEOPLE: &str =
+    "agents don't DM other people: reach them on a card or in a channel you share";
+/// Why nobody can DM another person's agent (card #538).
+const NO_DM_TO_THEIR_AGENT: &str =
+    "nobody DMs other people's agents: reach them on a card or in a channel you share";
 
 /// What a post came to.
 #[derive(Debug, Clone, Default)]
@@ -493,6 +508,11 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             .map(|m| names.name(&m.key))
             .collect();
         let (last_text, last_by) = last_line(&ps);
+        let waiting = talk
+            .pair_other(&id)
+            .zip(b.shared_boards())
+            .map(|(o, sb)| sb.dm_waiting(&o).to_string())
+            .unwrap_or_default();
         out.push(Conversation {
             conv_id: id.clone(),
             kind: ct::KIND_DM.into(),
@@ -505,6 +525,7 @@ pub fn conversations(b: &dyn Backend, reader: &str) -> Result<Vec<Conversation>,
             last_by,
             joined: mine,
             read_only: !mine,
+            waiting,
             ..Conversation::default()
         });
     }
@@ -549,12 +570,78 @@ fn coord_cmp(a: &GoTime, b: &GoTime) -> std::cmp::Ordering {
     a.unix_nano().cmp(&b.unix_nano())
 }
 
+/// The DM between `me` and another person: `key` is their `person:<id>`.
+/// Agents have none (card #538).
+fn person_dm(talk: &Talk, me: &str, key: &str) -> Result<Target, String> {
+    if !ct::is_person_key(me) {
+        return Err(NO_DM_TO_PEOPLE.into());
+    }
+    if talk.person_key().is_none() {
+        return Err("DMs with other people aren't on here".into());
+    }
+    Ok(Target::Dm(talk.dm_of(me, key), Some(Member::of(key))))
+}
+
+/// What a key in `conv` comes to when it names someone who isn't `me`'s
+/// own agent (card #538); `None`: it doesn't, or isn't a key. Your own
+/// person key is the person. A board's `board:<id>/person:<id>` isn't a
+/// person DM, so the person gets no target for it.
+fn key_target(talk: &Talk, me: &str, conv: &str) -> Option<Result<Target, String>> {
+    let key = conv.trim_start_matches('@');
+    if talk.person_key().as_deref() == Some(key) {
+        if ct::is_person_key(me) {
+            return Some(Err(
+                "that's you: a DM needs an agent or another person".into()
+            ));
+        }
+        let p = Member::of("user");
+        return Some(Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p))));
+    }
+    if key.starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
+        return Some(person_dm(talk, me, key));
+    }
+    if ct::is_other_person_key(key) && !ct::is_person_key(me) {
+        return Some(Err(NO_DM_TO_PEOPLE.into()));
+    }
+    board_card(key).map(|_| Err(NO_DM_TO_THEIR_AGENT.into()))
+}
+
+/// The people `name` names among those `me` can DM (card #538), any case.
+fn people_named(b: &dyn Backend, name: &str) -> Vec<crate::PersonInfo> {
+    let name = name.trim().to_lowercase();
+    b.shared_boards()
+        .map(|sb| sb.dm_people())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.name.trim().to_lowercase() == name)
+        .collect()
+}
+
+/// Whether `name` is what another person's agent goes by (card #538).
+fn their_agent_named(b: &dyn Backend, name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    b.board_agents()
+        .iter()
+        .any(|a| a.card.name.trim().to_lowercase() == name)
+}
+
+/// The refusal for a name that fits more than one of `keys`.
+fn many_named(name: &str, what: &str, keys: &[String]) -> String {
+    format!(
+        "{} names more than one {what}: give the key ({})",
+        one_line(name, 80),
+        keys.join(", ")
+    )
+}
+
 /// What `conv` names for `me`: a channel or DM id, `#name` (a channel)
 /// or `#12` / `task:<id>` (a thread or card), `@name` or an agent's key
-/// (the DM with it), or `person` (the DM with the person). A channel's
-/// name is looked up in space `space` only (empty: Personal); a name that
-/// lives in another space is refused with where it is, never followed
-/// there (card #461).
+/// (the DM with it), `person` (the DM with the person), or another person
+/// by `person:<id>` or by name among those `me` shares a space with (the
+/// DM with them; card #538). An agent is refused a person, and anyone is
+/// refused another person's agent. A channel's name is looked up in space
+/// `space` only (empty: Personal); a name that lives in another space is
+/// refused with where it is, never followed there (card #461).
 pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Target, String> {
     let talk = talk_of(b)?;
     let conv = trim(conv);
@@ -578,6 +665,9 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
     if matches!(conv, "person" | "the person" | "user" | "you" | "@person") {
         let p = Member::of("user");
         return Ok(Target::Dm(ct::dm_id(me, &p.key), Some(p)));
+    }
+    if let Some(t) = key_target(talk, me, conv) {
+        return t;
     }
     if let Some(name) = conv.strip_prefix('#')
         && let Some(id) = named_in(talk, name, space)?
@@ -610,8 +700,16 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
     }
     let name = conv.trim_start_matches('@');
     let r = coord::mentions::resolve(&cards(b), me, "", &[name.to_string()]);
+    let people = people_named(b, name);
+    let human = ct::is_person_key(me);
     if let Some(m) = r.mentions.first() {
         let other = Member::of(&m.key);
+        // The person's own agent and another person can share a name.
+        if human && !people.is_empty() {
+            let mut keys = vec![other.key];
+            keys.extend(people.into_iter().map(|p| p.key));
+            return Err(many_named(name, "agent or person", &keys));
+        }
         return Ok(Target::Dm(ct::dm_id(me, &other.key), Some(other)));
     }
     if let Some(x) = r.misses.first()
@@ -621,6 +719,18 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
             "{} names more than one agent: give its key (the agents tool lists them)",
             one_line(name, 80)
         ));
+    }
+    match people.as_slice() {
+        [] => {}
+        [one] => return person_dm(talk, me, &one.key),
+        _ if !human => return Err(NO_DM_TO_PEOPLE.into()),
+        many => {
+            let keys: Vec<String> = many.iter().map(|p| p.key.clone()).collect();
+            return Err(many_named(name, "person", &keys));
+        }
+    }
+    if their_agent_named(b, name) {
+        return Err(NO_DM_TO_THEIR_AGENT.into());
     }
     Err(format!(
         "{} is no channel, thread or agent here. talk_list shows your conversations; the agents tool lists agents.",
@@ -738,6 +848,34 @@ fn space_arg(s: &Inner, v: &str) -> Result<String, String> {
         ));
     }
     s.find_board(v).map(|x| x.board_id)
+}
+
+/// Opens `me`'s DM with `key`, an agent or another person, and returns its
+/// id. Opening one with a person writes nothing: the first post does (card
+/// #538). A person you share no space with, and no DM, is refused here
+/// rather than at the first post, and so is another person's agent.
+pub fn open_dm(b: &dyn Backend, me: &str, key: &str) -> Result<String, String> {
+    let talk = talk_of(b)?;
+    let key = trim(key);
+    if let Some(t) = key_target(talk, me, key) {
+        let Target::Dm(id, Some(other)) = t? else {
+            return Err("that isn't someone to DM".into());
+        };
+        if other.kind == ct::PERSON
+            && !ct::is_person_key(&other.key)
+            && talk.members(&id).is_empty()
+            && !b
+                .shared_boards()
+                .is_some_and(|sb| sb.dm_people().iter().any(|p| p.key == other.key))
+        {
+            return Err("you don't share a space with this person".into());
+        }
+        return talk
+            .open_dm(&Member::of(me), &other, me)
+            .map_err(|e| e.to_string());
+    }
+    talk.open_dm(&Member::of(me), &Member::of(key), me)
+        .map_err(|e| e.to_string())
 }
 
 /// Every post of `conv` (oldest first) as `reader` may read it: anyone
@@ -861,13 +999,13 @@ pub fn post(
             if ct::canon(&other.key) == ct::canon(&by) {
                 return Err("that's you: a DM needs another agent or the person".into());
             }
-            // Agents don't DM other people, and people don't DM other
-            // people's agents (card #538, talk-dms.md §4).
+            // Agents don't DM other people, and nobody DMs another
+            // person's agent (card #538, talk-dms.md §4).
             if ct::is_other_person_key(&other.key) && !ct::is_person_key(&by) {
-                return Err("agents don't DM other people".into());
+                return Err(NO_DM_TO_PEOPLE.into());
             }
-            if board_card(&other.key).is_some() && ct::is_person_key(&by) {
-                return Err("people don't DM other people's agents".into());
+            if board_card(&other.key).is_some() {
+                return Err(NO_DM_TO_THEIR_AGENT.into());
             }
             if talk.dm_of(&by, &other.key) != *id {
                 return Err("that DM isn't yours".into());
@@ -908,6 +1046,7 @@ pub fn post(
             if talk.pair_other(id).is_some() {
                 live.clear();
                 out.mentions.clear();
+                out.misses.clear();
             }
             (id.clone(), "a DM".to_string())
         }

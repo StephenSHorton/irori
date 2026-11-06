@@ -122,6 +122,7 @@ export type SummaryMember = B.SummaryMember
 export type TalkConversation = B.TalkConversation
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
+export type TalkPerson = B.TalkPerson
 export type TalkPost = B.TalkPost
 export type Target = B.Target
 export type Task = B.Task
@@ -681,6 +682,11 @@ export function TalkMember(p: Partial<B.TalkMember> = {}): B.TalkMember {
 /** TalkMemberRef with Go's zero values for every field left out. */
 export function TalkMemberRef(p: Partial<B.TalkMemberRef> = {}): B.TalkMemberRef {
   return { "kind": "", "key": "", ...p } as B.TalkMemberRef
+}
+
+/** TalkPerson with Go's zero values for every field left out. */
+export function TalkPerson(p: Partial<B.TalkPerson> = {}): B.TalkPerson {
+  return { "key": "", "name": "", "color": "", "avatar": "", ...p } as B.TalkPerson
 }
 
 /** TalkPost with Go's zero values for every field left out. */

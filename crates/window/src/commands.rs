@@ -28,7 +28,7 @@ use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{NotifyOptions, Target};
-use crate::talk::{TalkConversation, TalkMemberRef, TalkPost};
+use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
 use crate::voice::{VoiceDownload, VoiceEvent, VoiceStatus};
@@ -1523,11 +1523,26 @@ pub async fn talk_channel_create(
     w.talk_channel_create(&name, topic.as_deref(), space_id.as_deref())
 }
 
-/// The person's DM with an agent, opened if new; returns its conv id.
+/// The person's DM with an agent or another person (card #538), opened if
+/// new; returns its conv id.
 #[tauri::command]
 #[specta::specta]
 pub async fn talk_dm(w: W<'_>, member: TalkMemberRef) -> R<String> {
     w.talk_dm(&member)
+}
+
+/// Everyone the person can DM (card #538).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_dm_people(w: W<'_>) -> R<Vec<TalkPerson>> {
+    Ok(w.talk_dm_people())
+}
+
+/// Leaves a DM with another person (card #538).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_dm_leave(w: W<'_>, conv_id: String) -> R<()> {
+    w.talk_dm_leave(&conv_id)
 }
 
 #[tauri::command]
@@ -1713,6 +1728,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_read,
             talk_channel_create,
             talk_dm,
+            talk_dm_people,
+            talk_dm_leave,
             talk_join,
             talk_leave,
             term_open,

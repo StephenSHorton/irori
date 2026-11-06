@@ -307,6 +307,9 @@ export const TalkService = {
     spaceId: string | null = null
   ) => call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
+  // Everyone the person can DM, and leaving a DM with one of them (#538).
+  DmPeople: () => call(commands.talkDmPeople()),
+  DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
   Leave: (convId: string, member: B.TalkMemberRef) =>

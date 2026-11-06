@@ -1239,14 +1239,18 @@ impl Services {
             // A maker counts once the board certifies it, or, before the
             // board's rows arrive, when it is one of this person's own
             // devices or one of them vouched for it (board.secret on the
-            // private mesh).
-            let (chain, vouched, board) = (
+            // private mesh). A hidden DM space has one secret for its whole
+            // life, its founder's, and nobody who could make another: if
+            // leaving cut its maker, the founder's room would close before
+            // the `left` row could go out (card #538).
+            let (chain, vouched, board, dms) = (
                 self.chain.clone(),
                 self.boards.vouched.clone(),
                 id.to_string(),
+                self.dm_spaces.clone(),
             );
             secrets.set_makers(Some(Box::new(move |dev: &str| {
-                v.cut(dev).is_none()
+                (v.cut(dev).is_none() || dms.get(&board).is_some())
                     && (v.cert(dev).is_some()
                         || chain
                             .devices()

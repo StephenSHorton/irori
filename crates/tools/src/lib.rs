@@ -75,7 +75,7 @@ pub use notes::{NotesBackend, ToolNote};
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
 pub use shared::{
-    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW,
+    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW, PersonInfo,
     REQUEST_WAIT, SharedBoards,
 };
 pub use specs::{

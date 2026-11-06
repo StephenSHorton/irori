@@ -20,7 +20,7 @@
 //! work ([`Dms`]); one thread takes it, which also keeps two steps of one
 //! hand-off from running at once.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use gocompat::sub::Queue;
@@ -35,7 +35,9 @@ use store::kinds::{self, PERSON_ACTOR_PREFIX};
 use store::{Event, Filter};
 
 use super::Services;
-use super::boards::{BoardLog, Error, Result, each_row, lock, new_board_id, valid_board_id};
+use super::boards::{
+    BoardLog, BoardMember, Error, Result, each_row, lock, new_board_id, valid_board_id,
+};
 use super::boards_own::{BoardForgotRow, DM_SPACE_NAME, DM_SPACE_TAG, DmSpace};
 use super::invites::CoreBoards;
 use crate::logf;
@@ -127,6 +129,15 @@ impl DmBridge {
 impl DmHooks for DmBridge {
     fn hello(&self, via: &str, peer: &LivePeer) {
         self.on(via, peer);
+        // A device too old for a hand-off: the window says so (§6). It
+        // hears no other news of one, since no hand-off runs.
+        if peer.dms < DMS_PROTOCOL
+            && let Some(s) = self.0.upgrade()
+            && !s.is_dm_space(via)
+            && !s.dm_spaces.of(&peer.person_id).is_empty()
+        {
+            s.hub.publish(crate::events::CoreEvent::Talk);
+        }
     }
 
     fn tick(&self, via: &str, peer: &LivePeer) {
@@ -143,6 +154,17 @@ impl DmHooks for DmBridge {
                 frame,
             });
         }
+    }
+}
+
+/// What a pending DM waits on, given the other person's `peers` connected
+/// now: an update only when every one of them is too old, since a hand-off
+/// needs just one, and nobody connected says nothing of their build.
+fn waiting_on(peers: &[LivePeer]) -> &'static str {
+    if !peers.is_empty() && peers.iter().all(|p| p.dms < DMS_PROTOCOL) {
+        tools::talk::WAITING_FOR_UPDATE
+    } else {
+        tools::talk::WAITING_FOR_THEM
     }
 }
 
@@ -421,6 +443,81 @@ impl Services {
             }
         }
         Ok(id)
+    }
+
+    /// Everyone this person can DM (§6): whoever is active in a space they
+    /// are too, hidden ones aside, once each, by name.
+    pub(crate) fn dm_people(&self) -> Vec<BoardMember> {
+        let me = self.person_id();
+        let mut out: BTreeMap<String, BoardMember> = BTreeMap::new();
+        for b in self.shown_boards() {
+            if self.is_dm_space(&b.id) || !b.verifier.membership().active(&me) {
+                continue;
+            }
+            let m = b.verifier.membership();
+            for p in m.members.iter().filter(|p| !p.person_id.is_empty()) {
+                let id = &p.person_id;
+                if *id == me || !m.active(id) {
+                    continue;
+                }
+                out.entry(person_key(id)).or_insert_with(|| BoardMember {
+                    key: person_key(id),
+                    name: Self::dm_name(&b, id),
+                    board_id: b.id.clone(),
+                    color: b.verifier.profile_color(id),
+                    avatar: b.verifier.profile_avatar(id),
+                });
+            }
+        }
+        let mut people: Vec<BoardMember> = out.into_values().collect();
+        people.sort_by_cached_key(|p| (p.name.to_lowercase(), p.key.clone()));
+        people
+    }
+
+    /// What the DM with `other` (`person:<id>`) is waiting on (§6). Only the
+    /// log it is written to counts: a pending one nobody writes to waits on
+    /// nothing. A device of theirs too old for a hand-off says so only while
+    /// no newer one is here.
+    pub(crate) fn dm_waiting(&self, other: &str) -> &'static str {
+        let Some(other) = other.strip_prefix(PERSON_ACTOR_PREFIX) else {
+            return "";
+        };
+        let Some(id) = self.dm_writer(other) else {
+            return "";
+        };
+        let pending = self
+            .dm_live(other)
+            .iter()
+            .any(|(b, d)| b.id == id && self.dm_pending(b, d));
+        if !pending {
+            return "";
+        }
+        let peers: Vec<LivePeer> = self
+            .dm_shared(other)
+            .iter()
+            .filter_map(|b| self.mesh.board(&b.id))
+            .flat_map(|m| m.live_peers())
+            .filter(|p| p.person_id == other)
+            .collect();
+        waiting_on(&peers)
+    }
+
+    /// Leaves every DM space with `other` (`person:<id>`; §7). `leave_board`
+    /// and not Talk's leave: a hidden log takes no `leave` row (§4), and
+    /// the `left` row is what stops the other side writing to it. A later
+    /// post from either side founds a new space.
+    pub(crate) fn dm_leave(self: &Arc<Self>, other: &str) -> Result<()> {
+        let other = other.strip_prefix(PERSON_ACTOR_PREFIX).unwrap_or(other);
+        let mut out = Ok(());
+        for (b, _) in self.dm_live(other) {
+            if !self.board_leaving(&b)
+                && let Err(e) = self.leave_board(&b.id)
+            {
+                logf(format_args!("board {}: leave a DM: {e}", b.id));
+                out = Err(e);
+            }
+        }
+        out
     }
 
     /// The other person of person DM `conv`, by the markers.
@@ -883,6 +980,22 @@ mod tests {
 
     const ME: &str = "me";
     const THEM: &str = "them";
+
+    /// §6: one device new enough to take the hand-off means it's only a
+    /// matter of waiting; nobody connected says nothing about their build.
+    #[test]
+    fn a_dm_waits_on_an_update_only_when_every_device_is_too_old() {
+        use tools::talk::{WAITING_FOR_THEM, WAITING_FOR_UPDATE};
+        let peer = |dms| LivePeer {
+            dms,
+            ..LivePeer::default()
+        };
+        assert_eq!(waiting_on(&[]), WAITING_FOR_THEM);
+        assert_eq!(waiting_on(&[peer(0)]), WAITING_FOR_UPDATE);
+        assert_eq!(waiting_on(&[peer(0), peer(0)]), WAITING_FOR_UPDATE);
+        assert_eq!(waiting_on(&[peer(DMS_PROTOCOL)]), WAITING_FOR_THEM);
+        assert_eq!(waiting_on(&[peer(0), peer(DMS_PROTOCOL)]), WAITING_FOR_THEM);
+    }
 
     fn pin(person: &str) -> MemberPin {
         MemberPin {

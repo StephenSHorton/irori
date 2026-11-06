@@ -706,7 +706,7 @@ impl Talk {
     }
 
     /// This person's `person:<id>`, where person DMs exist.
-    fn person_key(&self) -> Option<String> {
+    pub fn person_key(&self) -> Option<String> {
         let id = self.spaces.get()?.person_id()?;
         Some(format!("{PERSON_ACTOR_PREFIX}{id}"))
     }
@@ -750,6 +750,12 @@ impl Talk {
                 .find(|k| k.starts_with(PERSON_ACTOR_PREFIX) && pair_dm_id(&me, k) == conv)
         };
         known.or_else(|| self.spaces.get()?.dm_route(conv))
+    }
+
+    /// Takes back a DM opened and never written in (card #538): leaving a
+    /// DM takes its logs, and this is what's left of it.
+    pub fn drop_draft(&self, conv: &str) -> bool {
+        self.lock().drafts.remove(conv).is_some()
     }
 
     /// The space a person DM with `other` writes to now.

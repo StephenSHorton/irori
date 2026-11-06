@@ -288,8 +288,15 @@ export const commands = {
 	 *  space, where its members see it (card #392); none is Personal.
 	 */
 	talkChannelCreate: (name: string, topic: string | null, spaceId: string | null) => __TAURI_INVOKE<string>("talk_channel_create", { name, topic, spaceId }),
-	/**  The person's DM with an agent, opened if new; returns its conv id. */
+	/**
+	 *  The person's DM with an agent or another person (card #538), opened if
+	 *  new; returns its conv id.
+	 */
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
+	/**  Everyone the person can DM (card #538). */
+	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**  Leaves a DM with another person (card #538). */
+	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
 	talkLeave: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_leave", { convId, member }),
 	termOpen: (scope: Scope, cols: number, rows: number, cwd: string | null) => __TAURI_INVOKE<TermInfo>("term_open", { scope, cols, rows, cwd }),
@@ -2108,6 +2115,12 @@ export type TalkConversation = {
 	 *  DMs and threads. Matches the switcher's space id (its first board's).
 	 */
 	spaceId?: string,
+	/**
+	 *  A DM with another person that hasn't reached them yet (card #538):
+	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
+	 *  updating"). Absent otherwise. `name` is who they are.
+	 */
+	waiting?: string,
 };
 
 /**  One side of a conversation. */
@@ -2135,6 +2148,17 @@ export type TalkMemberRef = {
 	/**  `person` or `agent`. */
 	kind: string,
 	key: string,
+};
+
+/**  Someone the person can DM (card #538): the new-DM picker's people. */
+export type TalkPerson = {
+	/**  `person:<id>`, as talk_dm takes it with kind `person`. */
+	key: string,
+	name: string,
+	/**  Their own colour pick, "" for none. */
+	color: string,
+	/**  Their avatar, "" for none. */
+	avatar: string,
 };
 
 /**  One post. */
