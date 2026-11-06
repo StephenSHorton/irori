@@ -42,6 +42,8 @@ fn a_held_card_says_what_brings_it_back() {
     assert_eq!(l.back, LaterBack::Word);
     assert_eq!(l.line, "when you say");
     assert!(l.why.ends_with("held it back"), "{l:?}");
+    // Agents read it too: never "you held it back".
+    assert!(!l.why.to_lowercase().starts_with("you "), "{l:?}");
     assert!(!l.by.is_empty(), "{l:?}");
     // The page carries it too.
     assert_eq!(w.card(&t.id).unwrap().summary.later, Some(l));

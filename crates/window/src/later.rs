@@ -471,8 +471,10 @@ impl Window {
         })?;
         let (co, keys) = self.on(id, &[])?;
         let me = self.core.user_sender();
+        // The person's name, not the sender's: that one is always "you",
+        // which an agent would read as itself.
         let why = match crate::trim(why) {
-            "" => held_why(&me.name),
+            "" => held_why(&self.core.person().name),
             w => w.to_string(),
         };
         let (_, ns) = co
