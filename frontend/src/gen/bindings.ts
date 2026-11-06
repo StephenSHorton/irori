@@ -2389,6 +2389,20 @@ export type SummaryMember = {
 	avatar?: string,
 };
 
+/**  What a huddle's start or end post says about it (#654). */
+export type TalkCall = {
+	callId: string,
+	/**  `start` or `end`. */
+	op: string,
+	/**  How long it ran, on an end; 0 on a start. */
+	durationMs: number,
+	/**
+	 *  Who took part, by name ("you" for the person), never a key. Empty
+	 *  on a start.
+	 */
+	people: string[],
+};
+
 /**  One conversation in Talk's list. */
 export type TalkConversation = {
 	convId: string,
@@ -2479,6 +2493,8 @@ export type TalkPost = {
 	threadFrom?: string | null,
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
+	/**  A huddle's start or end (#654); null on any other post. */
+	call?: TalkCall | null,
 	at: string,
 };
 

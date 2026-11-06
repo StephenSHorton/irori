@@ -12,6 +12,7 @@ mod boards;
 mod boards2;
 mod bridge2;
 mod buildclean;
+mod calls;
 mod common;
 mod core;
 mod desk_default;

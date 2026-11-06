@@ -258,8 +258,63 @@ pub struct PostRow {
     pub thread_from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attach: Option<Vec<serde_json::Value>>,
+    /// A huddle's start or end (#654). An older reader ignores it and
+    /// shows the post's text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<CallMark>,
     pub by: String,
     pub at: GoTime,
+}
+
+/// What a huddle's start or end post carries (#654): which call, and for
+/// an end, how long it ran and who was in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CallMark {
+    pub call_id: String,
+    /// [`CALL_START`] or [`CALL_END`].
+    pub op: String,
+    /// How long the call ran, on an end; 0 on a start.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub duration_ms: i64,
+    /// The people who took part, by key in this device's form, as
+    /// `mentions` are (#654). Empty on a start.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<String>,
+}
+
+/// A [`CallMark`]'s op when a huddle starts.
+pub const CALL_START: &str = "start";
+/// A [`CallMark`]'s op when a huddle ends.
+pub const CALL_END: &str = "end";
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
+
+/// A call mark as written: an id, a known op, no negative length, each
+/// person once.
+fn check_call(mut c: CallMark) -> Result<CallMark> {
+    c.call_id = c.call_id.trim().to_string();
+    if c.call_id.is_empty() {
+        return Err(invalid("a call mark needs its call's id"));
+    }
+    if c.op != CALL_START && c.op != CALL_END {
+        return Err(invalid(format!(
+            "a call mark's op is {CALL_START} or {CALL_END}, not {:?}",
+            c.op
+        )));
+    }
+    c.duration_ms = c.duration_ms.max(0);
+    let mut people: Vec<String> = Vec::new();
+    for k in &c.people {
+        let k = k.trim();
+        if !k.is_empty() && !people.iter().any(|x| x == k) {
+            people.push(k.to_string());
+        }
+    }
+    c.people = people;
+    Ok(c)
 }
 
 /// `talk.read`.
@@ -325,6 +380,9 @@ pub struct Post {
     /// The card made from it (`talk.card`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<String>,
+    /// A huddle's start or end (#654).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<CallMark>,
     pub at: GoTime,
     /// Where it sorts: its row's place in the log, or for a post mapped
     /// from elsewhere its time.
@@ -384,6 +442,8 @@ pub struct NewPost {
     /// started for a card or a thread is a member of no channel
     /// (spawned-agents.md §4 "Channels"), so it gets no next-turn readings.
     pub stay_out: bool,
+    /// A huddle's start or end (#654).
+    pub call: Option<CallMark>,
 }
 
 /// The `talk.*` fold, and the writes that append and fold a row. Safe for
@@ -866,6 +926,7 @@ impl Talk {
         if self.lock().ids.contains(&post_id) {
             return Err(invalid(format!("post {post_id} already exists")));
         }
+        let call = p.call.map(check_call).transpose()?;
         if is_channel(&conv) && !p.stay_out {
             self.join(&conv, &Member::of(&by), &by)?;
         }
@@ -885,6 +946,7 @@ impl Talk {
                 agents_now: p.agents_now,
                 thread_from,
                 attach: None,
+                call,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1270,6 +1332,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 mentions: r.mentions,
                 agents_now: r.agents_now,
                 thread_from: r.thread_from,
+                call: r.call,
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),

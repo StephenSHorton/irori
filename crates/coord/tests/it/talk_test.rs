@@ -1192,3 +1192,142 @@ fn a_person_dm_is_found_by_its_space_before_any_row_folds() {
     assert_eq!(post(&t, &dm, USER, "hi").space, "s1");
     assert_eq!(t.pair_other(&talk::dm_id(USER, ALICE)), None);
 }
+
+fn call_post(t: &Talk, conv: &str, mark: talk::CallMark) -> coord::Result<talk::Post> {
+    t.post(NewPost {
+        conv_id: conv.into(),
+        text: "a huddle".into(),
+        by: USER.into(),
+        call: Some(mark),
+        ..NewPost::default()
+    })
+}
+
+fn post_payload(e: &Env, post_id: &str) -> serde_json::Value {
+    e.rows(kinds::TALK_POST)
+        .iter()
+        .map(|ev| serde_json::from_slice::<serde_json::Value>(&ev.payload).unwrap())
+        .find(|v| v["postId"] == post_id)
+        .expect("the post's row")
+}
+
+/// #654: a huddle's mark goes in the row and folds into the post, the same
+/// after a reload; a post without one carries none.
+#[test]
+fn a_call_mark_is_written_and_folded() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let end = talk::CallMark {
+        call_id: " call_1 ".into(),
+        op: talk::CALL_END.into(),
+        duration_ms: 61_000,
+        people: vec![USER.into(), ALICE.into(), USER.into(), " ".into()],
+    };
+    let p = call_post(&t, &c.id, end).unwrap();
+    let want_mark = talk::CallMark {
+        call_id: "call_1".into(),
+        op: talk::CALL_END.into(),
+        duration_ms: 61_000,
+        people: vec![USER.into(), ALICE.into()],
+    };
+    assert_eq!(p.call.as_ref(), Some(&want_mark));
+    assert_eq!(
+        post_payload(&e, &p.post_id)["call"],
+        serde_json::json!({"callId": "call_1", "op": "end", "durationMs": 61000, "people": [USER, ALICE]})
+    );
+    let plain = post(&t, &c.id, USER, "hi");
+    assert_eq!(plain.call, None);
+    let v = post_payload(&e, &plain.post_id);
+    assert!(v.get("call").is_none(), "{v}");
+
+    // A start carries no length and no people.
+    let s = call_post(
+        &t,
+        &c.id,
+        talk::CallMark {
+            call_id: "call_2".into(),
+            op: talk::CALL_START.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        post_payload(&e, &s.post_id)["call"],
+        serde_json::json!({"callId": "call_2", "op": "start"})
+    );
+
+    let t2 = talk(&e);
+    assert_eq!(t2.posts(&c.id), t.posts(&c.id));
+    assert_eq!(t2.posts(&c.id)[0].call.as_ref(), Some(&want_mark));
+    assert_eq!(t2.posts(&c.id)[1].call, None);
+
+    // A mark with no id or an unknown op is refused.
+    let no_id = talk::CallMark {
+        op: talk::CALL_START.into(),
+        ..Default::default()
+    };
+    want(call_post(&t, &c.id, no_id), ErrorKind::Invalid);
+    let ring = talk::CallMark {
+        call_id: "call_3".into(),
+        op: "ring".into(),
+        ..Default::default()
+    };
+    want(call_post(&t, &c.id, ring), ErrorKind::Invalid);
+}
+
+/// #654: a reader that knows nothing of a field still reads the post: a
+/// row with a `call` object, and one with an object nobody knows, decode
+/// as plain posts.
+#[test]
+fn a_post_row_with_objects_it_does_not_know_still_decodes() {
+    let raw = serde_json::json!({
+        "postId": "post_1",
+        "convId": "ch_1",
+        "text": "started a huddle",
+        "mentions": [],
+        "agentsNow": false,
+        "by": USER,
+        "call": {"callId": "call_1", "op": "start", "ring": {"devices": 3}},
+        "later": {"what": ["ever"], "n": 1}
+    });
+    let r: talk::PostRow = serde_json::from_value(raw.clone()).unwrap();
+    assert_eq!(r.post_id, "post_1");
+    assert_eq!(r.conv_id, "ch_1");
+    assert_eq!(r.text, "started a huddle");
+    assert_eq!(r.by, USER);
+    let c = r.call.unwrap();
+    assert_eq!((c.call_id.as_str(), c.op.as_str()), ("call_1", "start"));
+
+    // As a reader from before #654 has it: no call field at all.
+    #[derive(Default, serde::Deserialize)]
+    #[serde(rename_all = "camelCase", default)]
+    struct Before {
+        post_id: String,
+        text: String,
+        mentions: Vec<String>,
+        thread_from: Option<String>,
+    }
+    let old: Before = serde_json::from_value(raw).unwrap();
+    assert_eq!(old.post_id, "post_1");
+    assert_eq!(old.text, "started a huddle");
+    assert!(old.mentions.is_empty() && old.thread_from.is_none());
+
+    // And a row from another device folds with it.
+    let e = Env::new();
+    let t = talk(&e);
+    let ch = t.create_channel(USER, "dev", "").unwrap();
+    let row = serde_json::json!({
+        "postId": "post_9",
+        "convId": ch.id,
+        "text": "ended a huddle",
+        "by": ALICE,
+        "call": {"callId": "call_1", "op": "end", "durationMs": 5, "people": [ALICE]},
+        "later": {"n": 1}
+    });
+    e.insert("dev-b", 1, 1, ALICE, kinds::TALK_POST, &row);
+    t.load().unwrap();
+    let p = &t.posts(&ch.id)[0];
+    assert_eq!(p.text, "ended a huddle");
+    assert_eq!(p.call.as_ref().unwrap().people, vec![ALICE.to_string()]);
+}
