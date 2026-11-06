@@ -32,6 +32,8 @@ pub(crate) enum Ty {
     Steps,
     /// `[]struct{...}` decoded strictly with these fields.
     Structs(&'static [(&'static str, Ty)]),
+    /// `*struct{...}`: one object, decoded strictly with these fields.
+    Struct(&'static [(&'static str, Ty)]),
 }
 
 /// One step argument.
@@ -59,6 +61,7 @@ pub(crate) enum V {
     Strs(Vec<String>),
     Steps(Vec<StepArg>),
     Structs(Vec<Args>),
+    Struct(Option<Args>),
 }
 
 fn zero(t: Ty) -> V {
@@ -72,6 +75,7 @@ fn zero(t: Ty) -> V {
         Ty::Strs => V::Strs(vec![]),
         Ty::Steps => V::Steps(vec![]),
         Ty::Structs(_) => V::Structs(vec![]),
+        Ty::Struct(_) => V::Struct(None),
     }
 }
 
@@ -131,6 +135,13 @@ impl Args {
             _ => vec![],
         }
     }
+    /// One object argument, `None` when it wasn't given (or was null).
+    pub fn object(&self, k: &str) -> Option<Args> {
+        match self.0.get(k) {
+            Some(V::Struct(v)) => v.clone(),
+            _ => None,
+        }
+    }
 }
 
 /// Go's `kindName` over the Go kind of the type a value didn't fit.
@@ -140,6 +151,7 @@ fn kind_name(t: Ty) -> &'static str {
         Ty::Bool | Ty::OptBool => "true or false",
         Ty::Int | Ty::OptInt => "a whole number",
         Ty::Strs | Ty::Steps | Ty::Structs(_) => "an array of strings",
+        Ty::Struct(_) => "an object",
     }
 }
 
@@ -216,6 +228,7 @@ impl Dec {
                 Ty::Strs => Some(V::Strs(vec![])),
                 Ty::Steps => Some(V::Steps(vec![])),
                 Ty::Structs(_) => Some(V::Structs(vec![])),
+                Ty::Struct(_) => Some(V::Struct(None)),
                 _ => None,
             });
         }
@@ -263,6 +276,10 @@ impl Dec {
                     out.push(self.object(it, fields, path, what)?);
                 }
                 Ok(Some(V::Structs(out)))
+            }
+            (Ty::Struct(fields), Value::Object(_)) => {
+                let what = path.last().copied();
+                Ok(Some(V::Struct(Some(self.object(v, fields, path, what)?))))
             }
             _ => {
                 self.type_err(path, kind_name(t));
@@ -345,6 +362,7 @@ mod tests {
             "options",
             Ty::Structs(&[("answer", Ty::Str), ("recommended", Ty::Bool)]),
         ),
+        ("later", Ty::Struct(&[("until", Ty::Str), ("why", Ty::Str)])),
     ];
 
     fn err(raw: &str) -> String {
@@ -381,6 +399,12 @@ mod tests {
         );
         assert_eq!(err(r#"{"options":[{"x":1}]}"#), r#"unknown argument "x""#);
         assert_eq!(err(r#"{"steps":[1]}"#), "argument steps should be struct");
+        assert_eq!(err(r#"{"later":"soon"}"#), "argument later should be an object");
+        assert_eq!(
+            err(r#"{"later":{"until":5}}"#),
+            "argument later.until should be a string"
+        );
+        assert_eq!(err(r#"{"later":{"when":"x"}}"#), r#"unknown argument "when""#);
         assert_eq!(
             err(r#"{"bogus":1,"steps":[{"done":"x"}]}"#),
             "argument steps.done should be true or false"
@@ -405,6 +429,12 @@ mod tests {
         assert!(st[1].done && st[1].text == "y");
         let a = decode(br#"{"minutes":null,"text":null}"#, F).unwrap();
         assert_eq!(a.opt_int("minutes"), None);
+        assert!(a.object("later").is_none());
+        let a = decode(br##"{"later":{"Until":"#12","why":"after Spaces"}}"##, F).unwrap();
+        let l = a.object("later").unwrap();
+        assert_eq!((l.str("until"), l.str("why")), ("#12", "after Spaces"));
+        let a = decode(br#"{"later":{}}"#, F).unwrap();
+        assert_eq!(a.object("later").unwrap().str("until"), "");
         assert_eq!(a.str("text"), "");
     }
 }

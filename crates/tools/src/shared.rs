@@ -103,6 +103,7 @@ const CARD_WRITES: &[&str] = &[
     "board_split",
     "board_watch",
     "board_unwatch",
+    "board_later",
     "wait",
 ];
 
@@ -117,6 +118,8 @@ const NOT_TEXT: &[&str] = &[
     "attach",
     "adopt",
     "pick",
+    "after",
+    "not_after",
 ];
 
 /// A request waiting on the person.
@@ -388,6 +391,7 @@ impl Inner {
 
 /// board_create with `board` (§7.3): Trusted and Autonomous create it now,
 /// Ask me asks the person first.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_on_board(
     s: &Inner,
     c: &Caller,
@@ -396,6 +400,8 @@ pub(crate) fn create_on_board(
     repo: String,
     assign_to: String,
     waits: Option<(String, coord::BlockedBy)>,
+    after: Vec<String>,
+    later: Option<(coord::Back, String)>,
 ) -> String {
     let b = match s.find_board(board) {
         Ok(b) => b,
@@ -412,12 +418,22 @@ pub(crate) fn create_on_board(
         shared: a.bool("shared"),
         links: a.strs("links"),
         steps: steps_of(&a.steps("steps")),
-        block_reason: waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+        block_reason: match &later {
+            Some((_, why)) => why.clone(),
+            None => waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+        },
         blocked_by: waits.map(|w| w.1),
         board: b.space_board.clone(),
+        after,
+        later: later.map(|l| l.0),
         ..NewTask::default()
     };
-    let mut texts: Vec<&str> = vec![&task.title, &task.objective, &task.done_criteria];
+    let mut texts: Vec<&str> = vec![
+        &task.title,
+        &task.objective,
+        &task.done_criteria,
+        &task.block_reason,
+    ];
     texts.extend(task.links.iter().map(String::as_str));
     texts.extend(task.steps.iter().map(|st| st.text.as_str()));
     let reasons = reasons_in(&texts);

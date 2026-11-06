@@ -124,7 +124,7 @@ pub fn fence(token: &str, reminder: bool, msgs: &[Delivery], overflow: &[String]
         .iter()
         .any(|d| d.message.notice && is_ask(&d.message.reason))
     {
-        sb.push_str("A message marked ask=\"true\" is the person asking the room through the Irori Board: work to start now, not a notice to read past. If you are free and can take it, call the irori ask_claim tool with its ref: one agent gets it, and you hear if someone else got there first. If you hold it, answer the person on the card. If you are busy, leave it: it closes once someone takes it.\n");
+        sb.push_str("A message marked ask=\"true\" is the person asking the room through the Irori Board: work to start now, not a notice to read past. If you are free and can take it, call the irori ask_claim tool with its ref: one agent gets it, and you hear if someone else got there first. If you hold it, answer the person on the card; if they say it is for later, close it as a card and make that card Not yet (board_later). If you are busy, leave it: it closes once someone takes it.\n");
     }
     if msgs
         .iter()

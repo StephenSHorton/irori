@@ -51,6 +51,7 @@ mod board;
 mod capturetools;
 mod explore;
 mod format;
+mod later;
 mod mention;
 mod messages;
 mod notes;
@@ -319,7 +320,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 53] = [
+    let list: [(&'static str, Handler); 54] = [
         ("avatar", avatar::avatar),
         ("agents", observe::agents),
         ("events", observe::events),
@@ -344,6 +345,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_status", board::board_status),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
+        ("board_later", later::board_later),
         ("board_steps", board::board_steps),
         ("board_step", board::board_step),
         ("board_recommend", board::board_recommend),
@@ -572,6 +574,13 @@ pub(crate) fn map_err(err: impl Into<ToolErr>) -> String {
             } else if ce.is(C::NotAllowed) && e.to_string().contains(coord::ASK_THE_PERSON) {
                 // A card on another side (card #496): the refusal says what to do.
                 err_text(&e)
+            } else if ce.is(C::NotAllowed)
+                && (e.contains("only a person brings it back")
+                    || e.contains("when the person brings it back"))
+            {
+                // A Not yet card (card #570): the refusal says what brings
+                // it back, and nobody else should be asked.
+                err_text(&format!("{e}."))
             } else if ce.is(C::NotAllowed) {
                 err_text(&format!(
                     "{e}. show #<n> (or task:<id>) lists its holders and creator; comment on it or message them instead."
