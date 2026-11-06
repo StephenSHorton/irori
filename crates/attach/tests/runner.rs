@@ -206,6 +206,22 @@ async fn standby_waits_for_the_session_to_come_free() {
     standby.exited().await;
 }
 
+/// Copies `from`'s lockfile into `to`, retrying while Windows refuses to
+/// write over a file the runner is reading.
+async fn copy_lockfile(from: &Path, to: &Path) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match std::fs::copy(from.join("irori.json"), to.join("irori.json")) {
+            Ok(_) => return,
+            Err(e) => assert!(
+                std::time::Instant::now() < deadline,
+                "copy the lockfile: {e}"
+            ),
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// GitHub #57: a wait that follows an outage says so again, or the mod would
 /// go on saying Irori isn't running while another attach holds the session.
 #[tokio::test(flavor = "multi_thread")]
@@ -218,9 +234,8 @@ async fn standby_says_so_again_after_an_outage() {
     // free, and a standby copy that got there first would take it (and then
     // be superseded by the holder, as it should): racing on backoff made
     // this test fail about one run in eight (card #581).
-    let lockfile = |dir: &Path| dir.join("irori.json");
     let standby_dir = tempfile::tempdir().unwrap();
-    std::fs::copy(lockfile(&r.data), lockfile(standby_dir.path())).unwrap();
+    copy_lockfile(&r.data, standby_dir.path()).await;
     let standby = start_runner_with(standby_dir.path(), SESS_B, |o| {
         o.standby = true;
         o.standby_poll = Duration::from_millis(50);
@@ -236,7 +251,7 @@ async fn standby_says_so_again_after_an_outage() {
         "{}",
         standby.out.text()
     );
-    std::fs::copy(lockfile(&r.data), lockfile(standby_dir.path())).unwrap();
+    copy_lockfile(&r.data, standby_dir.path()).await;
     standby.out.wait("standby", 2).await;
     let types: Vec<Value> = standby
         .out
