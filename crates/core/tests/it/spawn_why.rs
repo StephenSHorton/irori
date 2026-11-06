@@ -596,11 +596,10 @@ fn a_request_with_no_agent_says_none_showed_up() {
     }
 }
 
-/// What's on the card itself (its side, its lead, its parent's limit) is
-/// said whether or not the switch is on, but on its own only when the
-/// board starts agents.
+/// What's on the card itself (its side, its lead) is said whether or not
+/// the switch is on, but on its own only when the board starts agents.
 #[test]
-fn a_part_says_its_lead_or_its_limit_and_a_card_its_side() {
+fn a_part_says_its_lead_and_a_card_its_side() {
     let r = Rig::new();
     r.core.set_spawner(Some(idle_spawner()));
     r.core.set_spawn_cap(0).unwrap();
@@ -612,7 +611,6 @@ fn a_part_says_its_lead_or_its_limit_and_a_card_its_side() {
             NewTask {
                 title: "Big card".into(),
                 repo_key: REPO.into(),
-                agents: 2,
                 ..NewTask::default()
             },
         )
@@ -627,20 +625,15 @@ fn a_part_says_its_lead_or_its_limit_and_a_card_its_side() {
         .split(
             &r.key_a,
             &p.id,
-            vec![sub("plain", false), sub("one", true), sub("two", true)],
+            vec![sub("plain", false), sub("helper", true)],
             vec![],
         )
         .unwrap();
-    let (plain, two) = (&parts[0], &parts[2]);
+    let plain = &parts[0];
     assert_eq!(r.core.why_no_agent(&plain.id, false), None, "switch off");
     assert_eq!(r.core.why_no_agent(&plain.id, true), Some(Why::ForLead));
     switch(&r, true);
     assert_eq!(r.core.why_no_agent(&plain.id, false), Some(Why::ForLead));
-    assert_eq!(
-        r.core.why_no_agent(&two.id, false),
-        Some(Why::AtLimit { limit: 2 }),
-        "the lead and one helper"
-    );
 
     r.core.set_device_sides(&["front".into()]).unwrap();
     let t = co

@@ -1128,3 +1128,329 @@ fn a_spawned_agent_posts_without_joining() {
     );
     assert!(h.b.talk.is_member(&ch.id, KEY_C), "a terminal agent joins");
 }
+
+/// Card #538: agents don't DM other people, and people don't DM other
+/// people's agents.
+#[test]
+fn a_dm_crosses_people_only_person_to_person() {
+    let h = new_harness_setup(None, |_, _| {});
+    let user = inbox::Sender::new(USER, "you", "user");
+    let agent = inbox::Sender::new(KEY_A, "agent", "claude");
+    let post = |from: &inbox::Sender, key: &str| {
+        let other = ct::Member::of(key);
+        let id = ct::dm_id(&from.key, key);
+        tools::talk::post(
+            &*h.b,
+            from,
+            &tools::talk::Target::Dm(id, Some(other)),
+            "hi",
+            &[],
+            false,
+            None,
+        )
+        .map(|_| ())
+        .unwrap_err()
+    };
+    assert!(post(&agent, "person:p1").contains("agents don't DM"));
+    assert!(post(&agent, "board:b1/person:p1").contains("agents don't DM"));
+    assert!(post(&user, "agent:c1").contains("other people's agents"));
+    assert!(post(&user, "board:b1/c1").contains("other people's agents"));
+    assert!(post(&agent, "agent:c1").contains("other people's agents"));
+}
+
+/// Card #538: what a person DM needs of the Core, faked: this person is
+/// `me`, and the DM's rows come back stamped as a hidden space's do.
+struct PairLogs(std::sync::Arc<store::Store>);
+
+impl ct::SpaceLogs for PairLogs {
+    fn append(
+        &self,
+        space: &str,
+        _by: &str,
+        kind: &str,
+        payload: serde_json::Value,
+    ) -> Result<store::Event, String> {
+        let conv = payload["convId"].as_str().unwrap_or("").to_string();
+        let mut ev = self
+            .0
+            .append("irori", kind, &payload)
+            .map_err(|e| e.to_string())?;
+        let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).unwrap();
+        v["spaceId"] = space.into();
+        v["dmConv"] = conv.into();
+        ev.payload = serde_json::to_vec(&v).unwrap();
+        Ok(ev)
+    }
+    fn rows(&self) -> Vec<store::Event> {
+        Vec::new()
+    }
+    fn person_id(&self) -> Option<String> {
+        Some("me".into())
+    }
+    fn dm_for(&self, _other: &str) -> Result<String, String> {
+        Ok("sp_dm".into())
+    }
+}
+
+/// The people this person shares a space with, and what a DM waits on.
+#[derive(Default)]
+struct Shared {
+    people: std::sync::Mutex<Vec<tools::PersonInfo>>,
+    waiting: std::sync::Mutex<&'static str>,
+}
+
+impl tools::SharedBoards for Shared {
+    fn boards(&self) -> Vec<tools::BoardInfo> {
+        Vec::new()
+    }
+    fn board_of(&self, _task_id: &str) -> Option<tools::BoardInfo> {
+        None
+    }
+    fn board_coord(
+        &self,
+        _board_id: &str,
+        _keys: &[String],
+    ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
+        Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
+    }
+    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+        Err("no".into())
+    }
+    fn withdraw(&self, _: &str) -> Result<(), String> {
+        Err("no".into())
+    }
+    fn dm_people(&self) -> Vec<tools::PersonInfo> {
+        self.people.lock().unwrap().clone()
+    }
+    fn dm_waiting(&self, other: &str) -> &'static str {
+        assert_eq!(other, BOB);
+        *self.waiting.lock().unwrap()
+    }
+}
+
+const BOB: &str = "person:pBob";
+
+fn someone(key: &str, name: &str) -> tools::PersonInfo {
+    tools::PersonInfo {
+        key: key.into(),
+        name: name.into(),
+    }
+}
+
+/// Bob on a shared space, and Spencer's agent BillingEng1 on one too.
+fn bobs_harness() -> (Harness, std::sync::Arc<Shared>) {
+    let shared = std::sync::Arc::new(Shared::default());
+    shared.people.lock().unwrap().push(someone(BOB, "Bob"));
+    let held = shared.clone();
+    let h = new_harness_setup(None, move |b, _| {
+        let _ = b.shared.set(held);
+        b.talk
+            .set_spaces(std::sync::Arc::new(PairLogs(b.st.clone())));
+        b.known.lock().unwrap().insert(BOB.into(), "Bob".into());
+    });
+    h.b.board_agents.lock().unwrap().push(tools::BoardAgent {
+        board: "billing".into(),
+        person: "Spencer".into(),
+        card: presence::AgentCard {
+            key: "agent:cBilling".into(),
+            name: "BillingEng1".into(),
+            status: "idle".into(),
+            ..presence::AgentCard::default()
+        },
+    });
+    (h, shared)
+}
+
+fn bob_dm() -> tools::talk::Target {
+    tools::talk::Target::Dm(ct::pair_dm_id("person:me", BOB), Some(ct::Member::of(BOB)))
+}
+
+/// Card #538: the person reaches another person by key or by name, as one
+/// pair id both sides compute. What can't be told apart is refused with
+/// the keys that can.
+#[test]
+fn a_person_resolves_by_key_or_by_name_to_the_pair_dm() {
+    let (h, shared) = bobs_harness();
+    let go = |conv: &str| tools::talk::resolve(&*h.b, USER, conv, "");
+    for conv in [BOB, "@person:pBob", "Bob", "bob", "@Bob"] {
+        assert_eq!(go(conv), Ok(bob_dm()), "{conv}");
+    }
+    assert!(go("person:me").unwrap_err().contains("that's you"));
+    assert!(go("Carol").unwrap_err().contains("is no channel"));
+
+    // A key needs no shared space: the first post says so if there's none.
+    assert!(matches!(
+        go("person:pGone"),
+        Ok(tools::talk::Target::Dm(..))
+    ));
+
+    // A board's key from a notice isn't a person DM.
+    let e = go("board:b1/person:pBob").unwrap_err();
+    assert!(e.contains("is no channel"), "{e}");
+
+    // Two people of one name.
+    let mut more = vec![someone("person:pBob2", "BOB")];
+    shared.people.lock().unwrap().append(&mut more);
+    let e = go("Bob").unwrap_err();
+    assert!(e.contains("more than one person"), "{e}");
+    assert!(e.contains(BOB) && e.contains("person:pBob2"), "{e}");
+    assert_eq!(go(BOB), Ok(bob_dm()), "the key still names one");
+
+    // One of the person's agents and another person of one name.
+    h.b.roster
+        .put(card(KEY_A, "alpha", "", "bypassPermissions"));
+    let mut more = vec![someone("person:pAl", "alpha")];
+    shared.people.lock().unwrap().append(&mut more);
+    let e = go("alpha").unwrap_err();
+    assert!(e.contains("more than one agent or person"), "{e}");
+    assert!(e.contains(KEY_A) && e.contains("person:pAl"), "{e}");
+}
+
+/// Card #538: an agent is told no in words, by key or by name, reading or
+/// writing, and nothing is written. Its own person is still its person,
+/// and an agent's name still beats a person's for an agent.
+#[test]
+fn an_agent_cant_dm_a_person_and_nobody_dms_their_agent() {
+    let (h, shared) = bobs_harness();
+    let a = call_a();
+    for conv in [BOB, "Bob", "@bob", "board:b1/person:pBob"] {
+        h.failsj(
+            &a,
+            "talk_post",
+            json!({"conv": conv, "text": "hi"}),
+            &["agents don't DM other people"],
+        );
+        h.failsj(
+            &a,
+            "talk_read",
+            json!({"conv": conv}),
+            &["agents don't DM other people"],
+        );
+    }
+    for conv in ["agent:cBilling", "board:b1/cBilling", "BillingEng1"] {
+        h.failsj(
+            &a,
+            "talk_post",
+            json!({"conv": conv, "text": "hi"}),
+            &["other people's agents"],
+        );
+        let e = tools::talk::resolve(&*h.b, USER, conv, "").unwrap_err();
+        assert!(e.contains("other people's agents"), "{e}");
+    }
+    assert!(h.b.talk.dms().is_empty(), "nothing opened");
+    assert_eq!(h.b.st_rows("talk.post"), 0);
+
+    // Two of one name is still a refusal, not a pick.
+    let mut more = vec![someone("person:pBob2", "Bob")];
+    shared.people.lock().unwrap().append(&mut more);
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "Bob", "text": "hi"}),
+        &["agents don't DM other people"],
+    );
+
+    // Its own person by their person key is the DM with them.
+    let own = tools::talk::resolve(&*h.b, KEY_A, "person:me", "").unwrap();
+    assert_eq!(own.id(), ct::dm_id(KEY_A, "user"));
+
+    // Beta is an agent here; a person called beta doesn't change that.
+    let mut more = vec![someone("person:pBeta", "beta")];
+    shared.people.lock().unwrap().append(&mut more);
+    h.b.roster.put(card(KEY_B, "beta", "", "bypassPermissions"));
+    let t = tools::talk::resolve(&*h.b, KEY_A, "beta", "").unwrap();
+    assert_eq!(t.id(), ct::dm_id(KEY_A, KEY_B));
+}
+
+/// Card #538: nobody is woken through a DM with a person, and the post
+/// says nothing of who wasn't: no mentions and no misses.
+#[test]
+fn a_person_dm_clears_its_mentions() {
+    let (h, _) = bobs_harness();
+    h.b.roster
+        .put(card(KEY_A, "alpha", "", "bypassPermissions"));
+    let user = inbox::Sender::new(USER, "you", "user");
+    let out = tools::talk::post(
+        &*h.b,
+        &user,
+        &bob_dm(),
+        "@alpha @nobody have a look",
+        &["alpha".to_string()],
+        true,
+        None,
+    )
+    .unwrap();
+    assert_eq!(out.post.conv_id, ct::pair_dm_id("person:me", BOB));
+    assert!(out.post.mentions.is_empty(), "{:?}", out.post);
+    assert!(out.mentions.is_empty() && out.misses.is_empty() && out.told.is_empty());
+    assert!(out.sent.is_none());
+    assert!(h.notices(KEY_A).is_empty(), "alpha isn't woken");
+}
+
+/// Card #538: a person DM's row names the other person and says what it is
+/// waiting on, for the person only: an agent never sees one.
+#[test]
+fn a_person_dm_row_names_them_and_says_what_it_waits_on() {
+    let (h, shared) = bobs_harness();
+    let dm = tools::talk::open_dm(&*h.b, USER, BOB).unwrap();
+    assert_eq!(dm, ct::pair_dm_id("person:me", BOB));
+    assert_eq!(h.b.st_rows("talk.member"), 0, "opening one writes nothing");
+    let row = || {
+        tools::talk::conversations(&*h.b, USER)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.conv_id == dm)
+            .expect("the DM is listed")
+    };
+    let c = row();
+    assert_eq!((c.kind.as_str(), c.name.as_str()), ("dm", "Bob"));
+    assert!(c.joined && !c.read_only && c.space_id.is_empty());
+    assert!(c.waiting.is_empty(), "nothing is on its way");
+    let bob = c.members.iter().find(|m| m.key == BOB).unwrap();
+    assert_eq!((bob.kind.as_str(), bob.name.as_str()), ("person", "Bob"));
+
+    for w in [
+        tools::talk::WAITING_FOR_THEM,
+        tools::talk::WAITING_FOR_UPDATE,
+    ] {
+        *shared.waiting.lock().unwrap() = w;
+        assert_eq!(row().waiting, w);
+    }
+
+    let a = call_a();
+    let listed = tools::talk::conversations(&*h.b, KEY_A).unwrap();
+    assert!(listed.iter().all(|c| c.conv_id != dm), "{listed:?}");
+    h.failsj(&a, "talk_read", json!({"conv": dm}), &["isn't yours"]);
+    has_not(&h.okj(&a, "talk_list", json!({})), &["Bob", &dm]);
+
+    // An agent's DM waits on nothing.
+    let own = tools::talk::open_dm(&*h.b, USER, KEY_A).unwrap();
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let c = cs.iter().find(|c| c.conv_id == own).unwrap();
+    assert!(c.waiting.is_empty(), "{c:?}");
+}
+
+/// Card #538: the window opens a DM through the same refusals: only
+/// someone this person shares a space or a DM with, never their agent.
+#[test]
+fn opening_a_dm_checks_who_with() {
+    let (h, shared) = bobs_harness();
+    let open = |me: &str, key: &str| tools::talk::open_dm(&*h.b, me, key);
+    let dm = open(USER, BOB).unwrap();
+    let e = open(USER, "person:pCarol").unwrap_err();
+    assert!(e.contains("don't share a space"), "{e}");
+    assert!(open(USER, "person:me").unwrap_err().contains("that's you"));
+    let e = open(USER, "agent:cBilling").unwrap_err();
+    assert!(e.contains("other people's agents"), "{e}");
+    let e = open(KEY_A, BOB).unwrap_err();
+    assert!(e.contains("agents don't DM"), "{e}");
+
+    // The DM stays yours after the last space you shared goes.
+    shared.people.lock().unwrap().clear();
+    assert_eq!(open(USER, BOB).unwrap(), dm);
+
+    // The person's own agent, as before.
+    let own = open(USER, KEY_A).unwrap();
+    assert_eq!(own, ct::dm_id(USER, KEY_A));
+    assert!(h.b.talk.is_member(&own, KEY_A));
+}

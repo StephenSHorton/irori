@@ -171,6 +171,9 @@ impl TaskRouter for Fake {
         n.by = self.back(&n.by);
         n
     }
+    fn private_key(&self, key: &str) -> String {
+        self.back(key)
+    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         if r.starts_with("mlg#") {
             return self.co.task_ref(r);
@@ -852,8 +855,8 @@ fn a_wait_on_a_shared_card_stays_off_the_board() {
     assert!(!out.contains("Visible to"), "{out}");
     assert_eq!(
         rows(),
-        before + 1,
-        "only the agent's card went to the board"
+        before,
+        "nothing reached the board, not even the agent"
     );
     let ws = r.h.b.co.waits("");
     assert_eq!(ws.len(), 1, "{ws:?}");

@@ -380,6 +380,16 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub at_cap: String,
+    /// Its place in that device's spawn queue, from 1 (card #450): "queued:
+    /// 1st for the PC". 0 when it isn't queued.
+    #[serde(skip_serializing_if = "is_zero")]
+    #[specta(optional)]
+    pub queue_place: i64,
+    /// While a Claude usage limit holds spawns, when they start again
+    /// (card #450): "queued: usage limit".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional, type = Option<ts::Time>)]
+    pub usage_limit: Option<GoTime>,
     /// Where the card sits on the Board's canvas (card #93), once placed.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
@@ -968,8 +978,11 @@ pub(crate) struct People {
     faces: HashMap<String, String>,
     /// Live agents Irori started for a card (card #448).
     spawned: std::collections::HashSet<String>,
-    /// Cards that need an agent while this device is at its cap.
-    at_cap: std::collections::HashSet<String>,
+    /// Where the spawn queue stands here (card #450): each waiting card's
+    /// place, a usage-limit hold.
+    queue: irori_core::spawn_limits::SpawnQueue,
+    /// Cards that wait for an agent here (queued or held).
+    waiting: std::collections::HashSet<String>,
 }
 
 /// The other people's colours on this screen (card #385): every person
@@ -1091,9 +1104,25 @@ impl Window {
                 .filter(|k| co.is_spawned(k))
                 .cloned()
                 .collect();
-            let (running, cap) = c.spawn_slots();
-            if c.spawn_setting("").on && running >= cap {
-                p.at_cap = co.cards_to_spawn().into_iter().map(|t| t.id).collect();
+            // Shared boards' cards wait on a usage hold whatever the
+            // private board's switch says.
+            p.queue = c.spawn_queue();
+            p.waiting.extend(p.queue.on_boards.iter().cloned());
+            if c.spawn_setting("").on {
+                if p.queue.held_until.is_some() {
+                    let private: Vec<String> = co
+                        .cards_to_spawn()
+                        .into_iter()
+                        .filter(|t| {
+                            t.spawn_request().is_none_or(|s| {
+                                s.op != coord::SPAWN_FAILED || coord::usage_limited(s)
+                            })
+                        })
+                        .map(|t| t.id)
+                        .collect();
+                    p.waiting.extend(private);
+                }
+                p.waiting.extend(p.queue.places.keys().cloned());
             }
         }
         let mut live = 0;
@@ -1474,6 +1503,40 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
     irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
+/// The spawn queue's words for card t (card #450): a usage-limit hold
+/// first, then its place.
+fn queue_line(s: &mut CardSummary, t: &Task, p: &People) {
+    let w = queue_words(&t.id, p);
+    s.at_cap = w.at_cap;
+    s.queue_place = w.queue_place;
+    s.usage_limit = w.usage_limit;
+}
+
+/// What a card or thread waiting in the spawn queue says (card #450).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct QueueWords {
+    pub at_cap: String,
+    pub queue_place: i64,
+    pub usage_limit: Option<GoTime>,
+}
+
+/// Card or thread `id`'s place in the spawn queue: a usage-limit hold
+/// first, then its place for this device.
+pub(crate) fn queue_words(id: &str, p: &People) -> QueueWords {
+    let mut w = QueueWords::default();
+    if !p.waiting.contains(id) {
+        return w;
+    }
+    let q = &p.queue;
+    if let Some(h) = q.held_until {
+        w.usage_limit = Some(h);
+    } else if let Some(&n) = q.places.get(id) {
+        w.at_cap = p.where_(&p.self_id);
+        w.queue_place = n as i64;
+    }
+    w
+}
+
 pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     let (d, n) = t.progress();
     let mut s = CardSummary {
@@ -1496,7 +1559,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         main_red: coord::main_red_test(t).unwrap_or_default().to_string(),
         cant_start: t
             .spawn_request()
-            .filter(|sp| sp.op == coord::SPAWN_FAILED)
+            .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         starting: t
@@ -1504,13 +1567,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .filter(|sp| sp.pending())
             .map(|sp| p.where_(&sp.device))
             .unwrap_or_default(),
-        at_cap: if p.at_cap.contains(&t.id) {
-            p.where_(&p.self_id)
-        } else {
-            String::new()
-        },
         ..CardSummary::default()
     };
+    queue_line(&mut s, t, p);
     if let Some(r) = &t.rollup {
         s.progress = CardProgress {
             done: r.done,

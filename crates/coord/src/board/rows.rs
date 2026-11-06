@@ -46,8 +46,6 @@ crate::go_struct! {
         pub parent: String = "parent" "omit",
         /// A helper's part of its parent (spawned agents §3).
         pub spawn: bool = "spawn" "omit",
-        /// The card's own Up to N agents (§3); 0 for the board's.
-        pub agents: i64 = "agents" "omit",
         /// The thread the card was made from (card #155).
         pub from: String = "from" "omit",
         /// The board in a space it's on (card #392): a `space.board.created`

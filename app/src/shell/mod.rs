@@ -23,6 +23,9 @@ pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
 mod probe;
+#[cfg(target_os = "macos")]
+mod quit_mac;
+mod shot;
 // No tray on a phone (card #226): the same API with nothing behind it.
 #[cfg_attr(mobile, path = "tray_mobile.rs")]
 pub mod tray;
@@ -32,7 +35,7 @@ mod update;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use irori_window::{Config, Window, attachments};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::commands::version;
@@ -228,6 +231,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 builder.mount_events(app);
                 // The probe never puts a window on screen.
                 main_window(app.handle(), startup || probe.on())?;
+                shot::start(app.handle());
                 irori_core::log(&format!(
                     "start: window open {} ms after launch",
                     launched.elapsed().as_millis()
@@ -270,6 +274,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // too late on macOS (card #535): an Apple Event or the app menu's Quit
     // goes through -[NSApplication terminate:], which calls exit() itself
     // and never returns from the loop, so there it runs on RunEvent::Exit.
+    // There the main thread no longer serves its run loop, which the
+    // page's IPC answers wait on (card #588), so on macOS every quit runs
+    // it first on its own thread with the loop still going (quit_mac) and
+    // RunEvent::Exit finds it done.
     let shut_down = {
         let done: Arc<OnceLock<Result<(), String>>> = Arc::default();
         let probe = probe.clone();
@@ -306,6 +314,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     #[cfg(target_os = "macos")]
     let on_exit = shut_down.clone();
+    // The tao app delegate exists once the app is built.
+    #[cfg(target_os = "macos")]
+    if app.is_ok() {
+        let s = shut_down.clone();
+        if let Err(e) = quit_mac::install(move || {
+            let _ = s();
+        }) {
+            irori_core::log(&format!("irori: {e}"));
+        }
+    }
     let res = app.map(|app| {
         app.run_return(move |_app, ev| {
             // The tray keeps Irori running with no window open: only Quit
@@ -314,6 +332,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 RunEvent::ExitRequested {
                     code: None, api, ..
                 } => api.prevent_exit(),
+                // Quit (an explicit exit code) shuts down with the loop
+                // still running, then asks again (quit_mac).
+                #[cfg(target_os = "macos")]
+                RunEvent::ExitRequested {
+                    code: Some(code),
+                    api,
+                    ..
+                } => {
+                    let app = _app.clone();
+                    match quit_mac::begin(move || app.exit(code)) {
+                        quit_mac::Begin::Started | quit_mac::Begin::Running => api.prevent_exit(),
+                        quit_mac::Begin::Done => {}
+                    }
+                }
                 // A Dock click on the running app (check this against the
                 // Go build on the Mac).
                 #[cfg(target_os = "macos")]
@@ -398,8 +430,12 @@ fn start_core(
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
     // the claude command" every second. Its switch's default is unchanged:
     // the coord's offers and its "starts an agent" lines read it.
+    // An offline copy (IRORI_DEV_OFFLINE, a rehearsal or a window check on
+    // a copy of a real data dir, card #587) never starts real agents.
     #[cfg(desktop)]
-    core.set_spawner(Some(spawner()));
+    if !crate::host::offline() {
+        core.set_spawner(Some(spawner()));
+    }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);
@@ -505,7 +541,10 @@ fn hand_off() -> Result<(), String> {
 /// title bar), 1100×720, URL `/`; hidden at a login launch. The background
 /// is the opening screen's (index.html, card #232), so nothing flashes.
 fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
-    let b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())
+    // A window check on a Mac (card #587, shot.rs) may open a debug build
+    // on a preview switch.
+    let url = shot::window_url().unwrap_or_default();
+    let b = WebviewWindowBuilder::new(app, MAIN, url)
         .title("Irori")
         .background_color(tauri::window::Color(11, 12, 15, 255));
     // A phone's window is the whole screen (card #226). Desktop only: iOS

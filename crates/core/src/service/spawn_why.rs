@@ -60,8 +60,6 @@ pub enum Why {
     OffSide(String),
     /// A subtask of a card with a lead, with no mark of its own.
     ForLead,
-    /// The card has its most agents.
-    AtLimit { limit: usize },
     /// The repo isn't trusted where it would start.
     NeedsTrust { folder: String, device: String },
     /// No folder for the card: the "can't start" line's words.
@@ -157,12 +155,6 @@ impl fmt::Display for Why {
                 f,
                 "it's a subtask of a card with a lead: the lead marks it spawn or assigns it"
             ),
-            Why::AtLimit { limit } => {
-                write!(
-                    f,
-                    "its parent has its most agents ({limit}); it starts when one ends"
-                )
-            }
             Why::NeedsTrust { folder, device } => write!(
                 f,
                 "{folder} isn't trusted on {device}; the person chooses Trust and start on the card"
@@ -494,13 +486,10 @@ impl Services {
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);
         }
-        // Blocked and at its limit before an old failure: the failure's
-        // fix (Trust and start, a folder) starts nothing until they clear.
+        // Blocked before an old failure: the failure's fix (Trust and
+        // start, a folder) starts nothing until the blocker clears.
         if hold == SpawnHold::Blocked {
             return Some(Why::Blocked);
-        }
-        if let SpawnHold::AtLimit(limit) = hold {
-            return Some(Why::AtLimit { limit });
         }
         if let Some(s) = request.filter(|s| s.op == SPAWN_FAILED) {
             return Some(self.failed_why(&t, s));
@@ -595,7 +584,6 @@ mod tests {
             (Why::DeviceRemoved { device: dev() }, "was removed"),
             (Why::NoOrigin, "no device hands"),
             (Why::ForLead, "lead"),
-            (Why::AtLimit { limit: 4 }, "(4)"),
             (
                 Why::NeedsTrust {
                     folder: "/r".into(),
