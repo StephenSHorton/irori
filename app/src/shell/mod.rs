@@ -33,7 +33,7 @@ mod update;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use irori_window::{Config, Window, attachments};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::commands::version;
@@ -400,8 +400,12 @@ fn start_core(
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
     // the claude command" every second. Its switch's default is unchanged:
     // the coord's offers and its "starts an agent" lines read it.
+    // An offline copy (IRORI_DEV_OFFLINE, a rehearsal or a window check on
+    // a copy of a real data dir, card #587) never starts real agents.
     #[cfg(desktop)]
-    core.set_spawner(Some(spawner()));
+    if !crate::host::offline() {
+        core.set_spawner(Some(spawner()));
+    }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);
@@ -507,7 +511,10 @@ fn hand_off() -> Result<(), String> {
 /// title bar), 1100×720, URL `/`; hidden at a login launch. The background
 /// is the opening screen's (index.html, card #232), so nothing flashes.
 fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
-    let b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())
+    // A window check on a Mac (card #587, shot.rs) may open a debug build
+    // on a preview switch.
+    let url = shot::window_url().unwrap_or_default();
+    let b = WebviewWindowBuilder::new(app, MAIN, url)
         .title("Irori")
         .background_color(tauri::window::Color(11, 12, 15, 255));
     // A phone's window is the whole screen (card #226). Desktop only: iOS

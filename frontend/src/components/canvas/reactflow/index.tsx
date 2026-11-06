@@ -267,6 +267,19 @@ function useFlash(graph: Graph, still: boolean): ReadonlySet<string> {
   return flash
 }
 
+// FitWhileUntouched fits the whole map again as areas come and go (the
+// cards arrive in more than one load, so the first fit can catch only a
+// few), until the person pans or zooms: from then on the view is theirs.
+function FitWhileUntouched({ areas, touched }: { areas: string; touched: { current: boolean } }) {
+  const { fitView } = useReactFlow()
+  useEffect(() => {
+    if (touched.current) return
+    const t = window.setTimeout(() => void fitView({ padding: 0.08 }), 50)
+    return () => window.clearTimeout(t)
+  }, [areas, fitView, touched])
+  return null
+}
+
 // KeepCenter holds the middle of the view still when the canvas changes
 // size (a window resize, full screen on or off: card #410): React Flow
 // keeps the top-left corner, so the view would slide.
@@ -357,6 +370,13 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
     [graph, layout, auto.groups, nodes, shown]
   )
   const placed = graph.nodes.some((n) => n.kind === "card" && n.card.pos)
+  const touched = useRef(false)
+  // What the map is made of: its areas and how many cards each holds.
+  const areas = useMemo(() => {
+    const count = new Map<string, number>()
+    for (const n of graph.nodes) if (n.kind === "card") count.set(n.group, (count.get(n.group) ?? 0) + 1)
+    return [...count].sort().map(([g, c]) => `${g}:${c}`).join(",")
+  }, [graph])
   // A touch screen (card #227): a finger pans and pinches, so nodes don't
   // drag (a pan that starts on a card would move it), and a phone has no
   // room for the minimap.
@@ -372,6 +392,11 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         onNodesChange={onNodesChange}
         onNodeMouseEnter={(_, n) => setHover(n.type === "group" ? null : n.id)}
         onNodeMouseLeave={() => setHover(null)}
+        // An event means the person moved the view (fitView moves it too,
+        // without one).
+        onMoveStart={(e) => {
+          if (e) touched.current = true
+        }}
         onNodeClick={(_, node) => {
           const n = (node.data as { n: { kind: string; id: string; card?: string } }).n
           const id = openTarget(n)
@@ -404,6 +429,7 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         )}
         <Controls showInteractive={false} />
         <KeepCenter />
+        <FitWhileUntouched areas={areas} touched={touched} />
       </ReactFlow>
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
       {placed && (

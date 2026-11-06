@@ -24,8 +24,11 @@
 import { inWails } from "./irori"
 
 // previewFlag is a query parameter's value ("" when it has none), or null
-// when it is absent or the page runs inside the app.
+// when it is absent or the page runs inside the app. Only a debug build's
+// window check opens the app's window with ?dev (app/src/shell/shot.rs,
+// card #587), and then the switches apply there too.
 export function previewFlag(name: string): string | null {
-  if (inWails()) return null
-  return new URLSearchParams(window.location.search).get(name)
+  const q = new URLSearchParams(window.location.search)
+  if (inWails() && !q.has("dev")) return null
+  return q.get(name)
 }

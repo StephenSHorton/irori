@@ -6,12 +6,28 @@
 //! A debug build on macOS with `IRORI_DEV_WINDOW_SHOTS=<dir>` saves
 //! `<dir>/window-<n>.png` of the main window, `IRORI_DEV_WINDOW_SHOT_COUNT`
 //! times (default 1), 1.5 s apart, starting `IRORI_DEV_WINDOW_SHOT_AFTER`
-//! seconds after the window opens (default 15). `IRORI_DEV_WINDOW_JS`, when
-//! set, runs in the window first, 6 s after it opens (to pick a view, say).
+//! seconds after the window opens (default 15). `IRORI_DEV_WINDOW_QUERY`,
+//! when set, opens the window on `index.html?dev&<query>`, so the
+//! frontend's preview switches apply in the app too (`view=canvas&full`;
+//! frontend/src/lib/preview.ts).
 //! Run it on a copy of a data dir (`IRORI_HOME`) with `IRORI_DEV_OFFLINE=1`.
 //! A release build ignores all of it.
 
 use tauri::AppHandle;
+
+/// Where the main window opens for a window check: `index.html?dev&` and
+/// `IRORI_DEV_WINDOW_QUERY`, with `IRORI_DEV_WINDOW_SHOTS` set; never in a
+/// release build.
+pub fn window_url() -> Option<tauri::WebviewUrl> {
+    if !cfg!(all(target_os = "macos", debug_assertions)) {
+        return None;
+    }
+    std::env::var_os("IRORI_DEV_WINDOW_SHOTS")?;
+    let q = std::env::var("IRORI_DEV_WINDOW_QUERY")
+        .ok()
+        .filter(|s| !s.is_empty())?;
+    Some(tauri::WebviewUrl::App(format!("index.html?dev&{q}").into()))
+}
 
 pub fn start(app: &AppHandle) {
     #[cfg(all(target_os = "macos", debug_assertions))]
@@ -36,30 +52,28 @@ mod mac {
             return;
         };
         let secs = |k: &str, d: f64| {
-            std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(d)
+            std::env::var(k)
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(d)
         };
         let after = secs("IRORI_DEV_WINDOW_SHOT_AFTER", 15.0);
         let count = secs("IRORI_DEV_WINDOW_SHOT_COUNT", 1.0).max(1.0) as usize;
-        let js = std::env::var("IRORI_DEV_WINDOW_JS").ok().filter(|s| !s.is_empty());
         let app = app.clone();
-        let _ = std::thread::Builder::new().name("irori-shot".into()).spawn(move || {
-            let _ = std::fs::create_dir_all(&dir);
-            if let Some(js) = js {
-                std::thread::sleep(Duration::from_secs(6));
-                if let Some(w) = app.get_webview_window(super::super::MAIN) {
-                    let _ = w.eval(&js);
+        let _ = std::thread::Builder::new()
+            .name("irori-shot".into())
+            .spawn(move || {
+                let _ = std::fs::create_dir_all(&dir);
+                std::thread::sleep(Duration::from_secs_f64(after.max(0.0)));
+                for n in 1..=count {
+                    let path = dir.join(format!("window-{n}.png"));
+                    match grab(&app, &path) {
+                        Ok(()) => irori_core::log(&format!("shot: saved {}", path.display())),
+                        Err(e) => irori_core::log(&format!("shot: {e}")),
+                    }
+                    std::thread::sleep(Duration::from_millis(1500));
                 }
-            }
-            std::thread::sleep(Duration::from_secs_f64(after.max(0.0)));
-            for n in 1..=count {
-                let path = dir.join(format!("window-{n}.png"));
-                match grab(&app, &path) {
-                    Ok(()) => irori_core::log(&format!("shot: saved {}", path.display())),
-                    Err(e) => irori_core::log(&format!("shot: {e}")),
-                }
-                std::thread::sleep(Duration::from_millis(1500));
-            }
-        });
+            });
     }
 
     #[repr(C)]
@@ -128,7 +142,12 @@ mod mac {
         // is released here.
         unsafe {
             // CGRectNull: the window's own bounds.
-            let null = CGRect { x: f64::INFINITY, y: f64::INFINITY, w: 0.0, h: 0.0 };
+            let null = CGRect {
+                x: f64::INFINITY,
+                y: f64::INFINITY,
+                w: 0.0,
+                h: 0.0,
+            };
             // kCGWindowListOptionIncludingWindow, kCGWindowImageBoundsIgnoreFraming.
             let img = CGWindowListCreateImage(null, 1 << 3, id, 1 << 0);
             if img.is_null() {
@@ -141,7 +160,8 @@ mod mac {
                 p.len() as isize,
                 false,
             );
-            let ty = CFStringCreateWithCString(std::ptr::null(), c"public.png".as_ptr(), 0x0800_0100);
+            let ty =
+                CFStringCreateWithCString(std::ptr::null(), c"public.png".as_ptr(), 0x0800_0100);
             let dest = CGImageDestinationCreateWithURL(url, ty, 1, std::ptr::null());
             let ok = !dest.is_null() && {
                 CGImageDestinationAddImage(dest, img, std::ptr::null());
@@ -157,7 +177,11 @@ mod mac {
                 CFRelease(url);
             }
             CGImageRelease(img);
-            if ok { Ok(()) } else { Err("can't write the PNG".into()) }
+            if ok {
+                Ok(())
+            } else {
+                Err("can't write the PNG".into())
+            }
         }
     }
 }

@@ -396,14 +396,14 @@ const MinRow = 1600 // a small board stays on one row
 const BlockerInset = 20 // a blocker under its card, set in a little
 const BlockerGap = 8 // between a card and its blockers, and between blockers
 const HubCols = 4 // an agent's grid is at most this wide
-const AreaCols = 6 // the unheld and done grids
+const AreaCols = 10 // the unheld and done grids, about twice as wide as tall
 const PillCols = 6 // agents in the others strip
 const PillGap = 12
 
 // colsFor is how wide a grid of n cards is: about square, so a hub of 16
 // cards is 4 by 4, never 16 tall.
-export function colsFor(n: number, max: number): number {
-  return Math.max(1, Math.min(max, Math.ceil(Math.sqrt(n))))
+export function colsFor(n: number, max: number, wide = 1): number {
+  return Math.max(1, Math.min(max, Math.ceil(Math.sqrt(n * wide))))
 }
 
 // blockerSpot is where a card's i-th blocker sits: under the card, so the
@@ -454,7 +454,8 @@ function placeArea(
     y += NodeSize.agent.h + PillGap
   }
   if (agents.length) y += Gap - PillGap
-  const cols = colsFor(cards.length, maxCols)
+  // An agent's hub is about square; the big areas lie wide, like the window.
+  const cols = colsFor(cards.length, maxCols, maxCols === HubCols ? 1 : 2)
   for (let r = 0; r * cols < cards.length; r++) {
     const row = cards.slice(r * cols, (r + 1) * cols)
     let rowH = 0
