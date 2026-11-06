@@ -2365,51 +2365,28 @@ fn the_avatar_tool_checks_a_face_before_keeping_it() {
     assert!(none.contains("no face of your own"), "{none}");
 }
 
-/// Card #436: two agents hit the same red test on clean main; the second
-/// report joins the first card instead of making its own.
+/// Card #632: Irori keeps no "main is red" of its own. Agents see a red
+/// main by running the tests in the repo, so on = main-red is refused and
+/// makes no card, and the board says nothing about it.
 #[test]
-fn test_board_block_main_red_joins_one_card() {
+fn test_board_block_main_red_is_gone() {
     let h = new_harness();
-    let (a, b) = (call_a(), call_b());
+    let a = call_a();
     let x = h.new_card(&a, json!({"title": "Talk 3"}));
     h.okj(&a, "board_join", json!({"task_id": x}));
-    let y = h.new_card(&b, json!({"title": "Merge desk slice 2"}));
-    h.okj(&b, "board_join", json!({"task_id": y}));
 
-    let out = h.okj(
+    let out = h.callj(
         &a,
         "board_block",
         json!({"task_id": x, "question": "attach_exe fails on clean main", "on": "main-red attach_exe 3573cf11"}),
     );
     has(
         &out,
-        &[
-            "Main is red: Irori made #3 for that test",
-            "unblocks by itself when that task",
-        ],
+        &["Error: ", "lease, task, person, agent, external or version"],
     );
-
-    let out = h.okj(
-        &b,
-        "board_block",
-        json!({"task_id": y, "question": "attach_exe red on main", "on": "main-red attach_exe"}),
-    );
-    has(&out, &["Main is already red for that test: it waits on #3"]);
-    has_not(&out, &["Irori made"]);
 
     let board = h.okj(&a, "board", json!({}));
-    has(
-        &board,
-        &["Main is red: attach_exe fails on clean main; 2 cards wait on #3 (nobody holds it yet)"],
-    );
-    has_not(&board, &["#4 "]);
-
-    let out = h.callj(
-        &a,
-        "board_block",
-        json!({"task_id": x, "reason": "r", "on": "main-red"}),
-    );
-    has(&out, &["Error: ", "needs the failing test's name"]);
+    has_not(&board, &["Main is red", "fails on clean main", "#2 "]);
 }
 
 /// Card #485: board_block's on = version names the least app version and

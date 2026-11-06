@@ -387,7 +387,7 @@
   {
     "step": 80,
     "tool": "board_block",
-    "text": "Error: on starts with what it waits on: lease, task, person, agent, external, version or main-red, not \"bogus\"."
+    "text": "Error: on starts with what it waits on: lease, task, person, agent, external or version, not \"bogus\"."
   },
   {
     "step": 81,

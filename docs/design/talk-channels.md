@@ -32,7 +32,7 @@ No `talk.*` row names a board, so a board inside a space changes none of this.
 ## 3. Who hears what
 
 - **"Agents answer now"** defaults on when the text names nobody or names an agent, and off when it names only people. The person can flip it before sending, or on an open thread.
-  - **On:** today's rules. Naming an agent sends it to that agent (decision 39). Naming nobody hands a thread to one free agent (decision 38). In a channel, naming nobody wakes nobody. *Since card #512:* a thread goes out at once whoever it names: the agents it names are woken, and an idle agent with Offer it cards on, or with none free an agent Irori starts, answers it; nobody waits on the named ones.
+  - **On:** today's rules. Naming an agent sends it to that agent (decision 39). Naming nobody hands a thread to one free agent (decision 38). In a channel, naming nobody wakes nobody. *Since card #512:* a thread goes out at once whoever it names: the agents it names are woken, and an idle agent with Offer it cards on, or with none free an agent Irori starts, answers it; nobody waits on the named ones. *Since card #631:* a thread an agent opens (`talk_thread`) is held by that agent; the agents it names are woken, but nothing is handed out or started for it until the person writes in it.
   - **Off:** no wake and no hand-out. Named people get a desktop card.
 - **Next-turn reading.** Every agent that's a member of a channel, or watches a thread, gets "since you last read" for it on its next wake: at most 5 lines inline and a count, plus `talk_read` for the rest. It replies only if it has something to add or correct. The plugin wording says so, and that a reply is optional.
   - *Built (#391):* the reading is a `reading` notice sent next_turn when a post lands. For a thread, "since" is after the agent's own last post there. For a channel it's after the agent's `talk.read` cursor and its own last post. A newer reading replaces one still waiting, so the agent sees one per conversation.
@@ -74,6 +74,7 @@ talk.card             {postId, taskId}                     (a card made from a m
 ## 7. Agent tools
 
 - `talk_post {conv, text, mention?, space?}` posts to a channel, DM or thread.
+- `talk_thread {text, conv?, mention?, space?}` opens a thread with the person (card #631), in Personal or a space, about a channel when `conv` names one (a pointer post goes there). The agent holds it, the agents it names are woken, and no agent is handed or started for it, even after its opener ends, until the person writes in it ([spawned-agents.md](spawned-agents.md) §7).
 - `talk_read {conv, since?, space?}` reads history, in pages.
 - `talk_list` lists your channels and DMs, and the threads you're on in the private log and every space's, with unread counts.
 - `talk_join` / `talk_leave {conv, space?}` join or leave a channel.
