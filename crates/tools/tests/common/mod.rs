@@ -84,6 +84,7 @@ impl coord::roster::Agents for CoordRoster {
             .cards()
             .into_iter()
             .map(|c| coord::roster::AgentCard {
+                device_via: String::new(),
                 key: c.key,
                 device_id: c.device_id,
                 agent: c.agent,

@@ -316,8 +316,7 @@ export const TalkService = {
     done(commands.talkLeave(convId, member)),
 }
 
-// NotesService is the window's notes_* commands (card #411) and
-// card_wake_notes (card #412).
+// NotesService is the window's notes_* commands (card #411).
 export const NotesService = {
   List: (scope: string, removed = false) =>
     call(commands.notesList(scope, removed)),
@@ -327,7 +326,6 @@ export const NotesService = {
   Edit: (id: string, edit: B.NoteEditInput) =>
     call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
-  CardWakeNotes: (taskId: string) => call(commands.cardWakeNotes(taskId)),
 }
 
 // AgentsService is the window's agents_* commands (card #449): Trust and

@@ -54,10 +54,13 @@ pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
     SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
+    is_crash_question,
 };
 mod resource;
 mod review;
 pub mod rows;
+mod said;
+pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
@@ -969,6 +972,38 @@ impl Coord {
     pub fn record_message(&self, m: MessageEntry) -> Result<Comment> {
         self.lock().record_message(m)
     }
+    /// What the person said lately on the cards around `id` (card #555).
+    pub fn said_near(&self, id: &str) -> Vec<Said> {
+        self.lock().said_near(id)
+    }
+    /// The card to tell `key` about on a wake and what the person said
+    /// around it (card #555): the first of `refs` that is its card, or
+    /// with `working` the card it works now.
+    pub fn said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<(String, Vec<Said>)> {
+        self.lock().said_for(key, refs, working)
+    }
+    /// [`Self::said_for`] that never waits: `None` when the log is busy.
+    /// For a caller under the inbox lock: a board coord's write takes the
+    /// inbox's lock under its own (`hop_of`), so waiting here could
+    /// deadlock.
+    pub fn try_said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<Option<(String, Vec<Said>)>> {
+        let f = match self.f.try_lock() {
+            Ok(f) => f,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return None,
+        };
+        Some(f.said_for(key, refs, working))
+    }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
     }
@@ -1334,6 +1369,22 @@ impl Coord {
     pub fn stranded(&self, id: &str) -> Vec<Stranded> {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
+    }
+    /// Card `id`'s stranded waits that only Needs you shows (card #520):
+    /// waits on a gone agent, and outside waits (not a PR's merge) whose
+    /// gone agent raised them, while nobody holds it.
+    pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
+        let f = self.lock();
+        f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
+    }
+    /// Why "Hand to an agent" can't move card `id` (a shared board's card,
+    /// an open ask, subtasks, already on the Board); "" when it can.
+    pub fn hand_on_refusal(&self, id: &str) -> String {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.hand_on_refusal(t).to_string())
+            .unwrap_or_default()
     }
     /// "Hand to an agent" (card #485): the person puts a card whose items
     /// wait on gone agents back on the Board, taking those agents off it.

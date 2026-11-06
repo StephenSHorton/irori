@@ -9,9 +9,10 @@
 //! - No checkout: after the first failure the card gets one plain blocker,
 //!   "No device has a copy of irori. Choose its folder on Desktop
 //!   Computer?". The person replies with the folder's path and the next
-//!   agent starts there; a reply that isn't a folder here is said so and
-//!   asked again. If a copy turns up here (a Where, or a checkout Irori
-//!   sees), the blocker resolves itself and the agent starts.
+//!   agent starts there; a reply that isn't a folder here is quoted back
+//!   and asked again (card #531: a question reads as one, not as a bad
+//!   path). If a copy turns up here (a Where, or a checkout Irori sees),
+//!   the blocker resolves itself and the agent starts.
 //! - The spawner itself fails [`SPAWN_TRIES`] times in a row: one blocker,
 //!   "Irori couldn't start an agent for this card: try again?".
 //!
@@ -58,6 +59,13 @@ fn is_start_failed(b: &Blocker) -> bool {
     b.raised_by == SWEEPER && b.question == START_FAILED
 }
 
+/// Whether Irori itself acts on an answer to b (card #531): its "no copy"
+/// and "couldn't start" asks, which the sweep reads, and its crash question,
+/// whose answer lets the next agent start (card #540).
+pub fn irori_acts_on(b: &Blocker) -> bool {
+    is_no_copy(b) || is_start_failed(b) || coord::is_crash_question(b)
+}
+
 /// The folder a person's reply names: its first line that isn't a code
 /// fence, without the quotes or backticks people put around paths, with a
 /// leading `~` as the home folder.
@@ -96,13 +104,40 @@ fn quoted(reply: &str) -> String {
     format!("“{}”", cut(&as_folder(reply), 120))
 }
 
+/// Whether f starts at a root, on this device or any other: a person on a
+/// Mac can paste a Windows path, and the other way round.
+fn rooted(f: &str) -> bool {
+    let b = f.as_bytes();
+    Path::new(f).is_absolute()
+        || f.starts_with(['/', '\\'])
+        || (b.len() > 2
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && matches!(b[2], b'/' | b'\\'))
+}
+
+/// Whether f was meant as a path, not words to Irori: "i don't understand
+/// this blocker" or "where is that?" is no bad path (card #531), nor is
+/// "what does folder/repo mean": a relative path with a space reads as
+/// words, as most replies with both are.
+fn reads_as_path(f: &str) -> bool {
+    !f.ends_with('?')
+        && (rooted(f) || (f.contains(['/', '\\']) && !f.contains(char::is_whitespace)))
+}
+
 /// Why a reply wasn't used as the card's folder.
 fn not_a_folder_line(reply: &str, dev: &str) -> String {
     let f = as_folder(reply);
-    if !f.is_empty() && !Path::new(&f).is_absolute() {
-        format!("{} isn't a full path on {dev}.", quoted(reply))
-    } else {
+    if !reads_as_path(&f) {
+        format!(
+            "{} doesn't name a folder, so Irori can't start the agent yet and is asking again.",
+            quoted(reply)
+        )
+    } else if rooted(&f) && !Path::new(&f).is_dir() {
         format!("{} isn't a folder on {dev}.", quoted(reply))
+    } else {
+        // Relative, or a real folder named without its drive on Windows.
+        format!("{} isn't a full path on {dev}.", quoted(reply))
     }
 }
 
@@ -132,45 +167,69 @@ impl Services {
             .find(|r| Path::new(r).is_dir())
     }
 
-    /// The folder the person named in reply to a "no copy" blocker on t,
-    /// newest first, when it is a folder here.
-    pub(crate) fn chosen_folder(&self, t: &Task) -> Option<String> {
-        let ids: Vec<&str> = t
-            .blockers
-            .iter()
-            .filter(|b| is_no_copy(b))
-            .map(|b| b.id.as_str())
-            .collect();
-        if ids.is_empty() {
-            return None;
-        }
+    /// What the person said on blockers `on` of t, newest first: their
+    /// comments, and the answer a blocker was resolved with (the window
+    /// resolves an Irori ask with the answer, so it is on no comment, card
+    /// #531). Irori's own resolve lines and a close aren't the person's
+    /// words, even a close by them ("back on the Board: …").
+    fn said_on(&self, t: &Task, on: &[&Blocker]) -> Vec<String> {
         let mut said: Vec<(i64, String)> = Vec::new();
-        for b in t.blockers.iter().filter(|b| is_no_copy(b)) {
+        for b in on {
             if let Some(r) = &b.resolved
+                && !r.closed
                 && self.chain.is_owner(&r.by)
             {
                 said.push((r.at.unix_nano(), r.answer.clone()));
             }
         }
         for c in self.coord.comments(&t.id).unwrap_or_default() {
-            if ids.contains(&c.blocker_id.as_str()) && self.chain.is_owner(&c.by) {
-                said.push((c.at.unix_nano(), c.text.clone()));
+            let on_it = on
+                .iter()
+                .any(|b| b.id == c.blocker_id && c.at.unix_nano() >= b.at.unix_nano());
+            if on_it && self.chain.is_owner(&c.by) {
+                said.push((c.at.unix_nano(), c.text));
             }
         }
         said.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        said.into_iter()
-            .map(|(_, s)| as_folder(&s))
+        said.into_iter().map(|(_, s)| s).collect()
+    }
+
+    /// The folder the person named in reply to a "no copy" blocker on t,
+    /// newest first, when it is a folder here.
+    pub(crate) fn chosen_folder(&self, t: &Task) -> Option<String> {
+        let on: Vec<&Blocker> = t.blockers.iter().filter(|b| is_no_copy(b)).collect();
+        if on.is_empty() {
+            return None;
+        }
+        self.said_on(t, &on)
+            .into_iter()
+            .map(|s| as_folder(&s))
             .find(|f| !f.is_empty() && Path::new(f).is_absolute() && Path::new(f).is_dir())
     }
 
-    /// The "no copy" question and its context for t on this device.
-    fn no_copy_ask(&self, t: &Task, not_a_folder: Option<&str>) -> (String, String) {
+    /// The folder to offer for t, whose repo nobody named: where this
+    /// device's agents work now, as an ask's agent would start. A card with
+    /// a repo gets none: another repo's folder is no copy of it.
+    fn likely_folder(&self, t: &Task) -> Option<String> {
+        if !t.repo_key.is_empty() {
+            return None;
+        }
+        self.ask_home()
+            .map(|(_, folder)| folder)
+            .filter(|f| f.chars().count() <= coord::MAX_ANSWER)
+    }
+
+    /// The "no copy" question, its context and its options for t on this
+    /// device. `reply` is what the person said to the last one, if it
+    /// wasn't a folder: the new question quotes it, so it can't read as the
+    /// same one coming back.
+    fn no_copy_ask(&self, t: &Task, reply: Option<&str>) -> (String, String, Vec<BlockerOption>) {
         let dev = self.this_device_name();
         let name = coord::repo_name(&t.repo_key);
         let (question, why) = if t.repo_key.is_empty() {
             (
                 format!("This card names no repo. {CHOOSE_FOLDER} on {dev}?"),
-                "Irori starts a card's agent in a copy of its repo, and this card names none."
+                "A card takes its repo from where it is made, and this one was made outside any repo, so Irori doesn't know where its work lives. Its agent has to start in a folder."
                     .to_string(),
             )
         } else if self.capture.repo_roots(&t.repo_key).is_empty() {
@@ -188,15 +247,48 @@ impl Services {
                 ),
             )
         };
+        let question = match reply {
+            Some(r) => format!(
+                "Irori still needs a folder after your reply, “{}”. {CHOOSE_FOLDER} on {dev}?",
+                cut(&as_folder(r), 60)
+            ),
+            None => question,
+        };
+        let likely = self.likely_folder(t);
         let mut context = String::new();
-        if let Some(a) = not_a_folder {
-            context += &not_a_folder_line(a, &dev);
+        if let Some(r) = reply {
+            context += &not_a_folder_line(r, &dev);
             context.push(' ');
         }
-        context += &format!(
-            "{why} Reply with the folder's full path on {dev} (clone it first if it isn't there) and its agent starts in it."
-        );
-        (cut(&question, 200), cut(&context, coord::MAX_CONTEXT))
+        context += &why;
+        context.push(' ');
+        context += &match (&likely, t.repo_key.is_empty()) {
+            (Some(_), _) => format!(
+                "Pick the folder an agent on {dev} works in now, or reply with another folder's full path, and its agent starts in it."
+            ),
+            (None, true) => {
+                format!("Reply with the full path of a folder on {dev} and its agent starts in it.")
+            }
+            (None, false) => format!(
+                "Reply with the folder's full path on {dev} (clone it first if it isn't there) and its agent starts in it."
+            ),
+        };
+        // The option's answer is the path itself: a pick reads as a reply.
+        let options = likely
+            .map(|f| BlockerOption {
+                answer: f,
+                why: format!("Its agent starts here, on {dev}."),
+                by: SWEEPER.into(),
+                recommended: true,
+                ..BlockerOption::default()
+            })
+            .into_iter()
+            .collect();
+        (
+            cut(&question, 200),
+            cut(&context, coord::MAX_CONTEXT),
+            options,
+        )
     }
 
     /// Card t got no folder here: ask the person once. Called after its
@@ -219,16 +311,7 @@ impl Services {
             .iter()
             .filter(|b| is_no_copy(b))
             .max_by_key(|b| b.at.unix_nano());
-        let reply = latest.and_then(|b| {
-            self.coord
-                .comments(&t.id)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|c| c.blocker_id == b.id && self.chain.is_owner(&c.by))
-                .filter(|c| c.at.unix_nano() >= b.at.unix_nano())
-                .max_by_key(|c| c.at.unix_nano())
-        });
-        let not_a_folder = reply.as_ref().map(|r| r.text.clone());
+        let reply = latest.and_then(|b| self.said_on(&t, &[b]).into_iter().next());
         if let Some(b) = latest.filter(|b| b.open()) {
             // Still blocked and nobody replied: it is already asking.
             if reply.is_none() && t.state == coord::BLOCKED {
@@ -237,7 +320,7 @@ impl Services {
             // Put back on the Board ("Start an agent", or a reply): still no
             // folder, so this one closes and a fresh one asks.
             let text = match &reply {
-                Some(r) => not_a_folder_line(&r.text, &dev),
+                Some(r) => not_a_folder_line(r, &dev),
                 None => format!("Still no folder for it on {dev}."),
             };
             let a = BlockerAnswer {
@@ -250,10 +333,11 @@ impl Services {
                 return;
             }
         }
-        let (question, context) = self.no_copy_ask(&t, not_a_folder.as_deref());
+        let (question, context, options) = self.no_copy_ask(&t, reply.as_deref());
         let nb = NewBlocker {
             question,
             context,
+            options,
             blocked_by: Some(BlockedBy {
                 kind: coord::BLOCKED_ON_PERSON.into(),
                 ..BlockedBy::default()
@@ -424,13 +508,48 @@ mod tests {
         let long = "x".repeat(5000);
         assert!(quoted(&long).chars().count() <= 122);
         assert_eq!(
-            not_a_folder_line("I'll clone it later", "Desktop Computer"),
-            "“I'll clone it later” isn't a full path on Desktop Computer."
+            not_a_folder_line("work/irori", "Desktop Computer"),
+            "“work/irori” isn't a full path on Desktop Computer."
+        );
+        assert_eq!(
+            not_a_folder_line("C:\\nope\\irori", "Macbook Pro"),
+            "“C:\\nope\\irori” isn't a folder on Macbook Pro."
         );
         assert_eq!(
             not_a_folder_line("/nope/irori", "Desktop Computer"),
             "“/nope/irori” isn't a folder on Desktop Computer."
         );
+    }
+
+    /// A real folder named without its drive is there, but not a full path.
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_without_its_drive_is_not_a_full_path() {
+        let cwd = std::env::current_dir().unwrap();
+        let s = cwd.to_string_lossy();
+        let line = not_a_folder_line(&s[2..], "Desktop Computer");
+        assert!(
+            line.ends_with("isn't a full path on Desktop Computer."),
+            "{line}"
+        );
+    }
+
+    /// Card #531: words to Irori aren't called a bad path.
+    #[test]
+    fn a_question_is_not_a_bad_path() {
+        for r in [
+            "i don't understand this blocker",
+            "I'll clone it later",
+            "what folder?",
+            "is it /Users/me/irori?",
+            "what does folder/repo mean",
+            "huh",
+        ] {
+            let line = not_a_folder_line(r, "Macbook Pro");
+            assert!(line.starts_with(&format!("“{r}”")), "{line}");
+            assert!(line.contains("asking again"), "{line}");
+            assert!(!line.contains("isn't a"), "{line}");
+        }
     }
 
     #[test]

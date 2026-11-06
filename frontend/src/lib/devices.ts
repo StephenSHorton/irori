@@ -89,6 +89,16 @@ function sampleList(): DeviceView[] {
       lastSeen: new Date().toISOString(),
       sides: ["Work"],
     }),
+    // Reached only through another device (card #544).
+    DeviceView({
+      deviceId: "sample-laptop",
+      name: "Laptop",
+      role: "desktop",
+      color: "indigo",
+      state: "recent",
+      lastSeen: new Date(Date.now() - 2 * 60_000).toISOString(),
+      via: "Phone",
+    }),
     DeviceView({
       deviceId: "sample-node",
       name: "Node",

@@ -134,6 +134,15 @@ pub struct AgentCard {
         skip_serializing_if = "GoTime::is_zero"
     )]
     pub device_seen: GoTime,
+    /// Beside `device_state`: the name of the device its rows come through
+    /// while there is no session with it (card #544). Set on read, never
+    /// written.
+    #[serde(
+        rename = "deviceVia",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub device_via: String,
 }
 
 fn null_as_empty<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {

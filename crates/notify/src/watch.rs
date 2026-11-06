@@ -14,8 +14,14 @@
 //! Held messages, messages to the person and waiting asks already there at
 //! start get their cards then; the Board seeds quietly. Both change streams
 //! drop changes for a slow reader, so neither is taken as complete: the
-//! Board is reconciled on every coord change and the inbox against a fresh
-//! snapshot of its open deliveries whenever its queue has drained.
+//! Board is reconciled after every coord change and the inbox against a
+//! fresh snapshot of its open deliveries whenever its queue has drained.
+//! A Board reconcile reads the whole Board under coord's lock, so a burst
+//! of changes shares them: a lone change reconciles at once, the rest at
+//! most once per [`BOARD_EVERY`], and always once more after the last
+//! change (card #554). A change to a card in the Needs you lane never
+//! waits: answered and asked back inside one interval, it would look as if
+//! it never left, and the new question would get no card.
 //!
 //! The Go select loop runs on its own thread over a current-thread tokio
 //! runtime that awaits the three subscriber queues and the cards' presses.
@@ -31,10 +37,11 @@ use std::thread::JoinHandle;
 use coord::approvals::{Ask as Approval, Book};
 use coord::notifications::{self as history, PostedRow};
 use coord::{BoardFilter, BoardView, Card, Coord, Task};
-use gocompat::sub::Queue;
+use gocompat::sub::{Queue, TryRecv};
 use gocompat::time::GoTime;
 use inbox::watch::{CardAct, InboxSource, NameFn, OwnerFn, Sink, Watcher};
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 pub use inbox::watch::{hold_reason, preview, upper};
@@ -43,6 +50,10 @@ use crate::{
     Action, Level, Note, Notifier, TAB_BOARD, Target, ask_id, needs_id, parse_level, returned_id,
     unclaimed_id,
 };
+
+/// The least time between two Board reconciles, from the end of one to the
+/// start of the next: the pace of the window's own Board pump.
+pub const BOARD_EVERY: Duration = Duration::from_millis(250);
 
 /// The inbox Watch follows and acts through.
 pub trait InboxFeed: InboxSource + Send + Sync {
@@ -212,7 +223,10 @@ pub fn watch(n: &Notifier, s: Sources) -> Option<WatchHandle> {
     let thread = std::thread::Builder::new()
         .name("notify-watch".into())
         .spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().build() {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+            {
                 Ok(rt) => rt,
                 Err(e) => {
                     eprintln!("irori: notifications: watch: {e}");
@@ -275,11 +289,17 @@ async fn run(
         w.board(false); // seed: what is already waiting stays quiet
     }
 
+    // When the last reconcile ended, and when the next is due: a change
+    // inside BOARD_EVERY of the last one waits for `due`.
+    let mut last = Instant::now();
+    let mut due: Option<Instant> = None;
+
     let _ = ready.send(());
     while ich.is_some() || cch.is_some() || ach.is_some() {
         enum Ev {
             Inbox(Option<inbox::Change>),
             Board(Option<coord::Change>),
+            BoardDue,
             Ask(Option<String>),
             Press(CardAct),
             Stop,
@@ -294,12 +314,19 @@ async fn run(
                 _ = cancel.cancelled() => Ev::Stop,
                 c = recv(iq.as_deref()), if iq.is_some() => Ev::Inbox(c),
                 c = recv(cq.as_deref()), if cq.is_some() => Ev::Board(c),
+                _ = tokio::time::sleep_until(due.unwrap_or(last)), if due.is_some() => Ev::BoardDue,
                 c = recv(aq.as_deref()), if aq.is_some() => Ev::Ask(c),
                 Some(p) = prx.recv() => Ev::Press(p),
             }
         };
         match ev {
-            Ev::Stop => return,
+            Ev::Stop => {
+                // The next start seeds quietly: what waits gets its card now.
+                if due.is_some() || cch.as_ref().is_some_and(|q| !q.is_empty()) {
+                    w.board(true);
+                }
+                return;
+            }
             Ev::Ask(None) => ach = None,
             Ev::Ask(Some(id)) => w.ask(&id),
             Ev::Inbox(None) => ich = None,
@@ -310,8 +337,26 @@ async fn run(
                         .on_change(&c, drained, ib.as_ref(), &mut sink(&w.n, &w.presses));
                 }
             }
-            Ev::Board(None) => cch = None,
-            Ev::Board(Some(_)) => w.board(true),
+            Ev::Board(None) => {
+                cch = None;
+                if due.take().is_some() {
+                    w.board(true); // the changes that were waiting for it
+                }
+            }
+            Ev::Board(Some(c)) if due.is_some() && !w.in_lane(&c.task_id) => {} // it reads this too
+            Ev::Board(Some(c)) if last.elapsed() < BOARD_EVERY && !w.in_lane(&c.task_id) => {
+                due = Some(last + BOARD_EVERY);
+            }
+            Ev::Board(Some(_)) | Ev::BoardDue => {
+                due = None;
+                // The view is read after this, so what is queued now needs
+                // no turn of its own; a later change queues and comes back.
+                if let Some(q) = &cch {
+                    while let TryRecv::Item(_) = q.try_recv() {}
+                }
+                w.board(true);
+                last = Instant::now();
+            }
             Ev::Press(act) => {
                 if let Some(ib) = w.s.inbox.clone() {
                     let target = w
@@ -526,6 +571,11 @@ impl State {
         }
     }
 
+    /// Whether card `id` was in the Needs you lane at the last reconcile.
+    fn in_lane(&self, id: &str) -> bool {
+        self.needs.iter().any(|k| k.split('#').next() == Some(id))
+    }
+
     fn board(&mut self, post: bool) {
         let Some(b) = self.s.board.clone() else {
             return;
@@ -675,7 +725,9 @@ impl Ctx<'_> {
                 continue;
             }
             needs.insert(key);
-            if post && self.agent_moved(&c.task) {
+            // Card #520: a wait no agent will end is news even on the
+            // person's own card, which has no agent left to name.
+            if post && (self.agent_moved(&c.task) || !c.gone_waits.is_empty()) {
                 self.n.post(self.needs_note(c));
             }
         }
@@ -946,15 +998,37 @@ impl Ctx<'_> {
         }
         // Card #509: a wait on a PR's merge, with nothing else to answer,
         // says which PR is the person's to merge.
-        let merge = t.blockers.iter().find_map(|b| b.merge_wait()).filter(|_| {
-            !t.blockers.iter().any(|b| {
-                b.open()
-                    && b.merge_wait().is_none()
-                    && b.on
-                        .as_ref()
-                        .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
-            })
+        // Card #520: a PR wait coord counts as a gone wait (its PR merged
+        // or closed, or answered) is not a merge.
+        let gone_ids: Vec<&str> = c.gone_waits.iter().map(|s| s.blocker_id.as_str()).collect();
+        let merge = t
+            .blockers
+            .iter()
+            .filter(|b| !gone_ids.contains(&b.id.as_str()))
+            .find_map(|b| b.merge_wait())
+            .filter(|_| {
+                !t.blockers.iter().any(|b| {
+                    b.open()
+                        && b.merge_wait().is_none()
+                        && b.on
+                            .as_ref()
+                            .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
+                })
+            });
+        // Card #520: nobody holds it and its wait's agent is gone, with
+        // nothing else to answer (an answered item waits on its agent, as
+        // coord counts it): say so, not "blocked on you".
+        let asks = t.blockers.iter().any(|b| {
+            b.open()
+                && b.status != coord::BLOCKER_ANSWERED
+                && b.on
+                    .as_ref()
+                    .is_none_or(|on| on.kind == coord::BLOCKED_ON_PERSON)
         });
+        let gone = c
+            .gone_waits
+            .first()
+            .filter(|_| merge.is_none() && !asks && t.state != coord::INPUT_REQUIRED);
         let (mut title, body) = if t.state == coord::BLOCKED {
             let mut body = t.reason.clone();
             if !t.title.is_empty() && t.title != t.reason {
@@ -964,9 +1038,18 @@ impl Ctx<'_> {
                 .as_deref()
                 .and_then(|u| coord::parse_link(u).ok())
                 .and_then(|l| coord::pr_link(&l));
-            match pr {
-                Some((_, n)) => (format!("{agent} waits on you to merge PR #{n}"), body),
-                None => (format!("{agent} is blocked on you"), body),
+            match (pr, gone) {
+                (Some((_, n)), _) => (format!("{agent} waits on you to merge PR #{n}"), body),
+                (None, Some(s)) => {
+                    let who = self.name(&s.agent);
+                    let title = if s.waited_on {
+                        format!("Nobody holds it, and {who}, whom it waits on, is gone")
+                    } else {
+                        format!("Nobody holds it, and {who}, who raised its wait, is gone")
+                    };
+                    (title, body)
+                }
+                (None, None) => (format!("{agent} is blocked on you"), body),
             }
         } else if t.state == coord::INPUT_REQUIRED {
             let mut body = t.title.clone();
@@ -992,7 +1075,11 @@ impl Ctx<'_> {
             level: Level::Warn,
             sticky: true,
             actions: vec![
-                Action::new("Answer", move || open2()),
+                // Card #520: nothing to answer on a gone wait; the card
+                // has Hand to an agent.
+                Action::new(if gone.is_some() { "Open" } else { "Answer" }, move || {
+                    open2()
+                }),
                 Action::close("Later"),
             ],
             on_click: Some(open),

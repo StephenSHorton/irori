@@ -31,6 +31,11 @@ pub(crate) struct Away {
     since: GoTime,
     /// The agents told it went offline: they hear when it's back.
     told: BTreeSet<String>,
+    /// They heard it's reachable through another device (card #544). Such a
+    /// device reads offline whenever it writes nothing for a while, so it
+    /// stays here: they aren't told or woken on every quiet spell, and hear
+    /// once more when it has a link of its own.
+    relayed: bool,
 }
 
 /// Why `watcher` cares about `watched`, per card.
@@ -125,22 +130,38 @@ impl Fold {
         // offline (or it went: the card comes back by itself then).
         let back: Vec<String> = self.away.keys().filter(|k| !off(k)).cloned().collect();
         for k in back {
+            let gone = by_key.get(k.as_str()).is_none_or(|c| c.status == "gone");
+            let via = by_key.get(k.as_str()).map_or("", |c| c.device_via.as_str());
+            let name = self.named(&k);
+            let back_notice = |to: BTreeSet<String>, how: &str| Notice {
+                kind: NOTICE_PRESENCE.into(),
+                reference: agent_ref(&k),
+                title: format!("{name} is back"),
+                by: SWEEPER.into(),
+                to: to.into_iter().collect(),
+                text: format!("{name}'s device is {how}."),
+                ..Notice::default()
+            };
+            // Rows through another device aren't a link of its own.
+            if !gone
+                && !via.is_empty()
+                && let Some(a) = self.away.get_mut(&k)
+                && !a.told.is_empty()
+            {
+                a.since = *now;
+                if !a.relayed {
+                    a.relayed = true;
+                    let how = format!("reachable again, through {via}");
+                    out.push(back_notice(a.told.clone(), &how));
+                }
+                continue;
+            }
             let Some(a) = self.away.remove(&k) else {
                 continue;
             };
-            let gone = by_key.get(k.as_str()).is_none_or(|c| c.status == "gone");
-            if gone || a.told.is_empty() {
-                continue;
+            if !gone && !a.told.is_empty() {
+                out.push(back_notice(a.told, "back online"));
             }
-            out.push(Notice {
-                kind: NOTICE_PRESENCE.into(),
-                reference: agent_ref(&k),
-                title: format!("{} is back", self.named(&k)),
-                by: SWEEPER.into(),
-                to: a.told.into_iter().collect(),
-                text: format!("{}'s device is back online.", self.named(&k)),
-                ..Notice::default()
-            });
         }
         for a in agents {
             if off(&a.key) {
@@ -157,12 +178,13 @@ impl Fold {
         let due: Vec<String> = self
             .away
             .iter()
-            .filter(|(_, a)| gotime::at_least(now, &a.since, PRESENCE_GRACE))
+            .filter(|(k, a)| off(k) && gotime::at_least(now, &a.since, PRESENCE_GRACE))
             .map(|(k, _)| k.clone())
             .collect();
         for x in due {
             let card = by_key[x.as_str()];
-            let phrase = device_phrase(&card.device_state, &card.device_seen, now);
+            let phrase =
+                device_phrase(&card.device_state, &card.device_seen, &card.device_via, now);
             for ((w, wx), tie) in &ties {
                 if *wx != x
                     || !hosted(w)
@@ -201,7 +223,7 @@ impl Fold {
                     by: SWEEPER.into(),
                     to: vec![w.clone()],
                     text: format!(
-                        "{}'s device is {phrase}. {} Messages to it wait until it's back; you'll hear when it is.",
+                        "{}'s device is {phrase}. {} Messages to it wait until it's heard from again; you'll hear when it is.",
                         self.named(&x),
                         why.join(" ")
                     ),

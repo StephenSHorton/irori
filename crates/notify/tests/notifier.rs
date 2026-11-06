@@ -29,9 +29,12 @@ fn configure_and_headless() {
         let st = f.lock();
         let cfg = st.cfg.as_ref().expect("the cards were never configured");
         assert_eq!(cfg.app_name, "Irori");
-        assert_eq!(cfg.corner_radius, 0.0);
+        // Before the window sends a look: dark, solid, rounded like it.
+        assert_eq!(cfg.corner_radius, notify::look::DEFAULT_RADIUS);
         assert!(cfg.capture_exclude);
-        assert_eq!(cfg.palette, toast::DARK);
+        assert_eq!(cfg.dark, toast::DARK);
+        assert_eq!(cfg.scheme, toast::Scheme::Dark);
+        assert_eq!(cfg.glass, 1.0);
     }
     assert!(n.enabled() && !n.is_headless());
 
@@ -332,3 +335,97 @@ fn phone_shows_mentions_and_dms_only() {
     assert!(notify::phone_target("").is_none());
     assert!(notify::phone_target("needs:t1").is_none());
 }
+
+// Card #527: the window sends the person's appearance; the cards restyle
+// and it is saved for the next start.
+#[test]
+fn look_restyles_and_persists() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(SETTINGS_FILE);
+    std::fs::write(
+        &path,
+        br#"{"notifications":{"enabled":true,"sound":false,"volume":0.5,"corner":"top-left"}}"#,
+    )
+    .unwrap();
+    let f = Fake::new();
+    let n = Notifier::new(Config {
+        dir: Some(dir.path().into()),
+        toaster: Some(f.clone()),
+        ..Config::default()
+    });
+    assert_eq!(n.look(), None);
+    let look = notify::CardLook {
+        theme: "forest".into(),
+        mode: "system".into(),
+        glass: "frost".into(),
+        alpha: 0.62,
+        radius: 14.0,
+        light: notify::CardColors {
+            background: "#eef3ee".into(),
+            tint: "#fbfdfb".into(),
+            foreground: "#1b211c".into(),
+            primary: "#2e7d4b".into(),
+            success: "not a colour".into(),
+            ..Default::default()
+        },
+        dark: notify::CardColors {
+            background: "#161b17".into(),
+            foreground: "#f1f4f1".into(),
+            ..Default::default()
+        },
+    };
+    n.set_look(look.clone()).unwrap();
+    {
+        let st = f.lock();
+        let c = st.cfg.as_ref().unwrap();
+        assert_eq!(c.scheme, toast::Scheme::System);
+        assert_eq!((c.glass, c.corner_radius), (0.62, 14.0));
+        assert!(c.capture_exclude && c.app_name == "Irori");
+        assert_eq!(c.light.background, toast::hex("#eef3ee"));
+        assert_eq!(c.light.tint, toast::hex("#fbfdfb"));
+        assert_eq!(c.light.primary, toast::hex("#2e7d4b"));
+        assert_eq!(
+            c.light.accent.success,
+            toast::LIGHT.accent.success,
+            "a bad colour keeps the default"
+        );
+        assert_eq!(c.dark.background, toast::hex("#161b17"));
+        assert_eq!(c.dark.muted, toast::DARK.muted, "unset keeps the default");
+    }
+    // Sending the same look again does nothing.
+    let configured = f.lock().cfg.clone();
+    f.lock().cfg = None;
+    n.set_look(look.clone()).unwrap();
+    assert!(f.lock().cfg.is_none());
+    f.lock().cfg = configured;
+
+    // Saved next to the notifications, which stay as they were.
+    let n2 = Notifier::new(Config {
+        dir: Some(dir.path().into()),
+        toaster: Some(Fake::new()),
+        ..Config::default()
+    });
+    assert_eq!(n2.look(), Some(look.clone()));
+    assert_eq!(n2.options().corner, CORNER_TOP_LEFT_STR);
+    let f3 = Fake::new();
+    Notifier::new(Config {
+        dir: Some(dir.path().into()),
+        toaster: Some(f3.clone()),
+        ..Config::default()
+    });
+    assert_eq!(
+        f3.lock().cfg.as_ref().unwrap().light.background,
+        toast::hex("#eef3ee"),
+        "right at startup"
+    );
+
+    // A broken cards key falls back to the default look.
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(raw.contains("\"cards\": {") && raw.contains("\"notifications\": {"));
+    std::fs::write(&path, br#"{"cards":"nope"}"#).unwrap();
+    assert_eq!(notify::load_look(dir.path()), None);
+    std::fs::write(&path, br#"{"cards":null}"#).unwrap();
+    assert_eq!(notify::load_look(dir.path()), None);
+}
+
+const CORNER_TOP_LEFT_STR: &str = "top-left";

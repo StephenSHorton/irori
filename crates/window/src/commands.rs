@@ -27,7 +27,7 @@ use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::roster::{GoneSession, RosterChange};
-use crate::settings::{NotifyOptions, Target};
+use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
@@ -984,12 +984,6 @@ pub async fn agents_trust_repo(
     blocking(&w, move |w| w.agents_trust_repo(&repo_key)).await
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn card_wake_notes(w: W<'_>, task_id: String) -> R<Vec<crate::notes::WakeNoteView>> {
-    blocking(&w, move |w| Ok(w.card_wake_notes(&task_id))).await
-}
-
 // ---- Invites ----------------------------------------------------------------------
 
 #[tauri::command]
@@ -1208,6 +1202,13 @@ pub async fn settings_set_notifications(w: W<'_>, o: NotifyOptions) -> R<NotifyO
 #[specta::specta]
 pub async fn settings_test_notification(w: W<'_>) -> R<()> {
     w.test_notification()
+}
+
+/// The desktop cards follow the window's appearance (card #527).
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_card_look(w: W<'_>, look: CardLook) -> R<()> {
+    w.set_card_look(look)
 }
 
 #[tauri::command]
@@ -1668,7 +1669,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_trust_repo,
             agents_permissions,
             agents_permissions_set,
-            card_wake_notes,
             boards_invite,
             boards_join_invite,
             boards_confirm_invite_words,
@@ -1702,6 +1702,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,
+            settings_set_card_look,
             settings_get_launch_at_login,
             settings_set_launch_at_login,
             settings_get_your_name,

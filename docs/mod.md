@@ -50,10 +50,12 @@ There is no default, because the desktop app's PATH isn't reliable. While it's e
 - **Attach.** At session start the mod spawns `irori attach --session <id> --cwd <cwd> --mod-version 0.4.1` and reads its NDJSON stream.
   - The child's stdin is closed from the start: `$.process.spawn` can't keep it open (its `input` is written and then closed). `irori attach` must not treat stdin EOF as the end of the session. The mod ends the child itself, by killing it, when the mod unloads or the session ends.
   - If the child exits, the mod restarts it with backoff (1 s, doubling to 16 s).
-  - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then stops quietly.
+  - A newer attach for the same session (a reload, or a second window on the same session) sends `superseded`. The older copy then waits: it runs `irori attach --standby`, which asks every 2 s and is refused (409) while another attach holds the session, so two live copies never kick each other off. The child says `standby` once per wait, so the band shows why instead of an old outage. When the holder leaves, the waiting copy attaches within seconds (GitHub #57). `standby` needs hello `v` 3; on an older Core the mod stops after `superseded`, as it always did, and `/irori reconnect` brings it back.
   - A live attach can die without the child exiting: the app restarts or updates, or the Core drops the stream. The child then reconnects by itself (a new hello brings a new token and attach secret), and in between it sends an `error` event. On any `error` the mod forgets its secret and shows `irori · reconnecting (…)`. Before card #111 it kept the old secret, so every tool answered `this route needs a current X-Irori-Attach…` until the session was killed.
   - `irori attach` bounds each wait (card #111): 10 s for `/v1/attach` to answer and send hello, and 45 s of silence on an attached stream (the Core sends a keepalive every 15 s). After either, it reconnects. A session missing from Irori's roster for 20 s gets one `error` naming it, instead of sitting on `connecting…` with no reason.
   - A tool call the Core refuses as unattached (401 wrong token, 403 dead secret) makes the mod restart the attach itself. The call goes once more after the new hello, within the hook's budget. If no hello comes, it answers with what to do.
+  - A mod older than 0.6.0 may not do all of this, and a marketplace install stays on its version until `claude plugin update irori`. The Core logs each attach from one, and its 403 for a dead attach secret says to update, since only such a mod ever shows that answer. GitHub #57 reported mod 0.4.0 on app 0.12.2, and its symptoms match that mod's `session.end`, which killed the child and kept the secret (fixed by card #244).
+  - `agents` says when a live session on this device has no attach, instead of `online`: its tools and wakes can't reach it.
 - **Wake.** A `deliver` event carries a prompt the Core has already built and fenced. The mod submits it with `$.prompt.submit`, so the model reads it as "The irori plugin sent a message:", never as you.
   - The mod then reports `delivered`, which means *accepted into Claude Code's queue*: as soon as the submit resolves, or after 3 s if it is still pending (a submit made during a running turn is queued and resolves only when its own turn starts). Waiting for the turn would let the Core's ReattachGrace sweep reclaim the wake during a long turn and wake the same deliveries again under a new token. A submit that throws or resolves as `{ drop }` (a hook or the engine refused it), even later, goes into the conversation as an append instead (`$.session.append`, no turn started), and the mod reports `delivered` with `appended: true` once that is stored (again, if it reported `delivered` while the submit was pending): no prompt waits in the host's queue, so the Core does not let that wake hold the session's next one back. Only when the append is refused too does the mod forget the wake, so a re-send tries again. Before card #23 every refused submit was forgotten, and a host that kept refusing got the same wake re-issued under a new token every ReattachGrace, for hours.
   - When the turn carrying the wake's token starts it reports `engaged`, and when that turn ends, `turn-ended`. A wake that went in as an append is engaged by the next main-loop turn, whatever starts it, with `appended: true`: that wake did not start the turn, so the Core sets no running wake and a message sent from the turn starts a fresh hop chain (mod 0.4.1).
@@ -73,6 +75,7 @@ A single line above the prompt:
 | `irori · 2 unread · 1 held` | Attached. *Unread*: open deliveries for this session. *Held*: messages policy stopped (review them in the Irori app). |
 | `irori · connecting…` | Waiting for the Core's `hello`. |
 | `irori · reconnecting (…)` | `irori attach` exited or reported an error; it retries by itself. |
+| `irori · attached in another window` | A newer attach holds this session. This copy attaches by itself once that one leaves. |
 | `irori · set iroriPath in /plugin settings …` (red) | `iroriPath` is empty. |
 
 Toasts appear when a message arrives, when one is held (and why), and when repo work moves to another agent.
@@ -80,6 +83,7 @@ Toasts appear when a message arrives, when one is held (and why), and when repo 
 ## `/irori`
 
 - `/irori` prints the mod version and the attach status. A stale copy shows up here as an old version.
+- `/irori reconnect` attaches now, whatever the last attach ended in. It takes the session from any other window on it, so it is also the way to choose this window over that one.
 - These verbs change the device's wake policy:
 
   ```
@@ -130,6 +134,6 @@ curl -X POST "http://127.0.0.1:47811/ctl/deliver?text=hello"
 - `$.http.fetch` to `127.0.0.1` sends **no `Origin` header**, and `headers.authorization` arrives as given (User-Agent `Bun/1.4.4`).
 - `$.prompt.submit` during a running turn is **queued, not rejected**. Its promise resolves only when its own turn starts (about 21 s later in the test, right before `turn.start`). That is why the mod reports `delivered` after 3 s of a pending submit rather than waiting for it (the live run predates that change; the engine suite covers it).
 - `$.tool.register` after `session.start` has returned (once `hello` arrives) works. The model found `mcp__irori__echo` through ToolSearch and called it, and the `tool.call` hook with the matcher `{ tool: /^mcp__irori__/ }` served it.
-- When the child is killed, it restarts after 1 s. After `superseded`, no restart.
+- When the child is killed, it restarts after 1 s. After `superseded`, no restart (since changed: GitHub #57, and not re-run live).
 
 These checks ran against `mod/dev/fakeirori`, which never reads stdin. The real `irori attach` doesn't read it either now (the runner's `Stdin` is nil for it), so a session stays attached with the real `irori.exe`.

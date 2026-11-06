@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use toast::engine::{Engine, Look, Mouse, Surface};
 use toast::layout::{CARD_MARGIN_DIP, CARD_WIDTH_DIP, Part, Rect, px};
 use toast::note::{FADE_IN, FADE_OUT, FULL_ALPHA};
-use toast::{Action, Config, Kind, Note, Options};
+use toast::{Action, Config, DARK, Kind, LIGHT, Note, Options, Scheme, hex};
 
 #[derive(Debug, Clone, Default)]
 struct Win {
@@ -30,6 +30,8 @@ struct Rec {
     timer: bool,
     work_calls: Vec<bool>,
     bursts: Vec<(Rect, Rect)>,
+    os_dark: bool,
+    creates: u32,
 }
 
 impl Rec {
@@ -61,6 +63,7 @@ impl Surface for Rec {
         Some((label.chars().count() as f64 * 7.0 * scale) as i32)
     }
     fn create(&mut self, key: u64, cfg: &Config, _w: i32, _h: i32) -> bool {
+        self.creates += 1;
         self.wins.insert(
             key,
             Win {
@@ -95,6 +98,9 @@ impl Surface for Rec {
     }
     fn confetti(&mut self, card: Rect, work: Rect) {
         self.bursts.push((card, work));
+    }
+    fn os_dark(&mut self) -> bool {
+        self.os_dark
     }
 }
 
@@ -552,4 +558,80 @@ fn a_thumbnail_sits_above_the_buttons() {
     let l = s.wins.values().next().unwrap().look.clone().unwrap();
     let (_, r) = l.image.unwrap();
     assert!(r.b <= l.buttons[0].t, "{r:?} over {:?}", l.buttons[0]);
+}
+
+// ---- card #527: the cards follow the app's look ----
+
+fn themed(light: toast::Palette) -> Config {
+    Config {
+        app_name: "Irori".into(),
+        light,
+        scheme: Scheme::Light,
+        corner_radius: 14.0,
+        glass: 0.62,
+        ..Config::default()
+    }
+}
+
+#[test]
+fn configure_restyles_cards_on_screen() {
+    let e = engine();
+    let mut s = Rec::new(1.0);
+    let t0 = Instant::now();
+    e.post(note("Themed"), t0);
+    e.sync(&mut s, t0);
+    let key = *s.wins.keys().next().unwrap();
+    let first = s.wins[&key].look.clone().unwrap();
+    assert_eq!(first.palette, DARK.resolved());
+    assert!(first.dark && first.glass.is_none() && first.radius == 0);
+
+    let mut light = LIGHT;
+    light.background = hex("#f1f2f6");
+    light.tint = hex("#fcfcff");
+    e.configure(themed(light));
+    e.sync(&mut s, t0);
+    assert_eq!(s.creates, 1, "restyled in place, not remade");
+    let l = s.wins[&key].look.clone().unwrap();
+    assert!(!l.dark, "light now");
+    assert_eq!(l.palette.background, hex("#f1f2f6"));
+    assert_eq!(l.palette.tint, hex("#fcfcff"));
+    assert_eq!(l.radius, 14);
+    assert_eq!(l.glass, Some(0.62));
+    assert_eq!((l.title.as_str(), l.w, l.h), ("Themed", first.w, first.h));
+
+    // The same config again changes nothing.
+    s.wins.get_mut(&key).unwrap().look = None;
+    assert!(!e.configure(themed(light)), "unchanged");
+    e.sync(&mut s, t0);
+    assert!(
+        s.wins[&key].look.is_none(),
+        "no redraw for an unchanged look"
+    );
+}
+
+#[test]
+fn system_scheme_follows_the_os() {
+    let e = engine();
+    e.configure(Config {
+        app_name: "Irori".into(),
+        scheme: Scheme::System,
+        ..Config::default()
+    });
+    let mut s = Rec::new(1.0);
+    s.os_dark = false;
+    let t0 = Instant::now();
+    e.post(note("Follows"), t0);
+    e.sync(&mut s, t0);
+    let key = *s.wins.keys().next().unwrap();
+    assert!(!s.wins[&key].look.as_ref().unwrap().dark);
+    assert_eq!(
+        s.wins[&key].look.as_ref().unwrap().palette,
+        LIGHT.resolved()
+    );
+    s.os_dark = true; // the OS flips; the platform syncs
+    e.sync(&mut s, t0);
+    let l = s.wins[&key].look.clone().unwrap();
+    assert!(l.dark);
+    assert_eq!(l.palette, DARK.resolved());
+    assert_eq!(s.creates, 1);
 }

@@ -40,7 +40,7 @@ mod session;
 pub mod transport;
 
 pub use boards::BOARD_LABEL_PREFIX;
-pub use devices::{DeviceRow, PeerState, Status};
+pub use devices::{DeviceRead, DeviceRow, PeerState, Status};
 pub use fake::FakeNet;
 pub use files::{BLOB_LABEL_PREFIX, FetchError, FileOffer};
 pub use frames::{Frame, Row, batches, decode_frame};
