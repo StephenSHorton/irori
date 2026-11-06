@@ -526,6 +526,13 @@ impl Fold {
                 note: note.into(),
                 restored: restored.into(),
                 at: now,
+                // What this device sees open, and so closes (card #635).
+                blocker_ids: t
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open())
+                    .map(|b| b.id.clone())
+                    .collect(),
             },
         )?;
         let nt = self.tasks[id].clone();
