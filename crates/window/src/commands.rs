@@ -1672,6 +1672,14 @@ pub async fn talk_dm(w: W<'_>, member: TalkMemberRef) -> R<String> {
     w.talk_dm(&member)
 }
 
+/// Who is replying in each channel and DM (card #645); `talk:replying`
+/// carries the same list when it changes.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_replying(w: W<'_>) -> R<Vec<crate::talk::TalkReplying>> {
+    Ok(w.talk_replying())
+}
+
 /// Everyone the person can DM (card #538).
 #[tauri::command]
 #[specta::specta]
@@ -1907,6 +1915,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_channel_create,
             talk_dm,
             talk_dm_people,
+            talk_replying,
             talk_dm_leave,
             talk_join,
             talk_leave,
