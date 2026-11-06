@@ -334,6 +334,11 @@ async fn a_non_member_is_refused_at_the_endpoint() {
     // Carol knows Alice (so her own gate lets the dial out); Alice's gate
     // doesn't count Carol.
     carol.meet(&a).await;
+    // Alice's call would take Carol: only the endpoint gate can refuse her.
+    a.takes
+        .lock()
+        .unwrap()
+        .insert(carol.id.clone(), carol.endpoint_id());
     let k = key();
     let _ha = a.join(CALL, k).await;
     let _hc = carol.join(CALL, k).await;
