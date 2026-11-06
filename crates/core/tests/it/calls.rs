@@ -160,7 +160,15 @@ fn a_huddle_mark_in_a_dm_needs_its_space_and_never_makes_one() {
     );
 
     a1.core
-        .talk_post(&a1.core.user_sender(), &dm, "hi bob", &[], false, None)
+        .talk_post(
+            &a1.core.user_sender(),
+            &dm,
+            "hi bob",
+            &[],
+            false,
+            None,
+            Vec::new(),
+        )
         .unwrap();
     let spaces = a1.core.dm_spaces_with(&b1.core.person().id);
     assert_eq!(spaces.len(), 1, "{spaces:?}");
