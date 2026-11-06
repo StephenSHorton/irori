@@ -1933,3 +1933,38 @@ fn a_working_card_on_a_shared_board_keeps_the_agent_off_private_hand_outs() {
     assert!(co.get_task(&w2.id).unwrap().holders.is_empty());
     r.core.close().unwrap();
 }
+
+/// Card #580: each log says when this device was last in step with
+/// another, and which one. Two paired devices see each other on the
+/// private log and on a board they share, as of about now.
+#[test]
+fn freshness_names_the_device_in_step() {
+    let (a, b) = paired();
+    let now_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    };
+    let fresh = |c: &Core, log: &str| c.freshness().into_iter().find(|f| f.log == log);
+    wait_for(45, "a is in step with b on the private log", || {
+        fresh(&a.core, "personal").is_some_and(|f| f.shared && f.device_id == b.core.device_id())
+    });
+    let p = fresh(&a.core, "personal").unwrap();
+    assert!(now_ms() - p.at_ms < 60_000, "{p:?}");
+    assert!(p.with.starts_with("your "), "{p:?}");
+
+    let id = a.core.create_board("MLG", "mlg").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    let co = a.core.board_coord(&id).unwrap();
+    let by = a.core.board_key(&id, &a.user()).unwrap();
+    let t = co.create_task(&by, new_task("boats")).unwrap();
+    let bco = b.core.board_coord(&id).unwrap();
+    wait_for(45, "b gets the card", || bco.get_task(&t.id).is_some());
+    wait_for(45, "b is in step with a on the board", || {
+        fresh(&b.core, &id).is_some_and(|f| f.device_id == a.core.device_id() && f.at_ms > 0)
+    });
+    let f = fresh(&b.core, &id).unwrap();
+    assert!(f.shared);
+    assert!(now_ms() - f.at_ms < 60_000, "{f:?}");
+}
