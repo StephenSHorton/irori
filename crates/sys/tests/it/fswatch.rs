@@ -60,6 +60,40 @@ fn watch_sees_create_append_and_nested() {
     w.close();
 }
 
+/// #559: a watcher started on a thread that then exits keeps working.
+/// Capture starts its watchers on one-off threads; on Windows a read armed
+/// on such a thread was canceled when it exited (ERROR_OPERATION_ABORTED),
+/// so the watcher closed at once and capture re-read every transcript on a
+/// 3 s poll instead.
+#[test]
+fn survives_its_starting_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::path::absolute(dir.path()).unwrap();
+    let r = p(&root);
+    let Some(w) = std::thread::spawn(move || start(&r, true, &Cancel::new()))
+        .join()
+        .unwrap()
+    else {
+        return;
+    };
+    // Give a canceled read time to come back as a close.
+    std::thread::sleep(Duration::from_millis(200));
+    let f = root.join("after.jsonl");
+    std::fs::write(&f, "one\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match w.recv_timeout(left) {
+            Ok(Some(e)) if e.overflow => panic!("watcher reported overflow, not the file"),
+            Ok(Some(e)) if e.path == p(&f) => break,
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("watcher closed after its starting thread exited"),
+            Err(_) => panic!("no event for {}", p(&f)),
+        }
+    }
+    w.close();
+}
+
 #[test]
 fn close_and_context_stop() {
     let dir = tempfile::tempdir().unwrap();

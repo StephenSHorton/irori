@@ -1,6 +1,11 @@
 //! I:internal/fswatch/fswatch_windows.go: one overlapped
 //! `ReadDirectoryChangesW` handle, a 64 KiB buffer, the first read armed
 //! before [`watch`] returns.
+//!
+//! Every read is issued from the reader thread, never the caller's: Windows
+//! cancels a thread's pending I/O when that thread exits, so a read armed on
+//! a short-lived caller (capture starts its watchers on one-off threads)
+//! ends at once with ERROR_OPERATION_ABORTED and the watcher closes (#559).
 
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::sync_channel;
@@ -54,8 +59,9 @@ struct Reader {
 unsafe impl Send for Reader {}
 
 impl Reader {
-    /// Issues one read. Changes are only buffered on the handle once a read
-    /// is pending, so the first one is armed before `watch` returns.
+    /// Issues one read, on the reader thread only (see the module doc).
+    /// Changes are only buffered on the handle once a read is pending, so
+    /// `watch` waits for the first one before it returns.
     fn arm(&mut self) -> Result<(), u32> {
         // SAFETY: zeroing a plain C struct; then a read into buffers that
         // outlive it (they are freed only after the read completes or is
@@ -145,7 +151,7 @@ pub(super) fn watch(
         return Err(e);
     }
     let stop_ev = H(stop_ev);
-    let mut reader = Reader {
+    let reader = Reader {
         dir,
         io,
         buf: vec![0u8; BUF_SIZE].into_boxed_slice(),
@@ -153,12 +159,6 @@ pub(super) fn watch(
         ov: Box::new(unsafe { std::mem::zeroed() }),
         recursive,
     };
-    if let Err(code) = reader.arm() {
-        close(stop_ev);
-        close(io);
-        close(dir);
-        return Err(Error::Io(std::io::Error::from_raw_os_error(code as i32)));
-    }
 
     // The stop event is signalled only while it is open (Go's sync.Once
     // around SetEvent, used up before the handle closes).
@@ -186,6 +186,8 @@ pub(super) fn watch(
             .spawn(move || coalesce(raw_rx, out_tx, debounce, root, lost))
             .map_err(Error::Io)?
     };
+    // The reader arms the first read itself and reports how it went.
+    let (ready_tx, ready_rx) = sync_channel::<Result<(), u32>>(1);
     let reader_thread = {
         let lost = raw_lost;
         let root = root.clone();
@@ -194,7 +196,14 @@ pub(super) fn watch(
             .name("fswatch-rdcw".into())
             .spawn(move || {
                 let mut r = reader;
+                let armed = r.arm();
+                let run = armed.is_ok();
+                let _ = ready_tx.send(armed);
                 loop {
+                    // A failed first arm goes straight to the cleanup below.
+                    if !run {
+                        break;
+                    }
                     let hs = [r.io.0, stop_ev.0];
                     // SAFETY: two open handles.
                     let w = unsafe { WaitForMultipleObjects(2, hs.as_ptr(), 0, INFINITE) };
@@ -250,6 +259,19 @@ pub(super) fn watch(
             })
             .map_err(Error::Io)?
     };
+    let armed = match ready_rx.recv() {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(code)) => Err(std::io::Error::from_raw_os_error(code as i32)),
+        Err(_) => Err(std::io::Error::other(
+            "fswatch reader ended before its first read",
+        )),
+    };
+    if let Err(e) = armed {
+        // The reader closed the handles and its queue; the coalescer follows.
+        let _ = reader_thread.join();
+        let _ = coalescer.join();
+        return Err(Error::Io(e));
+    }
 
     let reg = cancel.on_cancel(signal.clone());
     let threads = Mutex::new(Some((reader_thread, coalescer)));
