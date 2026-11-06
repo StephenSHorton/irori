@@ -3364,11 +3364,15 @@ dependencies = [
 name = "irori-call"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "cpal",
+ "iroh",
+ "irori-net",
  "opus",
  "ringbuf",
  "rubato",
  "sonora",
+ "tokio",
 ]
 
 [[package]]
