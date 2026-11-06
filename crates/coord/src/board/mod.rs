@@ -1400,6 +1400,12 @@ impl Coord {
     pub fn post_agent_thread(&self, by: &str, input: NewAsk) -> Result<(Task, Option<Notice>)> {
         self.lock().post_agent_thread(by, input)
     }
+
+    /// Whether t is an agent's thread its person hasn't written in yet
+    /// (card #631): it waits on them, and no agent is started for it.
+    pub fn agent_thread_rests(&self, t: &Task) -> bool {
+        self.lock().agent_thread_rests(t)
+    }
     /// Asks for an ask's take and waits up to `wait` for the owner's answer.
     pub fn ask_claim(&self, by: &str, id: &str, wait: Duration) -> Result<ClaimResult> {
         let by = util::caller(by)?;

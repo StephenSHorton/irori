@@ -452,12 +452,11 @@ impl Window {
             }
             // An agent's own thread (card #631) waits on the person until
             // they write in it: no agent is handed or started for it.
-            let person_wrote = raw.iter().any(|c| co.is_any_person(&c.by));
+            let rests = co.agent_thread_rests(&t);
             let cs = self.priv_comments(raw);
             let t = self.priv_task(t);
             let a = t.ask.clone().unwrap_or_default();
             let opener = self.core.private_key(&a.opener);
-            let rests = !opener.is_empty() && !person_wrote;
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
             let state = if resolved {
                 THREAD_RESOLVED

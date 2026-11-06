@@ -622,6 +622,30 @@ impl Task {
             }
             return s;
         }
+        // An agent's own thread (card #631): its opener holds it.
+        if a.thread && !a.opener.is_empty() {
+            return if a.taker == a.opener {
+                format!(
+                    "a thread agent {} opened with the person; it holds it and hears their replies; only the person resolves it",
+                    a.opener
+                )
+            } else if a.taker.is_empty() && a.reason == "answered" {
+                format!(
+                    "a thread agent {} opened with the person; no agent is started for it until the person writes in it; answer their follow-ups with board_comment",
+                    a.opener
+                )
+            } else if !a.taker.is_empty() {
+                format!(
+                    "a thread agent {} opened, which the person wrote in; Irori handed it to {}: answer it with board_comment",
+                    a.opener, a.taker
+                )
+            } else {
+                format!(
+                    "a thread agent {} opened, which the person wrote in: answer it with board_comment if you can",
+                    a.opener
+                )
+            };
+        }
         if a.thread {
             return match a.reason.as_str() {
                 "answered" => "the person's thread, answered: it stays open until the person resolves it; answer their follow-ups with board_comment".into(),

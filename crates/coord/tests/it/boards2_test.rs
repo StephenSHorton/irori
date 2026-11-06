@@ -3119,17 +3119,28 @@ fn an_agents_board_thread_waits_for_its_own_person() {
         .unwrap();
     sync(&a, &b);
     quiet("p2 wrote");
-    // p1 writes: it goes out on p1's device only.
-    a.c.person_comment(P1, &tk.id, "Done, it's in.", true, &[], None)
-        .unwrap();
-    a.c.sweep_asks(&[]).unwrap();
-    b.c.sweep_asks(&[]).unwrap();
-    sync(&a, &b);
-    assert_eq!(ids(&a.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
-    assert!(b.c.cards_to_spawn().is_empty());
+    // p1 writes: while its opener is live, the post goes to it.
+    let (_, ns) =
+        a.c.person_comment(P1, &tk.id, "Done, it's in.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&CARD1.to_string())),
+        "{ns:?}"
+    );
+    // Its opener is live (this rig has no presence to lose it): it answers,
+    // and no other agent starts on either device.
+    quiet("p1 wrote, its opener live");
     // p1 resolves the thread their agent opened; p2 can't.
     want_err(b.c.resolve_thread(P2, &tk.id), ErrorKind::NotAllowed);
     a.c.resolve_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    // And reopens it: open again on both sides, as a thread.
+    a.c.reopen_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&tk.id).unwrap();
+        assert!(t.open_ask().is_some_and(|a| a.thread), "{t:?}");
+    }
 }
 
 /// Card #477 (docs/design/work-personal-separation.md §3): on one space,

@@ -1352,7 +1352,12 @@ impl Fold {
         // On a board every member's fold must agree: the member who started
         // it, not this device's person (card #134).
         let starter = if self.on_board {
-            p.by == t.created_by && p.by.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            // Or the member whose agent opened it (card #631).
+            p.by.starts_with(kinds::PERSON_ACTOR_PREFIX)
+                && (p.by == t.created_by
+                    || t.ask
+                        .as_ref()
+                        .is_some_and(|a| self.openers_person(a, &p.by)))
         } else {
             self.is_owner(&p.by)
         };
@@ -1861,6 +1866,11 @@ impl Fold {
             }
             for h in &t.holders {
                 tracked.insert(h.clone());
+            }
+            // An agent's own thread hears its opener while it lives, held
+            // or not (card #631).
+            if let Some(a) = t.open_ask().filter(|a| a.thread && !a.opener.is_empty()) {
+                tracked.insert(a.opener.clone());
             }
         }
         for l in self.held.values() {

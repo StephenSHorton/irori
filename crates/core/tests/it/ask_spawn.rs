@@ -220,7 +220,7 @@ fn an_agent_with_offer_it_cards_on_takes_a_thread_first() {
 
 /// Card #631 through the Core: a thread an agent opens itself starts no
 /// agent, with spawning on, while it holds it and after it gives it back;
-/// the person's post in it starts one, which isn't counted as an agent's.
+/// the person's post in it goes to the opener while it lives.
 #[test]
 fn an_agents_own_thread_starts_no_agent_until_the_person_writes() {
     let r = Rig::new();
@@ -251,19 +251,17 @@ fn an_agents_own_thread_starts_no_agent_until_the_person_writes() {
     assert_eq!(co.get_task(&tk.id).unwrap().ask.unwrap().taker, r.key_a);
     co.leave(&r.key_a, &tk.id, &r.key_a).unwrap();
     nothing_starts("given back");
-    // The person writes: its own agent starts, as for their thread.
+    // The person writes while its opener is live: the post goes to the
+    // opener, and still no other agent starts.
     let person = format!("user:{}", r.core.device_id());
-    co.person_comment(&person, &tk.id, "Yes, today.", true, &[], None)
+    let (_, ns) = co
+        .person_comment(&person, &tk.id, "Yes, today.", true, &[], None)
         .unwrap();
-    wait_for(60, "the thread's agent started", || {
-        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
-        !fake.started.lock().unwrap().is_empty()
-    });
-    let t = co.get_task(&tk.id).unwrap();
     assert!(
-        t.spawn_request().is_some_and(|s| !s.counted),
-        "the person's start: {t:?}"
+        ns.iter().any(|n| n.to.contains(&r.key_a)),
+        "its opener hears it: {ns:?}"
     );
+    nothing_starts("the person wrote, its opener live");
 }
 
 // Card #454 (spawned-agents.md §4, §14 part 10): a thread started from a

@@ -98,7 +98,14 @@ impl Fold {
         !self
             .comments
             .values()
-            .any(|c| c.task_id == t.id && self.openers_person(a, &c.by))
+            .any(|c| c.task_id == t.id && self.persons_post(a, c))
+    }
+
+    /// Whether comment c is a post by the person an agent's thread is for:
+    /// a row that person really wrote (`c.person`, checked at fold), not
+    /// one that only names them as its author.
+    fn persons_post(&self, a: &Ask, c: &Comment) -> bool {
+        c.person && c.msg_id.is_empty() && self.openers_person(a, &c.by)
     }
 
     /// The sweep's turn on an agent-opened thread (card #631), before
@@ -145,16 +152,17 @@ impl Fold {
         if !a.taker.is_empty() || a.reason != TAKE_ANSWERED || !a.wake {
             return Ok(None);
         }
-        let last = |of: &dyn Fn(&str) -> bool| {
+        let last = |of: &dyn Fn(&Comment) -> bool| {
             self.comments
                 .values()
-                .filter(|c| c.task_id == id && c.msg_id.is_empty() && c.by != SWEEPER && of(&c.by))
-                .map(|c| c.at)
-                .max_by(gotime::cmp)
+                .filter(|c| c.task_id == id && c.msg_id.is_empty() && c.by != SWEEPER && of(c))
+                .max_by(|x, y| gotime::cmp(&x.at, &y.at))
         };
-        let said = last(&|by| self.openers_person(&a, by));
-        let agents = last(&|by| !self.is_person(by));
-        let Some(said) = said else {
+        // Only a post that wakes agents sends it out again: a quiet one
+        // (Agents answer now off for that post) never does (card #391).
+        let said = last(&|c| self.persons_post(&a, c)).map(|c| (c.at, c.wake));
+        let agents = last(&|c| !self.is_person(&c.by)).map(|c| c.at);
+        let Some((said, true)) = said else {
             return Ok(None);
         };
         if agents.is_some_and(|at| !gotime::before(&at, &said))
@@ -224,6 +232,9 @@ impl Fold {
     }
 
     /// The agents that have answered in thread `id`, first answer first.
+    /// An agent's own thread counts its opener first (card #631): it spoke
+    /// when it opened it, so the person's follow-ups reach it while it's
+    /// live, whoever else answered.
     pub(crate) fn thread_repliers(&self, id: &str) -> Vec<String> {
         let mut cs: Vec<&Comment> = self
             .comments
@@ -233,7 +244,13 @@ impl Fold {
             })
             .collect();
         cs.sort_by(|a, b| gotime::cmp(&a.at, &b.at).then_with(|| a.id.cmp(&b.id)));
-        let mut out: Vec<String> = Vec::new();
+        let mut out: Vec<String> = self
+            .tasks
+            .get(id)
+            .and_then(|t| t.ask.as_ref())
+            .filter(|a| a.thread && !a.opener.is_empty())
+            .map(|a| vec![a.opener.clone()])
+            .unwrap_or_default();
         for c in cs {
             if !out.contains(&c.by) {
                 out.push(c.by.clone());

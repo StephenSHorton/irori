@@ -961,13 +961,14 @@ fn an_agents_thread_stays_without_an_agent_after_it_goes_until_the_person_writes
 
     // The person writes: it goes out as their own thread would (#512).
     // Carol answered, so she hears it while she's live.
+    let not_alice = |k: &str| k != ALICE;
     let (_, ns) =
-        e.c.person_comment(USER, &t.id, "Carol, why?", true, &[], None)
+        e.c.person_comment(USER, &t.id, "Carol, why?", true, &[], Some(&not_alice))
             .unwrap();
     assert!(ns.iter().any(|n| n.to == [CAROL] && n.wake), "{ns:?}");
     // With her gone, an idle agent with Offer it cards on gets it.
     e.clk.add(mins(1));
-    let live = |k: &str| k != CAROL;
+    let live = |k: &str| k != CAROL && k != ALICE;
     e.c.person_comment(USER, &t.id, "Which one is safer?", true, &[], Some(&live))
         .unwrap();
     let ns = e.c.sweep_asks(&agents).unwrap();
@@ -1013,28 +1014,79 @@ fn a_person_post_from_another_device_wakes_a_parked_agents_thread() {
     assert!(e.c.cards_to_spawn().is_empty());
     let a = ask_of(&e, &t.id);
     assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
-    // The person's post from their phone: a comment row from another of
-    // their devices, which writes no take row.
-    let at = plus(fixed_now(), mins(11));
-    e.remote(
-        "dev-b",
-        1,
-        hlc_at(at),
-        "user",
-        store::kinds::TASK_COMMENT,
-        &TaskCommentRow {
-            task_id: t.id.clone(),
-            comment_id: "c-phone".into(),
-            by: "user:dev-b".into(),
-            text: "Yes, keep it.".into(),
-            at,
-            ..TaskCommentRow::default()
-        },
-    );
-    e.clk.add(mins(2));
-    e.c.sweep_asks(&[]).unwrap();
-    e.c.sweep_asks(&[]).unwrap();
+    // Posts from another device, which write no take row.
+    let post = |seq: i64, min: u64, actor: &str, id: &str, wake: bool| {
+        let at = plus(fixed_now(), mins(min));
+        e.remote(
+            "dev-b",
+            seq,
+            hlc_at(at),
+            actor,
+            store::kinds::TASK_COMMENT,
+            &TaskCommentRow {
+                task_id: t.id.clone(),
+                comment_id: id.into(),
+                by: "user:dev-b".into(),
+                text: "Yes, keep it.".into(),
+                wake,
+                at,
+                ..TaskCommentRow::default()
+            },
+        );
+        e.clk.add(mins(1));
+        e.c.sweep_asks(&[]).unwrap();
+        e.c.sweep_asks(&[]).unwrap();
+    };
+    // An agent's row that only names the person as its author: not theirs.
+    post(1, 11, "agent:dev-b/x", "c-forged", true);
+    assert!(e.c.cards_to_spawn().is_empty(), "a forged post");
+    // A quiet post (Agents answer now off for it) never sends it out.
+    post(2, 12, "user", "c-quiet", false);
+    assert!(e.c.cards_to_spawn().is_empty(), "a quiet post");
+    // The person's post from their phone does.
+    post(3, 13, "user", "c-phone", true);
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+}
+
+#[test]
+fn an_agents_thread_keeps_its_opener_when_a_named_agent_answers_first() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    for k in [ALICE, BOB] {
+        e.ros.set(k, "idle");
+    }
+    let (t, _) =
+        e.c.post_agent_thread(
+            ALICE,
+            NewAsk {
+                text: "Bob, is the cache warm?".into(),
+                thread: true,
+                mentions: vec![Mention {
+                    key: BOB.into(),
+                    ..Mention::default()
+                }],
+                ..NewAsk::default()
+            },
+        )
+        .unwrap();
+    e.c.add_comment(BOB, &t.id, "It is.", false).unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    // The person's reply reaches the opener as well as Bob.
+    let (_, ns) =
+        e.c.person_comment(USER, &t.id, "Thanks both.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&ALICE.to_string())),
+        "{ns:?}"
+    );
+    // Bob gone, the opener live: nothing goes out or starts.
+    let live = |k: &str| k == ALICE;
+    e.clk.add(mins(1));
+    e.c.person_comment(USER, &t.id, "Alice?", true, &[], Some(&live))
+        .unwrap();
+    e.c.sweep_asks(&[idle(ALICE, 5)]).unwrap();
+    assert!(e.c.cards_to_spawn().is_empty());
+    assert!(ask_of(&e, &t.id).taker.is_empty() || ask_of(&e, &t.id).taker == ALICE);
 }
 
 #[test]
