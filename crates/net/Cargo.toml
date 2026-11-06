@@ -13,6 +13,10 @@ name = "irori_net"
 name = "spike-net"
 path = "src/bin/spike-net.rs"
 
+[[bin]]
+name = "spike-call"
+path = "src/bin/spike-call.rs"
+
 [dependencies]
 irori-identity.workspace = true
 irori-lan.workspace = true

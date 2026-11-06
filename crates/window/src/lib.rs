@@ -47,6 +47,7 @@ pub mod agents_trust;
 pub mod attachments;
 pub mod board;
 pub mod boards;
+pub mod call;
 pub mod cards;
 pub mod claude_trust;
 pub mod commands;

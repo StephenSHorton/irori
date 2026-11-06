@@ -38,6 +38,12 @@ impl Core {
         Ok(coord::talk::page(&all, before, limit))
     }
 
+    /// What each key goes by, as conversations name their members
+    /// ([`tools::talk::names`]): a huddle's people (#654).
+    pub fn talk_names(&self, keys: &[String]) -> Vec<String> {
+        tools::talk::names(&self.talk_view(), keys)
+    }
+
     /// Posts to channel or DM `conv` as `from` ([`tools::talk::post`]); a
     /// thread's posts are its comments, so a thread id is refused here.
     /// `files` are stored files sent with it (card #643): in a space's

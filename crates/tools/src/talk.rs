@@ -281,6 +281,17 @@ impl Book {
     }
 }
 
+/// What each key goes by, as a conversation's members are named: "you"
+/// for the person, never a key (card #478). A huddle's people use it
+/// (#654).
+pub fn names(b: &dyn Backend, keys: &[String]) -> Vec<String> {
+    if keys.is_empty() {
+        return Vec::new();
+    }
+    let book = Book::new(b);
+    keys.iter().map(|k| book.name(k)).collect()
+}
+
 fn is_thread(t: &Task) -> bool {
     t.ask.as_ref().is_some_and(|a| a.thread)
 }
@@ -1170,6 +1181,7 @@ pub fn post(
                         files: files.clone(),
                         by: by.clone(),
                         stay_out: false,
+                        call: None,
                     })
                     .map_err(|e| e.to_string())?;
                 out.post = p;

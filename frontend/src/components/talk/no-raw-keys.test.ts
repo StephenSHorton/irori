@@ -208,3 +208,120 @@ describe("the replying row (card #645)", () => {
     expect(out).toContain("is replying…")
   })
 })
+
+const { CallBar, CallPanel, HuddleEnded, HuddleLine, RingBanner } =
+  await import("./huddle")
+const { huddleNames } = await import("@/lib/call")
+
+describe("a huddle names people, never keys (#654)", () => {
+  // Ids a huddle carries that must never show.
+  const callId = `${board}/${card}`
+  const peer = {
+    name: "",
+    device: "",
+    phase: "live",
+    path: "direct",
+    rttMs: 26,
+    lossPct: 0,
+    speaking: true,
+    muted: false,
+  }
+  const mine = {
+    callId,
+    convId: spencersKey,
+    convName: spencersKey,
+    convKind: "dm",
+    joinedAtMs: 0,
+    muted: true,
+    speaking: false,
+    device: "",
+    peers: [
+      peer,
+      { ...peer, name: `person:${card}`, device: callId },
+      { ...peer, name: "Aiko", phase: "connecting" },
+    ],
+    error: null,
+  }
+  const no = () => {}
+
+  test("the bar, folded too, and the panel", () => {
+    for (const folded of [false, true])
+      noKeys(
+        html(
+          createElement(CallBar, {
+            mine,
+            folded,
+            onOpen: no,
+            onMute: no,
+            onLeave: no,
+          })
+        )
+      )
+    const panel = html(
+      createElement(CallPanel, { mine, onMute: no, onLeave: no })
+    )
+    noKeys(panel)
+    expect(panel).toContain("another person")
+    expect(panel).toContain("Aiko")
+    expect(panel).toContain("direct · 26 ms")
+  })
+
+  test("the ringing banner, a list row's line and the end post", () => {
+    const ring = html(
+      createElement(RingBanner, {
+        ring: {
+          callId,
+          convId: spencersKey,
+          convName: `person:${card}`,
+          convKind: "channel",
+          by: spencersKey,
+          atMs: 0,
+        },
+        onJoin: no,
+        onDismiss: no,
+      })
+    )
+    noKeys(ring)
+    expect(ring).toContain("another person")
+    const names = huddleNames(
+      {
+        mine: null,
+        ringing: [],
+        live: [{ callId, convId: "c", people: [spencersKey, "Aiko"] }],
+      },
+      "c"
+    )
+    noKeys(html(createElement(HuddleLine, { names: names.join(", ") })))
+    noKeys(
+      html(
+        createElement(HuddleEnded, {
+          durationMs: 60_000,
+          people: [`person:${card}`, "you"],
+        })
+      )
+    )
+  })
+
+  test("a huddle's start post, with Join while it's on", () => {
+    const post = TalkPost({
+      postId: "p",
+      convId: "c",
+      by: spencersKey,
+      text: "started a huddle",
+      call: { callId, op: "start", durationMs: 0, people: [] },
+    })
+    const out = html(
+      createElement(PostRow, {
+        post,
+        who: billing,
+        names: new Map(),
+        live,
+        liveCall: callId,
+        onJoinCall: no,
+      })
+    )
+    noKeys(out)
+    expect(out).toContain("started a huddle")
+    expect(out).toContain("Join")
+  })
+})
