@@ -137,9 +137,10 @@ impl Services {
         let me = self.device.id.clone();
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
         // A board thread names no repo (a board ask never does): its agent
-        // starts where a private thread's does (card #512).
-        let (repo_key, folder) = if t.repo_key.is_empty() && t.open_ask().is_some() {
-            match self.ask_home() {
+        // starts where a private thread's does (card #512), and so does a
+        // board card that names none (card #600).
+        let (repo_key, folder) = if t.repo_key.is_empty() {
+            match self.repo_home() {
                 Some((k, f)) => (k, Some(f)),
                 None => (String::new(), None),
             }

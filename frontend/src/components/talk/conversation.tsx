@@ -3,6 +3,7 @@
 // line between days, the members with their live status, and the box to
 // post. An agent↔agent DM is read-only. Opening one marks it read.
 
+import { cardRef } from "@/components/cards/bits"
 import {
   useContext,
   useEffect,
@@ -30,6 +31,7 @@ import { Face } from "@/components/cards/faces"
 import { AgentCards } from "@/components/cards/agent-hover"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
+import { useBoards } from "@/lib/boards"
 import { PostRowsShape } from "@/components/common/loading-shapes"
 import { Loading } from "@/components/ui/loading"
 import {
@@ -151,6 +153,7 @@ export function ConversationView({
   )
   // Make a card (design §4): the post it's made from, while the form is up.
   const [making, setMaking] = useState<Post | null>(null)
+  const { boards } = useBoards()
   const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
   const prefill = useMemo(
     () => (making ? fromPost(making.text, where) : undefined),
@@ -399,6 +402,8 @@ export function ConversationView({
       )}
       <NewCardDialog
         open={!!making}
+        // A space's channel makes its cards in the space (card #558).
+        board={boards.find((b) => b.boardId === conv.spaceId)}
         from={prefill}
         onClose={() => setMaking(null)}
         onMade={(id) => {
@@ -667,7 +672,7 @@ function CardChip({ id }: { id: string }) {
       Made a card:
       <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-secondary px-1.5 py-0.5 text-ink-2">
         <span className="font-mono text-primary">
-          #{plainLine(c?.short ?? "")}
+          {cardRef(c ?? { short: "" })}
         </span>
         <span className="truncate">{plainLine(c?.title ?? "a card")}</span>
       </span>

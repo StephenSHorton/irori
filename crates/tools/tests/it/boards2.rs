@@ -47,7 +47,7 @@ impl tools::TaskRouter for FakeRouter {
             return Err(coord::Error::raw(
                 coord::ErrorKind::Held,
                 format!(
-                    "{resource} is leased on the shared board by agent:c2, another person's agent"
+                    "{resource} is leased in the shared space by agent:c2, another person's agent"
                 ),
             ));
         }

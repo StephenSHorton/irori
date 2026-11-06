@@ -273,6 +273,7 @@ export const BoardService = {
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
+  ThreadsAll: () => call(commands.boardThreadsAll()),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
@@ -362,6 +363,11 @@ export const AgentsService = {
     call(commands.agentsPermissionsSet(p)),
 }
 
+// SyncService: how fresh each log is (card #580).
+export const SyncService = {
+  Freshness: () => call(commands.syncFreshness()),
+}
+
 export const BoardsService = {
   List: () => call(commands.boardsList()),
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
@@ -369,6 +375,13 @@ export const BoardsService = {
     call(commands.boardsRename(boardId, name)),
   AddToSpace: (spaceId: string, name: string, tag: string) =>
     call(commands.boardsAddToSpace(spaceId, name, tag)),
+  RenameInSpace: (spaceId: string, boardId: string, name: string) =>
+    call(commands.boardsRenameInSpace(spaceId, boardId, name)),
+  Personal: () => call(commands.boardsPersonal()),
+  AddToPersonal: (name: string, tag: string) =>
+    call(commands.boardsAddToPersonal(name, tag)),
+  RenameInPersonal: (boardId: string, name: string) =>
+    call(commands.boardsRenameInPersonal(boardId, name)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),

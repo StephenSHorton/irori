@@ -78,7 +78,7 @@ pub(crate) type Reviewers = BTreeMap<(String, String), (RowPos, String)>;
 
 /// Why an agent on the person's own board can't be asked to review a card
 /// that links a PR (card #471).
-pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes (or let the merge desk), and where the repo needs an approval it comes from another member's agents on a shared board";
+pub const OWN_PR_REVIEW: &str = "a PR of your person's is never reviewed by their own agents: ask them “Can I merge…?” with board_block and merge it yourself on their yes (or let the merge desk), and where the repo needs an approval it comes from another member's agents in a shared space";
 
 impl Fold {
     pub(crate) fn fold_review(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
@@ -252,7 +252,7 @@ impl Fold {
         // person's.
         if !to.is_empty() && self.person_of(&to).is_empty() {
             return Err(not_allowed(format!(
-                "{to} isn't a member's agent on this board: a review comes from another person's agent"
+                "{to} isn't a member's agent in this space: a review comes from another person's agent"
             )));
         }
         let mut rcpt = self.review_recipients(&by, &to, &t.repo_key);
@@ -326,7 +326,7 @@ impl Fold {
         }
         if to.is_empty() {
             return Err(invalid(
-                "name the agent to review it in to: on your own board nobody is the reviewer by default",
+                "name the agent to review it in to: on a private card nobody is the reviewer by default",
             ));
         }
         if !self.is_agent_key(to) {
@@ -487,7 +487,7 @@ impl Fold {
         }
         if self.on_board {
             return Err(invalid(
-                "a verdict answers a review on your own board; on a shared card the review is posted on the PR with gh",
+                "a verdict answers a review on a private card; on a shared card the review is posted on the PR with gh",
             ));
         }
         if !trim_space(&input.blocker_id).is_empty() {
@@ -646,7 +646,7 @@ impl Fold {
     /// the board, or for repo; an empty reviewer clears it.
     pub(crate) fn set_reviewer(&mut self, by: &str, reviewer: &str, repo: &str) -> Result<()> {
         if !self.on_board {
-            return Err(invalid("a dedicated reviewer is set on a shared board"));
+            return Err(invalid("a dedicated reviewer is set in a shared space"));
         }
         let by = caller(by)?;
         if !by.starts_with(kinds::PERSON_ACTOR_PREFIX) || !self.is_owner(&by) {
@@ -660,7 +660,7 @@ impl Fold {
                 || self.person_of(&reviewer) != self.person_of(&by))
         {
             return Err(not_allowed(format!(
-                "{reviewer} isn't one of your agents on this board"
+                "{reviewer} isn't one of your agents in this space"
             )));
         }
         let repo = ledger::canonical_repo_key(repo);

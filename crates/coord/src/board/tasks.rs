@@ -171,14 +171,23 @@ impl Fold {
         self.sides.home(&self.dev)
     }
 
-    /// Writes a checked task's rows.
-    pub(crate) fn create_locked(&mut self, by: &str, ct: CleanTask) -> Result<Task> {
+    /// Writes a checked task's rows. A subtask goes on its parent's board
+    /// (card #558), whichever path made it.
+    pub(crate) fn create_locked(&mut self, by: &str, mut ct: CleanTask) -> Result<Task> {
         // "irori" names no person, so a board counts its task.created for
         // nothing (sweeper_ok): refuse it rather than write a dead row.
         if self.on_board && by == SWEEPER {
             return Err(not_allowed(
-                "Irori itself can't create a card on a shared board: a person or an agent creates it",
+                "Irori itself can't create a card in a shared space: a person or an agent creates it",
             ));
+        }
+        if self.no_cards_fn.as_ref().is_some_and(|f| f()) {
+            return Err(not_allowed(
+                "this space holds no boards, so it takes no card",
+            ));
+        }
+        if let Some(p) = self.tasks.get(&ct.parent) {
+            ct.board = p.board.clone();
         }
         let mut bb = None;
         if !ct.reason.is_empty() {
@@ -186,7 +195,7 @@ impl Fold {
         }
         let at = self.stamp();
         let id = new_id(&at);
-        let num = self.next_short();
+        let num = self.next_short(&ct.board);
         self.write(
             by,
             kinds::TASK_CREATED,
@@ -251,7 +260,7 @@ impl Fold {
         self.tasks
             .get(&id)
             .cloned()
-            .ok_or_else(|| not_allowed(format!("{by} can't create a card on this board")))
+            .ok_or_else(|| not_allowed(format!("{by} can't create a card in this space")))
     }
 
     pub(crate) fn list_tasks(&self, f: &TaskFilter) -> Vec<Task> {

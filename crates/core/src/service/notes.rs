@@ -45,7 +45,7 @@ impl Services {
         Err(Error::coord(
             CK::NotAllowed,
             format_args!(
-                "every device on the board must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
+                "every device in the space must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
                 waiting.join(", ")
             ),
         )
@@ -73,7 +73,16 @@ impl Services {
         let boards = self.visible_boards();
         let hits: Vec<_> = boards
             .iter()
-            .filter(|b| b.id == scope || b.verifier.membership().tag.eq_ignore_ascii_case(scope))
+            .filter(|b| {
+                // A board inside a space names that space: notes are kept
+                // per space (card #558).
+                b.id == scope
+                    || b.verifier.membership().tag.eq_ignore_ascii_case(scope)
+                    || self.space_boards(&b.id).is_ok_and(|bs| {
+                        bs.iter()
+                            .any(|x| x.board_id == scope || x.tag.eq_ignore_ascii_case(scope))
+                    })
+            })
             .cloned()
             .collect();
         let b = match hits.as_slice() {
@@ -81,14 +90,14 @@ impl Services {
             [] => {
                 return Err(Error::coord(
                     CK::NotFound,
-                    format_args!("no board {scope:?}: give mine, or a board's tag or id"),
+                    format_args!("no space {scope:?}: give mine, or the tag or id of a space or one of its boards"),
                 )
                 .into_coord());
             }
             _ => {
                 return Err(Error::coord(
                     CK::Ambiguous,
-                    format_args!("two boards are tagged {scope:?}: give its id"),
+                    format_args!("two spaces are tagged {scope:?}: give its id"),
                 )
                 .into_coord());
             }
@@ -481,7 +490,7 @@ impl Services {
                 return if mine {
                     "the person".into()
                 } else {
-                    "a person on the board".into()
+                    "a person in the space".into()
                 };
             }
             match names.get(key).filter(|n| !n.trim().is_empty()) {

@@ -225,7 +225,229 @@ fn new_card_on_a_board() {
     );
 }
 
+/// Card #558: a card made on a board inside a space shows that board's tag
+/// and id everywhere the window names it, and `board` stays the space's id.
+/// A first board's card carries the space's id, asked for either way.
+#[test]
+fn a_card_shows_the_board_it_is_on_inside_its_space() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let net = w
+        .boards_add_to_space(&wind.board_id, "Netcode", "net")
+        .unwrap()
+        .boards[1]
+        .board_id
+        .clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: wind.board_id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let on_net = make("rollback", &net);
+    let on_first = make("sails", "");
+    let on_first_by_id = make("oars", &wind.board_id);
+    assert_eq!(on_net.short_ref(), "net#1");
+    assert_eq!(on_first.short_ref(), "wind#1");
+    assert_eq!(on_first_by_id.short_ref(), "wind#2");
+    assert_eq!(on_first_by_id.board, "");
+
+    let grid = w.cards();
+    let card = |id: &str| grid.iter().find(|c| c.id == id).unwrap();
+    let c = card(&on_net.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "net", net.as_str())
+    );
+    let c = card(&on_first.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "wind", wind.board_id.as_str())
+    );
+
+    let d = w.card(&on_net.id).unwrap();
+    assert_eq!(d.summary.board, wind.board_id);
+    assert_eq!(d.summary.tag, "net");
+    assert_eq!(d.summary.space_board, net);
+    let on = d.on_board.unwrap();
+    assert_eq!(
+        (on.id.as_str(), on.tag.as_str(), on.space_board.as_str()),
+        (wind.board_id.as_str(), "net", net.as_str())
+    );
+    let on = w.card(&on_first.id).unwrap().on_board.unwrap();
+    assert_eq!(
+        (on.tag.as_str(), on.space_board.as_str()),
+        ("wind", wind.board_id.as_str())
+    );
+
+    // A board the space doesn't hold is refused, not put on the first.
+    let e = w
+        .create_card(NewCardInput {
+            title: "x".into(),
+            board: wind.board_id.clone(),
+            space_board: "nope".into(),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+}
+
+/// Card #558: a done card on a board inside a space keeps that board's tag
+/// and id in Closed, and a subtask of a card there shows the same tag.
+#[test]
+fn closed_and_subtasks_show_the_board_inside_the_space() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let net = w
+        .boards_add_to_space(&wind.board_id, "Netcode", "net")
+        .unwrap()
+        .boards[1]
+        .board_id
+        .clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: wind.board_id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let on_net = make("rollback", &net);
+    let on_first = make("sails", "");
+    w.close_card(&on_net.id, coord::COMPLETED, "").unwrap();
+    w.close_card(&on_first.id, coord::COMPLETED, "").unwrap();
+
+    let done = w.done_cards(0, "").unwrap().cards;
+    let card = |id: &str| {
+        done.iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("{id} not in Closed: {done:?}"))
+    };
+    let c = card(&on_net.id);
+    assert_eq!(
+        (
+            c.board.as_str(),
+            c.tag.as_str(),
+            c.space_board.as_str(),
+            c.scope.as_str()
+        ),
+        (wind.board_id.as_str(), "net", net.as_str(), SCOPE_BOARD)
+    );
+    let c = card(&on_first.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "wind", wind.board_id.as_str())
+    );
+
+    // A subtask of a card on the inner board is on that board too.
+    let parent = make("lag", &net);
+    let co = w.core.board_coord(&wind.board_id).unwrap();
+    let me = w
+        .core
+        .board_key(&wind.board_id, &w.core.user_sender().key)
+        .unwrap();
+    co.split(
+        &me,
+        &parent.id,
+        vec![coord::NewSubtask {
+            title: "measure".into(),
+            ..Default::default()
+        }],
+        vec![],
+    )
+    .unwrap();
+    let d = w.card(&parent.id).unwrap();
+    assert_eq!(d.subtask_list.len(), 1, "{:?}", d.subtask_list);
+    assert_eq!(d.subtask_list[0].tag, "net");
+}
+
+/// Card #558: Rename in a space names one board, and leaves the space's
+/// name alone even when that board is the first.
+#[test]
+fn renaming_a_board_in_a_space_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let id = wind.board_id;
+    let s = w.boards_add_to_space(&id, "Netcode", "net").unwrap();
+    let net = s.boards[1].board_id.clone();
+    let s = w.boards_rename_in_space(&id, &net, "Sockets").unwrap();
+    assert_eq!(s.boards[1].name, "Sockets");
+    assert_eq!(s.boards[1].tag, "net");
+    let s = w.boards_rename_in_space(&id, &id, "Tasks").unwrap();
+    assert_eq!(s.boards[0].name, "Tasks");
+    assert_eq!(s.name, "Wind");
+    let e = w.boards_rename_in_space(&id, "nope", "x").unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+}
+
 /// A Rig on loopback iroh with no LAN lookup (the invite tests).
+/// Personal from the window (card #558): its boards listed, added and
+/// renamed; a card made on one shows its tag and board, numbered from 1,
+/// while the cards already there stay on the default board as `#N`.
+#[test]
+fn personal_boards_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let old = create(&r, "already here");
+    assert_eq!(old.short_ref(), "#1");
+    let bs = w.boards_personal().unwrap();
+    assert_eq!(bs.len(), 1, "{bs:?}");
+    assert_eq!(bs[0].board_id, irori_core::PERSONAL_BOARD);
+    assert_eq!((bs[0].name.as_str(), bs[0].tag.as_str()), ("Personal", ""));
+
+    let bs = w.boards_add_to_personal("Home jobs", "HOME").unwrap();
+    assert_eq!(bs.len(), 2, "{bs:?}");
+    assert_eq!(bs[1].tag, "home");
+    let home = bs[1].board_id.clone();
+
+    let on = |board: &str, title: &str| {
+        w.create_card(irori_window::new_card::NewCardInput {
+            title: title.into(),
+            space_board: board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let fence = on(&home, "Fix the fence");
+    assert_eq!(fence.short_ref(), "home#1");
+    let next = on(irori_core::PERSONAL_BOARD, "On the default board");
+    assert_eq!(next.short_ref(), "#2");
+
+    let cards = w.cards();
+    let card = |id: &str| cards.iter().find(|c| c.id == id).unwrap();
+    let c = card(&fence.id);
+    assert_eq!((c.tag.as_str(), c.space_board.as_str()), ("home", &*home));
+    assert_eq!(c.board, "", "Home keeps it: it is in no shared space");
+    assert_eq!(c.scope, SCOPE_MINE);
+    let c = card(&old.id);
+    assert_eq!(c.tag, "");
+    assert_eq!(c.space_board, irori_core::PERSONAL_BOARD);
+    assert_eq!(w.card(&fence.id).unwrap().summary.space_board, home);
+
+    let bs = w
+        .boards_rename_in_personal(irori_core::PERSONAL_BOARD, "Inbox")
+        .unwrap();
+    assert_eq!(bs[0].name, "Inbox");
+    let bs = w.boards_rename_in_personal(&home, "House").unwrap();
+    assert_eq!((bs[1].name.as_str(), bs[1].tag.as_str()), ("House", "home"));
+    let e = w.boards_rename_in_personal("nope", "x").unwrap_err();
+    assert!(e.contains("no board"), "{e}");
+    let e = w.boards_add_to_personal("Again", "home").unwrap_err();
+    assert!(e.contains("already board"), "{e}");
+}
+
 fn on_loopback() -> Rig {
     Rig::with(|o| {
         o.no_home = true;
@@ -377,7 +599,7 @@ fn member_actions_and_conflicts_in_the_window() {
     let s = w.boards_settings(&mlg.board_id).unwrap();
     assert_eq!(
         s.conflicts,
-        ["Your role change for someone didn't take: they are not on the board"],
+        ["Your role change for someone didn't take: they are not in the space"],
         "{s:?}"
     );
 
@@ -940,6 +1162,122 @@ fn private_board_threads_stay_in_your_own_log() {
         listed.iter().any(|x| x.id == id && x.private),
         "the private one stays"
     );
+}
+
+/// Card #558: a thread from a space channel's message lands in the space's
+/// log, not the private one. It keeps its channel, names no repo, and the
+/// channel's pointer carries the tag: a bare #N would read across every log
+/// and this person's own #N is a different card.
+#[test]
+fn a_thread_from_a_space_channel_lands_in_the_space() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    // The same number in both logs, so a bare pointer would be wrong.
+    let mine = create(&r, "my own card");
+    let ch = w
+        .talk_channel_create("general", None, Some(&b.board_id))
+        .unwrap();
+    let p = w.talk_post(&ch, "main is red", &[], true, None).unwrap();
+
+    let res = w.talk_thread_from(&ch, &p, "Why is main red?").unwrap();
+    let id = res.task.id.clone();
+    assert_eq!(res.task.short, mine.short, "both logs number from one");
+    assert!(w.core.coord().get_task(&id).is_none(), "not in my own log");
+    let co = w.core.board_coord(&b.board_id).unwrap();
+    let t = co.get_task(&id).expect("in the space's log");
+    let a = t.ask.clone().unwrap();
+    assert!(a.thread, "{a:?}");
+    assert_eq!((a.channel.as_str(), a.repo_key.as_str()), (ch.as_str(), ""));
+
+    let posts = w.talk_posts(&ch, None, 0).unwrap();
+    assert_eq!(posts.len(), 2);
+    assert_eq!(posts[1].text, format!("mlg#{}", t.short));
+    assert_eq!(posts[1].thread_from.as_deref(), Some(p.as_str()));
+    let hit = w.card_ref(&posts[1].text).expect("the pointer opens");
+    assert!(hit.id == id && hit.thread, "{hit:?}");
+    assert!(
+        w.threads(&b.board_id)
+            .iter()
+            .any(|x| x.id == id && !x.private)
+    );
+    assert!(w.threads("").iter().all(|x| x.id != id));
+}
+
+/// Card #558: with your threads in a space set to private, a thread from
+/// its channel stays in your own log with its channel and space, and the
+/// channel gets no pointer nobody else could open.
+#[test]
+fn a_private_thread_from_a_space_channel_leaves_no_pointer() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    let ch = w
+        .talk_channel_create("general", None, Some(&b.board_id))
+        .unwrap();
+    let p = w.talk_post(&ch, "main is red", &[], true, None).unwrap();
+    w.boards_set_threads(&b.board_id, "private").unwrap();
+
+    let res = w.talk_thread_from(&ch, &p, "Between us: why?").unwrap();
+    let t = w.core.coord().get_task(&res.task.id).expect("my own log");
+    let a = t.ask.unwrap();
+    assert_eq!(
+        (a.board.as_str(), a.channel.as_str()),
+        (b.board_id.as_str(), ch.as_str())
+    );
+    let co = w.core.board_coord(&b.board_id).unwrap();
+    assert!(co.get_task(&res.task.id).is_none(), "not on the space");
+    assert_eq!(w.talk_posts(&ch, None, 0).unwrap().len(), 1, "no pointer");
+    let listed = w.threads(&b.board_id);
+    assert!(listed.iter().any(|x| x.id == res.task.id && x.private));
+}
+
+/// Card #558: All spaces lists every thread: your own, a space's, and your
+/// private one about a space, each with its space. A space's resolved
+/// threads aren't crowded out by another log's. Leaving a space keeps your
+/// private threads about it, in Personal, and its shared ones go.
+#[test]
+fn every_thread_lists_with_its_space() {
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    let mine = w.start_thread("Just me", &[], &[], "").unwrap().task.id;
+    let shared = w.start_thread("All of us", &[], &[], &b.board_id).unwrap();
+    let shared = shared.task.id;
+    w.boards_set_threads(&b.board_id, "private").unwrap();
+    let about = w.start_thread("Quietly", &[], &[], &b.board_id).unwrap();
+    let about = about.task.id;
+
+    let all = w.threads_all();
+    let got = |id: &str| all.iter().find(|t| t.id == id).expect("listed");
+    assert_eq!(all.len(), 3, "{all:?}");
+    assert!(got(&mine).space_id.is_empty() && !got(&mine).private);
+    assert!(got(&shared).space_id == b.board_id && !got(&shared).private);
+    assert!(got(&about).space_id == b.board_id && got(&about).private);
+    assert!(
+        w.threads(&b.board_id)
+            .iter()
+            .all(|t| t.space_id == b.board_id)
+    );
+
+    // Open first, and each log keeps its own newest resolved ones.
+    for i in 0..21 {
+        let t = w.start_thread(&format!("Old {i}"), &[], &[], "").unwrap();
+        w.resolve_thread(&t.task.id).unwrap();
+    }
+    w.resolve_thread(&shared).unwrap();
+    let all = w.threads_all();
+    assert!(all.iter().any(|t| t.id == shared), "not crowded out");
+    let first_done = all.iter().position(|t| t.state == "resolved").unwrap();
+    assert!(all[first_done..].iter().all(|t| t.state == "resolved"));
+    assert_eq!(all.iter().filter(|t| t.state == "resolved").count(), 21);
+
+    w.boards_leave(&b.board_id).unwrap();
+    let all = w.threads_all();
+    assert!(all.iter().all(|t| t.id != shared), "gone with the space");
+    let kept = all.iter().find(|t| t.id == about).expect("still yours");
+    assert!(kept.private && kept.space_id.is_empty(), "{kept:?}");
+    assert!(w.threads(&b.board_id).iter().any(|t| t.id == about));
 }
 
 /// Card #135: a board pins to the sidebar in the person's own log, and

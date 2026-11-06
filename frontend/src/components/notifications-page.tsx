@@ -7,6 +7,7 @@
 // what happened, who did it and when. A click re-checks too: Irori
 // refuses an answer to something already answered, and the row says so.
 
+import { cardRef } from "@/components/cards/bits"
 import { useEffect, useState, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -243,7 +244,7 @@ function Item({
             title={plainLine(n.card.title)}
             onClick={openCard}
           >
-            {n.card.short ? `#${n.card.short}` : plainLine(n.card.title)}
+            {n.card.short ? cardRef(n.card) : plainLine(n.card.title)}
           </button>
         )}
         <span className="ml-auto shrink-0 tabular-nums" title={at(n.at)?.toLocaleString()}>

@@ -847,6 +847,7 @@ impl Node {
     /// pending".
     pub(crate) fn note_vector(&self, peer: &str, v: &Vector) {
         self.lock().info(peer).vec = v.clone();
+        self.check_step(peer);
     }
 }
 

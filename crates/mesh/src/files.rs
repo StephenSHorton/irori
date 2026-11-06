@@ -215,6 +215,12 @@ impl Node {
             .map(|s| s.conn.clone())
     }
 
+    /// Whether `dev` has a live, synced connection here, so a fetch from
+    /// it could start now (card #580).
+    pub fn is_connected(&self, dev: &str) -> bool {
+        self.conn_to(dev).is_some()
+    }
+
     /// Go `lockFetch`: one fetch per attachment at a time. The returned
     /// permit is the turn; dropping the waiting future gives up.
     pub async fn lock_fetch(&self, sha: &str) -> tokio::sync::OwnedSemaphorePermit {

@@ -377,7 +377,7 @@ impl Fold {
         let by = caller(by)?;
         if self.on_board {
             return Err(invalid(
-                "a merge desk lives in your own log, not a shared board's",
+                "a merge desk lives in your own log, not a shared space's",
             ));
         }
         if !self.is_owner(&by) {

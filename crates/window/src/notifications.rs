@@ -23,6 +23,8 @@ pub const EVENT_NOTIFICATIONS_CHANGED: &str = "notifications:changed";
 pub struct NotificationCard {
     pub id: String,
     pub short: String,
+    /// Its board's tag: numbers are per board (card #558).
+    pub tag: String,
     pub title: String,
 }
 
@@ -103,6 +105,7 @@ impl Window {
                 let card = task.as_ref().map(|t| NotificationCard {
                     id: t.id.clone(),
                     short: t.short.clone(),
+                    tag: t.tag.clone(),
                     title: t.title.clone(),
                 });
                 let mut from = (!r.from.is_empty()).then(|| p.ref_(&r.from));

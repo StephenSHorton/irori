@@ -53,10 +53,10 @@ import {
   useCards,
   useDoneCards,
   useIdleReport,
-  useThreads,
+  useAllThreads,
   withLive,
 } from "@/lib/cards"
-import { useBoards } from "@/lib/boards"
+import { useBoards, usePersonalBoards } from "@/lib/boards"
 import { FocusComment, LiveRoster } from "@/lib/thread"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
@@ -67,10 +67,12 @@ import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
+import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
+import { PersonalHeaderBar, PersonalList } from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
 import { useNotesWaiting } from "@/lib/notes"
@@ -79,6 +81,7 @@ import { useMe } from "@/lib/profile"
 import {
   AllSpaces,
   Personal,
+  boardsOf,
   cardInSpace,
   convInSpace,
   threadsSpace,
@@ -175,6 +178,7 @@ export function App() {
   // Home's idle line (card #341): a work shortage or a dispatch gap.
   const idle = useIdleReport(roster.agents)
   const { boards } = useBoards()
+  const { boards: personalBoards } = usePersonalBoards()
   // The space the sidebar's switcher picked (card #393): Home, Talk and
   // Boards show it. All spaces, the default, is everything.
   const [space, setSpace] = useSpace(boards)
@@ -236,7 +240,9 @@ export function App() {
       : "all"
   )
   // Closed pages each page's own cards (card #161): Home's, or the board's.
-  const doneScope = section.kind === "board" ? section.id : homeScope
+  // Personal's lists are your own cards, closed ones too (card #558).
+  const onPersonal = section.kind === "board" && section.id === Personal
+  const doneScope = onPersonal ? ScopeOwn : section.kind === "board" ? section.id : homeScope
   const done = useDoneCards(
     section.kind === "board" ? boardFilter === "done" : filter === "done",
     doneScope
@@ -281,9 +287,9 @@ export function App() {
   const [newBoard, setNewBoard] = useState(false)
   // Threads (card #116) live on the Talk page (card #390): a new thread
   // from Home's ask box opens there, as does a thread's #ref.
-  const { threads: threadList, loading: threadsLoading } = useThreads(
-    threadsSpace(space)
-  )
+  // Every log's (card #558): the picked space's are listed, and one past
+  // the pick still opens, as a channel does.
+  const { threads: allThreads, loading: threadsLoading } = useAllThreads()
   // Channels and DMs (Talk 1, #389): Talk's list, and its count.
   const { conversations, loading: conversationsLoading } = useConversations()
   const startedThread = (id: string) => go({ kind: "talk", id })
@@ -541,14 +547,14 @@ export function App() {
   // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
-      if (!threadList.some((t) => t.id === id)) {
+      if (!allThreads.some((t) => t.id === id)) {
         openCard(id)
         return
       }
       const to: Section = { kind: "talk", id }
       if (open || !sameSection(section, to)) go(to)
     },
-    [threadList, openCard, open, section]
+    [allThreads, openCard, open, section]
   )
   // The command palette (card #213): Cmd/Ctrl+K or P from anywhere, over a
   // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
@@ -596,6 +602,16 @@ export function App() {
     },
     [goTo]
   )
+  // The list New card goes on, when one is open (card #558).
+  const newCardList =
+    section.kind !== "board" || open
+      ? undefined
+      : section.id === Personal
+        ? personalBoards.find((x) => x.boardId === (section.board ?? Personal))
+        : boards
+            .filter((b) => b.boardId === section.id)
+            .flatMap(boardsOf)
+            .find((x) => x.boardId === section.board)
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
     {
@@ -624,10 +640,10 @@ export function App() {
     },
     {
       id: "nav.boards",
-      title: "Boards",
+      title: "Spaces",
       group: "Go to",
       order: 2,
-      keywords: ["shared", "projects"],
+      keywords: ["shared", "projects", "boards"],
       run: () => goTo({ kind: "boards" }),
     },
     {
@@ -650,7 +666,9 @@ export function App() {
       id: "card.new",
       title:
         section.kind === "board" && !open
-          ? "New card on this board"
+          ? section.board
+            ? "New card on this board"
+            : "New card in this space"
           : "New card",
       order: 1,
       keywords: ["create", "add", "task"],
@@ -658,9 +676,9 @@ export function App() {
     },
     {
       id: "board.new",
-      title: "New board",
+      title: "New space",
       order: 2,
-      keywords: ["create", "add", "join", "invite"],
+      keywords: ["create", "add", "join", "invite", "board"],
       run: () => {
         goTo({ kind: "boards" })
         setNewBoard(true)
@@ -704,10 +722,10 @@ export function App() {
     () => ({
       cards,
       onOpen: openCard,
-      threads: threadList,
+      threads: allThreads,
       onOpenThread: openThread,
     }),
-    [cards, openCard, threadList, openThread]
+    [cards, openCard, allThreads, openThread]
   )
 
   // The nav drawer on a narrow window (card #227): it closes when you go
@@ -722,13 +740,13 @@ export function App() {
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // A phone (card #395, mockup talk-5): Home, Talk and Spaces are tabs at
   // the bottom, and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
   // The badge counts what Talk lists in the picked space (card #461).
   const talkWaiting =
-    threadList.filter(needsYou).length +
+    allThreads.filter((t) => convInSpace(t, space) && needsYou(t)).length +
     talkWaitingIn(
       conversations.filter((c) => convInSpace(c, space)),
       liveRoster
@@ -784,7 +802,9 @@ export function App() {
                   open
                     ? "Card"
                     : section.kind === "boards"
-                      ? "Boards"
+                      ? space === Personal
+                        ? "Personal"
+                        : "Spaces"
                       : section.kind === "talk"
                         ? "Talk"
                         : section.kind === "notes"
@@ -799,7 +819,11 @@ export function App() {
                 }
                 bar={
                   !open && section.kind === "board" ? (
-                    <BoardHeaderBar key={section.id} boardId={section.id} />
+                    section.id === Personal ? (
+                      <PersonalHeaderBar list={section.board ?? Personal} />
+                    ) : (
+                      <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
+                    )
                   ) : undefined
                 }
                 onNewCard={() => setNewCard(true)}
@@ -846,7 +870,7 @@ export function App() {
                 </Scroll>
               ) : section.kind === "talk" ? (
                 <TalkPage
-                  threads={threadList}
+                  threads={allThreads}
                   conversations={conversations}
                   threadsLoading={threadsLoading}
                   conversationsLoading={conversationsLoading}
@@ -917,10 +941,27 @@ export function App() {
                     onOpenMessage={setMessage}
                   />
                 </Scroll>
+              ) : section.kind === "board" && section.id === Personal ? (
+                <PersonalList
+                  key={section.board ?? Personal}
+                  list={section.board ?? Personal}
+                  cards={cards}
+                  done={done}
+                  filter={boardFilter}
+                  onFilter={setBoardFilter}
+                  view={view}
+                  onView={setView}
+                  query={query}
+                  onQuery={setQuery}
+                  selected={last}
+                  onOpen={openCard}
+                  now={now}
+                />
               ) : section.kind === "board" ? (
                 <BoardPage
-                  key={section.id}
+                  key={`${section.id}/${section.board ?? ""}`}
                   boardId={section.id}
+                  list={section.board}
                   cards={cards}
                   cardsLoading={cardsFirst}
                   done={done}
@@ -969,6 +1010,14 @@ export function App() {
                         board={threadsSpace(space)}
                       />
                       <IdleLine text={idleLine(idle, untaken, homeIds)} />
+                      <HomeFreshness
+                        space={space}
+                        names={
+                          new Map(
+                            boards.map((b) => [b.boardId, b.name || b.tag])
+                          )
+                        }
+                      />
                     </>
                   }
                   lead={
@@ -1024,6 +1073,7 @@ export function App() {
             onClose={() => setNewCard(false)}
             onMade={openCard}
             spawned={spawned}
+            list={newCardList}
             board={
               section.kind === "board" && !open
                 ? boards.find((b) => b.boardId === section.id)
@@ -1094,7 +1144,7 @@ function BoardsNeedYou({
   if (!by.size) return null
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[12.5px] text-muted-foreground">
-      <span>Waiting on you on your boards:</span>
+      <span>Waiting on you in your spaces:</span>
       {[...by].map(([id, n]) => (
         <button
           key={id}
@@ -1102,7 +1152,7 @@ function BoardsNeedYou({
           className="text-destructive underline-offset-2 hover:underline"
           onClick={() => go({ kind: "board", id })}
         >
-          {boards.find((b) => b.boardId === id)?.name || "a board"} ({n})
+          {boards.find((b) => b.boardId === id)?.name || "a space"} ({n})
         </button>
       ))}
     </p>

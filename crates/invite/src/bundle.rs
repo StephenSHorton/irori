@@ -124,13 +124,13 @@ fn held(boards: &dyn InviteBoards, board_id: &str) -> Result<Held, String> {
     Ok(Held {
         st: boards
             .board_store(board_id)
-            .ok_or("this device doesn't hold that board")?,
+            .ok_or("this device doesn't hold that space")?,
         ver: boards
             .board_verifier(board_id)
-            .ok_or("this device doesn't hold that board")?,
+            .ok_or("this device doesn't hold that space")?,
         secrets: boards
             .board_secrets(board_id)
-            .ok_or("this device has no secret for that board")?,
+            .ok_or("this device has no secret for that space")?,
     })
 }
 
@@ -141,7 +141,7 @@ fn bundle_head(board_id: &str, m: Membership, secrets: &BoardSecrets) -> Result<
     let board_epoch = secrets.epoch();
     let (secret, maker) = secrets
         .secret(board_epoch)
-        .ok_or("this device has no secret for the board's epoch")?;
+        .ok_or("this device has no secret for the space's epoch")?;
     Ok(Bundle {
         board_id: board_id.into(),
         name: m.name,
@@ -170,10 +170,10 @@ pub fn admit(
     let me = ident.current();
     let m = h.ver.membership();
     if !m.owner(&me.id) {
-        return Err("only an owner of the board can invite".into());
+        return Err("only an owner of the space can invite".into());
     }
     if m.active(&pin.person_id) {
-        return Err(format!("{name} is already on this board"));
+        return Err(format!("{name} is already in this space"));
     }
     let epoch = h.ver.epoch(&me.id);
     let mut bundle = bundle_head(board_id, m, &h.secrets)?;
@@ -197,10 +197,10 @@ pub fn rebuild(
     let h = held(boards, board_id)?;
     let m = h.ver.membership();
     if !m.owner(&ident.current().id) {
-        return Err("only an owner of the board can invite".into());
+        return Err("only an owner of the space can invite".into());
     }
     if !m.active(person_id) {
-        return Err("that person isn't on this board".into());
+        return Err("that person isn't in this space".into());
     }
     let mut bundle = bundle_head(board_id, m, &h.secrets)?;
     bundle.rows = wire_rows(&h.st)?;
@@ -270,7 +270,7 @@ fn fold_rows(ver: &BoardVerifier, evs: &[Event]) -> Option<String> {
 /// count.
 fn fold_offer(want_board: &str, b: &Bundle) -> Result<OfferFold, String> {
     if b.board_id != want_board {
-        return Err("the inviter sent a different board than the link names".into());
+        return Err("the inviter sent a different space than the link names".into());
     }
     let evs: Vec<Event> = b.rows.iter().map(WireRow::event).collect();
     let creator = evs
@@ -278,14 +278,14 @@ fn fold_offer(want_board: &str, b: &Bundle) -> Result<OfferFold, String> {
         .filter(|e| e.kind == kinds::BOARD_CREATED)
         .find_map(|e| decode::<BoardCreated>(&e.payload))
         .filter(|c| c.board_id == b.board_id)
-        .ok_or("the bundle has no board.created for this board")?
+        .ok_or("the bundle has no board.created for this space")?
         .creator;
     let verifier = BoardVerifier::new_for(&b.board_id, std::slice::from_ref(&creator));
     let refused = fold_rows(&verifier, &evs);
     let membership = verifier.membership();
     if !membership.created {
         return Err(format!(
-            "the board's log doesn't verify ({})",
+            "the space's log doesn't verify ({})",
             refused.unwrap_or_default()
         ));
     }
@@ -301,10 +301,10 @@ fn fold_offer(want_board: &str, b: &Bundle) -> Result<OfferFold, String> {
 fn secret_of(b: &Bundle) -> Result<Zeroizing<Vec<u8>>, String> {
     let secret = Zeroizing::new(
         B64.decode(&b.secret)
-            .map_err(|_| "the board secret is damaged")?,
+            .map_err(|_| "the space's secret is damaged")?,
     );
     if secret.len() != BOARD_SECRET_SIZE || b.board_epoch < 1 || b.maker.is_empty() {
-        return Err("the board secret is damaged".into());
+        return Err("the space's secret is damaged".into());
     }
     Ok(secret)
 }
@@ -313,7 +313,7 @@ fn secret_of(b: &Bundle) -> Result<Zeroizing<Vec<u8>>, String> {
 /// person has now.
 fn check_joined(m: &Membership, ident: &Identity, inviter: &str) -> Result<(), String> {
     if !m.owner(inviter) {
-        return Err("the person who invited you isn't an owner of this board".into());
+        return Err("the person who invited you isn't an owner of this space".into());
     }
     let me = ident.current();
     let mine = m.person(&me.id).filter(|_| m.active(&me.id));
@@ -321,7 +321,7 @@ fn check_joined(m: &Membership, ident: &Identity, inviter: &str) -> Result<(), S
         Some(p) if p.pin.person_pub == me.pub_hex && p.pin.root_device_id == ident.device_id() => {
             Ok(())
         }
-        _ => Err("the board doesn't list you under the key you proved".into()),
+        _ => Err("the space doesn't list you under the key you proved".into()),
     }
 }
 
@@ -344,7 +344,7 @@ pub fn check_offer(ident: &Identity, want_board: &str, b: &Bundle) -> Result<Off
     }
     match m.person(&me.id) {
         Some(p) if p.role == BOARD_MEMBER && p.pin.person_epoch == me.epoch => Ok(fold),
-        _ => Err("the board doesn't list you under the key you proved".into()),
+        _ => Err("the space doesn't list you under the key you proved".into()),
     }
 }
 
@@ -383,13 +383,13 @@ pub fn join(
     boards.open_board(&b.board_id, Some(fold.creator))?;
     let st = boards
         .board_store(&b.board_id)
-        .ok_or("the board didn't open")?;
+        .ok_or("the space didn't open")?;
     let ver = boards
         .board_verifier(&b.board_id)
-        .ok_or("the board didn't open")?;
+        .ok_or("the space didn't open")?;
     let secrets = boards
         .board_secrets(&b.board_id)
-        .ok_or("the board's secrets didn't open")?;
+        .ok_or("the space's secrets didn't open")?;
     secrets
         .add(b.board_epoch, &b.maker, &secret)
         .map_err(|e| e.to_string())?;
@@ -400,7 +400,7 @@ pub fn join(
     let m = ver.membership();
     if !m.created {
         return Err(format!(
-            "the board's log doesn't verify ({})",
+            "the space's log doesn't verify ({})",
             inserted.err().unwrap_or_default()
         ));
     }

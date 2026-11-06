@@ -174,6 +174,7 @@ Rules:
 | AppKit toast panels, the tray, SMAppService | the AppKit main thread Tauri already runs, through `run_on_main_thread` | inbox.md §7.16 |
 | FSEvents stream | its own thread with a CFRunLoop | capture.md §4 |
 | ReadDirectoryChangesW | a blocking thread per watch, armed before `watch()` returns | capture.md §4, §7.12 |
+| File watcher starts (presence, capture) | a `presence-watch` / `capture-watch` thread each; the loop scans first, and reads what a watcher covers once it is up | `FSEventStreamStart` can take a minute on a busy Mac (card #601) |
 | Parent and process waits (attach, presence) | blocking threads (`WaitForMultipleObjects`, kqueue) | surface.md §4 |
 | The capture loop | one task owns all tail and reflog state; readers use the RwLock'd fold | capture.md §7.13 |
 
@@ -184,7 +185,7 @@ Rules:
 ### 3.1 Pieces
 
 ```
-                        PC (home server, always on)
+                        PC (home server, when one runs it)
  ┌────────────────────────────────────────────────────────────────────┐
  │ iroh Endpoint  (SecretKey = device ed25519 seed → EndpointId = devicePub)
  │   ALPNs: irori/mesh/1, irori/pair/1  (stage 2: irori/board/1, gossip)

@@ -1039,7 +1039,8 @@ pub struct NewAsk {
     /// or handed it; the agents it names hear it at their next turn.
     pub quiet: bool,
     /// A thread started from a message in this Talk channel (its `ch_` id,
-    /// card #454); private log only.
+    /// card #454). On a space's log, one of that space's channels (card
+    /// #558).
     pub channel: String,
 }
 
@@ -1059,6 +1060,9 @@ pub struct TaskEdit {
     pub title: Option<String>,
     pub objective: Option<String>,
     pub done_when: Option<String>,
+    /// The card's repoKey (card #600): an agent started for a card that
+    /// names no repo sets the one it works out.
+    pub repo: Option<String>,
     /// A thread's short ref or task id: the change comes from it (card
     /// #155). Empty: the one open thread the caller answered, if any.
     pub from: String,

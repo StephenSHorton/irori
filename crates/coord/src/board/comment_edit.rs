@@ -23,7 +23,7 @@ impl Fold {
     pub(crate) fn comment_editable(&self, by: &str, comment_id: &str) -> Result<Comment> {
         if self.on_board {
             return Err(invalid(
-                "a comment on a shared board can't be edited: other people's devices already have it",
+                "a comment in a shared space can't be edited: other people's devices already have it",
             ));
         }
         let Some(cm) = self.comments.get(comment_id) else {
