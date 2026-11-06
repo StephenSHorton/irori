@@ -24,3 +24,25 @@ fn an_offline_core_binds_nothing() {
     );
     core.close().unwrap();
 }
+
+/// Card #580: with no other device to take a row, `sync_out` on the way
+/// out costs nothing.
+#[test]
+fn sync_out_returns_at_once_with_no_peer() {
+    let (d, c) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut o = common::options(d.path(), c.path());
+    o.pair_net = Some(irori_core::offline::offline_net());
+    o.no_home = true;
+    let core = Core::start(o).unwrap();
+    core.store()
+        .append(
+            "irori",
+            store::kinds::AGENT_SEEN,
+            &serde_json::json!({"key": format!("{}/x", core.device_id()), "agent": "claude"}),
+        )
+        .unwrap();
+    let r = core.sync_out(std::time::Duration::from_secs(10));
+    assert!(r.logs.is_empty(), "{r:?}");
+    assert!(r.spent < std::time::Duration::from_millis(500), "{r:?}");
+    core.close().unwrap();
+}

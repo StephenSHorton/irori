@@ -59,6 +59,13 @@ const PAGES: Array<[name: string, query: string]> = [
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
   ["personal", "?space=personal#boards"],
+  // Freshness lines (card #580): a space's Home, Personal's, every log a few
+  // days behind, and the space menu open with each one's.
+  ["home-space", "?space=sample-board-mlg"],
+  ["home-personal", "?space=personal"],
+  ["home-stale", "?fresh=stale"],
+  ["board-stale", "?fresh=stale#board/sample-board-mlg"],
+  ["spaces-menu", "?spaces=open"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
 ]

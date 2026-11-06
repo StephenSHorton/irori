@@ -32,6 +32,7 @@ mod notifications;
 mod offline;
 mod pair;
 mod personal_boards;
+mod prefetch;
 mod prwatch;
 mod search;
 mod space_boards;
