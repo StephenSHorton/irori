@@ -5,6 +5,7 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at its foot.
 
+import { cardRef } from "@/components/cards/bits"
 import { useContext, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
@@ -70,7 +71,7 @@ import { memberName, nameOr } from "@/lib/names"
 export function talkMatches(t: ThreadSummary, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [t.title, t.text, t.short && `#${t.short}`, t.lastText ?? ""].some(
+  return [t.title, t.text, t.short && cardRef(t), t.lastText ?? ""].some(
     (s) => !!s && s.toLowerCase().includes(q)
   )
 }
@@ -95,7 +96,7 @@ export function convMatches(c: Conv, query: string): boolean {
 }
 
 export function TalkPage({
-  threads,
+  threads: everyThread,
   conversations,
   agents,
   open,
@@ -107,6 +108,7 @@ export function TalkPage({
   desks = [],
   onOpenDesk,
 }: {
+  // Every log's, each with its space (card #558).
   threads: ThreadSummary[]
   // Merge desks, listed in Channels (card #521); opening one opens its
   // queue on the desk page until it is a Talk channel (slice 8).
@@ -133,14 +135,16 @@ export function TalkPage({
   const [showResolvedPick, setShowResolved] = useState(false)
   // On a narrow window the pen opens the new-thread box over the list.
   const [composing, setComposing] = useState(false)
+  const threads = everyThread.filter((t) => convInSpace(t, space))
   const shown = threads.filter((t) => talkMatches(t, query))
   const live = shown.filter((t) => t.state !== "resolved")
   const resolved = shown.filter((t) => t.state === "resolved")
   const showResolved =
     resolvedShown(showResolvedPick, open, threads) || !!query.trim()
-  const current = threads.find((t) => t.id === open)
   // The open one is looked up in all of them, so a link to another space's
-  // channel still opens; the list shows the picked space's (card #461).
+  // channel or thread still opens; the list shows the picked space's (card
+  // #461, #558).
+  const current = everyThread.find((t) => t.id === open)
   const conv = current
     ? undefined
     : conversations.find((c) => c.convId === open)
@@ -990,7 +994,7 @@ function Conversation({
         />
         {t.short && (
           <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
-            #{plainLine(t.short)}
+            {cardRef(t)}
           </span>
         )}
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">

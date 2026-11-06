@@ -677,6 +677,16 @@ impl super::Core {
         self.s.space_not_ready(space_id)
     }
 
+    /// Whether space `space_id` may take a space-only row now: the gate's
+    /// refusal if not ([`gate_refusal`]).
+    pub fn space_gate(&self, space_id: &str) -> std::result::Result<(), String> {
+        let waiting = self
+            .s
+            .space_not_ready(space_id)
+            .map_err(|e| e.to_string())?;
+        gate_refusal(&waiting).map_or(Ok(()), Err)
+    }
+
     /// Adds a board to space `space_id`; refused until every member device
     /// reads space rows.
     pub fn create_space_board(&self, space_id: &str, name: &str, tag: &str) -> Result<String> {

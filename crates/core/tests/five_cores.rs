@@ -1129,6 +1129,196 @@ fn a_board_ask_reaches_bob() {
     close(alice.drain(..).chain(bob.drain(..)));
 }
 
+/// Card #558: a thread from a space's channel reaches the other member with
+/// its channel, its pointer's tagged ref opens it there, and their agent's
+/// Talk tools reach it on the real router. A bare number two logs hold is
+/// refused naming both, never read as the private log's; `space` picks one.
+/// Reading adds nobody to the space; posting does.
+#[test]
+fn a_space_thread_reaches_the_other_members_agent_talk_tools() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    a1.core.space_gate(&space).unwrap();
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "general", "", &space)
+        .unwrap();
+    let (t, _) = a1
+        .core
+        .board_ask(
+            &space,
+            coord::NewAsk {
+                text: "Why is main red?".into(),
+                thread: true,
+                channel: ch.id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets the thread", || {
+        card_on(b1, &space, &t.id).is_some()
+    });
+    let theirs = card_on(b1, &space, &t.id).unwrap();
+    assert_eq!(theirs.ask.unwrap().channel, ch.id, "it keeps its channel");
+    let pointer = t.short_ref();
+    assert_eq!(pointer, format!("mlg#{}", t.short));
+    assert_eq!(b1.core.task_ref(&pointer).unwrap(), t.id);
+
+    // Bob's own #N, and one only his log has.
+    let own = |title: &str| {
+        b1.core
+            .coord()
+            .create_task(
+                &b1.user(),
+                coord::NewTask {
+                    title: title.into(),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+    };
+    let same = own("my own card");
+    let only = own("only mine");
+    assert_eq!(same.short, t.short, "both logs number from one");
+    let bare = format!("#{}", t.short);
+
+    // Not on it yet: it isn't listed, and reading it writes nothing.
+    assert!(!b1.tool("talk_list", serde_json::json!({})).contains(&t.id));
+    let by_id = b1.tool("talk_read", serde_json::json!({"conv": t.id}));
+    assert!(by_id.contains("Why is main red?"), "{by_id}");
+    let by_ref = b1.tool("talk_read", serde_json::json!({"conv": pointer}));
+    assert!(by_ref.contains("Why is main red?"), "{by_ref}");
+    let cards = || {
+        b1.core
+            .board_store(&space)
+            .unwrap()
+            .list(&Filter {
+                kinds: vec![kinds::AGENT_CARD.into()],
+                limit: 1000,
+                ..Filter::default()
+            })
+            .unwrap()
+            .len()
+    };
+    let before = cards();
+
+    // A bare number in both logs names neither, whatever the verb.
+    let both = b1.tool("talk_read", serde_json::json!({"conv": bare}));
+    assert!(both.contains(&t.id) && both.contains(&same.id), "{both}");
+    assert!(both.contains("more than one card"), "{both}");
+    let refused = b1.tool(
+        "talk_post",
+        serde_json::json!({"conv": bare, "text": "wrong log?"}),
+    );
+    assert!(refused.contains(&same.id), "{refused}");
+    assert!(
+        b1.core.coord().comments(&same.id).unwrap().is_empty(),
+        "nothing lands on the private card"
+    );
+    // Naming the space picks its log; a number only one log has is that one.
+    let picked = b1.tool(
+        "talk_read",
+        serde_json::json!({"conv": bare, "space": "mlg"}),
+    );
+    assert!(picked.contains("Why is main red?"), "{picked}");
+    let alone = b1.tool(
+        "talk_read",
+        serde_json::json!({"conv": format!("#{}", only.short)}),
+    );
+    assert!(
+        alone.contains("only mine") || alone.contains(&only.id),
+        "{alone}"
+    );
+    assert_eq!(cards(), before, "reading puts nobody on the space");
+
+    // Posting goes on the space's thread, and then it is the agent's.
+    let posted = b1.tool(
+        "talk_post",
+        serde_json::json!({"conv": t.id, "text": "the build"}),
+    );
+    assert!(!posted.starts_with("Error"), "{posted}");
+    let co = b1.core.board_coord(&space).unwrap();
+    assert!(
+        co.comments(&t.id)
+            .unwrap()
+            .iter()
+            .any(|c| c.text == "the build"),
+        "the reply is on the space's thread"
+    );
+    assert_eq!(cards(), before + 1, "a post puts its agent on the space");
+    let list = b1.tool("talk_list", serde_json::json!({}));
+    assert!(list.contains(&format!("thread {pointer}")), "{list}");
+    assert!(
+        !list.contains("1 unread"),
+        "its own post isn't unread: {list}"
+    );
+    let row = b1
+        .core
+        .talk_conversations(&b1.user())
+        .unwrap()
+        .into_iter()
+        .find(|c| c.conv_id == t.id)
+        .expect("listed for the person too");
+    assert_eq!(row.space_id, space);
+    assert!(
+        row.members.iter().any(|m| m.key == b1.agent),
+        "its own agent goes by its session key: {:?}",
+        row.members
+    );
+
+    a1.core.kick_board(&space);
+    b1.core.kick_board(&space);
+    wait_for(WAIT, "alice gets the reply", || {
+        a1.core
+            .talk_posts(&a1.user(), &t.id, None, 50)
+            .is_ok_and(|ps| ps.iter().any(|p| p.text == "the build"))
+    });
+
+    // A card made from a post: in the space, its chip reaches Bob; a private
+    // one stays Alice's link.
+    let post = |text: &str| {
+        a1.core
+            .talk_post(&a1.core.user_sender(), &ch.id, text, &[], false, None)
+            .unwrap()
+            .post
+            .post_id
+    };
+    let (shared_post, private_post) = (post("make a card"), post("mine alone"));
+    let on_space = a1
+        .core
+        .board_coord(&space)
+        .unwrap()
+        .create_task(&a1.person_actor(), new_task("from the channel"))
+        .unwrap();
+    let private = a1
+        .core
+        .coord()
+        .create_task(&a1.user(), new_task("private"))
+        .unwrap();
+    a1.core
+        .talk_link_card(&shared_post, &on_space.id, &a1.user())
+        .unwrap();
+    a1.core
+        .talk_link_card(&private_post, &private.id, &a1.user())
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob sees the card's chip", || {
+        b1.core.talk().card_of(&shared_post).as_deref() == Some(on_space.id.as_str())
+    });
+    assert_eq!(b1.core.talk().card_of(&private_post), None);
+    assert_eq!(
+        a1.core.talk().card_of(&private_post).as_deref(),
+        Some(private.id.as_str())
+    );
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
 /// Card #392 (Spaces s5): Alice's space is the board Bob joined. Once
 /// Alice has heard Bob's device read space rows, a second board and a card
 /// on it reach Bob, and so does a channel made in the space and its posts,
@@ -1355,6 +1545,9 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         .unwrap_err();
     assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
     assert_eq!(a1.core.talk().posts(&ch.id).len(), 2, "nothing written");
+    // A thread from its channel asks the same gate first (card #558).
+    let e = a1.core.space_gate(&space).unwrap_err();
+    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
     // Personal channels are never gated.
     a1.core
         .talk_channel_create(&a1.user(), "notes", "")

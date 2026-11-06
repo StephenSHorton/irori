@@ -81,10 +81,10 @@ export function cardInSpace(c: CardSummary, space: string): boolean {
   return c.board === space
 }
 
-// convInSpace is whether a channel or DM shows in the picked space (card
-// #461): Personal's are your own channels and every DM, a shared space's
-// its own channels (DMs are you and your agents, so they stay Personal's,
-// as private cards do).
+// convInSpace is whether a channel, DM or thread shows in the picked space
+// (card #461, #558): Personal's are your own channels and threads and every
+// DM, a shared space's its own (DMs are you and your agents, so they stay
+// Personal's, as private cards do). All spaces shows them all.
 export function convInSpace(c: { spaceId?: string }, space: string): boolean {
   if (space === AllSpaces) return true
   if (space === Personal) return !c.spaceId
@@ -102,8 +102,8 @@ export function boardsInSpace(
   return boards.filter((b) => b.boardId === space)
 }
 
-// threadsSpace is the board id Talk's threads come from: a shared space's
-// own, else the private log's ("").
+// threadsSpace is the board id a new thread or channel starts on: a shared
+// space's own, else the private log's ("").
 export function threadsSpace(space: string): string {
   return space === AllSpaces || space === Personal ? "" : space
 }

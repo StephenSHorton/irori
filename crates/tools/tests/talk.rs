@@ -494,7 +494,7 @@ fn a_channel_name_resolves_in_its_space_only() {
 
 /// Each channel in the list carries its space (card #461), so the window's
 /// switcher can filter Talk: empty for Personal, the space's id otherwise;
-/// a DM and a thread are always Personal's.
+/// a DM and a private log's thread are Personal's.
 #[test]
 fn conversations_carry_their_space() {
     let h = new_harness_setup(None, |b, _| {

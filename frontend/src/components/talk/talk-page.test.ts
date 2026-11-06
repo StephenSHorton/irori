@@ -113,3 +113,12 @@ describe("a thread started from a channel message (design b2, card #390)", () =>
     )
   })
 })
+
+// Card #558: a space's thread is found by the ref the channel pointer says.
+describe("talkMatches with a tag", () => {
+  test("mlg#12 finds a space's thread, and #12 still does", () => {
+    expect(talkMatches(t({ tag: "mlg" }), "mlg#12")).toBe(true)
+    expect(talkMatches(t({ tag: "mlg" }), "#12")).toBe(true)
+    expect(talkMatches(t({ tag: "" }), "mlg#12")).toBe(false)
+  })
+})
