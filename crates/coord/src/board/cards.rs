@@ -74,7 +74,14 @@ pub(crate) fn sync_reason(t: &mut Task) {
 
 /// Resolves every open item as closed, with note as the answer.
 pub(crate) fn close_open(t: &mut Task, by: &str, note: &str, at: GoTime) {
-    for b in t.blockers.iter_mut().filter(|b| b.open()) {
+    close_named(t, &[], by, note, at);
+}
+
+/// Resolves the open items named in ids as closed, with note as the
+/// answer; no ids names every open item (a row from before card #635).
+pub(crate) fn close_named(t: &mut Task, ids: &[String], by: &str, note: &str, at: GoTime) {
+    let named = |b: &Blocker| ids.is_empty() || ids.contains(&b.id);
+    for b in t.blockers.iter_mut().filter(|b| b.open() && named(b)) {
         b.resolved = Some(Resolution {
             answer: note.into(),
             option: -1,

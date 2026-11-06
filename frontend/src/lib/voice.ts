@@ -233,7 +233,57 @@ export function downloadModel(): Promise<boolean> {
 
 // onVoiceEvent subscribes to every session's events.
 export function onVoiceEvent(f: (e: VoiceEvent) => void): () => void {
+  if (!inWails()) {
+    preview.listeners.add(f)
+    return () => preview.listeners.delete(f)
+  }
   return Events.On<VoiceEvent>(EventVoice, (e) => f(e.data))
+}
+
+// The browser preview has no engine (card #634): there a stand-in "hears"
+// PreviewWords a word at a time, settles them, and keeps listening until
+// stopped, so the mic, the shortcut and the words landing in the box can
+// be tried and shot. The app never runs it.
+export const PreviewWords = "Ship it once the two PC check passes"
+
+const preview = {
+  listeners: new Set<(e: VoiceEvent) => void>(),
+  next: 0,
+  timers: new Map<number, { timer: number; heard: string }>(),
+}
+
+function previewEmit(session: number, kind: string, text = "") {
+  for (const f of preview.listeners) f({ session, kind, text, code: "" })
+}
+
+function previewStart(): number {
+  const id = ++preview.next
+  const words = PreviewWords.split(" ")
+  let n = 0
+  const timer = window.setInterval(() => {
+    n++
+    const heard = words.slice(0, n).join(" ")
+    const t = preview.timers.get(id)
+    if (t) t.heard = heard
+    previewEmit(id, "partial", heard)
+    if (n === words.length) {
+      window.clearInterval(timer)
+      previewEmit(id, "final", heard)
+      if (t) t.heard = ""
+    }
+  }, 220)
+  preview.timers.set(id, { timer, heard: "" })
+  return id
+}
+
+function previewStop(id: number) {
+  const t = preview.timers.get(id)
+  if (!t) return
+  window.clearInterval(t.timer)
+  preview.timers.delete(id)
+  // Words still being heard settle, as the engine's last phrase does.
+  if (t.heard) previewEmit(id, "final", t.heard)
+  previewEmit(id, "ended")
 }
 
 // Android (card #240): the native engine records with AAudio, which needs
@@ -259,9 +309,13 @@ export async function allowMic(): Promise<void> {
 }
 
 export const startVoice = async () => {
+  if (!inWails()) return previewStart()
   await allowMic()
   return VoiceService.Start()
 }
-export const stopVoice = (session: number) => VoiceService.Stop(session)
+export const stopVoice = async (session: number) => {
+  if (!inWails()) return previewStop(session)
+  return VoiceService.Stop(session)
+}
 export const openVoiceSettings = (code: string) =>
   VoiceService.OpenSettings(code)

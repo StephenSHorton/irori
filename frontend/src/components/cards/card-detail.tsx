@@ -1561,7 +1561,7 @@ export function CommentBox({
         <MentionTextarea
           card={cardId}
           autoSize
-          voice
+          voice="main"
           value={text}
           mentions={mentions}
           onChange={(v, ms) => {

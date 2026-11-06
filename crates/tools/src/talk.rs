@@ -1353,6 +1353,109 @@ pub(crate) fn talk_post(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
 }
 
+const THREAD_ARGS: &[(&str, Ty)] = &[
+    ("text", Ty::Str),
+    ("conv", Ty::Str),
+    ("mention", Ty::Strs),
+    ("space", Ty::Str),
+];
+
+/// talk_thread (card #631): the agent opens a thread with the person and
+/// holds it. Irori never hands it out or starts another agent for it, even
+/// once this one ends, until the person writes in it; the agents it names
+/// are woken as for the person's thread. It goes in Personal, a space (its
+/// log, or the person's own when their threads there are private), and
+/// names a channel it's about when `conv` gives one, with a pointer post
+/// there.
+pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, THREAD_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    let b = s.b.as_ref();
+    let mut space = match space_arg(s, a.str("space")) {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    let mut channel = String::new();
+    if !trim(a.str("conv")).is_empty() {
+        match resolve(b, me(c), a.str("conv"), &space) {
+            Ok(Target::Channel(id)) => {
+                if let Some(ch) = talk_of(b).ok().and_then(|t| t.channel(&id)) {
+                    space = if ch.space_id.is_empty() {
+                        ct::PERSONAL_SPACE.to_string()
+                    } else {
+                        ch.space_id.clone()
+                    };
+                }
+                channel = id;
+            }
+            Ok(_) => {
+                return err_text(
+                    "conv is the channel the thread is about (#name); leave it out for Personal. To write in a DM or a thread, use talk_post.",
+                );
+            }
+            Err(e) => return err_text(&e),
+        }
+    }
+    let text = a.str("text");
+    let shared = space != ct::PERSONAL_SPACE
+        && b.inbox().threads_mode(&space) != inbox::threads_mode::PRIVATE;
+    let (t, out) = if shared {
+        match crate::shared::thread_on_board(s, c, &space, text, &a.strs("mention"), &channel) {
+            Ok(v) => v,
+            Err(e) => return e,
+        }
+    } else {
+        let res = s.resolve_mentions(c, "", text, &a.strs("mention"));
+        let input = coord::NewAsk {
+            text: text.to_string(),
+            thread: true,
+            mentions: res.mentions.clone(),
+            board: if space == ct::PERSONAL_SPACE {
+                String::new()
+            } else {
+                space.clone()
+            },
+            channel: channel.clone(),
+            ..coord::NewAsk::default()
+        };
+        let (t, n) = match b.coord().post_agent_thread(me(c), input) {
+            Ok(v) => v,
+            Err(e) => return err_text(&crate::map_err(e)),
+        };
+        let names = s.roster();
+        let mut out = String::new();
+        if let Some(n) = n {
+            out += &s.told(&s.tell(&c.sender, n), &names);
+        }
+        out += &crate::mention::mention_line(&[], &res.misses, &names);
+        (t, out)
+    };
+    let short = t.short_ref();
+    let mut said = format!(
+        "Opened thread {short} (task:{}). You hold it: the person's replies come to you, and no other agent is started for it, even after you end, until they write in it. Answer there with talk_post conv={short}; only the person resolves it.",
+        t.id
+    );
+    // A pointer in the channel it's about, as the person's thread from a
+    // channel post gets one; nobody is woken by it.
+    if !channel.is_empty() && (space == ct::PERSONAL_SPACE || shared) {
+        let pointer = format!("Started a thread: {short} {}", one_line(&t.title, 120));
+        if let Err(e) = post(
+            b,
+            &c.sender,
+            &Target::Channel(channel.clone()),
+            &pointer,
+            &[],
+            false,
+            None,
+        ) {
+            said += &format!(" The pointer in the channel failed: {e}.");
+        }
+    }
+    said + &out
+}
+
 /// An `@name` both this person's agent and another person's in the space
 /// answer to names this person's own (card #461), as it did before the
 /// space's agents could be named; the other one is named by its key (the

@@ -455,6 +455,7 @@ fn test_specs() {
         "waits",
         "wait_cancel",
         "talk_post",
+        "talk_thread",
         "talk_read",
         "talk_list",
         "talk_join",

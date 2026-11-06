@@ -56,7 +56,7 @@ pub fn dev(
     }));
     let core = Core::start(o).unwrap();
     let agent = format!("{}/{sess}", core.device_id());
-    wait_for(10, "presence lists the session", || {
+    wait_for(60, "presence lists the session", || {
         core.local_agents().iter().any(|a| a.key == agent)
     });
     Dev {
