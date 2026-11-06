@@ -30,9 +30,11 @@ export type CardActivity = B.CardActivity
 export type CardAsk = B.CardAsk
 export type CardBlocker = B.CardBlocker
 export type CardBoard = B.CardBoard
+export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
 export type CardHolder = B.CardHolder
 export type CardLeftOff = B.CardLeftOff
+export type CardLook = B.CardLook
 export type CardMention = B.CardMention
 export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
@@ -270,6 +272,11 @@ export function CardBoard(p: Partial<B.CardBoard> = {}): B.CardBoard {
   return { "id": "", "name": "", "tag": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
 }
 
+/** CardColors with Go's zero values for every field left out. */
+export function CardColors(p: Partial<B.CardColors> = {}): B.CardColors {
+  return { ...p } as B.CardColors
+}
+
 /** CardDetail with Go's zero values for every field left out. */
 export function CardDetail(p: Partial<B.CardDetail> = {}): B.CardDetail {
   return { ...CardSummary(), "goal": "", "doneWhen": "", "note": "", "steps": [], "blockers": [], "reviews": [], "prs": [], "links": [], "recent": [], "comments": [], "thread": [], "threadEarlier": 0, "historyTrimmed": false, "subtaskList": [], "waits": [], ...p } as B.CardDetail
@@ -283,6 +290,11 @@ export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
 /** CardLeftOff with Go's zero values for every field left out. */
 export function CardLeftOff(p: Partial<B.CardLeftOff> = {}): B.CardLeftOff {
   return { "text": "", "by": AgentRef(), "at": "", ...p } as B.CardLeftOff
+}
+
+/** CardLook with Go's zero values for every field left out. */
+export function CardLook(p: Partial<B.CardLook> = {}): B.CardLook {
+  return { ...p } as B.CardLook
 }
 
 /** CardMention with Go's zero values for every field left out. */

@@ -27,7 +27,7 @@ use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::roster::{GoneSession, RosterChange};
-use crate::settings::{NotifyOptions, Target};
+use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{TalkConversation, TalkMemberRef, TalkPost};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
@@ -1204,6 +1204,13 @@ pub async fn settings_test_notification(w: W<'_>) -> R<()> {
     w.test_notification()
 }
 
+/// The desktop cards follow the window's appearance (card #527).
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_card_look(w: W<'_>, look: CardLook) -> R<()> {
+    w.set_card_look(look)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_get_launch_at_login(w: W<'_>) -> R<bool> {
@@ -1703,6 +1710,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,
+            settings_set_card_look,
             settings_get_launch_at_login,
             settings_set_launch_at_login,
             settings_get_your_name,
