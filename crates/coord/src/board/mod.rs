@@ -59,6 +59,8 @@ pub use spawn::{
 mod resource;
 mod review;
 pub mod rows;
+mod said;
+pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
@@ -1039,6 +1041,33 @@ impl Coord {
     }
     pub fn record_message(&self, m: MessageEntry) -> Result<Comment> {
         self.lock().record_message(m)
+    }
+    /// What the person said lately on the cards around `id` (card #555).
+    pub fn said_near(&self, id: &str) -> Vec<Said> {
+        self.lock().said_near(id)
+    }
+    /// The card to tell `key` about on a wake and what the person said
+    /// around it (card #555): the first of `refs` that is its card, or
+    /// with `working` the card it works now.
+    pub fn said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<(String, Vec<Said>)> {
+        self.lock().said_for(key, refs, working)
+    }
+    /// [`Self::said_for`] that never waits: `None` when the log is busy.
+    /// For a caller under the inbox lock: a board coord's write takes the
+    /// inbox's lock under its own (`hop_of`), so waiting here could
+    /// deadlock.
+    pub fn try_said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<Option<(String, Vec<Said>)>> {
+        self.try_read(|f| f.said_for(key, refs, working))
     }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)

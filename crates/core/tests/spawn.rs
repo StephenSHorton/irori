@@ -843,3 +843,79 @@ fn a_spawn_skips_a_checkout_that_is_gone() {
     assert_eq!(started[0].task_id, t.id);
     assert_eq!(started[0].folder, here.to_string_lossy(), "{started:?}");
 }
+
+/// Card #555: the person comments on one subtask and an agent started on
+/// its sibling finds those words in its brief, with the card's ref; an
+/// agent's comment on that subtask isn't there.
+#[test]
+fn a_sibling_started_later_reads_the_persons_words_in_its_brief() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let new = |title: &str, parent: &str| {
+        co.create_task(
+            &person,
+            NewTask {
+                title: title.into(),
+                parent: parent.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap()
+    };
+    let p = new("Merge desk", "");
+    let one = new("Slice 2", &p.short_ref());
+    co.person_comment(
+        &person,
+        &one.id,
+        "It is a place to talk about PRs",
+        false,
+        &[],
+        None,
+    )
+    .unwrap();
+    co.add_comment(&r.key_a, &one.id, "AGENT-LINE on the slice", false)
+        .unwrap();
+    let two = new("Slice 4", &p.short_ref());
+    co.set_where(
+        &two.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the sibling's agent to start", || {
+        fake.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|q| q.task_id == two.id)
+    });
+    let started = fake.started.lock().unwrap().clone();
+    let req = started.iter().find(|q| q.task_id == two.id).unwrap();
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains(&format!("On {} (comment:", one.short_ref()))
+            && brief.contains("(by the person):\n```text\nIt is a place to talk about PRs\n```")
+            && brief.contains(&format!(
+                "say in one line on {} (board_comment) whether any of these change it",
+                two.short_ref()
+            )),
+        "{brief}"
+    );
+    assert!(!brief.contains("AGENT-LINE"), "{brief}");
+}
