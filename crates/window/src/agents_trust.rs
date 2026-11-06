@@ -13,7 +13,7 @@
 //! person confirms (card #456, sa-6).
 //!
 //! These two are the only paths that write trust, and both are window
-//! commands: no tool, row or agent reaches them (`tests/trust_writers.rs`).
+//! commands: no tool, row or agent reaches them (`tests/it/trust_writers.rs`).
 
 use std::path::Path;
 

@@ -20,7 +20,7 @@
 # installs.
 #
 # The asset name is a contract with crates/update (neither desktop updater
-# may take it; crates/update/tests/release_names.rs reads it below).
+# may take it; crates/update/tests/it/release_names.rs reads it below).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

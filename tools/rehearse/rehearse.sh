@@ -117,7 +117,7 @@ fi
 rm -rf "$p"
 
 echo "== update: mac_darwin tests"
-(cd "$root" && cargo test -q -p irori-update --test mac)
+(cd "$root" && cargo test -q -p irori-update --test it mac::)
 result "update: mac_darwin tests" $?
 if [ -n "$appzip" ]; then
   bash "$root/app/macos/check-bundle.sh" "$appzip" 0.6.0

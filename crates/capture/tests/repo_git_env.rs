@@ -5,6 +5,7 @@
 //! as one test, so no other test sees the environment or the working
 //! directory move.
 
+#[path = "it/common/mod.rs"]
 mod common;
 
 use capture::repo::Resolver;
