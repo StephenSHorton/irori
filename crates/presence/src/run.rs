@@ -25,6 +25,9 @@ use crate::watcher::{Inner, Watcher};
 /// scan (card #433).
 const UNKNOWN_EVERY: Duration = Duration::from_secs(10);
 
+/// How long Run, ending, waits for a watcher start still running.
+const START_WAIT: Duration = Duration::from_secs(1);
+
 /// One file event (Go `fswatch.Event`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FsEvent {
@@ -122,7 +125,8 @@ impl Watcher {
     /// rescan every safety interval. The first scan doesn't wait for the
     /// watchers: they start on their own thread, and a full scan follows
     /// once one is up, so nothing written meanwhile is missed. Returns once
-    /// every watcher and exit wait has stopped.
+    /// every watcher and exit wait has stopped, except a watcher whose
+    /// start outlasts [`START_WAIT`]: it stops itself when its start ends.
     pub async fn run(&self, cancel: CancellationToken) {
         let x = self.inner.clone();
         let (exited_tx, mut exited_rx) = mpsc::channel::<()>(1);
@@ -235,9 +239,11 @@ impl Watcher {
                 l.dirty.clear();
             }
         }
-        // A start still running hands its watchers back to be stopped.
+        // A start still running hands its watchers back to be stopped. Close
+        // must stay prompt, so a slow one (FSEvents on a busy Mac) is left
+        // to stop its own when it ends: its send then fails.
         if l.starting {
-            drop(started_rx.recv().await);
+            let _ = tokio::time::timeout(START_WAIT, started_rx.recv()).await;
         }
         l.close();
         x.watching.store(false, std::sync::atomic::Ordering::SeqCst);

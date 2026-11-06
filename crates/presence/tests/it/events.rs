@@ -291,6 +291,7 @@ async fn run_stops_everything() {
     let sub = w.subscribe();
     let r = run_watcher(&w);
     await_change(&sub, "Added", |c| c.kind == ChangeKind::Added).await;
+    await_watching(&w).await;
     r.stop().await;
     assert!(fw.src("sessions").closed.load(Ordering::SeqCst));
     assert!(fw.src("projects").closed.load(Ordering::SeqCst));
@@ -378,4 +379,85 @@ async fn transcript_of_an_unlisted_session_rescans() {
     });
     await_change(&sub, "Added unlisted", is(ChangeKind::Added, id)).await;
     r.stop().await;
+}
+
+/// Card #601: on a busy Mac starting FSEvents took up to 100 s, and the
+/// roster stayed empty until it was up. The first scan doesn't wait for
+/// the watchers; until they're up the roster polls, and once they are it
+/// reads everything again.
+#[tokio::test(flavor = "multi_thread")]
+async fn slow_watcher_start_does_not_hold_the_roster() {
+    let t = tempfile::tempdir().unwrap();
+    let dir = t.path();
+    std::fs::create_dir_all(dir.join("sessions")).unwrap();
+    write_session(dir, json!({"pid": 41, "sessionId": "first"}));
+    let (mut o, _) = event_opts(dir, Duration::from_millis(20), HOUR);
+    let fw = FakeWatch::new();
+    fw.install(&mut o);
+    let gate = Arc::new(std::sync::Barrier::new(2));
+    let inner = o.watch.take().unwrap();
+    let g = gate.clone();
+    o.watch = Some(Arc::new(move |root: &std::path::Path, rec: bool| {
+        if root.ends_with("sessions") {
+            g.wait(); // held until the test lets it go
+        }
+        inner(root, rec)
+    }));
+    let w = Watcher::new(o);
+    let sub = w.subscribe();
+    let r = run_watcher(&w);
+    await_change(&sub, "Added first", is(ChangeKind::Added, "first")).await;
+    assert!(!w.watching());
+
+    // Still starting: a new session shows by polling.
+    write_session(dir, json!({"pid": 42, "sessionId": "second"}));
+    await_change(&sub, "Added second", is(ChangeKind::Added, "second")).await;
+
+    let g = gate.clone();
+    tokio::task::spawn_blocking(move || g.wait()).await.unwrap();
+    await_watching(&w).await;
+    r.stop().await;
+    assert!(fw.src("sessions").closed.load(Ordering::SeqCst));
+}
+
+/// Card #601: Run ending doesn't wait out a watcher start that hangs; the
+/// watchers it hands back later stop at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn stop_is_prompt_while_a_watcher_starts() {
+    let t = tempfile::tempdir().unwrap();
+    let dir = t.path();
+    write_session(dir, json!({"pid": 41, "sessionId": "only"}));
+    let (mut o, _) = event_opts(dir, HOUR, HOUR);
+    let fw = FakeWatch::new();
+    fw.install(&mut o);
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let go_rx = std::sync::Mutex::new(go_rx);
+    let inner = o.watch.take().unwrap();
+    o.watch = Some(Arc::new(move |root: &std::path::Path, rec: bool| {
+        let _ = go_rx.lock().unwrap().recv();
+        inner(root, rec)
+    }));
+    let w = Watcher::new(o);
+    let sub = w.subscribe();
+    let r = run_watcher(&w);
+    await_change(&sub, "Added", |c| c.kind == ChangeKind::Added).await;
+    let t0 = Instant::now();
+    r.stop().await;
+    assert!(
+        t0.elapsed() < Duration::from_secs(3),
+        "stop took {:?}",
+        t0.elapsed()
+    );
+    assert!(!w.watching());
+
+    // The start ends after Run did: what it opened is stopped.
+    go_tx.send(()).unwrap();
+    go_tx.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !(fw.src("sessions").closed.load(Ordering::SeqCst)
+        && fw.src("projects").closed.load(Ordering::SeqCst))
+    {
+        assert!(Instant::now() < deadline, "late watchers never stopped");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }
