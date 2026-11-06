@@ -675,6 +675,19 @@ impl BoardMesh {
             .collect()
     }
 
+    /// Another device whose newest board vector holds this device's row
+    /// `seq` here (card #580): the row has left this device.
+    pub fn taken_by(&self, seq: i64) -> Option<String> {
+        let me = &self.s.opts.self_id;
+        self.s
+            .heard
+            .lock()
+            .expect("heard")
+            .iter()
+            .find(|(d, h)| *d != me && h.vector.get(me).is_some_and(|s| *s >= seq))
+            .map(|(d, _)| d.clone())
+    }
+
     pub fn heard(&self) -> Vec<PeerHeard> {
         self.s
             .heard

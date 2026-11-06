@@ -448,16 +448,19 @@ impl Mesh {
 
     /// Every open board's mesh pulls now (a board opened or a row landed).
     pub(crate) fn kick_boards(&self) {
-        let boards: Vec<_> = self
-            .boards
+        for b in self.board_meshes() {
+            b.kick();
+        }
+    }
+
+    /// Every open shared board's mesh.
+    pub(crate) fn board_meshes(&self) -> Vec<Arc<BoardMesh>> {
+        self.boards
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
             .cloned()
-            .collect();
-        for b in boards {
-            b.kick();
-        }
+            .collect()
     }
 
     /// Board `board_id`'s mesh: pull now after a local write, or recheck

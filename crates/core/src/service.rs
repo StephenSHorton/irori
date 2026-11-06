@@ -73,6 +73,7 @@ pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
+pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
