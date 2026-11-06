@@ -328,7 +328,7 @@ impl Services {
             return ahead;
         }
         let person = self.person_id();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let co = b.coord().clone();
             if !co.spawning() || !self.board_spawns_ready(&b) {
                 continue;
