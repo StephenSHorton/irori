@@ -11,7 +11,15 @@ import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react"
 
 import { composerIcon } from "@/components/attachments/file-attach"
 import { Button } from "@/components/ui/button"
+import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Popover, PopoverContent } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { isMac, shortcutKeys } from "@/lib/commands"
+import { DictationShortcut, registerMic } from "@/lib/mic-shortcut"
 import { cn } from "@/lib/utils"
 import {
   anchorAt,
@@ -47,11 +55,13 @@ const HoldMs = 500
 // sends as usual; nothing is sent by voice. Typing, or the box being
 // cleared by Send, stops listening. Speech is transcribed on this device
 // (Whisper); the first press asks before the one-time model download.
+// Cmd+D (Ctrl+D off a Mac) toggles it too (card #634, lib/mic-shortcut).
 export function MicButton({
   target,
   value,
   onText,
   disabled,
+  main,
 }: {
   // The box: its selection decides where the words go.
   target: RefObject<HTMLTextAreaElement | null>
@@ -59,6 +69,9 @@ export function MicButton({
   // Puts the box's new text in, with the caret after the words.
   onText: (text: string, caret: number) => void
   disabled?: boolean
+  // The main composer of its page or dialog: the shortcut starts it when
+  // no box has focus.
+  main?: boolean
 }) {
   const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
   const [phase, setPhase] = useState<Phase>("idle")
@@ -154,11 +167,12 @@ export function MicButton({
     }
     const t = target.current
     const v = valueRef.current
-    anchor.current = anchorAt(
-      v,
-      t?.selectionStart ?? v.length,
-      t?.selectionEnd ?? v.length
-    )
+    // A box without focus (the shortcut's main composer) takes the words
+    // at its end, so Enter sends them; a focused one at its caret.
+    const focused = !!t && document.activeElement === t
+    anchor.current = focused
+      ? anchorAt(v, t.selectionStart ?? v.length, t.selectionEnd ?? v.length)
+      : anchorAt(v, v.length, v.length)
     composed.current = v
     setNote(null)
     setPhase("starting")
@@ -182,6 +196,34 @@ export function MicButton({
     }
   }, [begin])
 
+  // The shortcut: the latest phase and actions, for the window listener.
+  const phaseRef = useRef(phase)
+  const actions = useRef({ begin, stop })
+  const usableRef = useRef(false)
+  useLayoutEffect(() => {
+    phaseRef.current = phase
+    actions.current = { begin, stop }
+    const s = voice.status
+    usableRef.current =
+      !disabled && !voice.download && !!s && s.state !== "unsupported"
+  })
+  useEffect(
+    () =>
+      registerMic({
+        box: () => target.current,
+        main: !!main,
+        live: () => phaseRef.current !== "idle",
+        usable: () => usableRef.current,
+        toggle: () => {
+          const p = phaseRef.current
+          if (p === "idle") {
+            if (usableRef.current) void actions.current.begin()
+          } else if (p === "listening") actions.current.stop()
+        },
+      }),
+    [target, main]
+  )
+
   const st = voice.status
   if (!st || st.state === "unsupported") return null
 
@@ -194,61 +236,80 @@ export function MicButton({
       ? "Voice input (downloads the speech model first)"
       : "Voice input: tap to talk, or hold and let go"
 
+  const keys = shortcutKeys(DictationShortcut)
+  const popover = note !== null || !!dl
+
   return (
     <Popover
-      open={note !== null || !!dl}
+      open={popover}
       onOpenChange={(open) => {
         if (!open && !dl) setNote(null)
       }}
     >
-      <Button
-        ref={button}
-        type="button"
-        size="icon-sm"
-        variant="ghost"
-        className={cn(
-          composerIcon,
-          live && "bg-destructive/15 text-destructive hover:bg-destructive/25",
-          st.state === "denied" && !live && "text-muted-foreground"
-        )}
-        title={
-          st.state === "denied" && !live ? `${label}. ${st.reason}` : label
-        }
-        aria-label={label}
-        aria-pressed={live}
-        disabled={disabled || busy || !!dl}
-        // Keep the caret where it is in the box.
-        onMouseDown={(e) => e.preventDefault()}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          if (phase === "idle") {
-            pressedAt.current = Date.now()
-            void begin()
-          } else if (live) {
-            pressedAt.current = null
-            stop()
+      <Tooltip disabled={popover}>
+        <TooltipTrigger
+          render={
+            <Button
+              ref={button}
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className={cn(
+                composerIcon,
+                live &&
+                  "bg-destructive/15 text-destructive hover:bg-destructive/25",
+                st.state === "denied" && !live && "text-muted-foreground"
+              )}
+              aria-label={label}
+              aria-keyshortcuts={isMac() ? "Meta+D" : "Control+D"}
+              aria-pressed={live}
+              disabled={disabled || busy || !!dl}
+              // Keep the caret where it is in the box.
+              onMouseDown={(e) => e.preventDefault()}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                if (phase === "idle") {
+                  pressedAt.current = Date.now()
+                  void begin()
+                } else if (live) {
+                  pressedAt.current = null
+                  stop()
+                }
+              }}
+              onPointerUp={() => {
+                const at = pressedAt.current
+                pressedAt.current = null
+                if (at !== null && Date.now() - at >= HoldMs) stop()
+              }}
+              onClick={(e) => {
+                // Keyboard (Enter or Space on the button): a toggle.
+                if (e.detail !== 0) return
+                if (phase === "idle") void begin()
+                else if (live) stop()
+              }}
+            >
+              {busy || dl ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : st.state === "denied" && !live ? (
+                <MicOffIcon />
+              ) : (
+                <MicIcon className={cn(live && "animate-pulse")} />
+              )}
+            </Button>
           }
-        }}
-        onPointerUp={() => {
-          const at = pressedAt.current
-          pressedAt.current = null
-          if (at !== null && Date.now() - at >= HoldMs) stop()
-        }}
-        onClick={(e) => {
-          // Keyboard (Enter or Space on the button): a toggle.
-          if (e.detail !== 0) return
-          if (phase === "idle") void begin()
-          else if (live) stop()
-        }}
-      >
-        {busy || dl ? (
-          <LoaderCircleIcon className="animate-spin" />
-        ) : st.state === "denied" && !live ? (
-          <MicOffIcon />
-        ) : (
-          <MicIcon className={cn(live && "animate-pulse")} />
-        )}
-      </Button>
+        />
+        <TooltipContent side="top" align="end">
+          <span>
+            {label}
+            {st.state === "denied" && !live && `. ${st.reason}`}
+          </span>
+          <KbdGroup>
+            {keys.map((k) => (
+              <Kbd key={k}>{k}</Kbd>
+            ))}
+          </KbdGroup>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         anchor={button}
         side="top"
