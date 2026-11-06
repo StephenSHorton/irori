@@ -549,7 +549,7 @@ export function ShareStage() {
         </div>
         <pre className="min-h-0 flex-1 overflow-hidden px-4 py-3 whitespace-pre-wrap">
           {`PS C:\\src\\irori> .\\target\\release\\spike-call dial 6b6c…c16e --secs 60 --label pc-mac
-connect  324 ms   path relay → direct after 0.8 s (10.0.0.227 → 192.168.86.30)
+connect  324 ms   path relay → direct after 0.8 s (PC → Mac on the LAN)
 t=10s  path=direct  sent=500  lost=0  p50=24.1  p95=41.0  jitter=4.2 ms
 t=20s  path=direct  sent=500  lost=0  p50=25.3  p95=`}
           <span className="bg-[#c50f1f] text-white">268.9</span>
