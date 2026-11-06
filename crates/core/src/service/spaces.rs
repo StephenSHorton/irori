@@ -8,17 +8,18 @@
 //!
 //! An Irori before spaces refuses a kind it doesn't know, and every later
 //! row of the writer's stream then waits on the gap. So a space writes no
-//! space-only row until every member device has said, in its board hello,
-//! that it reads them (`irori_mesh::boardmesh::SPACES_PROTOCOL`).
+//! space-only row while a member device is known to read less than
+//! `irori_mesh::boardmesh::SPACES_PROTOCOL` (docs/design/no-server.md §5).
 
 use std::collections::BTreeMap;
 
 use coord::ErrorKind as CK;
+use mesh::boardmesh::{DeviceWords, SPACES_PROTOCOL};
 use serde::{Deserialize, Serialize};
 use store::{Filter, kinds};
 
 use super::Services;
-use super::boards::{Error, Result};
+use super::boards::{BoardLog, Error, Result};
 
 /// One board of a space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,32 +133,20 @@ impl Services {
         Ok(fold_space_boards(own, &rows))
     }
 
-    /// The member devices of space `space_id` not yet heard to read space
-    /// rows, as `person/device` (short ids). Empty: it may write them.
-    pub(crate) fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
-        let b = self.board(space_id)?;
+    /// What's known of each other member device of space `b` (no-server.md
+    /// §5): its latest word is a live hello, else the newer of a saved hello
+    /// and its `board.server` row. All but the live hello need no mesh.
+    pub(crate) fn space_readers(&self, b: &BoardLog) -> Result<SpaceReaders> {
         let ms = b.verifier.membership();
         let me = self.device.id.clone();
-        let mesh = self.mesh.board(space_id);
-        let hidden = self.is_dm_space(space_id);
+        let mesh = self.mesh.board(&b.id);
         let devices: Vec<(String, String)> = match &mesh {
-            // A hidden log counts only devices heard to be too old (card
-            // #538, talk-dms.md §3): one made a moment ago has heard
-            // nobody, and the other person can't connect until the
-            // hand-off that needs its first row.
-            Some(m) if hidden => m
-                .said_too_old()
-                .into_iter()
-                .map(|d| (d.person_id, d.device_id))
-                .collect(),
             Some(m) => m
-                .not_ready_for_spaces()
+                .member_devices()
                 .into_iter()
                 .map(|d| (d.person_id, d.device_id))
                 .collect(),
-            None if hidden => Vec::new(),
-            // No mesh for it (stopped, or a test without a network): every
-            // other member device counts as unheard.
+            // No mesh for it (stopped, or a test without a network).
             None => ms
                 .members
                 .iter()
@@ -172,6 +161,27 @@ impl Services {
                 })
                 .collect(),
         };
+        let live = mesh.map(|m| m.live_spaces()).unwrap_or_default();
+        let words = DeviceWords::read(&b.store).map_err(|e| Error::other(e.0))?;
+        let mut out = SpaceReaders::default();
+        for (person, dev) in devices {
+            match live.get(&dev).copied().or_else(|| words.spaces(&dev)) {
+                None => out.unheard.push((person, dev)),
+                Some(level) if level < SPACES_PROTOCOL => out.too_old.push((person, dev)),
+                Some(_) => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The member devices of space `space_id` known to be too old for space
+    /// rows, as `person/device` (short ids). Empty: it may write them. One
+    /// nobody has any word from doesn't count: it gets a warning line
+    /// instead ([`SpaceReaders::unheard`]).
+    pub(crate) fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
+        let b = self.board(space_id)?;
+        let ms = b.verifier.membership();
+        let devices = self.space_readers(&b)?.too_old;
         let name = |person: &str| {
             b.verifier
                 .profile(person)
@@ -268,9 +278,19 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
 }
 
+/// [`Services::space_readers`]: the other member devices of a space that
+/// aren't known to read space rows, as (person, device).
+#[derive(Debug, Default)]
+pub(crate) struct SpaceReaders {
+    /// Their latest word is below [`SPACES_PROTOCOL`]: they block.
+    pub(crate) too_old: Vec<(String, String)>,
+    /// No word at all: they don't block, and get a warning line.
+    pub(crate) unheard: Vec<(String, String)>,
+}
+
 /// The version gate's answer (card #392, spaces.md §4): why a space may
-/// not take a space-only row yet, given the member devices not yet heard
-/// to read them (`space_not_ready`); None when it may.
+/// not take a space-only row yet, given the member devices known to be too
+/// old for them (`space_not_ready`); None when it may.
 ///
 /// One gate covers `space.board.*` and a space's `talk.*` rows alike. The
 /// hello's `spaces` (SPACES_PROTOCOL 1) came after Talk 1 marked `talk.*`

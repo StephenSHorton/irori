@@ -398,28 +398,6 @@ async fn a_device_that_doesnt_say_dms_is_never_asked() {
     .await;
     let err = a.mesh.send_to("d1", ask()).await.unwrap_err();
     assert!(err.contains("DM hand-off"), "{err}");
-    assert!(a.mesh.said_too_old().is_empty(), "it reads space rows");
-}
-
-/// §3's gate: a device not heard yet holds nothing back, one heard saying
-/// no `spaces` does, where `not_ready_for_spaces` counts them both.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn said_too_old_counts_only_what_was_heard() {
-    let net = FakeNet::new();
-    let s = Space::new(&["b1", "d1"]);
-    let a = member(&net, &s, "a1", None).await;
-    assert!(a.mesh.said_too_old().is_empty());
-    assert_eq!(a.mesh.not_ready_for_spaces().len(), 2);
-    let d = raw(&net, &a, s.device_pub("d1"), "d1", "a1").await;
-    d.conn
-        .send(&hello("d1", &s.person_of("d1"), json!({})))
-        .await
-        .unwrap();
-    eventually("a hears d", || live_ids(&a) == ["d1"]).await;
-    let old: Vec<MemberDevice> = a.mesh.said_too_old();
-    assert_eq!(old.len(), 1);
-    assert_eq!(old[0].device_id, "d1");
-    assert_eq!(a.mesh.not_ready_for_spaces().len(), 2);
 }
 
 /// A frame this build can't read is skipped and the connection goes on, and

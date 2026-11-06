@@ -64,7 +64,7 @@ KeyProof {firstPub, rotations: [MemberKeyRotated]}
 
 ## 3. The gate
 
-S takes no new row, so S needs no gate. A hidden log has `talk.*` rows behind `gate_refusal` like any space, but with a different count: only devices **heard saying `spaces` below 1** hold it back (`BoardMesh::said_too_old`); a hidden log with no mesh yet holds nothing back. `not_ready_for_spaces`'s rule (every device heard since this start) can't be met here. A log made a moment ago has heard nobody, and the other person can't connect until the hand-off that needs the first row, so a person with a sleeping phone could never start a DM. This is safe because a hidden log only reaches builds that know the marker and the `ask` frame; the version check moved to the hand-off, where an older device is simply never asked.
+S takes no new row, so S needs no gate. A hidden log has `talk.*` rows behind `gate_refusal` like any space, with the count every space now uses (`space_readers`, no-server.md §5): only devices **known to say `spaces` below 1** hold it back, and one nobody has heard from doesn't. The rule this replaced (every device heard since this start) could never be met by a hidden log. A log made a moment ago has heard nobody, and the other person can't connect until the hand-off that needs the first row, so a person with a sleeping phone could never start a DM. This is safe because a hidden log only reaches builds that know the marker and the `ask` frame; the version check moved to the hand-off, where an older device is simply never asked.
 
 ## 4. The fold rule
 
@@ -106,7 +106,7 @@ The tools resolve a person too: `person:<id>`, or a name among the same people. 
 
 ## 7. Changes from the card and from §5
 
-- **The gate (§3).** The card says gate `talk.*` writes with `not_ready_for_spaces`. Its every-device rule can't be met by a log's first write, so the hidden log counts only devices known to be too old.
+- **The gate (§3).** The card says gate `talk.*` writes with `not_ready_for_spaces`. Its every-device rule can't be met by a log's first write, so the hidden log counts only devices known to be too old. Main has since made that the rule for every space.
 - **Leaving.** `talk_dm_leave` leaves every live space of the DM through `leave_board`, not Talk's leave: a hidden log refuses a `leave` row (§4), and it's the `left` row that stops the other side writing there. A later DM from either side founds a new space. What was in the old log goes from this person's devices and stays on the other side's. A per-person block list is follow-up work. `leave_board` and the secret's rule each bend for a hidden space:
   - The founder is the only owner and nobody can be made one, so the "only owner" refusal skips a marked space.
   - A space the other person never held has nobody to tell, so it's forgotten at once and no `left` row waits for ever.

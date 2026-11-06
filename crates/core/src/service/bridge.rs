@@ -16,7 +16,13 @@
 //!   this person's dedicated reviewer for the card's repo or the board;
 //! - a lease release request (§5.4), to the lease's holder only;
 //! - a post in a space's channel naming one of this person's agents (card
-//!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel.
+//!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel;
+//! - what GitHub said of a card's PR, heard on another person's device
+//!   (card #548). This one isn't a row as it arrives: the PR poller's tick
+//!   reads the fold ([`Services::tell_pr_news`]), so a row that came ahead
+//!   of the card's holder still reaches them. It crosses as a comment
+//!   does, under the receive setting: only that person's device vouches
+//!   for it.
 //!
 //! The person's own rows don't cross here: the tool that wrote one already
 //! routed its notice. Rows met on a resync aren't bridged either, so a
@@ -194,12 +200,49 @@ impl Services {
     /// Hands one plan to the inbox's bridge, for the agents this device
     /// hosts among its `to`.
     fn send_plan(&self, b: &BoardLog, t: &Task, person: &str, who: &str, ev: &Event, p: Plan) {
-        self.send_ref(b, person, who, ev, p, format!("task:{}", t.id));
+        let hop = coord::row_hop(&ev.payload);
+        self.send_ref(b, person, who, hop, p, format!("task:{}", t.id));
+    }
+
+    /// Tells the agents this device hosts what GitHub said of their cards'
+    /// PRs on another person's device (card #548). A device of this person
+    /// that wrote the same told them as it wrote, whichever row the fold
+    /// kept. The inbox bridges a mark to an agent once, so a tick with
+    /// nothing new sends nothing, across restarts too.
+    pub(crate) fn tell_pr_news(&self) {
+        let me = self.person_id();
+        for b in self.shown_boards() {
+            for n in b.coord().pr_news() {
+                let people: Vec<String> = n
+                    .writers
+                    .iter()
+                    .filter_map(|d| b.verifier.person_of(d))
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                if people.contains(&me) {
+                    continue;
+                }
+                let Some(person) = people.first() else {
+                    continue;
+                };
+                let who = self.board_person_name(&b, person);
+                let text = n.notice.text;
+                let plan = Plan {
+                    kind: row_kind::COMMENT,
+                    card_id: String::new(),
+                    to: n.notice.to,
+                    row: n.mark,
+                    wake: n.notice.wake,
+                    text: Box::new(move |name| format!("Heard on {name}'s device: {text}")),
+                };
+                self.send_ref(&b, person, &who, 0, plan, n.notice.reference);
+            }
+        }
     }
 
     /// [`Services::send_plan`] for a row whose message refers to `ref_`
     /// (a card's `task:<id>`, a channel's `talk:<conv>`).
-    fn send_ref(&self, b: &BoardLog, person: &str, who: &str, ev: &Event, p: Plan, ref_: String) {
+    fn send_ref(&self, b: &BoardLog, person: &str, who: &str, hop: i64, p: Plan, ref_: String) {
         let to: Vec<String> =
             p.to.iter()
                 .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
@@ -239,7 +282,7 @@ impl Services {
             to,
             text,
             ref_,
-            hop: coord::row_hop(&ev.payload),
+            hop,
             attachments: vec![],
         };
         if let Err(e) = self.inbox.bridge(&r) {
@@ -310,7 +353,8 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 )
             }),
         };
-        self.send_ref(b, &person, &who, ev, p, format!("talk:{}", r.conv_id));
+        let hop = coord::row_hop(&ev.payload);
+        self.send_ref(b, &person, &who, hop, p, format!("talk:{}", r.conv_id));
     }
 
     /// A board thread or ask that names this person (card #187): the same

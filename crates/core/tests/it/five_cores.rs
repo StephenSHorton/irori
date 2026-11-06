@@ -17,6 +17,10 @@ use std::time::Duration;
 
 use common::mesh::{Dev, invited, person, restart};
 use common::wait_for;
+use mesh::boardmesh::{
+    BoardReads, BoardServer, KIND_BOARD_HELLO, KIND_BOARD_SERVER, SPACES_PROTOCOL, SavedHello,
+    saved_hellos,
+};
 use store::Filter;
 use store::kinds;
 
@@ -27,6 +31,30 @@ fn new_task(title: &str) -> coord::NewTask {
         title: title.into(),
         ..Default::default()
     }
+}
+
+/// Whether `d`'s warnings on `board` say a device starting `dev` is unheard.
+fn warned_of(d: &Dev, board: &str, dev: &str) -> bool {
+    d.core
+        .board_list()
+        .iter()
+        .find(|s| s.board_id == board)
+        .is_some_and(|s| {
+            s.warnings
+                .iter()
+                .any(|w| w.starts_with("Nothing heard yet") && w.contains(dev))
+        })
+}
+
+/// Whether `d` has heard a hello from `other` on `board` (saved, so it
+/// holds across restarts) and nothing is too old for spaces. The space
+/// gate no longer waits for an unheard device (card #577), so tests that
+/// need them connected wait on this.
+fn hears(d: &Dev, board: &str, other: &Dev) -> bool {
+    d.core
+        .board_store(board)
+        .is_some_and(|log| saved_hellos(&log).is_ok_and(|h| h.contains_key(other.core.device_id())))
+        && d.core.space_not_ready(board).is_ok_and(|v| v.is_empty())
 }
 
 fn card_on(d: &Dev, board: &str, id: &str) -> Option<coord::Task> {
@@ -493,7 +521,7 @@ fn a_non_member_is_refused() {
     rc.block_on(c1.core.open_board_net(irori_core::BoardParts {
         board_id: board.clone(),
         person_id: pin.person_id.clone(),
-        log,
+        log: log.clone(),
         verifier,
         secrets,
     }))
@@ -512,6 +540,8 @@ fn a_non_member_is_refused() {
         "carol got a board connection to alice"
     );
     assert!(a1.core.net().conns().iter().all(|c| c.peer != c_dev));
+    // Opened by hand, so Carol's Core doesn't close it.
+    log.close().unwrap();
     close(alice.drain(..).chain(bob.drain(..)).chain(carol.drain(..)));
 }
 
@@ -1144,7 +1174,7 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        hears(a1, &space, b1)
     });
 
     // A second board, and a card on it.
@@ -1321,29 +1351,114 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         .store()
         .append("irori", kinds::PERSON_DEVICE_ADDED, &add)
         .unwrap();
-    wait_for(WAIT, "alice's space waits on bob's old device", || {
-        a1.core
-            .space_not_ready(&space)
-            .unwrap()
-            .iter()
-            .any(|d| d.ends_with("/phanto"))
+    // Nobody has any word from it: it refuses nothing, and shows as a line.
+    wait_for(WAIT, "alice is warned of bob's unheard device", || {
+        warned_of(a1, &space, "phanto")
     });
-    let e = a1
+    assert!(a1.core.space_not_ready(&space).unwrap().is_empty());
+    let unheard = a1
         .core
-        .talk_channel_create_in(&a1.user(), "later", "", &space)
-        .unwrap_err();
-    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
-    let e = a1
-        .core
-        .talk_post(&a1.core.user_sender(), &ch.id, "too soon", &[], false, None)
-        .unwrap_err();
-    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
-    assert_eq!(a1.core.talk().posts(&ch.id).len(), 2, "nothing written");
+        .talk_channel_create_in(&a1.user(), "unheard", "", &space)
+        .unwrap();
+    assert_eq!(unheard.name, "unheard");
+
+    // Heard too old, it blocks, and it's named.
+    a1.core
+        .board_store(&space)
+        .unwrap()
+        .append_local(
+            "irori",
+            KIND_BOARD_HELLO,
+            &SavedHello {
+                device_id: "phantom-old".into(),
+                core_version: "0.10.2".into(),
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let refused = |d: &Dev| {
+        let e = d
+            .core
+            .talk_channel_create_in(&d.user(), "later", "", &space)
+            .unwrap_err();
+        assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+        let e = d
+            .core
+            .talk_post(&d.core.user_sender(), &ch.id, "too soon", &[], false, None)
+            .unwrap_err();
+        assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+        let e = d
+            .core
+            .create_space_board(&space, "Later", "later")
+            .unwrap_err();
+        assert!(e.to_string().contains("phanto"), "{e}");
+        assert_eq!(d.core.talk().posts(&ch.id).len(), 2, "nothing written");
+    };
+    refused(a1);
+    assert!(!warned_of(a1, &space, "phanto"), "known, so not unheard");
     // Personal channels are never gated.
     a1.core
         .talk_channel_create(&a1.user(), "notes", "")
         .unwrap();
-    close(alice.drain(..).chain(bob.drain(..)));
+
+    // A restart forgets nothing it was told.
+    let a1 = restart(alice.remove(0));
+    wait_for(WAIT, "alice's space opens again", || {
+        a1.core.board_store(&space).is_some()
+    });
+    refused(&a1);
+    close(std::iter::once(a1).chain(bob.drain(..)));
+}
+
+/// Card #577: alice's device saves the hello it heard from bob's, so after
+/// a restart, with bob's device off, it knows that device reads spaces and
+/// warns of nothing. Bob's device's own row carries the same word.
+#[test]
+fn a_restart_remembers_a_sleeping_device_and_nothing_refuses() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let space = invited(&alice[0], &bob[0]);
+    let bob_dev = bob[0].core.device_id().to_string();
+    let log = alice[0].core.board_store(&space).unwrap();
+    wait_for(WAIT, "alice saves bob's hello", || {
+        saved_hellos(&log).unwrap().contains_key(&bob_dev)
+    });
+    let saved = saved_hellos(&log).unwrap().remove(&bob_dev).unwrap();
+    assert_eq!(saved.spaces, SPACES_PROTOCOL);
+    assert!(!saved.core_version.is_empty());
+    drop(log);
+    bob[0].core.kick_board(&space);
+    wait_for(WAIT, "bob's row reaches alice", || {
+        let log = alice[0].core.board_store(&space).unwrap();
+        log.list(&Filter {
+            kinds: vec![KIND_BOARD_SERVER.into()],
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .filter_map(|ev| serde_json::from_slice::<BoardServer>(&ev.payload).ok())
+        .any(|s| s.device_id == bob_dev && s.reads == Some(BoardReads::ours()))
+    });
+
+    close(bob.drain(..));
+    let a1 = restart(alice.remove(0));
+    wait_for(WAIT, "alice's space opens again", || {
+        a1.core.board_store(&space).is_some()
+    });
+    assert!(a1.core.space_not_ready(&space).unwrap().is_empty());
+    assert!(!warned_of(&a1, &space, &bob_dev[..6]), "her word is saved");
+    a1.core
+        .create_space_board(&space, "Netcode", "net")
+        .unwrap();
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "netcode", "", &space)
+        .unwrap();
+    a1.core
+        .talk_post(&a1.core.user_sender(), &ch.id, "hi", &[], false, None)
+        .unwrap();
+    close([a1]);
 }
 
 /// Card #461: Alice's post in her space's channel naming Bob's agent wakes
@@ -1358,7 +1473,7 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        hears(a1, &space, b1)
     });
     let ch = a1
         .core
@@ -1603,7 +1718,7 @@ fn space_with_a_channel(a1: &Dev, bobs: &[&Dev]) -> (String, String) {
         d.core.kick_board(&space);
     }
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        bobs.iter().all(|d| hears(a1, &space, d))
     });
     let ch = a1
         .core

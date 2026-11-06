@@ -13,13 +13,14 @@ use store::{Clock, ErrorKind, Event, Side, Store, signing_bytes};
 /// Go `boardEnv`: a board log on dev-a, with dev-b's key to forge
 /// replicated rows from.
 struct Env {
-    dir: tempfile::TempDir,
     s: Option<Store>,
     ver: Arc<FakeVerifier>,
     a: KeySigner,
     b: KeySigner,
     clock_b: Clock,
     seq_b: i64,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    dir: tempfile::TempDir,
 }
 
 impl Env {

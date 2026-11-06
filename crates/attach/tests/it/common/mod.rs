@@ -24,6 +24,7 @@ pub struct Host {
     pub server: irori_api::Server,
     stop: CancellationToken,
     served: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    core: Arc<Core>,
 }
 
 impl Host {
@@ -48,6 +49,7 @@ impl Host {
             server,
             stop,
             served,
+            core,
         }
     }
 
@@ -63,6 +65,8 @@ impl Host {
 impl Drop for Host {
     fn drop(&mut self) {
         self.stop.cancel();
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.core.close();
     }
 }
 
@@ -433,9 +437,21 @@ impl Rig {
             _dirs,
         } = self;
         host.stop().await;
-        let core = Arc::try_unwrap(core)
-            .ok()
-            .expect("the rig holds the only Core");
+        // The server's stream threads and blocking dispatches can still hold
+        // the Core for a moment after it stops (card #581).
+        let deadline = Instant::now() + LOAD_DEADLINE;
+        let mut core = core;
+        let core = loop {
+            match Arc::try_unwrap(core) {
+                Ok(c) => break c,
+                Err(c) => core = c,
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the server never let go of the Core"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
         tokio::task::block_in_place(|| drop(core));
         let core =
             Arc::new(tokio::task::block_in_place(|| Core::start(options(&data, &claude))).unwrap());
