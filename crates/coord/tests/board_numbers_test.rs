@@ -276,6 +276,17 @@ fn a_log_from_before_keeps_every_ref() {
         assert_eq!(c.task_ref(want).unwrap(), id, "{want}");
         assert_eq!(c.get_task(id).unwrap().short_was, "", "{id}");
     }
+    // Their old lettered refs, in comments and agents' memory, still find
+    // them; a device on an older Irori shows them yet.
+    assert_eq!(c.task_ref("#6a").unwrap(), "F");
+    assert_eq!(c.task_ref("#6b").unwrap(), "G");
+    assert_eq!(c.task_ref("wind#6a").unwrap(), "F");
+    assert_eq!(c.task_ref("net#6b").unwrap(), "G");
+    assert_eq!(
+        c.task_ref("net#6a").unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(c.task_ref("#6c").unwrap_err().kind(), ErrorKind::NotFound);
     // Each board carries on from its own highest.
     assert_eq!(card(&c, ART, "a").short_ref(), "art#4");
     assert_eq!(card(&c, NET, "n").short_ref(), "net#7");
@@ -345,6 +356,252 @@ fn a_row_ahead_of_its_board_numbers_on_that_board() {
         c.task_ref("wind#1").unwrap_err().kind(),
         ErrorKind::Ambiguous
     );
+}
+
+fn board_row(dev: &str, seq: i64, at: u64, kind: &str, board: &str, tag: &str) -> Event {
+    let raw = format!(r#"{{"boardId":"{board}","name":"n","tag":"{tag}","by":"{ME}","at":""}}"#);
+    Event {
+        device_id: dev.into(),
+        seq,
+        hlc: hlc::Timestamp(at),
+        actor: ME.into(),
+        kind: kind.into(),
+        payload: raw.into_bytes(),
+        sig: Vec::new(),
+    }
+}
+
+type Tags = Arc<Mutex<Vec<(String, String)>>>;
+
+/// `opts` with boards that arrive during the test, as the log's rows do.
+fn late_boards(s: &Space, tags: &Tags) -> Options {
+    let (a, b) = (tags.clone(), tags.clone());
+    Options {
+        board_tag: Some(Arc::new(move |id: &str| {
+            let tags = a.lock().unwrap();
+            tags.iter().find(|(b, _)| b == id).map(|(_, t)| t.clone())
+        })),
+        board_tags: Some(Arc::new(move || {
+            b.lock().unwrap().iter().map(|(_, t)| t.clone()).collect()
+        })),
+        ..opts(s)
+    }
+}
+
+/// B's rows reach this device before A's `space.board.created`: the card
+/// shows the space's tag until the board's row lands, then the board's, the
+/// same as a device that heard them in order (and with no restart).
+#[test]
+fn a_cards_tag_follows_a_board_row_that_lands_after_it() {
+    let s = space("dev-c");
+    let tags: Tags = Arc::default();
+    let c = Coord::new(s.st.clone(), None, late_boards(&s, &tags)).unwrap();
+    let base = hlc_at(fixed_now());
+    c.fold_live(&[
+        claimed("dev-b", 1, base, "W", 3, ""),
+        claimed("dev-b", 2, base + 1, "L", 3, "b-late"),
+    ]);
+    assert_eq!(short_ref(&c, "L"), "wind#3");
+    let changes = c.subscribe();
+    tags.lock()
+        .unwrap()
+        .push(("b-late".to_string(), "late".to_string()));
+    c.handle(&board_row(
+        "dev-a",
+        1,
+        base + 2,
+        kinds::SPACE_BOARD_CREATED,
+        "b-late",
+        "late",
+    ))
+    .unwrap();
+    assert_eq!(short_ref(&c, "L"), "late#3");
+    assert_eq!(short_ref(&c, "W"), "wind#3", "the space's own card stays");
+    assert_eq!(c.task_ref("late#3").unwrap(), "L");
+    assert_eq!(c.task_ref("wind#3").unwrap(), "W");
+    let got = changes.recv_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(got.unwrap().unwrap().task_id, "L", "the window hears it");
+}
+
+/// A row with no such board, or the space's first board, moves nothing.
+#[test]
+fn a_board_row_leaves_other_boards_cards_alone() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let n = card(&c, NET, "n");
+    let w = card(&c, "", "w");
+    let base = hlc_at(fixed_now());
+    c.handle(&board_row(
+        "dev-b",
+        1,
+        base,
+        kinds::SPACE_BOARD_RENAMED,
+        "b",
+        "",
+    ))
+    .unwrap();
+    c.handle(&board_row(
+        "dev-b",
+        2,
+        base + 1,
+        kinds::SPACE_BOARD_CREATED,
+        ART,
+        "art",
+    ))
+    .unwrap();
+    assert_eq!(short_ref(&c, &n.id), "net#1");
+    assert_eq!(short_ref(&c, &w.id), "wind#1");
+}
+
+/// A resync's catch-up reads `space.board.*` rows too: nothing else tells
+/// the fold they arrived. The same goes for Personal's log.
+#[test]
+fn a_catch_up_restamps_too() {
+    let mut e = Env::new();
+    let tags: Tags = Arc::default();
+    let (a, b) = (tags.clone(), tags.clone());
+    e.c = Coord::new(
+        e.st.clone(),
+        None,
+        Options {
+            board_tag: Some(Arc::new(move |id: &str| {
+                let tags = a.lock().unwrap();
+                tags.iter().find(|(b, _)| b == id).map(|(_, t)| t.clone())
+            })),
+            board_tags: Some(Arc::new(move || {
+                b.lock().unwrap().iter().map(|(_, t)| t.clone()).collect()
+            })),
+            ..e.opts()
+        },
+    )
+    .unwrap();
+    let base = hlc_at(fixed_now());
+    let by = "user:dev-b";
+    let row = TaskCreatedRow {
+        task_id: "L".into(),
+        num: 3,
+        title: "L".into(),
+        board: "b-late".into(),
+        by: by.into(),
+        at: fixed_now(),
+        ..TaskCreatedRow::default()
+    };
+    e.insert("dev-b", 1, base, by, kinds::TASK_CREATED, &row);
+    e.c.catch_up().unwrap();
+    assert_eq!(short_ref(&e.c, "L"), "#3");
+    let board =
+        serde_json::json!({"boardId": "b-late", "name": "n", "tag": "late", "by": by, "at": ""});
+    e.insert("dev-b", 2, base + 1, by, kinds::SPACE_BOARD_CREATED, &board);
+    tags.lock()
+        .unwrap()
+        .push(("b-late".to_string(), "late".to_string()));
+    e.c.catch_up().unwrap();
+    assert_eq!(short_ref(&e.c, "L"), "late#3");
+}
+
+/// Personal: a log with a `home` board beside its default board.
+fn personal() -> Env {
+    let mut e = Env::with("dev-a", Some(Arc::new(|k: &str| k == USER)));
+    e.c = home_coord(&e);
+    e
+}
+
+fn home_coord(e: &Env) -> Coord {
+    Coord::new(
+        e.st.clone(),
+        None,
+        Options {
+            board_tag: Some(Arc::new(|id: &str| {
+                (id == "b-home").then(|| "home".to_string())
+            })),
+            board_tags: Some(Arc::new(|| vec!["home".to_string()])),
+            ..e.opts()
+        },
+    )
+    .unwrap()
+}
+
+fn private(c: &Coord, board: &str, title: &str) -> Task {
+    c.create_task(
+        USER,
+        NewTask {
+            title: title.into(),
+            board: board.into(),
+            ..NewTask::default()
+        },
+    )
+    .unwrap()
+}
+
+/// Default-first holds for a deleted card too: a stale `#N` is refused, not
+/// passed to `home#N`, and that survives a restart.
+#[test]
+fn a_deleted_default_card_keeps_its_bare_number() {
+    let mut e = personal();
+    let gone = private(&e.c, "", "deleted");
+    let home = private(&e.c, "b-home", "live");
+    assert_eq!(
+        (gone.short_ref().as_str(), home.short_ref().as_str()),
+        ("#1", "home#1")
+    );
+    e.c.delete_task(USER, &gone.id).unwrap();
+    for _ in 0..2 {
+        let err = e.c.task_ref("#1").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(err.to_string().contains("#1 was deleted"), "{err}");
+        assert_eq!(e.c.task_ref("home#1").unwrap(), home.id);
+        e.c = home_coord(&e);
+    }
+}
+
+/// A deleted card names only its own board's ref.
+#[test]
+fn a_tagged_ref_isnt_another_boards_deleted_card() {
+    let e = personal();
+    let gone = private(&e.c, "", "deleted");
+    e.c.delete_task(USER, &gone.id).unwrap();
+    let err = e.c.task_ref("home#1").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+    assert!(!err.to_string().contains("deleted"), "{err}");
+    // Deleted on `home`, the tagged ref says so; a bare one means the board
+    // that has it, since the default board never had #1 here.
+    let e = personal();
+    let gone = private(&e.c, "b-home", "deleted");
+    e.c.delete_task(USER, &gone.id).unwrap();
+    assert!(
+        e.c.task_ref("home#1")
+            .unwrap_err()
+            .to_string()
+            .contains("was deleted")
+    );
+    assert!(
+        e.c.task_ref("#1")
+            .unwrap_err()
+            .to_string()
+            .contains("was deleted")
+    );
+}
+
+/// A new thread reaches the agents on the card it means: `#1` is the default
+/// board's, whose number `home#1` shares.
+#[test]
+fn a_thread_saying_a_bare_number_reaches_the_default_boards_holders() {
+    let e = personal();
+    let d = private(&e.c, "", "default");
+    let h = private(&e.c, "b-home", "home");
+    e.c.claim_task(ALICE, &d.id).unwrap();
+    e.c.claim_task(BOB, &h.id).unwrap();
+    assert_eq!(e.c.thread_hearers("about #1", &[]), [ALICE]);
+    assert_eq!(e.c.thread_hearers("about home#1", &[]), [BOB]);
+}
+
+/// The default board's live card still comes first over `home`'s.
+#[test]
+fn a_live_default_card_still_means_a_bare_number() {
+    let e = personal();
+    let d = private(&e.c, "", "default");
+    private(&e.c, "b-home", "home");
+    assert_eq!(e.c.task_ref("#1").unwrap(), d.id);
 }
 
 /// A hidden space has no boards, so a card has nowhere to go.

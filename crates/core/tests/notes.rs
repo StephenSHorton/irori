@@ -174,6 +174,16 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     assert!(out.starts_with("Proposed the removal"), "remove = {out}");
     assert!(c.search_notes("check.sh", true)[0].note.live());
 
+    // A scope that names nothing refuses in the tool's own words.
+    let e = c
+        .propose_note(&me, "xyz", nn("x", &["topic:x"]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("no space \"xyz\": give mine, or a space's tag or id"),
+        "{e}"
+    );
+
     // Search reads accepted notes only.
     let out = tool(
         &a,

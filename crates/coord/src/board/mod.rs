@@ -1706,7 +1706,7 @@ impl Fold {
         }
         if !self.may_cancel(t, &self.dev, None) {
             return Err(error::not_allowed(format!(
-                "only its creator or a board owner withdraws {}",
+                "only its creator or a space owner withdraws {}",
                 t.short_ref()
             )));
         }

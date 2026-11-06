@@ -88,7 +88,7 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
-pub const FOLLOW_KINDS: [&str; 12] = [
+pub const FOLLOW_KINDS: [&str; 13] = [
     "task.",
     "lease.",
     "blocker.",
@@ -105,6 +105,9 @@ pub const FOLLOW_KINDS: [&str; 12] = [
     kinds::DEVICE_SIDES,
     // A GitHub repo an agent works in has a desk by itself (card #521).
     kinds::REPO_SEEN,
+    // A board's row can land after its cards (card #558): only their tag
+    // follows it, since the boards themselves are read from the log.
+    "space.board.",
 ];
 
 /// Whether coord folds `kind`.
@@ -671,6 +674,7 @@ impl Fold {
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
             kinds::TASK_CREATED => self.fold_created(ev, &at),
+            kinds::SPACE_BOARD_CREATED | kinds::SPACE_BOARD_RENAMED => self.fold_space_board(ev),
             kinds::DEVICE_SIDES => {
                 // Private log only: a board log never carries one.
                 if !self.on_board && self.sides.apply(ev) {
@@ -1497,13 +1501,12 @@ impl Fold {
         };
         let mut done: HashSet<String> = HashSet::new();
         for (tag, n) in card_refs(text) {
-            let mut hits = self.tasks.values().filter(|t| {
-                t.id != from && t.short == n && tag.as_ref().is_none_or(|g| *g == t.tag)
-            });
-            let (Some(t), None) = (hits.next(), hits.next()) else {
+            // What the ref means comes first: `#3` on card #3 names that
+            // card, not another board's #3.
+            let [t] = self.short_hits(tag.as_deref().unwrap_or(""), &n)[..] else {
                 continue;
             };
-            if !done.insert(t.id.clone()) {
+            if t.id == from || !done.insert(t.id.clone()) {
                 continue;
             }
             let ti = Touch::of(t);
@@ -1996,6 +1999,38 @@ impl Fold {
     /// (card #558); None when the space holds no such board.
     pub(crate) fn board_tag(&self, id: &str) -> Option<String> {
         self.board_tag_fn.as_ref().and_then(|f| f(id))
+    }
+
+    /// A `space.board.*` row: a card that folded before its board's row
+    /// took the space's tag. A replay reads the whole log, so it needs
+    /// nothing here.
+    fn fold_space_board(&mut self, ev: &Event) {
+        if self.replaying {
+            return;
+        }
+        let Some(p) = row::<SpaceBoardIdRow>(&ev.payload) else {
+            return;
+        };
+        let tag = self.tag_of(&p.board_id);
+        let stale: Vec<String> = self
+            .tasks
+            .values()
+            .filter(|t| t.board == p.board_id && t.tag != tag)
+            .map(|t| t.id.clone())
+            .collect();
+        for id in stale {
+            let Some(t) = self.tasks.get_mut(&id) else {
+                continue;
+            };
+            t.tag = tag.clone();
+            let holder = t.holder.clone();
+            self.note(Change {
+                kind: TASK_CHANGED.into(),
+                task_id: id,
+                holder,
+                ..Change::default()
+            });
+        }
     }
 
     /// The tag a card on board `board` (empty: the space's own) shows.

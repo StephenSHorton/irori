@@ -240,7 +240,8 @@ impl Fold {
     ///
     /// Personal's default board has no tag, so a bare number is its cards'
     /// whole ref: it means them first, or `home#3` would leave private
-    /// card `#3` with nothing that names it (card #558).
+    /// card `#3` with nothing that names it (card #558). A deleted one keeps
+    /// the number, so a stale `#3` finds nothing rather than `home#3`.
     pub(crate) fn short_hits(&self, tag: &str, short: &str) -> Vec<&Task> {
         let bare = short_num(short) == short;
         let hits: Vec<&Task> = self
@@ -250,10 +251,60 @@ impl Fold {
             .filter_map(|(_, id)| self.tasks.get(id))
             .filter(|t| tag.is_empty() || t.tag == tag)
             .collect();
-        if tag.is_empty() && !self.on_board && hits.iter().any(|t| t.board.is_empty()) {
+        if !tag.is_empty() || self.on_board {
+            return hits;
+        }
+        if hits.iter().any(|t| t.board.is_empty()) {
             return hits.into_iter().filter(|t| t.board.is_empty()).collect();
         }
+        if self.deleted_on("", short) {
+            return Vec::new();
+        }
         hits
+    }
+
+    /// Whether a deleted card's claim on `board` gave it exactly `short`.
+    /// A claim outlives its card; `short_idx` doesn't keep one past a replay.
+    fn deleted_on(&self, board: &str, short: &str) -> bool {
+        let base = short_num(short);
+        let Some(g) = base
+            .parse::<i64>()
+            .ok()
+            .and_then(|n| self.short_groups.get(&(board.to_string(), n)))
+        else {
+            return false;
+        };
+        g.iter().enumerate().any(|(i, cl)| {
+            let named = if g.len() > 1 {
+                short == format!("{base}{}", short_suffix(i as i64))
+            } else {
+                short == base
+            };
+            named && self.deleted.contains(&cl.id)
+        })
+    }
+
+    /// The card `#5a` was while a space numbered in one run (card #558):
+    /// two boards' claimants of 5 had letters by row order, and now each is
+    /// plain `#5` on its own board. Old comments still say it, and so does
+    /// a device on an older Irori, which folds that way yet.
+    fn one_run_claim(&self, tag: &str, short: &str) -> Option<&str> {
+        let base = short_num(short);
+        let letters = &short[base.len()..];
+        if letters.is_empty() {
+            return None;
+        }
+        let num = base.parse::<i64>().ok()?;
+        let mut g: Vec<(&str, &ShortClaim)> = self
+            .short_groups
+            .iter()
+            .filter(|((_, n), _)| *n == num)
+            .flat_map(|((b, _), g)| g.iter().map(move |cl| (b.as_str(), cl)))
+            .collect();
+        g.sort_by(|a, b| a.1.at.cmp(&b.1.at));
+        let i = (0..g.len()).find(|i| short_suffix(*i as i64) == letters)?;
+        let (board, cl) = g[i];
+        (tag.is_empty() || self.tag_of(board) == tag).then_some(cl.id.as_str())
     }
 
     /// Resolves what someone typed for a card to its task id.
@@ -276,11 +327,20 @@ impl Fold {
             many => return Err(ambiguous(&short, many)),
         }
         let gone = self
-            .short_idx
-            .iter()
-            .any(|((_, s), id)| *s == short && self.deleted.contains(id));
+            .short_groups
+            .keys()
+            .filter(|(b, _)| tag.is_empty() || self.tag_of(b) == tag)
+            .any(|(b, _)| self.deleted_on(b, &short));
         if gone {
             return Err(not_found(format!("{v} was deleted")));
+        }
+        if let Some(id) = self.one_run_claim(&tag, &short) {
+            if self.deleted.contains(id) {
+                return Err(not_found(format!("{v} was deleted")));
+            }
+            if self.tasks.contains_key(id) {
+                return Ok(id.to_string());
+            }
         }
         if self.tasks.contains_key(&v) {
             return Ok(v);

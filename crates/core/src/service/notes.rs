@@ -80,14 +80,14 @@ impl Services {
             [] => {
                 return Err(Error::coord(
                     CK::NotFound,
-                    format_args!("no board {scope:?}: give mine, or a board's tag or id"),
+                    format_args!("no space {scope:?}: give mine, or a space's tag or id"),
                 )
                 .into_coord());
             }
             _ => {
                 return Err(Error::coord(
                     CK::Ambiguous,
-                    format_args!("two boards are tagged {scope:?}: give its id"),
+                    format_args!("two spaces are tagged {scope:?}: give its id"),
                 )
                 .into_coord());
             }

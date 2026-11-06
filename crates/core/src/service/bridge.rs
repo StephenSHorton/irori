@@ -752,7 +752,24 @@ impl tools::SharedBoards for super::ToolsView {
     }
 
     fn board_of(&self, task_id: &str) -> Option<tools::BoardInfo> {
-        self.0.board_of(task_id).map(|s| self.0.tools_board(s))
+        let s = self.0.board_of(task_id)?;
+        let inner = self
+            .0
+            .route(task_id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(task_id))
+            .and_then(|t| s.boards.iter().skip(1).find(|b| b.board_id == t.board))
+            .cloned();
+        let own = self.0.tools_board(s);
+        Some(match inner {
+            Some(b) => tools::BoardInfo {
+                tag: b.tag,
+                name: b.name,
+                space_board: b.board_id,
+                ..own
+            },
+            None => own,
+        })
     }
 
     fn board_coord(

@@ -141,6 +141,35 @@ fn the_tools_name_a_first_board_the_same_everywhere() {
     assert!(out.contains("on Tasks (wind)"), "from board_of(): {out}");
 }
 
+/// A card on an inner board is on that board, not the space's first: its
+/// name and tag in what the tools say about the card.
+#[test]
+fn the_tools_name_a_cards_own_board() {
+    let r = Rig::new();
+    let (id, _) = wind_and_net(&r.core);
+    r.core.rename_space_board(&id, &id, "Tasks").unwrap();
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: String::new(),
+    };
+    let call = |tool: &str, args: serde_json::Value| {
+        let args = serde_json::to_vec(&args).unwrap();
+        r.core.tools().call(&caller, tool, &args).unwrap()
+    };
+    call(
+        "board_create",
+        serde_json::json!({"title": "decomp", "board": "net"}),
+    );
+    let out = call(
+        "board_share",
+        serde_json::json!({"task_id": "net#1", "board": "wind"}),
+    );
+    assert!(
+        out.contains("already on Netcode (net) in Wind Waker Multiplayer"),
+        "{out}"
+    );
+}
+
 /// The board tool shows a space once, with its people and autonomy, and
 /// its boards under it; a card's result names the space an inner board is
 /// in (card #558).

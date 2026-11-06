@@ -1769,7 +1769,7 @@
         },
         "space": {
           "type": "string",
-          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
+          "description": "Optional: the shared space a channel name or a bare #12 is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1800,7 +1800,7 @@
         },
         "space": {
           "type": "string",
-          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
+          "description": "Optional: the shared space a channel name or a bare #12 is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1841,7 +1841,7 @@
         },
         "space": {
           "type": "string",
-          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
+          "description": "Optional: the shared space a channel name or a bare #12 is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
@@ -1867,7 +1867,7 @@
         },
         "space": {
           "type": "string",
-          "description": "Optional: the shared space a channel name is in, by its tag or id. Without it, a name means a Personal channel."
+          "description": "Optional: the shared space a channel name or a bare #12 is in, by its tag or id. Without it, a name means a Personal channel."
         }
       },
       "required": [
