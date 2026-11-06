@@ -757,7 +757,6 @@ fn a_shared_board_card_gets_its_makers_agent_and_never_another_members() {
     b.core.close().unwrap();
 }
 
-
 /// Card #575: a counted agent posting on a shared board stays in the chain
 /// though it has another key in that board's log, and another member's
 /// counted request isn't this person's to count.
