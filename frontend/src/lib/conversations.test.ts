@@ -3,11 +3,13 @@ import { describe, expect, test } from "bun:test"
 import {
   agentsNowFor,
   dmGone,
+  dmPerson,
   fromPost,
   listed,
   readAll,
   talkApi,
   talkWaiting,
+  waitingText,
   type Conversation,
 } from "./conversations"
 import { TalkConversation } from "./models"
@@ -151,5 +153,49 @@ describe("Start a thread on a channel message (card #454)", () => {
     expect(pointer.threadFrom).toBe(about.postId)
     expect(pointer.text).toMatch(/^#\d+$/)
     expect(pointer.agentsNow).toBe(false)
+  })
+})
+
+describe("a DM with another person (card #538)", () => {
+  const m = (kind: string, key: string, name = "") => ({
+    kind,
+    key,
+    name,
+    status: "",
+    owner: "",
+  })
+  test("dmPerson is the other person, never you or an agent", () => {
+    const bob = conv({
+      kind: "dm",
+      members: [
+        m("person", "user:dev1", "you"),
+        m("person", "person:bob", "Bob"),
+      ],
+    })
+    expect(dmPerson(bob)?.key).toBe("person:bob")
+    const agent = conv({
+      kind: "dm",
+      members: [m("person", "user", "you"), m("agent", "api:a1", "A1")],
+    })
+    expect(dmPerson(agent)).toBeUndefined()
+    expect(
+      dmPerson(conv({ kind: "channel", members: bob.members }))
+    ).toBeUndefined()
+  })
+  test("its waiting line names them", () => {
+    expect(waitingText({ waiting: "them" }, "Bob")).toBe(
+      "Waiting for Bob's Irori"
+    )
+    expect(waitingText({ waiting: "update" }, "Bob")).toBe(
+      "Bob's Irori needs updating"
+    )
+    expect(waitingText({}, "Bob")).toBe("")
+  })
+  test("dmGone never archives it", () => {
+    const bob = conv({
+      kind: "dm",
+      members: [m("person", "user", "you"), m("person", "person:bob", "Bob")],
+    })
+    expect(dmGone(bob, new Map())).toBe(false)
   })
 })
