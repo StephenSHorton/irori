@@ -82,7 +82,7 @@ async fn listen() -> Result<()> {
                     break;
                 }
                 n += 1;
-                if n % 250 == 0 {
+                if n.is_multiple_of(250) {
                     println!(
                         "listen   {} t={:>4}s reflected={n} {}",
                         rid.fmt_short(),
