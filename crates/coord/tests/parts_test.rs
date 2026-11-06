@@ -548,3 +548,24 @@ fn up_to_n_is_checked() {
     );
     want_err(r, ErrorKind::Invalid);
 }
+
+/// Card #574: a batch of marked parts is counted as the sweep counts it, so
+/// the parts past the limit say so at once.
+#[test]
+fn spawn_hold_counts_older_parts_against_the_limit() {
+    let (e, _, parts) = limited(2, None, 3);
+    let holds: Vec<_> = parts.iter().map(|k| e.c.spawn_hold(&k.id)).collect();
+    assert_eq!(
+        holds.iter().filter(|h| **h == SpawnHold::Clear).count(),
+        1,
+        "{holds:?}"
+    );
+    assert_eq!(
+        holds
+            .iter()
+            .filter(|h| **h == SpawnHold::AtLimit(2))
+            .count(),
+        2,
+        "{holds:?}"
+    );
+}

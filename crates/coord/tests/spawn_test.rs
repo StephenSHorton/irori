@@ -875,3 +875,16 @@ fn a_board_wait_is_read_on_its_waiters_device() {
     assert_eq!(c.waits("").len(), 1);
     assert!(c.board_waits().is_empty());
 }
+
+/// Card #574: the crash question blocks the card, and the line still says
+/// it crashed, not just that it's blocked.
+#[test]
+fn a_card_that_crashed_twice_says_so() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    assert_eq!(e.c.spawn_hold(&t.id), SpawnHold::Crashed);
+}

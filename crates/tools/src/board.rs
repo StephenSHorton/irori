@@ -2738,7 +2738,10 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     );
     if made.iter().zip(&asked).any(|(k, a)| *a && !k.spawn) {
         b += &format!("\n{}", SPAWN_REFUSED_TOOL.trim_end());
-        b += s.no_agent_line(&id, true).trim_end();
+        let why = s.no_agent_line(&id, true);
+        if !why.is_empty() {
+            b += &format!("\n{}", why.trim_end());
+        }
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
@@ -2747,10 +2750,11 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             quoted(&one_line(&k.title, MAX_CARD_TITLE), MAX_CARD_TITLE),
             if k.spawn { " (spawn)" } else { "" }
         );
-        if k.spawn {
-            b += &format!("\n{}", s.no_agent_line(&k.id, true).trim_end());
-        }
         if to.get(i).is_none_or(|t| t.is_empty()) {
+            let why = s.no_agent_line(&k.id, true);
+            if k.spawn && !why.is_empty() {
+                b += &format!("\n{}", why.trim_end());
+            }
             continue;
         }
         match co.assign(&as_[0], &k.id, &as_[1 + i]) {

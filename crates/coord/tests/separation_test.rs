@@ -485,3 +485,44 @@ fn the_persons_start_an_agent_clears_the_side_wait() {
         );
     }
 }
+
+/// Card #574: the side is judged on the device that hands the card out,
+/// whichever device asks.
+#[test]
+fn spawn_hold_reads_the_side_on_the_cards_own_device() {
+    let on = Arc::new(AtomicBool::new(true));
+    let e = Env::on("dev-a");
+    let f = on.clone();
+    let c = e.reopen_with(Options {
+        spawning: Some(Arc::new(move || {
+            f.load(std::sync::atomic::Ordering::SeqCst)
+        })),
+        ..e.opts()
+    });
+    c.set_device_sides(&["work".to_string()]).unwrap();
+    let t = c
+        .create_task(
+            "user:dev-b",
+            NewTask {
+                title: "Made on B, a side only here".into(),
+                side: "work".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(c.spawn_hold(&t.id), SpawnHold::Clear, "B has no pin");
+    let mine = c
+        .create_task(
+            "user:dev-a",
+            NewTask {
+                title: "Made here, off the pin".into(),
+                side: "home".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        c.spawn_hold(&mine.id),
+        SpawnHold::OffSide("no device here runs home".into())
+    );
+}
