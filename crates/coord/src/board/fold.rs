@@ -88,6 +88,12 @@ const CLOCK_SKEW: Duration = Duration::from_secs(120);
 pub const SUB_BUFFER: usize = 64;
 
 /// The row prefixes coord folds.
+///
+/// A row kind that must reach other devices or survive a restart goes
+/// here: the live follow ([`super::Coord::handle`]) and the store replay
+/// fold only these kinds, and so does [`super::Coord::fold_live`], so a
+/// test that folds a kind missing here fails as production would (card
+/// #614; `pr.state` was missed until #542).
 pub const FOLLOW_KINDS: [&str; 15] = [
     "task.",
     "lease.",
