@@ -213,7 +213,7 @@ impl Fold {
         };
         let mut seen = BTreeSet::new();
         for (tag, n) in card_refs(text) {
-            let [t] = self.short_hits(tag.as_deref().unwrap_or(""), &n)[..] else {
+            let [t] = self.ref_hits(tag.as_deref(), &n)[..] else {
                 continue;
             };
             if t.ask.is_some() || is_terminal(&t.state) || !seen.insert(t.id.clone()) {

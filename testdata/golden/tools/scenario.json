@@ -178,6 +178,11 @@
     {"op": "advance", "seconds": 259200},
     {"op": "call", "caller": "A", "tool": "agents", "args": "{\"status\":\"gone\"}"},
     {"op": "call", "caller": "A", "tool": "board", "args": "{\"repo\":\"*\"}"},
-    {"op": "call", "caller": "A", "tool": "inbox", "args": "{\"all\":true,\"limit\":100}"}
+    {"op": "call", "caller": "A", "tool": "inbox", "args": "{\"all\":true,\"limit\":100}"},
+    {"op": "call", "caller": "A", "tool": "board_create", "args": "{\"title\":\"Voice calls\",\"later\":{\"why\":\"not before December\"}}", "save": {"later": "Created"}},
+    {"op": "call", "caller": "A", "tool": "board_create", "args": "{\"title\":\"Phone app\",\"after\":[\"$later\"]}", "save": {"after": "Created"}},
+    {"op": "call", "caller": "A", "tool": "board_later", "args": "{\"task_id\":\"$later\",\"back\":true}"},
+    {"op": "call", "caller": "A", "tool": "board_edit", "args": "{\"task_id\":\"$after\",\"not_after\":[\"$later\"]}"},
+    {"op": "call", "caller": "A", "tool": "board_later", "args": "{\"task_id\":\"$after\",\"until\":\"$later\",\"why\":\"after the calls\"}"}
   ]
 }

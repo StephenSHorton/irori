@@ -20,13 +20,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use coord::roster::Agents;
-use coord::{Coord, SpawnAsk, Task, TaskFilter};
+use coord::{Coord, SPAWN_CANCELED, Spawn, SpawnAsk, Task, TaskFilter};
 use irori_identity::owner::device_of;
 
 use super::Services;
 use super::boards::BoardLog;
 use super::spawn::{BriefMore, Spawner, build_brief, spawn_permissions};
 use crate::logf;
+
+/// Why a held card's starting agent was called off.
+const HELD: &str = "the card is Not yet";
 
 const SWEEPER: &str = "irori";
 
@@ -353,15 +356,23 @@ impl Services {
             if !co.mine_to_serve(&t) {
                 continue;
             }
+            // Pending, or ended because the card was held while its agent
+            // started (card #570): that session still goes.
+            let held = t.parked().is_some();
             let Some(s) = t
                 .spawn_request()
-                .filter(|s| s.pending() && s.device == me)
+                .filter(|s| {
+                    (s.pending() || (held && s.op == SPAWN_CANCELED && s.reason == HELD))
+                        && s.device == me
+                })
                 .cloned()
             else {
                 continue;
             };
             if !co.mine_to_start(&t, &s) {
-                self.drop_given_request(sp, b, &t, &s, &live);
+                if s.pending() {
+                    self.drop_given_request(sp, b, &t, &s, &live);
+                }
                 continue;
             }
             let Some(a) = live.iter().find(|a| {
@@ -372,6 +383,12 @@ impl Services {
             }) else {
                 continue;
             };
+            // A held card gets no agent (card #570): its request ends and
+            // the session started for it goes, unmarked.
+            if held {
+                self.end_held_start(sp, co, &t, &s, &a.key);
+                continue;
+            }
             if let Err(e) =
                 self.coord
                     .mark_spawned_elsewhere(&a.key, &t.id, s.generation, me, &b.id, s.counted)
@@ -393,6 +410,31 @@ impl Services {
             if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
                 logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
             }
+        }
+    }
+
+    /// Ends held card t's request `generation` and session `key`, started
+    /// for it before it was held.
+    fn end_held_start(&self, sp: &Spawner, co: &Coord, t: &Task, s: &Spawn, key: &str) {
+        if s.pending()
+            && let Err(e) = co.end_spawn(SWEEPER, &t.id, s.generation, SPAWN_CANCELED, HELD)
+        {
+            logf(format_args!("spawn {}: end request: {e}", t.short_ref()));
+            return;
+        }
+        self.spawn
+            .remote
+            .board_started
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&(t.id.clone(), s.generation));
+        let sess = key.rsplit_once('/').map_or(key, |(_, s)| s);
+        match (sp.end)(sess) {
+            Ok(_) => logf(format_args!(
+                "spawn {}: ended {key}, the card is held",
+                t.short_ref()
+            )),
+            Err(e) => logf(format_args!("spawn {}: end {key}: {e}", t.short_ref())),
         }
     }
 

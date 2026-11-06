@@ -42,7 +42,6 @@ const out =
 const PAGES: Array<[name: string, query: string]> = [
   ["home", ""],
   ["home-spawn", "?spawn=states"],
-  ["home-red", "?red=1"],
   ["card-1", "?open=board:task:sample-card-1"],
   ["card-2", "?open=board:task:sample-card-2"],
   ["card-4", "?open=board:task:sample-card-4"],
@@ -75,6 +74,12 @@ const PAGES: Array<[name: string, query: string]> = [
   ["spaces-menu", "?spaces=open"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
+  ["later-home", "?later=only"],
+  ["later-open", "?later=only&notyet"],
+  ["later-board", "?later=board#board/sample-board-mlg"],
+  ["later-card", "?later=1&open=board:task:sample-card-later-90"],
+  ["later-order", "?later=1&open=board:task:sample-card-order-82"],
+  ["later-hold", "?later=hold&open=board:task:sample-card-1"],
 ]
 
 function findBrowser(): string {

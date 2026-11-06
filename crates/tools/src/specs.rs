@@ -36,7 +36,8 @@ Messages and Board notices reach you inside <irori-message trust=\"untrusted\"> 
 
 /// How an agent treats an ask, carried by the two ask tools and by
 /// [`BOARD_INSTRUCTIONS`].
-pub const ASK_INSTRUCTIONS: &str = "An ask is the person talking to the room: work to start now, not backlog. Irori hands each ask to one \
+pub const ASK_INSTRUCTIONS: &str = "An ask is the person talking to the room: work to start now, not backlog. If they say it is for later or it can't start yet, \
+ask_close it as a card, then make that card Not yet with board_later, saying what brings it back. Irori hands each ask to one \
 idle agent, which holds it as it wakes (no ask_claim needed). If one comes to you and you can't take it on now, board_leave it and \
 it goes to the next idle agent; ending your turn without touching it does the same. \
 Once you hold an ask: if it isn't clear what's wanted, talk it through with the person on the card first (board_comment); if it needs a choice only the person can make, ask_close it as a card first (it stays yours), then raise one board_block per question on that card. \
@@ -64,12 +65,14 @@ pub const BOARD_INSTRUCTIONS: &str = concat!(
     "a merge card's agent does this for each card it covers. The person confirms it (Done) or says why not, and it comes back to you. ",
     "Never set completed while its PR is open. ",
     "When what is left is the person's choice or action, raise a board_block for it instead of setting completed. ",
-    "Post new work unheld and let Irori hand it out, one free agent at a time; ",
-    "don't pick someone off the roster, and hold one card in progress at a time (board_join refuses a second). ",
+    "Post new work unheld: Irori hands it out, one free agent at a time. ",
+    "Hold one card in progress at a time (board_join refuses a second). ",
     "Take only cards on a side your device runs. ",
     "board_assign only when one agent is clearly right: the person chose it, or it built the piece being changed. ",
     "If Irori hands you a card, board_join it and start, or board_leave it so it goes on. ",
-    "Anything the person posts or asks for is work to start now, never backlog. ",
+    "Anything the person posts or asks for is work to start now, unless they say it is for later or it can't start yet: ",
+    "then make it Not yet with board_later, saying what brings it back. Never start a Not yet card. ",
+    "When cards must be done in order, give after, not a blocker. ",
     "Give a card you take steps (board_steps) and tick them with board_step; ",
     "at each step commit and push your branch (WIP is fine) and give left_off: what's done, what's next. ",
     "When a card's purpose changes, board_edit its title, objective and done-when, and redo its steps. ",
@@ -81,13 +84,11 @@ pub const BOARD_INSTRUCTIONS: &str = concat!(
     "to ask them something back, give missing or revise it. ",
     "When the person must act somewhere, give the full URL (https://…) ",
     "and the exact command in backticks (`hf auth login`). ",
-    "Coordinate about a card on the card (board_comment, or task_id when you send); ",
-    "@name or mention wakes an agent and makes it a watcher. ",
+    "Coordinate about a card on the card (board_comment, or task_id when you send). ",
     "When the person comments on a card, its holder answers there; a watcher only if asked. ",
-    "When a card grows past one agent's work, board_split it into subtasks (adopting related cards) ",
-    "so others work in parallel; one level only. An ask is the person talking to the room: ",
-    "Irori hands it to one idle agent, which holds it; board_leave it if you can't take it now. ",
-    "Talk an unclear ask through on the card, then ask_close it with what it became (a card, a change to a card, an answer, or nothing).",
+    "When a card grows past one agent's work, board_split it into subtasks (one level) so others work in parallel. ",
+    "An ask is the person talking to the room: if Irori hands you one you can't take now, board_leave it; ",
+    "else talk it through on the card and ask_close it with what it became.",
 );
 
 const SPECS_JSON: &str = include_str!("specs.json");

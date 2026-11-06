@@ -921,3 +921,178 @@ fn a_sibling_started_later_reads_the_persons_words_in_its_brief() {
     );
     assert!(!brief.contains("AGENT-LINE"), "{brief}");
 }
+
+/// Card #570: "Start an agent" on a held card is the person's word to
+/// bring it back, so no agent starts on a card that is still held.
+#[test]
+fn starting_an_agent_on_a_held_card_brings_it_back_first() {
+    let r = Rig::new();
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Voice calls".into(),
+                objective: "later".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.park(&person, &t.id, "not now", coord::Back::Word)
+        .unwrap();
+    assert_eq!(co.get_task(&t.id).unwrap().state, coord::BLOCKED);
+    r.core.start_agent(&t.id, "").unwrap();
+    let got = co.get_task(&t.id).unwrap();
+    assert!(got.parked().is_none(), "{:?}", got.blockers);
+    assert_eq!(got.state, coord::SUBMITTED);
+}
+
+/// Card #570, round two finding 7: the person holds a card while its agent
+/// is still starting. The request ends at once; the session, once it shows,
+/// is ended too, not left running unbound.
+#[test]
+fn a_session_started_for_a_card_held_meanwhile_is_ended() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Voice calls".into(),
+                objective: "later".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    // The launch is slow: the card is held before the session shows.
+    let started: Arc<Mutex<Vec<SpawnReq>>> = Arc::default();
+    let ended: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sessions = r.claude.join("sessions");
+    let (s1, e1, s2) = (started.clone(), ended.clone(), sessions.clone());
+    let (co2, who, id) = (co.clone(), person.clone(), t.id.clone());
+    r.core.set_spawner(Some(Spawner {
+        spawn: Arc::new(move |q: &SpawnReq| {
+            s1.lock().unwrap().push(q.clone());
+            let (co, who, id, dir) = (co2.clone(), who.clone(), id.clone(), s2.clone());
+            let (name, folder) = (q.name.clone(), q.folder.clone());
+            std::thread::spawn(move || {
+                co.park(&who, &id, "not now", coord::Back::Word).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+                write_session(&dir, "900003.json", SPAWNED_SESS, &name, Path::new(&folder));
+            });
+            Ok(SpawnStarted {
+                name: q.name.clone(),
+                prefix: SPAWNED_SESS[..8].into(),
+            })
+        }),
+        end: Arc::new(move |sess: &str| {
+            e1.lock().unwrap().push(sess.to_string());
+            let _ = std::fs::remove_file(sessions.join("900003.json"));
+            Ok(String::new())
+        }),
+        trusted: Arc::new(|_| true),
+        list: None,
+        ready: None,
+    }));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the agent to start", || {
+        !started.lock().unwrap().is_empty()
+    });
+    wait_for(60, "the card held", || {
+        co.get_task(&t.id).is_some_and(|t| t.parked().is_some())
+    });
+    wait_for(60, "the session started for it ended", || {
+        // Kicks the spawn loop.
+        let _ = r.core.set_spawn_cap(r.core.spawn_cap());
+        ended.lock().unwrap().contains(&SPAWNED_SESS.to_string())
+    });
+    let got = co.get_task(&t.id).unwrap();
+    assert!(got.parked().is_some(), "{:?}", got.blockers);
+    assert!(got.holders.is_empty(), "{:?}", got.holders);
+    assert_eq!(started.lock().unwrap().len(), 1);
+}
+
+/// Card #570: a card put aside as Not yet while its agent works on it. The
+/// agent is off it, and Irori ends it with words for a card that isn't
+/// done: stop, leave where it got to, and don't set it completed.
+#[test]
+fn an_agent_whose_card_is_put_aside_is_told_it_isnt_done() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Voice calls".into(),
+                objective: "calls between devices".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the spawned agent bound to the card", || {
+        co.get_task(&t.id)
+            .is_some_and(|t| t.holders.contains(&spawned))
+    });
+    co.park(&person, &t.id, "not before December", coord::Back::Word)
+        .unwrap();
+    let told = |d: &inbox::Delivery| d.message.text.contains("was put aside as Not yet");
+    wait_for(60, "the agent told its card was put aside", || {
+        let _ = r.core.set_spawn_cap(r.core.spawn_cap());
+        r.notices_to(&spawned).iter().any(told)
+    });
+    let ds = r.notices_to(&spawned);
+    let d = ds.iter().find(|d| told(d)).unwrap();
+    assert!(
+        d.message.text.contains("It is not done")
+            && d.message.text.contains("Don't set it completed")
+            && !d.message.text.contains("your work on"),
+        "{}",
+        d.message.text
+    );
+    let got = co.get_task(&t.id).unwrap();
+    assert!(got.parked().is_some(), "{:?}", got.blockers);
+    assert!(got.holders.is_empty(), "{:?}", got.holders);
+}

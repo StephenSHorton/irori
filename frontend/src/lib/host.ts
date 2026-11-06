@@ -248,10 +248,16 @@ export const BoardService = {
   Close: (id: string, state: string, note: string) =>
     call(commands.boardClose(id, state, note)),
   Delete: (id: string) => done(commands.boardDelete(id)),
+  // Another board in the card's space (card #563).
+  Move: (id: string, board: string) => call(commands.boardMove(id, board)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
+  // Not yet and Start now (card #570).
+  NotYet: (id: string, until: string, why: string) =>
+    done(commands.boardNotYet(id, until, why)),
+  StartNow: (id: string) => done(commands.boardStartNow(id)),
   MovePin: (id: string, before: string) =>
     done(commands.boardMovePin(id, before)),
   Place: (id: string, x: number, y: number) =>
@@ -385,6 +391,10 @@ export const BoardsService = {
     call(commands.boardsAddToPersonal(name, tag)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
+  DeleteInSpace: (spaceId: string, boardId: string) =>
+    call(commands.boardsDeleteInSpace(spaceId, boardId)),
+  DeleteInPersonal: (boardId: string) =>
+    call(commands.boardsDeleteInPersonal(boardId)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),

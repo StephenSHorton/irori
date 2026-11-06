@@ -3590,6 +3590,37 @@ fn changing_the_cards_words_asks_again() {
     assert_eq!(a.c.given_to_ask().len(), 1, "asked again");
 }
 
+/// A move (card #563) changes the card's board and number, not its words:
+/// the yes stands.
+#[test]
+fn a_move_by_another_leaves_the_yes_standing() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    assert_eq!(a.c.given_to_spawn().len(), 1);
+    let ev =
+        b.st.append(
+            P2,
+            kinds::BOARD_ASK_EDITED,
+            &coord::rows::TaskEditedRow {
+                task_id: t.id.clone(),
+                board: Some("b-net".into()),
+                num: 1,
+                by: P2.into(),
+                at: b.clk.now(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    b.c.fold_live(&[ev]);
+    sync(&a, &b);
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.board, "b-net", "the move folded");
+    assert_eq!(a.c.given_to_spawn().len(), 1, "a move asked again");
+    assert!(a.c.given_to_ask().is_empty());
+}
+
 #[test]
 fn coming_off_the_card_ends_my_question_and_gives_it_back() {
     let (a, b) = two_people_shared();

@@ -150,6 +150,8 @@ impl Fold {
                     failed += 1;
                     ended += 1;
                 }
+                // Held as Not yet, it needs no call (card #570).
+                BLOCKED if super::later::only_held(k) => {}
                 BLOCKED => {
                     blocked = true;
                     if r.blocked.is_empty() {
@@ -167,7 +169,7 @@ impl Fold {
             } else if !is_terminal(&k.state) {
                 not_reviewing += 1;
             }
-            if k.state != SUBMITTED {
+            if k.state != SUBMITTED && !super::later::only_held(k) {
                 started = true;
             }
             r.total += 1;
@@ -382,6 +384,7 @@ impl Fold {
         for a in &adopt {
             let k = self.task_ref_locked(a)?;
             self.check_parent(id, &k)?;
+            self.check_adopt(id, &k)?;
             // Adopting moves a card to its parent's side: an agent does it
             // only to a card it may take (card #496).
             if let Some(kt) = self.tasks.get(&k).cloned() {
@@ -396,17 +399,35 @@ impl Fold {
             out.push(self.create_locked(&by, ct)?);
         }
         for k in adopt_ids {
+            let on = self.tasks.get(&k).map(|x| x.board.clone());
             let at = self.stamp();
             self.write(
                 &by,
                 kinds::TASK_PARENT,
                 &TaskParentRow {
-                    task_id: k,
+                    task_id: k.clone(),
                     parent: id.into(),
                     by: by.clone(),
                     at,
                 },
             )?;
+            // A subtask sits on its parent's board (card #563).
+            if on.is_some_and(|b| b != t.board) {
+                let (num, at) = (self.next_short(&t.board), self.stamp());
+                self.write(
+                    &by,
+                    self.ask_kind(kinds::TASK_EDITED),
+                    &TaskEditedRow {
+                        task_id: k.clone(),
+                        board: Some(t.board.clone()),
+                        num,
+                        by: by.clone(),
+                        at,
+                        ..TaskEditedRow::default()
+                    },
+                )?;
+            }
+            self.inherit_park(&by, id, &k)?;
         }
         if !placed.is_empty() {
             let keep: Vec<Step> = t.steps.iter().filter(|s| s.done).cloned().collect();

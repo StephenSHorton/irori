@@ -1,16 +1,17 @@
 // A space's boards (card #558): a space is a group of people, a board is a
 // list of tasks. SpaceBoards is what a space opens on: a tile per board,
 // each opening that board's list, and Add board. ListHeaderBar is the
-// header over one open board: which space it's in, and renaming the
-// board. Leave, Invite and Space settings stay on the space. Personal has
-// the same page and list, over the person's own log.
+// header over one open board: which space it's in, and renaming or
+// deleting the board. Leave, Invite and Space settings stay on the space.
+// Personal has the same page and list, over the person's own log.
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 
 import { BoardView, ScopeOwn } from "@/components/cards/board-view"
 import type { Filter } from "@/components/cards/card-grid"
 import type { BoardView as View } from "@/components/canvas/switch"
+import { ConfirmDialog } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -331,6 +332,12 @@ export function PersonalList({
 export function PersonalHeaderBar({ list }: { list: string }) {
   const { boards: all, reload } = usePersonalBoards()
   const x = all.find((b) => b.boardId === list)
+  // Deleted on another device (card #563): its cards are on the default
+  // board now, so that is where the page goes.
+  const gone = all.length > 0 && !x
+  useEffect(() => {
+    if (gone) go({ kind: "board", id: Personal })
+  }, [gone])
   if (!x) return <h1 className="text-lg font-semibold text-ink">Personal</h1>
   return (
     <ListHeader
@@ -341,6 +348,18 @@ export function PersonalHeaderBar({ list }: { list: string }) {
         await actions.renameInPersonal(x.boardId, name)
         await reload()
       }}
+      remove={
+        x.boardId === Personal
+          ? undefined
+          : {
+              into: all[0]?.name ?? "Personal",
+              run: async () => {
+                await actions.deleteFromPersonal(x.boardId)
+                await reload()
+                go({ kind: "boards" })
+              },
+            }
+      }
     />
   )
 }
@@ -353,6 +372,7 @@ export function ListHeaderBar({
   space: BoardSummary
   list: SpaceBoard
 }) {
+  const first = boardsOf(b)[0]
   return (
     <ListHeader
       space={plainLine(b.name) || "(unnamed)"}
@@ -362,24 +382,41 @@ export function ListHeaderBar({
         await actions.renameInSpace(b.boardId, x.boardId, name)
         await reloadBoards()
       }}
+      remove={
+        !first || first.boardId === x.boardId
+          ? undefined
+          : {
+              into: first.name,
+              run: async () => {
+                await actions.deleteFromSpace(b.boardId, x.boardId)
+                await reloadBoards()
+                go({ kind: "board", id: b.boardId })
+              },
+            }
+      }
     />
   )
 }
 
 // ListHeader is the header over one board's list: the space it's in (back
-// to the space's page), its name and tag, and Rename, which any member may
-// use (card #558). The space keeps its own name.
+// to the space's page), its name and tag, Rename, which any member may use
+// (card #558), and Delete (card #563). The space keeps its own name, and
+// the default board can't be deleted, so it has no remove.
 function ListHeader({
   space,
   onBack,
   list: x,
   save,
+  remove,
 }: {
   space: string
   onBack: () => void
   list: SpaceBoard
   save: (name: string) => Promise<void>
+  // remove deletes this board; its cards go to the board named into.
+  remove?: { into: string; run: () => Promise<void> }
 }) {
+  const [asking, setAsking] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -466,7 +503,7 @@ function ListHeader({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="sm:hidden"
+                  className={remove ? undefined : "sm:hidden"}
                   aria-label="Board actions"
                   title="Board actions"
                 />
@@ -475,10 +512,39 @@ function ListHeader({
               <EllipsisIcon aria-hidden />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-auto">
-              <DropdownMenuItem onClick={start}>Rename</DropdownMenuItem>
+              <DropdownMenuItem className="sm:hidden" onClick={start}>
+                Rename
+              </DropdownMenuItem>
+              {remove && (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setAsking(true)}
+                >
+                  Delete this board
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </span>
+      )}
+      {asking && remove && (
+        <ConfirmDialog
+          variant="destructive"
+          confirmLabel="Delete the board"
+          question={
+            <>
+              Delete <b>{plainLine(x.name)}</b>? Its cards move to{" "}
+              <b>{plainLine(remove.into)}</b>, the default board, and take new
+              numbers there. Their old numbers still find them.
+            </>
+          }
+          onConfirm={remove.run}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAsking(false)
+          }}
+          onError={setError}
+        />
       )}
     </div>
   )

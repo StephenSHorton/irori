@@ -498,12 +498,20 @@ impl Fold {
                     .tasks
                     .get(&p.from)
                     .is_some_and(|f| f.ask.as_ref().is_some_and(|a| a.thread));
+                // Before the card is looked up: a move that comes first is
+                // kept, and counts once the card lands (card #563).
+                let moved = p.board.as_ref().and_then(|b| {
+                    self.fold_move(&p.task_id, RowPos::of(ev), b, p.num)
+                        .then(|| self.moved_line(b))
+                });
                 let another = self.edited_by_another(ev, &p.task_id, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
                 // What changed, from what it was: the thread is the card's log.
-                let mut changed: Vec<String> = Vec::new();
+                let mut changed: Vec<String> = moved.into_iter().collect();
+                // A move leaves the words as they were (card #563).
+                let moved_lines = changed.len();
                 if let Some(title) = &p.title
                     && !trim_space(title).is_empty()
                 {
@@ -538,7 +546,7 @@ impl Fold {
                 }
                 // A yes is for the words they read: someone else changing
                 // them asks again (card #573).
-                if !changed.is_empty() && another {
+                if changed.len() > moved_lines && another {
                     super::cards::close_given_question(t, at(p.at));
                     t.given_said = None;
                 }
@@ -788,7 +796,7 @@ impl Fold {
         }
         if ask.is_empty() {
             let Some(t) = self.tasks.get(&p.task_id) else {
-                return (false, String::new());
+                return (p.board.is_some(), String::new());
             };
             // Any agent may edit any card (card #320). A card that was an
             // ask edits like any card once the ask is closed (board_edit).
@@ -1976,6 +1984,19 @@ impl Fold {
             if !person && let Some(pt) = self.tasks.get(&pid).cloned() {
                 self.check_side_take(&by, &pt)?;
             }
+            // A held parent holds the card, so one its taker keeps can't
+            // go there (finding 21); and it checks circles (finding 3).
+            let keeps = !a.thread && !a.taker.is_empty() && !self.is_owner(&a.taker);
+            if keeps && self.tasks.get(&pid).is_some_and(|p| p.parked().is_some()) {
+                return Err(bad_state(format!(
+                    "{} is Not yet, and {} stays with {}: close it without a parent, or bring {} back first",
+                    self.ref_of(&pid),
+                    t.short_ref(),
+                    a.taker,
+                    self.ref_of(&pid)
+                )));
+            }
+            self.check_ask_adopt(&pid, id)?;
             parent = pid;
         }
         let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
@@ -2056,11 +2077,12 @@ impl Fold {
                         kinds::TASK_PARENT,
                         &TaskParentRow {
                             task_id: id.into(),
-                            parent,
+                            parent: parent.clone(),
                             by: by.clone(),
                             at,
                         },
                     )?;
+                    self.inherit_park(&by, &parent, id)?;
                 }
             }
             OUTCOME_EDIT => {

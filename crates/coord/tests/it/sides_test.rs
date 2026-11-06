@@ -129,17 +129,6 @@ fn subtasks_and_splits_take_their_parents_side() {
 }
 
 #[test]
-fn a_main_red_card_takes_the_reporting_cards_side() {
-    let e = Env::new();
-    e.c.set_device_sides(&sides(&["Work"])).unwrap();
-    let a = e.c.create_task(ALICE, nt("Talk 3")).unwrap();
-    e.c.set_device_sides(&sides(&["Personal"])).unwrap();
-    let (red, made) = e.c.main_red(ALICE, &a.id, "attach_exe", "").unwrap();
-    assert!(made);
-    assert_eq!(red.side, "Work");
-}
-
-#[test]
 fn an_ask_takes_its_devices_side() {
     let e = Env::new();
     e.c.set_device_sides(&sides(&["Personal"])).unwrap();
