@@ -41,7 +41,7 @@ mod darwin;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-pub use config::{Accents, Color, Config, DARK, Kind, LIGHT, Palette, hex, rgb};
+pub use config::{Accents, Color, Config, DARK, Kind, LIGHT, Palette, Scheme, hex, rgb};
 pub use engine::{Engine, Look, Mouse, Surface};
 pub use note::{
     Action, CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT, CORNER_TOP_LEFT, CORNER_TOP_RIGHT, Callback,
@@ -65,10 +65,14 @@ mod platform {
     pub const DRAWS: bool = false;
 }
 
-/// Sets the app-level setup. Call it once at startup, before the first
-/// post: the window classes and title are fixed when the first card opens.
+/// Sets the app-level setup: the look (palettes, scheme, corners, glass)
+/// and capture. Call it at startup, before the first post (the window
+/// classes and title are fixed when the first card opens), and again
+/// whenever the look changes: the cards on screen restyle at once.
 pub fn configure(c: Config) {
-    ENGINE.configure(c);
+    if ENGINE.configure(c) && platform::DRAWS {
+        platform::wake_if_started();
+    }
 }
 
 /// The setup in effect, with defaults filled in.

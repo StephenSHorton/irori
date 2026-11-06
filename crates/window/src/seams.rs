@@ -79,6 +79,10 @@ pub trait Notifier: Send + Sync {
     fn set_options(&self, o: NotifyOptions) -> Result<NotifyOptions, String>;
     /// Shows the sample card (Go `SettingsService.TestNotification`).
     fn test(&self) -> Result<(), String>;
+    /// Restyles the cards to the window's appearance (card #527).
+    fn set_look(&self, _l: crate::settings::CardLook) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Launch at login (M6 shell, D9: own winreg / SMAppService code).
