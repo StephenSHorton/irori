@@ -15,7 +15,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use coord::ErrorKind as CK;
 use serde::Serialize;
@@ -29,8 +28,6 @@ use super::spaces::board_tag_ids;
 /// The extra field each copied row carries: the row it copies.
 pub const MOVED_FIELD: &str = "moved";
 
-/// How long the move waits for the private fold to take in the copy.
-const FOLD_WAIT: Duration = Duration::from_secs(60);
 
 /// Space kinds that are the private log's under another name
 /// (`Fold::ask_kind`), with `board.ask.moved`, which `take_kind` leaves.
@@ -192,7 +189,6 @@ impl Services {
             user: format!("user:{}", self.device.id),
         };
         let newest_pr = newest_pr_rows(&rows);
-        let mut last_seq = 0;
         for ev in &rows {
             let Some(kind) = copied_kind(ev, &newest_pr) else {
                 *out.rows_left.entry(ev.kind.clone()).or_default() += 1;
@@ -216,11 +212,13 @@ impl Services {
             } else {
                 ev.actor.clone()
             };
+            // The private fold skips this device's rows when the store
+            // hands them back (its own writes fold as they're made), so
+            // each copied row is folded here, as it would arrive live.
             let w = self.store.append(&actor, &kind, &v)?;
-            last_seq = w.seq;
+            self.coord.fold_live(std::slice::from_ref(&w));
             out.rows_copied += 1;
         }
-        self.wait_folded(last_seq)?;
 
         let diffs = self.compare_move(&b, &mut out);
         if !diffs.is_empty() {
@@ -381,22 +379,6 @@ impl Services {
             .collect();
         self.agent_names
             .note(&cards, presence::now_local().secs);
-    }
-
-    /// Waits until the private fold has taken in this device's rows up to
-    /// `seq`.
-    fn wait_folded(&self, seq: i64) -> Result<()> {
-        let until = Instant::now() + FOLD_WAIT;
-        while self.coord.folded_to(&self.device.id) < seq {
-            if Instant::now() > until {
-                return Err(Error::coord(
-                    CK::BadState,
-                    "the copy didn't fold in time; the space is kept, and moving it again goes on from here",
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        Ok(())
     }
 
     /// Adds a name for each space agent key (`agent:<cardId>`) the
