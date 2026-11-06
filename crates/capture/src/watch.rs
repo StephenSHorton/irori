@@ -4,6 +4,11 @@
 //! for the next quiet deadline, and everything rescanned every
 //! SafetyInterval. Where no file watcher exists, every pass runs on a
 //! ticker instead.
+//!
+//! Watchers start on threads of their own (card #601): on a busy Mac
+//! `FSEventStreamStart` can take a minute, and the loop must not wait on
+//! it. A watcher that comes up is followed by a read of what it covers, so
+//! nothing written while it started is missed.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
@@ -27,6 +32,8 @@ pub const BUSY_RECHECK: Duration = Duration::from_secs(15);
 pub const EVENT_BATCH: usize = 512;
 /// The loop's event queue.
 const EVENTS_CAP: usize = 64;
+/// How long the loop, ending, waits for watcher starts still running.
+const START_WAIT: Duration = Duration::from_secs(1);
 
 enum Msg {
     /// A watcher event: `logs` is the normRoot of a reflog directory, ""
@@ -38,6 +45,11 @@ enum Msg {
     },
     /// The watcher stopped.
     Closed { logs: String, wid: u64 },
+    /// A watcher start ended (`logs` as in Ev).
+    Started {
+        logs: String,
+        res: Result<Watcher, fswatch::Error>,
+    },
     /// The token was canceled.
     Wake,
 }
@@ -57,7 +69,15 @@ struct Loop<'a> {
     rx: Receiver<Msg>,
     projects: String,
     tail: Option<(u64, Watcher)>,
+    /// The transcripts watcher is starting.
+    tail_starting: bool,
     logs: HashMap<String, LogsWatch>,
+    /// Reflog watchers starting, by normRoot of their logs dir: the dir and
+    /// its roots, as in [`LogsWatch`].
+    starting: HashMap<String, (String, Vec<RepoSeen>)>,
+    /// Threads starting watchers; not joined, so a stalled start never
+    /// holds up the loop or its end.
+    starters: Vec<std::thread::JoinHandle<()>>,
     polled: Vec<RepoSeen>,
     hot: String,
     synced: bool,
@@ -115,10 +135,12 @@ fn run_events(c: &Inner, parent: &Cancel) -> bool {
     let _reg = cancel.on_cancel(move || {
         let _ = wake_tx.try_send(Msg::Wake);
     });
-    // Watch before the first pass so nothing written during it is missed.
-    if let Err(fswatch::Error::Unsupported) = l.watch_projects() {
+    if !fswatch::SUPPORTED {
         return false;
     }
+    // The watcher comes up on its own thread; a full tail pass follows it,
+    // so nothing written during this first pass is missed.
+    l.watch_projects();
     {
         let mut rs = lock(&c.run);
         c.tail_pass(&mut rs, &cancel);
@@ -172,7 +194,7 @@ fn run_events(c: &Inner, parent: &Cancel) -> bool {
                     safety = Instant::now() + c.opts.safety_interval;
                 } else if poll_tail.is_some_and(|t| now >= t) {
                     poll_tail = None;
-                    let _ = l.watch_projects();
+                    l.watch_projects();
                     c.tail_pass(&mut rs, &cancel);
                 } else if poll_repo.is_some_and(|t| now >= t) {
                     poll_repo = None;
@@ -202,6 +224,7 @@ fn run_events(c: &Inner, parent: &Cancel) -> bool {
         }
     }
     cancel.cancel();
+    l.wait_starters();
     if let Some((_, w)) = l.tail.take() {
         w.close();
     }
@@ -224,7 +247,10 @@ impl<'a> Loop<'a> {
             rx,
             projects: c.projects_dir(),
             tail: None,
+            tail_starting: false,
             logs: HashMap::new(),
+            starting: HashMap::new(),
+            starters: Vec::new(),
             polled: Vec::new(),
             hot: String::new(),
             synced: false,
@@ -235,15 +261,58 @@ impl<'a> Loop<'a> {
         }
     }
 
-    /// Starts the transcripts watcher if it isn't running.
-    fn watch_projects(&mut self) -> Result<(), fswatch::Error> {
-        if self.tail.is_some() {
-            return Ok(());
+    /// Starts the transcripts watcher if it isn't running or starting.
+    fn watch_projects(&mut self) {
+        if self.tail.is_some() || self.tail_starting {
+            return;
         }
-        let w = fswatch::watch(&self.cancel, &self.projects, true, Duration::ZERO)?;
-        let wid = self.forward(String::new(), w.clone());
-        self.tail = Some((wid, w));
-        Ok(())
+        self.tail_starting = self.start_watch(String::new(), self.projects.clone(), true);
+    }
+
+    /// Starts a watcher on a thread of its own; its result comes back as
+    /// [`Msg::Started`]. False when no thread could start.
+    fn start_watch(&mut self, logs: String, dir: String, recursive: bool) -> bool {
+        self.starters.retain(|h| !h.is_finished());
+        let (tx, cancel) = (self.tx.clone(), self.cancel.clone());
+        let spawned = std::thread::Builder::new()
+            .name("capture-watch".into())
+            .spawn(move || {
+                let res = fswatch::watch(&cancel, &dir, recursive, Duration::ZERO);
+                // The loop has ended: stop what started.
+                if let Err(std::sync::mpsc::SendError(Msg::Started { res: Ok(w), .. })) =
+                    tx.send(Msg::Started { logs, res })
+                {
+                    w.close();
+                }
+            });
+        match spawned {
+            Ok(h) => {
+                self.starters.push(h);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Waits up to [`START_WAIT`] for watcher starts still running, so a
+    /// prompt one (always, on Windows) is stopped before the loop returns.
+    /// A slower one stops its watcher itself: the token is canceled.
+    fn wait_starters(&mut self) {
+        let deadline = Instant::now() + START_WAIT;
+        while self.starters.iter().any(|h| !h.is_finished()) && Instant::now() < deadline {
+            // Drain, so a start blocked on a full queue can finish.
+            while let Ok(m) = self.rx.try_recv() {
+                if let Msg::Started { res: Ok(w), .. } = m {
+                    w.close();
+                }
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        while let Ok(m) = self.rx.try_recv() {
+            if let Msg::Started { res: Ok(w), .. } = m {
+                w.close();
+            }
+        }
     }
 
     /// Copies a watcher's events onto the loop's queue, then reports it
@@ -289,10 +358,39 @@ impl<'a> Loop<'a> {
         let mut paths: Vec<String> = Vec::new();
         let mut seen_path = HashSet::new();
         let mut logs_hit: HashSet<String> = HashSet::new();
+        let mut fresh: Vec<RepoSeen> = Vec::new();
         let tail_wid = self.tail.as_ref().map(|(w, _)| *w);
         for m in batch {
             match m {
                 Msg::Wake => {}
+                // A watcher that just came up missed what changed while it
+                // started: read all it covers.
+                Msg::Started { logs, res } if logs.is_empty() => {
+                    self.tail_starting = false;
+                    if let Ok(w) = res {
+                        let wid = self.forward(String::new(), w.clone());
+                        self.tail = Some((wid, w));
+                        tail_all = true;
+                    }
+                }
+                Msg::Started { logs, res } => {
+                    let Some((dir, roots)) = self.starting.remove(&logs) else {
+                        // No longer hot.
+                        if let Ok(w) = res {
+                            w.close();
+                        }
+                        continue;
+                    };
+                    match res {
+                        Ok(w) => {
+                            let wid = self.forward(logs.clone(), w.clone());
+                            fresh.extend(roots.iter().cloned());
+                            self.logs.insert(logs, LogsWatch { dir, w, wid, roots });
+                        }
+                        // Polled (and watched again) at RepoInterval.
+                        Err(_) => self.polled.extend(roots),
+                    }
+                }
                 Msg::Ev { logs, wid, ev } if logs.is_empty() => {
                     if Some(wid) != tail_wid {
                         continue; // a stopped watcher's leftovers
@@ -347,8 +445,9 @@ impl<'a> Loop<'a> {
                 .filter_map(|k| self.logs.get(k))
                 .flat_map(|lw| lw.roots.clone())
                 .collect();
-            self.read_roots(rs, roots);
+            fresh.extend(roots);
         }
+        self.read_roots(rs, fresh);
     }
 
     /// A watcher path in listFiles' spelling (one tfile whichever way it was
@@ -448,6 +547,8 @@ impl<'a> Loop<'a> {
                 lw.w.close();
             }
         }
+        // A start no longer wanted is closed when it ends.
+        self.starting.retain(|k, _| want.contains_key(k));
         self.polled.clear();
         let mut fresh = Vec::new();
         for (k, (dir, roots)) in want {
@@ -455,13 +556,16 @@ impl<'a> Loop<'a> {
                 lw.roots = roots;
                 continue;
             }
-            match fswatch::watch(&self.cancel, &dir, false, Duration::ZERO) {
-                Err(_) => self.polled.extend(roots),
-                Ok(w) => {
-                    let wid = self.forward(k.clone(), w.clone());
-                    fresh.extend(roots.iter().cloned());
-                    self.logs.insert(k, LogsWatch { dir, w, wid, roots });
-                }
+            if let Some(st) = self.starting.get_mut(&k) {
+                st.1 = roots;
+                continue;
+            }
+            // Read now, and again once its watcher is up.
+            fresh.extend(roots.iter().cloned());
+            if self.start_watch(k.clone(), dir.clone(), false) {
+                self.starting.insert(k, (dir, roots));
+            } else {
+                self.polled.extend(roots);
             }
         }
         self.read_roots(rs, fresh);
