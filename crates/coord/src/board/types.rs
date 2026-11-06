@@ -1059,6 +1059,9 @@ pub struct TaskEdit {
     pub title: Option<String>,
     pub objective: Option<String>,
     pub done_when: Option<String>,
+    /// The card's repoKey (card #600): an agent started for a card that
+    /// names no repo sets the one it works out.
+    pub repo: Option<String>,
     /// A thread's short ref or task id: the change comes from it (card
     /// #155). Empty: the one open thread the caller answered, if any.
     pub from: String,

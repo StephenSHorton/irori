@@ -192,7 +192,14 @@ export function Thread({
               />
             </div>
           ))
-        : !status && <p className="text-muted-foreground">{empty}</p>}
+        : !status &&
+          // A string is the empty line; an element (a loading skeleton,
+          // card #598) is drawn as it is, as a div can't sit in a p.
+          (typeof empty === "string" ? (
+            <p className="text-muted-foreground">{empty}</p>
+          ) : (
+            empty
+          ))}
       {status &&
         (status.tone === "working" ? (
           // Where the next comment will appear (card #317): who is on it,

@@ -268,6 +268,12 @@ export const commands = {
 	updateSupported: () => __TAURI_INVOKE<boolean>("update_supported"),
 	updateCheckAndDownload: () => __TAURI_INVOKE<UpdateStatus>("update_check_and_download"),
 	updateRestartToUpdate: () => __TAURI_INVOKE<null>("update_restart_to_update"),
+	/**
+	 *  Keep this device up to date (card #578): null where the device doesn't
+	 *  update itself.
+	 */
+	updateGetKeepUpToDate: () => __TAURI_INVOKE<boolean | null>("update_get_keep_up_to_date"),
+	updateSetKeepUpToDate: (on: boolean) => __TAURI_INVOKE<boolean | null>("update_set_keep_up_to_date", { on }),
 	voiceStatus: () => __TAURI_INVOKE<VoiceStatus>("voice_status"),
 	voiceDownloadModel: () => __TAURI_INVOKE<null>("voice_download_model"),
 	voiceStart: () => __TAURI_INVOKE<number>("voice_start"),

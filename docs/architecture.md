@@ -433,7 +433,15 @@ There is no CI (no workflow builds or checks anything): `release.yml` is replace
 
 The Go updater design ports as is: GitHub `releases/latest`, `SHA256SUMS`, NSIS silent install or `.app` swap, and the phases and card (surface.md §3 "Updater rules"). `tauri-plugin-updater` is not used, because it expects its own signed manifest and the first Rust release must install through the **Go** updater. That first release needs a version above the Go `v0.5.x` line under Go's `isNewer` (surface.md §3), for example `v0.6.0` (D11).
 
-The app checks for a release only at start or from Settings > Check for updates, so an app left open isn't offered a new release until then.
+The app checks for a release at start and from Settings > Check for updates. With **Keep this device up to date** on (card #578, no-server.md §4.3), it also checks every 4 hours and installs by itself (`app/src/shell/keep.rs`):
+
+- The setting is per device, in `keep-up-to-date.json`. With no file it follows the home server's switch (`home-server.json`), read again at every tick. Only the person's own choice is written. Phones and `serve --headless` never update themselves.
+- The loop wakes every 10 minutes and measures against the wall clock, so a machine that slept doesn't push anything back. Turning the switch on checks at once.
+- Once a version is ready, it restarts (`restart_to_update_in_background`: on macOS the swap helper relaunches with `open -g`, so Irori doesn't take focus from the app in use) as soon as no agent is working on this device: every Claude session presence sees is idle, not answering or gone, and has been for a minute; no inline terminal is open (a restart closes them); and the window isn't in use. Presence is read again just before. Grok members are `irori mcp` processes, which survive a restart and aren't checked. Agents' own processes aren't children of the app, so they keep running and reconnect.
+- If no such moment comes within a day of the download, the Install card goes up, as it did before.
+- `auto-update.json` in the data dir (not in `updates/`, which a download empties) records the ready version, when it became ready, and the restart's try. The relaunched app reads it before its window opens: it starts hidden if the window was hidden before. A version that was tried and still isn't running is marked failed and never tried by itself again, so a failed install can't loop; its Install card goes up at once.
+- A version that is ready isn't re-checked: a device that waits for days installs that version, and the next start finds anything newer.
+- A test build (built with `IRORI_UPDATE_API`) takes `IRORI_UPDATE_EVERY`, `IRORI_UPDATE_HOLD` and `IRORI_UPDATE_TICK` in seconds. Release builds ignore them.
 
 ---
 
