@@ -6,7 +6,7 @@
 //! one is the Go struct's JSON as Wails typed it
 //! (I:frontend/bindings/github.com/StephenSHorton/irori/internal/*/models.ts
 //! at be67a86): a Go `omitempty` field is optional, every other field is
-//! always there. `tests/shapes.rs` checks each against the real JSON of a
+//! always there. `tests/it/shapes.rs` checks each against the real JSON of a
 //! filled area value, so a field added on either side fails a test.
 //!
 //! [`Typed`] carries an area value under one of these shapes, for a

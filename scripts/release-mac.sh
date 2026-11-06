@@ -19,7 +19,7 @@
 # signed, not notarized, and says so.
 #
 # The asset names are a contract with crates/update and the Go updater
-# (crates/update/tests/release_names.rs reads them below).
+# (crates/update/tests/it/release_names.rs reads them below).
 set -euo pipefail
 
 VERSION="${1:-}"

@@ -14,7 +14,7 @@
 //   - the views as Go marshals them: ListTasks, Leases, Refusals, Board for
 //     nobody and for alice, each task's Activity and Comments.
 //
-// crates/coord/tests/golden.rs folds the same rows with Coord::from_rows and
+// crates/coord/tests/it/golden.rs folds the same rows with Coord::from_rows and
 // compares its views' bytes with these.
 package coord
 
@@ -405,7 +405,7 @@ type goldenNotice struct {
 }
 
 // TestGoldenCoordNotices records the notice texts (coord.md §3.18) a fixed
-// script of calls returns. Ids are random, so crates/coord/tests/golden.rs
+// script of calls returns. Ids are random, so crates/coord/tests/it/golden.rs
 // runs the same script and compares the texts with every 26-character id
 // replaced on both sides; notices are compared as sorted sets per step.
 func TestGoldenCoordNotices(t *testing.T) {

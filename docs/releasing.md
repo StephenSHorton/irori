@@ -131,7 +131,7 @@ fake of the GitHub API (serve `repos/StephenSHorton/irori/releases/latest`
 plus the APK and `SHA256SUMS`, then `adb reverse tcp:9250 tcp:9250`). Release
 builds never set `IRORI_UPDATE_API`.
 
-`crates/update/tests/release_names.rs` reads the names out of the three
+`crates/update/tests/it/release_names.rs` reads the names out of the three
 scripts and fails if they drift from the matchers or from each other.
 
 ## What the installer does
