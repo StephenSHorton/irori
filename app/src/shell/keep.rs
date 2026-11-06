@@ -331,8 +331,10 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("keep-up-to-date".into())
         .spawn(move || {
+            // The last check by both clocks: Instant may stop while the
+            // machine sleeps, and the wall clock may step back.
             let mut last_check = std::time::Instant::now();
-            let mut last_wall = unix_now();
+            let mut last_check_wall = unix_now();
             loop {
                 let forced = match rx.recv_timeout(tick) {
                     Ok(()) => true,
@@ -342,11 +344,8 @@ pub fn spawn(
                 if stop.is_canceled() {
                     return;
                 }
-                // The wall clock moves through sleep; Instant may not.
-                let wall = unix_now();
-                let slept = Duration::from_secs((wall - last_wall).max(0) as u64);
-                last_wall = wall;
-                let since = last_check.elapsed().max(slept);
+                let wall = Duration::from_secs((unix_now() - last_check_wall).max(0) as u64);
+                let since = last_check.elapsed().max(wall);
                 tick_once(
                     &keeper,
                     &u,
@@ -355,6 +354,7 @@ pub fn spawn(
                     every,
                     &mut || {
                         last_check = std::time::Instant::now();
+                        last_check_wall = unix_now();
                     },
                 );
             }
@@ -390,7 +390,7 @@ fn tick_once(
                 st.version,
                 if hidden { " (window hidden)" } else { "" }
             ));
-            if let Err(e) = u.restart_to_update() {
+            if let Err(e) = u.restart_to_update_in_background() {
                 irori_core::log(&format!("update: keep up to date: restart: {e}"));
                 keeper.failed(&st.version);
                 (hooks.recheck_card)(&u.status());

@@ -680,11 +680,13 @@ impl Updater {
     }
 
     /// Starts installing `staged`; the caller then quits.
-    fn install(&self, staged: &Path, relaunch: bool) -> Result<(), String> {
+    fn install(&self, staged: &Path, relaunch: macapp::Relaunch) -> Result<(), String> {
         match self.plat {
-            Platform::Nsis => {
-                (self.launch)(staged, &nsis::install_args(relaunch)).map_err(|e| e.to_string())
-            }
+            Platform::Nsis => (self.launch)(
+                staged,
+                &nsis::install_args(relaunch != macapp::Relaunch::No),
+            )
+            .map_err(|e| e.to_string()),
             #[cfg(target_os = "macos")]
             Platform::Mac => {
                 let live = self.live_app()?;
@@ -700,6 +702,17 @@ impl Updater {
     /// flips to installing before quitting so [`Updater::install_on_exit`]
     /// sees it; a launch failure goes back to ready.
     pub fn restart_to_update(&self) -> Result<(), String> {
+        self.restart(macapp::Relaunch::Front)
+    }
+
+    /// [`Updater::restart_to_update`] for an automatic restart (card #578):
+    /// on macOS Irori comes back without taking focus (`open -g`). The
+    /// NSIS installer relaunches the same way either way.
+    pub fn restart_to_update_in_background(&self) -> Result<(), String> {
+        self.restart(macapp::Relaunch::Background)
+    }
+
+    fn restart(&self, relaunch: macapp::Relaunch) -> Result<(), String> {
         if self.plat == Platform::Android {
             return Err("on Android, Install opens the install screen (install_apk)".into());
         }
@@ -714,7 +727,7 @@ impl Updater {
             g.status.phase = PHASE_INSTALLING.into();
             (g.status.installer_path.clone(), g.quit.clone())
         };
-        if let Err(e) = self.install(&path, true) {
+        if let Err(e) = self.install(&path, relaunch) {
             self.set_status(|s| s.phase = PHASE_READY.into());
             return Err(format!("launch installer: {e}"));
         }
@@ -743,7 +756,7 @@ impl Updater {
             g.status.phase = PHASE_INSTALLING.into();
             g.status.installer_path.clone()
         };
-        if let Err(e) = self.install(&path, false) {
+        if let Err(e) = self.install(&path, macapp::Relaunch::No) {
             self.logf(&format!("irori: install on exit: launch installer: {e}"));
             return;
         }
