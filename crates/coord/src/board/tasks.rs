@@ -998,6 +998,13 @@ impl Fold {
         if !cut {
             return Ok(());
         }
+        self.refold()
+    }
+
+    /// Rebuilds the whole fold from the store, as a start does: rows fold
+    /// as a replay, so nothing is queued for watchers and no duty runs on
+    /// a part of them.
+    pub(crate) fn refold(&mut self) -> Result<()> {
         let shorts: Vec<(String, String)> = self
             .tasks
             .iter()
