@@ -176,19 +176,28 @@ impl PrState {
             return None;
         }
         let nth = (0..=at).filter(|&i| change_at(i) == Some(change)).count();
-        let name = format!("{change:?}#{nth}");
-        // A device that wrote OPEN since a reopen told its own agents of
-        // it, by its own notice or by this news before it polled.
-        let told = if change == PrChange::Reopened {
-            &runs[at..]
+        let mut name = format!("{change:?}#{nth}");
+        // Changes requested after a closing are news again, even when a
+        // late closing row is what came between (card #548).
+        if change == PrChange::ChangesRequested {
+            let closings = (0..at)
+                .filter(|&i| change_at(i) == Some(PrChange::Closed))
+                .count();
+            name = format!("{name}.{closings}");
+        }
+        // A device that wrote a reopen it saw told its person's agents by
+        // its own notice, whichever run its row is in; one that only wrote
+        // OPEN since told nobody but this news's own.
+        let told: Vec<&PrHeard> = if change == PrChange::Reopened {
+            runs[at..]
+                .iter()
+                .flat_map(|r| r.iter().copied())
+                .filter(|h| h.over_closed)
+                .collect()
         } else {
-            &runs[at..=at]
+            runs[at].to_vec()
         };
-        Some((
-            change,
-            name,
-            devices(&mut told.iter().flat_map(|r| r.iter().copied())),
-        ))
+        Some((change, name, devices(&mut told.into_iter())))
     }
 }
 
@@ -434,13 +443,10 @@ impl Fold {
             .cloned()
             .unwrap_or_default();
         // What the fold wouldn't take isn't written: it would only repeat.
-        let at = self.stamp();
         let beside_open = !c.error.is_empty() && old.state == PR_OPEN;
         let unchanged = !beside_open && certainty(&c.state) < certainty(&old.state)
             || if c.error.is_empty() {
-                // Clearing an error takes a row after it: one this clock
-                // stamps before it would clear nothing, at every poll.
-                (old.error.is_empty() || crate::gotime::before(&at, &old.error_at))
+                old.error.is_empty()
                     && old.state == c.state
                     && old.review == c.review
                     && !old.at.is_zero()
@@ -450,6 +456,15 @@ impl Fold {
             };
         if unchanged {
             return Ok((t, Vec::new()));
+        }
+        // Card #548: heard after what this fold knows, so stamped after
+        // it, as a clock behind another device's would sort it before the
+        // closing or the error it answers.
+        let mut at = self.stamp();
+        for known in [old.at, old.error_at] {
+            if !crate::gotime::before(&known, &at) {
+                at = crate::gotime::add(&known, std::time::Duration::from_nanos(1000));
+            }
         }
         self.write_as(
             SWEEPER,
@@ -656,17 +671,13 @@ impl Fold {
             });
         }
         if self.pr_ahead.len() >= MAX_PR_AHEAD {
-            // A done card's rows go first, then the oldest in log order,
-            // so every device drops the same.
-            let done = |e: &Event| {
-                row::<PrStateRow>(&e.payload)
-                    .and_then(|r| self.tasks.get(&r.task_id))
-                    .is_some_and(|t| is_terminal(&t.state))
-            };
+            // The oldest in log order goes. Which rows are kept depends on
+            // what came first here, so past the cap devices can disagree
+            // on that PR until a restart replays the log in order.
             let at = (0..self.pr_ahead.len())
                 .min_by_key(|&i| {
                     let e = &self.pr_ahead[i];
-                    (!done(e), e.hlc, e.device_id.clone(), e.seq)
+                    (e.hlc, e.device_id.clone(), e.seq)
                 })
                 .unwrap_or(0);
             let gone = self.pr_ahead.remove(at);

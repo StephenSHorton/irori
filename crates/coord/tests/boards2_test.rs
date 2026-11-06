@@ -1740,12 +1740,12 @@ fn an_error_beside_open_shows_in_any_arrival_order() {
 }
 
 /// Card #548, third review: a device whose clock is behind the error's
-/// can't clear it, so it doesn't write OPEN at every poll trying; once its
-/// clock is past it, one row clears it.
+/// stamps its answer after what it read, so one row clears the error and
+/// the next polls write nothing; a reopen it sees sorts after the closing.
 #[test]
-fn a_device_behind_the_errors_clock_writes_nothing_until_it_is_past() {
+fn a_device_behind_another_s_clock_stamps_after_what_it_read() {
     const PR: &str = "https://github.com/a/b/pull/7";
-    let (_, b, b2, _, t) = four_sides(PR);
+    let (a, b, b2, _, t) = four_sides(PR);
     b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
         .unwrap();
     pull(&b, &b2);
@@ -1771,13 +1771,80 @@ fn a_device_behind_the_errors_clock_writes_nothing_until_it_is_past() {
         b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
             .unwrap();
     }
-    assert_eq!(rows(), before, "nothing it writes could clear the error");
-    assert_eq!(b.c.pr_state(&t.id, PR).unwrap().error, "gh broke");
-    b.clk.add(Duration::from_secs(600));
+    assert_eq!(rows(), before + 1, "one row clears it");
+    assert!(b.c.pr_state(&t.id, PR).unwrap().error.is_empty());
+
+    // Closed on the device ahead; reopened as heard on the one behind.
+    b2.clk.add(Duration::from_secs(60));
+    pull(&b, &b2);
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    pull(&b2, &b);
+    let (_, ns) =
+        b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+            .unwrap();
+    assert!(ns[0].text.contains("was reopened"), "{}", ns[0].text);
+    pull(&b, &a);
+    pull(&b2, &a);
+    assert_eq!(a.c.pr_state(&t.id, PR).unwrap().state, PR_OPEN);
+}
+
+/// Card #548, third review: a reopen counts as told only by a device that
+/// saw it; one of the same person that only wrote a review since told
+/// nobody, so the news still names only the reopen's writer.
+#[test]
+fn a_review_written_after_a_reopen_doesnt_count_as_telling_it() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, _, t) = four_sides(PR);
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    pull(&b, &b2);
+    b.clk.add(Duration::from_secs(60));
     b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
         .unwrap();
-    assert_eq!(rows(), before + 1);
-    assert!(b.c.pr_state(&t.id, PR).unwrap().error.is_empty());
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(120));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, "APPROVED"))
+        .unwrap();
+    pull(&b, &a);
+    pull(&b2, &a);
+    let news = a.c.pr_news();
+    assert!(news[0].mark.ends_with("Reopened#1"), "{}", news[0].mark);
+    assert_eq!(news[0].writers, vec!["dev-b"]);
+}
+
+/// Card #548, third review: changes requested after a closing are news,
+/// even when the closing's row came late, after changes requested that a
+/// device missing it had written.
+#[test]
+fn changes_requested_after_a_late_closing_are_news_again() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, _, t) = four_sides(PR);
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    pull(&b, &b2);
+    pull(&b, &a);
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    b2.clk.add(Duration::from_secs(120));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, PR_CHANGES_REQUESTED))
+        .unwrap();
+    pull_dev(&b2, &a, "dev-b2");
+    let first = a.c.pr_news()[0].mark.clone();
+    assert!(first.contains("ChangesRequested"), "{first}");
+    pull_dev(&b, &a, "dev-b");
+    assert!(a.c.pr_news()[0].mark.ends_with("Closed#1"));
+
+    // dev-b2 hears the closing, then GitHub still says changes requested.
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(60));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, PR_CHANGES_REQUESTED))
+        .unwrap();
+    pull_dev(&b2, &a, "dev-b2");
+    let again = a.c.pr_news()[0].mark.clone();
+    assert!(again.contains("ChangesRequested"), "{again}");
+    assert_ne!(again, first);
 }
 
 /// Card #548, third review: changes requested heard on the device of a
