@@ -212,11 +212,8 @@ fn a_cards_helpers_are_bound_by_the_devices_cap() {
         })
         .collect();
     co.split(&r.key_a, &p.id, parts, vec![]).unwrap();
-    assert_eq!(co.cards_to_spawn().len(), 7, "no limit of the card's own");
 
     r.core.set_spawn_cap(3).unwrap();
-    r.core
-        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
     r.core
         .set_spawn_setting(SpawnSetting {
             board_id: String::new(),
@@ -224,6 +221,11 @@ fn a_cards_helpers_are_bound_by_the_devices_cap() {
             ..SpawnSetting::default()
         })
         .unwrap();
+    // The switch on, every part waits for an agent: none is held back for
+    // the card's sake.
+    assert_eq!(co.cards_to_spawn().len(), 7, "no limit of the card's own");
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
     let started = || fake.started.lock().unwrap().len();
     let kick = || r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
     wait_for(60, "the cap's helpers started", || {

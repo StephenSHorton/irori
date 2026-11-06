@@ -179,12 +179,12 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
 
 /** AgentsLimits with Go's zero values for every field left out. */
 export function AgentsLimits(p: Partial<B.AgentsLimits> = {}): B.AgentsLimits {
-  return { "devices": [], "maxCap": 0, "today": 0, "todayHere": 0, "costUsd": null, "dailyLimit": 0, "dailyReached": false, "queued": 0, ...p } as B.AgentsLimits
+  return { "devices": [], "maxCap": 0, "today": 0, "todayHere": 0, "costUsd": null, "queued": 0, ...p } as B.AgentsLimits
 }
 
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
-  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "dailyLimit": 0, "agentsPerCard": 0, "crashLimit": 0, "startTries": 0, "defaultAgentsPerCard": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+  return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
 }
 
 /** AnswerResult with Go's zero values for every field left out. */

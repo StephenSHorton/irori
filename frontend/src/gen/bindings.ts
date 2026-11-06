@@ -490,9 +490,6 @@ export type AgentsChange = {
 	model?: string | null,
 	effort?: string | null,
 	idleMins?: number | null,
-	/**  0 turns the daily limit off. */
-	dailyLimit?: number | null,
-	agentsPerCard?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
 };
@@ -514,9 +511,6 @@ export type AgentsLimits = {
 	 *  plan that is plan usage, not a bill).
 	 */
 	costUsd: number | null,
-	/**  The daily limit, 0 for none, and whether today reached it. */
-	dailyLimit: number,
-	dailyReached: boolean,
 	/**  While a Claude usage limit holds new spawns here: until when, in ms. */
 	heldUntil?: number | null,
 	/**  Cards queued here for a slot. */
@@ -551,16 +545,6 @@ export type AgentsSettings = {
 	/**  The idle limits Settings › Agents offers, in minutes. */
 	idleChoices: number[],
 	/**
-	 *  The daily limit (card #450): once this many agents started today,
-	 *  cards wait for the person to start theirs. 0 is none.
-	 */
-	dailyLimit: number,
-	/**
-	 *  Agents per card (card #576): how many may work one card at once,
-	 *  its lead and helpers.
-	 */
-	agentsPerCard: number,
-	/**
 	 *  How many of a card's agents may crash in a row before Irori stops
 	 *  and asks (card #576).
 	 */
@@ -568,7 +552,6 @@ export type AgentsSettings = {
 	/**  How many failed starts in a row before Irori stops and asks. */
 	startTries: number,
 	/**  Their defaults, for the choices' labels. */
-	defaultAgentsPerCard: number,
 	defaultCrashLimit: number,
 	defaultStartTries: number,
 };
@@ -1241,11 +1224,6 @@ export type CardSummary = {
 	 *  (card #450): "queued: usage limit".
 	 */
 	usageLimit?: string | null,
-	/**
-	 *  The board's daily limit, when today's spawns reached it and this
-	 *  card waits for the person to start its agent (card #450).
-	 */
-	dailyLimit?: number,
 	/**  Where the card sits on the Board's canvas (card #93), once placed. */
 	pos?: CanvasPos | null,
 	/**
@@ -2493,8 +2471,6 @@ export type ThreadSummary = {
 	queuePlace?: number,
 	/**  While a Claude usage limit holds spawns, when they start again. */
 	usageLimit?: string | null,
-	/**  The daily limit, when it holds this thread's agent back. */
-	dailyLimit?: number,
 };
 
 /**  Who an action's notice went to. */

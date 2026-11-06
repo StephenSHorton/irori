@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
-use coord::{NewSubtask, NewTask, Task, Where};
+use coord::{NewTask, Task, Where};
 use gocompat::time::GoTime;
 use irori_core::spawn::{SpawnCap, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::spawn_limits::USAGE_STOPPED;
