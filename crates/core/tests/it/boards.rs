@@ -523,6 +523,56 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     }
 }
 
+/// Card #652: the calls gate. A lone device's space is ready. With two, a
+/// saved word below tolerant 2 (a v0.12.4 hello) makes b too old, naming
+/// it, and the space gate doesn't care; then b's live hello (this build,
+/// tolerant 2) makes the space ready for `call.*` rows.
+#[test]
+fn the_calls_gate_waits_for_every_device_at_tolerant_2() {
+    let r = Rig::new();
+    let solo = r.core.create_board("Solo", "solo").unwrap();
+    let t = r.core.space_tolerance(&solo).unwrap();
+    assert!(t.ready(), "{t:?}");
+
+    let (a, b) = paired();
+    let id = a.core.create_board("Huddles", "huddle").unwrap();
+    let short = b.core.device_id()[..6].to_string();
+    // No word on b yet: unlike the space gate, calls wait on it.
+    let t = a.core.space_tolerance(&id).unwrap();
+    assert!(!t.ready(), "{t:?}");
+    assert!(t.unheard.iter().any(|d| d.contains(&short)), "{t:?}");
+    assert!(a.core.space_not_ready(&id).unwrap().is_empty());
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.12.4".into(),
+                spaces: 1,
+                spawns: 1,
+                tolerant: 1,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    // b hasn't opened the space, so the saved word is its latest: too old
+    // for calls, fine for the space gate (spaces 1).
+    let t = a.core.space_tolerance(&id).unwrap();
+    assert!(!t.ready(), "{t:?}");
+    assert!(t.too_old.iter().any(|d| d.contains(&short)), "{t:?}");
+    assert!(t.unheard.is_empty(), "{t:?}");
+    assert!(a.core.space_not_ready(&id).unwrap().is_empty());
+    wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
+    wait_for(45, "a hears b at tolerant 2", || {
+        a.core.space_tolerance(&id).unwrap().ready()
+    });
+    const { assert!(irori_core::CALLS_TOLERANT <= mesh::boardmesh::TOLERANT_PROTOCOL) };
+}
+
 /// Card #590: a new board's tag is 8 characters at most, so a ref like
 /// `agility#1234` stays short; the error says so.
 #[test]
