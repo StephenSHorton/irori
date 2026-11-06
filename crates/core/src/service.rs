@@ -4087,13 +4087,29 @@ impl Services {
             let said: Vec<&str> = said.iter().map(String::as_str).collect();
             for post in deskpost::due(p, &said) {
                 let (text, files) = if post == Post::ChecksFailed {
-                    let checks = match self.desk_lister.as_ref() {
-                        Some(l) => l.failed_checks(&repo, p.number).unwrap_or_else(|e| {
-                            logf(format_args!("desk: PR #{} checks: {e}", p.number));
-                            Vec::new()
-                        }),
-                        None => Vec::new(),
+                    let got = match self.desk_lister.as_ref() {
+                        Some(l) => l.failed_checks(&repo, p.number),
+                        None => Ok(Vec::new()),
                     };
+                    // The log is what lets the author fix it from the post
+                    // alone: a fetch that fell short waits a poll or two.
+                    let whole = got.as_ref().is_ok_and(|cs| {
+                        !cs.is_empty()
+                            && cs.iter().take(deskpost::MAX_LOGS).all(|c| {
+                                deskpost::actions_job(&c.url).is_none() || !c.log.trim().is_empty()
+                            })
+                    });
+                    if !whole
+                        && self
+                            .desk_watch
+                            .fetch_again(repo_key, p.number, &p.head_ref_oid)
+                    {
+                        if let Err(e) = &got {
+                            logf(format_args!("desk: PR #{} checks: {e}", p.number));
+                        }
+                        continue;
+                    }
+                    let checks = got.unwrap_or_default();
                     let files = self.desk_logs(p, &checks);
                     (deskpost::failed_text(p, &checks, !files.is_empty()), files)
                 } else {

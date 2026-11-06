@@ -317,3 +317,73 @@ fn an_author_card_on_a_shared_board_gets_the_posts_there() {
     c.poll_desk(REPO).unwrap();
     assert_eq!(posts(&co, &t.id).len(), 2);
 }
+
+/// Live, with the person's own gh: polls a real desk and prints Irori's
+/// posts on a card linking one of its PRs. Set IRORI_DESK_LIVE_REPO
+/// (owner/name) and IRORI_DESK_LIVE_PR (its number); the card's posts are
+/// printed after each poll, IRORI_DESK_LIVE_POLLS times, a minute apart.
+#[test]
+#[ignore]
+fn live_posts_on_a_real_pr() {
+    let repo = std::env::var("IRORI_DESK_LIVE_REPO").expect("IRORI_DESK_LIVE_REPO");
+    let n: i64 = std::env::var("IRORI_DESK_LIVE_PR")
+        .expect("IRORI_DESK_LIVE_PR")
+        .parse()
+        .unwrap();
+    let polls: usize = std::env::var("IRORI_DESK_LIVE_POLLS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let key = format!("remote:github.com/{repo}");
+    let r = Rig::with(|o| o.desk_lister = Some(Arc::new(irori_core::deskwatch::GhLister)));
+    let co = r.core.coord();
+    let me = format!("user:{}", r.core.device_id());
+    co.set_desk(&me, new_desk(&key, r.core.device_id())).unwrap();
+    let t = co
+        .create_task(
+            &r.key_a,
+            NewTask {
+                title: "live PR".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    co.add_link(&r.key_a, &t.id, &format!("https://github.com/{repo}/pull/{n}"))
+        .unwrap();
+    let mut shown = 0;
+    for i in 0..polls {
+        if i > 0 {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+        r.core.poll_desk(&key).unwrap();
+        let ps = posts(&co, &t.id);
+        for p in &ps[shown..] {
+            println!(
+                "--- Irori post (wake: {}, files: {:?})\n{}",
+                p.wake,
+                p.attachments
+                    .iter()
+                    .map(|f| (&f.name, f.size))
+                    .collect::<Vec<_>>(),
+                p.text
+            );
+            for f in &p.attachments {
+                let mut s = String::new();
+                use std::io::Read;
+                r.core
+                    .files()
+                    .open_file(&f.sha256)
+                    .unwrap()
+                    .read_to_string(&mut s)
+                    .unwrap();
+                println!("--- attached {} ({} bytes), last lines:", f.name, f.size);
+                for l in s.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
+                    println!("{l}");
+                }
+            }
+        }
+        shown = ps.len();
+    }
+    assert!(shown > 0, "no post on the card");
+}

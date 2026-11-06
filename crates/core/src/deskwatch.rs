@@ -243,7 +243,14 @@ pub(crate) struct DeskWatch {
     /// The login this device's gh is signed in as, once learned (card
     /// #521); asked again after a failure, never after a success.
     viewer: Mutex<Option<String>>,
+    /// Polls that couldn't fetch a PR's failing checks in full, by
+    /// `repo\0pr\0head` (card #420).
+    tries: Mutex<HashMap<String, u32>>,
 }
+
+/// Polls a "checks failed" post waits for its checks and logs before it
+/// goes up with what it has.
+pub const FETCH_TRIES: u32 = 3;
 
 impl DeskWatch {
     /// The person's GitHub login as `lister` says, asked once per run.
@@ -273,6 +280,21 @@ impl DeskWatch {
         }
         w.insert(coord::canonical_repo_key(repo_key), k);
         true
+    }
+
+    /// Notes one more poll that couldn't fetch PR `pr`'s failing checks at
+    /// `head` in full; whether to wait for the next poll rather than post
+    /// what it has (true for the first [`FETCH_TRIES`] - 1).
+    pub(crate) fn fetch_again(&self, repo_key: &str, pr: i64, head: &str) -> bool {
+        let mut t = self.tries.lock().unwrap_or_else(|e| e.into_inner());
+        let k = format!("{}\0{pr}\0{head}", coord::canonical_repo_key(repo_key));
+        let n = t.entry(k.clone()).or_insert(0);
+        *n += 1;
+        if *n < FETCH_TRIES {
+            return true;
+        }
+        t.remove(&k);
+        false
     }
 
     /// Whether `repo_key` is due at `now` (always, before its first poll).

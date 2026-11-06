@@ -167,11 +167,20 @@ pub fn text(post: Post, p: &DeskPr) -> String {
 /// and terminal colours gone.
 fn log_line(l: &str) -> String {
     let l = l.splitn(3, '\t').last().unwrap_or(l);
+    let l = l.trim_start_matches('\u{feff}');
     let l = match l.split_once(' ') {
         // An Actions timestamp: 2026-11-06T17:00:00.1234567Z
         Some((t, rest)) if t.len() >= 20 && t.ends_with('Z') && t.as_bytes()[4] == b'-' => rest,
         _ => l,
     };
+    // Actions' own markers: folds say nothing, errors keep their words.
+    if l.starts_with("##[group]") || l.starts_with("##[endgroup]") {
+        return String::new();
+    }
+    let l = l
+        .strip_prefix("##[error]")
+        .map(|e| format!("Error: {e}"))
+        .unwrap_or_else(|| l.to_string());
     let mut out = String::new();
     let mut chars = l.chars().peekable();
     while let Some(c) = chars.next() {
@@ -386,6 +395,9 @@ mod tests {
             ));
         }
         log.push_str("test\tRun tests\t2026-11-06T17:01:00.0000000Z \u{1b}[31merror: assertion failed ``` boom\u{1b}[0m\n");
+        log.push_str("test\tRun tests\t\u{feff}2026-11-06T17:01:00.1000000Z ##[group]Run sh check.sh\n");
+        log.push_str("test\tRun tests\t2026-11-06T17:01:00.2000000Z ##[endgroup]\n");
+        log.push_str("test\tRun tests\t2026-11-06T17:01:00.3000000Z ##[error]Process completed with exit code 1.\n");
         let checks = vec![
             FailedCheck {
                 name: "CI / test".into(),
@@ -402,7 +414,11 @@ mod tests {
         assert!(t.contains("\n- CI / test: https://github.com/o/r/actions/runs/1/job/2"), "{t}");
         assert!(t.contains("\n- deploypreview: https://example.com/x"), "{t}");
         assert!(t.contains("Last lines of CI / test's log:"), "{t}");
-        assert!(t.contains("error: assertion failed ''' boom\n```"), "{t}");
+        assert!(
+            t.contains("error: assertion failed ''' boom\nError: Process completed with exit code 1.\n```"),
+            "{t}"
+        );
+        assert!(!t.contains("##[") && !t.contains('\u{feff}'), "{t}");
         assert!(!t.contains("line 30\n"), "only the tail: {t}");
         assert!(t.contains("line 49"), "{t}");
         assert!(!t.contains('\u{1b}') && !t.contains("2026-11-06T"), "{t}");
