@@ -55,10 +55,13 @@ export function inScope(c: CardSummary, scope: string): boolean {
     : c.board === scope
 }
 
-// homeBoards is Home's board row (card #199): each board with a card on
-// Home, in the order they first appear.
+// homeBoards is Home's board row (card #199): each space with a card on
+// Home, in the order they first appear, named and tagged as the space is
+// (spaces: the list useBoards has). A card's own tag is its board's, which
+// may be another of the space's boards (card #558).
 export function homeBoards(
-  cards: CardSummary[]
+  cards: CardSummary[],
+  spaces: { boardId: string; name: string; tag: string }[] = []
 ): { boardId: string; name: string; tag: string }[] {
   const out: { boardId: string; name: string; tag: string }[] = []
   for (const c of cards) {
@@ -68,7 +71,8 @@ export function homeBoards(
       out.some((b) => b.boardId === c.board)
     )
       continue
-    out.push({ boardId: c.board, name: c.scopeLabel, tag: c.tag ?? "" })
+    const s = spaces.find((x) => x.boardId === c.board)
+    out.push({ boardId: c.board, name: s?.name || c.scopeLabel, tag: s?.tag ?? "" })
   }
   return out
 }
@@ -211,8 +215,8 @@ export function BoardView({
   const mine = cards.filter((c) => inScope(c, scope))
   const chips = deviceChips(mine)
   // Home's board row (card #199); a board page has none.
-  const rowBoards = scope === ScopeOwn ? homeBoards(mine) : undefined
   const { boards } = useBoards()
+  const rowBoards = scope === ScopeOwn ? homeBoards(mine, boards) : undefined
   // A shared board's page narrows by member (card #268).
   const members =
     scope === ScopeOwn
@@ -282,7 +286,7 @@ export function BoardView({
   const column = fill ? fillColumn : boardColumn
   const withThreads = (main: ReactNode) =>
     narrow ? (
-      <div className="-mx-1 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto px-1 pb-10">
+      <div className="-mx-1 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto px-1 pb-10 mac:overscroll-none">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-3.5">
           {main}
         </div>
@@ -303,7 +307,7 @@ export function BoardView({
     ) : aside ? (
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         <div className={column}>{main}</div>
-        <div className="-mr-1 grid min-h-0 shrink-0 content-start gap-3.5 overflow-y-auto pr-1 pb-4 lg:w-[360px]">
+        <div className="-mr-1 grid min-h-0 shrink-0 content-start gap-3.5 overflow-y-auto pr-1 pb-4 lg:w-[360px] mac:overscroll-none">
           {panel}
           {aside}
         </div>
@@ -311,7 +315,7 @@ export function BoardView({
     ) : showThreads && threads ? (
       <div className="flex min-h-0 flex-1 gap-4">
         <div className={column}>{main}</div>
-        <div className="-mr-1 min-h-0 w-[380px] shrink-0 overflow-y-auto pr-1 pb-4">
+        <div className="-mr-1 min-h-0 w-[380px] shrink-0 overflow-y-auto pr-1 pb-4 mac:overscroll-none">
           <ThreadsPanel
             threads={threads.list}
             open={threads.open}
@@ -448,7 +452,9 @@ export function BoardView({
               now={now}
             />
           ) : view === "canvas" ? (
-            <BoardCanvas cards={shown} onOpen={onOpen} fill={fill} />
+            // The canvas is the whole map (card #587): a card the lead
+            // lists (Needs you) stays on it, marked, not taken out.
+            <BoardCanvas cards={all} onOpen={onOpen} fill={fill} />
           ) : shown.length && rows ? (
             <>
               {pinnedGroup.length > 0 && (
@@ -523,7 +529,7 @@ export function BoardView({
 // glass panel with overflow hidden) to nothing once the column is full,
 // leaving it unscrollable (card #301).
 const boardColumn =
-  "-mx-1 grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-3.5 overflow-y-auto px-1 pb-10"
+  "-mx-1 grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none"
 
 // The column in Canvas (card #410): a flex column exactly the space left,
 // that never scrolls. Its rows keep their height (shrink-0); the canvas

@@ -93,7 +93,7 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         };
         if !std::sync::Arc::ptr_eq(&co, s.b.coord()) {
             return err_text(&format!(
-                "{} is in a shared space: waits work on your own Board's cards for now. board_watch it instead (you hear at your next turn when it changes).",
+                "{} is in a shared space: waits work only on cards in Personal for now. board_watch it instead (you hear at your next turn when it changes).",
                 s.short_of(&id)
             ));
         }

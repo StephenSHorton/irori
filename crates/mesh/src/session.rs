@@ -19,8 +19,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::frames::{
-    FRAME_BOARD_SECRET, FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING, FRAME_PONG, FRAME_ROW_AT,
-    FRAME_ROWS, FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row, batches, decode_frame,
+    FRAME_BOARD_SECRET, FRAME_DM_SECRET, FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING, FRAME_PONG,
+    FRAME_ROW_AT, FRAME_ROWS, FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row, batches,
+    decode_frame,
 };
 use crate::node::{FORKED_SELF, HELD_BYTES_CAP, HELD_ROWS_CAP, MIN_PEER_SCHEMA, Node, within};
 use crate::transport::PeerConn;
@@ -73,8 +74,8 @@ struct SessState {
     p_epoch: i64,
     p_pub: String,
     sent_key: String,
-    /// board id -> the `epoch/maker` whose `board.secret` went on this
-    /// connection.
+    /// board id -> the `epoch/maker` whose `board.secret` or `dm.secret`
+    /// went on this connection.
     sent_boards: BTreeMap<String, String>,
     peer_vec: Vector,
     sent_loose: bool,
@@ -459,7 +460,7 @@ impl Session {
                         self.n.take_secret(&f);
                     }
                 }
-                FRAME_BOARD_SECRET => {
+                FRAME_BOARD_SECRET | FRAME_DM_SECRET => {
                     if self.n.certified(&self.conn.id()) {
                         self.n.take_board_secret(&f);
                     }
@@ -653,6 +654,7 @@ impl Session {
                 (evs, r)
             })
             .await;
+            self.n.heard_rows(&dev, &evs[..applied], &self.conn.id());
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }
@@ -733,6 +735,9 @@ impl Session {
                 (ev, r)
             })
             .await;
+            if res.is_ok() {
+                n.heard_rows(&ev.device_id, std::slice::from_ref(&ev), &self.conn.id());
+            }
             if ev.device_id == n.self_id && res.is_ok() && self.pass_own_check(ev.seq) {
                 // The peer's copy of my last row is mine: the rows after it
                 // are my own history, held until now.
@@ -826,6 +831,7 @@ impl Session {
             if applied > 0 {
                 any = true;
             }
+            self.n.heard_rows(&dev, &evs[..applied], &self.conn.id());
             if let Err(e) = r {
                 self.refusal(&dev, &evs[applied..], &e).await;
             }

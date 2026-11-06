@@ -141,6 +141,22 @@ pub(crate) struct PeerInfo {
     pub schema_old: bool,
 }
 
+/// Another device's newest rows as they reached this one, by whatever path
+/// (card #544): rows gossip, so they can come through a third device while
+/// there is no session with their writer.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RowsHeard {
+    /// When the newest of them was written, by its own HLC, so a late
+    /// catch-up doesn't read as fresh; never later than the moment it came.
+    pub at: Option<SystemTime>,
+    /// The device that brought them; "" when their writer did, or when
+    /// they came from the store.
+    pub via: String,
+    /// `at` has been read from the store, so a restart keeps what the log
+    /// already knows.
+    pub seeded: bool,
+}
+
 struct PendingSecret {
     epoch: i64,
     seed: zeroize::Zeroizing<Vec<u8>>,
@@ -162,6 +178,9 @@ pub(crate) struct State {
     sessions: Vec<Arc<Session>>,
     tasks: Vec<JoinHandle<()>>,
     pub(crate) known: BTreeMap<String, PeerInfo>,
+    /// By writer. Apart from `known`, which holds the devices a session or
+    /// a signal has reached.
+    pub(crate) rows: BTreeMap<String, RowsHeard>,
     stopped: BTreeMap<String, String>,
     pub(crate) ahead: BTreeMap<String, SystemTime>,
     pending: Vec<PendingSecret>,
@@ -239,6 +258,7 @@ impl Node {
                 sessions: Vec::new(),
                 tasks: Vec::new(),
                 known,
+                rows: BTreeMap::new(),
                 stopped: BTreeMap::new(),
                 ahead: BTreeMap::new(),
                 pending: Vec::new(),
@@ -849,6 +869,58 @@ impl Node {
         let k = g.info(peer);
         k.last_sync = Some(now);
         k.last_ping = Some(now);
+    }
+
+    /// Rows of `dev` were applied from the connection to `peer` (card
+    /// #544).
+    pub(crate) fn heard_rows(&self, dev: &str, evs: &[Event], peer: &str) {
+        let Some(newest) = evs.iter().map(|e| e.hlc).max() else {
+            return;
+        };
+        if dev == self.self_id {
+            return;
+        }
+        let at = newest.wall().min(self.now());
+        let mut g = self.lock();
+        let r = g.rows.entry(dev.to_string()).or_default();
+        if r.at.is_none_or(|t| at >= t) {
+            r.at = Some(at);
+            r.via = if dev == peer {
+                String::new()
+            } else {
+                peer.to_string()
+            };
+        }
+    }
+
+    /// Reads `dev`'s newest row from the store, once: a device this one
+    /// has synced stays heard from across a restart (card #544). The row
+    /// is found by its seq: the device's rows are keyed that way.
+    pub(crate) fn seed_rows(&self, dev: &str) {
+        if dev == self.self_id || self.lock().rows.get(dev).is_some_and(|r| r.seeded) {
+            return;
+        }
+        let Ok(v) = self.o.store.vector() else {
+            return;
+        };
+        let newest = match v.get(dev) {
+            Some(seq) => match self.try_row_at(dev, *seq) {
+                Ok(ev) => ev,
+                Err(_) => return, // the next read tries again
+            },
+            None => None,
+        };
+        let now = self.now();
+        let mut g = self.lock();
+        let r = g.rows.entry(dev.to_string()).or_default();
+        r.seeded = true;
+        if let Some(ev) = newest {
+            let at = ev.hlc.wall().min(now);
+            if r.at.is_none_or(|t| at > t) {
+                r.at = Some(at);
+                r.via.clear();
+            }
+        }
     }
 
     /// Go `stop`: `dev`'s stream stops on this device. When `dev` is this

@@ -2,8 +2,6 @@
 
 *2026-11-05. Stephen's model: a space is a group of people (many boards, devices and people; Talk and threads are shared across it). A board is a list of tasks. This page says how the build does it. It amends [spaces.md](spaces.md).*
 
-The raw mapping (every string, every file:line) is in `spaces-boards-map/` while the card is open. That folder goes before landing.
-
 ## 1. Settled
 
 - **Personal is a space with its own boards** (b1): private, no invites. It stays the private log. `space.board.*` rows go in that log, which already stores them, and older devices ignore them without stalling. Its default board is implicit, so every private card stays on it. Own id "" dies at `spaces.rs:57`, so Personal needs a sentinel id in the fold.
@@ -20,18 +18,20 @@ Numbers are claimed in `task.created.num`, so existing rows don't change.
 - Moves and deletes (§3) claim numbers too. One walk in RowPos order derives every card's board and number; `short_hist` keeps each number a card left, so an old ref still finds it.
 - Bare `#N` in a space: the card if it is unique across the space, else the ambiguous error naming each `tag#N`.
 - `has_tag` is card-derived (`fold.rs:2000`), so an emptied board breaks `net#4`. It reads every tag the log has named instead.
-- Devices still on an older Irori fold numbers as one run, so two boards' `#1` show as `#1a`/`#1b` there until they update. Cosmetic: the row is accepted and nothing stalls.
+- Devices still on an older Irori fold numbers as one run, so two boards' `#1` show as `#1a`/`#1b` there until they update. The row is accepted and nothing stalls, and those letters still resolve on a newer device: `one_run_claim` (`short.rs`) reads them from the claims, as it does a `#5a` from before this card. An exact ref on a board comes first.
+- A card's tag comes from its board's row, which can land after the card. `space.board.*` is folded for that alone: it stamps the board's cards again, so devices agree with no restart.
+- Personal's rule: a bare `#N` means the default board first, deleted cards included, so a stale `#3` is refused rather than passed to `home#3`. Comment mentions and thread hearers read refs by the same rule (`short_hits`).
 
 ## 3. Moves and board deletes (card #563)
 
-[no-server.md](no-server.md) §3 is the design, with its ten fold rules. There are no new kinds and no protocol bump. It replaces this page's earlier plan of `task.board`, `space.board.deleted` and `SPACES_PROTOCOL` 2.
+Stephen first held these for a server design (b3). Decision 48 dropped the server. [no-server.md](no-server.md) §3 is the design, with its ten fold rules. There are no new kinds and no protocol bump. It replaces this page's earlier plan of `task.board`, `space.board.deleted` and `SPACES_PROTOCOL` 2.
 
 - **A move** is `board.ask.edited {taskId, board, num, by, at}`, or `task.edited` in Personal. `Coord::move_task` writes it: one row per card, parent first, and a subtask can't move alone.
 - **A delete** is `space.board.renamed {boardId, name: "", tag: "", deleted: true, by, at}`. It sits behind the same gate as adding a board, in a space. Personal has no gate. No row is written per card.
 - **The fold is one walk.** `renumber` goes through the claims and the deletes in RowPos order. A card sits where its newest claim put it. A delete hands each card on the board the next number on the first board, at the delete's own place, and a claim naming an already deleted board does the same. So a number depends only on what sits before it, and every device gets the same answer whatever order rows arrive in.
 - **Claims that lost drop out of letters.** Only a card's newest claim takes part in a clash. Its older ones sit in `short_hist`, where they still find the card once nobody holds that number. A lettered old ref means one claimant, by RowPos among everyone who held the number, so `net#5b` never finds a card that wasn't `net#5b`.
 - **A family stays together.** A move writes rows only for family members not on the target board, so moving a parent to where it already is brings a split family back. Adopting a card into a parent on another board moves it there.
-- **A catch-up walks once,** at its end, not per row, because the walk runs under coord's lock.
+- **A catch-up walks once per page,** at the page's end, not per row, because the walk runs under coord's lock and #567's catch-up drops that lock between pages.
 - **Known limit:** the board list reads the verifier without `verify_mu`, so during a verifier reset (a store error path) a delete can briefly not count. A failed store read keeps the old list, but this case heals only at the next board or member row, resync or restart.
 - **Core folds the board list; coord reads it.** `fold_space_boards` keeps the rules a delete needs (who wrote it, and that it wins), and `coord::BoardList` is what coord takes from it, read again when a `space.board.*` or `board.member.*` row lands. Who may delete is read at the row's place, with `Membership::active_at`.
 - **Personal's default board** is `""` in rows, like a space's first board. `BoardList.own` lets a row name it by id too.
@@ -43,10 +43,8 @@ Numbers are claimed in `task.created.num`, so existing rows don't change.
 - Agreed with Stephen (b4): any active member renames a board, matching add, and a first board keeps the space's name until someone renames it. A name-only rename skips tag validation and the holder check.
 - `tools_board` feeds both `boards()` and `board_of()` (`bridge.rs:546, :749`): change both.
 
-## 5. Bugs found on the way (fix in this card)
+## 5. Bugs found on the way, all fixed on this card
 
-Window: inner tag and board never reach `CardSummary` (`cards.rs:2113, :2201`); no way to make a card on an inner board (`new_card.rs:131`); `summary_row` misses `space.board.*` (`boards.rs:431`); subtasks fall on the first board (`subtasks.rs:393`); `create_board` misses inner tags (`boards.rs:991`); `SpaceBoardRow` fields need `serde(default)`.
-
-Talk: a thread from a space channel lands in the private log (`window/src/talk.rs:231`); agent Talk tools read only the private coord (`tools/src/talk.rs:508, :583`); All spaces hides space threads (`spaces.ts:91`).
-
-`SINCE_GO` is a sized array (`store/tests/golden.rs:77`): bump it with the new kinds.
+- Window: an inner board's tag and board reach `CardSummary` (`card_place`), New card can go on any board, subtasks stay on their parent's board, and `summary_row` follows `space.board.*`.
+- Talk: a thread from a space channel lands in the space's log, agent Talk tools reach space threads, All spaces lists them, and `talk_post` on a space's card goes through the shared-space fence like `board_comment`.
+- Agents: `board_share` and `board_create` onto an inner board land on that board, and labels name a card's own board.

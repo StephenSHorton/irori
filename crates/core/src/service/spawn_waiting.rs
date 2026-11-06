@@ -8,6 +8,11 @@
 //! agent was started for, on the person, with the way out (Attach, or add
 //! the command to the board's allow list), and resolves it once the agent
 //! is past the prompt or gone.
+//!
+//! Every device sweeps, but presence only knows this device's agents. So
+//! only a device that runs one of the card's agents raises or resolves its
+//! blocker (card #603): before that, the PC resolved the Mac agent's
+//! blocker every sweep and the Mac raised it again.
 
 use coord::roster::Agents as _;
 use coord::{BlockedBy, BlockerAnswer, NewBlocker, TaskFilter};
@@ -32,10 +37,11 @@ impl Services {
     /// Raises or resolves each spawned card's "Waiting for your
     /// permission" blocker from its agent's presence.
     pub(crate) fn sweep_permission_waits(&self) {
+        let me = self.device.id.as_str();
         let agents = self.presence.snapshot();
         let waiting: std::collections::HashMap<String, String> = agents
             .iter()
-            .filter(|a| on_permission_prompt(a))
+            .filter(|a| on_permission_prompt(a) && runs_here(&a.key, &a.device_id, me))
             .filter_map(|a| self.coord.spawned_card(&a.key).map(|t| (t, a.key.clone())))
             .collect();
         let open = self.coord.list_tasks(&TaskFilter {
@@ -61,7 +67,7 @@ impl Services {
                         context: format!(
                             "{name}, the agent Irori started for {}, is waiting for a permission \
                              nobody is there to give. Attach to it to answer the prompt, or add \
-                             the command to the board's allow list in Settings › Agents and \
+                             the command to the space's allow list in Settings › Agents and \
                              start a fresh agent.",
                             t.short_ref()
                         ),
@@ -75,7 +81,7 @@ impl Services {
                         logf(format_args!("permission wait on {}: {e}", t.short_ref()));
                     }
                 }
-                (None, Some(b)) => {
+                (None, Some(b)) if self.decides_permission_wait(&t, me) => {
                     let a = BlockerAnswer {
                         text: "The agent is past the prompt.".into(),
                         resolve: true,
@@ -89,4 +95,43 @@ impl Services {
             }
         }
     }
+
+    /// Whether this device may resolve card t's permission wait: it runs
+    /// one of the card's agents (its own, a step's or a subtask's), and no
+    /// agent of the card on another device is on a prompt by the roster.
+    /// A device that runs none of them can't tell whether the agent is
+    /// past the prompt, so it leaves the blocker to the one that can.
+    fn decides_permission_wait(&self, t: &coord::Task, me: &str) -> bool {
+        if !t.spawns.iter().any(|s| runs_here(&s.key, &s.device, me)) {
+            return false;
+        }
+        let elsewhere: Vec<&str> = t
+            .spawns
+            .iter()
+            .filter(|s| !s.key.is_empty() && !runs_here(&s.key, &s.device, me))
+            .map(|s| s.key.as_str())
+            .collect();
+        elsewhere.is_empty()
+            || !self
+                .roster
+                .agents()
+                .iter()
+                .any(|a| elsewhere.contains(&a.key.as_str()) && roster_on_prompt(a))
+    }
+}
+
+/// Whether agent `key` (on `device`, when known) runs on device `me`.
+/// Agent keys are `<device>/<session>`.
+fn runs_here(key: &str, device: &str, me: &str) -> bool {
+    if !device.is_empty() {
+        return device == me;
+    }
+    key.split_once('/').is_some_and(|(d, _)| d == me)
+}
+
+/// Whether the mesh roster's card of an agent on another device may be on
+/// a permission prompt. Its status rows don't carry `waitingFor`, so any
+/// wait counts unless the card says it is for something else.
+fn roster_on_prompt(a: &coord::roster::AgentCard) -> bool {
+    a.status == "waiting" && (a.waiting_for.is_empty() || a.waiting_for == PERMISSION_PROMPT)
 }

@@ -63,6 +63,14 @@ impl BoardInfo {
     }
 }
 
+/// Someone this person can DM (card #538).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonInfo {
+    /// `person:<personId>`.
+    pub key: String,
+    pub name: String,
+}
+
 /// The shared boards this device holds (Go `core.Core`'s boards); the Core
 /// provides it.
 pub trait SharedBoards: Send + Sync {
@@ -78,9 +86,17 @@ pub trait SharedBoards: Send + Sync {
         board_id: &str,
         keys: &[String],
     ) -> Result<(Arc<Coord>, Vec<String>), coord::Error>;
-    /// Share to board (§5.2) without the window's preview: scrubbed, the
-    /// private card closed and pointing at the copy. `by` is who asked.
-    fn share(&self, task_id: &str, board_id: &str, by: &str) -> Result<Task, String>;
+    /// Share to a space (§5.2) without the window's preview: scrubbed, the
+    /// private card closed and pointing at the copy. The copy goes on
+    /// board `space_board` inside space `board_id`, numbered there; empty
+    /// is the space's first board (card #558). `by` is who asked.
+    fn share(
+        &self,
+        task_id: &str,
+        board_id: &str,
+        space_board: &str,
+        by: &str,
+    ) -> Result<Task, String>;
     /// Withdraw a shared card (§5.3) for the person.
     fn withdraw(&self, task_id: &str) -> Result<(), String>;
     /// Who an agent's @name on board `board_id`'s cards may also name
@@ -89,6 +105,18 @@ pub trait SharedBoards: Send + Sync {
     /// own agents are in the roster already. The default is nobody.
     fn board_mentionables(&self, _board_id: &str) -> Vec<coord::roster::AgentCard> {
         Vec::new()
+    }
+    /// The people this person can DM (card #538): everyone active in a
+    /// space they're active in, hidden DM spaces aside. The default is
+    /// nobody.
+    fn dm_people(&self) -> Vec<PersonInfo> {
+        Vec::new()
+    }
+    /// What the DM with `other` (`person:<id>`) is waiting on:
+    /// [`crate::talk::WAITING_FOR_THEM`], [`crate::talk::WAITING_FOR_UPDATE`],
+    /// or "" when nothing is on its way to them.
+    fn dm_waiting(&self, _other: &str) -> &'static str {
+        ""
     }
 }
 
@@ -523,12 +551,12 @@ pub(crate) fn board_share(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let me = c.sender.key.clone();
     match s.b.inbox().autonomy(&b.board_id).as_str() {
         inbox::autonomy::ASK => err_text(&format!(
-            "your person's autonomy on {} is Ask me, which doesn't let agents share private cards. Ask them to use Share to board on {} in the app.",
+            "your person's autonomy on {} is Ask me, which doesn't let agents share private cards. Ask them to use Share to a space on {} in the app.",
             b.tag,
             t.short_ref()
         )),
         inbox::autonomy::AUTONOMOUS => {
-            let shared = match sb.share(&id, &b.board_id, &me) {
+            let shared = match sb.share(&id, &b.board_id, &b.space_board, &me) {
                 Ok(st) => st,
                 Err(e) => return err_text(&format!("sharing failed: {e}")),
             };
@@ -651,7 +679,7 @@ pub(crate) fn request_resolved(s: &Inner, a: &coord::approvals::Ask) -> bool {
             let text = match (a.answered, a.choice.as_str()) {
                 (true, CHOICE_SHARE) => match s
                     .shared()
-                    .map(|sb| sb.share(&task_id, &board.board_id, &agent))
+                    .map(|sb| sb.share(&task_id, &board.board_id, &board.space_board, &agent))
                 {
                     Some(Ok(t)) => format!(
                         "Your person said Share: {card} is on {} as {} (task:{}), and the private card is closed. Work the shared card from now on.\n{}",

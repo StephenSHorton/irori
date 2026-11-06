@@ -82,25 +82,25 @@ export function ShareButton({
         variant="ghost"
         size="sm"
         className="h-7 gap-1.5 text-xs"
-        title="Share to board: put a scrubbed copy on one of your boards"
+        title="Share to a space: put a scrubbed copy in one of your spaces"
         onClick={() => setOpen(true)}
       >
         <Share2Icon className="size-3.5" aria-hidden />
-        Share to board
+        Share to a space
       </Button>
       <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
         <DialogContent className="gap-3 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Share to board</DialogTitle>
+            <DialogTitle>Share to a space</DialogTitle>
             <DialogDescription>
-              This is exactly what goes on the board. The card's comments,
+              This is exactly what goes to the space. The card's comments,
               notes and blockers stay private, and this private card
               {preview?.subtasks.length ? " and its subtasks close" : " closes"}.
             </DialogDescription>
           </DialogHeader>
           {ready.length > 1 && (
             <ChoiceSelect
-              label="Board"
+              label="Space"
               showLabel
               size="sm"
               value={pick}
@@ -209,7 +209,7 @@ export function WithdrawButton({
       confirmLabel="Withdraw it"
       question={
         <>
-          Take this card{family && " and its subtasks"} off the board?{" "}
+          Take this card{family && " and its subtasks"} out of the space?{" "}
           {visibleTo.map(plainLine).join(", ")}'s devices already have what was
           shared; nothing can be recalled. The work carries on in private
           {family ? " cards" : " a private card"}.
@@ -314,24 +314,24 @@ export function TransferButton({
   )
 }
 
-// MoveBoardButton puts a card on another board in its space (card #563).
-// It takes the next number there; its old ref still finds it. A parent
-// takes its subtasks along.
+// MoveBoardButton puts a card on another board in its space, or another of
+// Personal's boards (card #563). It takes the next number there; its old
+// ref still finds it. A parent takes its subtasks along.
 export function MoveBoardButton({
   id,
   boards,
-  tag,
+  current,
   family,
   initialOpen = false,
 }: {
   id: string
   boards: SpaceBoard[]
-  // The card's board now, by tag.
-  tag: string
+  // The card's board now, by id.
+  current: string
   family: boolean
   initialOpen?: boolean
 }) {
-  const others = boards.filter((b) => b.tag !== tag)
+  const others = boards.filter((b) => b.boardId !== current)
   const [open, setOpen] = useState(initialOpen)
   const [to, setTo] = useState(others[0]?.boardId ?? "")
   const [busy, setBusy] = useState(false)

@@ -216,7 +216,12 @@ impl Fold {
             .map(|k| match agents.iter().find(|a| &a.key == k) {
                 Some(a) => format!(
                     "{k} (device {})",
-                    crate::roster::device_phrase(&a.device_state, &a.device_seen, &now)
+                    crate::roster::device_phrase(
+                        &a.device_state,
+                        &a.device_seen,
+                        &a.device_via,
+                        &now
+                    )
                 ),
                 None => k.clone(),
             })
@@ -485,17 +490,30 @@ impl Fold {
                 let _ = write!(b, "- {}: {}", l.label, l.reference);
                 // Card #208: how GitHub last said a linked PR stands.
                 if let Some(s) = heard.and_then(|m| m.get(&l.reference)) {
-                    if !s.error.is_empty() {
+                    if s.state.is_empty() {
                         let _ = write!(b, " (GitHub not asked: {})", s.error);
                     } else {
                         let _ = write!(b, " (GitHub: {}", s.state.to_lowercase());
                         if !s.review.is_empty() {
                             let _ = write!(b, ", {}", s.review.to_lowercase().replace('_', " "));
                         }
+                        // Card #548: the last it said, and why nothing since.
+                        if !s.error.is_empty() {
+                            let _ = write!(b, "; not asked since: {}", s.error);
+                        }
                         b.push(')');
                     }
                 }
                 b.push('\n');
+            }
+        }
+        // Card #555: what the person says on a subtask stays in view on its
+        // parent, so a slice doesn't carry on with an old premise.
+        let subs = self.said_on_subtasks(&t.id);
+        if !subs.is_empty() {
+            b.push_str("\nthe person, on its subtasks (newest; show a comment for all of it):\n");
+            for s in subs {
+                let _ = writeln!(b, "- {} comment:{}: {}", s.card, s.comment_id, s.text);
             }
         }
         let mut related = vec![];

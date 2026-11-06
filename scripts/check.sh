@@ -10,6 +10,8 @@ cd "$(dirname "$0")/.."
 # At most CHECK_SLOTS (default 2) runs build at once on this device; the
 # rest wait their turn (card #437). Without Irori it does nothing.
 . scripts/check-slot.sh
+# temp_clean: a test run may leave nothing in its temp folder (card #556).
+. scripts/check-temp.sh
 
 (
   cd frontend
@@ -21,13 +23,14 @@ cd "$(dirname "$0")/.."
   bun run lint
   bun test
 )
+sh scripts/one-test-binary.sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+temp_clean cargo test --workspace
 # frontend/src/gen/bindings.ts is what the window's commands generate (D10).
 cargo xtask bindings --check
 # Timing-sensitive, as in Go: capture's tests once more on one thread.
-cargo test -p irori-capture -- --test-threads=1
+temp_clean cargo test -p irori-capture -- --test-threads=1
 sh scripts/no-third-party.sh
 
 # The phone build (docs/android.md): desktop-only calls must stay behind

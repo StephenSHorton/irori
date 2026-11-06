@@ -22,6 +22,7 @@ import { inWails, parseTime } from "./irori"
 import { checkUploads, uploadOf } from "./uploads"
 import { sampleTalk, type SampleTalk } from "./sample-talk"
 import { nameOr } from "./names"
+import { noteRead, type ReadReport } from "./window-log"
 
 export type { Delivery, GoneSession, Policy }
 export { HoldReason, Mode, State }
@@ -87,13 +88,13 @@ export function holdText(d: Delivery, w: HoldWords = {}): string {
     case HoldReason.HoldPaused:
       return "You paused wakes."
     case HoldReason.HoldMemberWake:
-      return "Another person asked to wake your agent, and your receive setting for that board asks you first."
+      return "Another person asked to wake your agent, and your receive setting for that space asks you first."
     case HoldReason.HoldCrossPerson:
-      return "It comes from another person on a shared board, and your receive setting for that board asks you first."
+      return "It comes from another person in a shared space, and your receive setting for that space asks you first."
     case HoldReason.HoldMemberLease:
       return "Another person asks your agent to give up a lease."
     case "member_removed":
-      return "It comes from a person who is no longer on that board."
+      return "It comes from a person who is no longer in that space."
     case "editing":
       return "You are editing it."
     case "off_side":
@@ -368,18 +369,91 @@ export const talk = {
 
 // ---- hooks ------------------------------------------------------------------
 
-// useLatest runs load and keeps only the newest answer: calls are async and
-// can come back out of order. An answer equal to the one shown keeps the
-// state as it is (0.11.1): App reloads several lists on every board or
-// inbox change, several times a second while agents work, and each new
-// array re-rendered the whole window.
-export function useLatest<T>(load: () => Promise<T>, initial: T) {
+// StuckReadMs is how long a read may run before the next reload stops
+// waiting for it and reads beside it, so a read that never answers doesn't
+// hold its list past the next event. There is no timer: reloads already
+// waiting on it end with that next reload's read.
+export const StuckReadMs = 15_000
+
+export type Answer<T> = { value: T } | { error: unknown }
+
+// latestReads is useLatest's rule (card #551): the reload function it
+// returns keeps one read running. A reload during a read asks for one more
+// when that read ends, however many came, so every answer shows and a slow
+// read can't be starved by events that come faster than it finishes, nor
+// can they pile reads up on a slow device. Each reload's promise ends with
+// a read begun after it was called, so `await reload()` after an action
+// sees the action.
+//
+// A different load (another board or conversation) reads at once and the
+// old load's answer is dropped. A read stuck past StuckReadMs is left
+// running beside a new one, so answers can still arrive out of order: one
+// older than the last shown is dropped.
+export function latestReads<T>(
+  show: (answer: Answer<T>) => void,
+  now: () => number = Date.now,
+  report: (r: ReadReport) => void = () => {}
+): (load: () => Promise<T>) => Promise<void> {
+  let started = 0
+  let landed = 0
+  let newest: (() => Promise<T>) | null = null
+  let running: { n: number; load: () => Promise<T>; since: number } | null =
+    null
+  // The reloads the next read to start will answer.
+  let waiting: (() => void)[] = []
+
+  const begin = async (load: () => Promise<T>) => {
+    const n = ++started
+    const covered = waiting
+    waiting = []
+    const since = now()
+    running = { n, load, since }
+    let answer: Answer<T>
+    try {
+      answer = { value: await load() }
+    } catch (error) {
+      answer = { error }
+    }
+    const shows = load === newest && n > landed
+    report({ ms: now() - since, dropped: !shows, reloads: covered.length })
+    if (shows) {
+      landed = n
+      show(answer)
+    }
+    for (const done of covered) done()
+    if (running?.n !== n) return
+    running = null
+    if (waiting.length && newest) void begin(newest)
+  }
+
+  return (load) =>
+    new Promise<void>((done) => {
+      newest = load
+      waiting.push(done)
+      if (
+        !running ||
+        running.load !== load ||
+        now() - running.since >= StuckReadMs
+      )
+        void begin(load)
+    })
+}
+
+// useLatest runs load and keeps the newest answer, by latestReads. An
+// answer equal to the one shown keeps the state as it is (0.11.1): App
+// reloads several lists on every board or inbox change, several times a
+// second while agents work, and each new array re-rendered the whole window.
+// name is what irori.log calls this list (window-log.ts).
+export function useLatest<T>(
+  load: () => Promise<T>,
+  initial: T,
+  name = "a list"
+) {
   const [state, setState] = useState<{
     value: T
     loading: boolean
     error: string | null
   }>({ value: initial, loading: true, error: null })
-  const req = useRef(0)
   const mounted = useRef(true)
   const shown = useRef<string | null>(null)
 
@@ -390,23 +464,34 @@ export function useLatest<T>(load: () => Promise<T>, initial: T) {
     }
   }, [])
 
-  const reload = useCallback(async () => {
-    const n = ++req.current
-    try {
-      const value = await load()
-      if (!mounted.current || n !== req.current) return
-      const same = sameAs(shown, value)
-      setState((s) =>
-        same && !s.loading && s.error === null
-          ? s
-          : { value, loading: false, error: null }
-      )
-    } catch (err) {
-      if (!mounted.current || n !== req.current) return
-      shown.current = null
-      setState((s) => ({ ...s, loading: false, error: message(err) }))
-    }
-  }, [load])
+  const reads = useRef<ReturnType<typeof latestReads<T>> | null>(null)
+
+  const reload = useCallback(() => {
+    reads.current ??= latestReads<T>(
+      (answer) => {
+        if (!mounted.current) return
+        if ("error" in answer) {
+          shown.current = null
+          setState((s) => ({
+            ...s,
+            loading: false,
+            error: message(answer.error),
+          }))
+          return
+        }
+        const { value } = answer
+        const same = sameAs(shown, value)
+        setState((s) =>
+          same && !s.loading && s.error === null
+            ? s
+            : { value, loading: false, error: null }
+        )
+      },
+      Date.now,
+      (r) => noteRead(name, r)
+    )
+    return reads.current(load)
+  }, [load, name])
 
   return { ...state, reload }
 }
@@ -461,10 +546,11 @@ async function loadInbox(): Promise<InboxValue> {
 // useInbox loads recent deliveries and the policy, and re-reads on every
 // inbox:changed (which the Go side already coalesces to 4 a second).
 export function useInbox(): InboxState {
-  const { value, loading, error, reload } = useLatest<InboxValue>(loadInbox, {
-    deliveries: [],
-    policy: null,
-  })
+  const { value, loading, error, reload } = useLatest<InboxValue>(
+    loadInbox,
+    { deliveries: [], policy: null },
+    "inbox"
+  )
 
   useEffect(() => {
     void reload()
@@ -482,6 +568,8 @@ export type HeldState = {
   // history is past held messages, the most recently decided first; only
   // loaded while asked for.
   history: Delivery[]
+  // loading is true until the first read lands, never again (card #598).
+  loading: boolean
   error: string | null
   reload: () => Promise<void>
 }
@@ -517,7 +605,7 @@ export function useHeld(history: boolean): HeldState {
     ])
     return { held: held ?? [], history: past ?? [] }
   }, [history])
-  const { value, error, reload } = useLatest<HeldValue>(load, {
+  const { value, loading, error, reload } = useLatest<HeldValue>(load, {
     held: [],
     history: [],
   })
@@ -528,7 +616,7 @@ export function useHeld(history: boolean): HeldState {
     return Events.On(EventInboxChanged, () => void reload())
   }, [reload])
 
-  return { ...value, error, reload }
+  return { ...value, loading, error, reload }
 }
 
 // sampleRepoNames are the sample checkouts' folder names.

@@ -50,14 +50,17 @@ mod threads;
 pub use offers::{
     IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered, machine_needed,
 };
-pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
+pub use parts::PART_QUESTION;
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED,
-    SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, Spawned,
+    CRASHED_QUESTION, CRASHED_START, GONE_USAGE_LIMIT, MAX_SPAWN_CRASHES, PERMISSION_MODES,
+    SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk,
+    Spawned, USAGE_LIMIT, crash_question, is_crash_question, usage_limited,
 };
 mod resource;
 mod review;
 pub mod rows;
+mod said;
+pub use said::{SAID_CHARS, SAID_DAYS, SAID_MAX, SAID_PER_CARD, Said};
 mod short;
 mod side_gate;
 pub use side_gate::ASK_THE_PERSON;
@@ -108,7 +111,7 @@ pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrState,
+    PrNews, PrState,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -306,7 +309,9 @@ pub struct Options {
     pub board_owner: Option<OwnerAtFn>,
     /// On a board, the hop an agent's row carries (v0.5 §7.1): its running
     /// turn's hop plus one, by the actor as the board knows it. The rows
-    /// in [`HOP_KINDS`] get it as `hop` when it is above zero.
+    /// in [`HOP_KINDS`] get it as `hop` when it is above zero. Called under
+    /// this coord's lock and takes the inbox's, so what runs under the
+    /// inbox lock must never wait on this coord ([`with_inbox_lock_held`]).
     pub hop_of: Option<HopFn>,
     /// On a board, whether this device holds an attachment (by sha256).
     /// A board row naming a file this device holds is preceded by this
@@ -327,10 +332,10 @@ pub struct Options {
     /// a mention, its own board_join or ask_claim). Read when the hand-out
     /// runs. `None`: every agent does, as before.
     pub offers: Option<OffersFn>,
-    /// The board's "Agents per card" (spawned agents §3, part 7): how many
-    /// agents a card may have at once, its lead and helpers, unless the
-    /// card sets its own. `None` or below 1: [`DEFAULT_AGENTS_PER_CARD`].
-    pub agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (card #576). Read when it's needed. `None` or
+    /// below 1: [`MAX_SPAWN_CRASHES`].
+    pub crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// On a board, the names of the live leases this person's agents hold
     /// on their private board (card #339). Named leases never show on a
     /// board, so a board card's external wait that names some held ones is
@@ -369,6 +374,31 @@ pub fn row_hop(payload: &[u8]) -> i64 {
         .max(0)
 }
 
+thread_local! {
+    static UNDER_INBOX_LOCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether this thread is in [`with_inbox_lock_held`].
+pub fn under_inbox_lock() -> bool {
+    UNDER_INBOX_LOCK.get()
+}
+
+/// Runs an inbox hook that the inbox calls under its lock, and marks the
+/// thread for that long (card #561). A board coord's write takes the inbox
+/// lock under its own ([`Options::hop_of`]), so nothing there may wait on a
+/// board coord: in a debug build that wait panics in [`Coord`]'s lock, so
+/// any test reaching it fails rather than hanging one time in a thousand.
+pub fn with_inbox_lock_held<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNDER_INBOX_LOCK.set(self.0);
+        }
+    }
+    let _restore = Restore(UNDER_INBOX_LOCK.replace(true));
+    f()
+}
+
 /// The lock on the fold; changes go out when it drops (Go's `unlock`).
 struct Locked<'a>(MutexGuard<'a, Fold>);
 
@@ -396,6 +426,19 @@ impl Drop for Locked<'_> {
 
 /// Tasks, leases, comments and asks. Safe for concurrent use.
 pub struct Coord {
+    /// One catch-up at a time, taken before `f`, never with it held. A pass
+    /// lets go of `f` between pages (card #567), and a refold must not land
+    /// between a page's read and its fold: the page may hold rows a cut moved
+    /// away. It blocks, never tries: a caller relies on the rows committed
+    /// before its call being folded when it returns, and a running pass may
+    /// have read its vector too early to cover them.
+    ///
+    /// It holds the row each device's rows were last read to, unfollowed
+    /// ones too, so the next pass starts past them. That is apart from the
+    /// fold's `last`, the newest followed row folded: only a cut of followed
+    /// rows rebuilds the fold, so a revoke that cuts a tail of unfollowed
+    /// rows doesn't.
+    catching: Mutex<std::collections::HashMap<String, Event>>,
     f: Mutex<Fold>,
     stale: Arc<RwLock<fold::StaleMap>>,
     spawned: Arc<RwLock<std::collections::HashSet<String>>>,
@@ -439,6 +482,28 @@ impl Coord {
         }
     }
 
+    /// Folds rows as a catch-up does, `page` at a time, with no store: for
+    /// checks that the page size changes nothing.
+    #[doc(hidden)]
+    pub fn fold_pages(&self, rows: &[Event], page: usize) {
+        for evs in rows.chunks(page) {
+            self.lock().fold_page(evs);
+        }
+    }
+
+    /// How far `dev`'s rows are folded.
+    #[doc(hidden)]
+    pub fn folded_to(&self, dev: &str) -> i64 {
+        self.lock().last.get(dev).copied().unwrap_or(0)
+    }
+
+    /// How far a catch-up has read `dev`'s rows, unfollowed ones too.
+    #[doc(hidden)]
+    pub fn read_to(&self, dev: &str) -> i64 {
+        let read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        read.get(dev).map_or(0, |m| m.seq).max(self.folded_to(dev))
+    }
+
     /// The board's set-aside gate alone (Go's `impl.asideGate`): `true`
     /// means the row would fold now. For tests of the cap.
     #[doc(hidden)]
@@ -451,6 +516,7 @@ impl Coord {
         let spawned = f.spawned_keys.clone();
         let board = f.on_board;
         Coord {
+            catching: Mutex::default(),
             f: Mutex::new(f),
             stale,
             spawned,
@@ -459,6 +525,10 @@ impl Coord {
     }
 
     fn lock(&self) -> Locked<'_> {
+        debug_assert!(
+            !self.board || !under_inbox_lock(),
+            "waiting on a board coord under the inbox lock: a board write holds its coord and takes the inbox's (hop_of)"
+        );
         Locked(self.f.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -472,17 +542,56 @@ impl Coord {
         f.busy_with(key, "").map(Fold::busy_text)
     }
 
+    /// A read under the raw guard that never waits: `None` while another
+    /// thread holds the lock.
+    fn try_read<R>(&self, read: impl FnOnce(&Fold) -> R) -> Option<R> {
+        match self.f.try_lock() {
+            Ok(f) => Some(read(&f)),
+            Err(std::sync::TryLockError::Poisoned(e)) => Some(read(&e.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// [`Coord::busy_card`] without waiting: `None` while another thread
     /// holds the lock, so a hook reading a coord that may be waiting on
     /// its own can't deadlock (the agent then counts as free here, as it
     /// did before card #422).
     pub fn try_busy_card(&self, key: &str) -> Option<String> {
-        let f = match self.f.try_lock() {
-            Ok(f) => f,
-            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
-        };
-        f.busy_with(key, "").map(Fold::busy_text)
+        self.try_read(|f| f.busy_with(key, "").map(Fold::busy_text))
+            .flatten()
+    }
+
+    /// [`Coord::get_task`] that never waits, for a caller under the inbox
+    /// lock (card #561): the outer `None` means the log is busy.
+    pub fn try_get_task(&self, id: &str) -> Option<Option<Task>> {
+        self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
+    }
+
+    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
+    /// lock (card #561): `None` when the log is busy. With the matches, the
+    /// keys among their writers and accepters that are this log's person
+    /// ([`Coord::is_person`]), so telling them apart needs no second read.
+    pub fn try_notes_for(
+        &self,
+        cx: &NoteContext,
+    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
+        self.try_read(|f| {
+            let notes = f.notes_for(cx);
+            let people = notes
+                .iter()
+                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
+                .filter(|k| f.is_owner(k))
+                .cloned()
+                .collect();
+            (notes, people)
+        })
+    }
+
+    /// Holds this log's lock until the guard drops, so a test can show a
+    /// reader doesn't wait on it.
+    #[doc(hidden)]
+    pub fn hold_lock(&self) -> impl Sized + '_ {
+        self.f.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // ---- sides (card #494) ----
@@ -1007,6 +1116,33 @@ impl Coord {
     pub fn record_message(&self, m: MessageEntry) -> Result<Comment> {
         self.lock().record_message(m)
     }
+    /// What the person said lately on the cards around `id` (card #555).
+    pub fn said_near(&self, id: &str) -> Vec<Said> {
+        self.lock().said_near(id)
+    }
+    /// The card to tell `key` about on a wake and what the person said
+    /// around it (card #555): the first of `refs` that is its card, or
+    /// with `working` the card it works now.
+    pub fn said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<(String, Vec<Said>)> {
+        self.lock().said_for(key, refs, working)
+    }
+    /// [`Self::said_for`] that never waits: `None` when the log is busy.
+    /// For a caller under the inbox lock: a board coord's write takes the
+    /// inbox's lock under its own (`hop_of`), so waiting here could
+    /// deadlock.
+    pub fn try_said_for(
+        &self,
+        key: &str,
+        refs: &[String],
+        working: bool,
+    ) -> Option<Option<(String, Vec<Said>)>> {
+        self.try_read(|f| f.said_for(key, refs, working))
+    }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
     }
@@ -1351,6 +1487,33 @@ impl Coord {
         f.gone_rows.insert(key.to_string(), at);
         f.ended_by_irori.insert(key.to_string());
     }
+    /// Irori ended agent `key` at `at` on a Claude usage limit (card #450):
+    /// as [`Self::mark_ended`], and an ask it served doesn't wait for the
+    /// person before its next agent.
+    pub fn mark_usage_limited(&self, key: &str, at: GoTime) {
+        let mut f = self.lock();
+        f.gone_rows.insert(key.to_string(), at);
+        f.ended_by_irori.insert(key.to_string());
+        f.usage_limited.insert(key.to_string());
+    }
+    /// The crash limit in force (card #576).
+    pub fn crash_limit(&self) -> u32 {
+        self.lock().crash_limit()
+    }
+    /// Asks the person about card `id` if its crashes reached the limit,
+    /// it doesn't ask yet and this device hands it out: the limit was
+    /// lowered under it, or its agent crashed on another device (card
+    /// #576).
+    pub fn stop_crashed(&self, id: &str) -> Result<()> {
+        let mut f = self.lock();
+        let now = f.stamp();
+        f.stop_crashed_spawns(id, &now)
+    }
+    /// The spawned_for marks written at or after `since`, oldest first
+    /// (card #450).
+    pub fn spawned_since(&self, since: &GoTime) -> Vec<(String, Spawned)> {
+        self.lock().spawned_since(since)
+    }
     /// Whether Irori ended agent `key` (its own `agent.gone` "finished",
     /// replayed from the log): it is never ended a second time (card #474).
     pub fn ended_by_irori(&self, key: &str) -> bool {
@@ -1527,12 +1690,13 @@ impl Coord {
 
     /// One row from the store's subscription (Go Follow's body).
     pub fn handle(&self, ev: &Event) -> Result<()> {
-        let mut f = self.lock();
+        // Before the lock: `catching` comes first.
         if ev.is_resync() {
-            f.catch_up()?;
-            f.refresh_boards();
+            self.catch_up()?;
+            self.lock().refresh_boards();
             return Ok(());
         }
+        let mut f = self.lock();
         // Core writes these itself, so this device's reach the fold here.
         if ev.kind.starts_with("space.board.") || ev.kind.starts_with("board.member.") {
             f.refresh_boards();
@@ -1668,6 +1832,22 @@ impl Coord {
             .unwrap_or_default()
     }
 
+    /// The PRs of [`Coord::merge_waits`] the poller still asks about, a
+    /// closed one too (card #548).
+    pub fn polled_waits(&self, id: &str) -> Vec<String> {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.polled_waits(t))
+            .unwrap_or_default()
+    }
+
+    /// What this board's PR rows say, for each device to pass to the
+    /// agents it hosts (card #548), told already or not.
+    pub fn pr_news(&self) -> Vec<PrNews> {
+        self.lock().pr_news()
+    }
+
     pub fn tick(&self) {
         self.lock().holder_duties();
     }
@@ -1675,6 +1855,7 @@ impl Coord {
     /// Rebuilds the fold when the log holds fewer of some device's rows
     /// than were folded (a revoke's cut moved them to refused_events).
     pub fn refold_if_cut(&self, vec: &store::Vector) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
         self.lock().refold_if_cut(vec)
     }
 
@@ -1684,9 +1865,124 @@ impl Coord {
         self.lock().moved_since(id, since)
     }
 
-    /// Re-reads other devices' rows after a store resync signal.
+    /// After a store resync signal: refold if cut, then page each other
+    /// device's rows past what was folded. Readers and writers get in between
+    /// pages, so a catch-up of thousands of rows holds the lock for one page
+    /// at a time (card #567); only a refold, which rebuilds the fold after a
+    /// cut, holds it throughout. When it returns, every followed row
+    /// committed before the call is folded.
     pub fn catch_up(&self) -> Result<()> {
-        self.lock().catch_up()
+        self.catch_up_by(store::MAX_LIST_LIMIT)
+    }
+
+    /// [`Coord::catch_up`] in pages of `limit` rows.
+    #[doc(hidden)]
+    pub fn catch_up_by(&self, limit: i64) -> Result<()> {
+        // As Store::list clamps it: only the last page is short.
+        let limit = if limit <= 0 {
+            store::DEFAULT_LIST_LIMIT
+        } else {
+            limit.min(store::MAX_LIST_LIMIT)
+        };
+        let mut read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        // In one hold: a vector read apart from `last` could sit below a row
+        // folded since, which reads as a cut.
+        let (st, vec, me, on_board) = {
+            let mut f = self.lock();
+            let Some(st) = f.st.clone() else {
+                return Ok(());
+            };
+            let vec = st.vector()?;
+            f.refold_if_cut(&vec)?;
+            (st, vec, f.dev.clone(), f.on_board)
+        };
+        for (dev, top) in vec.iter().filter(|(d, _)| **d != me) {
+            // The mark holds only while its row is still in the log: a cut
+            // may have taken it, and the device's other branch written new
+            // rows, followed ones too, at the seqs it covered. Then this
+            // reads on from what is folded, as before #567.
+            let mut from = 0;
+            if let Some(m) = read.get(dev)
+                && m.seq <= *top
+                && row_at(&st, dev, m.seq)?.as_ref() == Some(m)
+            {
+                from = m.seq;
+            }
+            self.catch_up_device(&st, dev, from, *top, limit)?;
+            match row_at(&st, dev, *top)? {
+                Some(m) => read.insert(dev.clone(), m),
+                None => read.remove(dev),
+            };
+        }
+        if !on_board {
+            self.catch_up_own_seen(&st, &me, limit)?;
+        }
+        self.lock().holder_duties();
+        Ok(())
+    }
+
+    /// Pages `dev`'s followed rows past `from`, or past what is folded if
+    /// that is further, up to `top`, each page read outside the lock. Every
+    /// followed row up to `top` was committed before the vector was read, so
+    /// when it returns they are all folded and the caller marks the row at
+    /// `top` read, past the unfollowed rows at the device's tail.
+    fn catch_up_device(
+        &self,
+        st: &Store,
+        dev: &str,
+        from: i64,
+        top: i64,
+        limit: i64,
+    ) -> Result<()> {
+        let mut after = from.max(self.lock().last.get(dev).copied().unwrap_or(0));
+        while after < top {
+            let evs = st.list(&store::Filter {
+                device_id: dev.to_string(),
+                after_seq: after,
+                kinds: FOLLOW_KINDS.iter().map(|k| k.to_string()).collect(),
+                limit,
+                ..store::Filter::default()
+            })?;
+            let Some(end) = evs.last().map(|e| e.seq) else {
+                return Ok(());
+            };
+            let more = evs.len() as i64 == limit;
+            let mut f = self.lock();
+            f.fold_page(&evs);
+            if !more {
+                return Ok(());
+            }
+            // A live row may have passed the page.
+            after = end.max(f.last.get(dev).copied().unwrap_or(0));
+        }
+        Ok(())
+    }
+
+    /// This device's repo.seen rows are capture's, not coord's own writes,
+    /// so they reach the fold only live ([`Coord::handle`]); one a full
+    /// subscription dropped, or one written between the startup replay and
+    /// Follow subscribing, is read here. There is one per worktree root,
+    /// and folding one twice changes nothing (card #521).
+    fn catch_up_own_seen(&self, st: &Store, me: &str, limit: i64) -> Result<()> {
+        let mut after = 0;
+        loop {
+            let evs = st.list(&store::Filter {
+                device_id: me.to_string(),
+                after_seq: after,
+                kinds: vec![store::kinds::REPO_SEEN.to_string()],
+                limit,
+                ..store::Filter::default()
+            })?;
+            let mut f = self.lock();
+            for ev in &evs {
+                f.fold_desk(ev);
+            }
+            drop(f);
+            match evs.last() {
+                Some(l) if evs.len() as i64 == limit => after = l.seq,
+                _ => return Ok(()),
+            }
+        }
     }
 
     /// When the expiry timer should fire: the soonest Until of this
@@ -1716,6 +2012,20 @@ impl Coord {
     }
 }
 
+/// `dev`'s row at `seq`, if the log holds it: one seek along the key.
+fn row_at(st: &Store, dev: &str, seq: i64) -> Result<Option<Event>> {
+    Ok(st
+        .list(&store::Filter {
+            device_id: dev.to_string(),
+            after_seq: seq - 1,
+            limit: 1,
+            ..store::Filter::default()
+        })?
+        .into_iter()
+        .next()
+        .filter(|e| e.seq == seq))
+}
+
 impl Fold {
     /// Withdraw (boardlog.go): a board card canceled with withdrawn set.
     fn withdraw(&mut self, by: &str, id: &str, note: &str) -> Result<Task> {
@@ -1742,7 +2052,7 @@ impl Fold {
         }
         if !self.may_cancel(t, &self.dev, None) {
             return Err(error::not_allowed(format!(
-                "only its creator or a board owner withdraws {}",
+                "only its creator or a space owner withdraws {}",
                 t.short_ref()
             )));
         }

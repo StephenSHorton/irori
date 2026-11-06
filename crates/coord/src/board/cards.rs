@@ -106,6 +106,22 @@ pub(crate) fn say_done_open(t: &mut Task, by: &str, at: GoTime) {
 }
 
 /// Keeps the newest KEEP_RESOLVED resolved items.
+/// Whether an answer can put t back on the Board ([`Fold::back_on_board`]).
+fn can_go_back(t: &Task) -> bool {
+    nobody_on(t) && t.subtasks.is_empty()
+}
+
+/// Whether open card t waits with nobody on it or coming to it.
+fn nobody_on(t: &Task) -> bool {
+    t.holders.is_empty()
+        && t.co_holders.is_empty()
+        && t.assigned.is_empty()
+        && !is_terminal(&t.state)
+        && t.state != SUBMITTED
+        && t.state != WORKING
+        && t.open_ask().is_none()
+}
+
 fn trim_resolved(t: &mut Task) {
     let n = t.blockers.len() - count_open(t);
     if n <= KEEP_RESOLVED {
@@ -787,6 +803,7 @@ impl Fold {
                 let Some(p) = row::<BlockerResolvedRow>(&ev.payload) else {
                     return;
                 };
+                let person = self.person_row(ev, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -794,12 +811,22 @@ impl Fold {
                 else {
                     return;
                 };
+                // Their say on the crash question clears the run on a card
+                // no answer can put back on the Board too (card #540).
+                if person && super::spawn::is_crash_question(&t.blockers[i]) {
+                    t.spawn_crashes = 0;
+                }
                 let when = at(p.at);
                 let mut opt = p.option;
                 if opt < -1 || opt >= t.blockers[i].options.len() as i64 {
                     opt = -1;
                 }
                 let q = t.blockers[i].question.clone();
+                // A parent's state can't be set, so closing this is the
+                // person's say that clears its run of crashes (#451).
+                if person && super::spawn::is_crash_text(&q) {
+                    t.spawn_crashes = 0;
+                }
                 t.blockers[i].resolved = Some(Resolution {
                     answer: p.answer.clone(),
                     option: opt,
@@ -1475,19 +1502,11 @@ impl Fold {
     /// board, starts a fresh agent); the answer stays in the blocker's
     /// thread and Left off is kept, for whoever picks it up.
     pub(crate) fn back_on_board(&mut self, by: &str, id: &str, why: &str) -> Result<bool> {
-        let Some(t) = self.tasks.get(id) else {
+        let Some(t) = self.tasks.get(id).filter(|t| nobody_on(t)) else {
             return Ok(false);
         };
-        if !t.holders.is_empty()
-            || !t.co_holders.is_empty()
-            || !t.assigned.is_empty()
-            || is_terminal(&t.state)
-            || t.state == SUBMITTED
-            || t.state == WORKING
-            || t.open_ask().is_some()
-            || !t.subtasks.is_empty()
-        {
-            return Ok(false);
+        if !t.subtasks.is_empty() {
+            return self.lead_again(by, id);
         }
         let at = self.stamp();
         self.write(
@@ -1502,6 +1521,33 @@ impl Fold {
                 ..TaskStateRow::default()
             },
         )?;
+        Ok(true)
+    }
+
+    /// back_on_board for a parent, whose state follows its subtasks: the
+    /// person's answer to "crashed twice" closes it, which lets the next
+    /// lead start. Anything else on a parent stays as it is.
+    fn lead_again(&mut self, by: &str, id: &str) -> Result<bool> {
+        let t = &self.tasks[id];
+        let Some(b) = t
+            .blockers
+            .iter()
+            .find(|b| b.open() && super::spawn::is_crash_text(&b.question))
+            .filter(|_| self.is_owner(by))
+        else {
+            return Ok(false);
+        };
+        let row = BlockerResolvedRow {
+            task_id: id.into(),
+            blocker_id: b.id.clone(),
+            answer: super::spawn::CRASHED_START.into(),
+            option: -1,
+            by: by.into(),
+            restored: self.restore_for(t).into(),
+            at: self.stamp(),
+            ..BlockerResolvedRow::default()
+        };
+        self.write(by, kinds::BLOCKER_RESOLVED, &row)?;
         Ok(true)
     }
 
@@ -1564,6 +1610,16 @@ impl Fold {
                 _ => {}
             }
         }
+        // The person's say on the crash question goes on its thread and
+        // puts the card back on the Board, whichever way it came (card
+        // #540): the window resolves Irori's asks, and only the thread
+        // reaches the next agent's brief on any device, board or retry.
+        let say = a.pick > 0 || !text.is_empty();
+        let crash = self.is_owner(&by) && super::spawn::is_crash_question(&b);
+        let a = BlockerAnswer {
+            resolve: a.resolve && !(crash && say && can_go_back(&t)),
+            ..a
+        };
         let last = if a.resolve {
             last_answer(self, &t, &b.id)
         } else {
@@ -2360,10 +2416,18 @@ impl Fold {
         let title = e.title.map(|s| trim_space(&s).to_string());
         let obj = e.objective.map(|s| trim_space(&s).to_string());
         let done = e.done_when.map(|s| trim_space(&s).to_string());
-        if title.is_none() && obj.is_none() && done.is_none() {
+        // Its repo (card #600), in the checkout's spelling: set, not cleared.
+        let repo = e
+            .repo
+            .map(|s| ledger::canonical_repo_key(trim_space(&s)))
+            .filter(|r| !r.is_empty());
+        if title.is_none() && obj.is_none() && done.is_none() && repo.is_none() {
             return Err(invalid(
-                "give title, objective or done_when: what the card is now",
+                "give title, objective, done_when or repo: what the card is now",
             ));
+        }
+        if let Some(r) = &repo {
+            super::resource::check_repo_key(r)?;
         }
         if title.as_deref() == Some("") {
             return Err(invalid("a card needs a title"));
@@ -2395,7 +2459,8 @@ impl Fold {
         }
         let same = title.as_ref().is_none_or(|v| *v == t.title)
             && obj.as_ref().is_none_or(|v| *v == t.objective)
-            && done.as_ref().is_none_or(|v| *v == t.done_criteria);
+            && done.as_ref().is_none_or(|v| *v == t.done_criteria)
+            && repo.as_ref().is_none_or(|v| *v == t.repo_key);
         if same {
             return Ok(t);
         }
@@ -2412,6 +2477,7 @@ impl Fold {
                 title: title.clone(),
                 objective: obj.clone(),
                 done_criteria: done.clone(),
+                repo_key: repo.clone(),
                 by: by.clone(),
                 from,
                 at,
@@ -2422,7 +2488,8 @@ impl Fold {
         let now = &self.tasks[id];
         let landed = title.as_ref().is_none_or(|v| *v == now.title)
             && obj.as_ref().is_none_or(|v| *v == now.objective)
-            && done.as_ref().is_none_or(|v| *v == now.done_criteria);
+            && done.as_ref().is_none_or(|v| *v == now.done_criteria)
+            && repo.as_ref().is_none_or(|v| *v == now.repo_key);
         if !landed {
             return Err(super::error::Error::raw(
                 super::error::ErrorKind::BadState,

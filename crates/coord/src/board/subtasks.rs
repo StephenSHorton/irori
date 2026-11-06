@@ -36,6 +36,7 @@ impl Fold {
         if child.is_empty() {
             return;
         }
+        self.links_moved = true;
         self.links.push(ParentLink {
             child: child.into(),
             parent: parent.into(),
@@ -57,6 +58,7 @@ impl Fold {
     /// Derives every card's Parent and Subtasks from the link rows, then
     /// each parent's Rollup.
     pub(crate) fn relink(&mut self) {
+        self.links_moved = false;
         self.links.sort_by(|a, b| a.at.cmp(&b.at));
         let mut parent_of: HashMap<String, String> = HashMap::new();
         let mut kids: HashMap<String, i64> = HashMap::new();
@@ -682,6 +684,7 @@ impl Fold {
         }
         self.deleted.insert(p.task_id.clone());
         self.placed.remove(&p.task_id);
+        self.links_moved = true;
         if self.tasks.remove(&p.task_id).is_some() {
             self.order.remove(&p.task_id);
             self.pins.remove(&p.task_id);

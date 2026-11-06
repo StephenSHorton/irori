@@ -260,10 +260,11 @@ impl Fold {
             } else {
                 a.board.clone()
             },
-            channel: if self.on_board || !a.thread {
-                String::new()
-            } else {
+            // A space's thread names its channel too (card #558).
+            channel: if a.thread {
                 clean_channel(&a.channel)
+            } else {
+                String::new()
             },
             ..Ask::default()
         });
@@ -509,6 +510,14 @@ impl Fold {
                     }
                     t.done_criteria = d.clone();
                 }
+                // Its repo (card #600): set, never cleared, by a row.
+                if let Some(r) = &p.repo_key {
+                    let r = ledger::canonical_repo_key(r);
+                    if !r.is_empty() && r != t.repo_key {
+                        changed.push(format!("set its repo to {}", ledger::repo_name(&r)));
+                        t.repo_key = r;
+                    }
+                }
                 // A thread's "Agents answer now" (card #391); edit_gate let
                 // only a person's row carry it.
                 if let Some(on) = p.agents_now
@@ -655,6 +664,7 @@ impl Fold {
     /// Ends t's ask once a task.status with an outcome (or the person's
     /// terminal state) folds at `at`.
     pub(crate) fn close_ask_fold(&mut self, t: &mut Task, o: Outcome, at: RowPos) {
+        self.links_moved = true;
         if let Some(a) = t.ask.as_mut() {
             a.outcome = Some(o);
             a.waiting.clear();
@@ -847,10 +857,10 @@ impl Fold {
                         input.board.trim().to_string()
                     },
                     owner: if delegated { owner } else { String::new() },
-                    channel: if self.on_board || !input.thread {
-                        String::new()
-                    } else {
+                    channel: if input.thread {
                         clean_channel(&input.channel)
+                    } else {
+                        String::new()
                     },
                 }),
                 side,

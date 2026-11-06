@@ -7,10 +7,12 @@
 // what happened, who did it and when. A click re-checks too: Irori
 // refuses an answer to something already answered, and the row says so.
 
+import { cardRef } from "@/components/cards/bits"
 import { useEffect, useState, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Loading } from "@/components/ui/loading"
 import { BlockerAnswer, OwnWords, Said, useAct } from "@/components/cards/needs-you"
 import { useCard } from "@/lib/cards"
 import { plainLine, relativeTime } from "@/lib/irori"
@@ -124,23 +126,31 @@ export function NotificationsPage({
           Could not load the notifications: {error}
         </p>
       )}
-      {items.length === 0 ? (
-        <p className="px-1 text-[12.5px] text-muted-foreground">
-          {loading
-            ? "Loading notifications…"
-            : filter === "unread" && list.length > 0
+      {/* Until the first read lands, the list's shape (card #598); loading
+          never comes back on a reload. */}
+      <Loading
+        loading={loading}
+        label="Loading the notifications"
+        className="min-w-0"
+      >
+        {loading ? (
+          <NotificationsShape />
+        ) : items.length === 0 ? (
+          <p className="px-1 text-[12.5px] text-muted-foreground">
+            {filter === "unread" && list.length > 0
               ? "You've read them all. All shows every one."
               : "Nothing yet. Every notification Irori shows you is kept here."}
-        </p>
-      ) : (
-        <ul className="grid min-w-0 gap-2.5" aria-label="Notifications">
-          {items.slice(0, limit).map((n) => (
-            <li key={n.key} className="min-w-0">
-              <Item n={n} now={now} onRead={() => open(n)} onOpenCard={onOpenCard} onOpenMessage={onOpenMessage} />
-            </li>
-          ))}
-        </ul>
-      )}
+          </p>
+        ) : (
+          <ul className="grid min-w-0 gap-2.5" aria-label="Notifications">
+            {items.slice(0, limit).map((n) => (
+              <li key={n.key} className="min-w-0">
+                <Item n={n} now={now} onRead={() => open(n)} onOpenCard={onOpenCard} onOpenMessage={onOpenMessage} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Loading>
       {items.length > limit && (
         <Button
           variant="link"
@@ -152,6 +162,40 @@ export function NotificationsPage({
         </Button>
       )}
     </section>
+  )
+}
+
+// NotificationsShape is the list's skeleton: a few items in Item's frame,
+// plain markup with no hooks.
+function NotificationsShape() {
+  const rows = [
+    [
+      "#12",
+      "Fix the boat clipping through the dock",
+      "Widened the dock collider, so boats stop at the edge.",
+    ],
+    [
+      "#3",
+      "Two-PC lobby join for the multiplayer build",
+      "Should the lobby list come from Steam, or from our own server?",
+    ],
+    ["#18", "Asks and Talk threads get their own agent", ""],
+  ]
+  return (
+    <ul className="grid min-w-0 gap-2.5">
+      {rows.map(([ref, title, body]) => (
+        <li key={ref} className="grid min-w-0 gap-2 px-4 py-3 glass-panel">
+          <div className="flex min-w-0 items-center gap-x-2 text-[12.5px] text-muted-foreground">
+            <span className="block h-5 w-20 rounded-md" />
+            <span className="font-mono">{ref}</span>
+            <span className="ml-auto">2m ago</span>
+          </div>
+          <h3 className="text-[15px] leading-snug font-semibold">{title}</h3>
+          {body && <p className="text-sm text-muted-foreground">{body}</p>}
+          <span className="block h-8 w-24 rounded-md" />
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -200,7 +244,7 @@ function Item({
             title={plainLine(n.card.title)}
             onClick={openCard}
           >
-            {n.card.short ? `#${n.card.short}` : plainLine(n.card.title)}
+            {n.card.short ? cardRef(n.card) : plainLine(n.card.title)}
           </button>
         )}
         <span className="ml-auto shrink-0 tabular-nums" title={at(n.at)?.toLocaleString()}>

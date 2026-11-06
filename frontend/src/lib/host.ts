@@ -79,6 +79,11 @@ export const Events = {
   },
 }
 
+// WindowLog writes one line to irori.log (window-log.ts).
+export function WindowLog(line: string): Promise<void> {
+  return done(commands.windowLog(line))
+}
+
 // ---- Browser, Clipboard ---------------------------------------------------------
 
 export const Browser = {
@@ -270,6 +275,7 @@ export const BoardService = {
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
+  ThreadsAll: () => call(commands.boardThreadsAll()),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
@@ -309,6 +315,9 @@ export const TalkService = {
     spaceId: string | null = null
   ) => call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
+  // Everyone the person can DM, and leaving a DM with one of them (#538).
+  DmPeople: () => call(commands.talkDmPeople()),
+  DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
   Leave: (convId: string, member: B.TalkMemberRef) =>
@@ -340,6 +349,10 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Limits: () => call(commands.agentsLimits()),
+  CapSet: (device: string, cap: number) =>
+    call(commands.agentsCapSet(device, cap)),
+  UsageRelease: () => call(commands.agentsUsageRelease()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
   // Asks the device the agent starts on to trust it there (part 11);
@@ -359,6 +372,13 @@ export const BoardsService = {
     call(commands.boardsRename(boardId, name)),
   AddToSpace: (spaceId: string, name: string, tag: string) =>
     call(commands.boardsAddToSpace(spaceId, name, tag)),
+  RenameInSpace: (spaceId: string, boardId: string, name: string) =>
+    call(commands.boardsRenameInSpace(spaceId, boardId, name)),
+  Personal: () => call(commands.boardsPersonal()),
+  AddToPersonal: (name: string, tag: string) =>
+    call(commands.boardsAddToPersonal(name, tag)),
+  RenameInPersonal: (boardId: string, name: string) =>
+    call(commands.boardsRenameInPersonal(boardId, name)),
   DeleteInSpace: (spaceId: string, boardId: string) =>
     call(commands.boardsDeleteInSpace(spaceId, boardId)),
   DeleteInPersonal: (boardId: string) =>
@@ -411,7 +431,8 @@ export const DevicesService = {
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
   SideNames: () => call(commands.devicesSideNames()),
-  SetDeviceSides: (sides: string[]) => call(commands.devicesSetDeviceSides(sides)),
+  SetDeviceSides: (sides: string[]) =>
+    call(commands.devicesSetDeviceSides(sides)),
   AddDevice: (role: string) => call(commands.devicesAddDevice(role)),
   JoinWithCode: (code: string, server: string) =>
     call(commands.devicesJoinWithCode(code, server)),
@@ -458,6 +479,10 @@ export const UpdateService = {
   Supported: () => call(commands.updateSupported()),
   CheckAndDownload: () => call(commands.updateCheckAndDownload()),
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
+  // Keep this device up to date (card #578): null where it doesn't apply.
+  GetKeepUpToDate: () => call(commands.updateGetKeepUpToDate()),
+  SetKeepUpToDate: (on: boolean) =>
+    call(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as

@@ -146,9 +146,9 @@ export function buildItems({
       key: `board:${b.boardId}`,
       title: b.name,
       hint: b.tag ? `${b.tag}#` : undefined,
-      group: "Boards",
+      group: "Spaces",
       run: () => onBoard(b.boardId),
-      others: [b.tag, "board"],
+      others: [b.tag, "space", "board"],
     })
   // Agents Irori started for a card (card #456, spawned agents §10) are
   // listed under their card: its ref and title as the hint, and Enter
@@ -191,7 +191,7 @@ const groupOrder = [
   "Recent",
   "Go to",
   "Cards",
-  "Boards",
+  "Spaces",
   "Commands",
   "Agents",
   "Agents on cards",
@@ -402,8 +402,8 @@ export function CommandPalette({
                 setActive(0)
               }}
               onKeyDown={onKeyDown}
-              placeholder="Jump to a card, board or agent, or run a command…"
-              aria-label="Search cards, boards, agents and commands"
+              placeholder="Jump to a card, space or agent, or run a command…"
+              aria-label="Search cards, spaces, agents and commands"
               role="combobox"
               aria-expanded
               aria-controls="palette-list"

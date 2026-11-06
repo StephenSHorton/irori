@@ -158,6 +158,10 @@ impl Watcher {
     }
 }
 
+/// Whether this OS has a watcher; where not, [`watch`] always returns
+/// [`Error::Unsupported`].
+pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+
 /// Starts watching `root` (a directory), with its whole subtree when
 /// `recursive`. Events for one path within `debounce` are merged (zero
 /// means [`DEFAULT_DEBOUNCE`]). The watcher stops when `cancel` is canceled

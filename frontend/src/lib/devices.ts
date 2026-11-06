@@ -89,6 +89,16 @@ function sampleList(): DeviceView[] {
       lastSeen: new Date().toISOString(),
       sides: ["Work"],
     }),
+    // Reached only through another device (card #544).
+    DeviceView({
+      deviceId: "sample-laptop",
+      name: "Laptop",
+      role: "desktop",
+      color: "indigo",
+      state: "recent",
+      lastSeen: new Date(Date.now() - 2 * 60_000).toISOString(),
+      via: "Phone",
+    }),
     DeviceView({
       deviceId: "sample-node",
       name: "Node",
@@ -220,7 +230,8 @@ const sample = {
     if (!d) throw new Error("no device here")
     const kept = cleanSides(sides)
     d.sides = kept.length ? kept : undefined
-    for (const s of kept) if (!sampleSideNames.some((n) => sameSide(n, s))) sampleSideNames.push(s)
+    for (const s of kept)
+      if (!sampleSideNames.some((n) => sameSide(n, s))) sampleSideNames.push(s)
     for (const fn of sampleListeners) fn()
     return kept
   },
@@ -479,6 +490,9 @@ function onPairing(fn: (s: PairStatus) => void): () => void {
 export type DevicesState = {
   devices: DeviceView[]
   error: string | null
+  // True until the first read lands, for the list's skeleton (card #598);
+  // a reload never sets it again.
+  loading: boolean
   reload: () => Promise<void>
 }
 
@@ -493,7 +507,7 @@ export function useDevices(active: boolean): DevicesState {
         : sampleList().map((d) => DeviceView(d)),
     []
   )
-  const { value, error, reload } = useLatest<DeviceView[]>(load, [])
+  const { value, error, loading, reload } = useLatest<DeviceView[]>(load, [])
 
   useEffect(() => {
     if (!active) return
@@ -514,7 +528,7 @@ export function useDevices(active: boolean): DevicesState {
     }
   }, [active, reload])
 
-  return { devices: value, error, reload }
+  return { devices: value, error, loading, reload }
 }
 
 // usePairing follows the open (or last) pairing while active. A pairing

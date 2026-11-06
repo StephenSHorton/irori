@@ -75,7 +75,7 @@ pub use notes::{NotesBackend, ToolNote};
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
 pub use shared::{
-    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW,
+    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW, PersonInfo,
     REQUEST_WAIT, SharedBoards,
 };
 pub use specs::{
@@ -134,6 +134,13 @@ pub trait TaskRouter: Send + Sync {
     ) -> Result<(Arc<coord::Coord>, Vec<String>), coord::Error>;
     fn private_notice(&self, n: coord::Notice) -> coord::Notice;
     fn task_ref(&self, r: &str) -> Result<String, coord::Error>;
+    /// A key a shared log names as this device knows it (`agent:<cardId>`
+    /// of one of this person's agents, their `person:<id>`); any other key
+    /// as given. A read: it mints no card, unlike the keys
+    /// [`Self::task_coord`] gives.
+    fn private_key(&self, key: &str) -> String {
+        key.to_string()
+    }
     /// Mirrors an agent's lease into every shared board where it works a
     /// shared card in the resource's repo (v0.5 §5.4, `Coord::mirror_acquire`
     /// with its card there), before the private lease is taken. An error
@@ -198,6 +205,11 @@ pub trait BoardViewer: Send + Sync {
 pub trait Backend: Send + Sync {
     /// This device's roster (presence plus Grok members).
     fn agents(&self) -> Vec<presence::AgentCard>;
+    /// Whether this device's session `key` has a live attach stream
+    /// (GitHub #57); `None` when this backend can't tell.
+    fn attached(&self, _key: &str) -> Option<bool> {
+        None
+    }
     /// The agents Irori hands an unheld card to (#82): every device's, as
     /// asks go out, without this device's while Pause all is on. The
     /// default is [`Backend::agents`].

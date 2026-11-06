@@ -188,7 +188,7 @@ impl Window {
         let (co, keys) = self.on(id, &[])?;
         if !files.is_empty() && !std::sync::Arc::ptr_eq(&co, self.core.coord()) {
             return Err(invalid(
-                "files go with a comment on your own board only; comment without them",
+                "files go with a comment in Personal only; comment without them",
             ));
         }
         let me = keys[0].clone();
@@ -272,13 +272,13 @@ impl Window {
         let board_id = trim(board_id);
         if !board_id.is_empty() && !mentions.is_empty() {
             return Err(invalid(
-                "mentions work on an ask on your own board; on a shared board, ask the room",
+                "mentions work on an ask in Personal; in a shared space, ask the room",
             ));
         }
         if !board_id.is_empty() {
             if !files.is_empty() {
                 return Err(invalid(
-                    "files go with an ask on your own board only; ask without them, or attach them on a card",
+                    "files go with an ask in Personal only; ask without them, or attach them on a card",
                 ));
             }
             let (t, n) = self
@@ -375,7 +375,7 @@ impl Window {
         let id = trim(id);
         if self.core.coord().get_task(id).is_none() {
             return Err(invalid(
-                "a card on a shared board isn't handed to an agent from here: take it with one of your agents",
+                "a card in a shared space isn't handed to an agent from here: take it with one of your agents",
             ));
         }
         self.core.hand_on(id)
@@ -442,7 +442,7 @@ impl Window {
             && !board_id.is_empty()
         {
             return Err(format!(
-                "{}: a card on a shared board is withdrawn, not deleted: the others on it already have it",
+                "{}: a card in a shared space is withdrawn, not deleted: the others on it already have it",
                 coord::ErrorKind::Invalid.text()
             ));
         }
@@ -615,7 +615,7 @@ impl Window {
         let (co, keys) = self.on(task_id, &[])?;
         if !files.is_empty() && !std::sync::Arc::ptr_eq(&co, self.core.coord()) {
             return Err(invalid(
-                "files go with an answer on your own board only; answer without them",
+                "files go with an answer in Personal only; answer without them",
             ));
         }
         let me = keys[0].clone();
@@ -653,8 +653,10 @@ impl Window {
                 irori_acts: false,
             });
         }
-        // A card someone holds is theirs: the sweep leaves it alone.
+        // A card someone holds is theirs: the sweep leaves it alone. A card
+        // with subtasks gets no agent of its own.
         let irori_acts = irori_core::spawn_stop::irori_acts_on(bl)
+            && t.subtasks.is_empty()
             && t.holders.is_empty()
             && t.co_holders.is_empty()
             && t.assigned.is_empty();

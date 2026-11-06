@@ -21,7 +21,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Irori turns what you say into text when you hold the mic button.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Irori syncs your boards with your other devices on this network.</string>
+	<string>Irori syncs your spaces with your other devices on this network.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

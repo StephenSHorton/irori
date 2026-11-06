@@ -3,6 +3,7 @@
 // here until Spaces (Talk 4) bring them into Talk. The thread pieces it
 // shows live in components/talk/threads.
 
+import { cardRef } from "@/components/cards/bits"
 import { useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
 
@@ -133,10 +134,29 @@ function ThreadRow({
   now: Date
   why: string
 }) {
-  // Opened from elsewhere (a #ref, card #144), it scrolls into view.
+  // Opened from elsewhere (a #ref, card #144), it scrolls into view. It
+  // grows as its messages load and arrive: it scrolls again so the reply
+  // box stays in view, unless the person has scrolled away (card #564).
   const box = useRef<HTMLElement>(null)
   useEffect(() => {
-    if (open) box.current?.scrollIntoView({ block: "nearest" })
+    const el = box.current
+    if (!open || !el) return
+    let inView = true
+    const seen = new IntersectionObserver(
+      ([e]) => {
+        inView = e.isIntersecting
+      },
+      { threshold: 0.5 }
+    )
+    const grown = new ResizeObserver(() => {
+      if (inView) el.scrollIntoView({ block: "nearest" })
+    })
+    seen.observe(el)
+    grown.observe(el)
+    return () => {
+      seen.disconnect()
+      grown.disconnect()
+    }
   }, [open])
   const at = parseTime(t.updatedAt)
   const waiting = t.state === "waiting" || t.state === "handed"
@@ -159,7 +179,7 @@ function ThreadRow({
         <span className="flex min-w-0 items-center gap-2">
           {t.short && (
             <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-              #{plainLine(t.short)}
+              {cardRef(t)}
             </span>
           )}
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
@@ -202,12 +222,22 @@ function ThreadRow({
         )}
       </button>
       {t.cards.length > 0 && <ThreadCards cards={t.cards} />}
-      {open && <ThreadView t={t} now={now} onResolved={onResolved} scroll={PanelThreadMax} />}
+      {open && (
+        <ThreadView
+          t={t}
+          now={now}
+          onResolved={onResolved}
+          bound={PanelThreadBound}
+        />
+      )}
     </section>
   )
 }
 
 
-// How tall an open thread's messages grow in the panel before they scroll
-// (card #170): the window less the header, the ask box and its own lines.
-const PanelThreadMax = "max-h-[max(6rem,calc(100svh-30rem))]"
+// How tall an open thread grows in the panel (cards #170, #564): the window
+// less the header, the ask box and its row's title, so the row fits the
+// column. If a tall draft outgrows that in a tiny window, the thread itself
+// scrolls; the padding keeps the box's focus ring from being cut.
+const PanelThreadBound =
+  "-mx-1 max-h-[max(13rem,calc(100svh-19rem))] overflow-y-auto px-1"

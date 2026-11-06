@@ -47,6 +47,26 @@ pub const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start anot
 /// The person's way on from it (their own words go into the next brief).
 pub const CRASHED_START: &str = "Start another agent";
 
+/// Whether b is Irori's crash question.
+pub fn is_crash_question(b: &Blocker) -> bool {
+    b.raised_by == SWEEPER && is_crash_text(&b.question)
+}
+
+/// Whether `q` is [`crash_question`]'s, at any limit (card #576).
+pub(crate) fn is_crash_text(q: &str) -> bool {
+    q.starts_with("Its agent crashed") && q.ends_with(": start another?")
+}
+
+/// The question at a crash limit of `n`: [`CRASHED_QUESTION`] at the
+/// default, so rows and older devices read it as before.
+pub fn crash_question(n: u32) -> String {
+    match n {
+        0 | 1 => "Its agent crashed: start another?".into(),
+        MAX_SPAWN_CRASHES => CRASHED_QUESTION.into(),
+        n => format!("Its agent crashed {n} times in a row: start another?"),
+    }
+}
+
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 
@@ -353,7 +373,8 @@ impl Fold {
             return Ok(None);
         }
         let card = a.step.is_empty() && a.subtask.is_empty();
-        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) {
+        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) && !self.needs_lead(t)
+        {
             return Ok(None);
         }
         let generation = mine.map(|s| s.generation).unwrap_or(0) + 1;
@@ -573,7 +594,10 @@ impl Fold {
         let Some(s) = t.spawn_request() else {
             return false;
         };
-        if s.key.is_empty() || !self.ended_by_irori.contains(&s.key) {
+        if s.key.is_empty()
+            || !self.ended_by_irori.contains(&s.key)
+            || self.usage_limited.contains(&s.key)
+        {
             return false;
         }
         if a.reason == super::asks::TAKE_REOPENED {
@@ -598,7 +622,9 @@ impl Fold {
         let mut v: Vec<(Task, Spawn)> = self
             .tasks
             .values()
-            .filter(|t| super::offers::needs_agent(t) || self.ask_needs_agent(t))
+            .filter(|t| {
+                super::offers::needs_agent(t) || self.ask_needs_agent(t) || self.needs_lead(t)
+            })
             .filter_map(|t| {
                 let s = t.spawn_request()?;
                 (s.pending() && s.device == self.dev && self.mine_to_start(t, s))
@@ -635,12 +661,13 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
+                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.hands_out(t))
+                    || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.
             .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
-            .filter(|t| t.spawn_crashes < MAX_SPAWN_CRASHES)
+            .filter(|t| t.spawn_crashes < self.crash_limit())
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
             .filter(|t| {
@@ -651,6 +678,7 @@ impl Fold {
                 t.spawn_request().is_none_or(|s| {
                     s.op != SPAWN_FAILED
                         || s.device != self.dev
+                        || usage_limited(s)
                         || self.spawn_now.contains(&t.id)
                         || gotime::at_least(&now, &s.at, SPAWN_RETRY)
                         || gotime::before(&s.at, &t.updated_at)
@@ -658,7 +686,68 @@ impl Fold {
             })
             .cloned()
             .collect();
-        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
-        self.within_limits(v)
+        v.sort_by(|a, b| {
+            self.queue_class(a)
+                .cmp(&self.queue_class(b))
+                .then_with(|| gotime::cmp(&a.created_at, &b.created_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        v
+    }
+
+    /// Where card t goes in the spawn queue (§6, card #450): first what
+    /// the person asked for (a card or ask they made, which New card on a
+    /// spawning board gives "a fresh agent", or their "Start an agent"),
+    /// then a lead's helper parts, then the rest (agents' cards) by age.
+    pub(crate) fn queue_class(&self, t: &Task) -> u8 {
+        if self.spawn_now.contains(&t.id) || (t.parent.is_empty() && self.is_owner(&t.created_by)) {
+            0
+        } else if t.spawn && !t.parent.is_empty() {
+            1
+        } else {
+            2
+        }
+    }
+
+    /// The spawned_for marks written at or after `since` (card #450:
+    /// today's count), with their agents' keys.
+    pub(crate) fn spawned_since(&self, since: &GoTime) -> Vec<(String, Spawned)> {
+        let mut v: Vec<(String, Spawned)> = self
+            .spawned
+            .iter()
+            .filter(|(_, s)| !gotime::before(&s.at, since))
+            .map(|(k, s)| (k.clone(), s.clone()))
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.cmp(&b.0)));
+        v
     }
 }
+
+impl Fold {
+    /// How many of a card's agents may crash in a row before Irori stops
+    /// and asks the person (card #576): the board's setting, else
+    /// [`MAX_SPAWN_CRASHES`].
+    pub(crate) fn crash_limit(&self) -> u32 {
+        self.crash_limit
+            .as_ref()
+            .map(|f| f())
+            .filter(|n| *n >= 1)
+            .map_or(MAX_SPAWN_CRASHES, |n| n as u32)
+    }
+}
+
+/// How the reason on a request that a Claude usage limit stopped starts
+/// (card #450): it isn't a failure, so it waits for the limit's reset (the
+/// Core's hold), not [`SPAWN_RETRY`], and the card reads "queued: usage
+/// limit" rather than "can't start".
+pub const USAGE_LIMIT: &str = "usage limit";
+
+/// Whether request s ended on a Claude usage limit.
+pub fn usage_limited(s: &Spawn) -> bool {
+    s.op == SPAWN_FAILED && s.reason.starts_with(USAGE_LIMIT)
+}
+
+/// The `agent.gone` reason Irori writes for an agent it ended on a usage
+/// limit (card #450): ended by Irori, so no crash, and an ask it served
+/// starts again after the reset instead of waiting for the person.
+pub const GONE_USAGE_LIMIT: &str = "usage limit";

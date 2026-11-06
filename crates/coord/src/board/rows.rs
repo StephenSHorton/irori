@@ -46,8 +46,6 @@ crate::go_struct! {
         pub parent: String = "parent" "omit",
         /// A helper's part of its parent (spawned agents §3).
         pub spawn: bool = "spawn" "omit",
-        /// The card's own Up to N agents (§3); 0 for the board's.
-        pub agents: i64 = "agents" "omit",
         /// The thread the card was made from (card #155).
         pub from: String = "from" "omit",
         /// The board in a space it's on (card #392): a `space.board.created`
@@ -121,6 +119,9 @@ crate::go_struct! {
         pub error: String = "error" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
+        /// OPEN heard by a device that knew the PR closed: a reopen
+        /// (card #548). An OPEN without it can't undo a closing.
+        pub over_closed: bool = "overClosed" "omit",
     }
 }
 
@@ -499,6 +500,8 @@ crate::go_struct! {
         pub title: Option<String> = "title" "omit",
         pub objective: Option<String> = "objective" "omit",
         pub done_criteria: Option<String> = "doneCriteria" "omit",
+        /// The card's repoKey (card #600); an older Irori ignores it.
+        pub repo_key: Option<String> = "repoKey" "omit",
         pub by: String = "by",
         pub from: String = "from" "omit",
         pub note: String = "note" "omit",
@@ -540,6 +543,14 @@ crate::go_struct! {
     pub struct TaskIdRow {
         pub task_id: String = "taskId",
         pub who: String = "who",
+    }
+}
+
+crate::go_struct! {
+    /// What the fold reads of a `space.board.*` row; the Core reads the rest.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct SpaceBoardIdRow {
+        pub board_id: String = "boardId",
     }
 }
 

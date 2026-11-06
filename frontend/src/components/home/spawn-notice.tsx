@@ -19,7 +19,7 @@ export function SpawnNotice() {
         <BotIcon className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
         <div className="grid gap-1">
           <p className="font-medium text-ink">
-            Irori now starts an agent for each open card on your own board.
+            Irori now starts an agent for each open card in Personal.
           </p>
           <p className="text-[12.5px] text-muted-foreground">
             You no longer wait for a free agent: open cards nobody holds get one

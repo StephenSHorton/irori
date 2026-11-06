@@ -12,6 +12,12 @@
 //! A subtask split off marked is a helper's part. Its agent's completed
 //! goes to the parent's holder (the lead), not to the person: a card split
 //! four ways asks the person once, on the parent.
+//!
+//! A lead can go while its helpers work: Claude Code's background sessions
+//! drop off about an hour after going idle, and a lead waiting on queued
+//! helpers is idle. Then a part that finishes waits for the next lead, and
+//! Irori starts one for the card ([`Fold::needs_lead`]), so the helpers'
+//! branches still get merged and the person is still asked once (#451).
 
 use gocompat::time::GoTime;
 
@@ -19,13 +25,7 @@ use super::MAX_OBJECTIVE;
 use super::error::Result;
 use super::fold::Fold;
 use super::types::*;
-use super::util::cut;
-
-/// A card's agents at once, lead and helpers, when neither the card nor
-/// the board says (decision 12).
-pub const DEFAULT_AGENTS_PER_CARD: i64 = 4;
-/// The most a card may ask for: the Mac's device cap (decision 11).
-pub const MAX_AGENTS_PER_CARD: i64 = 12;
+use super::util::{SWEEPER, cut};
 
 /// The thread line's tail when a row's marks were set aside.
 pub(crate) const SPAWN_REFUSED: &str =
@@ -33,6 +33,9 @@ pub(crate) const SPAWN_REFUSED: &str =
 
 /// A helper's question to its lead when it says its part is done.
 pub const PART_QUESTION: &str = "Part done: merge it and accept?";
+
+/// Who a part's wait on Irori is shown waiting on once no lead is coming.
+pub(crate) const NO_LEAD: &str = "its lead";
 
 /// The context when the helper gave no proof.
 const PART_CONTEXT: &str = "The helper says its part is done. Merge its branch into the card's branch, then accept with board_status completed on this subtask, or say what is missing on its thread.";
@@ -71,74 +74,49 @@ impl Fold {
             .unwrap_or_default()
     }
 
-    /// How many agents card t may have at once: its own Up to N, else the
-    /// board's Agents per card, else [`DEFAULT_AGENTS_PER_CARD`].
-    pub(crate) fn agent_limit(&self, t: &Task) -> usize {
-        let board = self
-            .agents_per_card
-            .as_ref()
-            .map(|f| f())
-            .filter(|n| *n >= 1)
-            .unwrap_or(DEFAULT_AGENTS_PER_CARD);
-        let n = if t.agents >= 1 { t.agents } else { board };
-        n.clamp(1, MAX_AGENTS_PER_CARD) as usize
-    }
-
-    /// The agents on card t now, and those starting: its holders and step
-    /// owners, and the holders of its open marked subtasks, or a pending
-    /// request for one with nobody on it yet.
-    pub(crate) fn agents_on(&self, t: &Task) -> usize {
-        let now = self.stamp();
-        let mut keys: Vec<&str> = t
-            .holders
-            .iter()
-            .chain(&t.co_holders)
-            .map(String::as_str)
-            .collect();
-        let mut starting = 0;
-        for k in t.subtasks.iter().filter_map(|id| self.tasks.get(id)) {
-            if !k.spawn || is_terminal(&k.state) {
-                continue;
-            }
-            if k.holders.is_empty() {
-                if k.spawn_request()
-                    .is_some_and(|s| s.pending() && !s.stale(&now))
-                {
-                    starting += 1;
-                }
-                continue;
-            }
-            keys.extend(k.holders.iter().map(String::as_str));
-        }
-        keys.sort_unstable();
-        keys.dedup();
-        keys.len() + starting
-    }
-
-    /// Of `cards` (oldest first), the marked subtasks that would take a
-    /// parent past its agent limit are left out: they queue on the card
-    /// until a helper there finishes (§3, "Limits").
-    pub(crate) fn within_limits(&self, cards: Vec<Task>) -> Vec<Task> {
-        let mut used: std::collections::HashMap<String, usize> = Default::default();
-        cards
-            .into_iter()
-            .filter(|k| {
-                if !k.spawn {
-                    return true;
-                }
-                let Some(p) = self.tasks.get(&k.parent).filter(|_| !k.parent.is_empty()) else {
-                    return true;
-                };
-                let n = used
-                    .entry(p.id.clone())
-                    .or_insert_with(|| self.agents_on(p));
-                if *n >= self.agent_limit(p) {
-                    return false;
-                }
-                *n += 1;
-                true
+    /// Whether helper part t has no lead now but Irori would start one:
+    /// its open parent has no holder on a board that spawns. Off a spawning
+    /// board nobody would come, so t's completed works as any card's.
+    pub(crate) fn lead_coming(&self, t: &Task) -> bool {
+        t.spawn
+            && !t.parent.is_empty()
+            && self.spawning_on()
+            && self.tasks.get(&t.parent).is_some_and(|p| {
+                !is_terminal(&p.state)
+                    && p.holders.is_empty()
+                    && !p.shared
+                    && p.spawn_crashes < self.crash_limit()
             })
-            .collect()
+    }
+
+    /// Whether led card t lost its lead and has work for the next: nobody
+    /// is on it or starting, and a helper's part says it is done. Not before
+    /// that: a fresh lead with nothing to merge would only idle out again.
+    /// Nor while t waits on anything but its own parts: on the person, Irori
+    /// would end the new lead at once and start another, so it comes with
+    /// their answer. A wait on a part only closes through a lead.
+    pub(crate) fn needs_lead(&self, t: &Task) -> bool {
+        let on_a_part = |b: &Blocker| {
+            b.on.as_ref()
+                .is_some_and(|on| on.kind == BLOCKED_ON_TASK && t.subtasks.contains(&on.reference))
+        };
+        t.assigned.is_empty()
+            && !t.withdrawn
+            && t.open_ask().is_none()
+            && t.blockers
+                .iter()
+                .filter(|b| b.open())
+                .all(|b| b.status == BLOCKER_ANSWERED || on_a_part(b))
+            && t.subtasks
+                .iter()
+                .filter_map(|id| self.tasks.get(id))
+                .any(|k| {
+                    !is_terminal(&k.state)
+                        && self.lead_coming(k)
+                        && k.blockers
+                            .iter()
+                            .any(|b| b.open() && b.question == PART_QUESTION)
+                })
     }
 
     /// An unmarked subtask of a led card (§3): it isn't spawned on its own,
@@ -154,7 +132,8 @@ impl Fold {
 
     /// A helper's completed on its part: a question for the lead on the
     /// subtask, with the helper's proof, in place of the person's done
-    /// check. An earlier one still open is closed first.
+    /// check. An earlier one still open is closed first. An empty `lead`
+    /// is the lead Irori will start: it waits on Irori until then.
     pub(crate) fn ask_lead(
         &mut self,
         by: &str,
@@ -190,7 +169,7 @@ impl Fold {
         let now: GoTime = self.stamp();
         let bb = Some(BlockedBy {
             kind: BLOCKED_ON_AGENT.into(),
-            reference: lead.into(),
+            reference: if lead.is_empty() { SWEEPER } else { lead }.into(),
         });
         let (nt, _) = self.raise_locked(
             by,

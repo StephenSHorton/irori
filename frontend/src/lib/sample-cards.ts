@@ -340,11 +340,12 @@ export function sampleCards(now: Date): CardDetail[] {
       waitsOn: { kind: "task", label: `#${short}`, taskId: id, title },
     })
   const ring = [
-    { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
-    { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
+    { id: "sample-card-loop-70", short: "70", tag: "", title: "Talk 4: Spaces" },
+    { id: "sample-card-loop-72", short: "72", tag: "", title: "Talk 8: release Talk" },
     {
       id: "sample-card-loop-71",
       short: "71",
+      tag: "",
       title: "Talk 6: person-to-person DMs",
     },
   ]
@@ -461,6 +462,19 @@ export function sampleCards(now: Date): CardDetail[] {
             state: TaskState.Submitted,
             working: [],
             atCap: "Macbook Pro (this one)",
+            queuePlace: 1,
+            updatedAt: at(1),
+          }),
+          // Card #450: 2nd in the queue.
+          card({
+            id: "sample-card-spawn-queued",
+            short: "68",
+            title: "Tidy the settings copy",
+            goal: "Second in the queue.",
+            state: TaskState.Submitted,
+            working: [],
+            atCap: "Macbook Pro (this one)",
+            queuePlace: 2,
             updatedAt: at(1),
           }),
           // Card #456 (sa-7): Irori's own decisions on spawned cards.
@@ -487,7 +501,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 question:
                   "Waiting for your permission: sample-thyme is stopped on a prompt",
                 context:
-                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
+                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the space's allow list in Settings › Agents and start a fresh agent.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",
@@ -661,7 +675,49 @@ export function sampleCards(now: Date): CardDetail[] {
       ]
     : []
 
+  // Card #586: ?refs puts agility#1234 among Home's Working rows, and the
+  // ref column widens to fit it whole; ?refs=long adds a very long tag,
+  // cut at 10rem with its full ref on hover. The titles stay lined up.
+  const refs = new URLSearchParams(window.location.search).get("refs")
+  const longRefs = [
+    ...(refs !== null
+      ? [
+          card({
+            id: "sample-card-ref-agility",
+            short: "1234",
+            title: "Retry the ad sync on a timeout",
+            goal: "A card on another board, with a long ref.",
+            scope: "board",
+            scopeLabel: "Agility",
+            tag: "agility",
+            board: "sample-board-agility",
+            ours: true,
+            working: [AgentRef({ ...heron, status: "busy" })],
+            updatedAt: at(2),
+          }),
+        ]
+      : []),
+    ...(refs === "long"
+      ? [
+          card({
+            id: "sample-card-ref-long",
+            short: "98765",
+            title: "Move the reporting jobs to the new queue",
+            goal: "A card on a board with a very long tag.",
+            scope: "board",
+            scopeLabel: "Platform",
+            tag: "platform-infrastructure",
+            board: "sample-board-platform",
+            ours: true,
+            working: [AgentRef({ ...heron, status: "busy" })],
+            updatedAt: at(2),
+          }),
+        ]
+      : []),
+  ]
+
   return [
+    ...longRefs,
     ...spawn,
     ...red,
     ...loop,
@@ -1648,6 +1704,9 @@ export function sampleCards(now: Date): CardDetail[] {
       title: "Release notes",
       repoKey: "remote:github.com/sample-org/example-app",
       working: [heron],
+      // sample-heron and sample-mink are messaging each other about it:
+      // a talk line between them on the canvas (card #587).
+      talking: [heron, mink],
       updatedAt: at(7),
       parent: CardRef({
         id: "sample-card-7",
@@ -1853,10 +1912,12 @@ export function sampleCards(now: Date): CardDetail[] {
       scopeLabel: "MLG · Netcode",
       board: "sample-board-mlg",
       tag: "net",
+      spaceBoard: "sample-board-mlg-net",
       onBoard: CardBoard({
         id: "sample-board-mlg",
         name: "MLG",
-        tag: "mlg",
+        tag: "net",
+        spaceBoard: "sample-board-mlg-net",
         visibleTo: ["Stephen", "Blake"],
         canWithdraw: true,
         canTransfer: true,

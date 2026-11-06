@@ -15,7 +15,7 @@ use specta::Type;
 use tauri::State;
 
 use crate::Window;
-use crate::agents::{AgentsChange, AgentsSettings, RunningAgent};
+use crate::agents::{AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -27,8 +27,8 @@ use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::roster::{GoneSession, RosterChange};
-use crate::settings::{NotifyOptions, Target};
-use crate::talk::{TalkConversation, TalkMemberRef, TalkPost};
+use crate::settings::{CardLook, NotifyOptions, Target};
+use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
 use crate::voice::{VoiceDownload, VoiceEvent, VoiceStatus};
@@ -705,6 +705,13 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
     Ok(w.threads(&board_id))
 }
 
+/// Every thread on this device, each with its space (card #558).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_all())).await
+}
+
 /// Resolve on a thread: the person is done with it.
 #[tauri::command]
 #[specta::specta]
@@ -1259,6 +1266,13 @@ pub async fn settings_test_notification(w: W<'_>) -> R<()> {
     w.test_notification()
 }
 
+/// The desktop cards follow the window's appearance (card #527).
+#[tauri::command]
+#[specta::specta]
+pub async fn settings_set_card_look(w: W<'_>, look: CardLook) -> R<()> {
+    w.set_card_look(look)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn settings_get_launch_at_login(w: W<'_>) -> R<bool> {
@@ -1344,6 +1358,20 @@ pub async fn update_restart_to_update(w: W<'_>) -> R<()> {
     w.update_restart()
 }
 
+/// Keep this device up to date (card #578): null where the device doesn't
+/// update itself.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_get_keep_up_to_date(w: W<'_>) -> R<Option<bool>> {
+    blocking(&w, |w| Ok(w.update_keep_up_to_date())).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_set_keep_up_to_date(w: W<'_>, on: bool) -> R<Option<bool>> {
+    blocking(&w, move |w| w.update_set_keep_up_to_date(on)).await
+}
+
 /// Card #232: waits until the Core has started (the window opens first and
 /// shows the opening screen); an error says why it couldn't start.
 #[tauri::command]
@@ -1414,6 +1442,29 @@ pub async fn agents_settings(w: W<'_>, board_id: String) -> R<AgentsSettings> {
 #[specta::specta]
 pub async fn agents_set(w: W<'_>, change: AgentsChange) -> R<AgentsSettings> {
     w.agents_set(change)
+}
+
+/// Settings › Agents' caps per device, today's count and cost, and any
+/// usage-limit hold (card #450).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_limits(w: W<'_>) -> R<AgentsLimits> {
+    blocking(&w, move |w| Ok(w.agents_limits())).await
+}
+
+/// The person sets a device's cap: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_cap_set(w: W<'_>, device: String, cap: u32) -> R<AgentsLimits> {
+    blocking(&w, move |w| w.agents_cap_set(&device, cap)).await
+}
+
+/// The person ends this device's usage hold (card #576): the app only,
+/// never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_usage_release(w: W<'_>) -> R<AgentsLimits> {
+    blocking(&w, move |w| Ok(w.agents_usage_release())).await
 }
 
 /// The person's "Offer it cards" on one of their terminal agents (card
@@ -1572,11 +1623,26 @@ pub async fn talk_channel_create(
     w.talk_channel_create(&name, topic.as_deref(), space_id.as_deref())
 }
 
-/// The person's DM with an agent, opened if new; returns its conv id.
+/// The person's DM with an agent or another person (card #538), opened if
+/// new; returns its conv id.
 #[tauri::command]
 #[specta::specta]
 pub async fn talk_dm(w: W<'_>, member: TalkMemberRef) -> R<String> {
     w.talk_dm(&member)
+}
+
+/// Everyone the person can DM (card #538).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_dm_people(w: W<'_>) -> R<Vec<TalkPerson>> {
+    Ok(w.talk_dm_people())
+}
+
+/// Leaves a DM with another person (card #538).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_dm_leave(w: W<'_>, conv_id: String) -> R<()> {
+    w.talk_dm_leave(&conv_id)
 }
 
 #[tauri::command]
@@ -1591,10 +1657,34 @@ pub async fn talk_leave(w: W<'_>, conv_id: String, member: TalkMemberRef) -> R<(
     w.talk_leave(&conv_id, &member)
 }
 
+/// The most of a window line that reaches the log.
+const WINDOW_LOG_MAX: usize = 500;
+
+/// A line from the window as `irori.log` takes it: one line, of bounded
+/// length, marked as the window's.
+fn window_log_line(line: &str) -> String {
+    let flat: String = line
+        .chars()
+        .take(WINDOW_LOG_MAX)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    format!("window: {flat}")
+}
+
+/// Writes the window's own line to `irori.log` (card #551): what its lists
+/// read and which signals reached it, which the Core can't see from here.
+#[tauri::command]
+#[specta::specta]
+pub async fn window_log(line: String) -> R<()> {
+    irori_core::log(&window_log_line(&line));
+    Ok(())
+}
+
 /// Every command, plus the event payload types the frontend listens for.
 pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
+            window_log,
             core_ready,
             roster_agents,
             roster_device,
@@ -1662,6 +1752,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread,
             board_start_thread_with_files,
             board_threads,
+            board_threads_all,
             board_card_ref,
             board_resolve_thread,
             board_reopen_thread,
@@ -1742,6 +1833,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             settings_get_notifications,
             settings_set_notifications,
             settings_test_notification,
+            settings_set_card_look,
             settings_get_launch_at_login,
             settings_set_launch_at_login,
             settings_get_your_name,
@@ -1755,6 +1847,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             update_supported,
             update_check_and_download,
             update_restart_to_update,
+            update_get_keep_up_to_date,
+            update_set_keep_up_to_date,
             voice_status,
             voice_download_model,
             voice_start,
@@ -1768,6 +1862,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_read,
             talk_channel_create,
             talk_dm,
+            talk_dm_people,
+            talk_dm_leave,
             talk_join,
             talk_leave,
             term_open,
@@ -1786,6 +1882,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            agents_limits,
+            agents_cap_set,
+            agents_usage_release,
             agents_offer_set,
             agents_end,
             agents_logs,
@@ -1937,4 +2036,17 @@ pub async fn term_list(w: W<'_>, card: String) -> R<Vec<term::TermInfo>> {
 #[specta::specta]
 pub async fn term_folders(w: W<'_>, card: String) -> R<Vec<crate::terms::Folder>> {
     blocking(&w, move |w| w.term_folders(&card)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_line_stays_one_bounded_line() {
+        assert_eq!(window_log_line("a\nb\tc"), "window: a b c");
+        let long = "é".repeat(WINDOW_LOG_MAX + 10);
+        let line = window_log_line(&long);
+        assert_eq!(line.chars().count(), "window: ".len() + WINDOW_LOG_MAX);
+    }
 }

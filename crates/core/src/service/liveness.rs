@@ -17,6 +17,8 @@ const RECENT_WITHIN: Duration = Duration::from_secs(600);
 pub struct DevicePresence {
     pub state: String,
     pub seen: GoTime,
+    /// The name of the device its rows come through (card #544).
+    pub via: String,
 }
 
 impl Services {
@@ -36,16 +38,16 @@ impl Services {
             return DevicePresence {
                 state: coord::roster::CONNECTED.into(),
                 seen: GoTime::from_system(SystemTime::now()),
+                ..Default::default()
             };
         }
         let node = &self.mesh.node;
         if self.chain.cert(dev).is_some() {
+            let r = node.device_read(dev);
             return DevicePresence {
-                state: node.liveness(dev).into(),
-                seen: node
-                    .last_seen(dev)
-                    .map(GoTime::from_system)
-                    .unwrap_or_default(),
+                state: r.state.into(),
+                seen: r.seen.map(GoTime::from_system).unwrap_or_default(),
+                via: super::via_name(&self.chain, &self.device_names, &r.via),
             };
         }
         let mut connected = false;
@@ -96,7 +98,7 @@ impl Services {
     pub(crate) fn board_others(&self) -> Vec<BoardAgent> {
         let me = self.person_id();
         let mut out = Vec::new();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let mem = b.verifier.membership();
             if !mem.created {
                 continue;
@@ -161,6 +163,7 @@ pub(crate) fn board_presence(connected: bool, at_ms: i64, now: SystemTime) -> De
     DevicePresence {
         state: state.into(),
         seen,
+        ..Default::default()
     }
 }
 

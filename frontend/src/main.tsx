@@ -6,11 +6,18 @@ import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { commands } from "./gen/bindings"
 import { inHost } from "./lib/irori"
-import { applyAppearance, clean, loadAppearance } from "./lib/appearance"
+import { applyAppearance, clean, loadAppearance, onAppearanceApplied } from "./lib/appearance"
+import { sendCardLook } from "./lib/card-look"
 import { previewFlag } from "./lib/preview"
 import { followInsets } from "./lib/insets"
+import { isMac } from "./lib/commands"
 
 followInsets()
+
+// Card #585: macOS rubber-bands every scroller past its ends. The mac:
+// variant in index.css keys off this to turn that off on a Mac only, so
+// scroll chaining on touch and Windows stays as it was.
+if (isMac()) document.documentElement.dataset.os = "mac"
 
 // Card #232: index.html shows the opening screen while the Core starts on
 // its own thread (a fully synced log takes a while on a phone); every
@@ -43,6 +50,9 @@ async function mount() {
   // paint; apply it again from this build's code (a custom theme's CSS is
   // made afresh). The browser preview can try one without saving it:
   // ?theme=<id>, ?mode=light|dark|system, ?glass=<style>.
+  // Card #527: the notification cards follow the look; every apply (this
+  // one, and each change in Settings > Appearance) sends it to the host.
+  onAppearanceApplied((a) => void sendCardLook(a))
   const saved = loadAppearance()
   applyAppearance(
     clean({

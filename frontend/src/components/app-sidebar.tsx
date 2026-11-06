@@ -36,7 +36,7 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
-import { agentStatus } from "@/lib/agent-status"
+import { agentStatus, throughLine } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
@@ -245,6 +245,7 @@ export function AppSidebar({
       key: string
       status: string
       deviceState?: string | null
+      deviceVia?: string | null
       statusSince?: string
     }
   ) => {
@@ -253,7 +254,8 @@ export function AppSidebar({
       ?.working.find((r) => r.key === a.key)
     // The same words as everywhere else (card #489).
     const doing = agentStatus(a, a.statusSince).text
-    return [w?.where, doing].filter(Boolean).join(" · ")
+    const via = a.deviceVia && throughLine(a.deviceVia)
+    return [w?.where, doing, via].filter(Boolean).join(" · ")
   }
   const pinnedBoards = boardsInSpace(boards, space)
     .filter((b) => b.pinned)
@@ -374,7 +376,7 @@ export function AppSidebar({
 
         <nav
           aria-label="Sections"
-          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
           <NavItem
             icon={HomeIcon}
@@ -489,8 +491,8 @@ export function AppSidebar({
                   `${onCardsNow} started by Irori for a card, each ends when its card is Done`,
                 groups.starting > 0 &&
                   `${groups.starting} cards starting an agent`,
-                groups.atCap > 0 &&
-                  `${groups.atCap} cards waiting for a device to have a slot`,
+                groups.queued > 0 &&
+                  `${groups.queued} cards queued for an agent: a device's free slot or a usage limit's reset`,
                 `${n.total} of yours`,
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
                 blockedNow > 0 &&
@@ -513,9 +515,9 @@ export function AppSidebar({
                   {groups.starting} starting
                 </Badge>
               )}
-              {groups.atCap > 0 && (
+              {groups.queued > 0 && (
                 <Badge variant="warning" className="normal-case tabular-nums">
-                  {groups.atCap} waiting
+                  {groups.queued} queued
                 </Badge>
               )}
               {n.working > 0 && (

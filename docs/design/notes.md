@@ -59,6 +59,7 @@ A note is a short fact that an agent should know before it acts. It has these pa
   - every note tagged `everywhere`
 
   Each wake carries a few notes, about 8 at most, ranked by how specific the match is.
+- **The person's words ride along:** the same hook adds what the person said lately on the cards around the agent's, in a section of its own (card #555, `docs/design/spawned-agents.md` §2).
 - **More by search:** an agent can search notes for anything else, within the scopes it can read: Mine for the person's own agents, and the boards it is on.
 - **How notes are framed:** notes reach agents as data with who wrote and who accepted them, never as instructions. This matches how messages from other agents are framed today. On a shared board a note is something a teammate wrote, not the person's own word.
 
@@ -116,7 +117,7 @@ What v1 is built on. The rows and the coord/Core layer are on main; the window, 
 
 A wake takes the accepted notes of every log the agent reads: Mine for the person's own agents, plus the card's board when it is on one. Each note scores by its best tag; the wake keeps the top 8 (`NOTES_PER_WAKE`), newest first within a score. `Coord::notes_for(&NoteContext{board, repo_key, paths, machine})` does one log; the wake merges Mine and the board's.
 
-**Scopes and routing** (`crates/core/src/service/notes.rs`): `mine`, or a board's tag or id. A Mine note never enters a board log, whatever its tags name (`crates/core/tests/notes.rs`). Core API: `propose_note(by, scope, NewNote)`, `accept_note(by, id)`, `edit_note(by, id, NoteEdit, why)`, `remove_note(by, id, why)`, `notes(scope, removed)`, `search_notes(q, live_only)`. Each returns `ScopedNote {scope, boardId?, ...note}`. Ids may carry `note:`.
+**Scopes and routing** (`crates/core/src/service/notes.rs`): `mine`, or a board's tag or id. A Mine note never enters a board log, whatever its tags name (`crates/core/tests/it/notes.rs`). Core API: `propose_note(by, scope, NewNote)`, `accept_note(by, id)`, `edit_note(by, id, NoteEdit, why)`, `remove_note(by, id, why)`, `notes(scope, removed)`, `search_notes(q, live_only)`. Each returns `ScopedNote {scope, boardId?, ...note}`. Ids may carry `note:`.
 
 **Window commands** (`crates/window/src/notes.rs`, #411): `notes_list {scope, removed}` returns `NoteView[]` (an empty scope lists Mine and every board), `note_new {note: {scope, kind, text, tags}}` (New note), `note_accept {id}`, `note_edit {id, edit: {kind?, text?, tags?}}` and `note_remove {id, why}`, all as the person. A `NoteView` carries `pending` (an agent's edit, or `remove: true`), `history`, `byPerson` and `stale`.
 

@@ -70,10 +70,11 @@ export function Thread({
   // inBlocker: the items sit under their blocker, so they don't name it.
   inBlocker?: boolean
   composer?: ReactNode
-  // scroll caps the entries' height (a class, e.g. a max-h): they scroll
-  // by themselves, newest in view, and the composer stays under them
-  // (a thread in the Threads panel, card #170).
-  scroll?: string
+  // scroll makes the entries the thread's scroller, newest in view, with
+  // the composer under them and never over them (cards #170, #564). The
+  // entries and the composer become items of the parent, a flex column
+  // that bounds the height: only the entries shrink.
+  scroll?: boolean
   // on: the agents on this thread (a card's holders, an ask's takers) and
   // whether it is over, for the live "working…" line (card #299).
   // working, when given, is who the card's rule says works on it now
@@ -137,6 +138,18 @@ export function Thread({
     const el = list.current
     if (el) el.scrollTop = el.scrollHeight
   }, [newest])
+  // The composer growing or the window shrinking takes height from the
+  // entries: stay on the newest if the person was there (card #564).
+  const pinned = useRef(true)
+  useEffect(() => {
+    const el = list.current
+    if (!el) return
+    const watch = new ResizeObserver(() => {
+      if (pinned.current) el.scrollTop = el.scrollHeight
+    })
+    watch.observe(el)
+    return () => watch.disconnect()
+  }, [scroll])
   const entries = (
     <>
       {hidden > 0 ? (
@@ -179,7 +192,14 @@ export function Thread({
               />
             </div>
           ))
-        : !status && <p className="text-muted-foreground">{empty}</p>}
+        : !status &&
+          // A string is the empty line; an element (a loading skeleton,
+          // card #598) is drawn as it is, as a div can't sit in a p.
+          (typeof empty === "string" ? (
+            <p className="text-muted-foreground">{empty}</p>
+          ) : (
+            empty
+          ))}
       {status &&
         (status.tone === "working" ? (
           // Where the next comment will appear (card #317): who is on it,
@@ -204,29 +224,27 @@ export function Thread({
   )
   if (scroll) {
     return (
-      <div
-        className={cn(
-          "grid min-w-0 grid-cols-[minmax(0,1fr)] text-[12.5px]",
-          gap
-        )}
-      >
+      <div className="contents text-[12.5px]">
         <div
           ref={list}
+          onScroll={(e) => {
+            const el = e.currentTarget
+            pinned.current =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 8
+          }}
           className={cn(
-            "grid min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto",
+            "grid min-w-0 grid-cols-[minmax(0,1fr)] content-start overflow-y-auto mac:overscroll-none",
             gap,
-            scroll
+            // A floor, so a tall draft can't take every message away; a
+            // short thread keeps its own height.
+            shown.length > 2 ? "min-h-16" : "min-h-0"
           )}
         >
           {entries}
         </div>
-        {/* In a short window the column scrolls too: the composer sticks
-            to its bottom edge, so it is never scrolled out of sight. */}
-        {composer && (
-          <div className="sticky bottom-0 z-10 bg-background/95 pb-1 backdrop-blur-sm">
-            {composer}
-          </div>
-        )}
+        {/* No backing: only the entries scroll, so nothing passes under
+            the composer and the glass shows through (card #564). */}
+        {composer && <div className="shrink-0">{composer}</div>}
       </div>
     )
   }

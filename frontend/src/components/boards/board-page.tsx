@@ -30,6 +30,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
+import {
+  AskBoxShape,
+  FilterRowShape,
+  TileGridShape,
+} from "@/components/common/loading-shapes"
 import {
   boards as actions,
   MaxBoardName,
@@ -53,6 +59,7 @@ export function BoardPage({
   boardId,
   list,
   cards,
+  cardsLoading = false,
   done,
   filter,
   onFilter,
@@ -68,6 +75,8 @@ export function BoardPage({
   // The board open in the space (card #558); none is the space's page.
   list?: string
   cards: CardSummary[]
+  // cardsLoading: the cards' first read hasn't landed.
+  cardsLoading?: boolean
   done: DoneState
   filter: Filter
   onFilter: (f: Filter) => void
@@ -79,7 +88,7 @@ export function BoardPage({
   onOpen: (id: string) => void
   now: Date
 }) {
-  const { boards } = useBoards()
+  const { boards, loaded } = useBoards()
   const { threads } = useThreads(boardId)
   // Presence on the member chips (card #371) moves without a
   // boards:changed: read the list again while the page is open.
@@ -91,19 +100,29 @@ export function BoardPage({
   const [thread, setThread] = useState("")
   const [threadsHidden, setThreadsHidden] = useState(false)
   const b = boards.find((x) => x.boardId === boardId)
+  // A cold open (card #598): until the boards and the cards are first
+  // read, the page's shape, not "isn't here" or "No cards yet". Only the
+  // skeleton sits in Loading: around BoardView it would break the
+  // column's scroll.
+  if ((!b && !loaded) || cardsLoading)
+    return (
+      <Loading loading label={list ? "Loading the board" : "Loading the space"} className="min-h-0 flex-1">
+        <BoardPageShape />
+      </Loading>
+    )
   if (!b)
     return (
       <div className="grid gap-2">
         <BackToBoards />
         <p className="text-sm text-muted-foreground">
-          This board isn't here any more: you may have left or forgotten it.
+          This space isn't here any more: you may have left or forgotten it.
         </p>
       </div>
     )
   // The same board view as Home (card #161), over this board's cards,
   // with who is on it beside them.
   const open = list ? boardsOf(b).find((x) => x.boardId === list) : undefined
-  const shown = open ? cardsOnBoard(b, cards, open.tag) : []
+  const shown = open ? cardsOnBoard(b, cards, open.boardId) : []
   return (
     <>
       <BoardNotes board={b} />
@@ -153,6 +172,38 @@ export function BoardPage({
   )
 }
 
+// BoardPageShape is a space's or a board's page skeleton: a row of chips,
+// the ask box, the filter row and a few tiles.
+function BoardPageShape() {
+  return (
+    <div className="grid min-w-0 content-start gap-3.5">
+      <span className="flex items-center gap-1">
+        <span className="block h-7 w-24 rounded-md" />
+        <span className="block h-7 w-20 rounded-md" />
+      </span>
+      <AskBoxShape />
+      <FilterRowShape />
+      <TileGridShape tiles={4} />
+    </div>
+  )
+}
+
+// BoardHeaderShape is a space header's skeleton: dot, name, its boards
+// and people (card #558).
+function BoardHeaderShape() {
+  return (
+    <span className="flex min-w-0 items-center gap-x-3">
+      <span className="flex items-baseline gap-2 text-lg font-semibold text-ink">
+        <span className="block size-2 self-center rounded-full" />
+        <span>Sample space</span>
+      </span>
+      <span className="hidden text-xs text-muted-foreground lg:inline">
+        2 boards · Stephen, Blake
+      </span>
+    </span>
+  )
+}
+
 function BackToBoards() {
   return (
     <Button variant="ghost" size="sm" className="w-fit px-1.5" onClick={() => go({ kind: "boards" })}>
@@ -167,7 +218,7 @@ function BackToBoards() {
 // Pin to the sidebar and Rename (owners) in the open; Leave and Forget here
 // in its ⋯ menu (card #211).
 export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: string }) {
-  const { boards, reload } = useBoards()
+  const { boards, loaded, reload } = useBoards()
   const b = boards.find((x) => x.boardId === boardId)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState("")
@@ -178,7 +229,7 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
       ? [
           {
             id: "board.pin",
-            title: b.pinned ? "Unpin this board" : "Pin this board",
+            title: b.pinned ? "Unpin this space" : "Pin this space",
             keywords: ["sidebar", "favourite", "favorite"],
             run: () => {
               setError(null)
@@ -192,7 +243,7 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
             ? [
                 {
                   id: "board.rename",
-                  title: "Rename this board",
+                  title: "Rename this space",
                   run: () => {
                     setName(b.name)
                     setRenaming(true)
@@ -204,7 +255,13 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
       : []
   )
   if (!b)
-    return <h1 className="text-lg font-semibold text-ink">Board</h1>
+    return loaded ? (
+      <h1 className="text-lg font-semibold text-ink">Space</h1>
+    ) : (
+      <Loading loading label={list ? "Loading the board" : "Loading the space"} className="min-w-0 flex-1">
+        <BoardHeaderShape />
+      </Loading>
+    )
   const rename = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -411,7 +468,7 @@ function BoardActionsMenu({
         <DropdownMenuContent align="end" className="w-auto">
           {onRename && (
             <DropdownMenuItem className="sm:hidden" onClick={onRename}>
-              Rename
+              Rename space
             </DropdownMenuItem>
           )}
           <DropdownMenuItem variant="destructive" onClick={() => setAsking("leave")}>

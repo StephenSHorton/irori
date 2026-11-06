@@ -1,6 +1,6 @@
 # Irori on iPhone (card #269)
 
-There is no iOS download. Apple only lets an app onto an iPhone once it's signed with an Apple ID, so you build Irori on your own Mac and install it on your own iPhone with your own Apple ID. Like the Android build, it's a board client: pair it from Settings → Devices → Join with a code. It runs no agents.
+There is no iOS download. Apple only lets an app onto an iPhone once it's signed with an Apple ID, so you build Irori on your own Mac and install it on your own iPhone with your own Apple ID. Like the Android build, it's a client for your spaces: pair it from Settings → Devices → Join with a code. It runs no agents.
 
 A free Apple ID works, but iOS stops opening the app after 7 days, so you rebuild and reinstall it from the Mac. A paid developer account ($99 a year) makes that a year.
 

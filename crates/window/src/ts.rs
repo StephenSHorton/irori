@@ -6,7 +6,7 @@
 //! one is the Go struct's JSON as Wails typed it
 //! (I:frontend/bindings/github.com/StephenSHorton/irori/internal/*/models.ts
 //! at be67a86): a Go `omitempty` field is optional, every other field is
-//! always there. `tests/shapes.rs` checks each against the real JSON of a
+//! always there. `tests/it/shapes.rs` checks each against the real JSON of a
 //! filled area value, so a field added on either side fails a test.
 //!
 //! [`Typed`] carries an area value under one of these shapes, for a
@@ -90,6 +90,10 @@ pub struct AgentCard {
     pub last_tool: String,
     #[specta(optional)]
     pub device_state: String,
+    /// The device its rows come through while there is no session with it
+    /// (card #544).
+    #[specta(optional)]
+    pub device_via: String,
     /// When the current status began, omitted when unknown (card #489).
     #[specta(optional)]
     pub status_since: Time,
@@ -519,6 +523,9 @@ pub struct Ask {
     pub outcome: Outcome,
     #[specta(optional)]
     pub mentions: Vec<Mention>,
+    /// A private thread about this shared board (card #185).
+    #[specta(optional)]
+    pub board: String,
 }
 
 /// coord.Returned.

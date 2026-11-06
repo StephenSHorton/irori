@@ -19,6 +19,7 @@ import {
   MOD_VERSION,
   NO_PATH_ERROR,
   POLICY_VERBS,
+  STANDBY_SINCE,
   SUBMIT_ACCEPT_MS,
   USAGE,
   bandText,
@@ -41,6 +42,9 @@ import {
   toolArgs,
   validSpec,
 } from './lib'
+
+/** How long /irori reconnect waits for the new hello before it answers. */
+const RECONNECT_WAIT_MS = 5_000
 
 /** Only a person's Enter at the prompt may change the wake policy (design §5). */
 const PERSON_ORIGINS = ['composer']
@@ -70,6 +74,10 @@ let api: { url: string; token: string } | null = null
 let attachSecret = ''
 /** The cwd the attach runs with, for a reattach the mod starts itself. */
 let attachCwd = ''
+/** hello's `v`: what the Core this session last attached to can do. */
+let coreVersion = 0
+/** Superseded: attach only once no other attach holds this session (GitHub #57). */
+let standby = false
 /** Tool names registered from the Core's list, so a second hello doesn't redo them. */
 const registered = new Set<string>()
 
@@ -165,7 +173,8 @@ async function reattach($: EngineInterface, deadSecret: string, why: string) {
  * True when this call started the attach.
  */
 async function revive($: EngineInterface): Promise<boolean> {
-  if (!ended) return false
+  // generation 0: a reload that brought no session.start, so nothing attached.
+  if (!ended && generation !== 0) return false
   ended = false
   if (!iroriPath()) return false
   await startAttach($, attachCwd, 'the session went on after it ended; reattaching')
@@ -420,6 +429,8 @@ async function forgetWake($: EngineInterface, token: string, err: unknown) {
 async function onHello($: EngineInterface, e: AttachEvent) {
   if (e.api?.url && e.api.token) api = { url: e.api.url.replace(/\/+$/, ''), token: e.api.token }
   attachSecret = String(e.attachSecret ?? '')
+  coreVersion = Number(e.v ?? 0)
+  standby = false
   backoffMs = BACKOFF_MIN_MS
   await setView($, {
     status: 'attached',
@@ -480,6 +491,13 @@ async function handleEvent($: EngineInterface, e: AttachEvent): Promise<'superse
       attachSecret = ''
       await setView($, { status: 'connecting', error: e.message })
       return
+    case 'standby':
+      // Another attach holds this session: that, not an outage or a dropped
+      // stream, is why it has none (GitHub #57).
+      api = null
+      attachSecret = ''
+      await setView($, { status: 'superseded', error: undefined })
+      return
     case 'superseded':
       return 'superseded'
   }
@@ -509,14 +527,15 @@ async function startAttach($: EngineInterface, cwd: string, why?: string) {
     return
   }
   const sessionId = await $.session.id()
-  await setView($, why ? { status: 'connecting', error: why } : { status: 'connecting' })
+  // Standby keeps saying why it waits; its hello sets the view.
+  if (!standby) await setView($, why ? { status: 'connecting', error: why } : { status: 'connecting' })
 
   void (async () => {
     let superseded = false
     let exit = ''
     try {
       const child = $.process.spawn({
-        argv: [path, 'attach', '--session', sessionId, '--cwd', cwd, '--mod-version', MOD_VERSION],
+        argv: [path, 'attach', '--session', sessionId, '--cwd', cwd, '--mod-version', MOD_VERSION, ...(standby ? ['--standby'] : [])],
       })
       // A newer startAttach ran while this one awaited: this child is stale.
       if (run !== generation) {
@@ -558,10 +577,19 @@ async function startAttach($: EngineInterface, cwd: string, why?: string) {
     stopChild = null
     api = null
     attachSecret = ''
-    // A newer attach for this session took over (a reload, another copy): stop
-    // quietly. The view is left alone: after a reload it is the new copy's.
-    if (superseded) return
-    await setView($, { status: 'connecting', error: `${exit}; retrying` })
+    if (superseded) {
+      // A newer attach for this session took over (a reload, another copy).
+      // It may leave while this session goes on, so wait for that: standby
+      // never takes the session from a live attach, so two live copies can't
+      // keep kicking each other off (GitHub #57). A Core too old to refuse
+      // would be kicked instead, so stop there, and leave the view alone:
+      // after a reload it is the new copy's.
+      if (coreVersion < STANDBY_SINCE) return
+      standby = true
+      await setView($, { status: 'superseded', error: undefined })
+    } else {
+      await setView($, { status: 'connecting', error: `${exit}; retrying` })
+    }
     scheduleRestart($, cwd, run)
   })().catch(() => {
     // The module unloaded while the loop ran; nothing left to update.
@@ -622,6 +650,19 @@ async function callTool($: EngineInterface, e: Record<string, unknown>, budgetMs
   }
   const text = (answer.body as { text?: unknown } | undefined)?.text
   return typeof text === 'string' ? text : 'Error: the Irori Core gave no result.'
+}
+
+/** /irori reconnect: attaches now, whatever state the last attach ended in. */
+async function reconnect($: EngineInterface): Promise<string> {
+  if (!iroriPath()) return `irori mod ${MOD_VERSION}\n${NO_PATH_ERROR}`
+  ended = false
+  standby = false
+  api = null
+  attachSecret = ''
+  backoffMs = BACKOFF_MIN_MS
+  await startAttach($, attachCwd, 'reconnecting')
+  await attached($, RECONNECT_WAIT_MS)
+  return `irori mod ${MOD_VERSION}\n${describeAttach(await read($, attachAtom))}`
 }
 
 async function changePolicy($: EngineInterface, verb: string, rest: string): Promise<string> {
@@ -692,6 +733,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     ended = false
+    standby = false
     await onSessionStart($, e.cwd)
     return started
   })
@@ -771,6 +813,7 @@ export const register: Register = (on, options) => {
       }
       return { text: await changePolicy($, verb, rest) }
     }
+    if (verb === 'reconnect') return { text: await reconnect($) }
     const view = await read($, attachAtom)
     const status = describeAttach(view)
     if (verb === '' || verb === 'status') return { text: `irori mod ${MOD_VERSION}\n${status}` }
