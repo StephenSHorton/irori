@@ -32,12 +32,24 @@ pub fn is_thread(t: &Task) -> bool {
     t.ask.as_ref().is_some_and(|a| a.thread)
 }
 
+/// The shared board a private thread is about ("" for none).
+fn about(t: &Task) -> String {
+    t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default()
+}
+
+/// A thread to list: the log that holds it, and whether it is a private
+/// one about a shared board.
+type Found = (std::sync::Arc<coord::Coord>, Task, bool);
+
 /// One thread in the panel.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSummary {
     pub id: String,
     pub short: String,
+    /// Its board's tag: numbers are per board (card #558), and the channel
+    /// pointer says `mlg#5`. "": a private thread.
+    pub tag: String,
     pub title: String,
     /// What the person asked, in full.
     pub text: String,
@@ -81,6 +93,12 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub no_agent: String,
+
+    /// The shared space it is in, or a private thread is about (card #558);
+    /// absent for Personal. Matches the switcher's space id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub space_id: String,
     /// The device whose cap it waits on, with its place in that device's
     /// spawn queue (card #450): "queued: 2nd for the PC".
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -130,6 +148,8 @@ pub struct RefTarget {
 pub struct ThreadCard {
     pub id: String,
     pub short: String,
+    /// As [`ThreadSummary::tag`].
+    pub tag: String,
     pub title: String,
     pub state: String,
 }
@@ -185,8 +205,8 @@ impl Window {
 
     /// [`Self::start_thread_with`] from a message in Talk channel `channel`
     /// (its `ch_` id; "" none, card #454): the thread records the channel,
-    /// and in a channel named after a repo here it is that repo's thread,
-    /// so the agent Irori starts for it starts in that repo.
+    /// and in your own log, in a channel named after a repo here it is that
+    /// repo's thread, so the agent Irori starts for it starts in that repo.
     pub(crate) fn start_thread_in(
         &self,
         text: &str,
@@ -201,7 +221,7 @@ impl Window {
         let private = !board_id.is_empty()
             && self.core.inbox().threads_mode(board_id) == inbox::threads_mode::PRIVATE;
         let (t, n) = if private {
-            self.private_board_thread(text, mentions, files, board_id, quiet)?
+            self.private_board_thread(text, mentions, files, board_id, quiet, channel)?
         } else if board_id.is_empty() {
             let plan = self.plan_mentions("", mentions);
             let refs = self.store_uploads(files)?;
@@ -225,7 +245,7 @@ impl Window {
         } else {
             if !files.is_empty() {
                 return Err(
-                    "files go with a thread on your own board only; on a shared board, attach them on a card"
+                    "files go with a thread in Personal only; in a shared space, attach them on a card"
                         .into(),
                 );
             }
@@ -239,6 +259,9 @@ impl Window {
                         mentions: self.plan_mentions_on(board_id, mentions).log,
                         thread: true,
                         quiet,
+                        // No repo: another member's device has its own
+                        // checkouts, and a board ask names none.
+                        channel: channel.into(),
                         ..Default::default()
                     },
                 )
@@ -281,6 +304,7 @@ impl Window {
         files: &[UploadFile],
         board_id: &str,
         quiet: bool,
+        channel: &str,
     ) -> Result<(Task, coord::Notice), String> {
         let bc = self.core.board_coord(board_id).map_err(|e| e.to_string())?;
         let theirs = |k: &str| {
@@ -294,7 +318,7 @@ impl Window {
             .find(|m| theirs(&self.core.private_key(&m.key)))
         {
             return Err(format!(
-                "your threads on this board are private, so only your own agents hear them: {} is another member's. Switch \"My threads\" to shared in the board's settings to talk with them.",
+                "your threads in this space are private, so only your own agents hear them: {} is another member's. Switch \"My threads\" to shared in Space settings to talk with them.",
                 if m.name.is_empty() { &m.key } else { &m.name }
             ));
         }
@@ -333,6 +357,8 @@ impl Window {
                     thread: true,
                     board: board_id.into(),
                     quiet,
+                    channel: channel.into(),
+                    repo_key: self.channel_repo(channel),
                     ..Default::default()
                 },
                 &self.core.ask_agents(),
@@ -349,21 +375,59 @@ impl Window {
         // minus the private ones about a shared board; a shared board's are
         // its log's plus your private ones about it (card #185).
         let own = self.core.coord().clone();
-        let about = |t: &Task| t.ask.as_ref().map(|a| a.board.clone()).unwrap_or_default();
-        let mut found: Vec<(std::sync::Arc<coord::Coord>, Task, bool)> = Vec::new();
+        let mut found: Vec<Found> = Vec::new();
         for t in own.list_tasks(&coord::TaskFilter::default()) {
             if is_thread(&t) && about(&t) == board_id {
                 found.push((own.clone(), t, !board_id.is_empty()));
             }
         }
-        if !board_id.is_empty() {
-            let Ok(bc) = self.core.board_coord(board_id) else {
-                return Vec::new();
-            };
+        // A space you left keeps your private threads about it (card #558).
+        if !board_id.is_empty()
+            && let Ok(bc) = self.core.board_coord(board_id)
+        {
             for t in bc.list_tasks(&coord::TaskFilter::default()) {
                 found.push((bc.clone(), t, false));
             }
         }
+        self.thread_rows(found, board_id)
+    }
+
+    /// BoardService.ThreadsAll: every thread on this device, for All spaces
+    /// and for finding one the picked space doesn't list (card #558): your
+    /// own log's, then each shared space's, each carrying its space, with
+    /// each log's newest resolved ones, so a busy space can't push a quiet
+    /// one's out. A private thread about a space you've left is Personal's.
+    pub fn threads_all(&self) -> Vec<ThreadSummary> {
+        let mut all = self.threads("");
+        let spaces: Vec<String> = self
+            .core
+            .board_list()
+            .into_iter()
+            .map(|b| b.board_id)
+            .collect();
+        for id in &spaces {
+            all.extend(self.threads(id));
+        }
+        let own = self.core.coord().clone();
+        let left: Vec<Found> = own
+            .list_tasks(&coord::TaskFilter::default())
+            .into_iter()
+            .filter(|t| is_thread(t) && !about(t).is_empty() && !spaces.contains(&about(t)))
+            .map(|t| (own.clone(), t, true))
+            .collect();
+        all.extend(self.thread_rows(left, ""));
+        let resolved = |t: &ThreadSummary| t.state == THREAD_RESOLVED;
+        all.sort_by(|a, b| {
+            resolved(a)
+                .cmp(&resolved(b))
+                .then(b.updated_at.unix_nano().cmp(&a.updated_at.unix_nano()))
+        });
+        all
+    }
+
+    /// `found` as the panel lists it, in space `space` ("": Personal): open
+    /// ones newest first, then the newest resolved ones.
+    fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
         let p = self.people();
         let mut open = Vec::new();
         let mut done = Vec::new();
@@ -406,6 +470,7 @@ impl Window {
             let s = ThreadSummary {
                 id: t.id.clone(),
                 short: t.short.clone(),
+                tag: t.tag.clone(),
                 title: t.title.clone(),
                 text: t.objective.clone(),
                 state: state.into(),
@@ -421,6 +486,7 @@ impl Window {
                     .map(|c| ThreadCard {
                         id: c.id.clone(),
                         short: c.short.clone(),
+                        tag: c.tag.clone(),
                         title: c.title.clone(),
                         state: c.state.to_string(),
                     })
@@ -452,6 +518,8 @@ impl Window {
                 } else {
                     String::new()
                 },
+
+                space_id: space.to_string(),
                 ..ThreadSummary::default()
             };
             let mut s = s;

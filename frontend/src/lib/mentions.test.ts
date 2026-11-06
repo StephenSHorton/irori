@@ -426,6 +426,11 @@ describe("localRef (card #144)", () => {
   ]
   const ref = (s: string) => cardRefs(s)[0]
 
+  test("a bare ref never picks a space's thread (#558)", () => {
+    const onSpace = [{ id: "s9", short: "9", title: "x", spaceId: "b-mlg" }]
+    expect(localRef(ref("#9"), cards, onSpace)).toBeNull()
+  })
+
   test("a live card first", () => {
     expect(localRef(ref("see #12"), cards, threads)).toEqual({
       kind: "card",

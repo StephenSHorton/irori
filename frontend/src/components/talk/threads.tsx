@@ -2,6 +2,7 @@
 // Home's Board, card #116): its state, the cards made from it, and the
 // open thread itself.
 
+import { cardRef } from "@/components/cards/bits"
 import { useContext, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -124,7 +125,7 @@ export function ThreadCards({ cards }: { cards: ThreadCard[] }) {
             variant={cardStates[c.state] ?? "slate"}
             className="h-4 max-w-full gap-1 px-1 text-[10.5px]"
           >
-            <span className="font-mono">#{plainLine(c.short)}</span>
+            <span className="font-mono">{cardRef(c)}</span>
             <span className="truncate">{plainLine(c.title)}</span>
           </Badge>
         </button>

@@ -63,12 +63,12 @@ export function AskBox({
     e.preventDefault()
     if (busy || !text.trim()) return
     if (onPage && !onBoard) {
-      setLine({ text: "This board isn't ready here yet.", error: true })
+      setLine({ text: "This space isn't ready here yet.", error: true })
       return
     }
     if (onBoard && files.length) {
       setLine({
-        text: "Files don't go on a board thread yet: remove them, or attach them on a card.",
+        text: "Files don't go on a space thread yet: remove them, or attach them on a card.",
         error: true,
       })
       return

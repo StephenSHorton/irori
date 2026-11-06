@@ -49,6 +49,7 @@ import {
   ShortRef,
   Spinner,
   StatePill,
+  cardRef,
   waitTip,
 } from "./bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
@@ -241,7 +242,7 @@ export function BoardBar({
     <div
       className="flex flex-wrap items-center gap-1"
       role="group"
-      aria-label="Filter cards by board"
+      aria-label="Filter cards by space"
     >
       {withPrivate && (
         <Button
@@ -249,7 +250,7 @@ export function BoardBar({
           aria-pressed={filter === "private"}
           variant={filter === "private" ? "secondary" : "ghost"}
           onClick={() => onFilter(filter === "private" ? "all" : "private")}
-          title="Your private cards: on no shared board"
+          title="Your private cards: in no shared space"
         >
           Private
         </Button>
@@ -263,7 +264,11 @@ export function BoardBar({
             aria-pressed={filter === id}
             variant={filter === id ? "secondary" : "ghost"}
             onClick={() => onFilter(filter === id ? "all" : id)}
-            title={`Cards on the board ${plainLine(b.name)} (${plainLine(b.tag)}#…)`}
+            title={
+              b.tag
+                ? `Cards in the space ${plainLine(b.name)} (${plainLine(b.tag)}#…)`
+                : `Cards in the space ${plainLine(b.name)}`
+            }
           >
             <LayersIcon aria-hidden className="size-3.5 opacity-70" />
             {plainLine(b.name)}
@@ -443,7 +448,7 @@ export function CardGrid({
           ) : (
             <div
               role="group"
-              aria-label={`#${plainLine(f.head.short)} and its subtasks`}
+              aria-label={`${cardRef(f.head)} and its subtasks`}
               className="grid"
             >
               {tile(f.head)}
@@ -945,7 +950,7 @@ function PickBar({
               Delete {what} permanently? They leave Irori on every device, and
               agents no longer find them with search or show. This can't be
               undone.
-              {shared && " Cards on a shared board can't be deleted here."}
+              {shared && " Cards in a shared space can't be deleted here."}
             </>
           }
           onConfirm={async () => {
@@ -977,13 +982,13 @@ export function EmptyCards() {
 }
 
 // PartOf is a subtask's "part of #12" chip, naming its parent card.
-function PartOf({ parent }: { parent: { short: string; title: string } }) {
+function PartOf({ parent }: { parent: { short: string; tag?: string; title: string } }) {
   return (
     <span
       className="font-mono text-[11px] text-muted-foreground"
-      title={`A subtask of #${plainLine(parent.short)} ${plainLine(parent.title)}`}
+      title={`A subtask of ${cardRef(parent)} ${plainLine(parent.title)}`}
     >
-      part of #{plainLine(parent.short)}
+      part of {cardRef(parent)}
     </span>
   )
 }

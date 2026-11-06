@@ -55,10 +55,13 @@ export function inScope(c: CardSummary, scope: string): boolean {
     : c.board === scope
 }
 
-// homeBoards is Home's board row (card #199): each board with a card on
-// Home, in the order they first appear.
+// homeBoards is Home's board row (card #199): each space with a card on
+// Home, in the order they first appear, named and tagged as the space is
+// (spaces: the list useBoards has). A card's own tag is its board's, which
+// may be another of the space's boards (card #558).
 export function homeBoards(
-  cards: CardSummary[]
+  cards: CardSummary[],
+  spaces: { boardId: string; name: string; tag: string }[] = []
 ): { boardId: string; name: string; tag: string }[] {
   const out: { boardId: string; name: string; tag: string }[] = []
   for (const c of cards) {
@@ -68,7 +71,8 @@ export function homeBoards(
       out.some((b) => b.boardId === c.board)
     )
       continue
-    out.push({ boardId: c.board, name: c.scopeLabel, tag: c.tag ?? "" })
+    const s = spaces.find((x) => x.boardId === c.board)
+    out.push({ boardId: c.board, name: s?.name || c.scopeLabel, tag: s?.tag ?? "" })
   }
   return out
 }
@@ -170,6 +174,7 @@ export function BoardView({
   lead,
   rows = false,
   listed,
+  plain = false,
 }: {
   scope: string
   cards: CardSummary[]
@@ -203,12 +208,15 @@ export function BoardView({
   // listed are the cards lead already shows; All leaves them out of the
   // rows.
   listed?: ReadonlySet<string>
+  // plain: no filters, only empty and the threads (a space's page, card
+  // #558, which shows boards rather than cards).
+  plain?: boolean
 }) {
   const mine = cards.filter((c) => inScope(c, scope))
   const chips = deviceChips(mine)
   // Home's board row (card #199); a board page has none.
-  const rowBoards = scope === ScopeOwn ? homeBoards(mine) : undefined
   const { boards } = useBoards()
+  const rowBoards = scope === ScopeOwn ? homeBoards(mine, boards) : undefined
   // A shared board's page narrows by member (card #268).
   const members =
     scope === ScopeOwn
@@ -344,12 +352,14 @@ export function BoardView({
         {header}
         {withThreads(
           <>
-            <FilterBar
-              filter={filter}
-              onFilter={onFilter}
-              decide={0}
-              only={["all", "done"]}
-            />
+            {!plain && (
+              <FilterBar
+                filter={filter}
+                onFilter={onFilter}
+                decide={0}
+                only={["all", "done"]}
+              />
+            )}
             {threadsBtn && (
               <span className="flex justify-end">{threadsBtn}</span>
             )}

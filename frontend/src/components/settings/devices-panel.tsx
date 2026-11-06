@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 
 const roleChoices = [
   { value: "desktop", label: "Desktop" },
-  { value: "node", label: "Always-on node" },
+  { value: "node", label: "Often-on PC" },
 ]
 
 // DevicesPanel is Settings → Devices and connections (docs/design/v0.4-devices.md §3, §9):
@@ -415,7 +415,7 @@ function HomeServer({ open }: { open: boolean }) {
             {!hs.on && (
               <p className="text-xs text-muted-foreground">
                 {hs.suggest &&
-                  "This is your always-on device: run the server here so your devices reach each other from anywhere. "}
+                  "This device is on most of the time, so it suits the server: your devices can reach each other through it from anywhere, even with public relays off. It's optional: any device that's on often keeps the others up to date. "}
                 Windows asks once to allow Irori on private networks; the server
                 needs it.
               </p>
@@ -1226,14 +1226,14 @@ function PersonColor({ open }: { open: boolean }) {
   return (
     <div className="grid gap-1 border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm">Your colour on shared boards</span>
+        <span className="text-sm">Your colour in shared spaces</span>
         <span className="flex items-center gap-1">
           {DeviceColors.map((c) => (
             <button
               key={c}
               type="button"
               title={c}
-              aria-label={`${c} on shared boards`}
+              aria-label={`${c} in shared spaces`}
               aria-pressed={color === c}
               className={cn(
                 "size-4 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring",

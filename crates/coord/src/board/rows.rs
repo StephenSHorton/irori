@@ -552,6 +552,14 @@ crate::go_struct! {
     }
 }
 
+crate::go_struct! {
+    /// What the fold reads of a `space.board.*` row; the Core reads the rest.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct SpaceBoardIdRow {
+        pub board_id: String = "boardId",
+    }
+}
+
 /// Decodes a payload as Go would; `None` drops the row.
 pub fn row<T: GoDecode>(payload: &[u8]) -> Option<T> {
     decode(payload)

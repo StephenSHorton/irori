@@ -678,7 +678,7 @@ fn watch_held_board_row_shows_the_other_person() {
     assert!(
         c.title.contains("blake's agent mlg-lead")
             && c.body
-                .contains("your receive setting for that board asks you first")
+                .contains("your receive setting for that space asks you first")
             && c.body.contains("take the loader"),
         "{c:?}"
     );

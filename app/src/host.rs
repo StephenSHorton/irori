@@ -87,11 +87,16 @@ pub fn options(
         desk_lister: Some(Arc::new(irori_core::deskwatch::GhLister)),
         // Card #427: settled cards' worktrees don't keep their target/.
         clear_builds: Some(irori_core::buildclean::IDLE),
+        // Card #580: a desktop (and `serve --headless`) holds the small
+        // files others offer, so a sleeping laptop isn't the only holder.
+        prefetch_files: Some(irori_core::prefetch::SMALL_FILE),
         ..Options::default()
     };
     if cfg!(any(target_os = "android", target_os = "ios")) {
         // Card #542: a phone has no gh, so it never asks about PRs.
         opts.pr_checker = None;
+        // Card #580: a phone fetches files only when they're opened.
+        opts.prefetch_files = None;
     }
     if offline() {
         // A rehearsal on a copy (tools/rehearse): the copy holds this
@@ -102,6 +107,7 @@ pub fn options(
         opts.pr_checker = None;
         opts.desk_lister = None;
         opts.clear_builds = None;
+        opts.prefetch_files = None;
     }
     Ok(opts)
 }

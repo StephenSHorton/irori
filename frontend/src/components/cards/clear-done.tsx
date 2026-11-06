@@ -95,7 +95,7 @@ export function ClearDone({
           confirmLabel={count ? `Clear ${count}` : "Clear"}
           question={
             <>
-              Clear {what}? They leave the app's lists, on your boards too.
+              Clear {what}? They leave the app's lists, in your spaces too.
               Agents still find them with search and show. Nothing is
               deleted.
             </>

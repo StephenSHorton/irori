@@ -134,6 +134,10 @@ pub(crate) struct PeerInfo {
     pub last_ping: Option<SystemTime>,
     pub last_sync: Option<SystemTime>,
     pub last_presence: Option<SystemTime>,
+    /// When this device last held every row the peer's newest vector named
+    /// (card #580): in step with it, so nothing it had was missing here.
+    /// A hello or a ping alone doesn't count.
+    pub in_step: Option<SystemTime>,
     /// Nanoseconds, the peer's wall clock minus this one's.
     pub skew: i64,
     pub vec: Vector,
@@ -298,6 +302,50 @@ impl Node {
     /// Go `Kick`: re-reads the cert fold now.
     pub fn kick(&self) {
         self.kick.notify_one();
+    }
+
+    /// Another of the person's devices whose newest vector holds this
+    /// device's private row `seq` (card #580): the row has left this
+    /// device. The "Removal pending" test, for one row.
+    pub fn taken_by(&self, seq: i64) -> Option<String> {
+        let devs: Vec<String> = self
+            .o
+            .chain
+            .devices()
+            .into_iter()
+            .filter(|d| !d.revoked && d.cert.device_id != self.self_id)
+            .map(|d| d.cert.device_id)
+            .collect();
+        let g = self.lock();
+        devs.into_iter().find(|id| {
+            g.known
+                .get(id)
+                .and_then(|k| k.vec.get(&self.self_id))
+                .is_some_and(|s| *s >= seq)
+        })
+    }
+
+    /// A session with another device is up (card #580).
+    pub fn any_connected(&self) -> bool {
+        self.session_list().iter().any(|s| s.hello_done())
+    }
+
+    /// A session with device `dev` is up (card #580).
+    pub fn reaches(&self, dev: &str) -> bool {
+        self.connected_to(dev)
+    }
+
+    /// Sends now (card #580): pokes every session, so rows not yet sent go
+    /// out, and asks the rooms for the devices with no connection (a wake
+    /// from sleep, or a close coming).
+    pub fn nudge(&self) {
+        self.wake_all();
+        let Some(rt) = self.lock().rt.clone() else {
+            return;
+        };
+        let _g = rt.enter();
+        self.announce();
+        self.dial_all();
     }
 
     /// Go `HasPeer`: the person has another certified, unrevoked device.
@@ -869,6 +917,24 @@ impl Node {
         let k = g.info(peer);
         k.last_sync = Some(now);
         k.last_ping = Some(now);
+        drop(g);
+        self.check_step(peer);
+    }
+
+    /// Notes when this device holds every row `peer` last said it had
+    /// (card #580): the log is in step with it as of now.
+    pub(crate) fn check_step(&self, peer: &str) {
+        let theirs = match self.lock().known.get(peer) {
+            Some(k) => k.vec.clone(),
+            None => return,
+        };
+        let Ok(ours) = self.o.store.vector() else {
+            return;
+        };
+        if covers(&ours, &theirs) {
+            let now = self.now();
+            self.lock().info(peer).in_step = Some(now);
+        }
     }
 
     /// Rows of `dev` were applied from the connection to `peer` (card
@@ -1268,4 +1334,11 @@ pub fn check_device(
 /// Go `ed25519.Verify` (non-strict, as identity.md §6 settles).
 pub(crate) fn verify(pub_key: &[u8; 32], msg: &[u8], sig: &[u8]) -> bool {
     identity::objects::ed25519_verify(pub_key, msg, sig)
+}
+
+/// Whether `ours` holds every row `theirs` names.
+pub(crate) fn covers(ours: &store::Vector, theirs: &store::Vector) -> bool {
+    theirs
+        .iter()
+        .all(|(d, s)| ours.get(d).copied().unwrap_or(0) >= *s)
 }

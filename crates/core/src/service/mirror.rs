@@ -110,7 +110,7 @@ impl Services {
             coord::Error::new(
                 coord::ErrorKind::NotFound,
                 format_args!(
-                    "no shared board holds a lease on {}",
+                    "no shared space holds a lease on {}",
                     gocompat::quote::quote(resource)
                 ),
             )

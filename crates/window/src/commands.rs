@@ -18,7 +18,7 @@ use crate::Window;
 use crate::agents::{AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
-use crate::boards::{BoardSettings, BoardSummary, SharePreview};
+use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
@@ -699,6 +699,13 @@ pub async fn board_threads(w: W<'_>, board_id: String) -> R<Vec<crate::threads::
     Ok(w.threads(&board_id))
 }
 
+/// Every thread on this device, each with its space (card #558).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>> {
+    blocking(&w, move |w| Ok(w.threads_all())).await
+}
+
 /// Resolve on a thread: the person is done with it.
 #[tauri::command]
 #[specta::specta]
@@ -723,6 +730,15 @@ pub async fn board_move_pin(w: W<'_>, id: String, before: String) -> R<()> {
 #[specta::specta]
 pub async fn board_reopen(w: W<'_>, id: String) -> R<TaskResult> {
     w.reopen(&id)
+}
+
+// ---- SyncService -----------------------------------------------------------------
+
+/// How fresh the private log and each shared space are (card #580).
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_freshness(w: W<'_>) -> R<Vec<crate::freshness::LogFreshness>> {
+    Ok(w.freshness())
 }
 
 // ---- BoardsService ---------------------------------------------------------------
@@ -755,6 +771,39 @@ pub async fn boards_add_to_space(
     tag: String,
 ) -> R<BoardSummary> {
     w.boards_add_to_space(&space_id, &name, &tag)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_rename_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    name: String,
+) -> R<BoardSummary> {
+    w.boards_rename_in_space(&space_id, &board_id, &name)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_personal(w: W<'_>) -> R<Vec<SpaceBoard>> {
+    w.boards_personal()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_add_to_personal(w: W<'_>, name: String, tag: String) -> R<Vec<SpaceBoard>> {
+    w.boards_add_to_personal(&name, &tag)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_rename_in_personal(
+    w: W<'_>,
+    board_id: String,
+    name: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_rename_in_personal(&board_id, &name)
 }
 
 #[tauri::command]
@@ -1689,6 +1738,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_start_thread,
             board_start_thread_with_files,
             board_threads,
+            board_threads_all,
             board_card_ref,
             board_resolve_thread,
             board_reopen_thread,
@@ -1699,11 +1749,16 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_move_pin,
             board_reopen,
             boards_list,
+            sync_freshness,
             boards_pin,
             boards_create,
             boards_rename,
             boards_leave,
             boards_add_to_space,
+            boards_rename_in_space,
+            boards_personal,
+            boards_add_to_personal,
+            boards_rename_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,

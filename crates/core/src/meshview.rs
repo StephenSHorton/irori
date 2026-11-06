@@ -219,7 +219,10 @@ pub(crate) fn fetch_file_blocking(
 /// (v0.5 §5.5): a file on a shared card is held by another person's device,
 /// which only the board reaches. A bad id or a file over the cap is not
 /// asked of anyone.
-async fn fetch_any(mesh: &crate::meshnode::Mesh, r: &FileRef) -> Result<String, mesh::FetchError> {
+pub(crate) async fn fetch_any(
+    mesh: &crate::meshnode::Mesh,
+    r: &FileRef,
+) -> Result<String, mesh::FetchError> {
     use mesh::FetchError as E;
     let first = match mesh.node.fetch_file(r).await {
         Ok(from) => return Ok(from),

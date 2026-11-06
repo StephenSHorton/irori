@@ -37,7 +37,7 @@ impl Window {
         let (co, keys) = self.on(task_id, &[])?;
         if !Arc::ptr_eq(&co, self.core.coord()) {
             return Err(format!(
-                "{}: a comment on a shared board can't be edited: the other people's devices already have it",
+                "{}: a comment in a shared space can't be edited: the other people's devices already have it",
                 coord::ErrorKind::Invalid.text()
             ));
         }

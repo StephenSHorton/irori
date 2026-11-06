@@ -174,6 +174,16 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     assert!(out.starts_with("Proposed the removal"), "remove = {out}");
     assert!(c.search_notes("check.sh", true)[0].note.live());
 
+    // A scope that names nothing refuses in the tool's own words.
+    let e = c
+        .propose_note(&me, "xyz", nn("x", &["topic:x"]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("no space \"xyz\": give mine, or the tag or id of a space or one of its boards"),
+        "{e}"
+    );
+
     // Search reads accepted notes only.
     let out = tool(
         &a,
@@ -291,8 +301,8 @@ fn an_agents_board_note_goes_through_the_gate_and_waits_for_a_person() {
         .unwrap();
     assert!(
         out.starts_with("Proposed note:")
-            && out.contains("in board mlg")
-            && out.contains("until a person on the board accepts it"),
+            && out.contains("in space mlg")
+            && out.contains("until a person in the space accepts it"),
         "{out}"
     );
     let found = c.search_notes("BOARD-AGENT", false);
@@ -573,7 +583,7 @@ fn a_wake_on_a_board_card_carries_the_boards_notes() {
     let p = &w.prompt;
     assert!(p.contains("MINE-NOTE") && p.contains("BOARD-NOTE"), "{p}");
     assert!(
-        p.contains("by a person on the board, accepted by a person on the board"),
+        p.contains("by a person in the space, accepted by a person in the space"),
         "{p}"
     );
 }

@@ -478,8 +478,8 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     );
     wait_for(45, "b gets the second board", || names(&b.core).len() == 2);
     assert_eq!(names(&b.core), names(&a.core));
-    // A card on the new board shows its tag; the space numbers its boards'
-    // cards in one run, and a ref finds it by either device.
+    // A card on the new board shows its tag; each board has its own run,
+    // and a ref finds the card by either device.
     let co = a.core.board_coord(&id).unwrap();
     let by = a.core.board_key(&id, &a.user()).unwrap();
     let on_wind = co.create_task(&by, new_task("boats")).unwrap();
@@ -494,16 +494,17 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
         )
         .unwrap();
     assert_eq!(on_wind.short_ref(), "wind#1");
-    assert_eq!(on_net.short_ref(), "net#2");
+    assert_eq!(on_net.short_ref(), "net#1");
     assert_eq!(on_net.board, sub);
-    assert_eq!(a.core.task_ref("net#2").unwrap(), on_net.id);
-    assert!(a.core.task_ref("wind#2").is_err(), "#2 is on net");
+    assert_eq!(a.core.task_ref("net#1").unwrap(), on_net.id);
+    assert_eq!(a.core.task_ref("wind#1").unwrap(), on_wind.id);
+    assert!(a.core.task_ref("wind#2").is_err(), "wind has no #2");
     let bco = b.core.board_coord(&id).unwrap();
     wait_for(45, "b gets the card on net", || {
         bco.get_task(&on_net.id)
-            .is_some_and(|t| t.short_ref() == "net#2")
+            .is_some_and(|t| t.short_ref() == "net#1")
     });
-    assert_eq!(b.core.task_ref("net#2").unwrap(), on_net.id);
+    assert_eq!(b.core.task_ref("net#1").unwrap(), on_net.id);
     // A board the space doesn't hold is refused.
     let e = co
         .create_task(
@@ -664,7 +665,7 @@ fn a_space_waits_for_devices_that_dont_read_spaces() {
         )
         .unwrap();
     assert!(
-        out.contains("lemmings#2"),
+        out.contains("lemmings#1"),
         "board_create on lemmings: {out}"
     );
     r.core.close().unwrap();
@@ -1155,7 +1156,7 @@ fn share_and_withdraw() {
         Ok(_) => panic!("a write to the private id was let through"),
     };
     assert!(
-        e.contains("shared to a board") && e.contains("mlg#1") && e.contains("visible to"),
+        e.contains("shared to a space") && e.contains("mlg#1") && e.contains("visible to"),
         "a write to the private id: {e}"
     );
     assert!(
@@ -1536,7 +1537,7 @@ fn board_cards_across_own_devices() {
         .core
         .task_coord(&priv_t.id, std::slice::from_ref(&mac.agent))
     {
-        Err(e) => assert!(e.to_string().contains("shared to a board"), "{e}"),
+        Err(e) => assert!(e.to_string().contains("shared to a space"), "{e}"),
         Ok(_) => panic!("a write to the shared private card on the mac went through"),
     }
 
@@ -1663,7 +1664,7 @@ fn board_create_and_the_bridge_on_the_core() {
     assert_eq!(co.list_tasks(&coord::TaskFilter::default()).len(), 1);
     let out = call(&r.key_a, "board", serde_json::json!({}));
     assert!(
-        out.contains("Shared boards you may post on") && out.contains("- mlg "),
+        out.contains("Spaces you may post on") && out.contains("boards: mlg "),
         "{out}"
     );
     // beta, assigned, hears alpha's comment as a notice, never as a bridged
@@ -2156,4 +2157,125 @@ fn a_working_card_on_a_shared_board_keeps_the_agent_off_private_hand_outs() {
     );
     assert!(co.get_task(&w2.id).unwrap().holders.is_empty());
     r.core.close().unwrap();
+}
+
+/// Card #580: each log says when this device was last in step with
+/// another, and which one. Two paired devices see each other on the
+/// private log and on a board they share, as of about now.
+#[test]
+fn freshness_names_the_device_in_step() {
+    let (a, b) = paired();
+    let now_ms = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    };
+    let fresh = |c: &Core, log: &str| c.freshness().into_iter().find(|f| f.log == log);
+    wait_for(45, "a is in step with b on the private log", || {
+        fresh(&a.core, "personal").is_some_and(|f| f.shared && f.device_id == b.core.device_id())
+    });
+    let p = fresh(&a.core, "personal").unwrap();
+    assert!(now_ms() - p.at_ms < 60_000, "{p:?}");
+    assert!(p.with.starts_with("your "), "{p:?}");
+
+    let id = a.core.create_board("MLG", "mlg").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    let co = a.core.board_coord(&id).unwrap();
+    let by = a.core.board_key(&id, &a.user()).unwrap();
+    let t = co.create_task(&by, new_task("boats")).unwrap();
+    let bco = b.core.board_coord(&id).unwrap();
+    wait_for(45, "b gets the card", || bco.get_task(&t.id).is_some());
+    wait_for(45, "b is in step with a on the board", || {
+        fresh(&b.core, &id).is_some_and(|f| f.device_id == a.core.device_id() && f.at_ms > 0)
+    });
+    let f = fresh(&b.core, &id).unwrap();
+    assert!(f.shared);
+    assert!(now_ms() - f.at_ms < 60_000, "{f:?}");
+}
+
+/// `st` holds `ev` (by its writer and seq).
+fn holds(st: &store::Store, ev: &store::Event) -> bool {
+    st.list(&Filter {
+        device_id: ev.device_id.clone(),
+        after_seq: ev.seq - 1,
+        limit: 1,
+        ..Default::default()
+    })
+    .is_ok_and(|evs| evs.len() == 1 && evs[0].seq == ev.seq)
+}
+
+/// `st`'s newest row written by `dev`.
+fn newest_of(st: &store::Store, dev: &str) -> store::Event {
+    let top = st.vector().unwrap()[dev];
+    st.list(&Filter {
+        device_id: dev.into(),
+        after_seq: top - 1,
+        limit: 1,
+        ..Default::default()
+    })
+    .unwrap()
+    .remove(0)
+}
+
+/// Card #580: a row written just before a close has left this device by
+/// the time `sync_out` returns, on the private log and on a space, and
+/// the other device holds it. With that device gone it returns at once.
+#[test]
+fn sync_out_waits_until_another_device_holds_the_last_row() {
+    let (a, b) = paired();
+    let (ai, bi) = (
+        a.core.device_id().to_string(),
+        b.core.device_id().to_string(),
+    );
+    let id = a.core.create_board("Sync out", "out").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    // The board connection is up: sync_out counts a's own device on the
+    // private mesh for a board only for a short dial grace.
+    wait_for(45, "a in step with b on the board", || {
+        a.core
+            .freshness()
+            .iter()
+            .any(|f| f.log == id && f.at_ms > 0)
+    });
+    let seen = |key: &str| serde_json::json!({"key": format!("{ai}/{key}"), "agent": "claude"});
+
+    let by = a.core.board_key(&id, &a.user()).unwrap();
+    let co = a.core.board_coord(&id).unwrap();
+    co.create_task(&by, new_task("last thing before the lid shuts"))
+        .unwrap();
+    let on_board = newest_of(&a.core.board_store(&id).unwrap(), &ai);
+    let private = a
+        .core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &seen("sync-out"))
+        .unwrap();
+
+    let r = a.core.sync_out(Duration::from_secs(20));
+    assert!(r.all_taken(), "{r:?}");
+    let p = r.log(irori_core::PERSONAL_LOG).expect("the private log");
+    assert_eq!(p.taken_by.as_deref(), Some(bi.as_str()), "{r:?}");
+    assert!(p.seq >= private.seq, "{r:?}");
+    let s = r.log(&id).expect("the space");
+    assert_eq!(s.taken_by.as_deref(), Some(bi.as_str()), "{r:?}");
+    assert!(s.seq >= on_board.seq, "{r:?}");
+    assert!(holds(b.core.store(), &private));
+    assert!(holds(&b.core.board_store(&id).unwrap(), &on_board));
+
+    // Already held: nothing to wait for.
+    let again = a.core.sync_out(Duration::from_secs(20));
+    assert!(again.all_taken(), "{again:?}");
+    assert!(again.spent < Duration::from_secs(1), "{again:?}");
+
+    // b gone: a's next row has nowhere to go, and a doesn't wait for it.
+    b.core.close().unwrap();
+    wait_for(45, "a sees b gone", || !a.core.mesh().any_connected());
+    a.core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &seen("stranded"))
+        .unwrap();
+    let alone = a.core.sync_out(Duration::from_secs(20));
+    assert!(alone.spent < Duration::from_secs(1), "{alone:?}");
+    let p = alone.log(irori_core::PERSONAL_LOG).unwrap();
+    assert_eq!(p.taken_by, None, "{alone:?}");
 }
