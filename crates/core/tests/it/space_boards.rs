@@ -351,3 +351,28 @@ fn a_notes_scope_by_an_inner_board_means_its_space() {
         assert_eq!(got.scope, "wind", "scope {scope}");
     }
 }
+
+/// Spaces-boards.md §1, agreed with #538: a hidden DM space, known by its
+/// private marker only, lists no boards, takes no board and takes no card.
+#[test]
+fn a_hidden_dm_space_has_no_boards_and_takes_none() {
+    let r = Rig::new();
+    let c = &r.core;
+    let (id, _) = wind_and_net(c);
+    assert_eq!(c.space_boards(&id).unwrap().len(), 2);
+
+    let me = c.identity().current().id;
+    let pin = c.board_verifier(&id).unwrap().pinned(&me).unwrap();
+    c.write_dm_marker(&id, &pin, "bob").unwrap();
+    assert!(c.is_dm_space(&id));
+
+    assert!(c.space_boards(&id).unwrap().is_empty(), "it lists boards");
+    let e = c.create_space_board(&id, "Art", "art").unwrap_err();
+    assert!(e.to_string().contains("holds no boards"), "{e}");
+    let co = c.board_coord(&id).unwrap();
+    let by = c.board_key(&id, &r.key_a).unwrap();
+    assert!(
+        co.create_task(&by, new_task("in a DM space")).is_err(),
+        "a card went into a hidden space"
+    );
+}

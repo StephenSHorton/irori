@@ -41,7 +41,7 @@ A space is a group of people that holds many boards and channels. v0.5 already h
 
 **Late board rows:** if another member's card on a new board arrives before that board's `space.board.created`, it folds with the space's tag, and the board row stamps it again when it lands, so devices agree with no restart.
 
-**Hidden spaces** (#538's two-person DM spaces) show no boards and never get one: `is_hidden_space` is checked when listing a space's boards, adding one and making a card. Until #538 lands `Services::is_dm_space`, it is a stub that returns false.
+**Hidden spaces** (#538's two-person DM spaces) show no boards and never get one: `is_hidden_space` is checked when listing a space's boards, adding one and making a card. It reads #538's private marker (`Services::is_dm_space`), never a tag or a name.
 
 Moving a card to another board and deleting a board are card #563 ([no-server.md](no-server.md) §3).
 
