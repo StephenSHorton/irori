@@ -1110,13 +1110,17 @@ impl Window {
                 .filter(|k| co.is_spawned(k))
                 .cloned()
                 .collect();
+            // Shared boards' cards wait on these limits whatever the
+            // private board's switch says.
+            p.queue = c.spawn_queue();
+            p.waiting.extend(p.queue.on_boards.iter().cloned());
             if c.spawn_setting("").on {
-                p.queue = c.spawn_queue();
                 if p.queue.held_until.is_some() || p.queue.daily_reached.is_some() {
-                    p.waiting = co
+                    let held = p.queue.held_until.is_some();
+                    let private: Vec<String> = co
                         .cards_to_spawn()
                         .into_iter()
-                        .filter(|t| p.queue.held_until.is_some() || !co.spawn_asked_now(&t.id))
+                        .filter(|t| held || !co.spawn_asked_now(&t.id))
                         .filter(|t| {
                             t.spawn_request().is_none_or(|s| {
                                 s.op != coord::SPAWN_FAILED || coord::usage_limited(s)
@@ -1124,9 +1128,9 @@ impl Window {
                         })
                         .map(|t| t.id)
                         .collect();
+                    p.waiting.extend(private);
                 }
                 p.waiting.extend(p.queue.places.keys().cloned());
-                p.waiting.extend(p.queue.on_boards.iter().cloned());
             }
         }
         let mut live = 0;
