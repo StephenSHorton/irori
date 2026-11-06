@@ -30,7 +30,7 @@ impl Services {
     /// note.* row would stall this device's whole stream on any member
     /// device that predates notes (nutmeg, #392). The note kinds landed
     /// before the board hello's `spaces` field (0f6544ab, then 9d5a72dc),
-    /// so a device heard to read space rows reads note rows too: the
+    /// so a device that reads space rows reads note rows too: the
     /// space gate ([`Services::space_not_ready`]) is the notes gate. Mine
     /// notes never wait.
     pub(crate) fn board_notes_ready(

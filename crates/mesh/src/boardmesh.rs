@@ -72,7 +72,8 @@ pub const BOARD_PROTOCOL: i64 = 1;
 /// hello's `spaces`. A device that never said it (an older Irori) refuses
 /// a kind it doesn't know, and every later row of that writer's stream
 /// then waits on the gap, so a space writes no space-only kind (a second
-/// board, a channel) until every member device has said at least this.
+/// board, a channel) while a member device is known to read less than this
+/// (no-server.md §5: one nobody has any word from gets a warning instead).
 /// It's a hello field, not `v`, so older and newer Irori keep syncing.
 pub const SPACES_PROTOCOL: i64 = 1;
 
@@ -97,6 +98,8 @@ const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// The kind of a board server row.
 pub const KIND_BOARD_SERVER: &str = "board.server";
+/// The kind of a saved hello ([`SavedHello`]), a device-local row.
+pub const KIND_BOARD_HELLO: &str = "board.hello";
 
 /// The board connection's hello (§6.4): first frame on `sync` after the
 /// board-open message. A `v` or `coreVersion` the receiver refuses closes
@@ -211,16 +214,152 @@ pub fn open_board_secret(
         .map_err(|_| ERR_BAD_BOARD_SECRET.into())
 }
 
-/// A `board.server` payload (B1, §6.2): written by a server device into
-/// each board its person is in, only when it changes. `public: None` (JSON
-/// `null`) when the server is off or outside reach is off. Never LAN or v6
-/// addresses.
+/// A `board.server` payload (B1, §6.2): written by every device into each
+/// board its person is in, only when it changes. `public: None` (JSON
+/// `null`) when the server is off, outside reach is off, or the device has
+/// no server at all (`port` 0: a phone, a desktop that never served). Never
+/// LAN or v6 addresses.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct BoardServer {
     pub device_id: String,
     pub port: i64,
     pub public: Option<PublicAddr>,
+    /// What the device reads (card #577). `None` from a build before this
+    /// field means no word, not level 0: every older home server would
+    /// read as too old otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reads: Option<BoardReads>,
+    /// The device's core version ("" from a build before this field).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub version: String,
+}
+
+/// The levels a device reads, as its board hello says them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BoardReads {
+    pub spaces: i64,
+    pub spawns: i64,
+}
+
+impl BoardReads {
+    /// What this build reads.
+    pub fn ours() -> BoardReads {
+        BoardReads {
+            spaces: SPACES_PROTOCOL,
+            spawns: SPAWNS_PROTOCOL,
+        }
+    }
+}
+
+/// The last hello this device heard from `device_id` on a board (card
+/// #577): a `board.hello` row in the board log's device-local rows, written
+/// when what it says changes, so a restart forgets nothing. Kept apart from
+/// [`PeerHeard`], which says who is talking now.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedHello {
+    pub device_id: String,
+    pub person_id: String,
+    pub core_version: String,
+    pub spaces: i64,
+    pub spawns: i64,
+    /// Unix milliseconds this device first heard it say so.
+    pub at_ms: i64,
+}
+
+impl SavedHello {
+    fn says_the_same(&self, o: &SavedHello) -> bool {
+        (&self.person_id, &self.core_version, self.spaces, self.spawns)
+            == (&o.person_id, &o.core_version, o.spaces, o.spawns)
+    }
+}
+
+/// The newest [`SavedHello`] of each device in board log `log`.
+pub fn saved_hellos(log: &Store) -> Result<BTreeMap<String, SavedHello>, TransportError> {
+    let mut newest = BTreeMap::new();
+    each_row(log, KIND_BOARD_HELLO, true, |ev| {
+        if let Ok(h) = serde_json::from_slice::<SavedHello>(&ev.payload) {
+            newest.insert(h.device_id.clone(), h);
+        }
+    })?;
+    Ok(newest)
+}
+
+/// What a board log holds on which devices read what, with no connection
+/// needed (card #577, no-server.md §5): saved hellos and `board.server`
+/// rows. A live hello beats both, and the caller holds those
+/// ([`BoardMesh::live_spaces`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeviceWords {
+    hellos: BTreeMap<String, SavedHello>,
+    /// Each device's newest row that says `reads`, and that row's time. A
+    /// newest row without it (a downgrade to an older home server) takes
+    /// back what the row before said.
+    rows: BTreeMap<String, (BoardReads, i64)>,
+}
+
+impl DeviceWords {
+    pub fn read(log: &Store) -> Result<DeviceWords, TransportError> {
+        let mut rows = BTreeMap::new();
+        each_row(log, KIND_BOARD_SERVER, false, |ev| {
+            let Ok(s) = serde_json::from_slice::<BoardServer>(&ev.payload) else {
+                return;
+            };
+            if s.device_id != ev.device_id {
+                return;
+            }
+            match s.reads {
+                Some(r) => rows.insert(s.device_id, (r, ev.hlc.wall_ms())),
+                None => rows.remove(&s.device_id),
+            };
+        })?;
+        Ok(DeviceWords {
+            hellos: saved_hellos(log)?,
+            rows,
+        })
+    }
+
+    /// The `spaces` level of `dev`'s latest word, None when there is none.
+    /// A saved hello and a row that disagree go by which is newer: an
+    /// updated device's row can come through a third device long after its
+    /// last hello here, and a hello after a row is a downgrade.
+    pub fn spaces(&self, dev: &str) -> Option<i64> {
+        match (self.hellos.get(dev), self.rows.get(dev)) {
+            (Some(h), Some((r, at))) if *at > h.at_ms => Some(r.spaces),
+            (Some(h), _) => Some(h.spaces),
+            (None, Some((r, _))) => Some(r.spaces),
+            (None, None) => None,
+        }
+    }
+}
+
+/// Calls `f` with every `kind` row of `log`, oldest first.
+fn each_row(
+    log: &Store,
+    kind: &str,
+    local: bool,
+    mut f: impl FnMut(&store::Event),
+) -> Result<(), TransportError> {
+    const PAGE: i64 = 1000;
+    let mut after = store::Cursor::default();
+    loop {
+        let rows = log
+            .list(&store::Filter {
+                kinds: vec![kind.into()],
+                after: after.clone(),
+                limit: PAGE,
+                local,
+                ..Default::default()
+            })
+            .map_err(|e| TransportError(format!("{kind}: {e}")))?;
+        rows.iter().for_each(&mut f);
+        match rows.last() {
+            Some(last) if rows.len() as i64 == PAGE => after = last.cursor(),
+            _ => return Ok(()),
+        }
+    }
 }
 
 /// The board's `board.server` fold: the newest row per server device whose
@@ -231,32 +370,16 @@ pub fn board_servers(
     log: &Store,
     verifier: &BoardVerifier,
 ) -> Result<Vec<BoardServer>, TransportError> {
-    const PAGE: i64 = 1000;
     let mut newest: BTreeMap<String, BoardServer> = BTreeMap::new();
-    let mut after = store::Cursor::default();
-    loop {
-        let rows = log
-            .list(&store::Filter {
-                kinds: vec![KIND_BOARD_SERVER.into()],
-                after: after.clone(),
-                limit: PAGE,
-                ..Default::default()
-            })
-            .map_err(|e| TransportError(format!("board.server: {e}")))?;
-        for ev in &rows {
-            let Ok(s) = serde_json::from_slice::<BoardServer>(&ev.payload) else {
-                continue;
-            };
-            if s.device_id != ev.device_id {
-                continue; // only the server's own device announces it
-            }
+    each_row(log, KIND_BOARD_SERVER, false, |ev| {
+        let Ok(s) = serde_json::from_slice::<BoardServer>(&ev.payload) else {
+            return;
+        };
+        // Only the server's own device announces it.
+        if s.device_id == ev.device_id {
             newest.insert(s.device_id.clone(), s);
         }
-        match rows.last() {
-            Some(last) if rows.len() as i64 == PAGE => after = last.cursor(),
-            _ => break,
-        }
-    }
+    })?;
     Ok(newest
         .into_values()
         .filter(|s| verifier.cert(&s.device_id).is_some() && verifier.cut(&s.device_id).is_none())
@@ -574,41 +697,49 @@ impl BoardMesh {
         self.s.announce.notify_one();
     }
 
-    /// What each member device last said here (closed connections too).
-    /// The member devices (every other device of every active member)
-    /// not yet heard to read space rows (card #392): until there are none,
-    /// the space writes no space-only kind. A device not heard since this
-    /// start counts as not ready.
-    pub fn not_ready_for_spaces(&self) -> Vec<MemberDevice> {
+    /// The `spaces` each device on a live connection said in its hello:
+    /// the word that beats any saved one (no-server.md §5).
+    pub fn live_spaces(&self) -> BTreeMap<String, i64> {
+        let live = self.peers();
         let heard = self.s.heard.lock().expect("heard");
-        self.s
-            .member_devices()
-            .into_iter()
-            .filter(|d| {
-                heard
-                    .get(&d.device_id)
-                    .is_none_or(|h| h.spaces < SPACES_PROTOCOL)
-            })
+        live.into_iter()
+            .filter_map(|(_, d)| heard.get(&d).map(|h| (d, h.spaces)))
             .collect()
     }
 
     /// The member devices not yet heard to read spawned-agent rows (card
     /// #455): until there are none, this device writes no `task.spawn` or
-    /// `task.spawned` to the board. A device not heard since this start
-    /// counts as not ready.
+    /// `task.spawned` to the board. Every device must have been heard, on
+    /// a hello now or a saved one: this gate is silent and on the busiest
+    /// stream, so it doesn't let an unheard device through as space rows
+    /// do (no-server.md §5).
     pub fn not_ready_for_spawns(&self) -> Vec<MemberDevice> {
-        let heard = self.s.heard.lock().expect("heard");
-        self.s
-            .member_devices()
+        let devices = self.s.member_devices();
+        let levels: Vec<Option<i64>> = {
+            let heard = self.s.heard.lock().expect("heard");
+            devices
+                .iter()
+                .map(|d| heard.get(&d.device_id).map(|h| h.spawns))
+                .collect()
+        };
+        let saved = if levels.iter().any(Option::is_none) {
+            saved_hellos(&self.s.opts.log).unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+        devices
             .into_iter()
-            .filter(|d| {
-                heard
-                    .get(&d.device_id)
-                    .is_none_or(|h| h.spawns < SPAWNS_PROTOCOL)
+            .zip(levels)
+            .filter(|(d, level)| {
+                level
+                    .or_else(|| saved.get(&d.device_id).map(|h| h.spawns))
+                    .is_none_or(|l| l < SPAWNS_PROTOCOL)
             })
+            .map(|(d, _)| d)
             .collect()
     }
 
+    /// What each member device last said here (closed connections too).
     pub fn heard(&self) -> Vec<PeerHeard> {
         self.s
             .heard
@@ -1344,6 +1475,7 @@ impl Shared {
                         Some((&h.person_id, &h.core_version, h.spaces, h.spawns)),
                         &h.vector,
                     );
+                    self.save_hello(&h);
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
@@ -1404,6 +1536,29 @@ impl Shared {
             *e = (*e).max(*s);
         }
         h.at_ms = now;
+    }
+
+    /// Saves hello `h` in the board log's local rows, when it says anything
+    /// new. A failure costs only what a restart then forgets.
+    fn save_hello(&self, h: &BoardHello) {
+        let row = SavedHello {
+            device_id: h.device_id.clone(),
+            person_id: h.person_id.clone(),
+            core_version: h.core_version.clone(),
+            spaces: h.spaces,
+            spawns: h.spawns,
+            at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as i64),
+        };
+        if let Ok(m) = saved_hellos(&self.opts.log)
+            && m.get(&row.device_id).is_some_and(|s| s.says_the_same(&row))
+        {
+            return;
+        }
+        if let Err(e) = self.opts.log.append_local("irori", KIND_BOARD_HELLO, &row) {
+            self.logf(&format!("board.hello: {e}"));
+        }
     }
 
     /// Whether `theirs` holds a row this device's board log lacks.
@@ -1565,6 +1720,38 @@ mod tests {
         assert_eq!(h["type"], "hello");
         assert_eq!(h["boardId"], "b");
         assert!(serde_json::from_slice::<Wire>(br#"{"type":"later.frame"}"#).is_err());
+    }
+
+    /// Card #577: the latest word on a device, from saved hellos and rows.
+    #[test]
+    fn a_devices_latest_word_is_its_newer_saved_hello_or_row() {
+        let hello = |spaces, at_ms| SavedHello {
+            spaces,
+            at_ms,
+            ..Default::default()
+        };
+        let row = |spaces, at| {
+            (
+                BoardReads {
+                    spaces,
+                    ..Default::default()
+                },
+                at,
+            )
+        };
+        let words = |h: Option<SavedHello>, r: Option<(BoardReads, i64)>| DeviceWords {
+            hellos: h.into_iter().map(|h| ("d".to_string(), h)).collect(),
+            rows: r.into_iter().map(|r| ("d".to_string(), r)).collect(),
+        };
+        assert_eq!(words(None, None).spaces("d"), None, "no word");
+        assert_eq!(words(Some(hello(0, 5)), None).spaces("d"), Some(0));
+        assert_eq!(words(None, Some(row(1, 5))).spaces("d"), Some(1));
+        // It updated, and its row came through another device.
+        let w = words(Some(hello(0, 5)), Some(row(1, 9)));
+        assert_eq!(w.spaces("d"), Some(1));
+        // It went back to an older build after that row.
+        let w = words(Some(hello(0, 9)), Some(row(1, 5)));
+        assert_eq!(w.spaces("d"), Some(0));
     }
 
     /// Card #392: an older Irori's hello has no `spaces` and still parses

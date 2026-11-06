@@ -334,6 +334,9 @@ kinds! {
     BOARD_PIN = "board.pin" => Local;
     /// `{boardId, upTo}`: this device forgot the board.
     BOARD_FORGOTTEN = "board.forgotten" => Local;
+    /// `{deviceId, personId, coreVersion, spaces, spawns, atMs}`: the last
+    /// hello this device heard from `deviceId` on the board (card #577).
+    BOARD_HELLO = "board.hello" => Local;
 }
 
 fn index() -> &'static HashMap<&'static str, (Side, Board)> {

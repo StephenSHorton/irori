@@ -427,7 +427,7 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     wait_for(45, "b's cert arrives", || {
         bv.membership().created && bv.cert(b.core.device_id()).is_some()
     });
-    // Until b's hello lands a refuses, naming what it waits on.
+    // Nobody is known to be too old, so a needn't wait for b's hello.
     wait_for(45, "a hears b read spaces", || {
         a.core.space_not_ready(&id).unwrap().is_empty()
     });
