@@ -1105,8 +1105,10 @@ impl Fold {
                 t.open_ask().is_some_and(|a| {
                     a.owner != self.dev
                         && self.same_person_dev(&a.owner, &self.dev)
+                        // On a board every member's hello says so instead.
+                        && (self.on_board || self.reads_moves(&a.owner))
                         && (!self.can_run(&a.owner)
-                            || (self.is_away(&a.owner)
+                            || (self.away_for(&a.owner, ASK_AWAY)
                                 && gotime::at_least(&now, &t.created_at, ASK_AWAY)))
                 })
             })

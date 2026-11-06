@@ -566,6 +566,29 @@ impl Fold {
             .is_some_and(|f| f().away.contains(dev))
     }
 
+    /// Whether device `dev` has been away for at least `d` (card #541).
+    pub(crate) fn away_for(&self, dev: &str, d: std::time::Duration) -> bool {
+        let Some(f) = self.agent_devices.as_ref() else {
+            return false;
+        };
+        let a = f();
+        if !a.away.contains(dev) {
+            return false;
+        }
+        let now = i128::from(self.stamp().unix_nano());
+        a.away_since
+            .get(dev)
+            .is_some_and(|s| now - i128::from(*s) >= d.as_nanos() as i128)
+    }
+
+    /// Whether device `dev`'s Irori reads `ask.moved` (card #541); every
+    /// device when nothing says (tests without a sweep).
+    pub(crate) fn reads_moves(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_none_or(|f| f().moves.contains(dev))
+    }
+
     /// The device agent work on `side` goes to when it lands on one that
     /// can't run agents: the first of the person's computers that runs
     /// the side (card #541).

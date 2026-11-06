@@ -104,6 +104,7 @@ impl Services {
         let rows = self.mesh.node.devices(false);
         let mut cant: HashSet<String> = HashSet::new();
         let mut away: HashSet<String> = HashSet::new();
+        let mut moves: HashSet<String> = HashSet::from([me.clone()]);
         // (tier, no trusted folder, id)
         let mut ranked: Vec<(u8, bool, String)> = Vec::new();
         let mut no_claude: Vec<String> = Vec::new();
@@ -127,6 +128,9 @@ impl Services {
                 away.insert(id.clone());
             }
             let host = hosts.get(id);
+            if host.is_some_and(|h| h.moves >= coord::HOST_MOVES) {
+                moves.insert(id.clone());
+            }
             let phone = r.os == ANDROID || host.is_some_and(|h| h.os == ANDROID);
             // What a device says of itself wins; its role speaks only for
             // one that never said, and this one knows.
@@ -136,9 +140,10 @@ impl Services {
                 cant.insert(id.clone());
                 continue;
             }
-            // A device that never published one (an older Irori) is never
-            // picked, as in spawn_device.
-            if host.is_none() && *id != me {
+            // An older Irori (no row, or one without `moves`) is never
+            // picked, as in spawn_device: it wouldn't stand in for a phone
+            // or take an ask, so phone work would wait on it for good.
+            if *id != me && !host.is_some_and(|h| h.moves >= coord::HOST_MOVES) {
                 continue;
             }
             let no = if *id == me {
@@ -182,10 +187,28 @@ impl Services {
                 Some(since.unwrap_or((self.now)()))
             };
         }
+        let away_since = {
+            let now = (self.now)();
+            let mut since = self
+                .spawn
+                .away_since
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            since.retain(|d, _| away.contains(d));
+            for d in &away {
+                since.entry(d.clone()).or_insert(now);
+            }
+            since
+                .iter()
+                .map(|(d, t)| (d.clone(), t.unix_nano()))
+                .collect()
+        };
         *self.spawn.agents.write().unwrap_or_else(|e| e.into_inner()) = AgentDevices {
             homes: ranked.into_iter().map(|(_, _, d)| d).collect(),
             cant,
             away,
+            away_since,
+            moves,
         };
         *self
             .spawn

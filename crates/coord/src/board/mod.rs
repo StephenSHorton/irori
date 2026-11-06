@@ -247,7 +247,19 @@ pub struct AgentDevices {
     pub cant: std::collections::HashSet<String>,
     /// The devices not connected now.
     pub away: std::collections::HashSet<String>,
+    /// Since when each device in `away` has been away, in unix nanoseconds,
+    /// as this device saw it: a link that dropped a moment ago moves
+    /// nothing.
+    pub away_since: std::collections::BTreeMap<String, i64>,
+    /// The devices whose Irori reads `ask.moved` (a `spawn.host` row
+    /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
+    /// one of these, since an older one would keep acting on it.
+    pub moves: std::collections::HashSet<String>,
 }
+
+/// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
+/// and stands in for a phone (card #541). Older rows have none (0).
+pub const HOST_MOVES: i64 = 1;
 
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;

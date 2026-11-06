@@ -67,6 +67,11 @@ pub struct SpawnHost {
     /// Claude Code. Older rows have no such field and could.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub no_agents: bool,
+    /// [`coord::HOST_MOVES`] from an Irori that reads `ask.moved` and
+    /// stands in for a phone (card #541); always written, so a row without
+    /// it is an older Irori's, which is never picked to take phone work.
+    #[serde(default)]
+    pub moves: i64,
     #[serde(default)]
     pub at: GoTime,
 }
@@ -148,7 +153,7 @@ pub(crate) struct RemoteState {
     /// When this device last looked at what it can start agents in, and
     /// what it last published.
     host_at: Mutex<Option<GoTime>>,
-    host_last: Mutex<Option<(String, Vec<HostRepo>, bool)>>,
+    host_last: Mutex<Option<(String, Vec<HostRepo>, bool, i64)>>,
     /// Devices asked to start a card's agent, and when: the next request
     /// names another device first (§9 "the next device that has the repo").
     tried: Mutex<HashMap<String, HashMap<String, GoTime>>>,
@@ -226,9 +231,10 @@ impl Services {
             *last = self
                 .hosts()
                 .remove(&self.device.id)
-                .map(|h| (h.os, h.repos, h.no_agents));
+                .map(|h| (h.os, h.repos, h.no_agents, h.moves));
         }
-        if last.as_ref() == Some(&(os.clone(), repos.clone(), no_agents)) {
+        let moves = coord::HOST_MOVES;
+        if last.as_ref() == Some(&(os.clone(), repos.clone(), no_agents, moves)) {
             return;
         }
         let row = SpawnHost {
@@ -236,10 +242,11 @@ impl Services {
             os: os.clone(),
             repos: repos.clone(),
             no_agents,
+            moves,
             at: now,
         };
         match self.store.append(SWEEPER, kinds::SPAWN_HOST, &row) {
-            Ok(_) => *last = Some((os, repos, no_agents)),
+            Ok(_) => *last = Some((os, repos, no_agents, moves)),
             Err(e) => logf(format_args!("spawn host: {e}")),
         }
     }

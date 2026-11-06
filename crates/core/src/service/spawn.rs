@@ -930,6 +930,9 @@ pub(crate) struct SpawnState {
     pub no_agent_told: Mutex<std::collections::HashSet<String>>,
     /// Since when no computer can start one, in this run.
     pub no_agent_since: Mutex<Option<GoTime>>,
+    /// Since when each device has been away, as this run saw it (card
+    /// #541): an ask moves off an owner only once it has been gone a while.
+    pub away_since: Mutex<HashMap<String, GoTime>>,
     /// The boards' switches, by board id (`""` the private board); read by
     /// the coords' hand-out under their locks, so never the store.
     pub on: Arc<RwLock<HashMap<String, SpawnSetting>>>,

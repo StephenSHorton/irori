@@ -679,3 +679,43 @@ fn a_boards_thread_stays_put_while_a_member_is_unheard() {
     assert_eq!(fake.started(), 0, "nothing started");
     mac.core.close().unwrap();
 }
+
+/// A computer on an Irori from before card #541 (its spawn.host has no
+/// `moves`) never stands in for the phone or takes its asks, so it is
+/// never where phone work goes: the phone keeps saying no agent can start
+/// rather than waiting on it for good. Found by #541's review.
+#[test]
+fn an_older_computer_is_never_where_phone_work_goes() {
+    let r = Rig::new();
+    let mac = r.mac_id();
+    // The Mac has no spawner, so it publishes nothing of its own; this is
+    // the row an older Irori wrote.
+    r.mac
+        .core
+        .capture()
+        .emit_row(
+            "irori",
+            "spawn.host",
+            &serde_json::json!({"device": mac, "os": "macos", "repos": [], "at": "2026-11-01T00:00:00Z"}),
+        )
+        .unwrap();
+    wait_for(WAIT, "the phone has the Mac's older row", || {
+        r.phone
+            .core
+            .spawn_hosts()
+            .get(&mac)
+            .is_some_and(|h| h.moves == 0)
+    });
+    wait_for(WAIT, "the phone knows it can't run agents", || {
+        r.phone.core.cant_run_devices().contains(&r.phone_id())
+    });
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    assert_eq!(r.phone.core.coord().agent_home(""), None, "not a home");
+    let t = r.thread("Why is the sync stuck?");
+    assert_eq!(
+        t.ask.as_ref().unwrap().owner,
+        r.phone_id(),
+        "not given to it"
+    );
+    r.close();
+}

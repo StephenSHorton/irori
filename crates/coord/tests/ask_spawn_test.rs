@@ -718,3 +718,82 @@ fn one_generation_on_two_computers_settles_the_same_on_every_device() {
     assert_eq!(spawn_of(&["mac", "pc"]), "mac");
     assert_eq!(spawn_of(&["pc", "mac"]), "mac");
 }
+
+/// The phone (dev-a) posts a thread it owns; the Mac (dev-b) hears it, with
+/// spawning on and `devs` saying which devices can run agents.
+fn phone_thread_on_mac(devs: Arc<RwLock<AgentDevices>>) -> (Env, Task) {
+    // One person's two devices: both read the person's rows as theirs.
+    let owner: KeyFn = Arc::new(|k: &str| k == USER);
+    let phone = Env::with("dev-a", Some(owner.clone()));
+    let mut mac = Env::with("dev-b", Some(owner));
+    let _r = rig(&mut mac, &[]);
+    let d = devs.clone();
+    mac.c = mac.reopen_with(Options {
+        spawning: Some(Arc::new(|| true)),
+        agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
+        ..mac.opts()
+    });
+    let t = post(&phone, "Why is the sync stuck?", true, &[]);
+    assert_eq!(t.ask.as_ref().unwrap().owner, "dev-a");
+    let rows = phone.st.missing(&mac.st.vector().unwrap(), 1000).unwrap();
+    let (_, r) = mac.st.insert_batch(&rows);
+    r.unwrap();
+    for ev in &rows {
+        mac.c.handle(ev).unwrap();
+    }
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a");
+    (mac, t)
+}
+
+/// Card #541: an ask moves off a computer that went away only once it has
+/// been away a while, counted from when it went, not from when the ask was
+/// made: a link that dropped a moment ago moves nothing.
+#[test]
+fn an_ask_moves_off_an_owner_only_once_it_has_been_away_a_while() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into(), "dev-a".into()],
+        moves: HashSet::from(["dev-a".to_string(), "dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    // The ask is old, and dev-a's link only now drops.
+    mac.clk.add(mins(5));
+    {
+        let mut d = devs.write().unwrap();
+        d.away.insert("dev-a".into());
+        d.away_since
+            .insert("dev-a".into(), mac.clk.now().unix_nano());
+    }
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "gone a moment");
+    mac.clk.add(secs(31));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "gone a while");
+}
+
+/// Card #541: an ask moves only off a device whose Irori reads
+/// `ask.moved`: an older one would ignore the move and keep handing the
+/// ask out, so two agents would answer it.
+#[test]
+fn an_ask_stays_with_an_owner_that_does_not_read_moves() {
+    let devs = Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-b".into()],
+        cant: HashSet::from(["dev-a".to_string()]),
+        moves: HashSet::from(["dev-b".to_string()]),
+        ..AgentDevices::default()
+    }));
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(
+        ask_of(&mac, &t.id).owner,
+        "dev-a",
+        "an older phone keeps it"
+    );
+    devs.write().unwrap().moves.insert("dev-a".into());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(
+        ask_of(&mac, &t.id).owner,
+        "dev-b",
+        "a phone that reads moves"
+    );
+}
