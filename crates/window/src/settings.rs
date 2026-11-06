@@ -60,6 +60,67 @@ impl NotifyOptions {
     }
 }
 
+/// One mode's card colours (card #527): `#rrggbb`, already opaque.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CardColors {
+    /// The solid card, and the fallback where there is no glass.
+    pub background: String,
+    /// The glass's colour, drawn at `alpha` over the blurred desktop.
+    pub tint: String,
+    pub foreground: String,
+    pub muted: String,
+    pub border: String,
+    pub hover: String,
+    /// The secondary button.
+    pub button: String,
+    pub primary: String,
+    pub on_primary: String,
+    pub info: String,
+    pub success: String,
+    pub warn: String,
+    pub error: String,
+}
+
+/// The desktop cards' look (card #527): the person's appearance as the
+/// window resolves it (frontend/src/lib/card-look.ts).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CardLook {
+    /// The theme's id, for reference.
+    pub theme: String,
+    /// "light", "dark" or "system".
+    pub mode: String,
+    /// The glass style's id, for reference.
+    pub glass: String,
+    /// The glass tint's opacity, 0..1; 0 or 1 is solid.
+    #[specta(type = i64)]
+    pub alpha: f64,
+    /// Corner radius in dip.
+    #[specta(type = i64)]
+    pub radius: f64,
+    pub light: CardColors,
+    pub dark: CardColors,
+}
+
+fn to_notify_colors(c: CardColors) -> notify::CardColors {
+    notify::CardColors {
+        background: c.background,
+        tint: c.tint,
+        foreground: c.foreground,
+        muted: c.muted,
+        border: c.border,
+        hover: c.hover,
+        button: c.button,
+        primary: c.primary,
+        on_primary: c.on_primary,
+        info: c.info,
+        success: c.success,
+        warn: c.warn,
+        error: c.error,
+    }
+}
+
 /// Where a notification's Open goes (Go `notify.Target`); the app:open
 /// payload.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -115,6 +176,17 @@ impl Notifier for NotifierSeam {
     fn test(&self) -> Result<(), String> {
         self.0.post_test()
     }
+    fn set_look(&self, l: CardLook) -> Result<(), String> {
+        self.0.set_look(notify::CardLook {
+            theme: l.theme,
+            mode: l.mode,
+            glass: l.glass,
+            alpha: l.alpha,
+            radius: l.radius,
+            light: to_notify_colors(l.light),
+            dark: to_notify_colors(l.dark),
+        })
+    }
 }
 
 /// Launch at login this build has: none registered, and it can't
@@ -151,6 +223,12 @@ impl Window {
     /// SettingsService.TestNotification.
     pub fn test_notification(&self) -> Result<(), String> {
         self.seams.notifier.test()
+    }
+
+    /// The cards follow the window's appearance (card #527): sent at
+    /// startup and on every change; saved for the next start.
+    pub fn set_card_look(&self, l: CardLook) -> Result<(), String> {
+        self.seams.notifier.set_look(l)
     }
 
     /// SettingsService.GetYourName: the person's name (card #183).

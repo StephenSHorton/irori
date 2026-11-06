@@ -180,6 +180,33 @@ pub fn thumb_rect(body_lines: usize, tw: f64, th: f64, scale: f64) -> Rect {
     }
 }
 
+/// Where a rounded card's stripe sits from its left edge.
+pub const STRIPE_INSET_DIP: f64 = 6.0;
+
+/// The kind-coloured stripe on a card h px tall with corner radius px
+/// (both px). Square cards (Toru) run it down the whole left edge; under a
+/// rounded corner that would show as a sliver, so a rounded card gets an
+/// inset pill, top to bottom inside the padding (card #527). The second
+/// value is the pill's corner radius (0 for the square edge).
+pub fn stripe_rect(h: i32, radius: i32, scale: f64) -> (Rect, i32) {
+    let w = px(STRIPE_DIP, scale);
+    if radius <= 0 {
+        return (
+            Rect {
+                l: 0,
+                t: 0,
+                r: w,
+                b: h,
+            },
+            0,
+        );
+    }
+    let l = px(STRIPE_INSET_DIP, scale);
+    let t = px(PAD_TOP_DIP, scale).min(h / 2);
+    let b = (h - px(PAD_BOTTOM_DIP, scale)).max(t);
+    (Rect { l, t, r: l + w, b }, w / 2)
+}
+
 /// The x's hit box on a card w px wide.
 pub fn close_rect(w: i32, scale: f64) -> Rect {
     let s = px(CLOSE_SIZE_DIP, scale);
