@@ -704,7 +704,9 @@ pub struct Options {
     pub on_passed: Option<OnPassedFn>,
     /// Runs under the inbox lock: it must not call the inbox.
     pub stale: Option<StaleFn>,
-    /// Runs under the inbox lock: it must not call the inbox.
+    /// Runs under the inbox lock: it must not call the inbox, nor wait on
+    /// anything that may be waiting on the inbox (a shared board's coord
+    /// is: its writes read the hop here).
     pub notes: Option<NotesFn>,
     /// Whether Irori started agent `key` for one card (card #446): it is
     /// never a repo's front desk. Runs under the inbox lock.

@@ -79,6 +79,11 @@ export const Events = {
   },
 }
 
+// WindowLog writes one line to irori.log (window-log.ts).
+export function WindowLog(line: string): Promise<void> {
+  return done(commands.windowLog(line))
+}
+
 // ---- Browser, Clipboard ---------------------------------------------------------
 
 export const Browser = {
