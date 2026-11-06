@@ -44,6 +44,9 @@ pub enum Why {
     Paused { device: String },
     /// The device that would start it can't run agents (card #541's words).
     CantRun { device: String },
+    /// No computer can start it now: card #541's line, without its
+    /// "No agent can start: " and its last period.
+    NoComputer(String),
     /// A member's Irori can't read spawn rows yet.
     OlderMember { people: Vec<String> },
     /// A mark on a step of a card that has its agent.
@@ -128,6 +131,7 @@ impl fmt::Display for Why {
                 write!(f, "Pause all is on on {device}; it starts once that's off")
             }
             Why::CantRun { device } => write!(f, "{device} can't run agents"),
+            Why::NoComputer(line) => write!(f, "{line}"),
             Why::OlderMember { people } if people.is_empty() => write!(
                 f,
                 "a device on this board can't read agent starts yet; it starts once that device has updated or connected"
@@ -222,6 +226,14 @@ fn queued(device: String, running: i64, cap: i64, ahead: i64) -> Option<Why> {
         cap,
         ahead,
     })
+}
+
+/// Card #541's line, fit to follow "no agent yet: ".
+fn no_computer_words(line: &str) -> String {
+    line.strip_prefix("No agent can start: ")
+        .unwrap_or(line)
+        .trim_end_matches('.')
+        .to_string()
 }
 
 /// Whether an open step of t asks for a helper.
@@ -463,8 +475,19 @@ impl Services {
         let private = board_id.is_empty();
         let request = t.spawn_request();
         let asked = asked || t.spawn || step_marked(&t) || request.is_some();
+        // Card #541: every computer with its repo is offline or lacks
+        // Claude Code, or none runs agents. Its line says which, and that
+        // it starts by itself. A thread this device gave to an offline
+        // computer needs no agent here, but still waits on that one.
+        let no_computer = || {
+            let line = self.no_agent_for(&co, &t);
+            (!line.is_empty()).then(|| Why::NoComputer(no_computer_words(&line)))
+        };
         if hold == SpawnHold::NoNeed {
-            return (step_marked(&t) && t.open_ask().is_none()).then_some(Why::StepOnly);
+            if step_marked(&t) && t.open_ask().is_none() {
+                return Some(Why::StepOnly);
+            }
+            return no_computer();
         }
         let stale = request.filter(|s| s.pending() && s.stale(&(self.now)()));
         if let Some(s) = request.filter(|s| s.pending() && !s.stale(&(self.now)())) {
@@ -527,6 +550,10 @@ impl Services {
             people.dedup();
             return Some(Why::OlderMember { people });
         }
+        // device_why would only blame this device.
+        if let Some(why) = no_computer() {
+            return Some(why);
+        }
         match (self.device_why(&co, &t, &board_id), stale) {
             // Asked and nothing came: Irori asks again after a wait, and
             // until then the asked device counts that request as running,
@@ -577,6 +604,12 @@ mod tests {
             (Why::SwitchOff, "Settings › Agents"),
             (Why::Paused { device: dev() }, "Pause all"),
             (Why::CantRun { device: dev() }, "Mac can't run agents"),
+            (
+                Why::NoComputer(no_computer_words(
+                    "No agent can start: Mac is offline. It starts by itself when it's back.",
+                )),
+                "Mac is offline. It starts by itself when it's back",
+            ),
             (
                 Why::OlderMember {
                     people: vec!["Blake".into()],

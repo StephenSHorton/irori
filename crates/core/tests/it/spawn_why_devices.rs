@@ -331,7 +331,7 @@ fn skewed(skew: Arc<AtomicI64>) -> Edit {
 }
 
 /// A private card for a repo only B has, and B is offline: it waits for
-/// B, and the line names B.
+/// B, and the line names B in card #541's words.
 #[test]
 fn a_card_for_an_offline_device_waits_for_it() {
     let skew = Arc::new(AtomicI64::new(0));
@@ -361,13 +361,15 @@ fn a_card_for_an_offline_device_waits_for_it() {
     a.core.set_spawner(Some(idle_spawner(true)));
     switch_on(&a);
     let t = card(&a, &a.user(), "For B", REPO_B);
+    let offline = Some(Why::NoComputer(format!(
+        "{b_name} is offline. It starts by itself when it's back"
+    )));
+    // Until #541's host view hears B is gone, it's "waiting for B".
+    wait_for(WAIT, "the line says B is offline", || {
+        a.core.why_no_agent(&t.id, true) == offline
+    });
     for _ in 0..20 {
-        assert_eq!(
-            a.core.why_no_agent(&t.id, true),
-            Some(Why::NoDevice {
-                devices: vec![b_name.clone()]
-            })
-        );
+        assert_eq!(a.core.why_no_agent(&t.id, true), offline);
         std::thread::sleep(Duration::from_millis(50));
     }
 }
