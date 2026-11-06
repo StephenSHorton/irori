@@ -1110,6 +1110,7 @@ pub fn post(
                         thread_from: thread_from.clone(),
                         by: by.clone(),
                         stay_out: false,
+                        ..NewPost::default()
                     })
                     .map_err(|e| e.to_string())?;
                 out.post = p;
