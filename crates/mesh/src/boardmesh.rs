@@ -1620,4 +1620,27 @@ mod tests {
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("spaces").is_none(), "0 isn't sent");
     }
+
+    /// Card #541: an older Irori's hello has no `moves` and parses as 0, so
+    /// [`BoardMesh::not_ready_for_moves`] counts it and no computer takes
+    /// the board's asks; ours says MOVES_PROTOCOL.
+    #[test]
+    fn hello_says_it_reads_moves() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.3","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.moves, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            moves: MOVES_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["moves"], MOVES_PROTOCOL);
+        assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
+    }
 }

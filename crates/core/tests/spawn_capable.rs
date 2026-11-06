@@ -591,3 +591,91 @@ fn a_shared_boards_thread_says_why_too() {
     });
     phone.core.close().unwrap();
 }
+
+/// A shared board of the person's, spawning on, and a thread the phone
+/// posts on it before the Mac can start anything, so the phone owns it.
+fn board_thread(r: &Rig) -> (String, Task) {
+    let id = r.phone.core.create_board("Team", "team").unwrap();
+    wait_for(WAIT, "the Mac has the board", || {
+        r.mac.core.boards().contains(&id)
+    });
+    for d in [&r.phone, &r.mac] {
+        d.core
+            .set_spawn_setting(SpawnSetting {
+                board_id: id.clone(),
+                on: true,
+                ..SpawnSetting::default()
+            })
+            .unwrap();
+    }
+    let (t, _) = r
+        .phone
+        .core
+        .board_ask(
+            &id,
+            coord::NewAsk {
+                text: "Why is the sync stuck?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(t.ask.as_ref().unwrap().owner, r.phone_id());
+    wait_for(WAIT, "the Mac has the thread", || {
+        board_owner(&r.mac, &id, &t.id).is_some()
+    });
+    (id, t)
+}
+
+fn board_owner(d: &Dev, id: &str, task: &str) -> Option<String> {
+    d.core
+        .board_coord(id)
+        .ok()
+        .and_then(|c| c.get_task(task))
+        .and_then(|t| t.ask)
+        .map(|a| a.owner)
+}
+
+/// A shared board's thread the phone still owns: the Mac has heard every
+/// member device say it reads `board.ask.moved`, so it takes the thread.
+#[test]
+fn the_mac_takes_a_boards_thread_the_phone_still_owns() {
+    let r = Rig::new();
+    let (id, t) = board_thread(&r);
+    r.mac_spawner();
+    let mac = r.mac_id();
+    wait_for(WAIT, "the Mac takes it", || {
+        board_owner(&r.mac, &id, &t.id).as_deref() == Some(mac.as_str())
+    });
+    wait_for(WAIT, "an agent starts on the Mac", || r.fake.started() == 1);
+    wait_for(WAIT, "the phone hears the Mac has it", || {
+        board_owner(&r.phone, &id, &t.id).as_deref() == Some(mac.as_str())
+    });
+    r.close();
+}
+
+/// The same thread when the Mac hasn't heard the phone since it started,
+/// as with an older Irori whose hello has no `moves`: a member that doesn't
+/// read the row would refuse it and stall on the gap, so the Mac leaves the
+/// thread where it is and starts nothing.
+#[test]
+fn a_boards_thread_stays_put_while_a_member_is_unheard() {
+    let r = Rig::new();
+    let (id, t) = board_thread(&r);
+    let ph = r.phone_id();
+    let Rig {
+        phone,
+        mac,
+        fake,
+        _checkout,
+    } = r;
+    phone.core.close().unwrap();
+    let mac = restart(mac);
+    assert_eq!(board_owner(&mac, &id, &t.id), Some(ph.clone()));
+    mac.core
+        .set_spawner(Some(spawner(&fake, mac.claude.join("sessions"))));
+    std::thread::sleep(std::time::Duration::from_secs(15));
+    assert_eq!(board_owner(&mac, &id, &t.id), Some(ph), "not taken");
+    assert_eq!(fake.started(), 0, "nothing started");
+    mac.core.close().unwrap();
+}
