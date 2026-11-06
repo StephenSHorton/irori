@@ -19,6 +19,7 @@ use crate::agents::{AgentStartsView, AgentsChange, AgentsLimits, AgentsSettings,
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
+use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
@@ -1441,6 +1442,60 @@ pub async fn voice_open_settings(w: W<'_>, code: String) -> R<()> {
     blocking(&w, move |w| w.voice_open_settings(&code)).await
 }
 
+// ---- Huddles (#654) --------------------------------------------------------------
+
+/// The huddles on now: yours, ringing here, and live in your conversations.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_state(w: W<'_>) -> R<CallView> {
+    blocking(&w, |w| Ok(w.call_state())).await
+}
+
+/// Starts a huddle in a channel or person DM; returns its id.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_start(w: W<'_>, conv_id: String) -> R<String> {
+    // Opening the mic and speaker blocks (and on Android the plugin
+    // answers on the main thread).
+    blocking(&w, move |w| w.call_start(&conv_id)).await
+}
+
+/// Joins a huddle ringing here or live in a conversation.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_join(w: W<'_>, call_id: String) -> R<()> {
+    blocking(&w, move |w| w.call_join(&call_id)).await
+}
+
+/// Leaves the huddle this device is in.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_leave(w: W<'_>) -> R<()> {
+    blocking(&w, |w| w.call_leave()).await
+}
+
+/// Mutes or unmutes this device's mic in the huddle.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_mute(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_mute(on);
+        Ok(())
+    })
+    .await
+}
+
+/// Stops a huddle ringing here.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_dismiss(w: W<'_>, call_id: String) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_dismiss(&call_id);
+        Ok(())
+    })
+    .await
+}
+
 // ---- Settings › Agents (card #448) ------------------------------------------
 
 /// A board's spawned-agent switch, model and effort (`""`: the private
@@ -1883,6 +1938,12 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             voice_start,
             voice_stop,
             voice_open_settings,
+            call_state,
+            call_start,
+            call_join,
+            call_leave,
+            call_mute,
+            call_dismiss,
             talk_conversations,
             talk_posts,
             talk_post,
@@ -1938,6 +1999,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<crate::cards::Holding>()
         .typ::<VoiceEvent>()
         .typ::<VoiceDownload>()
+        .typ::<CallView>()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()

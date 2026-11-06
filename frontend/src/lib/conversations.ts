@@ -8,6 +8,7 @@ import { useCallback, useEffect } from "react"
 
 import { Events, TalkService } from "./host"
 import {
+  TalkCall,
   TalkConversation,
   TalkPost,
   type TalkMember,
@@ -328,6 +329,18 @@ function sampleState(): SampleConv[] {
           300,
           "Windows installer now takes over Go's install: #3 is on it."
         ),
+        // A huddle that came and went (#654): its start and end posts.
+        post("sample-ch-suzuri", 6, me, 90, "started a huddle", {
+          call: TalkCall({ callId: "sample-call-1", op: "start" }),
+        }),
+        post("sample-ch-suzuri", 7, me, 72, "huddle ended · 18 min", {
+          call: TalkCall({
+            callId: "sample-call-1",
+            op: "end",
+            durationMs: 18 * 60_000,
+            people: ["you", "sample-otter"],
+          }),
+        }),
         post(
           "sample-ch-suzuri",
           2,

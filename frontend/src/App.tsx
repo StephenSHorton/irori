@@ -100,6 +100,8 @@ import {
 } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
 import { spawnedKeys } from "@/lib/roster-groups"
+import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
+import { startCallState } from "@/lib/call"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
@@ -564,6 +566,8 @@ export function App() {
   // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
   // it comes before a field or a dialog takes the key.
   const [palette, setPalette] = useState(false)
+  // Huddles (#654): follow call:state for every page.
+  useEffect(() => startCallState(), [])
   useEffect(() => {
     const mac = isMac()
     const onKey = (e: KeyboardEvent) => {
@@ -847,6 +851,7 @@ export function App() {
               )}
             >
               <UpdateBanner />
+              <Ringing onJoined={(id) => goTo({ kind: "talk", id })} />
               {error && (
                 <p
                   className="border-destructive/50! px-3 py-2 text-sm text-destructive glass-panel"
@@ -1053,6 +1058,12 @@ export function App() {
                 />
               )}
             </main>
+            {narrow && (
+              <PhoneCallBar
+                here={!open && section.kind === "talk" ? section.id : ""}
+                onOpen={(id) => goTo({ kind: "talk", id })}
+              />
+            )}
             {narrow && (
               <PhoneTabs
                 at={phoneTab(section)}

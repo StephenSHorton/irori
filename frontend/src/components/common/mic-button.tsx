@@ -42,6 +42,7 @@ import {
   type Session,
 } from "@/lib/voice"
 import { errorText } from "@/lib/talk"
+import { sharedCall, subscribeCall } from "@/lib/call"
 
 type Phase = "idle" | "starting" | "listening" | "stopping"
 
@@ -74,6 +75,9 @@ export function MicButton({
   main?: boolean
 }) {
   const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
+  // A huddle has the mic (#654): dictation waits until it ends.
+  const inCall = !!useSyncExternalStore(subscribeCall, sharedCall, sharedCall)
+    .mine
   const [phase, setPhase] = useState<Phase>("idle")
   const [note, setNote] = useState<
     { kind: "download" } | { kind: "error"; code: string; text: string } | null
@@ -205,7 +209,11 @@ export function MicButton({
     actions.current = { begin, stop }
     const s = voice.status
     usableRef.current =
-      !disabled && !voice.download && !!s && s.state !== "unsupported"
+      !disabled &&
+      !inCall &&
+      !voice.download &&
+      !!s &&
+      s.state !== "unsupported"
   })
   useEffect(
     () =>
@@ -233,9 +241,11 @@ export function MicButton({
   const dl = voice.download
   const label = live
     ? "Stop voice input"
-    : st.state === "needs-model"
-      ? "Voice input (downloads the speech model first)"
-      : "Voice input: tap to talk, or hold and let go"
+    : inCall
+      ? "Voice input is off during a huddle"
+      : st.state === "needs-model"
+        ? "Voice input (downloads the speech model first)"
+        : "Voice input: tap to talk, or hold and let go"
 
   const keys = shortcutKeys(DictationShortcut)
   const popover = note !== null || !!dl
@@ -264,7 +274,7 @@ export function MicButton({
               aria-label={label}
               aria-keyshortcuts={isMac() ? "Meta+D" : "Control+D"}
               aria-pressed={live}
-              disabled={disabled || busy || !!dl}
+              disabled={disabled || inCall || busy || !!dl}
               // Keep the caret where it is in the box.
               onMouseDown={(e) => e.preventDefault()}
               onPointerDown={(e) => {

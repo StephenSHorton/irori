@@ -55,15 +55,26 @@ import {
 import { AgentRef, TalkPost } from "@/lib/models"
 import {
   callChannel,
-  CallPanel,
   callMock,
+  MockCallPanel,
+  MockHuddleEnded,
+  ShareStage,
+  TranscriptPane,
+} from "./call-mock"
+import {
+  CallPanel,
   HuddleButton,
   HuddleEnded,
   HuddleStarted,
-  ShareStage,
-  StartHuddle,
-  TranscriptPane,
-} from "./call-mock"
+  useCall,
+} from "./huddle"
+import {
+  joinHuddle,
+  leaveHuddle,
+  liveIn,
+  setMuted,
+  startHuddle,
+} from "@/lib/call"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
@@ -169,9 +180,29 @@ export function ConversationView({
   // 1100 px it left the box a few letters wide. Its header button still
   // opens it.
   const roomy = useMedia(membersRoomyQuery)
-  // The voice-call mock-up (card #571): the browser preview only.
+  // What's still the voice-call mock-up (card #571): the browser preview
+  // only.
   const mock = conv.convId === callChannel ? callMock() : null
-  const inCall = mock === "live" || mock === "share"
+  // Huddles (#654): this conversation's, and whether this device is in it.
+  const calls = useCall()
+  const mine = calls.mine?.convId === conv.convId ? calls.mine : null
+  const liveHere = liveIn(calls, conv.convId)
+  const [huddleBusy, setHuddleBusy] = useState(false)
+  const [huddleError, setHuddleError] = useState("")
+  const huddle = async (f: () => Promise<void>) => {
+    setHuddleBusy(true)
+    setHuddleError("")
+    try {
+      await f()
+    } catch (err) {
+      setHuddleError(errorText(err))
+    } finally {
+      setHuddleBusy(false)
+    }
+  }
+  const onMute = (on: boolean) =>
+    void setMuted(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onLeave = () => void huddle(leaveHuddle)
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -207,6 +238,10 @@ export function ConversationView({
   const person = dmPerson(conv)
   const personName = person ? nameOr(plainLine(person.name || conv.name)) : ""
   const waiting = person ? waitingText(conv, personName) : ""
+  // A channel or a DM with another person that has reached them has a
+  // huddle; an agent's DM and a read-only one never do.
+  const canHuddle =
+    !conv.readOnly && (conv.kind === "channel" || (!!person && !waiting))
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")
   const leave = async () => {
@@ -303,16 +338,37 @@ export function ConversationView({
               {plainLine(conv.topic)}
             </span>
           )}
-          {mock && (
-            <span className="ml-auto flex shrink-0">
-              <HuddleButton mock={mock} />
+          {canHuddle && (
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {huddleError && (
+                <span
+                  role="alert"
+                  className="max-w-[240px] truncate text-[11px] text-destructive"
+                  title={huddleError}
+                >
+                  {huddleError}
+                </span>
+              )}
+              <HuddleButton
+                mine={mine}
+                live={liveHere?.people.length ?? 0}
+                busy={huddleBusy}
+                onStart={() =>
+                  void huddle(() =>
+                    startHuddle(conv.convId, plainLine(conv.name))
+                  )
+                }
+                onJoin={() =>
+                  liveHere && void huddle(() => joinHuddle(liveHere.callId))
+                }
+              />
             </span>
           )}
           {conv.kind === "channel" && !narrow && (
             <Button
               size="xs"
               variant={showMembers ? "secondary" : "ghost"}
-              className={cn("shrink-0", !mock && "ml-auto")}
+              className={cn("shrink-0", !canHuddle && "ml-auto")}
               aria-pressed={showMembers}
               onClick={() => setShowMembers((s) => !s)}
               title="Who's in this channel"
@@ -322,7 +378,12 @@ export function ConversationView({
             </Button>
           )}
           {person && (
-            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "flex shrink-0 items-center gap-1.5",
+                !canHuddle && "ml-auto"
+              )}
+            >
               {leaveError && (
                 <span className="text-[11px] text-destructive">
                   {leaveError}
@@ -362,8 +423,8 @@ export function ConversationView({
             </span>
           )}
         </header>
-        {narrow && inCall ? (
-          <CallPanel channel={conv.name} wide />
+        {narrow && mine ? (
+          <CallPanel mine={mine} wide onMute={onMute} onLeave={onLeave} />
         ) : mock === "share" ? (
           <ShareStage />
         ) : narrow && showMembers && conv.kind === "channel" ? (
@@ -411,14 +472,22 @@ export function ConversationView({
                             conv.readOnly ? undefined : () => setMaking(p)
                           }
                           channel={conv.kind === "channel" ? conv : undefined}
+                          // Join from its start post while it's on.
+                          onJoinCall={
+                            !mine && liveHere
+                              ? (id) =>
+                                  id === liveHere.callId &&
+                                  void huddle(() => joinHuddle(id))
+                              : undefined
+                          }
+                          liveCall={liveHere?.callId}
                         />
                       </div>
                     )
                   })}
-                  {mock === "live" && <HuddleStarted />}
                   {mock === "transcript" && (
                     <>
-                      <HuddleEnded />
+                      <MockHuddleEnded />
                       {mockAfter(conv).map((p) => (
                         <PostRow
                           key={p.postId}
@@ -446,16 +515,18 @@ export function ConversationView({
           <Composer conv={conv} other={other[0]} />
         )}
       </div>
-      {mock === "start" && <StartHuddle channel={conv.name} />}
-      {inCall && !narrow ? (
-        <CallPanel channel={conv.name} sharing={mock === "share"} />
+      {mine && !narrow ? (
+        mock === "share" ? (
+          <MockCallPanel channel={conv.name} sharing />
+        ) : (
+          <CallPanel mine={mine} onMute={onMute} onLeave={onLeave} />
+        )
       ) : mock === "transcript" && !narrow ? (
         <TranscriptPane />
       ) : (
         showMembers &&
         conv.kind === "channel" &&
-        !narrow &&
-        mock !== "start" && <Members members={conv.members} live={live} />
+        !narrow && <Members members={conv.members} live={live} />
       )}
       <NewCardDialog
         open={!!making}
@@ -527,6 +598,8 @@ export function PostRow({
   live,
   onMakeCard,
   channel,
+  liveCall,
+  onJoinCall,
 }: {
   post: Post
   who?: Member
@@ -536,6 +609,9 @@ export function PostRow({
   onMakeCard?: () => void
   // The channel it's in: a channel message can start a thread (design b2).
   channel?: Conversation
+  // The huddle on in its conversation now (#654), and joining it.
+  liveCall?: string
+  onJoinCall?: (callId: string) => void
 }) {
   const [asking, setAsking] = useState(false)
   // Its @names, so the text shows them as mentions.
@@ -560,6 +636,23 @@ export function PostRow({
   }
   const at = parseTime(post.at)
   const name = m.kind === "person" && m.name === "you" ? "You" : memberName(m)
+  // A huddle's start or end (#654); an older build shows its text.
+  if (post.call)
+    return post.call.op === "end" ? (
+      <HuddleEnded
+        durationMs={post.call.durationMs}
+        people={post.call.people}
+      />
+    ) : (
+      <HuddleStarted
+        by={name}
+        onJoin={
+          onJoinCall && post.call.callId === liveCall
+            ? () => onJoinCall(post.call!.callId)
+            : undefined
+        }
+      />
+    )
   // A thread started from a message here leaves this one line (design b2):
   // the thread itself lives in Threads.
   if (post.threadFrom)

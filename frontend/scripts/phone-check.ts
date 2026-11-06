@@ -74,8 +74,10 @@ const PAGES: Array<[name: string, query: string]> = [
   ["spaces-menu", "?spaces=open"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
-  // The voice-call mock-up (card #571).
-  ["call-live", "?call=live#talk/sample-ch-suzuri"],
+  // Huddles (#654): in one (the panel is the page), and one on elsewhere
+  // ringing here; the #571 mock-up's ended huddle.
+  ["channel-call", "?call=live#talk/sample-ch-suzuri"],
+  ["talk-huddle", "?call=start#talk"],
   ["call-transcript", "?call=transcript#talk/sample-ch-suzuri"],
   ["later-home", "?later=only"],
   ["later-open", "?later=only&notyet"],

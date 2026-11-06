@@ -503,6 +503,17 @@ export const VoiceService = {
   OpenSettings: (code: string) => done(commands.voiceOpenSettings(code)),
 }
 
+// Huddles (#654): voice calls in a channel or person DM; every change
+// arrives as call:state.
+export const CallService = {
+  State: () => call(commands.callState()),
+  Start: (convId: string) => call(commands.callStart(convId)),
+  Join: (callId: string) => done(commands.callJoin(callId)),
+  Leave: () => done(commands.callLeave()),
+  Mute: (on: boolean) => done(commands.callMute(on)),
+  Dismiss: (callId: string) => done(commands.callDismiss(callId)),
+}
+
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as
 // raw ArrayBuffers on their own Channel, never as events; everything else
 // is a TermMsg on a second one.
