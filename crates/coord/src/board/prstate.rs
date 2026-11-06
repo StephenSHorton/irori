@@ -457,8 +457,10 @@ impl Fold {
     /// once per sha: a card that already says it, from another device
     /// that heard the merge too, gets nothing more. A log that refuses the
     /// comment (a board's writer rules) loses only the comment: the
-    /// pr.state row carrying the sha is written already.
-    fn say_merge_sha(&mut self, t: &Task, pr: &str, sha: &str) {
+    /// pr.state row carrying the sha is written already. Two devices that
+    /// hear the merge at once both write it, under one id made from the
+    /// card, PR, sha and GitHub's merge time, so the card shows it once.
+    fn say_merge_sha(&mut self, t: &Task, pr: &str, sha: &str, merged_at: GoTime) {
         if t.withdrawn {
             return;
         }
@@ -471,11 +473,12 @@ impl Fold {
         }
         let short: String = sha.chars().take(8).collect();
         let at = self.stamp();
+        let id_at = if merged_at.is_zero() { at } else { merged_at };
         let _ = self.write_comment(
             SWEEPER,
             TaskCommentRow {
                 task_id: t.id.clone(),
-                comment_id: super::util::new_id(&at),
+                comment_id: super::util::fixed_id(&id_at, &format!("{} {pr} {sha}", t.id)),
                 by: SWEEPER.into(),
                 text: format!("Merged as {short} ({sha}): {pr}"),
                 at,
@@ -582,7 +585,7 @@ impl Fold {
             )));
         }
         if new_sha {
-            self.say_merge_sha(&t, &c.pr, &c.merge_sha);
+            self.say_merge_sha(&t, &c.pr, &c.merge_sha, c.merged_at);
         }
         if !c.error.is_empty() || is_terminal(&t.state) {
             return Ok((self.tasks[id].clone(), Vec::new()));

@@ -310,3 +310,62 @@ fn only_a_linked_pr_is_recorded() {
     c.pr = "https://github.com/a/b/pull/8".into();
     want_err(e.c.record_pr_state(&t.id, c), ErrorKind::Invalid);
 }
+
+/// Card #421: the holder's poller and the desk's poller, on two devices,
+/// both hear the merge with its sha before either's rows reach the other.
+/// Each says the sha on the card; once both logs meet, the card shows it
+/// once, on both devices.
+#[test]
+fn two_devices_hearing_one_merge_say_its_sha_once() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let a = Env::on("dev-a");
+    let t = held_with_pr(&a);
+    let rows = |e: &Env, dev: &str| -> Vec<store::Event> {
+        e.st.missing(&store::Vector::new(), 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|ev| ev.device_id == dev)
+            .collect()
+    };
+    let mut b = Env::on("dev-b");
+    let (_, r) = b.st.insert_batch(&rows(&a, "dev-a"));
+    r.unwrap();
+    b.c = b.reopen();
+    assert!(b.c.get_task(&t.id).is_some());
+
+    let merged_at = plus(fixed_now(), secs(30));
+    let heard = || PrCheck {
+        pr: PR.into(),
+        state: PR_MERGED.into(),
+        merge_sha: SHA.into(),
+        merged_at,
+        ..PrCheck::default()
+    };
+    a.clk.add(secs(60));
+    b.clk.add(secs(61));
+    let before = rows(&a, "dev-a").len();
+    a.c.record_pr_state(&t.id, heard()).unwrap();
+    b.c.record_pr_state(&t.id, heard()).unwrap();
+
+    // The logs meet: each device takes the other's new rows.
+    let from_a: Vec<_> = rows(&a, "dev-a").into_iter().skip(before).collect();
+    let from_b = rows(&b, "dev-b");
+    for (e, evs) in [(&a, from_b), (&b, from_a)] {
+        let (_, r) = e.st.insert_batch(&evs);
+        r.unwrap();
+        e.c.fold_live(&evs);
+    }
+    let said = |c: &Coord| {
+        c.comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.text.contains(SHA))
+            .count()
+    };
+    for e in [&a, &b] {
+        assert_eq!(said(&e.c), 1);
+        assert_eq!(e.c.pr_states(&t.id)[0].merge_sha, SHA);
+        // Replayed from the log, still once.
+        assert_eq!(said(&e.reopen()), 1);
+    }
+}
