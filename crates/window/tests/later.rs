@@ -214,3 +214,26 @@ fn share_refuses_a_held_card() {
     w.start_now(&t.id).unwrap();
     w.boards_share_preview(&t.id, &mlg.board_id).unwrap();
 }
+
+#[test]
+fn holding_back_takes_the_agent_off_and_only_the_person_starts_it() {
+    let r = Rig::new();
+    let w = &r.w;
+    let co = w.core.coord();
+    let t = card(&r, "Voice calls");
+    co.claim_task(&r.key_a, &t.id).unwrap();
+    assert!(!summary(&r, &t.id).working.is_empty());
+
+    w.not_yet(&t.id, "", "").unwrap();
+    let s = summary(&r, &t.id);
+    assert!(s.working.is_empty(), "{:?}", s.working);
+    assert_eq!(s.later.map(|l| l.back), Some(LaterBack::Word));
+    // No agent takes it or brings it back: it waits on the person's word.
+    assert!(co.claim_task(&r.key_a, &t.id).is_err());
+    let e = co.bring_back(&r.key_a, &t.id, "go").unwrap_err();
+    assert!(e.to_string().contains("person"), "{e}");
+    assert!(summary(&r, &t.id).later.is_some());
+
+    w.start_now(&t.id).unwrap();
+    co.claim_task(&r.key_a, &t.id).unwrap();
+}
