@@ -64,7 +64,7 @@ export function SpaceSwitcher({
           <button
             type="button"
             aria-label={`Space: ${plainLine(cur.name)}. Pick a space`}
-            title={folded ? `Space: ${plainLine(cur.name)}` : "Pick the space Home, Talk and Boards show"}
+            title={folded ? `Space: ${plainLine(cur.name)}` : "Pick the space Home, Talk and Spaces show"}
             className={cn(
               "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 text-left text-sm text-ink hover:bg-secondary pointer-coarse:h-11",
               folded ? "justify-center px-0" : "px-2"

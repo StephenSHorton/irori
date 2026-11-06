@@ -3,6 +3,7 @@
 // here until Spaces (Talk 4) bring them into Talk. The thread pieces it
 // shows live in components/talk/threads.
 
+import { cardRef } from "@/components/cards/bits"
 import { useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, ChevronRightIcon, XIcon } from "lucide-react"
 
@@ -178,7 +179,7 @@ function ThreadRow({
         <span className="flex min-w-0 items-center gap-2">
           {t.short && (
             <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-              #{plainLine(t.short)}
+              {cardRef(t)}
             </span>
           )}
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">

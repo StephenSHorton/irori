@@ -233,6 +233,8 @@ pub type OffersFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 /// The tag of another board in a space, by id (card #392); None for an id
 /// the space doesn't hold.
 pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+/// Every tag a space's log has named for a board inside it (card #558).
+pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -275,6 +277,12 @@ pub struct Options {
     /// On a space (card #392): the tag of another board in it, by id;
     /// None for an id the space doesn't hold.
     pub board_tag: Option<BoardTagFn>,
+    /// On a space (card #558): whether it's a hidden one, which takes no
+    /// card.
+    pub no_cards: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// On a space (card #558): every tag its log has named for a board
+    /// inside it, for a ref to a board that holds no card.
+    pub board_tags: Option<BoardTagsFn>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).
@@ -574,7 +582,7 @@ impl Coord {
     pub fn set_device_sides(&self, sides: &[String]) -> Result<Vec<String>> {
         let mut f = self.lock();
         if f.on_board {
-            return Err(error::not_allowed("a shared board carries no sides"));
+            return Err(error::not_allowed("a shared space carries no sides"));
         }
         let sides = crate::sides::clean_list(sides);
         let dev = f.dev.clone();
@@ -1989,7 +1997,7 @@ impl Fold {
         let note = crate::names::trim_space(note).to_string();
         if !self.on_board {
             return Err(error::invalid(
-                "only a card on a shared board is withdrawn; cancel a private card instead",
+                "only a card in a shared space is withdrawn; cancel a private card instead",
             ));
         }
         if util::runes(&note) > MAX_OBJECTIVE {
@@ -2008,7 +2016,7 @@ impl Fold {
         }
         if !self.may_cancel(t, &self.dev, None) {
             return Err(error::not_allowed(format!(
-                "only its creator or a board owner withdraws {}",
+                "only its creator or a space owner withdraws {}",
                 t.short_ref()
             )));
         }

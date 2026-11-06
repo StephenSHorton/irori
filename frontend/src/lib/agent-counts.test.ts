@@ -147,14 +147,14 @@ describe("idleLine (card #341)", () => {
       idleLine({
         idle: 20,
         unoffered: [
-          u("wind#87", "nobody on this board is free"),
-          u("wind#88", "nobody on this board is free"),
+          u("wind#87", "nobody in this space is free"),
+          u("wind#88", "nobody in this space is free"),
           u("#12", "no free agent works in irori"),
           u("#13", "every free agent passed it"),
         ],
       })
     ).toBe(
-      "20 agents idle; 4 cards nobody took: wind#87 (nobody on this board is free), wind#88 (nobody on this board is free), #12 (no free agent works in irori), and 1 more."
+      "20 agents idle; 4 cards nobody took: wind#87 (nobody in this space is free), wind#88 (nobody in this space is free), #12 (no free agent works in irori), and 1 more."
     )
   })
   test("cards waiting with nobody idle", () => {
@@ -196,11 +196,11 @@ describe("idleLine (card #341)", () => {
     // A report card Home doesn't list still counts, once.
     expect(
       idleLine(
-        { idle: 2, unoffered: [u("wind#9", "nobody on this board is free")] },
+        { idle: 2, unoffered: [u("wind#9", "nobody in this space is free")] },
         took.slice(0, 1)
       )
     ).toBe(
-      "2 agents idle; 2 cards nobody took: #25, wind#9 (nobody on this board is free)."
+      "2 agents idle; 2 cards nobody took: #25, wind#9 (nobody in this space is free)."
     )
   })
 })

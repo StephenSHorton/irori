@@ -113,7 +113,7 @@ fn an_ask_with_mentions_goes_only_to_them() {
     assert!(
         r.w.ask("x", "", false, &[], "brd", &[m(&r.key_b, "beta")])
             .unwrap_err()
-            .contains("mentions work on an ask on your own board")
+            .contains("mentions work on an ask in Personal")
     );
 }
 

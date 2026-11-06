@@ -68,7 +68,7 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if !others.is_empty() {
         let _ = write!(
             head,
-            " {oshown} of {} other people's agents on shared boards.",
+            " {oshown} of {} other people's agents in shared spaces.",
             others.len()
         );
     }
@@ -78,7 +78,7 @@ pub(crate) fn agents(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if oshown > 0 {
         let _ = write!(
             b,
-            "\nOther people's agents (on shared boards; mention them on a card there):\n{ob}"
+            "\nOther people's agents (in shared spaces; mention them on a card there):\n{ob}"
         );
     }
     format!(
@@ -118,7 +118,7 @@ fn write_board_agent(b: &mut String, o: &crate::BoardAgent, now: &GoTime) {
     }
     let _ = writeln!(
         b,
-        "\n- {name} [{}] {whose}'s agent on board {}, key {}",
+        "\n- {name} [{}] {whose}'s agent in space {}, key {}",
         one_line(&c.status, 40),
         one_line(&o.board, 60),
         one_line(&c.key, 120)

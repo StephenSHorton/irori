@@ -540,7 +540,7 @@ pub fn fold_membership(
             continue; // the store refuses it; nothing to show
         }
         if i < created {
-            conflict(&mut conflicts, d, "it comes before the board was created");
+            conflict(&mut conflicts, d, "it comes before the space was created");
             continue;
         }
         match d.kind.as_str() {
@@ -559,16 +559,16 @@ pub fn fold_membership(
                         },
                     );
                 } else {
-                    conflict(&mut conflicts, d, "the board was already created");
+                    conflict(&mut conflicts, d, "the space was already created");
                 }
             }
             kinds::BOARD_RENAMED => {
                 if !authored(d) {
                     conflict(&mut conflicts, d, "its signature doesn't count");
                 } else if !is_owner(&people, &d.by) {
-                    conflict(&mut conflicts, d, "only an owner renames the board");
+                    conflict(&mut conflicts, d, "only an owner renames the space");
                 } else if !valid_board_name(&d.name) {
-                    conflict(&mut conflicts, d, "the name is not a board name");
+                    conflict(&mut conflicts, d, "the name is not a space name");
                 } else {
                     name = d.name.clone();
                 }
@@ -603,7 +603,7 @@ pub fn fold_membership(
                     conflict(
                         &mut conflicts,
                         d,
-                        "it pins another key than the one this board holds for them",
+                        "it pins another key than the one this space holds for them",
                     );
                 } else if active {
                     conflict(&mut conflicts, d, "they are already a member");
@@ -631,7 +631,7 @@ pub fn fold_membership(
                 } else if d.role != BOARD_OWNER && d.role != BOARD_MEMBER {
                     conflict(&mut conflicts, d, "the role is not owner or member");
                 } else if e.is_none() {
-                    conflict(&mut conflicts, d, "they are not on the board");
+                    conflict(&mut conflicts, d, "they are not in the space");
                 } else if e.is_some_and(|e| e.state != MEMBER_ACTIVE) {
                     conflict(
                         &mut conflicts,

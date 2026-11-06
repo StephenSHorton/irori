@@ -245,8 +245,8 @@ pub(crate) fn mention_line(got: &[(Mention, Got)], misses: &[Miss], n: &Names<'_
             Got::Held(h) => ok.push(format!("{who} (held by {})", one_line(h, 80))),
             Got::Failed(e) => not.push(format!("{who}: not sent: {}", one_line(e, 160))),
             Got::Gone => not.push(format!("{who} is gone")),
-            Got::Board => ok.push(format!("{who} (on the board)")),
-            Got::Space => ok.push(format!("{who} (on the space)")),
+            Got::Board => ok.push(format!("{who} (in the space)")),
+            Got::Space => ok.push(format!("{who} (in the space)")),
         }
     }
     not.extend(misses.iter().map(|m| miss_text(m, n)));

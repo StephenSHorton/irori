@@ -398,6 +398,35 @@ fn watch_catches_up_after_dropped_changes() {
 
 // ---- the Board ----
 
+/// Numbers are per board (card #558), and a bare `#1` means the default
+/// board: a note's ref keeps its tag, or the person repeats the wrong card.
+#[test]
+fn a_note_names_a_cards_board() {
+    let r = rig_with(
+        None,
+        coord::Options {
+            board_tag: Some(Arc::new(|id: &str| {
+                (id == "b-home").then(|| "home".to_string())
+            })),
+            ..coord::Options::default()
+        },
+    );
+    let task =
+        r.co.create_task(
+            KEY_A,
+            NewTask {
+                board: "b-home".into(),
+                ..new_task("fix the gate")
+            },
+        )
+        .unwrap();
+    r.co.claim_task(KEY_A, &task.id).unwrap();
+    r.block_on_person(KEY_A, &task.id, "which hinge?");
+    let id = needs_id(&task.id);
+    r.fake.wait_post(&id);
+    assert_eq!(r.fake.card(&id).title, "alpha is blocked on you (home#1)");
+}
+
 /// Card #554: a burst of changes shares its Board views, and the view after
 /// the last change still posts and clears what the burst left.
 #[test]

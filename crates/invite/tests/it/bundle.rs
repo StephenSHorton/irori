@@ -225,7 +225,7 @@ fn rebuild_is_only_for_someone_already_added() {
     let (bob, ann, cal) = (person("Bob"), person("Ann"), person("Cal"));
     offered(&bob, &ann);
     let e = rebuild(&*bob.boards, &bob.ident, BOARD, &cal.id()).unwrap_err();
-    assert!(e.contains("isn't on this board"), "{e}");
+    assert!(e.contains("isn't in this space"), "{e}");
     // A person who is only a member can't hand the secret on.
     let b = rebuild(&*bob.boards, &bob.ident, BOARD, &ann.id()).unwrap();
     ann.join(&bob, ROLE_DESKTOP, &b).unwrap();
@@ -338,7 +338,7 @@ fn a_different_board_or_a_damaged_secret_is_refused() {
     let (bob, ann) = (person("Bob"), person("Ann"));
     let b = offered(&bob, &ann);
     let e = check_offer(&ann.ident, "another", &b).err().unwrap();
-    assert!(e.contains("different board"), "{e}");
+    assert!(e.contains("different space"), "{e}");
 
     let mut short = b.clone();
     short.secret = "c2hvcnQ=".into();

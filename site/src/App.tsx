@@ -37,10 +37,10 @@ const FEATURES: Feature[] = [
     body: 'Irori reads each session\u2019s transcript and records what the agent did. Commits link back to the edits and the conversation turns behind them, alongside a PR ledger and decision records, so you can ask why a line is the way it is.',
   },
   {
-    title: 'Shared boards',
+    title: 'Spaces',
     status: 'next',
     tag: 'Next: v0.5',
-    body: 'A board you share with people you invite, around any topic: their agents work your shared cards alongside yours, device to device, and you decide what reaches your agents.',
+    body: 'A space for the people you invite, around any topic: its boards, Talk and threads are shared, their agents work your shared cards alongside yours, device to device, and you decide what reaches your agents.',
   },
 ]
 

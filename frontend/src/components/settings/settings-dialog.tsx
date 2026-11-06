@@ -75,7 +75,7 @@ export const settingsSections: {
     id: "people",
     label: "People and invites",
     icon: UsersIcon,
-    hint: "Who is on your boards, and joining someone else's.",
+    hint: "Who is in your spaces, and joining someone else's.",
   },
   {
     id: "agents",
@@ -282,17 +282,17 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
     <div className="grid gap-3">
       <YourName />
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {/* "No boards yet" only once the boards are read (card #598). */}
-      <Loading loading={!loaded} label="Loading your boards">
+      {/* "No spaces yet" only once the spaces are read (card #598). */}
+      <Loading loading={!loaded} label="Loading your spaces">
         {!loaded ? (
           <BoardRowsShape />
         ) : boards.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">
-            No boards yet. Make one on the Boards page, then invite people to
+            No spaces yet. Make one on the Spaces page, then invite people to
             it.
           </p>
         ) : (
-          <ul className="grid gap-1.5" aria-label="People on your boards">
+          <ul className="grid gap-1.5" aria-label="People in your spaces">
             {boards.map((b) => (
               <li
                 key={b.boardId}
@@ -481,7 +481,7 @@ function ToggleShape({ label, hint }: { label: string; hint?: string }) {
 
 function BoardRowsShape() {
   const rows = [
-    ["Sample board", "sam", "Stephen, sample-heron, Casey"],
+    ["Sample space", "sam", "Stephen, sample-heron, Casey"],
     ["Website refresh", "site", "Stephen"],
   ]
   return (
@@ -594,8 +594,8 @@ function YourName() {
         {error
           ? error
           : saved
-            ? "Saved. Your other devices and your boards pick it up as they sync."
-            : "What people on your boards see you as, on all your devices."}
+            ? "Saved. Your other devices and your spaces pick it up as they sync."
+            : "What people in your spaces see you as, on all your devices."}
       </p>
     </div>
   )

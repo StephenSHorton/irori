@@ -150,7 +150,7 @@ fn where_(t: &ToolNote) -> String {
     if t.scope == "mine" {
         "Mine".into()
     } else {
-        format!("board {}", one_line(&t.scope, 80))
+        format!("space {}", one_line(&t.scope, 80))
     }
 }
 
@@ -167,7 +167,7 @@ fn written(t: &ToolNote, verb: &str) -> String {
     let who = if t.scope == "mine" {
         "the person"
     } else {
-        "a person on the board"
+        "a person in the space"
     };
     format!(
         "{verb} {} ({}) in {}. It reaches no agent until {who} accepts it on the Notes page. To change it before then, call notes_propose with note = {} and why.",

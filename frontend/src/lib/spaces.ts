@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-import type { BoardSummary } from "./boards"
+import type { BoardSummary, SpaceBoard } from "./boards"
 import type { CardSummary } from "./cards"
 import { previewFlag } from "./preview"
 
@@ -42,6 +42,16 @@ export function spacesOf(boards: BoardSummary[]): Space[] {
   ]
 }
 
+// boardsOf is a space's boards, its default board first (card #558). A
+// joined space that isn't ready yet can have an empty name on its first
+// board, so each field falls back to the space's.
+export function boardsOf(s: BoardSummary): SpaceBoard[] {
+  if (!s.boards.length) return [{ boardId: s.boardId, name: s.name, tag: s.tag }]
+  return s.boards.map((x, i) =>
+    i === 0 ? { ...x, name: x.name || s.name, tag: x.tag || s.tag } : x
+  )
+}
+
 // withLine is "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.
 export function withLine(others: string[]): string {
   if (others.length === 0) return ""
@@ -57,6 +67,12 @@ export function known(id: string, boards: BoardSummary[]): string {
   return boards.some((b) => b.boardId === id && !b.leaving) ? id : AllSpaces
 }
 
+// cardsOnPersonal is Personal's cards on one of its boards (card #558). A
+// card with no inner board is on the default board.
+export function cardsOnPersonal(cards: CardSummary[], boardId: string): CardSummary[] {
+  return cards.filter((c) => !c.board && (c.spaceBoard || Personal) === boardId)
+}
+
 // cardInSpace is whether a card shows in the picked space: Personal's are
 // the private cards, a shared space's its own cards (on any of its boards).
 export function cardInSpace(c: CardSummary, space: string): boolean {
@@ -65,11 +81,11 @@ export function cardInSpace(c: CardSummary, space: string): boolean {
   return c.board === space
 }
 
-// convInSpace is whether a channel or DM shows in the picked space (card
-// #461): Personal's are your own channels and every DM, a shared space's
-// its own channels (DMs are you and your agents, so they stay Personal's,
-// as private cards do). A DM with another person shows under every pick
-// (card #538): it lives in no space the switcher lists.
+// convInSpace is whether a channel, DM or thread shows in the picked space
+// (card #461, #558): Personal's are your own channels and threads and every
+// DM, a shared space's its own (DMs are you and your agents, so they stay
+// Personal's, as private cards do). A DM with another person shows under
+// every pick (card #538): it lives in no space the switcher lists.
 export function convInSpace(
   c: {
     spaceId?: string
@@ -102,8 +118,8 @@ export function boardsInSpace(
   return boards.filter((b) => b.boardId === space)
 }
 
-// threadsSpace is the board id Talk's threads come from: a shared space's
-// own, else the private log's ("").
+// threadsSpace is the board id a new thread or channel starts on: a shared
+// space's own, else the private log's ("").
 export function threadsSpace(space: string): string {
   return space === AllSpaces || space === Personal ? "" : space
 }

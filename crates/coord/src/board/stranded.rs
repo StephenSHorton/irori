@@ -209,7 +209,7 @@ impl Fold {
     /// Home's Needs you row (card #520) says it instead of offering it.
     pub(crate) fn hand_on_refusal(&self, t: &Task) -> &'static str {
         if t.shared || self.on_board {
-            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
+            "a card in a shared space isn't handed out; take it with an agent of yours (board_join)"
         } else if t.open_ask().is_some() {
             "it has an open ask"
         } else if !t.subtasks.is_empty() {

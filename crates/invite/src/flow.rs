@@ -167,12 +167,12 @@ const BAD_PROOF: &str = "The other side doesn't hold this invite's code.";
 const TAKEN: &str = "Someone else tried to use this invite. Make a new one.";
 const MISSED: &str = "Those weren't the words twice. Make a new invite.";
 const EXPIRED: &str = "The invite expired. Make a new one.";
-const OTHER_KEY: &str = "This person has a different key on another of your boards. Don't go on; check with them first.";
+const OTHER_KEY: &str = "This person has a different key in another of your spaces. Don't go on; check with them first.";
 
 async fn write_frame(c: &dyn Conn, f: &Frame) -> Result<(), Failed> {
     let body = serde_json::to_vec(f).map_err(|e| fail(e.to_string()))?;
     if body.len() > MAX_MESSAGE {
-        return Err(fail("A row of this board is too large to send."));
+        return Err(fail("A row of this space is too large to send."));
     }
     c.send(&body).await.map_err(|_| fail(LOST))
 }
@@ -280,10 +280,10 @@ impl Host {
     ) -> Result<Host, Failed> {
         let ver = boards
             .board_verifier(board_id)
-            .ok_or_else(|| fail("This device doesn't hold that board."))?;
+            .ok_or_else(|| fail("This device doesn't hold that space."))?;
         let m = ver.membership();
         if !m.owner(&ident.current().id) {
-            return Err(fail("Only an owner of the board can invite."));
+            return Err(fail("Only an owner of the space can invite."));
         }
         let code = irori_pair::new_code();
         let room = code::room_secret(&code).map_err(fail)?;
@@ -436,7 +436,7 @@ impl Host {
             return Err(fail(BAD_PROOF));
         };
         if guest.board_id != self.board_id {
-            return Err(fail("That invite is for another board."));
+            return Err(fail("That invite is for another space."));
         }
         if guest.person_id == self.ident.current().id {
             return Err(fail(
@@ -555,7 +555,7 @@ impl Guest {
     ) -> Result<Guest, Failed> {
         let ticket = Ticket::parse(link).map_err(|e| fail(e.0))?;
         if boards.board_verifier(&ticket.board_id).is_some() {
-            return Err(fail("This device already holds that board."));
+            return Err(fail("This device already holds that space."));
         }
         let room = code::room_secret(&ticket.code).map_err(fail)?;
         let st = Status {
