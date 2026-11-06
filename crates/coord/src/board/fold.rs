@@ -407,6 +407,10 @@ pub struct Fold {
     pub(crate) pr_vouched: bool,
     /// Merge desks by repo key (card #415).
     pub(crate) desks: BTreeMap<String, super::desk::Desk>,
+    /// The person's repos as the Core last said (card #625): a desk on any
+    /// other is stray. `None` until it says, when every desk counts. Not
+    /// from rows, so a resync keeps it.
+    pub(crate) desk_repos: Option<std::collections::BTreeSet<String>>,
 }
 
 /// `stolenKey`: resource, holder and acquiredAt (RFC3339Nano, UTC).
@@ -541,6 +545,7 @@ impl Fold {
             pr_vouchers: HashMap::new(),
             pr_vouched: false,
             desks: BTreeMap::new(),
+            desk_repos: None,
         }
     }
 

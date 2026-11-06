@@ -1,5 +1,7 @@
 //! Merge desk slice 2 (docs/design/merge-desk.md §3, §5 "Trust"): which
-//! card is a PR's author card, and whether the desk may act on the PR.
+//! card is a PR's author card, and whether the PR is ours: by the person,
+//! a member of their spaces, or one of their agents (card #625). The desk
+//! shows only ours; anyone else's PR is not listed at all.
 //!
 //! Pure: it reads the cards and the ledger's author it is given and writes
 //! nothing. The desk poller writes the `board_link` and makes the "PR #n"
@@ -57,11 +59,12 @@ pub struct Mapping {
     pub author: String,
 }
 
-/// The desk's view of who may be trusted (§5 "Trust", open question 13 (a)).
+/// The desk's view of whose PRs are ours (§5 "Trust", card #625).
 pub struct Trust<'a> {
-    /// Whether an agent key is one of the person's own agents.
+    /// Whether an agent key is the person's agent or a space member's.
     pub own_agent: &'a dyn Fn(&str) -> bool,
-    /// GitHub logins on the desk's `trusted` list.
+    /// The GitHub logins whose PRs are ours: the person's, their members'
+    /// and the desk's `trusted` list ([`desk_logins`]).
     pub logins: &'a [String],
 }
 
@@ -152,10 +155,11 @@ pub fn map_pr(pr: &PrRef, tasks: &[Task], author: &str) -> Mapping {
     }
 }
 
-/// Whether the desk may act on `pr` (§5 "Trust"): its ledger author is one
-/// of the person's agents, a card linking it is held by one, or its login
-/// is on the desk's list. A branch match (rule 3) never makes a PR
-/// trusted: anyone can name a branch.
+/// Whether `pr` is ours (§5 "Trust", card #625): its ledger author is one
+/// of the person's agents, a card linking it is held by theirs or a
+/// member's, or its login is the person's, a member's or on the desk's
+/// list. A branch match (rule 3) never makes a PR ours: anyone can name a
+/// branch.
 pub fn trusted(pr: &PrRef, m: &Mapping, tasks: &[Task], trust: &Trust) -> bool {
     if !m.author.is_empty() && (trust.own_agent)(&m.author) {
         return true;
@@ -179,20 +183,20 @@ pub fn trusted(pr: &PrRef, m: &Mapping, tasks: &[Task], trust: &Trust) -> bool {
 /// The desk's verdict on one PR.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
-    /// Trusted, with an author card: link it if it isn't linked yet.
+    /// Ours, with an author card: link it if it isn't linked yet.
     Card(Mapping),
-    /// Trusted, no card found: make a "PR #n" card (assigned to `author`
+    /// Ours, no card found: make a "PR #n" card (assigned to `author`
     /// when there is one) and link it.
     NewCard(Mapping),
-    /// Not trusted: listed as Outside PR, no card, no wake, never checked.
-    Outside,
+    /// Not ours (card #625): not shown, no card, no wake, never checked.
+    NotOurs,
 }
 
 /// Maps and checks `pr` in one go.
 pub fn judge(pr: &PrRef, tasks: &[Task], author: &str, trust: &Trust) -> Verdict {
     let m = map_pr(pr, tasks, author);
     if !trusted(pr, &m, tasks, trust) {
-        return Verdict::Outside;
+        return Verdict::NotOurs;
     }
     if m.rule == Rule::None {
         Verdict::NewCard(m)
@@ -259,10 +263,11 @@ pub fn opened_card(o: &Opened, tasks: &[Task], now_ms: i64) -> Option<String> {
     held.next().is_none().then(|| one.id.clone())
 }
 
-/// The logins the desk trusts for `p`: its `trusted` list, the person's
-/// own login as the poll's gh heard it (card #521), plus the PR's own
-/// login when the person OK'd it at this head (a new push needs a new OK).
-pub fn desk_logins(desk: &coord::Desk, p: &coord::DeskPr) -> Vec<String> {
+/// The logins whose PRs are ours on `desk`: its `trusted` list, the
+/// person's own login as the poll's gh heard it (card #521), and `people`:
+/// the person's and their space members' logins (card #625). An old
+/// `desk.ok` row no longer adds one: there are no Outside PRs to OK.
+pub fn desk_logins(desk: &coord::Desk, people: &[String]) -> Vec<String> {
     let mut logins = desk.settings.trusted.clone();
     if let Some(v) = desk
         .prs
@@ -272,17 +277,18 @@ pub fn desk_logins(desk: &coord::Desk, p: &coord::DeskPr) -> Vec<String> {
     {
         logins.push(v.to_string());
     }
-    let ok = desk
-        .oks
-        .get(&p.number)
-        .is_some_and(|o| !o.head_sha.is_empty() && o.head_sha == p.head_ref_oid);
-    if ok && !p.author.is_empty() {
-        logins.push(p.author.clone());
-    }
+    logins.extend(
+        people
+            .iter()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .map(String::from),
+    );
     logins
 }
 
-/// One PR's author as the desk page shows it (read-only).
+/// One of our PRs' author as the desk page shows it (read-only). A PR
+/// that isn't ours has none: the page doesn't list it (card #625).
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskAuthor {
@@ -293,16 +299,14 @@ pub struct DeskAuthor {
     pub card_ref: String,
     /// The agent behind it: the ledger's author, else the card's holder.
     pub agent: String,
-    /// Not trusted: Outside PR, no card, no wake, never checked.
-    pub outside: bool,
 }
 
 /// The PR the desk holder is woken for (merge-desk.md §5, card #418): the
-/// oldest trusted PR Waiting on desk, the queue's first such line, as the
+/// oldest of our PRs Waiting on desk, the queue's first such line, as the
 /// desk page reads it: not a draft, not held, not behind or conflicting,
-/// GitHub checks not pending or failed, and OK'd at this head when the
-/// desk wants a per-PR OK. `None` while the desk is off, paused, unheld or
-/// a run is on.
+/// GitHub checks not pending or failed. `None` while the desk is off,
+/// paused, unheld or a run is on. The old per-PR OK (`perPrOk`) no longer
+/// gates it: nothing writes an OK any more (card #625).
 pub fn waiting_pr<'a>(
     desk: &'a coord::Desk,
     verdicts: &[(i64, Verdict)],
@@ -321,20 +325,14 @@ pub fn waiting_pr<'a>(
         .filter_map(|p| {
             let card = match verdicts.iter().find(|(n, _)| *n == p.number)?.1 {
                 Verdict::Card(ref m) | Verdict::NewCard(ref m) => m.task_id.clone(),
-                Verdict::Outside => return None,
-            };
-            let ok_here = || {
-                desk.oks
-                    .get(&p.number)
-                    .is_some_and(|o| !p.head_ref_oid.is_empty() && o.head_sha == p.head_ref_oid)
+                Verdict::NotOurs => return None,
             };
             let waiting = !p.is_draft
                 && !p.head_ref_oid.is_empty()
                 && !desk.holds.contains_key(&p.number)
                 && !matches!(p.merge_state_status.as_str(), "BEHIND" | "DIRTY")
                 && p.mergeable != "CONFLICTING"
-                && !matches!(p.checks.as_str(), "pending" | "failure")
-                && (!desk.settings.per_pr_ok || ok_here());
+                && !matches!(p.checks.as_str(), "pending" | "failure");
             waiting.then_some((p, card))
         })
         .collect();
@@ -363,4 +361,41 @@ pub fn check_lines(desk: &coord::Desk) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// What says a repo is one of the person's (card #625): the person or a
+/// member of their spaces opens PRs there. A repo an agent only cloned
+/// (an upstream it reads) has none of these, so its desk is stray.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepoEvidence {
+    /// The person's and their members' GitHub logins.
+    pub logins: Vec<String>,
+    /// Repos (`owner/name`) one of them opened a PR in: the ledger's
+    /// author rows for the person's agents, PR links on cards the person
+    /// and members made (not the desk's own "PR #n" cards), and GitHub's
+    /// search of each login's PRs.
+    pub pr_repos: Vec<String>,
+}
+
+/// Whether `desk`'s repo is one of the person's: a login owns it, one of
+/// them opened a PR there, or its latest snapshot lists a PR by one of
+/// them (the snapshot replicates, so a device that can't search agrees).
+pub fn our_repo(desk: &coord::Desk, ev: &RepoEvidence) -> bool {
+    let Some(repo) = coord::github_repo(&desk.settings.repo_key) else {
+        return false;
+    };
+    let login = |l: &str| {
+        let l = l.trim();
+        !l.is_empty() && ev.logins.iter().any(|x| x.trim().eq_ignore_ascii_case(l))
+    };
+    let owner = repo.split('/').next().unwrap_or_default();
+    if login(owner) || ev.pr_repos.iter().any(|r| same_repo(r, &repo)) {
+        return true;
+    }
+    desk.prs.as_ref().is_some_and(|s| {
+        let viewer = s.viewer.trim();
+        s.prs.iter().any(|p| {
+            login(&p.author) || (!viewer.is_empty() && p.author.eq_ignore_ascii_case(viewer))
+        })
+    })
 }

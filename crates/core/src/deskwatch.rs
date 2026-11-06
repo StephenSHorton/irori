@@ -42,7 +42,22 @@ pub trait PrLister: Send + Sync {
     fn viewer(&self) -> Result<String, String> {
         Ok(String::new())
     }
+
+    /// The repos (`owner/name`) `login` has opened PRs in, open or not,
+    /// newest first, at most [`AUTHORED_LIMIT`] PRs' worth: which repos are
+    /// the person's (card #625). Empty when unknown.
+    fn authored_repos(&self, login: &str) -> Result<Vec<String>, String> {
+        let _ = login;
+        Ok(Vec::new())
+    }
 }
+
+/// How many of a login's PRs one search reads (card #625).
+pub const AUTHORED_LIMIT: usize = 1000;
+/// How often a login's PR repos are searched again (card #625): GitHub's
+/// search API allows 30 calls a minute, and a repo rarely becomes one of
+/// the person's.
+pub const AUTHORED_EVERY: Duration = Duration::from_secs(30 * 60);
 
 /// The person's own `gh`: `gh pr list --repo <owner/name> --state open
 /// --limit <limit> --json <DESK_FIELDS>`.
@@ -85,6 +100,48 @@ impl PrLister for GhLister {
         )?;
         Ok(v["login"].as_str().unwrap_or_default().to_string())
     }
+
+    /// `gh search prs --author <login> --sort updated --limit
+    /// AUTHORED_LIMIT --json repository`.
+    fn authored_repos(&self, login: &str) -> Result<Vec<String>, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let limit = AUTHORED_LIMIT.to_string();
+        let v = run_gh(
+            &gh,
+            &[
+                "search",
+                "prs",
+                "--author",
+                login,
+                "--sort",
+                "updated",
+                "--limit",
+                &limit,
+                "--json",
+                "repository",
+            ],
+            "gh couldn't search this login's PRs",
+        )?;
+        Ok(parse_authored(&v))
+    }
+}
+
+/// Reads `gh search prs --json repository`'s answer: each repo once, in
+/// the order first seen.
+pub fn parse_authored(v: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in v.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let r = p["repository"]["nameWithOwner"]
+            .as_str()
+            .unwrap_or_default()
+            .trim();
+        if !r.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(r)) {
+            out.push(r.to_string());
+        }
+    }
+    out
 }
 
 /// Reads `gh pr list --json DESK_FIELDS`'s answer. A missing field reads
@@ -194,9 +251,49 @@ pub(crate) struct DeskWatch {
     /// The login this device's gh is signed in as, once learned (card
     /// #521); asked again after a failure, never after a success.
     viewer: Mutex<Option<String>>,
+    /// Each login's PR repos as the last search found them, and when to
+    /// search again (card #625).
+    authored: Mutex<HashMap<String, (Instant, Vec<String>)>>,
 }
 
 impl DeskWatch {
+    /// The person's GitHub login if this run has learned it, without
+    /// asking gh.
+    pub(crate) fn known_viewer(&self) -> String {
+        let v = self.viewer.lock().unwrap_or_else(|e| e.into_inner());
+        v.clone().unwrap_or_default()
+    }
+
+    /// The repos `login` opened PRs in, searched again every
+    /// [`AUTHORED_EVERY`] (sooner after a failure: the next tick). A failed
+    /// search keeps what the last one found.
+    pub(crate) fn authored(&self, lister: &dyn PrLister, login: &str, now: Instant) -> Vec<String> {
+        let key = login.to_ascii_lowercase();
+        {
+            let a = self.authored.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((next, repos)) = a.get(&key)
+                && now < *next
+            {
+                return repos.clone();
+            }
+        }
+        let heard = lister.authored_repos(login);
+        let mut a = self.authored.lock().unwrap_or_else(|e| e.into_inner());
+        match heard {
+            Ok(repos) => {
+                a.insert(key, (now + AUTHORED_EVERY, repos.clone()));
+                repos
+            }
+            Err(e) => {
+                crate::log(&format!("desk: search {login}'s PRs: {e}"));
+                let old = a.get(&key).map(|x| x.1.clone()).unwrap_or_default();
+                // Try again in a few minutes, not every tick.
+                a.insert(key, (now + DESK_EVERY, old.clone()));
+                old
+            }
+        }
+    }
+
     /// The person's GitHub login as `lister` says, asked once per run.
     /// "" while it can't be learned.
     pub(crate) fn viewer(&self, lister: &dyn PrLister) -> String {

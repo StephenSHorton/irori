@@ -2132,17 +2132,22 @@ impl Services {
         }
         // None yet, or the person renamed themself (card #183), picked a
         // colour (card #385) or an avatar (card #393): the board shows the
-        // newest of each.
+        // newest of each. The GitHub login (card #625) once this device's gh
+        // has said it: members' merge desks show this person's PRs by it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
+        let had = v.profile_github_login(&me.id);
+        let login = self.own_github_login();
         if v.profile(&me.id)
             .is_none_or(|n| n != self.ident.current().name)
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
+            || (!login.is_empty() && !login.eq_ignore_ascii_case(&had))
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
+            prof.github_login = if login.is_empty() { had } else { login };
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
         }
         Ok(())

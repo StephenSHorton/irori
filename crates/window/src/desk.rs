@@ -1,8 +1,8 @@
-//! Merge desks (card #417; docs/design/merge-desk.md §3, §7, §9): every
-//! desk in the person's log for the interim desk page, and the person's
-//! own writes: a desk's settings, a hold on one PR, pausing the desk and
-//! the OK on an Outside PR. Each write goes in as the person; coord
-//! refuses the same rows from an agent.
+//! Merge desks (card #417; docs/design/merge-desk.md §3, §7, §9): the
+//! desks on the person's repos for the desk page, each listing only their
+//! and their people's PRs (card #625), and the person's own writes: a
+//! desk's settings, a hold on one PR and pausing the desk. Each write goes
+//! in as the person; coord refuses the same rows from an agent.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -87,12 +87,12 @@ pub struct DeskSnapshotView {
     pub at: gocompat::time::GoTime,
 }
 
-/// A hold, a pause, an OK or the holder's run: one PR (0 for a pause).
+/// A hold, a pause or the holder's run: one PR (0 for a pause).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskMark {
     pub pr: i64,
-    /// A hold's note; an OK's or a run's head sha.
+    /// A hold's note; a run's base sha.
     pub note: String,
     pub head_sha: String,
     pub by: String,
@@ -114,7 +114,7 @@ pub struct DeskPollView {
     pub error: String,
 }
 
-/// A PR's author card and trust (slice 2's read-only verdict).
+/// One of our PRs' author card (slice 2's read-only verdict).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskAuthorView {
@@ -125,8 +125,6 @@ pub struct DeskAuthorView {
     pub card_ref: String,
     /// The agent behind it; "" none.
     pub agent: String,
-    /// An Outside PR: never checked or merged until the person's OK.
-    pub outside: bool,
 }
 
 /// One repo's desk.
@@ -148,11 +146,12 @@ pub struct DeskView {
     pub holds: Vec<DeskMark>,
     #[specta(optional)]
     pub paused: Option<DeskMark>,
-    pub oks: Vec<DeskMark>,
     #[specta(optional)]
     pub run: Option<DeskMark>,
     pub poll: DeskPollView,
-    /// Each PR in the snapshot: its author card and whether it is Outside.
+    /// Each PR in the snapshot: its author card. The snapshot holds only
+    /// our PRs (the person's, their members' and their agents'; card
+    /// #625): anyone else's is left out here.
     pub authors: Vec<DeskAuthorView>,
 }
 
@@ -216,8 +215,9 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
 }
 
 impl Window {
-    /// DeskService.Desks: every merge desk in the person's log, with how
-    /// polling stands when this device polls it.
+    /// DeskService.Desks: the merge desks on the person's repos (a stray
+    /// desk on a repo nobody in their spaces opens PRs in is left out, card
+    /// #625), with how polling stands when this device polls it.
     pub fn desks(&self) -> Vec<DeskView> {
         let here = self.core.device_id();
         let mut out: Vec<DeskView> = self
@@ -225,6 +225,7 @@ impl Window {
             .coord()
             .desks()
             .into_iter()
+            .filter(|d| !d.stray)
             .map(|d| {
                 let polled = d.settings.poll_device == here;
                 let poll = if polled {
@@ -238,7 +239,7 @@ impl Window {
                 } else {
                     DeskPollView::default()
                 };
-                let authors = self
+                let authors: Vec<DeskAuthorView> = self
                     .core
                     .desk_verdicts(&d.settings.repo_key)
                     .into_iter()
@@ -247,9 +248,9 @@ impl Window {
                         card: a.card,
                         card_ref: a.card_ref,
                         agent: a.agent,
-                        outside: a.outside,
                     })
                     .collect();
+                let ours: std::collections::HashSet<i64> = authors.iter().map(|a| a.pr).collect();
                 DeskView {
                     authors,
                     is_default: d.is_default(),
@@ -263,6 +264,7 @@ impl Window {
                         prs: s
                             .prs
                             .into_iter()
+                            .filter(|p| ours.contains(&p.number))
                             .map(|p| DeskPrView {
                                 number: p.number,
                                 url: p.url,
@@ -296,17 +298,6 @@ impl Window {
                         at: p.at,
                         ..DeskMark::default()
                     }),
-                    oks: d
-                        .oks
-                        .into_values()
-                        .map(|o| DeskMark {
-                            pr: o.pr,
-                            head_sha: o.head_sha,
-                            by: o.by,
-                            at: o.at,
-                            ..DeskMark::default()
-                        })
-                        .collect(),
                     run: d.run.map(|r| DeskMark {
                         pr: r.pr,
                         head_sha: r.head_sha,
@@ -353,14 +344,6 @@ impl Window {
         self.core
             .coord()
             .pause_desk(&self.person(), repo_key, paused)
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Ok: the person okays an Outside PR at one head.
-    pub fn desk_ok(&self, repo_key: &str, pr: i64, head_sha: &str) -> Result<(), String> {
-        self.core
-            .coord()
-            .ok_desk_pr(&self.person(), repo_key, pr, head_sha)
             .map_err(|e| e.to_string())
     }
 }

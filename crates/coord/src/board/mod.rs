@@ -1904,9 +1904,21 @@ impl Coord {
         self.lock().pause_desk(by, repo_key, paused)
     }
 
-    /// The person okays an Outside PR at one head (card #417).
-    pub fn ok_desk_pr(&self, by: &str, repo_key: &str, pr: i64, head_sha: &str) -> Result<()> {
-        self.lock().ok_desk_pr(by, repo_key, pr, head_sha)
+    /// Tells the fold which repos are the person's (card #625): those they
+    /// or a member of their spaces open PRs in. A desk on any other repo is
+    /// stray: off, never polled, listed or leased. Kept in memory only; the
+    /// Core says it again as it learns more. Whether the set changed.
+    pub fn set_desk_repos<I: IntoIterator<Item = String>>(&self, repos: I) -> bool {
+        let set: std::collections::BTreeSet<String> = repos
+            .into_iter()
+            .map(|r| ledger::canonical_repo_key(&r))
+            .collect();
+        let mut f = self.lock();
+        if f.desk_repos.as_ref() == Some(&set) {
+            return false;
+        }
+        f.desk_repos = Some(set);
+        true
     }
 
     /// Every merge desk in this log, by repo key.

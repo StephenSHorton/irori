@@ -1,13 +1,15 @@
 //! The person's own writes on a merge desk (card #417, docs/design/
-//! merge-desk.md §7, §9): a hold on one PR, pausing the desk, and the OK
-//! on an Outside PR. Like `repo.desk` (`set_desk`, desk.rs) they are the
-//! person's alone: an agent that could hold, unpause or OK could steer
-//! what the holder merges. Each refuses anyone else here, and the fold
-//! ignores such rows from anyone else besides.
+//! merge-desk.md §7, §9): a hold on one PR and pausing the desk. Like
+//! `repo.desk` (`set_desk`, desk.rs) they are the person's alone: an agent
+//! that could hold or unpause could steer what the holder merges. Each
+//! refuses anyone else here, and the fold ignores such rows from anyone
+//! else besides. The OK on an Outside PR (`desk.ok`) is gone with Outside
+//! PRs (card #625): the desk lists only the person's and their people's
+//! PRs. Old `desk.ok` rows still fold (desk.rs), nothing writes new ones.
 
 use store::kinds;
 
-use super::desk::{DeskHoldRow, DeskOkRow, DeskPauseRow};
+use super::desk::{DeskHoldRow, DeskPauseRow};
 use super::error::{Result, invalid, not_allowed};
 use super::fold::Fold;
 use super::util::caller;
@@ -31,7 +33,7 @@ impl Fold {
             )));
         }
         let repo = ledger::canonical_repo_key(repo_key);
-        if !self.desks.get(&repo).is_some_and(|d| d.on()) {
+        if !self.desk_on(&repo) {
             return Err(invalid(format!(
                 "{} has no merge desk",
                 ledger::repo_name(&repo)
@@ -85,37 +87,6 @@ impl Fold {
             &DeskPauseRow {
                 repo_key,
                 paused,
-                by: by.clone(),
-                at,
-            },
-        )
-    }
-
-    /// The person okays Outside PR `pr` at head `head_sha`: the desk may
-    /// check and merge that head; a new push needs a new OK (§5 Trust).
-    pub(crate) fn ok_desk_pr(
-        &mut self,
-        by: &str,
-        repo_key: &str,
-        pr: i64,
-        head_sha: &str,
-    ) -> Result<()> {
-        let (by, repo_key) = self.desk_person(by, repo_key, "okays a PR")?;
-        if pr <= 0 {
-            return Err(invalid("OK which PR?"));
-        }
-        let head_sha = trim_space(head_sha).to_string();
-        if head_sha.len() < 7 || !head_sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(invalid("an OK names the PR's head commit"));
-        }
-        let at = self.stamp();
-        self.write(
-            &by,
-            kinds::DESK_OK,
-            &DeskOkRow {
-                repo_key,
-                pr,
-                head_sha,
                 by: by.clone(),
                 at,
             },

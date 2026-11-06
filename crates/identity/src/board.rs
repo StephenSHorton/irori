@@ -82,6 +82,10 @@ struct MemberFold {
     color: String,
     /// The latest counted profile's avatar (card #393).
     avatar: String,
+    /// The newest non-empty GitHub login on a counted profile (card #625):
+    /// a device that can't learn it (a phone, an older build) writes a
+    /// profile without one, which never blanks it.
+    github_login: String,
     profile: bool,
 }
 
@@ -373,6 +377,7 @@ fn fold_member(
         name: String::new(),
         color: String::new(),
         avatar: String::new(),
+        github_login: String::new(),
         profile: false,
     };
     for p in &rows.profiles {
@@ -391,6 +396,9 @@ fn fold_member(
             m.name = p.prof.name.clone(); // the latest counted one
             m.color = p.prof.color.clone();
             m.avatar = p.prof.avatar.clone();
+            if !p.prof.github_login.trim().is_empty() {
+                m.github_login = p.prof.github_login.trim().to_string();
+            }
             m.profile = true;
         }
     }
@@ -989,6 +997,18 @@ impl BoardVerifier {
             .get(person_id)
             .filter(|m| m.profile)
             .map(|m| m.avatar.clone())
+            .unwrap_or_default()
+    }
+
+    /// The GitHub login on a member's counted member.profile, "" when none
+    /// (card #625). The member's own claim: only their certified devices
+    /// write a counted profile.
+    pub fn profile_github_login(&self, person_id: &str) -> String {
+        let st = self.lock();
+        st.members
+            .get(person_id)
+            .filter(|m| m.profile)
+            .map(|m| m.github_login.clone())
             .unwrap_or_default()
     }
 

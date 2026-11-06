@@ -197,12 +197,19 @@ pub struct Desk {
     /// The latest run row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<DeskRunRow>,
+    /// Not one of the person's repos (card #625): nobody in their spaces
+    /// opens PRs there (a cloned upstream repo). A stray desk is off
+    /// whatever its settings say: never polled, listed or leased. Set on
+    /// read from what the Core told [`Fold::desk_repos`]; no row says it.
+    #[serde(skip)]
+    pub stray: bool,
 }
 
 impl Desk {
-    /// Whether the desk is on: enabled and the repo takes PRs.
+    /// Whether the desk is on: enabled, the repo takes PRs, and it is one
+    /// of the person's repos (not [`Desk::stray`]).
     pub fn on(&self) -> bool {
-        self.settings.enabled && self.settings.takes_prs
+        self.settings.enabled && self.settings.takes_prs && !self.stray
     }
 
     /// Whether the settings are the default, not a row the person wrote.
@@ -458,7 +465,7 @@ impl Fold {
                 "{name} is a merge desk lease, and that repo has no merge desk: a GitHub repo gets one once an agent works in it"
             )));
         };
-        if !d.on() {
+        if !d.on() || !self.desk_ours(&d.settings.repo_key) {
             return Err(not_allowed(format!(
                 "{name}: the merge desk is off (the person turns it on in Merge desk settings)"
             )));
@@ -559,10 +566,25 @@ impl Fold {
         )
     }
 
+    /// Whether `repo_key` is one of the person's repos, as the Core last
+    /// said (card #625); every repo until it has said.
+    pub(crate) fn desk_ours(&self, repo_key: &str) -> bool {
+        self.desk_repos
+            .as_ref()
+            .is_none_or(|r| r.contains(&ledger::canonical_repo_key(repo_key)))
+    }
+
+    /// Whether `repo_key` has a desk that is on and one of the person's.
+    pub(crate) fn desk_on(&self, repo_key: &str) -> bool {
+        self.desks.get(repo_key).is_some_and(|d| d.on()) && self.desk_ours(repo_key)
+    }
+
     /// A desk as the app and tools read it: its run only while the run's
-    /// agent still holds the desk lease (Merging ends with the lease).
+    /// agent still holds the desk lease (Merging ends with the lease), and
+    /// stray when it isn't one of the person's repos.
     pub(crate) fn desk_view(&self, d: &Desk) -> Desk {
         let mut d = d.clone();
+        d.stray = !self.desk_ours(&d.settings.repo_key);
         let now = self.stamp();
         let live = |run: &DeskRunRow| {
             Fold::desk_lease_of(&d.settings.repo_key).is_some_and(|name| {
@@ -600,7 +622,7 @@ impl Fold {
     ) -> Result<bool> {
         let repo_key = ledger::canonical_repo_key(repo_key);
         let repo_key = repo_key.as_str();
-        if !self.desks.get(repo_key).is_some_and(|d| d.on()) {
+        if !self.desk_on(repo_key) {
             return Err(invalid(format!(
                 "{} has no merge desk",
                 ledger::repo_name(repo_key)
