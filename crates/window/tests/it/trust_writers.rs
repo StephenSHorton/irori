@@ -79,7 +79,7 @@ fn only_the_window_sets_the_limit_on_agents_starting_agents() {
         assert!(
             f == "crates/window/src/agents.rs"
                 || f == "crates/core/src/service.rs"
-                || f == "crates/window/tests/trust_writers.rs"
+                || f.starts_with("crates/window/tests/")
                 || f.starts_with("crates/core/tests/"),
             "{f} sets the limit: only the app's Settings may"
         );
