@@ -5,7 +5,7 @@
 // (#389) stores them. Resolved threads leave the list but stay one click
 // away, folded at its foot.
 
-import { useContext, useState, type ReactNode } from "react"
+import { useContext, useEffect, useState, type ReactNode } from "react"
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -17,6 +17,7 @@ import {
   PlusIcon,
   SearchIcon,
   SquarePenIcon,
+  UserIcon,
 } from "lucide-react"
 
 import { AskBox } from "@/components/cards/ask-box"
@@ -26,11 +27,14 @@ import { Face } from "@/components/cards/faces"
 import { type ThreadSummary } from "@/lib/cards"
 import {
   dmGone,
+  dmPerson,
   dmWith,
   listed,
   readAll,
   talkApi,
+  waitingText,
   type Conversation as Conv,
+  type Person,
 } from "@/lib/conversations"
 import { talkDesks, type Desk, type TalkDesk } from "@/lib/desk"
 import { AgentRef } from "@/lib/models"
@@ -626,9 +630,12 @@ export function ConvItem({
 }) {
   const live = useContext(LiveRoster)
   const other = c.kind === "dm" ? dmWith(c) : []
+  const person = dmPerson(c)
   const icon =
     c.kind === "channel" ? (
       <HashIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+    ) : person ? (
+      <UserIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     ) : c.readOnly ? (
       <EyeIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
     ) : other[0] ? (
@@ -646,21 +653,28 @@ export function ConvItem({
   const label =
     c.kind === "channel"
       ? plainLine(c.name)
-      : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+      : person
+        ? nameOr(plainLine(person.name || c.name))
+        : other.map((m) => memberName(m)).join(" ↔ ") || nameOr(c.name)
+  const waiting = person ? waitingText(c, label) : ""
   const last =
     c.kind === "dm" &&
-    (c.readOnly || (!!other[0] && statusOf(other[0], live) === "gone"))
+    (c.readOnly ||
+      (!!person && !waiting) ||
+      (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   const sub =
     c.kind === "channel"
       ? c.topic
         ? plainLine(c.topic)
         : ""
-      : last
-        ? line
-        : other[0]
-          ? memberStatus(other[0], live)
-          : ""
+      : waiting
+        ? waiting
+        : last
+          ? line
+          : other[0]
+            ? memberStatus(other[0], live)
+            : ""
   return (
     <button
       type="button"
@@ -842,7 +856,9 @@ function NewChannel({
   )
 }
 
-// NewDm picks a live agent to message; the DM opens (or reopens).
+// NewDm picks someone to message, a person you share a space with (card
+// #538) or a live agent; the DM opens (or reopens). Opening one with a
+// person writes nothing until the first post.
 function NewDm({
   agents,
   onDone,
@@ -851,13 +867,59 @@ function NewDm({
   onDone: (id: string) => void
 }) {
   const [error, setError] = useState("")
+  const [people, setPeople] = useState<Person[]>([])
+  useEffect(() => {
+    let on = true
+    talkApi
+      .dmPeople()
+      .then((p) => on && setPeople(p))
+      .catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [])
   const live = agents.filter((a) => a.status !== "gone")
+  const open = async (m: { kind: "person" | "agent"; key: string }) => {
+    try {
+      onDone(await talkApi.dm(m))
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
   return (
     <div
       className="grid grid-cols-[minmax(0,1fr)] gap-0.5 rounded-md border border-border bg-card/60 p-1"
       role="listbox"
-      aria-label="Message an agent"
+      aria-label="Message someone"
     >
+      {people.length > 0 && (
+        <>
+          <p className="px-2 pt-0.5 text-[11px] font-medium text-muted-foreground">
+            People
+          </p>
+          {people.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              role="option"
+              aria-selected={false}
+              className="flex items-center gap-2 rounded px-2 py-1 text-left text-[12.5px] text-ink-2 hover:bg-secondary"
+              onClick={() => void open({ kind: "person", key: p.key })}
+            >
+              <UserIcon
+                className="size-4 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate">
+                {nameOr(plainLine(p.name))}
+              </span>
+            </button>
+          ))}
+          <p className="px-2 pt-1 text-[11px] font-medium text-muted-foreground">
+            Agents
+          </p>
+        </>
+      )}
       {live.length === 0 && (
         <p className="px-2 py-1 text-[12px] text-muted-foreground">
           No agents are running.
@@ -870,13 +932,7 @@ function NewDm({
           role="option"
           aria-selected={false}
           className="flex items-center gap-2 rounded px-2 py-1 text-left text-[12.5px] text-ink-2 hover:bg-secondary"
-          onClick={async () => {
-            try {
-              onDone(await talkApi.dm({ kind: "agent", key: a.key }))
-            } catch (err) {
-              setError(errorText(err))
-            }
-          }}
+          onClick={() => void open({ kind: "agent", key: a.key })}
         >
           <Face
             who={AgentRef({

@@ -737,10 +737,11 @@ fn tables_match_go() {
             "ValidBoardName({n:?})"
         );
     }
+    // Go allowed 16; new tags are now MAX_BOARD_TAG at most (card #590).
     for (t, ok) in g["tags"].as_object().unwrap() {
         assert_eq!(
             valid_board_tag(t),
-            ok.as_bool().unwrap(),
+            ok.as_bool().unwrap() && t.len() <= membership::MAX_BOARD_TAG,
             "ValidBoardTag({t:?})"
         );
     }

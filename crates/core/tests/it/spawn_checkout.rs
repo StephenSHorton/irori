@@ -658,3 +658,25 @@ fn a_long_spawner_error_still_asks() {
             .any(|b| b.open() && b.question == START_FAILED)
     });
 }
+
+/// A copy turning up starts the card's agent with no retry wait, though it
+/// isn't the person asking (card #576).
+#[test]
+fn a_copy_turning_up_starts_with_no_retry_wait() {
+    let t = rig();
+    let waits = t.card("Port the parser", LOWER);
+    t.start();
+    t.wait_blocked(&waits.id);
+    let copy = tempfile::tempdir().unwrap();
+    t.seen(MIXED, copy.path());
+    wait_for(60, "the blocker lifted", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        t.no_copy_blockers(&waits.id).is_empty()
+    });
+    // The clock doesn't move: it needs no retry wait.
+    wait_for(60, "its agent starts", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        t.fake.started.lock().unwrap().len() == 1
+    });
+    assert!(!t.r.core.coord().spawn_asked_now(&waits.id));
+}

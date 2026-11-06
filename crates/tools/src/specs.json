@@ -1752,7 +1752,7 @@
   },
   {
     "name": "talk_post",
-    "description": "Post in Talk: a channel, a DM or a thread. A DM with an agent wakes it now; @name in text (or mention) wakes that agent and adds it to the channel. Posting to a thread is a comment on it. Talk is for talking: put work on a card.",
+    "description": "Post in Talk: a channel, a DM or a thread. A DM with an agent wakes it now; @name in text (or mention) wakes that agent and adds it to the channel. Posting to a thread is a comment on it. You can't DM another person or their agent. Talk is for talking: put work on a card.",
     "inputSchema": {
       "type": "object",
       "properties": {

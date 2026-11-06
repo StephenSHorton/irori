@@ -15,7 +15,8 @@
 //!   the blocker resolves itself and the agent starts.
 //! - A card that names no repo is never asked about (card #600): its
 //!   agent starts where an ask's does and works the repo out itself.
-//! - The spawner itself fails [`SPAWN_TRIES`] times in a row: one blocker,
+//! - The spawner itself fails [`SPAWN_TRIES`] times in a row (the person's
+//!   number from Settings › Agents, if they set one): one blocker,
 //!   "Irori couldn't start an agent for this card: try again?".
 //!
 //! Every line here names devices and repos the way the person does: the
@@ -317,9 +318,13 @@ impl Services {
         }
     }
 
-    /// The spawner failed for t: after [`SPAWN_TRIES`] in a row, stop and
-    /// ask once.
+    /// The spawner failed for t: after the setting's tries in a row, else
+    /// [`SPAWN_TRIES`], stop and ask once.
     pub(crate) fn note_start_failed(&self, t: &Task, err: &str) {
+        let tries = match self.spawn_setting("").start_tries {
+            n if n >= 1 => n as u32,
+            _ => SPAWN_TRIES,
+        };
         let n = {
             let mut m = self
                 .spawn
@@ -330,7 +335,7 @@ impl Services {
             *n += 1;
             *n
         };
-        if n < SPAWN_TRIES {
+        if n < tries {
             return;
         }
         // One short of the limit: after Try again, the next failure asks
@@ -339,7 +344,7 @@ impl Services {
             .start_fails
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(t.id.clone(), SPAWN_TRIES - 1);
+            .insert(t.id.clone(), tries - 1);
         if t.blockers.iter().any(|b| b.open() && is_start_failed(b)) {
             return;
         }
@@ -414,8 +419,8 @@ impl Services {
     }
 
     /// Lifts the "no copy" blockers this device raised once a copy is here
-    /// (a Where, a checkout, or a folder the person named), and asks for
-    /// the agent.
+    /// (a Where, a checkout, or a folder the person named): the card then
+    /// starts as any other does.
     pub(crate) fn lift_no_copy(&self, sp: &super::spawn::Spawner) {
         let me = self.device.id.clone();
         let open = self.coord.list_tasks(&TaskFilter {
@@ -435,11 +440,12 @@ impl Services {
                 continue;
             };
             // Not trusted: the request fails as such and Needs you offers
-            // Trust and start.
+            // Trust and start. Resolving moves the card on past its failed
+            // request, so the sweep asks again without waiting out the
+            // retry; it isn't the person's ask, so the queue order still
+            // holds (card #576).
             let trusted = (sp.trusted)(Path::new(&folder));
-            if self.resolve_no_copy(&t, &folder, trusted) {
-                self.coord.spawn_now(&t.id);
-            }
+            self.resolve_no_copy(&t, &folder, trusted);
         }
     }
 }
