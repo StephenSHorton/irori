@@ -256,8 +256,10 @@ pub struct PostRow {
     pub agents_now: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attach: Option<Vec<serde_json::Value>>,
+    /// The files sent with it (card #643), as a comment's: the bytes stay
+    /// on the attaching device until another one fetches them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attach: Vec<blob::FileRef>,
     pub by: String,
     pub at: GoTime,
 }
@@ -325,6 +327,9 @@ pub struct Post {
     /// The card made from it (`talk.card`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<String>,
+    /// The files sent with it (card #643).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<blob::FileRef>,
     pub at: GoTime,
     /// Where it sorts: its row's place in the log, or for a post mapped
     /// from elsewhere its time.
@@ -379,6 +384,9 @@ pub struct NewPost {
     pub mentions: Vec<String>,
     pub agents_now: bool,
     pub thread_from: Option<String>,
+    /// The files to send with it (card #643): at most
+    /// [`crate::board::MAX_ATTACHMENTS`]. With files the text may be empty.
+    pub files: Vec<blob::FileRef>,
     pub by: String,
     /// Post without joining the channel (card #454): an agent Irori
     /// started for a card or a thread is a member of no channel
@@ -806,7 +814,8 @@ impl Talk {
     pub fn post(&self, p: NewPost) -> Result<Post> {
         let by = need_by(&p.by)?.to_string();
         let conv = p.conv_id.trim().to_string();
-        let text = check_text(&by, &p.text)?;
+        let files = check_files(&p.files)?;
+        let text = check_post(&by, &p.text, !files.is_empty())?;
         let mut space = String::new();
         let pair = self.pair_other(&conv);
         if is_channel(&conv) {
@@ -884,7 +893,7 @@ impl Talk {
                 mentions,
                 agents_now: p.agents_now,
                 thread_from,
-                attach: None,
+                attach: files,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1047,6 +1056,23 @@ impl Talk {
     }
 
     /// The posts of `conv`, oldest first.
+    /// The file with hash `sha` on a post (card #643), the earliest post
+    /// first, with the conversation it is in; None when no post has it.
+    pub fn attachment(&self, sha: &str) -> Option<(String, blob::FileRef)> {
+        let s = self.lock();
+        let mut best: Option<(&Ord3, &String, &blob::FileRef)> = None;
+        for (conv, ps) in &s.posts {
+            for p in ps {
+                if let Some(f) = p.files.iter().find(|f| f.sha256 == sha)
+                    && best.is_none_or(|b| p.ord < *b.0)
+                {
+                    best = Some((&p.ord, conv, f));
+                }
+            }
+        }
+        best.map(|(_, conv, f)| (conv.clone(), f.clone()))
+    }
+
     pub fn posts(&self, conv: &str) -> Vec<Post> {
         self.lock()
             .posts
@@ -1270,6 +1296,11 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 mentions: r.mentions,
                 agents_now: r.agents_now,
                 thread_from: r.thread_from,
+                files: r
+                    .attach
+                    .into_iter()
+                    .filter(|f| blob::valid_id(&f.sha256))
+                    .collect(),
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),
@@ -1465,8 +1496,14 @@ fn clean_member(m: &Member) -> Result<Member> {
 
 /// A post's text, trimmed and checked as a comment's is.
 pub fn check_text(by: &str, text: &str) -> Result<String> {
+    check_post(by, text, false)
+}
+
+/// [`check_text`] for a post that may carry files: with files it may have
+/// no text, a pasted screenshot on its own (card #643).
+pub fn check_post(by: &str, text: &str, files: bool) -> Result<String> {
     let t = text.trim();
-    if t.is_empty() {
+    if t.is_empty() && !files {
         return Err(invalid("an empty post"));
     }
     if is_person_key(by) {
@@ -1482,6 +1519,27 @@ pub fn check_text(by: &str, text: &str) -> Result<String> {
         )));
     }
     Ok(t.to_string())
+}
+
+/// A post's files, checked: at most [`crate::board::MAX_ATTACHMENTS`], each
+/// a stored file's hash; the same file twice goes once.
+pub fn check_files(files: &[blob::FileRef]) -> Result<Vec<blob::FileRef>> {
+    if files.len() > crate::board::MAX_ATTACHMENTS {
+        return Err(invalid(format!(
+            "at most {} files on a post",
+            crate::board::MAX_ATTACHMENTS
+        )));
+    }
+    let mut out: Vec<blob::FileRef> = Vec::with_capacity(files.len());
+    for f in files {
+        if !blob::valid_id(&f.sha256) {
+            return Err(invalid(format!("{} isn't a stored file", f.name)));
+        }
+        if !out.iter().any(|x| x.sha256 == f.sha256) {
+            out.push(f.clone());
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
