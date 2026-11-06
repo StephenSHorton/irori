@@ -62,6 +62,7 @@ import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
+import { startWindowLog } from "@/lib/window-log"
 import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
@@ -135,6 +136,7 @@ if ("scrollRestoration" in window.history)
 // the mouse's) back, Esc and the page's Back return to the grid, with its
 // filter and scroll where they were.
 export function App() {
+  useEffect(() => startWindowLog(), [])
   const roster = useRoster()
   const desks = useDesks()
   // Threads show "<agent> is working…" from the live roster (card #299);
