@@ -19,19 +19,26 @@ esac
 if [ -n "$check_pc" ]; then
   check_missing=""
   if [ -n "${CMAKE:-}" ]; then
-    [ -f "$CMAKE" ] || check_missing="$check_missing CMAKE (no file at $CMAKE)"
+    # cmake-rs runs $CMAKE as given: a path, or a name on PATH.
+    [ -f "$CMAKE" ] || command -v "$CMAKE" >/dev/null 2>&1 ||
+      check_missing="$check_missing CMAKE (no file or command $CMAKE)"
   elif ! command -v cmake >/dev/null 2>&1; then
     check_missing="$check_missing CMAKE"
   fi
+  # Where clang-sys looks: LIBCLANG_PATH (the dll or its folder), else
+  # llvm-config, else PATH. Its Windows names are libclang.dll and clang.dll.
+  check_dll=""
   if [ -n "${LIBCLANG_PATH:-}" ]; then
-    [ -f "$LIBCLANG_PATH" ] || [ -f "$LIBCLANG_PATH/libclang.dll" ] ||
+    for f in "$LIBCLANG_PATH" "$LIBCLANG_PATH/libclang.dll" "$LIBCLANG_PATH/clang.dll"; do
+      if [ -f "$f" ]; then check_dll=1; fi
+    done
+    [ -n "$check_dll" ] ||
       check_missing="$check_missing LIBCLANG_PATH (no libclang.dll in $LIBCLANG_PATH)"
-  else
-    check_dll=""
+  elif ! command -v llvm-config >/dev/null 2>&1; then
     check_ifs=$IFS
     IFS=:
     for d in $PATH; do
-      if [ -f "$d/libclang.dll" ]; then check_dll=1; fi
+      if [ -f "$d/libclang.dll" ] || [ -f "$d/clang.dll" ]; then check_dll=1; fi
     done
     IFS=$check_ifs
     [ -n "$check_dll" ] || check_missing="$check_missing LIBCLANG_PATH"
@@ -64,6 +71,8 @@ fi
 echo "check: pid $$, stop with \`sh scripts/check-stop.sh\` (this worktree's run only)"
 check_exit() {
   slot_release
+  # A run stopped inside temp_clean never reaches its rm.
+  if [ -n "${tc_dir:-}" ]; then rm -rf "$tc_dir"; fi
   if [ -n "$check_state" ] && grep -qx "pid=$$" "$check_state" 2>/dev/null; then
     rm -f "$check_state"
   fi
@@ -88,7 +97,10 @@ if [ -n "$check_pc" ]; then
   # cargo fmt hands rustfmt every file of a crate with its full path in one
   # command line, and from a deep worktree (~/.claude/jobs/...) that passes
   # Windows' 32K limit: os error 206. Batches of 40 relative paths fit.
-  git ls-files '*.rs' ':!vendor' | xargs -n 40 rustfmt --edition 2024 --check
+  # New files count, files deleted but not yet staged don't (as cargo fmt).
+  git ls-files --cached --others --exclude-standard -- '*.rs' ':!vendor' ':!.claude' |
+    while IFS= read -r f; do if [ -f "$f" ]; then printf '%s\n' "$f"; fi; done |
+    xargs -n 40 rustfmt --edition 2024 --check
 else
   cargo fmt --all --check
 fi

@@ -12,6 +12,10 @@
 
 temp_clean() {
   tc_dir=$(mktemp -d /tmp/irori-temp.XXXXXX)
+  # So scripts/check-stop.sh can remove it when it stops the run (#609).
+  if [ -n "${check_state:-}" ] && [ -f "$check_state" ]; then
+    echo "tc_dir=$tc_dir" >>"$check_state"
+  fi
   tc_native=$tc_dir
   if command -v cygpath >/dev/null 2>&1; then
     tc_native=$(cygpath -m "$tc_dir")
