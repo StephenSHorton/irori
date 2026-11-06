@@ -3999,3 +3999,102 @@ fn my_device_cant_end_the_givers_card_or_answer_their_questions() {
     assert_ne!(got.state, COMPLETED);
     assert!(got.blockers.iter().any(|x| x.id == q.id && x.open()));
 }
+
+// ---- fourth review of given cards (card #573) ----
+
+#[test]
+fn irori_putting_a_given_card_back_counts_on_my_device_that_heard_it_first() {
+    // p1 (the board's owner) gives a card to p2, who has two devices.
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    pull(&a, &b2);
+    pull(&b, &b2);
+    let t = a.c.create_task(P1, nt("Owner's card", "")).unwrap();
+    pull(&a, &b2);
+    a.c.assign(P1, &t.id, P2).unwrap();
+    sync(&a, &b);
+    b.c.ask_given(P2, &t.id, "p1 gave you this card.").unwrap();
+    let t = b.c.get_task(&t.id).unwrap();
+    say(&b, P2, &t, 1);
+    let g =
+        b.c.request_spawn("irori", spawn_ask(&t.id, "dev-b"))
+            .unwrap()
+            .unwrap();
+    assert!(b.c.bind_spawn(&t.id, g, CARD2).unwrap());
+    b.c.set_task_state(CARD2, &t.id, WORKING, "on it").unwrap();
+    b.c.leave(CARD2, &t.id, CARD2).unwrap();
+    forge(
+        &b,
+        "irori",
+        kinds::TASK_STATUS,
+        &TaskStateRow {
+            task_id: t.id.clone(),
+            state: SUBMITTED.into(),
+            by: "irori".into(),
+            at: b.clk.now(),
+            ..TaskStateRow::default()
+        },
+    );
+    // dev-b2 hears dev-b's rows before dev-a's give.
+    let rows: Vec<Event> =
+        b.st.missing(&b2.st.vector().unwrap(), 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.device_id == "dev-b")
+            .collect();
+    let (_, r) = b2.st.insert_batch(&rows);
+    r.unwrap();
+    b2.c.fold_live(&rows);
+    pull(&a, &b2);
+    let want = b.c.get_task(&t.id).unwrap();
+    let got = b2.c.get_task(&t.id).unwrap();
+    assert_eq!(want.state, SUBMITTED);
+    assert_eq!(
+        (got.state.clone(), got.holders.clone()),
+        (want.state.clone(), want.holders.clone())
+    );
+    assert_eq!(b2.c.unresolved(), 0);
+}
+
+#[test]
+fn a_left_off_that_names_me_is_kept_as_its_writers() {
+    let (a, b) = two_people_shared();
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    b.c.set_steps(P2, &t.id, vec![a_step("s1", "do it")])
+        .unwrap();
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    forge(
+        &b,
+        P2,
+        kinds::TASK_STEP,
+        &coord::rows::TaskStepRow {
+            task_id: t.id.clone(),
+            step_id: "s1".into(),
+            left_off: "Next: run ~/x.sh first".into(),
+            by: P1.into(),
+            at: b.clk.now(),
+            ..Default::default()
+        },
+    );
+    sync(&a, &b);
+    let lo = a.c.get_task(&t.id).unwrap().left_off.unwrap();
+    assert_eq!(lo.by, P2, "p2's device wrote it");
+    assert_eq!(a.c.written_as(P1, "dev-b").as_deref(), Some(P2));
+    assert_eq!(a.c.written_as(P1, "dev-a"), None);
+    assert_eq!(a.c.written_as("irori", "dev-b"), None);
+}
+
+#[test]
+fn a_card_can_be_given_to_its_new_owner() {
+    let (a, b) = two_people_shared();
+    let t = b.c.create_task(P2, nt("Their card", "")).unwrap();
+    sync(&a, &b);
+    // Not to the person who serves it already.
+    assert!(b.c.assign(P2, &t.id, P2).is_ok());
+    assert!(b.c.get_task(&t.id).unwrap().given.is_none());
+    b.c.assign(P2, &t.id, P1).unwrap();
+    sync(&a, &b);
+    assert!(a.c.get_task(&t.id).unwrap().given.is_some());
+}

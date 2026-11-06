@@ -692,7 +692,8 @@ impl Fold {
     /// The person a `task.assigned` row gives a card to: a `person:` key,
     /// another person's, written from a device of the person it names as
     /// the giver, who made or owns the card. Nobody gives away a card that
-    /// isn't theirs, nor gives it to the person who serves it already.
+    /// isn't theirs, nor gives one that isn't given to the person who
+    /// serves it already; giving it again starts its question over.
     pub(crate) fn gave_to_person(&self, ev: &Event, p: &TaskAssignedRow) -> Option<String> {
         let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
             return None;
@@ -705,7 +706,7 @@ impl Fold {
             && to != by
             && by == dp(&ev.device_id)
             && self.may_give(t, &by)
-            && self.serving_person(t) != to)
+            && (t.given.is_some() || self.serving_person(t) != to))
             .then_some(to)
     }
 
@@ -776,7 +777,7 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        if self.serving_person(t) == self.person_of(to) {
+        if t.given.is_none() && self.serving_person(t) == self.person_of(to) {
             return Err(bad_state(format!(
                 "{} is already theirs: assign it to one of their agents instead",
                 t.short_ref()
