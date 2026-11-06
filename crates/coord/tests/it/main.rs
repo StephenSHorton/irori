@@ -53,6 +53,7 @@ mod repo_case_test;
 mod resource_test;
 mod review_test;
 mod room_thread_test;
+mod said_test;
 mod separation_test;
 mod short_test;
 mod side_gate_test;

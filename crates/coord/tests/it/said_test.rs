@@ -1,7 +1,7 @@
 //! What the person said on the cards around a card (card #555): the one
 //! answer a brief, a wake and `show` share.
 
-mod common;
+use crate::common;
 
 use common::*;
 use coord::*;
