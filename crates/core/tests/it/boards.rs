@@ -570,7 +570,7 @@ fn the_calls_gate_waits_for_every_device_at_tolerant_2() {
     wait_for(45, "a hears b at tolerant 2", || {
         a.core.space_tolerance(&id).unwrap().ready()
     });
-    assert!(irori_core::CALLS_TOLERANT <= mesh::boardmesh::TOLERANT_PROTOCOL);
+    const { assert!(irori_core::CALLS_TOLERANT <= mesh::boardmesh::TOLERANT_PROTOCOL) };
 }
 
 /// Card #590: a new board's tag is 8 characters at most, so a ref like
