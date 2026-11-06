@@ -2,7 +2,6 @@
 // note form (New note, Edit).
 
 import { useState } from "react"
-import { LockIcon, UsersIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +19,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { type BoardSummary } from "@/lib/boards"
 import { plainLine, type Roster } from "@/lib/irori"
 import {
-  MineScope,
   NoteKinds,
   NoteMaxChars,
   noteProblem,
@@ -90,23 +88,19 @@ export function sourceLabel(n: Pick<Note, "source" | "taskId">): string {
 }
 
 export type NoteDraft = {
-  scope: string
   kind: NoteKind
   text: string
   tags: string[]
 }
 
-// NoteForm is New note and Edit: kind, text, where it
-// applies, and (for a new note) Mine or a board, Mine first (§8).
+// NoteForm is New note and Edit: kind, text and where it applies. Every
+// note is the person's own (card #616), so there is no scope to pick.
 export function NoteForm(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
   description?: string
   initial: NoteDraft
-  boards?: BoardSummary[]
-  // Edit: the note stays where it is.
-  fixedScope?: boolean
   save?: string
   onSave: (n: NewNote) => Promise<void>
 }) {
@@ -131,8 +125,6 @@ function NoteFormBody({
   title,
   description,
   initial,
-  boards,
-  fixedScope,
   save = "Keep",
   onSave,
   busy,
@@ -159,7 +151,6 @@ function NoteFormBody({
     setError("")
     try {
       await onSave({
-        scope: draft.scope,
         kind: draft.kind,
         text: draft.text,
         tags,
@@ -235,37 +226,6 @@ function NoteFormBody({
             </span>
           )}
         </div>
-        {!fixedScope && (
-          <>
-            <span className="text-ink-2">Who reads it</span>
-            <ChoiceSelect
-              label="Who reads it"
-              size="sm"
-              value={draft.scope}
-              onValueChange={(v) => setDraft({ ...draft, scope: v })}
-              choices={[
-                {
-                  value: MineScope,
-                  label: (
-                    <span className="flex items-center gap-1.5">
-                      <LockIcon className="size-3" aria-hidden /> Mine: only my
-                      agents
-                    </span>
-                  ),
-                },
-                ...(boards ?? []).map((b) => ({
-                  value: b.tag,
-                  label: (
-                    <span className="flex items-center gap-1.5">
-                      <UsersIcon className="size-3" aria-hidden />{" "}
-                      {plainLine(b.name)}: every member's agents
-                    </span>
-                  ),
-                })),
-              ]}
-            />
-          </>
-        )}
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <DialogFooter>

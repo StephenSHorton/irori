@@ -112,6 +112,29 @@ pub struct TalkPost {
     pub at: gocompat::time::GoTime,
 }
 
+/// The agents replying in one channel or DM (card #645): woken by a post
+/// there and not answered yet. The row reads "jasmine and kestrel are
+/// replying…".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkReplying {
+    pub conv_id: String,
+    /// The earliest woken first.
+    pub agents: Vec<TalkReplier>,
+}
+
+/// One agent replying.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkReplier {
+    pub key: String,
+    /// Its name, never its key.
+    pub name: String,
+    /// When the post that woke it was sent: the row drops it 30 minutes on.
+    #[specta(type = ts::Time)]
+    pub since: gocompat::time::GoTime,
+}
+
 /// The most posts one page returns, and the default.
 const MAX_LIMIT: i64 = coord::talk::MAX_PAGE as i64;
 const DEFAULT_LIMIT: i64 = 50;
@@ -123,6 +146,27 @@ fn is_thread_id(conv: &str) -> bool {
 impl Window {
     fn me(&self) -> String {
         self.core.user_sender().key
+    }
+
+    /// Who is replying in each channel and DM (card #645); conversations
+    /// with nobody left out.
+    pub fn talk_replying(&self) -> Vec<TalkReplying> {
+        self.core
+            .talk_replying(&self.me())
+            .into_iter()
+            .map(|r| TalkReplying {
+                conv_id: r.conv_id,
+                agents: r
+                    .agents
+                    .into_iter()
+                    .map(|a| TalkReplier {
+                        key: a.key,
+                        name: a.name,
+                        since: a.since,
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     /// Talk's list: every open channel, every DM (agents' own read-only)

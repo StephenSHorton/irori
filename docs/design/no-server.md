@@ -33,7 +33,7 @@ A move is an edit of the card, so it uses the edit row:
 `board.ask.edited {taskId, board, num, by, at}`, or `task.edited` with the same fields in Personal.
 
 - Board logs have accepted this kind since v0.7.1 at the latest. It's what `edit_task` (`cards.rs:2375`) writes on a board, under the name `ask_kind` gives it (`asks.rs:157-167`).
-- **No gate.** `space_not_ready` is called only from adding a board, space Talk and notes, not from edits.
+- **No gate.** `space_not_ready` is called only from adding a board and space Talk, not from edits. (Notes left the gate when they became Mine only, decision 53.)
 - `edit_gate` (`asks.rs:716`) decides whether the row folds. It doesn't lock: a person's row always folds, and a non-taker agent's row waits and lands when the ask closes.
 - Decoders drop fields they don't know (`gocompat/src/json/lenient.rs`), so an older device stores the row and leaves the card where it was. It adds one "edited the card" line, which watchers and the parent's holders get as a next-turn digest. It wakes nobody, and it bumps the card's updated time. The new fold says "moved it to net" instead, and rebuilds history on the next start.
 - `board` and `num` are safe names. A new field must not reuse, even by case, a field of `TaskEditedRow` (`rows.rs:497`) or of the store's closure decoder (`store/src/board.rs:97`).
@@ -99,6 +99,8 @@ Carrying meaning in old rows suits these two changes, but it isn't a rule to kee
 It only helps from the release that ships it, so it can't serve moves and deletes on its own. It also stops new kinds starving other writers (§2).
 
 Built on #579: `kinds::board_tolerated`, `BoardRules::check_pulled`, and the hello's `tolerant`, level `TOLERANT_PROTOCOL`. `no_tolerated_family_kind_becomes_refused` pins the rule that a stored kind never becomes `Refuses`.
+
+**`tolerant` 2 (#652), ahead of calls (#571).** The families are `kinds::TOLERATED_FAMILIES`. Level 2 adds `talk.*` and `call.*`: content, not membership, so skipping one fails safe. The pin test lists `talk.read` as the one refused kind of the new families; every Irori that writes it already names it. A device stores an unknown `call.*` row only from level 2, so calls write `call.*` rows to a space only when `Core::space_tolerance` is ready: every other member device's latest word (§5) says `tolerant >= 2` (`CALLS_TOLERANT`). Unlike the space gate, a device nobody has heard counts against it, because calls have a fallback (a `talk.post` marker or a file, `docs/research/08-voice-calls/irori-fit.md` §2). Ship it a release or more before calls.
 
 ## 4. Peers, not a server
 
@@ -168,7 +170,7 @@ Built on #579:
 
 ## 5. Which devices block, and how we know
 
-The gate stays for adding or deleting a board, space Talk and notes. Three changes.
+The gate stays for adding or deleting a board and space Talk. Three changes.
 
 **Keep the last hello on disk.** Each device saves the last hello it heard from each device, per space. Without this a restart forgets a device known to be too old.
 
@@ -200,7 +202,7 @@ The cost: any device on a build before this one that nobody has heard since its 
 ## 6. Order of work
 
 1. **#563 as amended:** the move and delete of §3, in the fold and window. Its objective and spaces-boards.md §3 name `task.board`, `space.board.deleted` and `SPACES_PROTOCOL` 2; this replaces those.
-2. **Saved hellos, version rows and the new gate rule (§5).** A delete benefits at once, and so do adding a board, Talk and notes.
+2. **Saved hellos, version rows and the new gate rule (§5).** A delete benefits at once, and so do adding a board and Talk.
 3. **Keep this device up to date (§4.3).**
 4. **Stalls that can't hide, and the tolerant reader (§4.3, §3.5).**
 5. **Freshness, sync before sleep, small files, and what phones do (§4.3).**

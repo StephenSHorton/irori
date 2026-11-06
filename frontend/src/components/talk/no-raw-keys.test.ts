@@ -32,6 +32,8 @@ g.window ??= {
 
 const { Members, PostRow, statusOf, whoseWord } = await import("./conversation")
 const { ConvItem } = await import("./talk-page")
+const { ReplyingRow } = await import("./replying-row")
+const { replyingLine } = await import("@/lib/conversations")
 
 const board = "b3f5895439ea36e68e99533be49d066b"
 const card = "f052f6f42153dfb4f70ff159e3830ce2"
@@ -161,5 +163,19 @@ describe("another member's agent isn't gone for not being on my roster (card #47
     expect(statusOf(goneMine, live)).toBe("gone")
     // Its board card says gone: it is.
     expect(statusOf({ ...billing, status: "gone" }, live)).toBe("gone")
+  })
+})
+
+describe("the replying row (card #645)", () => {
+  test("names its agents and never shows a key", () => {
+    const since = new Date().toISOString()
+    const line = replyingLine(
+      others.map((m) => ({ key: m.key, name: m.name ?? "", since })),
+      Date.now()
+    )
+    expect(line?.text).toBe("BillingEng1 · Spencer is replying…")
+    const out = html(createElement(ReplyingRow, { line: line! }))
+    noKeys(out)
+    expect(out).toContain("is replying…")
   })
 })

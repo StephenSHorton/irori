@@ -73,7 +73,7 @@ use gocompat::time::GoTime;
 pub use attachments::Attacher;
 pub use explore::spawned_lines;
 pub use format::{clip, clip_mcp, one_line};
-pub use notes::{NotesBackend, ToolNote};
+pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
 pub use shared::{
