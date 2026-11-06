@@ -29,7 +29,8 @@ pub enum Side {
 /// A kind's verdict for a shared board's log (Go `Board`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Board {
-    /// Refused by a board log, like every kind it does not name.
+    /// Refused by a board log, like every kind it does not name, unless
+    /// [`board_tolerated`] says a pulled row of it is stored.
     Unclassified,
     /// A board log stores it.
     Accepts,
@@ -334,8 +335,9 @@ kinds! {
     BOARD_PIN = "board.pin" => Local;
     /// `{boardId, upTo}`: this device forgot the board.
     BOARD_FORGOTTEN = "board.forgotten" => Local;
-    /// `{deviceId, personId, coreVersion, spaces, spawns, atMs}`: the last
-    /// hello this device heard from `deviceId` on the board (card #577).
+    /// `{deviceId, personId, coreVersion, spaces, spawns, tolerant, seq,
+    /// atMs}`: the last hello this device heard from `deviceId` on the
+    /// board (card #577).
     BOARD_HELLO = "board.hello" => Local;
 }
 
@@ -372,6 +374,23 @@ pub fn is_person_kind(kind: &str) -> bool {
 /// Go `BoardAccepted`: a board log stores it.
 pub fn board_accepted(kind: &str) -> bool {
     !is_local(kind) && kind_board(kind) == Board::Accepts
+}
+
+/// The tolerant reader (docs/design/no-server.md §3.5): a pulled `task.*` or
+/// `space.*` row of a kind this build has never heard of. A board log stores
+/// it, so a newer Irori's kind doesn't stall this device, and it folds after
+/// the update. A kind the registry names keeps its verdict, and any other
+/// unknown family stays refused: stalling on a membership or revoke row
+/// fails closed, and skipping one fails open.
+///
+/// A kind stored this way must never become [`Board::Refuses`], or the build
+/// that says so stalls on rows already in the log: `tests/board.rs` pins the
+/// `task.*` and `space.*` kinds that are refused today.
+pub fn board_tolerated(kind: &str) -> bool {
+    let named = kind
+        .strip_prefix("task.")
+        .or_else(|| kind.strip_prefix("space."));
+    named.is_some_and(|n| !n.is_empty()) && !index().contains_key(kind)
 }
 
 /// Go `IsBoardIdentityKind`: board.*, member.* and agent.card, which a board

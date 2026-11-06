@@ -149,6 +149,109 @@ fn board_refuses_kinds() {
     assert!(all(e.s()).is_empty(), "a refused row was stored");
 }
 
+/// The tolerant reader (no-server.md §3.5): a pulled row of a `task.*` or
+/// `space.*` kind nobody has named is stored and its stream goes on. This
+/// device's own writes stay strict.
+#[test]
+fn board_stores_pulled_unknown_task_and_space_kinds() {
+    let mut e = Env::new();
+    let empty = json!({});
+    for (i, kind) in ["task.future", "task.future.sub", "space.future"]
+        .iter()
+        .enumerate()
+    {
+        assert!(store::board_tolerated(kind));
+        let (ev, r) = e.insert_b("irori", kind, &empty);
+        r.unwrap_or_else(|err| panic!("insert {kind}: {err}"));
+        assert_eq!(ev.seq, i as i64 + 1);
+        assert_eq!(
+            e.append("irori", kind, &empty).unwrap_err().kind(),
+            ErrorKind::NotBoardKind,
+            "this device writes {kind}"
+        );
+    }
+    // The stream goes on past them with a kind this build knows.
+    e.insert_b("irori", "lease.acquired", &json!({"resource": "gpu/1"}))
+        .1
+        .unwrap();
+    assert_eq!(e.s().vector().unwrap().get("dev-b").copied(), Some(4));
+    // Only the appends counted as refused.
+    assert_eq!(e.s().board_refused().kind, 3);
+}
+
+/// Only those two families, and only kinds nobody has named: a stall on a
+/// membership or revoke row fails closed, and skipping one fails open.
+#[test]
+fn board_stays_strict_on_every_other_unknown_kind() {
+    let mut e = Env::new();
+    let empty = json!({});
+    for kind in [
+        "board.future",
+        "board.member.future",
+        "member.future",
+        "person.future",
+        "agent.future",
+        "note.future",
+        "future.kind",
+        "task.",
+        "space.",
+        "task",
+        "tasks.future",
+        // Named and refused: not unknown, so not tolerated.
+        "task.shared",
+        "task.deleted",
+    ] {
+        assert!(!store::board_tolerated(kind), "{kind}");
+        assert_eq!(
+            e.insert_b("irori", kind, &empty).1.unwrap_err().kind(),
+            ErrorKind::NotBoardKind,
+            "insert {kind}"
+        );
+    }
+}
+
+/// Only the kind is forgiven. A tolerated row with a bad actor is refused
+/// like any other.
+#[test]
+fn board_tolerated_row_keeps_the_actor_check() {
+    let mut e = Env::new();
+    assert_eq!(
+        e.insert_b("root", "task.future", &json!({}))
+            .1
+            .unwrap_err()
+            .kind(),
+        ErrorKind::BoardActor
+    );
+}
+
+/// A kind stored as unknown must never become Refuses, or the build that
+/// says so stalls on rows already in logs. This is every `task.*` and
+/// `space.*` kind refused when the tolerant reader shipped: don't add to it.
+/// A new kind of these families is Accepts, or a family of its own.
+#[test]
+fn no_tolerated_family_kind_becomes_refused() {
+    let mut refused: Vec<&str> = REGISTRY
+        .iter()
+        .filter(|k| k.board != store::Board::Accepts)
+        .filter(|k| k.kind.starts_with("task.") || k.kind.starts_with("space."))
+        .map(|k| k.kind)
+        .collect();
+    refused.sort();
+    assert_eq!(
+        refused,
+        [
+            "task.archived",
+            "task.comment.edited",
+            "task.deleted",
+            "task.edited",
+            "task.paused",
+            "task.pinned",
+            "task.shared",
+            "task.where",
+        ]
+    );
+}
+
 #[test]
 fn board_actors() {
     let mut e = Env::new();

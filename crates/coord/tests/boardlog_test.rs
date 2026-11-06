@@ -542,3 +542,52 @@ fn test_board_rows_carry_the_writers_hop() {
     assert_eq!(got[0].text, "on it");
     assert!(carries_hop("board.ask.posted") && !carries_hop(kinds::TASK_CREATED));
 }
+
+/// Card #579: a board log stores a pulled `task.*` row of a kind this
+/// build doesn't know (the tolerant reader). Folding it changes nothing,
+/// even when it borrows the name of an activity line coord makes itself
+/// (`task.made`, `task.mentioned`), and the rows after it still fold.
+#[test]
+fn test_board_tolerated_rows_fold_to_nothing() {
+    let (src, from) = new_board_coord("dev-b");
+    let task = from.create_task(BOARD_PERSON, nt("real")).unwrap();
+    let mut rows = src.st.missing(&store::Vector::new(), 100).unwrap();
+    let last = rows.last().cloned().unwrap();
+    let forged = |seq: i64, kind: &str| Event {
+        seq,
+        hlc: store::Timestamp(last.hlc.0 + seq as u64),
+        actor: BOARD_PERSON.into(),
+        kind: kind.into(),
+        payload: format!(
+            r#"{{"taskId":"{}","by":"{BOARD_PERSON}","title":"forged","text":"forged #1"}}"#,
+            task.id
+        )
+        .into_bytes(),
+        sig: Vec::new(),
+        ..last.clone()
+    };
+    for (i, kind) in [MADE_KIND, "task.mentioned", "task.future"]
+        .iter()
+        .enumerate()
+    {
+        assert!(store::board_tolerated(kind), "{kind}");
+        rows.push(forged(last.seq + 1 + i as i64, kind));
+    }
+    let (dst, _) = new_board_coord("dev-a");
+    let (n, r) = dst.st.insert_batch(&rows);
+    r.unwrap();
+    assert_eq!(n, rows.len());
+    // A reopen replays the log through the same filter live rows take.
+    let c = Coord::new(dst.st.clone(), None, board_opts(&dst)).unwrap();
+    let got = c.get_task(&task.id).unwrap();
+    assert_eq!(got.title, "real");
+    let lines = c.activity(&task.id).unwrap_or_default();
+    assert!(
+        lines.iter().all(|a| !a.what.contains("forged")
+            && a.kind != MADE_KIND
+            && a.kind != "task.mentioned"
+            && a.kind != "task.future"),
+        "{lines:?}"
+    );
+    assert_eq!(c.list_tasks(&TaskFilter::default()).len(), 1);
+}

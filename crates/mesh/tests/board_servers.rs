@@ -295,6 +295,7 @@ fn a_rows_reads_are_no_word_when_absent_and_harmless_to_an_older_decoder() {
         reads: Some(BoardReads {
             spaces: 1,
             spawns: 1,
+            tolerant: 1,
         }),
         version: "0.12.0".into(),
         ..Default::default()

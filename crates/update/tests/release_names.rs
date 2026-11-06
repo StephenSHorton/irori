@@ -128,6 +128,24 @@ fn info_plist_passes_the_bundle_checks() {
     }
 }
 
+/// A Mac release is Developer ID signed or it doesn't go out: the updater
+/// refuses anything else over a signed install, and voice needs the mic
+/// entitlement under the hardened runtime.
+#[test]
+fn mac_release_cannot_go_out_unsigned() {
+    let mac = repo_file("scripts/release-mac.sh");
+    for want in [
+        r#"!= "Developer ID Application: "*"#,
+        r#"bash app/macos/check-signed.sh "$DIST/$appzip" "$team""#,
+    ] {
+        assert!(mac.contains(want), "release-mac.sh lost: {want}");
+    }
+    let key = "com.apple.security.device.audio-input";
+    assert!(repo_file("app/macos/entitlements.plist").contains(key));
+    assert!(repo_file("app/macos/check-signed.sh").contains(key));
+    assert!(repo_file("app/macos/package.sh").contains(r#"--entitlements "$ENTITLEMENTS""#));
+}
+
 /// The package dir as cargo gives it when it runs the test, so a test binary
 /// built in another tree (a shared or copied target dir) still reads this
 /// tree's files; the compile-time path only when run outside cargo.
