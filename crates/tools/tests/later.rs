@@ -137,6 +137,20 @@ fn a_card_made_not_yet_isnt_assigned() {
     has_not(&out, &["Assigning it failed", "Assigned to"]);
     let t = h.b.co.get_task(&created_id(&out)).unwrap();
     assert!(t.parked().is_some() && t.holders.is_empty() && t.assigned.is_empty());
+    // A subtask takes its parent's hold, and says so too.
+    let out = h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Ringing", "parent": t.short_ref(), "assign_to": KEY_B}),
+    );
+    has(
+        &out,
+        &[
+            "It is Not yet: it comes back when the person says.",
+            "It isn't assigned",
+        ],
+    );
+    has_not(&out, &["Assigning it failed", "Assigned to"]);
 }
 
 #[test]

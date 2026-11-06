@@ -1042,7 +1042,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         out += " Tick its steps with board_step as you go.";
     }
     let mut t = t;
-    let waits_now = if ordered {
+    let waits_now = if ordered || t.parked().is_some() {
         waits_from_start(s, &t)
     } else {
         String::new()
