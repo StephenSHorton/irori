@@ -93,10 +93,11 @@ unchanged.
 | `/?open=board:task:sample-ask-2` | an ask (the person's prompt to the room) an agent took: status line, Close, the thread |
 | `/?open=board:task:sample-ask-1` | an ask the agents heard and nobody has taken yet |
 | `/?filter=done` | the Done tab: closed cards, the latest first (a closed ask shows what it became) |
-| `/?slow#card/sample-card-1` | a card's page while the card loads |
+| `/?slow#card/sample-card-1` | a card's page while the card loads: the header from the grid's tile, the body a skeleton in the page's shape (card #598) |
+| `?slow` on any row | every loading spot on its skeleton (card #598): Home, the Closed tab, Notifications, Notes, Boards, Talk's lists, a thread's answers and a channel's posts, and the Settings panes. Skeletons follow the theme in light and dark, and hold still under Reduce Motion |
 | `/#card/sample-card-gone` | a card's page for a card that isn't there |
 
-`?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
+`?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts` (the card never arrives) and `src/components/ui/loading.tsx` (every `Loading` stays on its skeleton). An open
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
 
@@ -118,6 +119,12 @@ the width through DevTools' device emulation and fails if the page doesn't
 see 390.
 
 ## Screenshots
+
+With the preview running, `bun scripts/loading-shots.ts` saves each loading
+skeleton (card #598) in dark and light, with and without Reduce Motion, to
+`frontend/preview-shots/loading/`; `SHOT_LOADED=1` shoots the loaded pages
+to compare, `SHOT_FRAMES=25` adds frames for a GIF of the shimmer.
+
 
 With the preview running, `sh scripts/preview-shots.sh` (Git Bash) saves
 PNGs of every row above to `frontend/preview-shots/` (gitignored) using the

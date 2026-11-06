@@ -8,7 +8,8 @@
 //
 // PREVIEW_URL (default http://127.0.0.1:9246/), BROWSER_EXE, SHOT_WIDTH
 // (1280), SHOT_HEIGHT (800), SHOT_OUT (the folder), SHOT_FRAMES=n also saves
-// n frames 120 ms apart of each page in dark with motion (for a GIF).
+// n frames 120 ms apart of each page in dark, with and without Reduce
+// Motion (for a GIF, and to see the reduced one hold still).
 //
 // Only Chrome's DevTools protocol over a WebSocket, as phone-check.ts.
 /* eslint-disable @typescript-eslint/no-explicit-any -- DevTools replies are untyped JSON */
@@ -138,10 +139,10 @@ async function main() {
           const tag = `${name}-${mode}${reduce ? "-reduced" : ""}${loaded ? "-loaded" : ""}`
           const shot = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
           writeFileSync(join(out, `${tag}.png`), Buffer.from(shot.data, "base64"))
-          if (frames && mode === "dark" && !reduce)
+          if (frames && mode === "dark")
             for (let f = 0; f < frames; f++) {
               const fr = await cdp.send("Page.captureScreenshot", { format: "png" }, s)
-              writeFileSync(join(out, `${name}-frame-${String(f).padStart(3, "0")}.png`), Buffer.from(fr.data, "base64"))
+              writeFileSync(join(out, `${name}${reduce ? "-reduced" : ""}-frame-${String(f).padStart(3, "0")}.png`), Buffer.from(fr.data, "base64"))
               await Bun.sleep(120)
             }
           await cdp.send("Target.closeTarget", { targetId })
