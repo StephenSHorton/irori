@@ -4,12 +4,16 @@
 //!
 //! - a dial opens one connection, both sides get it, and a datagram goes
 //!   each way;
-//! - two dials at once leave one connection (`replaced`);
+//! - two dials at once leave one connection (`replaced`), and two dials
+//!   from one end open only one (the second is turned away, and a redial
+//!   of a live peer leaves it be);
 //! - a wrong key, an unknown call and a malformed call id are refused;
 //! - a non-member is refused at the endpoint;
-//! - `leave`, `drop_device` and `recheck` close the peer's connection.
+//! - `leave`, `drop_device` and `recheck` close the peer's connection,
+//!   even one whose open was in flight when they ran.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -136,6 +140,13 @@ impl Dev {
     }
 
     async fn join(&self, call: &str, key: [u8; 32]) -> CallHandle {
+        self.join_with(call, key, Arc::new(AtomicBool::new(false)))
+            .await
+    }
+
+    /// Joins `call`; while `slow` is set, each `accept` answers and then
+    /// stalls half a second (holding a handshake open), once.
+    async fn join_with(&self, call: &str, key: [u8; 32], slow: Arc<AtomicBool>) -> CallHandle {
         let takes = self.takes.clone();
         let got = self.got.clone();
         self.net
@@ -143,7 +154,13 @@ impl Dev {
                 call_id: call.into(),
                 space_id: SPACE.into(),
                 keys: vec![(1, key)],
-                accept: Arc::new(move |peer, id| takes.lock().unwrap().get(peer) == Some(id)),
+                accept: Arc::new(move |peer, id| {
+                    let ok = takes.lock().unwrap().get(peer) == Some(id);
+                    if slow.swap(false, Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
+                    ok
+                }),
                 on_peer: Arc::new(move |c| got.lock().unwrap().push(c)),
             })
             .await
@@ -254,6 +271,73 @@ async fn two_dials_at_once_leave_one_connection() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_dials_from_one_end_open_one_connection() {
+    let (a, b) = pair().await;
+    let k = key();
+    let ha = a.join(CALL, k).await;
+    let hb = b.join(CALL, k).await;
+    let (r1, r2) = tokio::join!(a.net.call_dial(CALL, &b.id), a.net.call_dial(CALL, &b.id));
+    // One dials; the other is turned away while it does.
+    assert!(r1.is_ok() != r2.is_ok(), "{r1:?} {r2:?}");
+    let err = r1.err().or(r2.err()).unwrap();
+    assert!(err.contains("already dialing"), "{err}");
+    eventually("both sides get the peer", || a.got() == 1 && b.got() == 1).await;
+    // A redial of a live peer leaves its connection be.
+    a.net.call_dial(CALL, &b.id).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!((a.got(), b.got()), (1, 1));
+    assert_eq!((a.live().len(), b.live().len()), (1, 1));
+    assert_eq!(ha.peers(), vec![b.id.clone()]);
+    assert_eq!(hb.peers(), vec![a.id.clone()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn drop_device_reaches_an_open_in_flight() {
+    let (a, b) = pair().await;
+    let k = key();
+    let ha = a.join(CALL, k).await;
+    let slow = Arc::new(AtomicBool::new(true));
+    let _hb = b.join_with(CALL, k, slow.clone()).await;
+    let dial = tokio::spawn({
+        let net = a.net.clone();
+        let id = b.id.clone();
+        async move { net.call_dial(CALL, &id).await }
+    });
+    // Bob's `accept` has taken Alice and stalls; drop her meanwhile.
+    eventually("bob's accept runs", || !slow.load(Ordering::SeqCst)).await;
+    b.net.drop_device(&a.id, reason::REVOKED);
+    let _ = dial.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.got(), 0, "bob took a dropped device");
+    eventually("alice has no live peer", || ha.peers().is_empty()).await;
+    for c in a.live() {
+        assert_eq!(closed_by_peer(&c).await, reason::REVOKED);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn recheck_reaches_an_open_in_flight() {
+    let (a, b) = pair().await;
+    let k = key();
+    let ha = a.join(CALL, k).await;
+    let slow = Arc::new(AtomicBool::new(true));
+    let _hb = b.join_with(CALL, k, slow.clone()).await;
+    let dial = tokio::spawn({
+        let net = a.net.clone();
+        let id = b.id.clone();
+        async move { net.call_dial(CALL, &id).await }
+    });
+    eventually("bob's accept runs", || !slow.load(Ordering::SeqCst)).await;
+    // Bob's call stops taking Alice while her open is in flight.
+    b.takes.lock().unwrap().remove(&a.id);
+    b.net.recheck();
+    let _ = dial.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(b.got(), 0, "bob took a revoked device");
+    eventually("alice has no live peer", || ha.peers().is_empty()).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_wrong_key_is_refused() {
     let (a, b) = pair().await;
     let _ha = a.join(CALL, key()).await;
@@ -296,7 +380,10 @@ async fn a_malformed_call_id_is_refused() {
     }
 
     // On the wire: an open message naming a malformed id, with a proof
-    // under it, is refused by the acceptor before any reply.
+    // under it, is refused before any reply. No call here can have such an
+    // id (`call_join` refuses it), so this refusal is also the unknown-call
+    // one; the acceptor's own format check is defensive, and `is_call_id`
+    // is unit-tested in `call.rs`.
     let _hb = b.join(CALL, k).await;
     let ep = a.net.bind().await.unwrap();
     let pb = b.peer_addr().await;

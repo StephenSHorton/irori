@@ -19,13 +19,18 @@
 //!   message names and the key that dialed.
 //! - A peer whose QUIC has no datagrams is closed: it can't do calls.
 //! - Two live connections to one peer in one call: the boards' `replaced`
-//!   rule picks one ([`crate::transport::keep_new`]).
+//!   rule picks one ([`crate::transport::keep_new`]). [`IrohNet::call_dial`]
+//!   doesn't dial a peer it is already dialing or connected to in the call,
+//!   so the rule only meets dials from both ends.
+//! - Revocation reaches a handshake in flight: each call counts
+//!   rechecks and drops, and a connection whose open overlapped one is
+//!   checked again before it joins the call.
 //! - [`IrohNet::recheck`], [`IrohNet::drop_device`], [`IrohNet::drop_board`]
 //!   and [`IrohNet::close`] reach call connections too.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use iroh::EndpointId;
@@ -190,6 +195,30 @@ pub(crate) struct CallState {
     pub(crate) join: CallJoin,
     conns: Mutex<HashMap<String, Arc<CallEntry>>>,
     closed: AtomicBool,
+    /// Peers [`IrohNet::call_dial`] is dialing in this call.
+    dialing: Mutex<HashSet<String>>,
+    /// Bumped, under `conns`, by every recheck and drop: a handshake that
+    /// began at an older value is checked again before its connection is
+    /// taken.
+    revoke_gen: AtomicU64,
+    /// The `revoke_gen` and reason of each peer's latest drop.
+    dropped: Mutex<HashMap<String, (u64, String)>>,
+}
+
+/// Unmarks a peer as being dialed when the dial ends, however it ends.
+struct Dialing<'a> {
+    call: &'a CallState,
+    peer: String,
+}
+
+impl Drop for Dialing<'_> {
+    fn drop(&mut self) {
+        self.call
+            .dialing
+            .lock()
+            .expect("dialing")
+            .remove(&self.peer);
+    }
 }
 
 struct CallEntry {
@@ -215,9 +244,38 @@ impl CallState {
             .collect()
     }
 
+    fn new(join: CallJoin) -> CallState {
+        CallState {
+            join,
+            conns: Mutex::new(HashMap::new()),
+            closed: AtomicBool::new(false),
+            dialing: Mutex::new(HashSet::new()),
+            revoke_gen: AtomicU64::new(0),
+            dropped: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The revocation count a handshake starts from.
+    fn revokes(&self) -> u64 {
+        self.revoke_gen.load(Ordering::SeqCst)
+    }
+
+    /// Whether a live connection to `peer` is in the call.
+    fn live(&self, peer: &str) -> bool {
+        self.conns
+            .lock()
+            .expect("call conns")
+            .get(peer)
+            .is_some_and(|e| e.conn.close_reason().is_none())
+    }
+
     /// Re-runs `accept` on every connection; the ones it now refuses close
     /// `revoked`.
     pub(crate) fn recheck(&self) {
+        {
+            let _conns = self.conns.lock().expect("call conns");
+            self.revoke_gen.fetch_add(1, Ordering::SeqCst);
+        }
         for (peer, e) in self.entries() {
             if !(self.join.accept)(&peer, &e.conn.remote_id()) {
                 close_conn(&e.conn, reason::REVOKED);
@@ -227,7 +285,15 @@ impl CallState {
 
     /// Closes the connection to `peer`, if any, with `why`.
     pub(crate) fn drop_peer(&self, peer: &str, why: &str) {
-        let e = self.conns.lock().expect("call conns").get(peer).cloned();
+        let e = {
+            let conns = self.conns.lock().expect("call conns");
+            let g = self.revoke_gen.fetch_add(1, Ordering::SeqCst) + 1;
+            self.dropped
+                .lock()
+                .expect("call dropped")
+                .insert(peer.to_string(), (g, why.to_string()));
+            conns.get(peer).cloned()
+        };
         if let Some(e) = e {
             close_conn(&e.conn, why);
         }
@@ -263,11 +329,7 @@ impl IrohNet {
         }
         let inner = self.inner();
         inner.bind().await?;
-        let state = Arc::new(CallState {
-            join: j,
-            conns: Mutex::new(HashMap::new()),
-            closed: AtomicBool::new(false),
-        });
+        let state = Arc::new(CallState::new(j));
         let old = inner
             .calls
             .lock()
@@ -285,6 +347,10 @@ impl IrohNet {
     /// Dials `peer_device` for joined call `call_id`, at its address in the
     /// space's board book, else the private book. On success its
     /// [`CallConn`] goes to the call's `on_peer`, as an incoming one does.
+    ///
+    /// A peer the call already has a live connection to is not dialed
+    /// again (`Ok`); a peer this call is already dialing is an error, so
+    /// two dials from one end never race each other's `replaced`.
     pub async fn call_dial(&self, call_id: &str, peer_device: &str) -> Result<(), String> {
         if !is_call_id(call_id) {
             return Err(format!("call: {call_id:?} is not a call id"));
@@ -300,6 +366,26 @@ impl IrohNet {
             .get(call_id)
             .cloned()
             .ok_or_else(|| format!("call: not in call {call_id}"))?;
+        if call.live(peer_device) {
+            return Ok(());
+        }
+        if !call
+            .dialing
+            .lock()
+            .expect("dialing")
+            .insert(peer_device.to_string())
+        {
+            return Err(format!("call: already dialing {peer_device}"));
+        }
+        let _dialing = Dialing {
+            call: &call,
+            peer: peer_device.to_string(),
+        };
+        // The dial that just ended may have opened it.
+        if call.live(peer_device) {
+            return Ok(());
+        }
+        let since = call.revokes();
         let space = &call.join.space_id;
         let addr = inner
             .addr_of((!space.is_empty()).then_some(space.as_str()), peer_device)
@@ -315,7 +401,9 @@ impl IrohNet {
         .await
         .map_err(|_| reason::TIMEOUT.to_string())?
         .map_err(|e| format!("connect: {e:#}"))?;
-        inner.dial_call(conn, &call, peer_device, &addr).await
+        inner
+            .dial_call(conn, &call, peer_device, &addr, since)
+            .await
     }
 }
 
@@ -352,6 +440,7 @@ impl Inner {
         call: &Arc<CallState>,
         peer: &str,
         addr: &PeerAddr,
+        since: u64,
     ) -> Result<(), String> {
         let (epoch, key) = call.join.keys[0];
         let call_id = call.join.call_id.as_str();
@@ -411,8 +500,8 @@ impl Inner {
             peer.to_string(),
             self.cfg.self_id.clone(),
             conn,
-            send,
-            recv,
+            (send, recv),
+            since,
         )
     }
 
@@ -458,6 +547,8 @@ impl Inner {
         let Some(call) = call else {
             return close_conn(&conn, reason::REFUSED);
         };
+        // A drop or recheck from here on is seen again in `add_call_conn`.
+        let since = call.revokes();
         if open.space_id != call.join.space_id {
             return close_conn(&conn, reason::REFUSED);
         }
@@ -492,19 +583,21 @@ impl Inner {
         if write_frame(&mut send, &b, OPEN_MAX).await.is_err() {
             return close_conn(&conn, reason::PROTOCOL);
         }
-        let _ = self.add_call_conn(&call, peer.clone(), peer, conn, send, recv);
+        let _ = self.add_call_conn(&call, peer.clone(), peer, conn, (send, recv), since);
     }
 
-    /// Takes an opened call connection: the datagram check, the `replaced`
-    /// rule against a live one to the same peer, then `on_peer`.
+    /// Takes an opened call connection: the datagram check, a recheck if a
+    /// revocation overlapped its handshake (`since`, from before its `accept`
+    /// ran), the `replaced` rule against a live one to the same peer, then
+    /// `on_peer`.
     fn add_call_conn(
         self: &Arc<Self>,
         call: &Arc<CallState>,
         peer: String,
         dialer: String,
         conn: Connection,
-        send: SendStream,
-        recv: RecvStream,
+        control: (SendStream, RecvStream),
+        since: u64,
     ) -> Result<(), String> {
         if conn.max_datagram_size().is_none() {
             close_conn(&conn, NO_DATAGRAMS);
@@ -514,11 +607,34 @@ impl Inner {
             dialer,
             conn: conn.clone(),
         });
-        {
+        let remote = conn.remote_id();
+        // `accept` runs outside the lock; if another revocation lands while
+        // it runs, run it again.
+        loop {
+            let now = call.revokes();
+            if now != since && !(call.join.accept)(&peer, &remote) {
+                close_conn(&conn, reason::REVOKED);
+                return Err(reason::REVOKED.into());
+            }
             let mut conns = call.conns.lock().expect("call conns");
+            if call.revokes() != now {
+                drop(conns);
+                continue;
+            }
             if call.closed.load(Ordering::SeqCst) || self.closed() {
                 close_conn(&conn, reason::LEAVING);
                 return Err(reason::LEAVING.into());
+            }
+            let dropped = call
+                .dropped
+                .lock()
+                .expect("call dropped")
+                .get(&peer)
+                .filter(|(g, _)| *g > since)
+                .map(|(_, why)| why.clone());
+            if let Some(why) = dropped {
+                close_conn(&conn, &why);
+                return Err(why);
             }
             if let Some(old) = conns.get(&peer)
                 && old.conn.close_reason().is_none()
@@ -531,12 +647,13 @@ impl Inner {
                 }
             }
             conns.insert(peer.clone(), e.clone());
+            break;
         }
         tokio::spawn(watch_call_conn(Arc::downgrade(call), peer.clone(), e));
         (call.join.on_peer)(CallConn {
             peer,
             conn,
-            control: (send, recv),
+            control,
         });
         Ok(())
     }
