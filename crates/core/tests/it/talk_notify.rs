@@ -123,4 +123,31 @@ fn only_mentions_and_dms_notify() {
         (t.tab.as_str(), t.ref_.as_str()),
         (notify::TAB_TALK, dm.as_str())
     );
+
+    // Card #643: a DM of files alone reads as Talk's one line for it.
+    let file = |c: char, name: &str| blob::FileRef {
+        sha256: c.to_string().repeat(64),
+        name: name.into(),
+        size: 10,
+        ..blob::FileRef::default()
+    };
+    let files = r
+        .core
+        .talk_post(
+            &alpha,
+            &dm,
+            "",
+            &[],
+            true,
+            None,
+            vec![file('a', "shot.png"), file('b', "log.txt")],
+        )
+        .unwrap();
+    let files_id = notify::talk_id(&dm, &files.post.post_id);
+    wait_for(10, "the files' card", || {
+        cards.talk().iter().any(|c| c.0 == files_id)
+    });
+    let shown = cards.talk();
+    let c = shown.iter().find(|c| c.0 == files_id).unwrap();
+    assert_eq!(c.2, "📎 shot.png +1");
 }

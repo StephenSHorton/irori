@@ -105,7 +105,9 @@ describe("Make a card from a message (design §4, card #390)", () => {
     const f = fromPost("", "#suzuri", [ref("shot.png"), ref("log.txt")])
     expect(f.title).toBe("shot.png")
     expect(f.objective).toBe(
-      "Files: shot.png, log.txt\n\n(From a message in #suzuri.)"
+      `file: shot.png (10 B, sha256=${"a".repeat(64)})\n` +
+        `file: log.txt (10 B, sha256=${"a".repeat(64)})\n\n` +
+        "(From a message in #suzuri.)"
     )
   })
 })
@@ -161,6 +163,57 @@ describe("files on a post (card #643)", () => {
       (x) => x.convId === "sample-ch-irori"
     )
     expect(c?.lastText).toBe("📎 shot.png")
+  })
+
+  test("in the window, files take the with-files command and nothing else does", async () => {
+    // The host stands in for Tauri: invoke records each command.
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown }
+    const calls: [string, Record<string, unknown>][] = []
+    w.__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args: Record<string, unknown>) => {
+        calls.push([cmd, args])
+        return Promise.resolve(`id-${calls.length}`)
+      },
+    }
+    try {
+      expect(
+        await talkApi.post("c1", "hello", true, "p0", ["agent:x"])
+      ).toBe("id-1")
+      expect(
+        await talkApi.post("c1", "", false, null, [], [
+          new File([new Uint8Array([104, 105])], "a.txt"),
+          new File([new Uint8Array([33])], "b.txt"),
+        ])
+      ).toBe("id-2")
+    } finally {
+      delete w.__TAURI_INTERNALS__
+    }
+    expect(calls).toEqual([
+      [
+        "talk_post",
+        {
+          convId: "c1",
+          text: "hello",
+          mentions: ["agent:x"],
+          agentsNow: true,
+          threadFrom: "p0",
+        },
+      ],
+      [
+        "talk_post_with_files",
+        {
+          convId: "c1",
+          text: "",
+          mentions: [],
+          agentsNow: false,
+          threadFrom: null,
+          files: [
+            { name: "a.txt", data: btoa("hi") },
+            { name: "b.txt", data: btoa("!") },
+          ],
+        },
+      ],
+    ])
   })
 
   test("no text and no files is refused", async () => {

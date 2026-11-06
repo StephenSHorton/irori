@@ -3457,7 +3457,7 @@ impl Services {
         self.notifier.0.post(notify::Note {
             id: notify::talk_id(&p.conv_id, &p.post_id),
             title,
-            body: notify::preview(&p.text),
+            body: notify::preview(&tools::talk::post_line(&p)),
             on_click: Some(Arc::new(move || {
                 n.open(notify::Target {
                     tab: notify::TAB_TALK.into(),
@@ -3525,10 +3525,12 @@ impl Services {
     }
 
     /// A file on a Talk post (card #643) in a channel or DM `reader` may
-    /// read ([`tools::talk::posts`]'s rule: anyone reads a channel this
-    /// device folds, a DM its parties and the person): the earliest such
-    /// post's. A post in a conversation the reader can't read never
-    /// lends its file, even when the same file is on one they can.
+    /// read ([`tools::talk::can_read`], [`tools::talk::posts`]'s rule:
+    /// anyone reads a channel this device folds, a DM its parties and the
+    /// person): the earliest such post's. A post in a conversation the
+    /// reader can't read never lends its file, even when the same file is
+    /// on one they can. It asks per image the window shows, so it never
+    /// lists the conversation's posts to decide.
     pub(crate) fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
         let found = self.talk.attachments(sha);
         if found.is_empty() {
@@ -3538,7 +3540,7 @@ impl Services {
         let view = ToolsView(me);
         found
             .into_iter()
-            .find(|(conv, _)| tools::talk::posts(&view, reader, conv).is_ok())
+            .find(|(conv, _)| tools::talk::can_read(&view, reader, conv))
             .map(|(_, f)| f)
     }
 

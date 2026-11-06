@@ -525,13 +525,22 @@ fn last_line(posts: &[Post]) -> (String, String) {
         .unwrap_or_default()
 }
 
-/// A post's text, or, with none, the names of its files (card #643).
-fn post_line(p: &Post) -> String {
-    if !p.text.trim().is_empty() || p.files.is_empty() {
+/// A post's text, or, with none, its files as one line (card #643):
+/// "📎 <first name>", plus " +N" for the rest, as the window's
+/// `postLine` shows it. Everywhere a post is summed up (Talk's list, a
+/// notification, a reading notice, a spawned agent's brief) uses it.
+pub fn post_line(p: &Post) -> String {
+    if !p.text.trim().is_empty() {
         return p.text.clone();
     }
-    let names: Vec<&str> = p.files.iter().map(|f| f.name.as_str()).collect();
-    names.join(", ")
+    let Some(first) = p.files.first() else {
+        return p.text.clone();
+    };
+    let mut s = format!("📎 {}", first.name);
+    if p.files.len() > 1 {
+        s += &format!(" +{}", p.files.len() - 1);
+    }
+    s
 }
 
 /// `reader`'s conversations: the person sees every open channel, every
@@ -1009,6 +1018,31 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
     }
 }
 
+/// Whether `reader` may read `conv`, by [`posts`]'s rule, without listing
+/// its posts (card #643: a file served from a post asks per request).
+/// Only a DM whose members are all gone needs its mirrored messages for
+/// its parties, and only then is it as slow as [`posts`].
+pub fn can_read(b: &dyn Backend, reader: &str, conv: &str) -> bool {
+    let Ok(talk) = talk_of(b) else {
+        return false;
+    };
+    let conv = trim(conv);
+    if ct::is_channel(conv) {
+        return talk.channel(conv).is_some();
+    }
+    if ct::is_dm(conv) {
+        if ct::is_person_key(reader) {
+            return true;
+        }
+        let parties = talk.members(conv);
+        if !parties.is_empty() {
+            let me = ct::canon(reader);
+            return parties.iter().any(|p| ct::canon(&p.key) == me);
+        }
+    }
+    posts(b, reader, conv).is_ok()
+}
+
 /// Posts `text` to a channel or a DM as `from`. Mentions are `given`
 /// (names or keys) and the `@names` in the text; each live one is woken
 /// with a mention notice, and in a channel joins it. A DM with an agent
@@ -1240,7 +1274,7 @@ fn tell_readers(
             } else {
                 one_line(&names.name(&q.by), 80)
             };
-            text.push_str(&format!("- {who}: {}\n", one_line(&q.text, 200)));
+            text.push_str(&format!("- {who}: {}\n", one_line(&post_line(q), 200)));
         }
         if !agents_now {
             text.push_str("\"Agents answer now\" was off for it, so nobody was woken. ");

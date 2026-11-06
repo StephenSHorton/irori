@@ -1,8 +1,9 @@
 //! Board attachments in the window (I:attachments_service.go,
 //! I:internal/core/attachview.go; surface.md 2.11, 7.7): Info, Save and
 //! Open, and the `irori` URI scheme that serves a comment's or a Talk
-//! post's file to the webview (card #643). Only Board comments' and Talk
-//! posts' files count, never a message's.
+//! post's file to the webview (card #643). Board comments', Talk posts'
+//! and, for a DM mirrored from messages, the person's messages' files
+//! count.
 //!
 //! The scheme answers `<origin>/irori/attachment/<sha256>`, where the
 //! origin is `http://irori.localhost` on Windows and Android and
@@ -123,19 +124,28 @@ fn fetch_text(e: FetchError) -> String {
 impl Window {
     /// Go `Core.CommentFile`, and a Talk post's file (card #643): a
     /// comment's first, then one on a post in a channel or DM the person
-    /// may read ([`irori_core::Core::post_attachment`]).
+    /// may read ([`irori_core::Core::post_attachment`]), then one on a
+    /// message the person may read, as `attachment_get` looks first: a DM
+    /// mirrored from a message an agent sent the person shows its files.
     fn file_ref(&self, sha: &str) -> Result<FileRef, String> {
         let sha = crate::trim(sha).to_lowercase();
         if !blob::valid_id(&sha) {
             return Err("blob: id must be 64 lowercase hex characters".into());
         }
+        let me = self.core.user_sender().key;
         let mut r = self
             .core
             .comment_attachment(&sha)
             .map(|r| crate::blob_ref(&r))
+            .or_else(|| self.core.post_attachment(&me, &sha))
             .or_else(|| {
-                self.core
-                    .post_attachment(&self.core.user_sender().key, &sha)
+                self.core.inbox().attachment(&me, &sha).map(|f| FileRef {
+                    sha256: f.sha256,
+                    name: f.name,
+                    size: f.size,
+                    mime: f.mime,
+                    device: f.device,
+                })
             })
             .ok_or_else(|| NO_ATTACHMENT.to_string())?;
         r.sha256 = sha;

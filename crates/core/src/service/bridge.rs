@@ -337,7 +337,16 @@ impl Services {
             return;
         }
         let who = self.board_person_name(b, &person);
-        let (conv, text, chan) = (r.conv_id.clone(), r.text, ch.name);
+        // Its files (card #643), named as tools' mention notice names
+        // them: the agent can't otherwise see them.
+        let mut text = r.text;
+        for f in &r.attach {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text += &format!("file: {} (attachment_get)", f.describe());
+        }
+        let (conv, chan) = (r.conv_id.clone(), ch.name);
         let p = Plan {
             kind: row_kind::COMMENT,
             card_id,

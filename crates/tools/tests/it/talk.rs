@@ -1512,7 +1512,7 @@ fn posts_carry_files() {
     // The list's last line names the files of a post with no text.
     let cs = tools::talk::conversations(&*h.b, USER).unwrap();
     let x = cs.iter().find(|x| x.conv_id == ch.id).unwrap();
-    assert_eq!(x.last_text, "log.txt");
+    assert_eq!(x.last_text, "📎 log.txt");
     h.failsj(
         &a,
         "talk_post",
@@ -1560,6 +1560,23 @@ fn posts_carry_files() {
         json!({"conv": r, "text": "flame graph", "attach": ["/tmp/flame.svg"]}),
     );
     has(&out, &["Commented comment:", "flame.svg"]);
+    // A comment needs text, files or not, as talk_post's spec says.
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": r, "text": "", "attach": ["/tmp/flame.svg"]}),
+        &["give the comment text"],
+    );
+    let spec = h
+        .set
+        .specs("")
+        .into_iter()
+        .find(|s| s.name == "talk_post")
+        .unwrap();
+    has(
+        &spec.description,
+        &["text may then be empty, except in a thread"],
+    );
     let cs = h.b.co.comments(&t.id).unwrap();
     let cm = cs.iter().find(|x| x.text == "flame graph").unwrap();
     assert_eq!(cm.attachments.len(), 1);
@@ -1568,4 +1585,51 @@ fn posts_carry_files() {
         &h.okj(&a, "talk_read", json!({"conv": format!("task:{}", t.id)})),
         &["flame graph", "file: flame.svg"],
     );
+}
+
+/// Card #643: a post of files alone sums up as one line everywhere, the
+/// window's `postLine`: "📎 <first name>", plus " +N" for the rest. A
+/// channel member's reading notice quotes it so.
+#[test]
+fn a_files_only_post_reads_as_one_line() {
+    let file = |name: &str| blob::FileRef {
+        sha256: "a".repeat(64),
+        name: name.into(),
+        size: 10,
+        ..blob::FileRef::default()
+    };
+    let post = |text: &str, files: Vec<blob::FileRef>| ct::Post {
+        text: text.into(),
+        files,
+        ..ct::Post::default()
+    };
+    let line = tools::talk::post_line;
+    assert_eq!(line(&post("hi", vec![file("a.png")])), "hi");
+    assert_eq!(line(&post("", vec![])), "");
+    assert_eq!(line(&post("", vec![file("a.png")])), "📎 a.png");
+    assert_eq!(line(&post("  ", vec![file("a.png")])), "📎 a.png");
+    assert_eq!(
+        line(&post("", vec![file("a.png"), file("b.txt"), file("c.pdf")])),
+        "📎 a.png +2"
+    );
+
+    let h = new_harness();
+    assert!(h.b.attacher.set(std::sync::Arc::new(NamedFiles)).is_ok());
+    let (a, b) = (call_a(), call_b());
+    h.b.talk.create_channel(USER, "general", "").unwrap();
+    for k in [&a, &b] {
+        h.okj(k, "talk_join", json!({"conv": "#general"}));
+    }
+    h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "", "attach": ["/tmp/a.png", "/tmp/b.txt"]}),
+    );
+    let ds: Vec<_> = h
+        .notices(KEY_B)
+        .into_iter()
+        .filter(|d| d.message.reason == coord::NOTICE_READING)
+        .collect();
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    has(&ds[0].message.text, &[": 📎 a.png +1\n"]);
 }

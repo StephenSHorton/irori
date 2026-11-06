@@ -19,6 +19,7 @@ import { inWails } from "./irori"
 import { useLatest } from "./talk"
 import { threads } from "./cards"
 import { checkUploads, uploadOf } from "./uploads"
+import { humanSize } from "./attachments"
 
 export type Conversation = TalkConversation
 export type Post = TalkPost
@@ -782,7 +783,8 @@ function sampleLink(postId: string, taskId: string) {
 // fromPost is the New card form a message fills (Make a card): its first
 // line as the title, the message and where it was said as the objective.
 // A message with only files (card #643) takes its first file's name as the
-// title, and the objective names the files.
+// title. The objective names each file as attachment_get's describe line
+// does, with its sha256, so the card's agent can fetch it.
 export function fromPost(
   text: string,
   where: string,
@@ -792,7 +794,7 @@ export function fromPost(
   const title = first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
   const body = text.trim() ? `${text.trim()}\n\n` : ""
   const names = files.length
-    ? `Files: ${files.map((f) => f.name).join(", ")}\n\n`
+    ? `${files.map((f) => `file: ${f.name} (${humanSize(f.size)}, sha256=${f.sha256})`).join("\n")}\n\n`
     : ""
   return {
     title,

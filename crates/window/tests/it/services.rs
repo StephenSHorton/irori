@@ -1242,3 +1242,73 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     let a = w.core.coord().get_task(&res.task.id).unwrap().ask.unwrap();
     assert_eq!((a.channel.as_str(), a.repo_key.as_str()), (ch.as_str(), ""));
 }
+
+/// Card #643: a file on a message an agent sent the person shows on the
+/// DM mirrored from it, and the window resolves and serves it as
+/// attachment_get would: from the message, not from any post's row.
+#[test]
+fn an_agents_message_to_the_person_serves_its_file() {
+    let r = Rig::new();
+    let w = &r.w;
+    let me = w.core.user_sender().key;
+    let dir = tempfile::tempdir().unwrap();
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+    let path = dir.path().join("graph.png");
+    std::fs::write(&path, png).unwrap();
+    let f = w
+        .core
+        .attach_files(&r.key_b, &[path.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
+    let sha = f.sha256.clone();
+    // The person DMs beta; beta answers with the file.
+    let dm = w
+        .talk_dm(&irori_window::talk::TalkMemberRef {
+            kind: "agent".into(),
+            key: r.key_b.clone(),
+        })
+        .unwrap();
+    assert_eq!(dm, coord::talk::dm_id(&r.key_b, &me));
+    let asked = w
+        .talk_post(&dm, "send me the graph", &[], true, None, &[])
+        .unwrap();
+    let from = inbox::Sender::new(&r.key_b, "beta", "agent");
+    let to = inbox::Address::new(inbox::addr::REPLY, &asked);
+    let (m, _) = w
+        .core
+        .inbox()
+        .send_with(
+            &from,
+            &to,
+            "the graph",
+            inbox::SendOptions {
+                attachments: vec![inbox::FileRef {
+                    sha256: f.sha256,
+                    name: f.name,
+                    size: f.size,
+                    mime: f.mime,
+                    device: f.device,
+                }],
+                ..inbox::SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        w.core.talk().attachments(&sha).is_empty(),
+        "on the message alone, no post row"
+    );
+
+    let ps = w.talk_posts(&dm, None, 50).unwrap();
+    let p = ps.iter().find(|p| p.post_id == m.id).expect("mirrored");
+    assert_eq!(p.attachments.len(), 1);
+    assert_eq!(p.attachments[0].sha256, sha);
+    let info = w.attachment_info(&sha).unwrap();
+    assert_eq!((info.name.as_str(), info.here), ("graph.png", true));
+    let ok = w.serve_attachment(&Request {
+        method: "GET".into(),
+        path: format!("{}{sha}", attachments::ROUTE),
+        ..Request::default()
+    });
+    assert_eq!(ok.status, 200);
+    assert_eq!(ok.body, png);
+}

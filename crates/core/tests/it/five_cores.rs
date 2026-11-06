@@ -1959,7 +1959,16 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
         )
         .unwrap();
     // Then a post in the channel that does wake it: the row before it has
-    // been through Bob's bridge by the time this one is.
+    // been through Bob's bridge by the time this one is. It carries a
+    // file, which the notice names so the agent can fetch it (card #643).
+    let dir = tempfile::tempdir().unwrap();
+    let plan = dir.path().join("migration.sql");
+    std::fs::write(&plan, b"alter table").unwrap();
+    let file = a1
+        .core
+        .attach_files(&a1.agent, &[plan.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
     a1.core
         .talk_post(
             &a1.core.user_sender(),
@@ -1968,13 +1977,22 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
             &[],
             true,
             None,
-            vec![],
+            vec![file.clone()],
         )
         .unwrap();
     a1.core.kick_board(&space);
     wait_for(WAIT, "bob's agent is woken again", || {
         bridged(b1).len() == 2
     });
+    let woke = bridged(b1)
+        .into_iter()
+        .map(|x| x.message.text)
+        .find(|t| t.contains("@bob1 and the migration?"))
+        .unwrap();
+    assert!(
+        woke.contains(&format!("file: {} (attachment_get)", file.describe())),
+        "{woke}"
+    );
     assert!(
         !b1.core
             .inbox()

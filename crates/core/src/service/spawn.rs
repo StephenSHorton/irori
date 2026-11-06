@@ -1858,7 +1858,7 @@ impl Services {
                     let from = all.len().saturating_sub(BRIEF_CHANNEL_POSTS);
                     all[from..]
                         .iter()
-                        .map(|p| (p.by.clone(), p.text.clone()))
+                        .map(|p| (p.by.clone(), tools::talk::post_line(p)))
                         .collect()
                 };
                 BriefChannel {
