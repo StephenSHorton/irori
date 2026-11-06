@@ -326,7 +326,10 @@ fn saved_hellos_are_local_and_the_newest_counts() {
         spaces,
         ..Default::default()
     };
-    assert!(st.append("irori", KIND_BOARD_HELLO, &hello("0.10.2", 0)).is_err());
+    assert!(
+        st.append("irori", KIND_BOARD_HELLO, &hello("0.10.2", 0))
+            .is_err()
+    );
     st.append_local("irori", KIND_BOARD_HELLO, &hello("0.10.2", 0))
         .unwrap();
     st.append_local("irori", KIND_BOARD_HELLO, &hello("0.11.0", 1))

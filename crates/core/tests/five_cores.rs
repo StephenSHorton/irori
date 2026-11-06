@@ -51,9 +51,10 @@ fn warned_of(d: &Dev, board: &str, dev: &str) -> bool {
 /// gate no longer waits for an unheard device (card #577), so tests that
 /// need them connected wait on this.
 fn hears(d: &Dev, board: &str, other: &Dev) -> bool {
-    d.core.board_store(board).is_some_and(|log| {
-        saved_hellos(&log).is_ok_and(|h| h.contains_key(other.core.device_id()))
-    }) && d.core.space_not_ready(board).is_ok_and(|v| v.is_empty())
+    d.core
+        .board_store(board)
+        .is_some_and(|log| saved_hellos(&log).is_ok_and(|h| h.contains_key(other.core.device_id())))
+        && d.core.space_not_ready(board).is_ok_and(|v| v.is_empty())
 }
 
 fn card_on(d: &Dev, board: &str, id: &str) -> Option<coord::Task> {
@@ -1170,7 +1171,9 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
     let mut bob = person("bob", 1);
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
-    wait_for(WAIT, "alice hears bob read spaces", || hears(a1, &space, b1));
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+    });
 
     // A second board, and a card on it.
     let net = a1
@@ -1367,7 +1370,7 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
             &SavedHello {
                 device_id: "phantom-old".into(),
                 core_version: "0.10.2".into(),
-                at_ms: i64::MAX,
+                seq: i64::MAX,
                 ..Default::default()
             },
         )
@@ -1467,7 +1470,9 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
     let mut bob = person("bob", 1);
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
-    wait_for(WAIT, "alice hears bob read spaces", || hears(a1, &space, b1));
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+    });
     let ch = a1
         .core
         .talk_channel_create_in(&a1.user(), "netcode", "", &space)

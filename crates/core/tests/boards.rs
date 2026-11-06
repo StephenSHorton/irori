@@ -370,6 +370,19 @@ fn board_logs_move_to_spaces() {
         },
     )
     .unwrap();
+    // Every device writes its board.server row once the board's mesh runs
+    // (card #577). Wait for it, so the rows compared below are all there.
+    wait_for(45, "this device's board.server row", || {
+        r.core
+            .board_store(&id)
+            .unwrap()
+            .list(&Filter {
+                kinds: vec![mesh::boardmesh::KIND_BOARD_SERVER.into()],
+                device_id: r.core.device_id().into(),
+                ..Default::default()
+            })
+            .is_ok_and(|rows| !rows.is_empty())
+    });
     let before = created_ids(&r.core.board_store(&id).unwrap());
     let vector = r.core.board_store(&id).unwrap().vector().unwrap();
     r.core.close().unwrap();
@@ -426,7 +439,7 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
                 device_id: b.core.device_id().to_string(),
                 core_version: "0.10.2".into(),
                 spaces: 0,
-                at_ms: 1,
+                seq: i64::MAX,
                 ..Default::default()
             },
         )
@@ -546,7 +559,41 @@ fn a_board_note_waits_for_every_device_then_reaches_it() {
     a.core
         .propose_note(&me, "mine", nn("Home IPs stay out of MLG."))
         .unwrap();
+    // As if a last heard b on an Irori before notes: refused, naming b,
+    // while a Mine note still goes.
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.10.2".into(),
+                spaces: 0,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let e = a
+        .core
+        .propose_note(&me, "mlg", nn("Too soon."))
+        .unwrap_err();
+    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
+    assert!(
+        e.to_string().contains("waiting on") && e.to_string().contains(&short),
+        "{e}"
+    );
+    assert_eq!(a.core.notes("mlg", false).unwrap().len(), 1, "not written");
+    a.core
+        .propose_note(&me, "mine", nn("Mine notes never wait."))
+        .unwrap();
     wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    // b's live hello beats the old saved one.
+    wait_for(45, "a hears b read spaces", || {
+        a.core.space_not_ready(&id).unwrap().is_empty()
+    });
     let n = a
         .core
         .propose_note(&me, "mlg", nn("Ship models to the repo."))

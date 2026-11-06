@@ -265,14 +265,23 @@ pub struct SavedHello {
     pub core_version: String,
     pub spaces: i64,
     pub spawns: i64,
-    /// Unix milliseconds this device first heard it say so.
+    /// How many rows `device_id` had written to the board when it said
+    /// this (its own entry in the hello's vector). It orders the hello
+    /// against that device's `board.server` rows on its own counter, so no
+    /// clock decides which is newer.
+    pub seq: i64,
+    /// Unix milliseconds this device saved it (for display only).
     pub at_ms: i64,
 }
 
 impl SavedHello {
     fn says_the_same(&self, o: &SavedHello) -> bool {
-        (&self.person_id, &self.core_version, self.spaces, self.spawns)
-            == (&o.person_id, &o.core_version, o.spaces, o.spawns)
+        (
+            &self.person_id,
+            &self.core_version,
+            self.spaces,
+            self.spawns,
+        ) == (&o.person_id, &o.core_version, o.spaces, o.spawns)
     }
 }
 
@@ -294,9 +303,9 @@ pub fn saved_hellos(log: &Store) -> Result<BTreeMap<String, SavedHello>, Transpo
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceWords {
     hellos: BTreeMap<String, SavedHello>,
-    /// Each device's newest row that says `reads`, and that row's time. A
-    /// newest row without it (a downgrade to an older home server) takes
-    /// back what the row before said.
+    /// Each device's newest row that says `reads`, and that row's seq in
+    /// the device's own stream. A newest row without it (a downgrade to an
+    /// older home server) is no word.
     rows: BTreeMap<String, (BoardReads, i64)>,
 }
 
@@ -311,7 +320,7 @@ impl DeviceWords {
                 return;
             }
             match s.reads {
-                Some(r) => rows.insert(s.device_id, (r, ev.hlc.wall_ms())),
+                Some(r) => rows.insert(s.device_id, (r, ev.seq)),
                 None => rows.remove(&s.device_id),
             };
         })?;
@@ -322,16 +331,31 @@ impl DeviceWords {
     }
 
     /// The `spaces` level of `dev`'s latest word, None when there is none.
-    /// A saved hello and a row that disagree go by which is newer: an
-    /// updated device's row can come through a third device long after its
-    /// last hello here, and a hello after a row is a downgrade.
+    /// A saved hello and a row go by which `dev` wrote later, on its own
+    /// row counter: an updated device's row can come through a third
+    /// device long after its last hello here, and a hello after a row is a
+    /// downgrade.
     pub fn spaces(&self, dev: &str) -> Option<i64> {
         match (self.hellos.get(dev), self.rows.get(dev)) {
-            (Some(h), Some((r, at))) if *at > h.at_ms => Some(r.spaces),
+            (Some(h), Some((r, seq))) if *seq > h.seq => Some(r.spaces),
             (Some(h), _) => Some(h.spaces),
             (None, Some((r, _))) => Some(r.spaces),
             (None, None) => None,
         }
+    }
+}
+
+impl DeviceWords {
+    /// Whether hello `h` adds anything to what's known. The same hello
+    /// again doesn't, unless a row of that device's since says otherwise:
+    /// then the hello is its latest word again (a downgrade after an
+    /// update).
+    fn needs_saving(&self, h: &SavedHello) -> bool {
+        !(self
+            .hellos
+            .get(&h.device_id)
+            .is_some_and(|s| s.says_the_same(h))
+            && self.spaces(&h.device_id) == Some(h.spaces))
     }
 }
 
@@ -1470,12 +1494,13 @@ impl Shared {
                     p.said_epoch
                         .store(h.board_epoch.max(p.epoch), Ordering::SeqCst);
                     p.hello.store(true, Ordering::SeqCst);
+                    // Saved first, so whoever sees it heard finds it saved.
+                    self.save_hello(&h);
                     self.hear(
                         p.conn.id(),
                         Some((&h.person_id, &h.core_version, h.spaces, h.spawns)),
                         &h.vector,
                     );
-                    self.save_hello(&h);
                     if self.behind(&h.vector) {
                         p.wake.notify_one();
                     }
@@ -1547,12 +1572,13 @@ impl Shared {
             core_version: h.core_version.clone(),
             spaces: h.spaces,
             spawns: h.spawns,
+            seq: h.vector.get(&h.device_id).copied().unwrap_or(0),
             at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64),
         };
-        if let Ok(m) = saved_hellos(&self.opts.log)
-            && m.get(&row.device_id).is_some_and(|s| s.says_the_same(&row))
+        if let Ok(w) = DeviceWords::read(&self.opts.log)
+            && !w.needs_saving(&row)
         {
             return;
         }
@@ -1725,18 +1751,18 @@ mod tests {
     /// Card #577: the latest word on a device, from saved hellos and rows.
     #[test]
     fn a_devices_latest_word_is_its_newer_saved_hello_or_row() {
-        let hello = |spaces, at_ms| SavedHello {
+        let hello = |spaces, seq| SavedHello {
             spaces,
-            at_ms,
+            seq,
             ..Default::default()
         };
-        let row = |spaces, at| {
+        let row = |spaces, seq| {
             (
                 BoardReads {
                     spaces,
                     ..Default::default()
                 },
-                at,
+                seq,
             )
         };
         let words = |h: Option<SavedHello>, r: Option<(BoardReads, i64)>| DeviceWords {
@@ -1752,6 +1778,47 @@ mod tests {
         // It went back to an older build after that row.
         let w = words(Some(hello(0, 9)), Some(row(1, 5)));
         assert_eq!(w.spaces("d"), Some(0));
+        // Its hello already counted the row: the hello is the later word.
+        let w = words(Some(hello(0, 9)), Some(row(1, 9)));
+        assert_eq!(w.spaces("d"), Some(0));
+        // No clock decides: a hello saved "late" by a fast clock here still
+        // loses to a row the device wrote after it.
+        let mut h = hello(0, 5);
+        h.at_ms = i64::MAX;
+        assert_eq!(words(Some(h), Some(row(1, 9))).spaces("d"), Some(1));
+    }
+
+    /// Card #577: a hello that says what's saved writes nothing, unless a
+    /// later row of that device says otherwise.
+    #[test]
+    fn the_same_hello_is_saved_again_only_after_a_row_said_otherwise() {
+        let hello = |spaces, seq| SavedHello {
+            device_id: "d".into(),
+            core_version: "0.10.2".into(),
+            spaces,
+            seq,
+            ..Default::default()
+        };
+        let mut w = DeviceWords::default();
+        assert!(w.needs_saving(&hello(0, 5)), "first word");
+        w.hellos.insert("d".into(), hello(0, 5));
+        assert!(!w.needs_saving(&hello(0, 7)), "nothing new");
+        // It updated (its row came through another device), then went back.
+        w.rows.insert(
+            "d".into(),
+            (
+                BoardReads {
+                    spaces: 1,
+                    spawns: 1,
+                },
+                9,
+            ),
+        );
+        assert_eq!(w.spaces("d"), Some(1));
+        let back = hello(0, 12);
+        assert!(w.needs_saving(&back));
+        w.hellos.insert("d".into(), back);
+        assert_eq!(w.spaces("d"), Some(0), "the downgrade is its latest word");
     }
 
     /// Card #392: an older Irori's hello has no `spaces` and still parses
