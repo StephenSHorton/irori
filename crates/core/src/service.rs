@@ -263,6 +263,8 @@ struct Services {
     names: Arc<Namer>,
     /// The last name every agent went by, kept past its going (card #98).
     agent_names: Arc<crate::agentnames::AgentNames>,
+    /// Claude usage left, as the mod last reported it (card #599).
+    usage: crate::usage::Usage,
     /// Card #208: who asks GitHub about PRs, and when each was last asked.
     pr_checker: Option<Arc<dyn crate::prwatch::PrChecker>>,
     pr_watch: crate::prwatch::PrWatch,
@@ -917,6 +919,7 @@ impl Core {
         };
         let names = Arc::new(Namer::new(&dir, &me));
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
+        let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
         let answering = Arc::new(crate::answering::Answering::default());
         let mut popts = presence::Options {
@@ -1440,6 +1443,7 @@ impl Core {
             asks,
             names,
             agent_names,
+            usage,
             pr_checker: opts.pr_checker.clone(),
             pr_watch: Default::default(),
             desk_lister: opts.desk_lister.clone(),
@@ -2258,6 +2262,25 @@ impl Core {
 
     pub fn data_dir(&self) -> &Path {
         &self.s.data_dir
+    }
+
+    /// Claude usage left (card #599): the plan's rate-limit windows as this
+    /// device's sessions last reported them, without any past its reset.
+    pub fn usage_limits(&self) -> crate::usage::UsageLimits {
+        self.s.usage.get((self.s.now)().unix_milli_value())
+    }
+
+    /// Takes one session's rate-limit windows (`POST /v1/usage/limits`):
+    /// checked, merged into the kept reading and saved. Every reading taken
+    /// is `usage:changed`, so the window's "as of" moves too; one with no
+    /// window left after the checks changes nothing and is no event. `Err`
+    /// is why the reading was refused.
+    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+        let now = (self.s.now)().unix_milli_value();
+        if self.s.usage.record(input, now)? {
+            self.s.hub.publish(CoreEvent::Usage);
+        }
+        Ok(())
     }
     pub fn version(&self) -> &str {
         &self.s.version

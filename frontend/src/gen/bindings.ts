@@ -417,6 +417,17 @@ export const commands = {
 	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
 	/**  The person okays an Outside PR at one head. */
 	deskOk: (repoKey: string, pr: number, headSha: string) => __TAURI_INVOKE<null>("desk_ok", { repoKey, pr, headSha }),
+	/**
+	 *  This computer's recent hardware meter samples, oldest first (card #599);
+	 *  empty on the phone.
+	 */
+	metersHistory: () => __TAURI_INVOKE<MetersSample[]>("meters_history"),
+	/**
+	 *  Claude usage left (card #599): the plan's rate-limit windows as this
+	 *  device's Claude Code sessions last measured them, any past its reset
+	 *  left out.
+	 */
+	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
 };
 
 /* Types */
@@ -2046,6 +2057,50 @@ export type Message = {
 	mentions?: Mention[],
 };
 
+export type MetersCpu = {
+	/**  Busy, 0 to 100; null on the first read. */
+	pct: number | null,
+	ghz: number | null,
+	cores: number,
+};
+
+export type MetersDisk = {
+	name: string,
+	activePct: number | null,
+	readBytesPerS: number,
+	writeBytesPerS: number,
+};
+
+export type MetersGpu = {
+	name: string,
+	integrated: boolean,
+	utilPct: number | null,
+	tempC: number | null,
+	memUsedBytes: number | null,
+	memTotalBytes: number | null,
+};
+
+export type MetersMem = {
+	usedBytes: number,
+	totalBytes: number,
+};
+
+export type MetersNet = {
+	rxBitsPerS: number,
+	txBitsPerS: number,
+};
+
+/**  One read of every meter, as the window draws it. */
+export type MetersSample = {
+	/**  When it was read, Unix milliseconds. */
+	atMs: number,
+	cpu: MetersCpu,
+	mem: MetersMem,
+	disks: MetersDisk[],
+	net: MetersNet,
+	gpus: MetersGpu[],
+};
+
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
 
@@ -2878,6 +2933,27 @@ export type UploadFile = {
 	name: string,
 	/**  base64. */
 	data: string,
+};
+
+/**  Claude usage: `usage_limits`, and the `usage:changed` payload. */
+export type UsageLimits = {
+	/**  When the newest reading came in, Unix ms; 0 for none yet. */
+	observedAtMs: number,
+	windows: UsageWindow[],
+};
+
+/**  One rate-limit window. */
+export type UsageWindow = {
+	/**  `five_hour`, `seven_day`, or another (a gateway's `spend_limit`). */
+	kind: string,
+	/**
+	 *  How much is used, 0 to 100 (past 100 on an exceeded spend limit).
+	 *  Always finite (the Core refuses anything else), so `number`, never
+	 *  the `null` specta gives an f64 for NaN.
+	 */
+	percentUsed: number,
+	/**  When it resets, Unix ms; null when the session didn't say. */
+	resetsAtMs: number | null,
 };
 
 export type Value = null | boolean | number | string | Value[] | { [key in string]: Value };

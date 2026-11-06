@@ -27,11 +27,13 @@ use crate::events::{CaptureChange, Empty};
 use crate::inbox::{InboxCounts, SendResult};
 use crate::invites::InviteStatus;
 use crate::mentions::{MentionCandidate, MentionOutcome};
+use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
+use crate::usage::UsageLimits;
 use crate::voice::{VoiceDownload, VoiceEvent, VoiceStatus};
 
 type W<'a> = State<'a, Arc<Window>>;
@@ -1848,6 +1850,23 @@ pub async fn window_log(line: String) -> R<()> {
     Ok(())
 }
 
+/// This computer's recent hardware meter samples, oldest first (card #599);
+/// empty on the phone.
+#[tauri::command]
+#[specta::specta]
+pub async fn meters_history(w: W<'_>) -> R<Vec<MetersSample>> {
+    Ok(w.meters_history())
+}
+
+/// Claude usage left (card #599): the plan's rate-limit windows as this
+/// device's Claude Code sessions last measured them, any past its reset
+/// left out.
+#[tauri::command]
+#[specta::specta]
+pub async fn usage_limits(w: W<'_>) -> R<UsageLimits> {
+    Ok(w.usage_limits())
+}
+
 /// Every command, plus the event payload types the frontend listens for.
 pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
@@ -2074,6 +2093,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_hold,
             desk_pause,
             desk_ok,
+            meters_history,
+            usage_limits,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2086,6 +2107,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<crate::cards::Holding>()
         .typ::<VoiceEvent>()
         .typ::<VoiceDownload>()
+        .typ::<MetersSample>()
+        .typ::<UsageLimits>()
         .typ::<CallView>()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()

@@ -41,6 +41,9 @@ import {
   MAX_TITLES,
   toolArgs,
   validSpec,
+  USAGE_PATH,
+  usageBody,
+  measureMovedLimits,
 } from './lib'
 
 /** How long /irori reconnect waits for the new hello before it answers. */
@@ -442,6 +445,37 @@ async function onHello($: EngineInterface, e: AttachEvent) {
   })
   void loadTools($).catch(() => {})
   void refreshPaused($, e.agentKey).catch(() => {})
+  void postUsageNow($).catch(() => {})
+}
+
+/**
+ * Claude usage left (card #599): posts the plan's rate-limit windows to the
+ * Core, fire and forget. Best effort: a failure is a debug line, never the
+ * session's problem, and the next measurement sends a fresh reading.
+ */
+function postUsage($: EngineInterface, rateLimits: unknown) {
+  const body = usageBody(rateLimits)
+  if (!body || !api || !attachSecret) return
+  void callCore($, 'POST', USAGE_PATH, body)
+    .then(answer => {
+      if (!answer.ok) $.ui.log(`irori: usage not posted: ${answer.error}`, { to: 'debug' })
+    })
+    .catch(() => {})
+}
+
+/**
+ * At hello, the windows the session already has (`$.session.usage()`), so a
+ * fresh or restarted Irori shows usage before the next turn ends. An engine
+ * without the op throws here, and the reading waits for session.measure.
+ */
+async function postUsageNow($: EngineInterface) {
+  let rateLimits: unknown
+  try {
+    rateLimits = (await $.session.usage())?.rateLimits
+  } catch {
+    return
+  }
+  postUsage($, rateLimits)
 }
 
 /** Rebuilds the paused set from the board at hello (card #207). */
@@ -804,6 +838,22 @@ export const register: Register = (on, options) => {
     }
     return done
   })
+
+  // Claude usage left (card #599): each measurement whose rate-limit
+  // windows moved goes to the Core, never holding the session up. An engine
+  // that doesn't know the event refuses it here; the mod loads without it.
+  try {
+    on('session.measure', ($, e, next) => {
+      try {
+        if (measureMovedLimits(e.changed)) postUsage($, e.rateLimits)
+      } catch {
+        // Observing only: nothing here may fail the measurement.
+      }
+      return next(e)
+    })
+  } catch {
+    // An engine older than session.measure.
+  }
 
   on('command.run', { command: 'irori' }, async ($, e) => {
     const { verb, rest } = parseArgs(e.args)

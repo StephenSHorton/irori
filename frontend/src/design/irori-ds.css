@@ -29,6 +29,13 @@ html[data-ds="irori"] {
   --chart-3: oklch(0.72 0.14 80);
   --chart-4: oklch(0.5 0.12 300);
   --chart-5: oklch(0.55 0.02 60);
+  /* Hardware meters (card #599), Task Manager's hues: CPU blue, memory
+     indigo, disk green, network rose, GPU purple. */
+  --meter-cpu: oklch(0.56 0.15 245);
+  --meter-mem: oklch(0.5 0.17 285);
+  --meter-disk: oklch(0.55 0.15 140);
+  --meter-net: oklch(0.56 0.18 15);
+  --meter-gpu: oklch(0.52 0.19 320);
 
   --glass-alpha: 62%;
   --glass-blur: 24px;
@@ -88,6 +95,11 @@ html[data-ds="irori"].dark {
   --chart-3: oklch(0.84 0.13 80);
   --chart-4: oklch(0.72 0.12 300);
   --chart-5: oklch(0.7 0.02 60);
+  --meter-cpu: oklch(0.74 0.13 240);
+  --meter-mem: oklch(0.72 0.14 285);
+  --meter-disk: oklch(0.78 0.15 140);
+  --meter-net: oklch(0.74 0.15 15);
+  --meter-gpu: oklch(0.72 0.17 320);
 
 }
 
@@ -230,6 +242,14 @@ html[data-ds="irori"]
     [data-slot="context-menu-content"],
     [data-slot="combobox-content"]
   ) {
+  --glass-bg: var(--glass-tint);
+  --popover: var(--glass-tint);
+}
+
+/* A panel dense with small figures (the hardware meters, card #599) is
+   solid anywhere: the page's own text would bleed through it where the
+   webview skips the blur. */
+html[data-ds="irori"] .glass-solid {
   --glass-bg: var(--glass-tint);
   --popover: var(--glass-tint);
 }

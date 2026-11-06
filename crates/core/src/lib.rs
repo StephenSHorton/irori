@@ -21,6 +21,7 @@
 //! | [`timers`] | coord `armExpiry`, Go tickers | the expiry timer |
 //! | [`meshview`] | `home.go`, `attachview.go` | the running mesh as Devices and attachments see it |
 //! | [`attachments`] | `attachments.go` | agents' attach and attachment_get (the tools' attacher) |
+//! | [`usage`] | (card #599) | Claude usage left: the plan's rate-limit windows the mod reports |
 //!
 //! Loops run on plain threads (every service API is synchronous); presence
 //! runs on the tokio runtime given in [`Options::runtime`], or on a
@@ -61,6 +62,7 @@ pub mod reset;
 mod service;
 pub mod timers;
 pub mod treeclean;
+pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;

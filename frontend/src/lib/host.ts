@@ -579,3 +579,14 @@ export const DeskService = {
   Ok: (repoKey: string, pr: number, headSha: string) =>
     done(commands.deskOk(repoKey, pr, headSha)),
 }
+
+// Hardware meters (card #599): the last two minutes of this computer's
+// readings, oldest first.
+export const MetersService = {
+  History: () => call(commands.metersHistory()),
+}
+
+// Claude usage left (card #599): the newest reading of the plan's windows.
+export const UsageService = {
+  Limits: () => call(commands.usageLimits()),
+}

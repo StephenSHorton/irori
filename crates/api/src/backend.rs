@@ -76,6 +76,16 @@ pub trait Backend: Send + Sync + 'static {
     fn net_health(&self) -> Option<NetHealth> {
         None
     }
+    /// Takes a session's Claude plan rate-limit windows (card #599), for
+    /// `POST /v1/usage/limits`; `Err` is why they were refused, `None` (a
+    /// backend that keeps none) answers 503.
+    fn record_usage_limits(
+        &self,
+        input: &[irori_core::usage::RateLimit],
+    ) -> Option<Result<(), String>> {
+        let _ = input;
+        None
+    }
 }
 
 /// Health's `net` (Go `api.NetHealth`): the net layer's state (off, on,
@@ -165,6 +175,12 @@ impl Backend for Core {
                 })
                 .collect(),
         )
+    }
+    fn record_usage_limits(
+        &self,
+        input: &[irori_core::usage::RateLimit],
+    ) -> Option<Result<(), String>> {
+        Some(Core::record_usage_limits(self, input))
     }
     fn net_health(&self) -> Option<NetHealth> {
         let n = self.mesh();
