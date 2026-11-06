@@ -25,10 +25,6 @@ mod error;
 mod fold;
 mod idle;
 mod links;
-mod main_red;
-pub use main_red::{
-    MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
-};
 mod mention;
 mod stranded;
 mod version_wait;
@@ -767,12 +763,6 @@ impl Coord {
             f.note_outside_wait(&t.id, &b);
         }
         Ok(t)
-    }
-    /// Finds or makes the one open card for main failing `test` (card
-    /// #436), reported from card `from`; true when it was made now, so the
-    /// caller hands it out. Block `from` on it with a task wait.
-    pub fn main_red(&self, by: &str, from: &str, test: &str, commit: &str) -> Result<(Task, bool)> {
-        self.lock().main_red(by, from, test, commit)
     }
     pub fn unblock(&self, by: &str, id: &str, note: &str) -> Result<(Task, Notice)> {
         self.lock().unblock(by, id, note)

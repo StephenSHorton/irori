@@ -596,27 +596,6 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if !v.side_line.is_empty() {
         let _ = writeln!(b, "{}", v.side_line);
     }
-    // Card #436: a red main holds every landing; it goes first.
-    for r in coord::main_reds(&v) {
-        let who = if r.task.holders.is_empty() {
-            "nobody holds it yet".to_string()
-        } else {
-            format!("{} is on it", n.who(&r.task.holders[0]))
-        };
-        let _ = writeln!(
-            b,
-            "Main is red: {} fails on clean main; {} {} on {} ({who}). Hit it too? board_block on = main-red {} waits on that card instead of fixing it again.",
-            one_line(&r.test, 80),
-            r.waiting,
-            if r.waiting == 1 {
-                "card waits"
-            } else {
-                "cards wait"
-            },
-            r.task.short_ref(),
-            one_line(&r.test, 80),
-        );
-    }
     const HINT_ROOM: usize = 200;
     let budget = MAX_RESULT - HINT_ROOM;
     let mut cut = 0;
@@ -1347,14 +1326,9 @@ impl Inner {
             coord::BLOCKED_ON_VERSION => {
                 bb.reference = self.version_wait(&r)?;
             }
-            // Main is red (card #436): board_block turns it into a wait on
-            // the one card for that test.
-            MAIN_RED => {
-                coord::parse_main_red(&r).map_err(map_err)?;
-            }
             _ => {
                 return Err(err_text(&format!(
-                    "on starts with what it waits on: lease, task, person, agent, external, version or main-red, not {}.",
+                    "on starts with what it waits on: lease, task, person, agent, external or version, not {}.",
                     q(&one_line(kind, 40))
                 )));
             }
@@ -1442,45 +1416,6 @@ impl Inner {
 /// The first 8 characters of a device id, as lines print it.
 fn short_id(id: &str) -> &str {
     &id[..id.len().min(8)]
-}
-
-/// The `on` kind for a test that fails on clean main (card #436).
-const MAIN_RED: &str = "main-red";
-
-/// What board_block says about a main-red wait: the card it joined, or the
-/// card it made and who Irori handed it to.
-fn main_red_line(s: &Inner, c: &Caller, co: &coord::Coord, rt: &Task, made: bool) -> String {
-    let n = s.roster();
-    if !made {
-        let who = if rt.holders.is_empty() {
-            "nobody holds it yet".to_string()
-        } else {
-            format!("{} is on it", n.who(&rt.holders[0]))
-        };
-        return format!(
-            " Main is already red for that test: it waits on {} ({who}) instead of fixing it here, and wakes when that card completes.",
-            rt.short_ref()
-        );
-    }
-    let mut out = format!(
-        " Main is red: Irori made {} for that test, and this card waits on it, waking when it completes.",
-        rt.short_ref()
-    );
-    match co.offer_card(&c.sender.key, &rt.id, &s.b.room_agents()) {
-        Ok(offer) if !offer.to.is_empty() => {
-            let to = offer.to[0].clone();
-            out += &format!(
-                " Irori handed it to {}, the free agent idle longest.{}",
-                n.who(&to),
-                s.told(&s.tell(&inbox::system_sender(), offer), &n)
-            );
-        }
-        _ if co.spawning() => out += " Irori starts an agent for it.",
-        _ => {
-            out += " No agent takes offered cards now: it waits for one the person offers cards to."
-        }
-    }
-    out
 }
 
 /// board_block's options as coord takes them.
@@ -1665,23 +1600,6 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         b.reference = as_[1].clone();
     }
     let by = &as_[0];
-    // Main is red (card #436): one card per failing test; this card waits
-    // on it like any task wait, and a card made now is handed out below.
-    let mut red: Option<(Task, bool)> = None;
-    if let Some(b) = bb.as_mut().filter(|b| b.kind == MAIN_RED) {
-        let (test, commit) = match coord::parse_main_red(&b.reference) {
-            Ok(v) => v,
-            Err(e) => return map_err(e),
-        };
-        match co.main_red(by, &id, &test, &commit) {
-            Ok((rt, made)) => {
-                b.kind = coord::BLOCKED_ON_TASK.into();
-                b.reference = rt.id.clone();
-                red = Some((rt, made));
-            }
-            Err(e) => return map_err(e),
-        }
-    }
     let context = a.opt_str("context").unwrap_or_default();
     let context = context.as_str();
     let res = if qn.is_empty()
@@ -1740,9 +1658,6 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     if many_questions(&item.question) {
         out += &format!(" Its question asks more than one thing. {ONE_ASK_EACH}");
-    }
-    if let Some((rt, made)) = &red {
-        out += &main_red_line(s, c, &co, rt, *made);
     }
     // What it waits on as stored: an external wait that names leases held
     // now became a wait on those leases (card #339).
