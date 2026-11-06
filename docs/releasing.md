@@ -203,6 +203,29 @@ environment credentials `notarize.sh` lists work too. Without any the build
 is signed but not notarized, with a warning: updates and permissions work,
 and a fresh DMG download gets Gatekeeper's warning.
 
+### Rehearsing an update on the Mac
+
+The updater's swap script relaunches the app with `/usr/bin/open`
+(`crates/update/src/macapp.rs`), and `open` drops your shell's environment.
+So a scratch `Irori.app` that updates itself comes back on the live
+`~/.irori`, beside the person's own Irori. To rehearse one:
+
+1. Build it with `IRORI_UPDATE_API` set at build time, pointing at a fake
+   release feed on 127.0.0.1 (as in Android above). It is read with
+   `option_env!`, so setting it at run time does nothing. Only such a build
+   honours `IRORI_UPDATE_EVERY`, `IRORI_UPDATE_HOLD` and `IRORI_UPDATE_TICK`
+   (seconds) at run time.
+2. Put `IRORI_HOME` (a copy), `CLAUDE_CONFIG_DIR` (an empty dir) and any
+   `IRORI_UPDATE_*` you want in the scratch bundle's `Info.plist` under
+   `LSEnvironment`, so they survive `open`. Do the same in the bundle the
+   feed serves.
+3. Editing `Info.plist` breaks the signature: sign again with
+   `codesign --force --deep -s -`.
+4. Never quit Irori by name or bundle id (`osascript`, `killall`): every
+   bundle shares `com.stephenshorton.irori`, so that quits the live app.
+   Stop the scratch one by its PID, and afterwards check the live
+   `irori.log` gained no line for your version.
+
 ## Android
 
 The release key is `~/.config/irori/android/irori-release.jks` (alias

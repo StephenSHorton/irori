@@ -13,6 +13,32 @@ bun run preview:look            # http://127.0.0.1:9246/
 It binds 127.0.0.1 only (no firewall prompt) and uses port 9246, so it never
 collides with `wails3 dev` on 9245. Stop it with Ctrl+C.
 
+## Several agents at once
+
+Port 9246 is often already held by another worktree's preview, and then your
+checks would look at someone else's code. Run your own on a free port from
+your worktree's `frontend/`, and leave 9246 alone:
+
+```sh
+node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 9247 --strictPort
+```
+
+(`bunx vite` can exit without a word, so call vite's own script.) Point the
+scripts below at it with `PREVIEW_URL=http://127.0.0.1:9247/`.
+
+## Which browser
+
+Look at the preview with a headless Chrome or Edge on this machine
+(`--headless --dump-dom` or `--screenshot`, or the scripts below), not
+through the Claude in Chrome extension: the extension may be connected to a
+browser on another device, where this machine's 127.0.0.1 is connection
+refused even though `curl` reaches it. If you do use the extension, check
+which browser it is connected to first.
+
+The preview only proves Chromium. The Mac app draws in WebKit: to check a
+layout there, load the preview in a small Swift program with a `WKWebView`
+and save its `takeSnapshot`. It needs no screen-recording permission.
+
 ## How it works
 
 Components reach the Go side only through `src/lib/*.ts`. Outside a Wails
