@@ -303,7 +303,7 @@ async fn update_and_swap(live_tweak: Option<fn(&Path)>) {
 /// after it), and the refusal of an ad hoc update over a signed one. Needs a
 /// real identity, so it is ignored by default:
 /// `IRORI_TEST_CODESIGN_IDENTITY="Developer ID Application: ..." cargo test
-/// -p irori-update --test mac -- --ignored`
+/// -p irori-update --test it mac:: -- --ignored`
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs a Developer ID identity in IRORI_TEST_CODESIGN_IDENTITY"]
 async fn mac_update_developer_id_paths() {
