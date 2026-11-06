@@ -1482,6 +1482,80 @@ fn cards_that_wait_on_each_other_name_the_loop() {
     }
 }
 
+/// Card #570, finding 5: a loop through a parent (K is P's subtask and
+/// after X, and X waits on P) is named on every card of it.
+#[test]
+fn a_loop_through_a_parent_is_named() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let card = |title: &str| {
+        co.create_task(
+            &me(&r),
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (p, x) = (card("Parent"), card("X"));
+    let (_, kids) = co
+        .split(
+            &me(&r),
+            &p.id,
+            vec![coord::NewSubtask {
+                title: "K".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    let k = &kids[0];
+    co.add_after(&me(&r), &k.id, std::slice::from_ref(&x.id))
+        .unwrap();
+    assert!(summary(&k.id).wait_loop.is_empty());
+    wait_from_afar(&r, &x.id, &p);
+    let ids =
+        |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
+    let ring = ids(&x.id);
+    assert_eq!(ring.len(), 3, "{ring:?}");
+    for id in [&p.id, &k.id, &x.id] {
+        assert_eq!(ids(id), ring);
+        assert!(summary(id).wait_stuck.is_none());
+    }
+}
+
+/// Card #570, finding 5: a loop of more than 64 cards is still a loop.
+#[test]
+fn a_loop_of_70_cards_is_named() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let ts: Vec<coord::Task> = (0..70)
+        .map(|i| {
+            co.create_task(
+                &me(&r),
+                coord::NewTask {
+                    title: format!("c{i}"),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        })
+        .collect();
+    for i in 1..70 {
+        co.add_after(&me(&r), &ts[i].id, std::slice::from_ref(&ts[i - 1].id))
+            .unwrap();
+    }
+    wait_from_afar(&r, &ts[0].id, &ts[69]);
+    let cards = r.w.cards();
+    for i in [0, 30, 69] {
+        let s = cards.iter().find(|c| c.id == ts[i].id).unwrap();
+        assert_eq!(s.wait_loop.len(), 70, "c{i}");
+        assert!(s.wait_stuck.is_none(), "c{i}");
+    }
+}
+
 /// Card #138: clearing done cards takes them out of Closed (by id, by age
 /// or all); they stay in the log, and a reopened one is back on the grid.
 #[test]

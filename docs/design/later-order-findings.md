@@ -14,17 +14,9 @@ From the review of the coord build. None checked or fixed yet: the fix stage was
 
 have = task_waits(&t) counts every task wait, and new_waits has the same skip at later.rs:959, so no after row is written and the call still returns Ok. Case 1: park(A, Back::Card(K)), add_after(A, [K]), bring_back(A). Observed: A is submitted with no waits while K is still open, so A goes out ahead of K. Case 2: a waits_on card, then add_after on the same card, then block(reason). Observed: 1 open item, task_waits empty. Case 3: NewTask with blocked_by X and after [X], then block(reason) gives the same result. Doc section 2 says after items are not reasonOnly precisely because a later block replaces those. Fix: count only open, non-later, non-legacy waits as already after, and write a real after item otherwise.
 
-## 5. Loops through a parent, or longer than 64 cards, surface nowhere (medium)
+## 5. Loops through a parent, or longer than 64 cards, surface nowhere — fixed: `order_loops` finds every loop on the write check's edges (subtasks included, no cap), and the window names loops from it.
 
-`crates/coord/src/board/wait_chain.rs:13`
-
-Doc section 3 says a loop two devices make must still show. The write check uses order_edges, but the window's read check (window/src/cards.rs:3053) uses wait_chain, which has no parent-to-subtask edge and stops at MAX_CARDS=64. board() runs order_loop only for parked cards (comments.rs:1416). Case 1: K is a subtask of P, K is after X, and a remote row makes X wait on P. Observed: order_reaches is true both ways, wait_chain gives no loop and no stuck card for P, K or X, and board() gives needs_you 0, blocked 3. Case 2: a 70-card ring closed by a remote row. Observed: order_reaches is true both ways, wait_chain loop_ids is empty from cards 0 and 30, stuck is empty. The cards stall forever and nothing says so. Fix: give read-time detection the same edges as the write check, with no cap.
-
-## 6. A person's board() read goes quadratic on chains of parked cards, under the coord lock (low)
-
-`crates/coord/src/board/comments.rs:1416`
-
-Release build, a chain where each card is parked until the one before. board() as a person: 500 cards 30ms, 2000 cards 0.89s, 5000 cards 7.0s. The same 5000-card log read as an agent takes 5.9ms; a plain after chain read as a person takes 12.6ms. Each parked card runs its own BFS via order_loop, all inside the lock. notify/src/watch.rs:583 reads as the person; api/src/board.rs:135 passes the caller's key, so the cost lands there only when the caller is the person. Write time is fine: one order_reaches across 5000 cards took 2.5ms, a refused add_after 7.7ms. Date and word parks have no edges, so only long card chains pay this. Fix: find loops once per read in one pass over the graph.
+## 6. A person's board() read goes quadratic on chains of parked cards, under the coord lock — fixed: board() runs `order_loops` once per read (one Tarjan pass), only when a held card asks.
 
 ## 7. A parent can't be held until its own held subtask — fixed: park and adopt skip the hold's own subtask before the held check, so it stays free.
 
@@ -44,11 +36,7 @@ Next to doc section 5 bug 3. A is after #1, the person deletes #1, and the sweep
 
 ## 13. On a board, another person's park can't end a pending spawn, so an agent binds onto the held card — fixed: bind_spawn refuses a held card and ends its request from the author's device; the board bind loop ends that session.
 
-## 14. A wait on a gone agent beside a hold puts the held card in Needs you (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/comments.rs:1551`
-
-VERIFIED by running probes c1 and c2. check_parkable only refuses person items, so these waits are allowed beside a park. c1: agent BOB holds a card, raises an external wait 'Vendor reply' (no PR), then parks it; the lane is later. BOB goes gone and the lane becomes needs_you through gone_waits_in at :1551. Read, not run: a spawned holder is ended right after a park, so this may need no extra step. c2: a wait on agent CAROL plus a park, CAROL gone, also gives needs_you. The looped branch in board() is the spec's one exception, and this isn't it. Read, not run: hand_on_refusal now returns 'bring it back first', so the row offers only bring-back. c1 can't be refused at write time because the agent goes after the park, so the fix belongs at read time: skip gone waits for a parked card when only held items and waits remain.
+## 14. A wait on a gone agent beside a hold puts the held card in Needs you — fixed: `gone_waits_in` returns none for a held card, so it stays in Later and off the tray until it comes back.
 
 ## 15. Revising a parent's hold breaks same_hold, so bringing it back leaves its subtasks held on the person's word — fixed: rewording a hold rewords what its subtasks took too, and a revise of an inherited hold on the subtask is refused.
 

@@ -1372,6 +1372,8 @@ impl Fold {
         let agent_viewer = !viewer.is_empty() && !self.is_owner(&viewer);
         let mut blocks: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let rs = self.roster_status();
+        // Found once per read, and only when a held card asks (finding 6).
+        let mut loops: Option<super::later::OrderLoops> = None;
         for t in self.tasks.values() {
             if !f.repo_key.is_empty() && !ledger::same_repo_key(&t.repo_key, &f.repo_key) {
                 continue;
@@ -1414,7 +1416,11 @@ impl Fold {
             let state = effective_state(t);
             // A Later section must not hide a loop (card #570): the one
             // time a held card is the person's.
-            let looped = !agent_viewer && t.parked().is_some() && self.order_loop(t);
+            let looped = !agent_viewer
+                && t.parked().is_some()
+                && loops
+                    .get_or_insert_with(|| self.order_loops())
+                    .contains(&t.id);
             if is_terminal(state) {
                 v.done.push(card);
             } else if looped || self.needs_you(t, &viewer, agent_viewer, &rs) {

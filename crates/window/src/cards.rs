@@ -1888,6 +1888,7 @@ impl Window {
         };
         let mut out = Vec::with_capacity(tasks.len());
         let placed = co.positions();
+        let loops = co.order_loops();
         // Threads (card #116) live in their own panel, not the grid.
         for t in tasks.iter().filter(|t| !crate::threads::is_thread(t)) {
             let mut s = card_summary(t, &p);
@@ -1901,7 +1902,7 @@ impl Window {
             }
             s.stale = s.subtasks == 0 && stale(&s, &last, now);
             s.talking = talking(&co.comments(&t.id).unwrap_or_default(), &p, now);
-            family_of(co, &p, t, &mut s);
+            family_of(co, &loops, &p, t, &mut s);
             out.push(s);
         }
         // Every board's: "All" includes them (v0.5 §8).
@@ -2194,6 +2195,7 @@ impl Window {
                 continue;
             }
             let placed = co.positions();
+            let loops = co.order_loops();
             for t in co.list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
@@ -2240,7 +2242,7 @@ impl Window {
                     cs.pinned = true;
                     cs.pin_rank = *r;
                 }
-                family_of(&co, p, &t, &mut cs);
+                family_of(&co, &loops, p, &t, &mut cs);
                 out.push(cs);
                 tasks.push(t);
             }
@@ -2303,7 +2305,7 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        family_of(&co, &p, &t, &mut d.summary);
+        family_of(&co, &co.order_loops(), &p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -3036,26 +3038,37 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 
 /// A card summary's family fields (its parent, the subtask a decision
 /// waits on), from the log the card lives in (card #161: a board's for a
-/// board card).
-fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
+/// board card). `loops` is [`coord::Coord::order_loops`], read once for
+/// the whole list.
+fn family_of(
+    co: &coord::Coord,
+    loops: &coord::OrderLoops,
+    p: &People,
+    t: &Task,
+    s: &mut CardSummary,
+) {
     s.wait_pr = wait_pr(co, t);
     s.merge_pr = merge_pr(co, t);
     s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
-    if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
-        let card = |id: &str| {
-            co.get_task(id).map(|k| CardRef {
-                id: k.id.clone(),
-                short: k.short.clone(),
-                title: k.title.clone(),
-            })
-        };
+    let card = |id: &str| {
+        co.get_task(id).map(|k| CardRef {
+            id: k.id.clone(),
+            short: k.short.clone(),
+            title: k.title.clone(),
+        })
+    };
+    // A loop counts parents on their open subtasks and has no length cap,
+    // as the circle check does (card #570).
+    if let Some(ring) = loops.get(&t.id) {
+        s.wait_loop = ring.iter().filter_map(|id| card(id)).collect();
+    } else if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
-        s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
         // A chain that ends at a card on an open PR waits on the PR, not
         // on nobody (card #471): the sweep hands an unheld one out to be
         // merged, or another member's agents approve it.
-        if !ch.stuck.is_empty()
+        if ch.loop_ids.is_empty()
+            && !ch.stuck.is_empty()
             && !co
                 .get_task(&ch.stuck)
                 .is_some_and(|k| wait_pr(co, &k).is_some())

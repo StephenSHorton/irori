@@ -21,7 +21,7 @@ use super::tasks::CleanTask;
 use super::types::*;
 use super::util::{SWEEPER, caller, cmp_str, cut, deeper};
 use super::version_wait::{parse_version_wait, valid_version};
-use super::wait_chain::task_waits;
+use super::wait_chain::{ring_order, task_waits};
 use super::{MAX_OPEN_BLOCKERS, MAX_QUESTION};
 use crate::gotime;
 use crate::names::trim_space;
@@ -197,6 +197,34 @@ impl Park {
     }
 }
 
+/// The loops of cards that can't finish before each other (card #570).
+#[derive(Debug, Clone, Default)]
+pub struct OrderLoops {
+    rings: Vec<Vec<String>>,
+    of: HashMap<String, usize>,
+}
+
+impl OrderLoops {
+    /// The loop card `id` is in, in wait order from the lowest id for a
+    /// plain ring, else by id.
+    pub fn get(&self, id: &str) -> Option<&[String]> {
+        self.of.get(id).map(|&i| self.rings[i].as_slice())
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.of.contains_key(id)
+    }
+
+    /// Every loop, once each.
+    pub fn rings(&self) -> &[Vec<String>] {
+        &self.rings
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rings.is_empty()
+    }
+}
+
 /// What a new card waits on beyond its reason, checked before its rows.
 #[derive(Debug, Default)]
 pub(crate) struct NewWaits {
@@ -272,12 +300,95 @@ impl Fold {
         self.order_path(from, to).is_some()
     }
 
-    /// Whether t's waits lead back to t: two devices can each write half a
-    /// circle, and the fold takes both.
-    pub(crate) fn order_loop(&self, t: &Task) -> bool {
-        self.order_edges(t)
-            .iter()
-            .any(|n| self.order_reaches(n, &t.id))
+    /// Every loop along [`Self::order_edges`] among open cards, each card
+    /// to its loop's ids: two devices can each write half a circle, and
+    /// the fold takes both. One pass over the whole graph (Tarjan, with
+    /// no recursion and no cap), so a read pays it once, not per card.
+    pub(crate) fn order_loops(&self) -> OrderLoops {
+        let open = |id: &str| self.tasks.get(id).filter(|t| !is_terminal(&t.state));
+        let mut edges: HashMap<&str, Vec<String>> = HashMap::new();
+        for t in self.tasks.values().filter(|t| !is_terminal(&t.state)) {
+            let next: Vec<String> = self
+                .order_edges(t)
+                .into_iter()
+                .filter(|n| open(n).is_some())
+                .collect();
+            if !next.is_empty() {
+                edges.insert(t.id.as_str(), next);
+            }
+        }
+        let mut index: HashMap<&str, (usize, usize)> = HashMap::new();
+        let mut on_stack: HashSet<&str> = HashSet::new();
+        let mut stack: Vec<&str> = Vec::new();
+        let mut out = OrderLoops::default();
+        let mut starts: Vec<&str> = edges.keys().copied().collect();
+        starts.sort();
+        for start in starts {
+            if index.contains_key(start) {
+                continue;
+            }
+            // (card, next edge to look at)
+            let mut work: Vec<(&str, usize)> = vec![(start, 0)];
+            while let Some(&(v, i)) = work.last() {
+                if i == 0 && !index.contains_key(v) {
+                    let n = index.len();
+                    index.insert(v, (n, n));
+                    stack.push(v);
+                    on_stack.insert(v);
+                }
+                let next = edges.get(v).map(Vec::as_slice).unwrap_or_default();
+                if let Some(w) = next.get(i) {
+                    work.last_mut().unwrap().1 += 1;
+                    let Some(w) = self.tasks.get_key_value(w).map(|(k, _)| k.as_str()) else {
+                        continue;
+                    };
+                    match index.get(w) {
+                        None => work.push((w, 0)),
+                        Some(&(wi, _)) if on_stack.contains(w) => {
+                            let low = &mut index.get_mut(v).unwrap().1;
+                            *low = (*low).min(wi);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+                work.pop();
+                let (vi, vlow) = index[v];
+                if let Some(&(u, _)) = work.last() {
+                    let low = &mut index.get_mut(u).unwrap().1;
+                    *low = (*low).min(vlow);
+                }
+                if vi != vlow {
+                    continue;
+                }
+                let mut ring: Vec<String> = Vec::new();
+                while let Some(w) = stack.pop() {
+                    on_stack.remove(w);
+                    ring.push(w.to_string());
+                    if w == v {
+                        break;
+                    }
+                }
+                if ring.len() < 2 {
+                    continue;
+                }
+                let inside: HashMap<String, Vec<String>> = ring
+                    .iter()
+                    .map(|id| {
+                        (
+                            id.clone(),
+                            edges.get(id.as_str()).cloned().unwrap_or_default(),
+                        )
+                    })
+                    .collect();
+                let ring = ring_order(ring, &inside);
+                for id in &ring {
+                    out.of.insert(id.clone(), out.rings.len());
+                }
+                out.rings.push(ring);
+            }
+        }
+        out
     }
 
     /// The refusal for the circle `ids` would make, first card last again.

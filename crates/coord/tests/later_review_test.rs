@@ -1029,3 +1029,223 @@ mod held_steps {
         assert_eq!(ns[0].to, [CAROL.to_string()]);
     }
 }
+
+// ---- findings 5, 6, 14: loops found at read time, and gone waits on held cards ----
+
+mod read_loops {
+    use super::*;
+    use coord::rows::{BlockerRow, TaskStateRow};
+    use store::kinds;
+
+    /// A wait on `on` that this device would refuse, written raw as
+    /// another device that couldn't see the rest of the loop would.
+    fn wait_raw(e: &Env, by: &str, id: &str, on: &str) {
+        let bb = BlockedBy {
+            kind: BLOCKED_ON_TASK.into(),
+            reference: on.into(),
+        };
+        let row = TaskStateRow {
+            task_id: id.into(),
+            state: BLOCKED.into(),
+            reason: "after it".into(),
+            blocked_by: Some(bb.clone()),
+            blocker: Some(BlockerRow {
+                id: "b1".into(),
+                question: "after it".into(),
+                on: Some(bb),
+                ..BlockerRow::default()
+            }),
+            by: by.into(),
+            at: e.clk.now(),
+            ..TaskStateRow::default()
+        };
+        e.write_raw(by, kinds::TASK_STATUS, &row);
+    }
+
+    fn sorted(mut v: Vec<String>) -> Vec<String> {
+        v.sort();
+        v
+    }
+
+    /// Finding 5, case 1: K is P's subtask and after X, and X waits on P
+    /// from afar. All three are one loop, as the write check sees it.
+    #[test]
+    fn a_loop_through_a_parent_is_found() {
+        let e = Env::new();
+        let p = make(&e, "parent");
+        let x = make(&e, "x");
+        let (_, kids) =
+            e.c.split(
+                ALICE,
+                &p.id,
+                vec![NewSubtask {
+                    title: "k".into(),
+                    objective: "why".into(),
+                    ..NewSubtask::default()
+                }],
+                Vec::new(),
+            )
+            .unwrap();
+        let k = &kids[0];
+        e.c.add_after(ALICE, &k.id, std::slice::from_ref(&x.id))
+            .unwrap();
+        assert!(e.c.order_loops().is_empty());
+        wait_raw(&e, ALICE, &x.id, &p.id);
+        assert!(e.c.order_reaches(&p.id, &x.id) && e.c.order_reaches(&x.id, &p.id));
+
+        let loops = e.c.order_loops();
+        assert_eq!(loops.rings().len(), 1);
+        let want = sorted(vec![p.id.clone(), k.id.clone(), x.id.clone()]);
+        for id in [&p.id, &k.id, &x.id] {
+            assert_eq!(sorted(loops.get(id).unwrap().to_vec()), want, "{id}");
+        }
+        // A plain ring of three: in wait order from the lowest id.
+        assert_eq!(loops.get(&p.id).unwrap()[0], want[0]);
+        assert_eq!(loops.get(&p.id), loops.get(&x.id));
+    }
+
+    /// Finding 5, case 2: a ring of 70 cards closed from afar is one loop,
+    /// from every card of it.
+    #[test]
+    fn a_loop_longer_than_64_cards_is_found() {
+        let e = Env::new();
+        let ts: Vec<Task> = (0..70).map(|i| make(&e, &format!("c{i}"))).collect();
+        for i in 1..70 {
+            e.c.add_after(ALICE, &ts[i].id, std::slice::from_ref(&ts[i - 1].id))
+                .unwrap();
+        }
+        assert!(e.c.order_loops().is_empty());
+        wait_raw(&e, ALICE, &ts[0].id, &ts[69].id);
+        let loops = e.c.order_loops();
+        assert_eq!(loops.rings().len(), 1);
+        for t in &ts {
+            assert_eq!(
+                loops.get(&t.id).map(<[String]>::len),
+                Some(70),
+                "{}",
+                t.title
+            );
+            assert_eq!(loops.get(&t.id), loops.get(&ts[0].id));
+        }
+        // A card done breaks it.
+        e.c.set_task_state(ALICE, &ts[30].id, CANCELED, "not needed")
+            .unwrap();
+        assert!(e.c.order_loops().is_empty());
+    }
+
+    /// Finding 5: a held card in a long loop is still the person's.
+    #[test]
+    fn a_held_card_in_a_long_loop_needs_the_person() {
+        let e = Env::new();
+        let ts: Vec<Task> = (0..70).map(|i| make(&e, &format!("c{i}"))).collect();
+        for i in 1..69 {
+            e.c.add_after(ALICE, &ts[i].id, std::slice::from_ref(&ts[i - 1].id))
+                .unwrap();
+        }
+        e.c.park(
+            ALICE,
+            &ts[69].id,
+            "after c68",
+            Back::Card(ts[68].id.clone()),
+        )
+        .unwrap();
+        assert_eq!(lane_of(&e.c, USER, &ts[69].id), "later");
+        wait_raw(&e, ALICE, &ts[0].id, &ts[69].id);
+        assert_eq!(lane_of(&e.c, USER, &ts[69].id), "needs_you");
+        // Not an agent's.
+        assert_ne!(lane_of(&e.c, BOB, &ts[69].id), "needs_you");
+    }
+
+    /// Finding 6: a person's board() over a long chain of held cards reads
+    /// the graph once, not once per held card (5000 took 7 s in release).
+    /// The rows are written straight to the log and folded in one replay,
+    /// since park's own checks would make the setup the slow part.
+    #[test]
+    fn a_long_chain_of_held_cards_reads_fast() {
+        const N: usize = 5000;
+        let e = Env::new();
+        let id = |i: usize| format!("01PERF{i:020}");
+        let at = e.clk.now();
+        for i in 0..N {
+            let row = serde_json::json!({
+                "taskId": id(i), "num": i + 1, "title": format!("c{i}"),
+                "objective": "x", "by": ALICE, "at": at,
+            });
+            e.st.append(ALICE, kinds::TASK_CREATED, &row).unwrap();
+        }
+        // Each held until the next.
+        for i in 0..N - 1 {
+            let on = serde_json::json!({"kind": "task", "ref": id(i + 1)});
+            let row = serde_json::json!({
+                "taskId": id(i), "state": "blocked", "reason": "Not yet: after",
+                "blockedBy": on,
+                "blocker": {"id": format!("b1-p{i}"), "question": "Not yet: after",
+                    "on": on, "later": "card"},
+                "by": ALICE, "at": at,
+            });
+            e.st.append(ALICE, kinds::TASK_STATUS, &row).unwrap();
+        }
+        let c = e.reopen();
+        let f = BoardFilter {
+            viewer: USER.into(),
+            ..BoardFilter::default()
+        };
+        let start = std::time::Instant::now();
+        let v = c.board(&f);
+        let took = start.elapsed();
+        assert_eq!(v.later.len(), N - 1);
+        assert!(v.needs_you.is_empty());
+        assert!(took < Duration::from_secs(1), "board() took {took:?}");
+    }
+
+    /// Finding 14, c1: an agent raises an outside wait, holds the card,
+    /// and goes. The card stays in Later, not Needs you.
+    #[test]
+    fn a_held_cards_outside_wait_whose_agent_went_stays_later() {
+        let e = Env::new();
+        let t = make(&e, "vendor");
+        e.c.claim_task(BOB, &t.id).unwrap();
+        e.c.raise(
+            BOB,
+            &t.id,
+            NewBlocker {
+                question: "Vendor reply".into(),
+                blocked_by: on(BLOCKED_ON_EXTERNAL, "vendor"),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+        // The park lets go of the card.
+        e.c.park(BOB, &t.id, "not this week", tomorrow()).unwrap();
+        assert_eq!(lane_of(&e.c, USER, &t.id), "later");
+        e.ros.set(BOB, "gone");
+        assert_eq!(lane_of(&e.c, USER, &t.id), "later");
+        assert_eq!(lane_of(&e.c, "", &t.id), "later");
+        assert!(e.c.gone_waits(&t.id).is_empty());
+    }
+
+    /// Finding 14, c2: a wait on an agent that went, beside a hold.
+    #[test]
+    fn a_held_cards_wait_on_a_gone_agent_stays_later() {
+        let e = Env::new();
+        let t = make(&e, "carol's part");
+        e.c.raise(
+            ALICE,
+            &t.id,
+            NewBlocker {
+                question: "Waiting on carol".into(),
+                blocked_by: on(BLOCKED_ON_AGENT, CAROL),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+        e.c.park(ALICE, &t.id, "not this week", tomorrow()).unwrap();
+        e.ros.set(CAROL, "gone");
+        assert_eq!(lane_of(&e.c, USER, &t.id), "later");
+        assert!(e.c.gone_waits(&t.id).is_empty());
+        // Once it's back, the gone wait is the person's again.
+        e.c.bring_back(USER, &t.id, "now").unwrap();
+        assert_eq!(lane_of(&e.c, USER, &t.id), "needs_you");
+        assert!(!e.c.gone_waits(&t.id).is_empty());
+    }
+}

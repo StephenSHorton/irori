@@ -25,7 +25,7 @@ mod error;
 mod fold;
 mod idle;
 mod later;
-pub use later::Back;
+pub use later::{Back, OrderLoops};
 mod links;
 mod main_red;
 pub use main_red::{
@@ -650,6 +650,12 @@ impl Coord {
     /// Whether card `from` can't finish until card `to` has (card #570).
     pub fn order_reaches(&self, from: &str, to: &str) -> bool {
         self.lock().order_reaches(from, to)
+    }
+    /// Every loop of cards that can't finish before each other (card
+    /// #570): waits on cards and parents on their open subtasks, the
+    /// write check's edges, found in one pass.
+    pub fn order_loops(&self) -> OrderLoops {
+        self.lock().order_loops()
     }
     /// Takes a card back off a shared board.
     pub fn withdraw(&self, by: &str, id: &str, note: &str) -> Result<Task> {

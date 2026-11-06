@@ -136,6 +136,9 @@ Field rules:
 - A held card: parking drops its holders, because a kept holder would come back
   silently as `WORKING`. Only the holder or a person may park a held card.
 - Order keeps the holder, as `board_block` does.
+- A held card has no gone waits: a wait on an agent that went, or an outside
+  wait its gone raiser left, isn't the person's until the card comes back, so
+  the card stays in Later and off the tray's count. Once back, it shows.
 
 ### What ends a park
 
@@ -181,6 +184,11 @@ devices.
   the fold must accept both rows, so every device converges on the same loop.
   #481's read-time loop item still shows it, which is the one exception to
   "never Needs you": a Later section must not hide a loop.
+- Read time finds loops with the write check's edges and no cap:
+  `order_loops` is one pass (Tarjan) over the open cards, run once per
+  `board()` read and once per window list, not per card. Finished cards are
+  left out, since a loop through one moves. The window names every card of a
+  loop, a parent in it included; `wait_chain` is kept only for the stuck end.
 
 ### Subtasks and parents
 
