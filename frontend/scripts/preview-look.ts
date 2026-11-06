@@ -12,6 +12,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { spawn, type ChildProcess } from "node:child_process"
+import { frontendDir, servedRoot } from "./preview-url.ts"
 
 const dir = join(import.meta.dir, "..")
 const urlFile = join(dir, ".preview-url")
@@ -27,13 +28,15 @@ function free(port: number): Promise<boolean> {
   })
 }
 
-// Up once the port answers; null if vite exited first (with its code).
+// Up once the port serves this folder (vite.config.ts's /__preview-root):
+// another launcher's vite that won the port in a race doesn't count. Returns
+// vite's exit code if it exited first, null when it's up.
 async function up(child: ChildProcess, url: string): Promise<number | null> {
   let exit: number | null = null
   child.once("exit", (code) => (exit = code ?? 1))
   for (;;) {
     if (exit !== null) return exit
-    if (await fetch(url).then(() => true, () => false)) return null
+    if ((await servedRoot(url)) === frontendDir) return null
     await Bun.sleep(150)
   }
 }

@@ -12,6 +12,14 @@ base="${PREVIEW_URL:-}"
 [ -n "$base" ] || { echo "no preview running in this checkout: start \`bun run preview:look\` or set PREVIEW_URL" >&2; exit 1; }
 case "$base" in */) ;; *) base="$base/" ;; esac
 curl -sf -o /dev/null "$base" || { echo "nothing at $base: start \`bun run preview:look\` or set PREVIEW_URL" >&2; exit 1; }
+# Unless PREVIEW_URL was set by hand, it must be this checkout's preview: a
+# stale .preview-url can point at a port another worktree's preview took.
+if [ -z "${PREVIEW_URL:-}" ]; then
+  norm() { tr '\\' '/' | tr 'A-Z' 'a-z' | sed 's#/$##'; }
+  mine=$( (cygpath -m "$(cd "$here" && pwd -P)" 2>/dev/null || (cd "$here" && pwd -P)) | norm)
+  served=$(curl -sf "${base}__preview-root" | norm)
+  [ "$served" = "$mine" ] || { echo "$base is another checkout's preview (${served:-unknown}): start \`bun run preview:look\` in this one" >&2; exit 1; }
+fi
 browser="${BROWSER_EXE:-}"
 for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \

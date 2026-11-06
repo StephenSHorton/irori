@@ -16,9 +16,11 @@ preview (card #610). It writes the URL to `frontend/.preview-url`
 (gitignored); `check:phone`, `loading-shots.ts` and `preview-shots.sh` read it,
 so each worktree shoots its own preview. They don't fall back to 9246: with no
 `.preview-url` they stop and say to start the preview. Stop it with Ctrl+C,
-which removes the file. A preview killed harder leaves it behind; the shot
-scripts then find nothing there and say so, and the next `preview:look`
-rewrites it.
+which removes the file. A preview killed harder leaves it behind, and another
+worktree's preview may later take that port; so the dev server answers
+`/__preview-root` with the folder it serves (`vite.config.ts`), and the shot
+scripts refuse a preview that isn't this checkout's. The next `preview:look`
+rewrites the file. A `PREVIEW_URL` you set yourself skips that check.
 
 Vite runs as `node node_modules/vite/bin/vite.js --strictPort`
 (`scripts/preview-look.ts`), not `bunx vite`, which can exit silently in a
