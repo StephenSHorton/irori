@@ -65,13 +65,14 @@ pub use crate::service::boards::{
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
     migrate_board_files, new_board_id, valid_board_id,
 };
-pub use crate::service::freshness::LogFreshness;
+pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::notes::{SCOPE_MINE, ScopedNote};
 pub use crate::service::spaces::{SpaceBoard, fold_space_boards};
 pub use crate::service::spawn;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
+pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
 };

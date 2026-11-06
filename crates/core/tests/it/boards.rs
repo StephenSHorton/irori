@@ -1968,3 +1968,89 @@ fn freshness_names_the_device_in_step() {
     assert!(f.shared);
     assert!(now_ms() - f.at_ms < 60_000, "{f:?}");
 }
+
+/// `st` holds `ev` (by its writer and seq).
+fn holds(st: &store::Store, ev: &store::Event) -> bool {
+    st.list(&Filter {
+        device_id: ev.device_id.clone(),
+        after_seq: ev.seq - 1,
+        limit: 1,
+        ..Default::default()
+    })
+    .is_ok_and(|evs| evs.len() == 1 && evs[0].seq == ev.seq)
+}
+
+/// `st`'s newest row written by `dev`.
+fn newest_of(st: &store::Store, dev: &str) -> store::Event {
+    let top = st.vector().unwrap()[dev];
+    st.list(&Filter {
+        device_id: dev.into(),
+        after_seq: top - 1,
+        limit: 1,
+        ..Default::default()
+    })
+    .unwrap()
+    .remove(0)
+}
+
+/// Card #580: a row written just before a close has left this device by
+/// the time `sync_out` returns, on the private log and on a space, and
+/// the other device holds it. With that device gone it returns at once.
+#[test]
+fn sync_out_waits_until_another_device_holds_the_last_row() {
+    let (a, b) = paired();
+    let (ai, bi) = (
+        a.core.device_id().to_string(),
+        b.core.device_id().to_string(),
+    );
+    let id = a.core.create_board("Sync out", "out").unwrap();
+    wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
+    // The board connection is up: sync_out counts a's own device on the
+    // private mesh for a board only for a short dial grace.
+    wait_for(45, "a in step with b on the board", || {
+        a.core
+            .freshness()
+            .iter()
+            .any(|f| f.log == id && f.at_ms > 0)
+    });
+    let seen = |key: &str| serde_json::json!({"key": format!("{ai}/{key}"), "agent": "claude"});
+
+    let by = a.core.board_key(&id, &a.user()).unwrap();
+    let co = a.core.board_coord(&id).unwrap();
+    co.create_task(&by, new_task("last thing before the lid shuts"))
+        .unwrap();
+    let on_board = newest_of(&a.core.board_store(&id).unwrap(), &ai);
+    let private = a
+        .core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &seen("sync-out"))
+        .unwrap();
+
+    let r = a.core.sync_out(Duration::from_secs(20));
+    assert!(r.all_taken(), "{r:?}");
+    let p = r.log(irori_core::PERSONAL_LOG).expect("the private log");
+    assert_eq!(p.taken_by.as_deref(), Some(bi.as_str()), "{r:?}");
+    assert!(p.seq >= private.seq, "{r:?}");
+    let s = r.log(&id).expect("the space");
+    assert_eq!(s.taken_by.as_deref(), Some(bi.as_str()), "{r:?}");
+    assert!(s.seq >= on_board.seq, "{r:?}");
+    assert!(holds(b.core.store(), &private));
+    assert!(holds(&b.core.board_store(&id).unwrap(), &on_board));
+
+    // Already held: nothing to wait for.
+    let again = a.core.sync_out(Duration::from_secs(20));
+    assert!(again.all_taken(), "{again:?}");
+    assert!(again.spent < Duration::from_secs(1), "{again:?}");
+
+    // b gone: a's next row has nowhere to go, and a doesn't wait for it.
+    b.core.close().unwrap();
+    wait_for(45, "a sees b gone", || !a.core.mesh().any_connected());
+    a.core
+        .store()
+        .append("irori", kinds::AGENT_SEEN, &seen("stranded"))
+        .unwrap();
+    let alone = a.core.sync_out(Duration::from_secs(20));
+    assert!(alone.spent < Duration::from_secs(1), "{alone:?}");
+    let p = alone.log(irori_core::PERSONAL_LOG).unwrap();
+    assert_eq!(p.taken_by, None, "{alone:?}");
+}

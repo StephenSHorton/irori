@@ -23,6 +23,7 @@ pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
 mod probe;
+mod sync_out;
 // No tray on a phone (card #226): the same API with nothing behind it.
 #[cfg_attr(mobile, path = "tray_mobile.rs")]
 pub mod tray;
@@ -208,6 +209,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
         })
         .on_window_event(|w, ev| {
+            #[cfg(mobile)]
+            sync_out::on_window(w, ev);
             // Go hooks WindowClosing: hide and cancel (gui.go:136-148).
             if w.label() == MAIN
                 && let WindowEvent::CloseRequested { api, .. } = ev
@@ -226,6 +229,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let rt = rt.clone();
             move |app| {
                 builder.mount_events(app);
+                #[cfg(desktop)]
+                sync_out::watch_power(app.handle());
                 // The probe never puts a window on screen.
                 main_window(app.handle(), startup || probe.on())?;
                 irori_core::log(&format!(
@@ -270,6 +275,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // too late on macOS (card #535): an Apple Event or the app menu's Quit
     // goes through -[NSApplication terminate:], which calls exit() itself
     // and never returns from the loop, so there it runs on RunEvent::Exit.
+    // So on Windows (card #580): a logoff or shutdown (WM_ENDSESSION) makes
+    // tao call exit(0) right after RunEvent::Exit.
     let shut_down = {
         let done: Arc<OnceLock<Result<(), String>>> = Arc::default();
         let probe = probe.clone();
@@ -279,6 +286,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 // A Core still starting finishes first, so it closes cleanly.
                 if let Some(h) = starting.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     let _ = h.join();
+                }
+                // Card #580: the last rows leave before anything stops.
+                let core = hosted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                    .map(|(h, _)| h.core.clone());
+                if let Some(core) = core {
+                    sync_out::on_quit(&core);
                 }
                 // Go OnShutdown(InstallOnExit): a ready update installs
                 // silently and leaves Irori closed (/NORELAUNCH).
@@ -304,7 +320,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .clone()
         }
     };
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     let on_exit = shut_down.clone();
     let res = app.map(|app| {
         app.run_return(move |_app, ev| {
@@ -318,7 +334,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 // Go build on the Mac).
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => show(_app),
-                #[cfg(target_os = "macos")]
+                #[cfg(any(target_os = "macos", windows))]
                 RunEvent::Exit => {
                     let _ = on_exit();
                 }
@@ -574,6 +590,7 @@ fn wire_window(app: &AppHandle, window: &Arc<Window>) {
     window.set_on_reset(move || {
         let h = h.clone();
         // The call returns to the window first.
+        sync_out::skip();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(300));
             h.exit(0);

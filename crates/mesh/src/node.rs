@@ -304,6 +304,50 @@ impl Node {
         self.kick.notify_one();
     }
 
+    /// Another of the person's devices whose newest vector holds this
+    /// device's private row `seq` (card #580): the row has left this
+    /// device. The "Removal pending" test, for one row.
+    pub fn taken_by(&self, seq: i64) -> Option<String> {
+        let devs: Vec<String> = self
+            .o
+            .chain
+            .devices()
+            .into_iter()
+            .filter(|d| !d.revoked && d.cert.device_id != self.self_id)
+            .map(|d| d.cert.device_id)
+            .collect();
+        let g = self.lock();
+        devs.into_iter().find(|id| {
+            g.known
+                .get(id)
+                .and_then(|k| k.vec.get(&self.self_id))
+                .is_some_and(|s| *s >= seq)
+        })
+    }
+
+    /// A session with another device is up (card #580).
+    pub fn any_connected(&self) -> bool {
+        self.session_list().iter().any(|s| s.hello_done())
+    }
+
+    /// A session with device `dev` is up (card #580).
+    pub fn reaches(&self, dev: &str) -> bool {
+        self.connected_to(dev)
+    }
+
+    /// Sends now (card #580): pokes every session, so rows not yet sent go
+    /// out, and asks the rooms for the devices with no connection (a wake
+    /// from sleep, or a close coming).
+    pub fn nudge(&self) {
+        self.wake_all();
+        let Some(rt) = self.lock().rt.clone() else {
+            return;
+        };
+        let _g = rt.enter();
+        self.announce();
+        self.dial_all();
+    }
+
     /// Go `HasPeer`: the person has another certified, unrevoked device.
     pub fn has_peer(&self) -> bool {
         self.o
