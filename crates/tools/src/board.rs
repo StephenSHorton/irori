@@ -2451,7 +2451,7 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         t.short_ref()
     );
     // Card #600: whether the one setting it can work it where it is.
-    if repo_set && t.holders.contains(&c.sender.key) {
+    if repo_set && t.holders.contains(&as_[0]) {
         let mine = s.caller_repo(c);
         let name = coord::repo_name(&t.repo_key);
         if coord::same_repo_key(&mine, &t.repo_key) {

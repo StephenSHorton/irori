@@ -487,6 +487,97 @@ fn a_where_in_another_repo_is_not_the_cards_folder() {
     assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), mine);
 }
 
+/// Card #600: a Where left in another repo when the card's repo has no
+/// checkout here doesn't start its agent there: the card asks for a copy,
+/// as any card whose repo no device has.
+#[test]
+fn a_where_in_another_repo_with_no_copy_here_asks_for_one() {
+    let t = rig();
+    let (_a, other) = git_repo();
+    let c = t.card("Port the parser", LOWER);
+    let me = t.r.core.device_id().to_string();
+    let w = coord::Where {
+        who: format!("{me}/{SESS}"),
+        cwd: other.to_string_lossy().into_owned(),
+        worktree: other.to_string_lossy().into_owned(),
+        branch: "main".into(),
+        ..coord::Where::default()
+    };
+    assert!(t.r.core.coord().set_where(&c.id, w).unwrap());
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    assert!(
+        b.question.starts_with("No device has a copy of irori"),
+        "{b:?}"
+    );
+    assert!(t.fake.started.lock().unwrap().is_empty());
+}
+
+/// Card #600: a card with no repo that starts again in its Where is told
+/// that folder's repo, not the ask home's.
+#[test]
+fn a_card_with_no_repo_restarting_in_its_where_names_that_repo() {
+    let t = rig();
+    let (_a, home) = git_repo();
+    let (_b, there) = git_repo();
+    t.seen(LOWER, &home);
+    let c = t.card("A card with no repo", "");
+    let me = t.r.core.device_id().to_string();
+    let w = coord::Where {
+        who: format!("{me}/{SESS}"),
+        cwd: there.to_string_lossy().into_owned(),
+        worktree: there.to_string_lossy().into_owned(),
+        branch: "main".into(),
+        ..coord::Where::default()
+    };
+    assert!(t.r.core.coord().set_where(&c.id, w).unwrap());
+    t.start();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), there);
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(brief.contains("names no repo"), "{brief}");
+    assert!(!brief.contains("a checkout of irori"), "{brief}");
+    assert!(
+        brief.contains("- irori: "),
+        "the home repo still listed: {brief}"
+    );
+}
+
+/// A Where in a second clone of the card's repo is still its folder.
+#[test]
+fn a_where_in_a_second_clone_is_the_cards_folder() {
+    let t = rig();
+    let (_a, one) = git_repo();
+    let (_b, two) = git_repo();
+    t.seen(LOWER, &one);
+    t.seen(LOWER, &two);
+    // The clone checkout_here doesn't pick first.
+    let mut both = [one.clone(), two.clone()];
+    both.sort();
+    let there = both[1].clone();
+    let c = t.card("Port the parser", LOWER);
+    let me = t.r.core.device_id().to_string();
+    let w = coord::Where {
+        who: format!("{me}/{SESS}"),
+        cwd: there.to_string_lossy().into_owned(),
+        worktree: there.to_string_lossy().into_owned(),
+        branch: "main".into(),
+        ..coord::Where::default()
+    };
+    assert!(t.r.core.coord().set_where(&c.id, w).unwrap());
+    t.start();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), there);
+}
+
 #[test]
 fn a_spawner_failing_three_times_asks_once() {
     let t = rig();

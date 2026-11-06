@@ -1507,8 +1507,8 @@ impl Services {
         let me = self.device.id.clone();
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
         let name = self.spawn_name(t, generation);
-        let repo_key = self.spawn_repo(t);
         let folder = self.spawn_folder(t);
+        let repo_key = self.spawn_repo_in(t, folder.as_deref());
         // No checkout here (card #467): asking again writes a requested
         // and a failed row and changes nothing, and in v0.11.0 each pair
         // kicked the next sweep (3.4M rows). Once the card's newest request
@@ -1630,18 +1630,20 @@ impl Services {
         let private = log.board_id.is_empty();
         // A board thread names no repo: it starts where a private one
         // does (card #512), and so does any card that names none (#600).
-        let repo_key = if private || t.repo_key.is_empty() {
-            self.spawn_repo(t)
-        } else {
-            t.repo_key.clone()
-        };
         let folder = match folder {
             Some(f) => f,
             None if private => self.spawn_folder(t),
             None if t.repo_key.is_empty() && !super::spawn_stop::is_helper(t) => {
                 self.repo_home().map(|(_, f)| f)
             }
-            None => self.checkout_here(&repo_key),
+            None => self.checkout_here(&t.repo_key),
+        };
+        // The repo of the folder it starts in (card #600: a card with none
+        // may start in its Where, not the ask home).
+        let repo_key = if private || t.repo_key.is_empty() {
+            self.spawn_repo_in(t, folder.as_deref())
+        } else {
+            t.repo_key.clone()
         };
         // A card (not an ask) that names no repo: its agent works it out.
         let home = folder
@@ -1853,27 +1855,50 @@ impl Services {
 
     /// Whether folder `dir` can hold work of repo `repo_key` (card #600):
     /// a card's Where from before its repo was set is another repo's
-    /// folder. True when either can't be told (no repo, no checkout here,
-    /// not git).
+    /// folder. In it when it shares a main checkout with any checkout of
+    /// the repo seen here (a second clone counts), or git names the repo
+    /// it is in as this one; true when the card names no repo or git
+    /// can't tell.
     fn in_repo(&self, dir: &str, repo_key: &str) -> bool {
-        let Some(here) = self.checkout_here(repo_key) else {
+        if repo_key.is_empty() {
             return true;
-        };
-        let main = |d: &str| crate::helpertree::main_root(Path::new(d));
-        match (main(dir), main(&here)) {
-            (Some(a), Some(b)) => a == b,
-            _ => true,
         }
+        let main = |d: &str| crate::helpertree::main_root(Path::new(d));
+        let mine = main(dir);
+        if mine.is_some()
+            && self
+                .capture
+                .repo_roots(repo_key)
+                .iter()
+                .filter(|r| Path::new(r).is_dir())
+                .any(|r| main(r) == mine)
+        {
+            return true;
+        }
+        let k = self.capture.repo_key_of(dir);
+        k.is_empty() || coord::same_repo_key(&k, repo_key)
     }
 
-    /// The repo card t's agent works in: the card's own, or for a card or
-    /// ask that names none, [`Self::repo_home`]'s (card #600). A helper's
-    /// is its lead's.
-    pub(crate) fn spawn_repo(&self, t: &Task) -> String {
+    /// The repo card t's agent works in when it starts in `folder`: the
+    /// card's own (a helper's is its lead's), or for a card or ask that
+    /// names none (card #600), the repo `folder` is in, since it may start
+    /// in its Where or a folder the person named rather than
+    /// [`Self::repo_home`]'s, whose repo is the fallback. The brief and
+    /// the permissions name it.
+    pub(crate) fn spawn_repo_in(&self, t: &Task, folder: Option<&str>) -> String {
         if !t.repo_key.is_empty() || super::spawn_stop::is_helper(t) {
             return t.repo_key.clone();
         }
-        self.repo_home().map(|(k, _)| k).unwrap_or_default()
+        let home = self.repo_home();
+        if let Some(f) = folder
+            && home.as_ref().is_none_or(|(_, hf)| hf != f)
+        {
+            let k = self.capture.repo_key_of(f);
+            if !k.is_empty() {
+                return k;
+            }
+        }
+        home.map(|(k, _)| k).unwrap_or_default()
     }
 
     /// Where an agent for a card or ask that names no repo starts (card
