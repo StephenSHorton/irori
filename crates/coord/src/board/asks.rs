@@ -515,6 +515,14 @@ impl Fold {
                     }
                     t.done_criteria = d.clone();
                 }
+                // Its repo (card #600): set, never cleared, by a row.
+                if let Some(r) = &p.repo_key {
+                    let r = ledger::canonical_repo_key(r);
+                    if !r.is_empty() && r != t.repo_key {
+                        changed.push(format!("set its repo to {}", ledger::repo_name(&r)));
+                        t.repo_key = r;
+                    }
+                }
                 // A thread's "Agents answer now" (card #391); edit_gate let
                 // only a person's row carry it.
                 if let Some(on) = p.agents_now

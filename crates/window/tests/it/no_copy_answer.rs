@@ -2,7 +2,8 @@
 //! The window resolves an Irori ask with the answer, so the reply is on no
 //! comment: a reply that isn't a folder still comes back quoted, with why
 //! it is asked again, the answer doesn't say nobody will act on it, and a
-//! folder's path starts the agent there.
+//! folder's path starts the agent there. A card that names no repo is
+//! never asked about (card #600), so these use a repo no device has.
 
 use crate::common;
 
@@ -15,6 +16,9 @@ use coord::{Blocker, NewTask, Task};
 use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::spawn_stop::is_no_copy;
 use irori_window::Window;
+
+/// A repo no device has a copy of.
+const NOWHERE: &str = "remote:github.com/example/nowhere";
 
 struct T {
     r: Rig,
@@ -89,9 +93,9 @@ impl T {
 #[test]
 fn a_reply_that_is_no_folder_comes_back_quoted_and_a_path_starts_the_agent() {
     let t = rig();
-    let c = t.card("");
+    let c = t.card(NOWHERE);
     let b = t.asked(&c.id, "");
-    assert!(b.question.starts_with("This card names no repo."), "{b:?}");
+    assert!(b.question.starts_with("No device has a copy of"), "{b:?}");
 
     // The words from #392: the blocker isn't understood.
     let said = "i don't understand this blocker";
@@ -110,7 +114,7 @@ fn a_reply_that_is_no_folder_comes_back_quoted_and_a_path_starts_the_agent() {
         b2.context
     );
     assert!(
-        b2.context.contains("made outside any repo"),
+        b2.context.contains("none of your devices has one"),
         "{}",
         b2.context
     );
@@ -141,7 +145,7 @@ fn a_reply_that_is_no_folder_comes_back_quoted_and_a_path_starts_the_agent() {
 #[test]
 fn a_reply_with_a_file_is_taken() {
     let t = rig();
-    let c = t.card("");
+    let c = t.card(NOWHERE);
     let b = t.asked(&c.id, "");
     let file = irori_window::board::UploadFile {
         name: "where.txt".into(),
@@ -160,7 +164,7 @@ fn a_reply_with_a_file_is_taken() {
 #[test]
 fn a_card_with_a_holder_does_not_promise_an_agent() {
     let t = rig();
-    let c = t.card("");
+    let c = t.card(NOWHERE);
     let b = t.asked(&c.id, "");
     t.w().core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
     let res = t
@@ -175,7 +179,7 @@ fn a_card_with_a_holder_does_not_promise_an_agent() {
 #[test]
 fn a_wrong_path_is_said_so_each_time() {
     let t = rig();
-    let c = t.card("remote:github.com/example/nowhere");
+    let c = t.card(NOWHERE);
     let b = t.asked(&c.id, "");
     assert!(b.question.starts_with("No device has a copy of"), "{b:?}");
 

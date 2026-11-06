@@ -154,6 +154,35 @@ impl Drop for Running {
     }
 }
 
+/// Waits until both file watchers are up: they start on a thread of their
+/// own after Run's first scan (card #601).
+pub async fn await_watching(w: &Watcher) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !w.watching() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "watchers never came up"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// Waits until the watchers are up and the full scan that follows has
+/// run, for a watcher whose intervals never fire (event_opts with an
+/// hour): its only scans are Run's first and that one, each opening
+/// `per_scan` session files.
+pub async fn await_events(w: &Watcher, opens: &Opens, per_scan: usize) {
+    await_watching(w).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while opens.count(".json") < 2 * per_scan {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no scan after the watchers came up"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 pub fn run_watcher(w: &Watcher) -> Running {
     let cancel = CancellationToken::new();
     let (w2, c2) = (w.clone(), cancel.clone());

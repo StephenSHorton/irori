@@ -212,6 +212,7 @@ fn a_holder_edits_from_a_thread_it_did_not_take() {
                 objective: Some("Retry three times, then say so.".into()),
                 done_when: Some("A dropped relay retries 3x.".into()),
                 from: format!("#{}", th.short),
+                ..TaskEdit::default()
             },
         )
         .unwrap();

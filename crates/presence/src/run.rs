@@ -1,6 +1,11 @@
 //! Go `run.go`: scan on file events and process exits, fall back to an
 //! interval while a watcher is down, and rescan everything every
 //! SafetyInterval regardless.
+//!
+//! Watchers start on a thread of their own (card #601): on a busy Mac
+//! `FSEventStreamStart` can take a minute, and the roster must not wait on
+//! it. Until they are up the loop polls every interval, as it does while a
+//! watcher is down.
 
 use std::collections::{HashMap, HashSet};
 use std::future::pending;
@@ -19,6 +24,9 @@ use crate::watcher::{Inner, Watcher};
 /// How often an unlisted session's transcript activity may force a full
 /// scan (card #433).
 const UNKNOWN_EVERY: Duration = Duration::from_secs(10);
+
+/// How long Run, ending, waits for a watcher start still running.
+const START_WAIT: Duration = Duration::from_secs(1);
 
 /// One file event (Go `fswatch.Event`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -75,12 +83,24 @@ pub enum WatchError {
     Other(String),
 }
 
+/// What a watcher start on its own thread hands back: one result for each
+/// watcher it was asked to start.
+#[derive(Default)]
+struct Started {
+    sessions: Option<Result<FsSource, WatchError>>,
+    projects: Option<Result<FsSource, WatchError>>,
+}
+
 /// Run's state (Go `loop`). It lives on the run task only.
 struct Loop {
     x: Arc<Inner>,
     sessions: Option<FsSource>,
     projects: Option<FsSource>,
     unsupported: bool,
+    /// A watcher start is running; its result comes on `started_tx`'s
+    /// channel. At most one runs at a time.
+    starting: bool,
+    started_tx: mpsc::Sender<Started>,
     exits: HashMap<i64, Box<dyn FnOnce() + Send>>,
     exited_tx: mpsc::Sender<()>,
     full: bool,
@@ -102,25 +122,31 @@ impl Watcher {
     /// Go `Run`: scans until `cancel` fires: on file events under
     /// claude_dir/sessions and claude_dir/projects and on session process
     /// exit where the OS reports them, else every interval, with a full
-    /// rescan every safety interval. Returns once every watcher and exit
-    /// wait has stopped.
+    /// rescan every safety interval. The first scan doesn't wait for the
+    /// watchers: they start on their own thread, and a full scan follows
+    /// once one is up, so nothing written meanwhile is missed. Returns once
+    /// every watcher and exit wait has stopped, except a watcher whose
+    /// start outlasts [`START_WAIT`]: it stops itself when its start ends.
     pub async fn run(&self, cancel: CancellationToken) {
         let x = self.inner.clone();
         let (exited_tx, mut exited_rx) = mpsc::channel::<()>(1);
+        let (started_tx, mut started_rx) = mpsc::channel::<Started>(1);
         let mut l = Loop {
             x: x.clone(),
             sessions: None,
             projects: None,
             unsupported: false,
+            starting: false,
+            started_tx,
             exits: HashMap::new(),
             exited_tx,
             full: false,
             dirty: HashSet::new(),
             unknown_at: None,
         };
-        l.start_watchers();
         x.scan();
         l.track_exits();
+        l.start_watchers();
 
         let far = || Instant::now() + Duration::from_secs(86_400 * 365);
         let safety = sleep_until(Instant::now() + l.period());
@@ -175,6 +201,14 @@ impl Watcher {
                     l.full = true;
                     due = true;
                 }
+                Some(st) = started_rx.recv() => {
+                    // A watcher that just came up missed what changed while
+                    // it started: read everything again.
+                    if l.install(st) {
+                        l.full = true;
+                        due = true;
+                    }
+                }
                 _ = &mut settle, if armed => armed = false,
                 _ = &mut safety, if safety_due => {
                     safety_due = false;
@@ -182,6 +216,10 @@ impl Watcher {
                     l.full = true;
                 }
             }
+            x.watching.store(
+                l.sessions.is_some() && l.projects.is_some(),
+                std::sync::atomic::Ordering::SeqCst,
+            );
             if due && !armed {
                 armed = true;
                 settle.as_mut().reset(Instant::now() + x.settle);
@@ -201,7 +239,14 @@ impl Watcher {
                 l.dirty.clear();
             }
         }
+        // A start still running hands its watchers back to be stopped. Close
+        // must stay prompt, so a slow one (FSEvents on a busy Mac) is left
+        // to stop its own when it ends: its send then fails.
+        if l.starting {
+            let _ = tokio::time::timeout(START_WAIT, started_rx.recv()).await;
+        }
         l.close();
+        x.watching.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -239,39 +284,66 @@ impl Loop {
         }
     }
 
-    /// Starts whichever watcher is not running. A dir that doesn't exist
+    /// Starts whichever watcher is not running, on a thread of its own;
+    /// [`Loop::install`] takes what it hands back. A dir that doesn't exist
     /// yet fails and is retried on the next tick.
     fn start_watchers(&mut self) {
-        if self.unsupported {
+        if self.unsupported || self.starting {
             return;
         }
         let Some(watch) = self.x.opts.watch.clone() else {
             self.unsupported = true;
             return;
         };
-        let root = |dir: &str| gocompat::filepath::join(&[self.x.opts.claude_dir.as_str(), dir]);
-        let start = |dir: &str, recursive: bool, unsupported: &mut bool| match watch(
-            Path::new(&root(dir)),
-            recursive,
-        ) {
-            Ok(s) => Some(s),
-            Err(WatchError::Unsupported) => {
-                *unsupported = true;
-                None
-            }
-            Err(WatchError::Other(_)) => None,
-        };
-        let mut unsupported = false;
-        if self.sessions.is_none() {
-            self.sessions = start("sessions", false, &mut unsupported);
+        let (want_sessions, want_projects) = (self.sessions.is_none(), self.projects.is_none());
+        if !want_sessions && !want_projects {
+            return;
         }
-        if self.projects.is_none() && !unsupported {
-            self.projects = start("projects", true, &mut unsupported);
+        let root = |dir: &str| gocompat::filepath::join(&[self.x.opts.claude_dir.as_str(), dir]);
+        let (sessions_dir, projects_dir) = (root("sessions"), root("projects"));
+        let tx = self.started_tx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("presence-watch".into())
+            .spawn(move || {
+                let mut st = Started::default();
+                if want_sessions {
+                    st.sessions = Some(watch(Path::new(&sessions_dir), false));
+                }
+                let unsupported = matches!(st.sessions, Some(Err(WatchError::Unsupported)));
+                if want_projects && !unsupported {
+                    st.projects = Some(watch(Path::new(&projects_dir), true));
+                }
+                // The loop may have ended: its watchers then stop here.
+                let _ = tx.blocking_send(st);
+            });
+        // No thread now: the next tick tries again.
+        self.starting = spawned.is_ok();
+    }
+
+    /// Takes the watchers a start handed back; true when one came up.
+    fn install(&mut self, st: Started) -> bool {
+        self.starting = false;
+        let mut unsupported = false;
+        let mut up = false;
+        for (got, slot) in [
+            (st.sessions, &mut self.sessions),
+            (st.projects, &mut self.projects),
+        ] {
+            match got {
+                Some(Ok(src)) => {
+                    *slot = Some(src);
+                    up = true;
+                }
+                Some(Err(WatchError::Unsupported)) => unsupported = true,
+                Some(Err(WatchError::Other(_))) | None => {}
+            }
         }
         if unsupported {
             self.unsupported = true;
             self.close_watchers();
+            return false;
         }
+        up
     }
 
     /// Waits on the process of every live session, so an agent that dies

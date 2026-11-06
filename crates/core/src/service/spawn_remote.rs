@@ -366,9 +366,11 @@ impl Services {
     /// which stays on; this device. A device asked lately for this card
     /// goes last, so the next request names the next device; a card that
     /// needs a machine never moves off it. Asks and helpers start here,
-    /// and so does a card no other device can take (no repo named, nobody
-    /// published one), as before. Never a device that can't run agents
-    /// (card #541): this one waits instead, and is left out of the choice.
+    /// and so does a card nobody published a checkout of. A card that
+    /// names no repo starts here too, in the ask home (card #600); on a
+    /// device with no checkout of any repo it waits here, unasked. Never a
+    /// device that can't run agents (card #541): this one waits instead,
+    /// and is left out of the choice.
     pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
         let me = self.device.id.clone();
         let here = self.can_run_here();

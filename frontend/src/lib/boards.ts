@@ -499,10 +499,12 @@ export const boards = {
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.
 
-export type BoardsList = { boards: BoardSummary[]; error: string | null }
+// loaded is false until the window's first read ends, either way (card
+// #598): before it, an empty list is not yet "no boards".
+export type BoardsList = { boards: BoardSummary[]; error: string | null; loaded: boolean }
 
 const listState = {
-  value: { boards: [], error: null } as BoardsList,
+  value: { boards: [], error: null, loaded: false } as BoardsList,
   readers: new Set<() => void>(),
   off: null as (() => void) | null,
   req: 0,
@@ -524,9 +526,9 @@ export async function reloadBoards(): Promise<void> {
   const n = ++listState.req
   let next: BoardsList
   try {
-    next = { boards: await boards.list(), error: null }
+    next = { boards: await boards.list(), error: null, loaded: true }
   } catch (err) {
-    next = { ...listState.value, error: errorText(err) }
+    next = { ...listState.value, error: errorText(err), loaded: true }
   }
   if (n !== listState.req) return
   listState.value = next
@@ -558,10 +560,12 @@ export function boardsNow(): BoardsList {
 export function useBoards(): {
   boards: BoardSummary[]
   error: string | null
+  // loaded: the first read has ended.
+  loaded: boolean
   reload: () => Promise<void>
 } {
-  const { boards: value, error } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
-  return { boards: value, error, reload: reloadBoards }
+  const { boards: value, error, loaded } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
+  return { boards: value, error, loaded, reload: reloadBoards }
 }
 
 // useInvite follows the open (or last) invite while active. An invite that

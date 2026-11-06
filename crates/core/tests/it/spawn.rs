@@ -535,7 +535,8 @@ fn a_card_with_no_checkout_fails_once_and_is_not_asked_again() {
             ..SpawnSetting::default()
         })
         .unwrap();
-    // No repo and no Where: no folder to start in.
+    // No repo, no Where and no checkout of any repo here: no folder to
+    // start in (card #600: with one, it starts there).
     let t = co
         .create_task(
             &person,
