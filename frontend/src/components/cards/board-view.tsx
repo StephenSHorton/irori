@@ -8,6 +8,8 @@
 // notification's Open); the cards are every live card, and BoardView
 // keeps the scope's; Closed comes in already scoped (useDoneCards).
 
+import { NotYetFold } from "@/components/cards/order"
+import { laterOf } from "@/lib/later"
 import { useState, type ReactNode } from "react"
 
 import {
@@ -243,6 +245,8 @@ export function BoardView({
       (c.parent && shown.some((p) => p.id === c.parent?.id && p.pinned))
   )
   const inPinned = new Set(pinnedGroup.map((c) => c.id))
+  // Card #570: held cards fold away at the end; a pinned one stays pinned.
+  const notYet = shown.filter((c) => !inPinned.has(c.id) && laterOf(c))
   const decide = mine.filter((c) => c.openBlockers > 0).length
   const review = mine.filter((c) => c.state === TaskState.InReview).length
 
@@ -511,11 +515,22 @@ export function BoardView({
                 </>
               )}
               <CardGrid
-                cards={shown.filter((c) => !inPinned.has(c.id))}
+                cards={shown.filter((c) => !inPinned.has(c.id) && !laterOf(c))}
                 context={context}
                 selected={selected}
                 onSelect={onOpen}
               />
+              {notYet.length > 0 && (
+                <NotYetFold count={notYet.length}>
+                  <CardGrid
+                    label="Not yet"
+                    cards={notYet}
+                    context={context}
+                    selected={selected}
+                    onSelect={onOpen}
+                  />
+                </NotYetFold>
+              )}
             </>
           ) : (
             <p className="px-1 text-[12.5px] text-muted-foreground">

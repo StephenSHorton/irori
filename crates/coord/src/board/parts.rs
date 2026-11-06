@@ -162,6 +162,7 @@ impl Fold {
             && t.assigned.is_empty()
             && !t.withdrawn
             && t.open_ask().is_none()
+            && t.parked().is_none()
             && t.blockers
                 .iter()
                 .filter(|b| b.open())

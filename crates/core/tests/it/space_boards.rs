@@ -376,3 +376,51 @@ fn a_hidden_dm_space_has_no_boards_and_takes_none() {
         "a card went into a hidden space"
     );
 }
+
+/// Card #563: a move through the Core, and a delete. No card is lost, every
+/// old ref still works, and the deleted board's tag stays taken.
+#[test]
+fn a_card_moves_and_a_deleted_boards_cards_land_on_the_first() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let co = r.core.board_coord(&id).unwrap();
+    let by = r.core.board_key(&id, &r.key_a).unwrap();
+    let w = on_board(&r, &id, "", "on the first");
+    let n = on_board(&r, &id, &net, "on net");
+    let t = co.move_task(&by, &w.id, &net).unwrap();
+    assert_eq!(t.short_ref(), "net#2");
+    assert_eq!(r.core.task_ref("wind#1").unwrap(), w.id);
+
+    r.core.delete_space_board(&id, &net).unwrap();
+    assert_eq!(names(&r.core, &id), ["wind:Wind Waker Multiplayer"]);
+    let (a, b) = (co.get_task(&n.id).unwrap(), co.get_task(&w.id).unwrap());
+    assert_eq!((a.board.as_str(), a.tag.as_str()), ("", "wind"));
+    assert_eq!((b.board.as_str(), b.tag.as_str()), ("", "wind"));
+    assert_eq!((a.short.as_str(), b.short.as_str()), ("2", "3"));
+    assert_eq!(r.core.task_ref("net#1").unwrap(), n.id);
+    assert_eq!(r.core.task_ref("net#2").unwrap(), w.id);
+    assert_eq!(r.core.task_ref("wind#1").unwrap(), w.id);
+
+    let e = r
+        .core
+        .create_space_board(&id, "Network", "net")
+        .unwrap_err();
+    assert!(e.to_string().contains("already board"), "{e}");
+    let e = co.move_task(&by, &w.id, &net).unwrap_err();
+    assert_eq!(e.kind(), CK::NotFound);
+}
+
+#[test]
+fn the_first_board_cant_be_deleted_and_a_deleted_one_stays_gone() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let e = r.core.delete_space_board(&id, &id).unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
+    let e = r.core.delete_space_board(&id, "nope").unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotFound));
+    r.core.delete_space_board(&id, &net).unwrap();
+    let e = r.core.delete_space_board(&id, &net).unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotFound));
+    let e = r.core.rename_space_board(&id, &net, "Back").unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotFound));
+}
