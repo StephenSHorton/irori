@@ -7,6 +7,11 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
+	 *  Writes the window's own line to `irori.log` (card #551): what its lists
+	 *  read and which signals reached it, which the Core can't see from here.
+	 */
+	windowLog: (line: string) => __TAURI_INVOKE<null>("window_log", { line }),
+	/**
 	 *  Card #232: waits until the Core has started (the window opens first and
 	 *  shows the opening screen); an error says why it couldn't start.
 	 */
@@ -540,6 +545,8 @@ export type Ask = {
 	waiting?: string[],
 	outcome?: Outcome,
 	mentions?: Mention[],
+	/**  A private thread about this shared board (card #185). */
+	board?: string,
 };
 
 /**  One choice on the ask box's repo chip. */

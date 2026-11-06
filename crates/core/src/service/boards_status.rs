@@ -7,6 +7,8 @@
 //! - **A stalled forwarder** (§6.4): a member device still talking to us
 //!   whose vector has stopped moving for a stream that we, or another
 //!   member device, hold further.
+//! - **This device is stalled** (no-server.md §4.3): it has stopped taking
+//!   in a writer's rows, and says so itself instead of leaving it to others.
 //! - **Can't reach any home server** (§6.5): other people are on the board,
 //!   no member device of theirs is connected on it, and this device's own
 //!   home relay isn't connected either.
@@ -20,7 +22,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use irori_identity::membership::{MEMBER_ACTIVE, MEMBER_REMOVED};
-use mesh::boardmesh::PeerHeard;
+use mesh::boardmesh::{PeerHeard, SelfStall};
 
 use super::Services;
 use super::boards::BoardLog;
@@ -59,6 +61,8 @@ pub struct BoardStatusInput {
     pub heard: Vec<PeerHeard>,
     /// This device's board vector.
     pub vector: BTreeMap<String, i64>,
+    /// The writers this device stopped taking ([`mesh::BoardMesh::stalled`]).
+    pub stalled: Vec<SelfStall>,
     pub now_ms: i64,
     /// A person's name ("" when unknown).
     pub names: BTreeMap<String, String>,
@@ -73,6 +77,15 @@ impl BoardStatusInput {
             .filter(|n| !n.is_empty())
             .cloned()
             .unwrap_or_else(|| "someone".into())
+    }
+
+    /// Whose rows a device's stream carries, as a line says it.
+    fn whose(&self, dev: &str) -> String {
+        match self.device_person.get(dev) {
+            Some(p) if p == &self.me => "your".to_string(),
+            Some(p) => format!("{}'s", self.name(p)),
+            None => "a member's".to_string(),
+        }
     }
 
     fn device(&self, dev: &str) -> String {
@@ -159,9 +172,30 @@ pub fn board_warnings(i: &BoardStatusInput) -> Vec<String> {
         }
     }
 
+    // This device, stalled. One line per person, after the same wait as
+    // the line others show about it, so a passing refusal doesn't flash.
+    let stall = STALL_AFTER.as_millis() as i64;
+    let mut said: Vec<String> = Vec::new();
+    for s in i.stalled.iter().filter(|s| i.now_ms - s.since_ms > stall) {
+        let whose = i.whose(&s.device_id);
+        // Any of this person's writers an update heals says so.
+        let unread = i
+            .stalled
+            .iter()
+            .any(|o| o.unread && i.whose(&o.device_id) == whose);
+        if said.contains(&whose) {
+            continue;
+        }
+        out.push(if unread {
+            format!("This device is stalled: it isn't taking in {whose} rows until you update Irori here")
+        } else {
+            format!("This device is stalled: it isn't taking in {whose} rows")
+        });
+        said.push(whose);
+    }
+
     // Stalled forwarders.
     let live = HEARD_LIVE.as_millis() as i64;
-    let stall = STALL_AFTER.as_millis() as i64;
     for h in &i.heard {
         if i.now_ms - h.at_ms > live {
             continue;
@@ -192,14 +226,10 @@ pub fn board_warnings(i: &BoardStatusInput) -> Vec<String> {
             }
         }
         if let Some(d) = lag.first() {
-            let whose = match i.device_person.get(*d) {
-                Some(p) if p == &i.me => "your".to_string(),
-                Some(p) => format!("{}'s", i.name(p)),
-                None => "a member's".to_string(),
-            };
             out.push(format!(
-                "{} is stalled: it isn't taking in {whose} rows",
-                capitalize(&i.device(&h.device_id))
+                "{} is stalled: it isn't taking in {} rows",
+                capitalize(&i.device(&h.device_id)),
+                i.whose(d)
             ));
         }
     }
@@ -234,11 +264,9 @@ impl Services {
                 .get(&c.peer)
                 .is_some_and(|p| p != &me && m.active(p))
         });
-        let heard = self
-            .mesh
-            .board(&b.id)
-            .map(|x| x.heard())
-            .unwrap_or_default();
+        let mesh = self.mesh.board(&b.id);
+        let heard = mesh.as_ref().map(|x| x.heard()).unwrap_or_default();
+        let stalled = mesh.as_ref().map(|x| x.stalled()).unwrap_or_default();
         board_warnings(&BoardStatusInput {
             tag: m.tag.clone(),
             version: self.version.clone(),
@@ -256,6 +284,7 @@ impl Services {
             settled: b.opened.elapsed() >= REACH_GRACE,
             heard,
             vector: b.store.vector().unwrap_or_default(),
+            stalled,
             now_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as i64),
@@ -311,6 +340,7 @@ mod tests {
             spaces: 0,
             spawns: 0,
             synced_ms: 0,
+            tolerant: 0,
         }
     }
 
@@ -345,6 +375,39 @@ mod tests {
         assert_eq!(board_warnings(&i).len(), 1);
         assert!(board_warnings(&i)[0].contains("0.6.0-rc2"));
         assert!(cmp_version("0.10.0", "0.9.9").is_gt());
+    }
+
+    /// Card #579: the stalled device says so itself, after the wait the
+    /// others use, one line a person, and says when updating heals it.
+    #[test]
+    fn this_device_says_it_is_stalled() {
+        let stall = |d: &str, ago: i64, unread| SelfStall {
+            device_id: d.into(),
+            seq: 7,
+            since_ms: NOW - ago,
+            unread,
+        };
+        let mut i = base();
+        i.device_person.insert("c1".into(), "pCasey".into());
+        i.device_person.insert("c2".into(), "pCasey".into());
+        i.names.insert("pCasey".into(), "Casey".into());
+        i.stalled = vec![stall("c1", 10_000, true)];
+        assert!(board_warnings(&i).is_empty(), "too soon to say");
+        i.stalled = vec![stall("c1", 180_000, true), stall("c2", 180_000, false)];
+        assert_eq!(
+            board_warnings(&i),
+            ["This device is stalled: it isn't taking in Casey's rows until you update Irori here"]
+        );
+        i.stalled = vec![stall("c2", 180_000, false)];
+        assert_eq!(
+            board_warnings(&i),
+            ["This device is stalled: it isn't taking in Casey's rows"]
+        );
+        i.stalled = vec![stall("x9", 180_000, false)];
+        assert_eq!(
+            board_warnings(&i),
+            ["This device is stalled: it isn't taking in a member's rows"]
+        );
     }
 
     #[test]

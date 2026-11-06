@@ -7,7 +7,9 @@
 //!
 //! A pull: the puller writes `u32 BE len || {"vector":{...}}`; the server
 //! answers with `u32 BE len || {"events":[Row]}` chunks of what the puller
-//! lacks, at most 2000 rows in all, then finishes the stream.
+//! lacks, at most 2000 rows in all, taking turns between writers, then
+//! finishes the stream. A puller leaves out a writer it's holding off by
+//! saying it holds that writer's whole stream.
 
 use std::sync::Arc;
 
@@ -106,11 +108,14 @@ pub(crate) async fn serve_pull(log: Arc<Store>, st: &mut Stream) {
     let mut sent = 0;
     while sent < BOARD_PULL_ROWS {
         let (l, v) = (log.clone(), vec.clone());
-        let evs =
-            match tokio::task::spawn_blocking(move || l.missing(&v, MAX_BATCH_ROWS as i64)).await {
-                Ok(Ok(evs)) if !evs.is_empty() => evs,
-                _ => return,
-            };
+        let evs = match tokio::task::spawn_blocking(move || {
+            l.missing_by_turns(&v, MAX_BATCH_ROWS as i64)
+        })
+        .await
+        {
+            Ok(Ok(evs)) if !evs.is_empty() => evs,
+            _ => return,
+        };
         for f in batches(&evs, false) {
             let body = json::marshal(&BoardChunk { events: &f.events }).unwrap_or_default();
             if write_chunk(st, &body).await.is_err() {
@@ -126,13 +131,20 @@ pub(crate) async fn serve_pull(log: Arc<Store>, st: &mut Stream) {
 }
 
 /// Go `pullBoard`: asks the peer on `conn` for the rows of board `id` that
-/// `log` lacks and inserts them. Returns how many rows came.
+/// `log` lacks and inserts them. A writer in `skip` is on hold: the request
+/// says this device holds all of its stream, as a forked device's own does
+/// on the private mesh, so its rows aren't sent. Any peer, older ones too,
+/// reads that the same way.
 pub(crate) async fn pull_board(
     conn: &dyn Conn,
     id: &str,
     log: Arc<Store>,
-) -> Result<usize, String> {
-    let vec = log.vector().map_err(|e| e.to_string())?;
+    skip: &[String],
+) -> Result<Pulled, String> {
+    let mut vec = log.vector().map_err(|e| e.to_string())?;
+    for dev in skip {
+        vec.insert(dev.clone(), i64::MAX);
+    }
     let st = conn
         .open_stream(&format!("{BOARD_LABEL_PREFIX}{id}"))
         .await
@@ -154,16 +166,61 @@ pub(crate) async fn pull_board(
         }
     }
     let _ = stream.shutdown().await;
-    let n = evs.len();
-    tokio::task::spawn_blocking(move || insert_board_rows(&log, evs))
+    tokio::task::spawn_blocking(move || insert_runs(&log, evs))
         .await
-        .map_err(|e| e.to_string())??;
-    Ok(n)
+        .map_err(|e| e.to_string())
+}
+
+/// A row the store wouldn't take: its writer's stream stops there until the
+/// row is taken, on this pull or a later one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefusedRow {
+    /// The writer, whose stream stopped.
+    pub device_id: String,
+    pub seq: i64,
+    pub kind: String,
+    /// Why, as the store said it.
+    pub reason: String,
+    /// The refusal is this build not knowing the kind, so an update heals
+    /// it. A kind it knows and refuses is the writer's bug.
+    pub unread: bool,
+    /// A revoked device's row past its cut: refused for good, and right to
+    /// be. Nothing is wrong on this device.
+    pub past_cut: bool,
+}
+
+/// What a pull brought.
+#[derive(Debug, Default)]
+pub struct Pulled {
+    /// Rows that came.
+    pub rows: usize,
+    /// Of them, rows the log now holds. Rows can land beside a refusal.
+    pub landed: usize,
+    /// The first row refused on each stream that stopped.
+    pub refused: Vec<RefusedRow>,
 }
 
 /// Go `insertBoardRows`: device by device, trying again the runs refused
-/// for "no cert yet" while another run got in.
+/// for "no cert yet" while another run got in. The error is the last
+/// refusal, if any; [`Pulled`] is the whole story.
 pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
+    match insert_runs(st, evs).refused.pop() {
+        Some(r) => Err(r.reason),
+        None => Ok(()),
+    }
+}
+
+/// A kind a newer Irori could name: dotted words, at least two, none empty.
+/// `task.` or `task` is a writer's bug, which no update heals.
+fn well_formed(kind: &str) -> bool {
+    kind.contains('.') && kind.split('.').all(|p| !p.is_empty())
+}
+
+fn insert_runs(st: &Store, evs: Vec<Event>) -> Pulled {
+    let mut out = Pulled {
+        rows: evs.len(),
+        ..Pulled::default()
+    };
     let mut order: Vec<String> = Vec::new();
     let mut runs: std::collections::BTreeMap<String, Vec<Event>> = Default::default();
     for ev in evs {
@@ -172,7 +229,6 @@ pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
         }
         runs.entry(ev.device_id.clone()).or_default().push(ev);
     }
-    let mut last: Option<String> = None;
     while !order.is_empty() {
         let mut wait = Vec::new();
         let mut moved = false;
@@ -182,6 +238,7 @@ pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
             let (applied, r) = st.insert_batch(run);
             if applied > 0 {
                 moved = true;
+                out.landed += applied;
             }
             match r {
                 Ok(()) => {}
@@ -189,10 +246,23 @@ pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
                     run.drain(..applied);
                     wait.push(dev.clone());
                 }
-                Err(e) if e.is(ErrorKind::Closed) => return Ok(()),
-                // A fork, an HLC refusal, a row ahead of the clock: the store
-                // recorded what it must; the next pull starts from its vector.
-                Err(e) => last = Some(e.to_string()),
+                Err(e) if e.is(ErrorKind::Closed) => return out,
+                // A fork, an HLC refusal, a row ahead of the clock, a kind
+                // this build refuses: the store recorded what it must; the
+                // next pull starts from its vector.
+                Err(e) => {
+                    let row = &run[applied.min(run.len() - 1)];
+                    out.refused.push(RefusedRow {
+                        device_id: dev.clone(),
+                        seq: row.seq,
+                        kind: row.kind.clone(),
+                        reason: e.to_string(),
+                        unread: e.is(ErrorKind::NotBoardKind)
+                            && store::kind_side(&row.kind) == store::Side::Unclassified
+                            && well_formed(&row.kind),
+                        past_cut: e.is(ErrorKind::PastCut),
+                    });
+                }
             }
         }
         if !moved {
@@ -200,8 +270,68 @@ pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
         }
         order = wait;
     }
-    match last {
-        Some(e) => Err(e),
-        None => Ok(()),
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A board log on dev-a, and another device's unsigned row (no
+    /// verifier: the rules under test are the kind's).
+    fn board() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let st = Store::open_with(
+            dir.path().join("boards").join("b.db"),
+            "dev-a",
+            Arc::new(store::Clock::new()),
+            store::OpenOptions {
+                board: true,
+                ..store::OpenOptions::default()
+            },
+        )
+        .unwrap();
+        (dir, st)
+    }
+
+    fn row(dev: &str, kind: &str) -> Event {
+        Event {
+            device_id: dev.into(),
+            seq: 1,
+            hlc: store::Clock::new().now(),
+            actor: "irori".into(),
+            kind: kind.into(),
+            payload: br#"{"resource":"gpu/1"}"#.to_vec(),
+            sig: Vec::new(),
+        }
+    }
+
+    /// Card #579: rows land beside a refusal and are counted, and a
+    /// refusal says an update heals it only for a well-formed kind this
+    /// build doesn't know.
+    #[test]
+    fn insert_runs_counts_what_landed_and_what_an_update_heals() {
+        let (_dir, st) = board();
+        let got = insert_runs(
+            &st,
+            vec![
+                row("dev-b", "board.future"),
+                row("dev-c", store::kinds::LEASE_ACQUIRED),
+                row("dev-d", "task.shared"),
+                row("dev-e", "task."),
+                row("dev-f", "task.future"),
+            ],
+        );
+        assert_eq!((got.rows, got.landed), (5, 2), "{got:?}");
+        let unread: Vec<(&str, bool)> = got
+            .refused
+            .iter()
+            .map(|r| (r.device_id.as_str(), r.unread))
+            .collect();
+        assert_eq!(
+            unread,
+            [("dev-b", true), ("dev-d", false), ("dev-e", false)]
+        );
+        assert!(well_formed("a.b.c") && !well_formed("task") && !well_formed("a..b"));
     }
 }

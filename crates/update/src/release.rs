@@ -1,7 +1,7 @@
 //! The release side of the contract (Go update/release.go): which assets a
 //! release must carry and how `SHA256SUMS` is read. The asset names are also
 //! what `scripts/release.ps1` and `scripts/release-mac.sh` write
-//! (tests/release_names.rs keeps them in step, as Go's workflow_test.go does).
+//! (tests/it/release_names.rs keeps them in step, as Go's workflow_test.go does).
 
 use serde::Deserialize;
 
