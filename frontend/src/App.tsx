@@ -77,7 +77,6 @@ import {
 } from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
-import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -221,18 +220,16 @@ export function App() {
   // #390), Notes (card #413), Boards, or one board's page; in the address
   // so back and forward move between them. ?boards in the preview starts
   // on Boards, ?talk on Talk, ?thread=<id> on Talk with that thread open,
-  // and ?notes on Notes (?notes=<board tag> on that board's tab).
+  // and ?notes on Notes.
   const [section, setSection] = useState<Section>(() => {
     const thread = previewFlag("thread")
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
-    const notesTab = previewFlag("notes")
-    if (notesTab !== null) return { kind: "notes", tab: notesTab }
+    if (previewFlag("notes") !== null) return { kind: "notes" }
     return previewFlag("boards") !== null
       ? { kind: "boards" }
       : sectionFromHash(window.location.hash)
   })
-  const notesWaiting = useNotesWaiting()
   // A board page's own tab (All, Needs a decision, Closed).
   // A board page starts on All; the preview's ?filter=owner:<id> starts it
   // on one member's cards (card #268).
@@ -643,7 +640,7 @@ export function App() {
       group: "Go to",
       order: 2,
       keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"],
-      run: () => goTo({ kind: "notes", tab: "" }),
+      run: () => goTo({ kind: "notes" }),
     },
     {
       id: "nav.boards",
@@ -786,7 +783,6 @@ export function App() {
             onHeld={() => openHeld("")}
             unread={unreadNotifications}
             section={open ? null : section}
-            notesWaiting={notesWaiting}
             boardsNeedYou={boardDecide.length}
             boards={boards}
             cards={spaceCards}
@@ -905,10 +901,8 @@ export function App() {
               ) : section.kind === "notes" ? (
                 <Scroll>
                   <NotesPage
-                    tab={section.tab}
                     boards={boards}
                     roster={roster}
-                    onTab={(tab) => go({ kind: "notes", tab })}
                     onOpen={openCard}
                     now={now}
                   />

@@ -321,6 +321,8 @@ export const TalkService = {
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
   // Everyone the person can DM, and leaving a DM with one of them (#538).
   DmPeople: () => call(commands.talkDmPeople()),
+  // Who is replying in each channel and DM (#645).
+  Replying: () => call(commands.talkReplying()),
   DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
@@ -330,11 +332,8 @@ export const TalkService = {
 
 // NotesService is the window's notes_* commands (card #411).
 export const NotesService = {
-  List: (scope: string, removed = false) =>
-    call(commands.notesList(scope, removed)),
-  Waiting: () => call(commands.notesWaiting()),
+  List: (removed = false) => call(commands.notesList(removed)),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
-  Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) =>
     call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),

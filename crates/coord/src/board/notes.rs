@@ -2,13 +2,12 @@
 //! gotchas, decisions, pointers and preferences an agent should know before
 //! it acts, tagged with where they apply and linked to their source.
 //!
-//! The private log holds Mine notes and each board's log holds that board's
-//! notes; coord folds both the same way. A note an agent writes stays
-//! proposed until a person accepts it (on the private log, the person; on a
-//! board, any member); a note a person writes is accepted at once. An
-//! agent's edit or removal of an accepted note is itself a proposal, kept
-//! beside the live text until a person accepts it. Proposed notes reach no
-//! agent: [`Fold::notes_for`] and agent searches see accepted notes only.
+//! Notes live in the person's private log (card #616). Board logs still
+//! take the rows, since older devices can write them, and coord folds them
+//! the same way, but nothing reads a board's notes. Every note is live as
+//! soon as it is written, by the person or by one of their agents, and so
+//! is every edit and removal (card #616: no approval step). A removed note
+//! reaches no agent: [`Fold::notes_for`] and searches skip it.
 
 use gocompat::time::GoTime;
 use serde::Serialize;
@@ -16,7 +15,7 @@ use store::{Event, kinds};
 
 use super::error::{Result, invalid, not_allowed, not_found};
 use super::fold::Fold;
-use super::rows::{NoteAcceptedRow, NoteEditedRow, NoteProposedRow, NoteRemovedRow, row};
+use super::rows::{NoteEditedRow, NoteProposedRow, NoteRemovedRow, row};
 use super::types::{Change, RowPos};
 use super::util::{caller, new_id};
 use crate::names::trim_space;
@@ -27,8 +26,8 @@ pub const NOTE_CHANGED: &str = "note";
 /// A note's kinds.
 pub const NOTE_KINDS: [&str; 5] = ["rule", "gotcha", "decision", "pointer", "preference"];
 
-/// A note's states.
-pub const NOTE_PROPOSED: &str = "proposed";
+/// A note's states. A note was `proposed` until a person accepted it before
+/// card #616; now each is accepted when written.
 pub const NOTE_ACCEPTED: &str = "accepted";
 pub const NOTE_REMOVED: &str = "removed";
 
@@ -51,30 +50,11 @@ pub const TAG_PATH: &str = "path:";
 pub const TAG_MACHINE: &str = "machine:";
 pub const TAG_TOPIC: &str = "topic:";
 
-/// A pending agent change to an accepted note: an edit or a removal.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoteChange {
-    pub by: String,
-    pub at: GoTime,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub kind: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    /// The proposal is to remove the note.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub remove: bool,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub why: String,
-}
-
 /// One step of a note's history.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteEvent {
-    /// proposed, accepted, edited, edit_proposed, removed, removal_proposed.
+    /// proposed (written), edited or removed.
     pub what: String,
     pub by: String,
     pub at: GoTime,
@@ -99,17 +79,14 @@ pub struct Note {
     pub task_id: String,
     pub by: String,
     pub at: GoTime,
-    /// proposed, accepted or removed.
+    /// accepted (live) or removed.
     pub state: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub accepted_by: String,
     #[serde(skip_serializing_if = "GoTime::is_zero")]
     pub accepted_at: GoTime,
-    /// When its text, kind or tags last changed (accepted).
+    /// When its text, kind or tags last changed.
     pub updated: GoTime,
-    /// An agent's edit or removal waiting for a person's accept.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending: Option<NoteChange>,
     pub history: Vec<NoteEvent>,
 }
 
@@ -341,7 +318,10 @@ impl Fold {
                     task_id: p.task_id,
                     by: p.by.clone(),
                     at: t,
-                    state: NOTE_PROPOSED.into(),
+                    // Live at once, whoever wrote it (card #616): an
+                    // agent's note needs nobody's accept, so it has no
+                    // accepter; a person's is accepted by its writer.
+                    state: NOTE_ACCEPTED.into(),
                     updated: t,
                     history: vec![NoteEvent {
                         what: "proposed".into(),
@@ -359,72 +339,15 @@ impl Fold {
                 self.notes.insert(n.id.clone(), (n, RowPos::of(ev)));
                 self.note_changed(&p.note_id);
             }
-            kinds::NOTE_ACCEPTED => {
-                let Some(p) = row::<NoteAcceptedRow>(&ev.payload) else {
-                    return;
-                };
-                if !self.person_row(ev, &p.by) {
-                    self.ignore(&ev.device_id);
-                    return;
-                }
-                let Some((n, _)) = self.notes.get_mut(&p.note_id) else {
-                    return;
-                };
-                let t = at(p.at);
-                match n.pending.take() {
-                    Some(c) if c.remove => {
-                        n.state = NOTE_REMOVED.into();
-                        n.history.push(NoteEvent {
-                            what: "removed".into(),
-                            by: p.by.clone(),
-                            at: t,
-                            text: c.why,
-                        });
-                    }
-                    Some(c) => {
-                        if !c.kind.is_empty() {
-                            n.kind = c.kind;
-                        }
-                        if !c.text.is_empty() {
-                            n.text = c.text.clone();
-                        }
-                        if let Some(tags) = c.tags {
-                            n.tags = tags;
-                        }
-                        n.updated = t;
-                        n.state = NOTE_ACCEPTED.into();
-                        n.accepted_by = p.by.clone();
-                        n.accepted_at = t;
-                        n.history.push(NoteEvent {
-                            what: "edited".into(),
-                            by: p.by.clone(),
-                            at: t,
-                            text: c.text,
-                        });
-                    }
-                    None => {
-                        if n.state != NOTE_PROPOSED {
-                            return;
-                        }
-                        n.state = NOTE_ACCEPTED.into();
-                        n.accepted_by = p.by.clone();
-                        n.accepted_at = t;
-                        n.history.push(NoteEvent {
-                            what: "accepted".into(),
-                            by: p.by.clone(),
-                            at: t,
-                            text: String::new(),
-                        });
-                    }
-                }
-                self.note_changed(&p.note_id);
-            }
+            // A person's accept of an agent's proposal or pending change
+            // (before card #616). Every row now applies when written, so an
+            // accept, from an older device, changes nothing.
+            kinds::NOTE_ACCEPTED => {}
             kinds::NOTE_EDITED => {
                 let Some(p) = row::<NoteEditedRow>(&ev.payload) else {
                     return;
                 };
-                let person = self.person_row(ev, &p.by);
-                if !person && !self.agent_row(ev, &p.by) {
+                if !self.person_row(ev, &p.by) && !self.agent_row(ev, &p.by) {
                     self.ignore(&ev.device_id);
                     return;
                 }
@@ -435,53 +358,31 @@ impl Fold {
                     return;
                 }
                 let t = at(p.at);
-                // A person's edit, or an agent's on its own proposal, applies
-                // at once; an agent's on a live note waits for an accept.
-                if person || n.state == NOTE_PROPOSED && n.by == p.by {
-                    if !p.kind.is_empty() {
-                        n.kind = p.kind;
-                    }
-                    if !p.text.is_empty() {
-                        n.text = p.text.clone();
-                    }
-                    if let Some(tags) = p.tags {
-                        n.tags = tags;
-                    }
-                    n.updated = t;
-                    if person {
-                        n.pending = None;
-                    }
-                    n.history.push(NoteEvent {
-                        what: "edited".into(),
-                        by: p.by,
-                        at: t,
-                        text: p.text,
-                    });
-                } else {
-                    n.pending = Some(NoteChange {
-                        by: p.by.clone(),
-                        at: t,
-                        kind: p.kind,
-                        text: p.text.clone(),
-                        tags: p.tags,
-                        remove: false,
-                        why: p.why,
-                    });
-                    n.history.push(NoteEvent {
-                        what: "edit_proposed".into(),
-                        by: p.by,
-                        at: t,
-                        text: p.text,
-                    });
+                // An agent's edit applies at once, like a person's (card
+                // #616); before, it waited for an accept.
+                if !p.kind.is_empty() {
+                    n.kind = p.kind;
                 }
+                if !p.text.is_empty() {
+                    n.text = p.text.clone();
+                }
+                if let Some(tags) = p.tags {
+                    n.tags = tags;
+                }
+                n.updated = t;
+                n.history.push(NoteEvent {
+                    what: "edited".into(),
+                    by: p.by,
+                    at: t,
+                    text: p.text,
+                });
                 self.note_changed(&p.note_id);
             }
             kinds::NOTE_REMOVED => {
                 let Some(p) = row::<NoteRemovedRow>(&ev.payload) else {
                     return;
                 };
-                let person = self.person_row(ev, &p.by);
-                if !person && !self.agent_row(ev, &p.by) {
+                if !self.person_row(ev, &p.by) && !self.agent_row(ev, &p.by) {
                     self.ignore(&ev.device_id);
                     return;
                 }
@@ -492,30 +393,14 @@ impl Fold {
                     return;
                 }
                 let t = at(p.at);
-                if person || n.state == NOTE_PROPOSED && n.by == p.by {
-                    n.state = NOTE_REMOVED.into();
-                    n.pending = None;
-                    n.history.push(NoteEvent {
-                        what: "removed".into(),
-                        by: p.by,
-                        at: t,
-                        text: p.why,
-                    });
-                } else {
-                    n.pending = Some(NoteChange {
-                        by: p.by.clone(),
-                        at: t,
-                        remove: true,
-                        why: p.why.clone(),
-                        ..NoteChange::default()
-                    });
-                    n.history.push(NoteEvent {
-                        what: "removal_proposed".into(),
-                        by: p.by,
-                        at: t,
-                        text: p.why,
-                    });
-                }
+                // An agent's removal applies at once too (card #616).
+                n.state = NOTE_REMOVED.into();
+                n.history.push(NoteEvent {
+                    what: "removed".into(),
+                    by: p.by,
+                    at: t,
+                    text: p.why,
+                });
                 self.note_changed(&p.note_id);
             }
             _ => {}
@@ -576,30 +461,6 @@ impl Fold {
             Some(_) => Err(invalid(format!("note {id} was removed"))),
             None => Err(not_found(format!("note {id}"))),
         }
-    }
-
-    pub(crate) fn accept_note(&mut self, by: &str, id: &str) -> Result<Note> {
-        let (by, person) = self.writer(by)?;
-        if !person {
-            return Err(not_allowed(
-                "a person accepts a note; an agent proposes it (notes_propose)",
-            ));
-        }
-        let n = self.live_note(id)?;
-        if n.state == NOTE_ACCEPTED && n.pending.is_none() {
-            return Ok(n);
-        }
-        let at = self.stamp();
-        self.write(
-            &by,
-            kinds::NOTE_ACCEPTED,
-            &NoteAcceptedRow {
-                note_id: id.into(),
-                by: by.clone(),
-                at,
-            },
-        )?;
-        self.live_note(id).or_else(|_| Ok(self.notes[id].0.clone()))
     }
 
     pub(crate) fn edit_note(&mut self, by: &str, id: &str, e: NoteEdit, why: &str) -> Result<Note> {
