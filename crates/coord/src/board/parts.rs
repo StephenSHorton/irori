@@ -18,6 +18,9 @@
 //! helpers is idle. Then a part that finishes waits for the next lead, and
 //! Irori starts one for the card ([`Fold::needs_lead`]), so the helpers'
 //! branches still get merged and the person is still asked once (#451).
+//! A lead can also go after every part is in, with its "Can I merge?"
+//! unanswered: the person's answer then stays open and brings the next
+//! lead, which acts on it (#557).
 
 use gocompat::time::GoTime;
 
