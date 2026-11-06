@@ -442,7 +442,10 @@ mod tests {
     fn new_strings_escape_as_go_does() {
         let mut v = parse(br#"{"k":"old"}"#).unwrap();
         *v.get_mut("k").unwrap() = Value::string("<a & \"b\">\n");
-        assert_eq!(encode(&v), br#"{"k":"\u003ca \u0026 \"b\"\u003e\n"}"#.to_vec());
+        assert_eq!(
+            encode(&v),
+            br#"{"k":"\u003ca \u0026 \"b\"\u003e\n"}"#.to_vec()
+        );
         *v.get_mut("k").unwrap() = Value::string_with("<a & b>", false);
         assert_eq!(encode(&v), br#"{"k":"<a & b>"}"#.to_vec());
     }
@@ -452,7 +455,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("gocompat-rewrite-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("g.json");
-        let file = "{\r\n  \"z\": \"\\u003c\",\r\n  \"a\": [\r\n    1,\r\n    \"old\"\r\n  ]\r\n}\r\n";
+        let file =
+            "{\r\n  \"z\": \"\\u003c\",\r\n  \"a\": [\r\n    1,\r\n    \"old\"\r\n  ]\r\n}\r\n";
         std::fs::write(&p, file).unwrap();
         assert!(!rewrite_indented(&p, |_| {}).unwrap());
         assert_eq!(std::fs::read_to_string(&p).unwrap(), file);

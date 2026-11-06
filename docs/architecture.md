@@ -365,6 +365,15 @@ Each exporter writes into `testdata/golden/`:
 - `fallback_tools.json`, which is embedded in Rust and asserted equal to `GET /v1/tools?client=grok` (surface.md §2.8);
 - a fixture data dir written by Go with the `file` keystore.
 
+**Regenerating the tool-text goldens.** Tool text now changes in Rust (`crates/tools/src/specs.json` and the instructions in `crates/tools`), and three goldens carry copies of it: `testdata/golden/tools/specs.json`, the `tools-grok` step of `testdata/golden/api/go.json`, and `testdata/golden/mcp/wire.json` (the `fallback` list, the `instructions` and the `tools/list` answers). Don't patch them by hand. Run the three tests once with `IRORI_BLESS=1` and they rewrite those parts from this build, then run them normally:
+
+```sh
+IRORI_BLESS=1 cargo test --no-fail-fast -p irori-tools -p irori-api -p irori-mcp   # PowerShell: $env:IRORI_BLESS=1; cargo test ...; Remove-Item env:IRORI_BLESS
+cargo test -p irori-tools -p irori-api -p irori-mcp
+```
+
+The bless rewrites only those parts. Everything else in the files keeps its bytes, its key order, its escaping and its line endings (`gocompat::json::rewrite_indented`), and any other difference still fails. Review the diff: it should show only the text you changed.
+
 ### 6.3 Differential tests on real data (local only)
 
 - **Rows:** open a copy of the PC's and the Mac's `irori.db` with Rust and verify every row signature and `RowHash`. The `Chain` device list must equal Go's `/v1/devices`.

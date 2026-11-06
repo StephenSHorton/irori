@@ -493,7 +493,9 @@ fn api_replays_equal_to_go() {
             rw.body = rw.body.map(|b| drop_keys(&b, &keys));
         }
         if gw != rw {
-            if bless() && BLESS.contains(&id) && (gw.status, &gw.headers) == (rw.status, &rw.headers)
+            if bless()
+                && BLESS.contains(&id)
+                && (gw.status, &gw.headers) == (rw.status, &rw.headers)
             {
                 blessed.insert(i, r.body.clone().unwrap_or_default());
                 continue;
