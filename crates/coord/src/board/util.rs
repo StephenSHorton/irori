@@ -118,12 +118,30 @@ const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 /// A ULID-style id: 48 bits of milliseconds then 80 random bits, 26
 /// Crockford base32 characters.
 pub fn new_id(t: &GoTime) -> String {
+    let mut tail = [0u8; 10];
+    let _ = getrandom::fill(&mut tail);
+    ulid(t, tail)
+}
+
+/// [`new_id`]'s shape with the 80 bits taken from a hash of `seed`, not
+/// chance: every device that makes the id for the same `t` and `seed`
+/// makes the same one, so rows two devices write for the same thing at
+/// once fold as one (card #421's merge sha comment).
+pub fn fixed_id(t: &GoTime, seed: &str) -> String {
+    use sha2::Digest;
+    let h = sha2::Sha256::digest(seed.as_bytes());
+    let mut tail = [0u8; 10];
+    tail.copy_from_slice(&h[..10]);
+    ulid(t, tail)
+}
+
+fn ulid(t: &GoTime, tail: [u8; 10]) -> String {
     let mut b = [0u8; 16];
     let ms = t.unix_milli_value() as u64;
     for (i, byte) in b.iter_mut().take(6).enumerate() {
         *byte = (ms >> (8 * (5 - i))) as u8;
     }
-    let _ = getrandom::fill(&mut b[6..]);
+    b[6..].copy_from_slice(&tail);
     let v = u128::from_be_bytes(b);
     let mut out = [0u8; 26];
     for (i, c) in out.iter_mut().enumerate() {

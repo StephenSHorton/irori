@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 mod liveness;
@@ -260,6 +261,9 @@ struct Services {
     /// Card #415: who lists merge desks' PRs, and each desk's polling.
     desk_lister: Option<Arc<dyn crate::deskwatch::PrLister>>,
     desk_watch: crate::deskwatch::DeskWatch,
+    /// Card #421: merged PRs the desk already settled, and the newest
+    /// `gh pr merge` heard.
+    desk_merges: crate::deskmerge::MergeHeard,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -1430,6 +1434,7 @@ impl Core {
             pr_watch: Default::default(),
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
+            desk_merges: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -2034,6 +2039,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
+                    s.desk_merge_heard();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -3783,8 +3789,9 @@ impl Services {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
                         objective: format!(
-                            "PR #{} on {repo} has no author card; this is its thread on the merge desk.",
-                            p.number
+                            "PR #{} on {repo} {}; this is its thread on the merge desk.",
+                            p.number,
+                            coord::DESK_PR_CARD_MARK
                         ),
                         repo_key: repo_key.into(),
                         ..coord::NewTask::default()
@@ -4041,6 +4048,8 @@ impl Services {
                     let v = self.map_desk(repo_key);
                     self.wake_desk_holder(repo_key, &v);
                     self.post_desk(repo_key, &v);
+                    // Card #421: a PR that left the list may have merged.
+                    self.settle_gone_prs(repo_key);
                 }
                 wrote
             }

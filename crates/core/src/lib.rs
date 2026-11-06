@@ -40,6 +40,7 @@ mod answering;
 pub mod attachments;
 pub mod buildclean;
 pub mod deskmap;
+pub mod deskmerge;
 pub mod deskpost;
 pub mod deskwatch;
 pub mod devices;
