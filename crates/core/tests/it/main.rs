@@ -30,6 +30,7 @@ mod notes;
 mod notifications;
 mod offline;
 mod pair;
+mod prefetch;
 mod prwatch;
 mod search;
 mod spawn;

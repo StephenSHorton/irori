@@ -5,7 +5,7 @@
 //! and offers it on; the big one stays where it was; C fetches nothing
 //! until asked, and then gets it from B once A is gone.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
