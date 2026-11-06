@@ -378,12 +378,12 @@ pub struct Coord {
     /// before its call being folded when it returns, and a running pass may
     /// have read its vector too early to cover them.
     ///
-    /// It holds how far a pass read each device's rows, unfollowed ones
-    /// too, so the next starts past them. That is apart from the fold's
-    /// `last`, the newest followed row folded: only a cut of followed rows
-    /// rebuilds the fold, so a revoke that cuts a tail of unfollowed rows
-    /// doesn't.
-    catching: Mutex<std::collections::HashMap<String, i64>>,
+    /// It holds the row each device's rows were last read to, unfollowed
+    /// ones too, so the next pass starts past them. That is apart from the
+    /// fold's `last`, the newest followed row folded: only a cut of followed
+    /// rows rebuilds the fold, so a revoke that cuts a tail of unfollowed
+    /// rows doesn't.
+    catching: Mutex<std::collections::HashMap<String, Event>>,
     f: Mutex<Fold>,
     stale: Arc<RwLock<fold::StaleMap>>,
     spawned: Arc<RwLock<std::collections::HashSet<String>>>,
@@ -446,7 +446,7 @@ impl Coord {
     #[doc(hidden)]
     pub fn read_to(&self, dev: &str) -> i64 {
         let read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
-        read.get(dev).copied().unwrap_or(0).max(self.folded_to(dev))
+        read.get(dev).map_or(0, |m| m.seq).max(self.folded_to(dev))
     }
 
     /// The board's set-aside gate alone (Go's `impl.asideGate`): `true`
@@ -1745,11 +1745,22 @@ impl Coord {
             (st, vec, f.dev.clone(), f.on_board)
         };
         for (dev, top) in vec.iter().filter(|(d, _)| **d != me) {
-            // A mark above `top` means a cut took unfollowed rows: read on
-            // from `top`, where the device's next row lands.
-            let from = read.get(dev).copied().unwrap_or(0).min(*top);
+            // The mark holds only while its row is still in the log: a cut
+            // may have taken it, and the device's other branch written new
+            // rows, followed ones too, at the seqs it covered. Then this
+            // reads on from what is folded, as before #567.
+            let mut from = 0;
+            if let Some(m) = read.get(dev)
+                && m.seq <= *top
+                && row_at(&st, dev, m.seq)?.as_ref() == Some(m)
+            {
+                from = m.seq;
+            }
             self.catch_up_device(&st, dev, from, *top, limit)?;
-            read.insert(dev.clone(), *top);
+            match row_at(&st, dev, *top)? {
+                Some(m) => read.insert(dev.clone(), m),
+                None => read.remove(dev),
+            };
         }
         if !on_board {
             self.catch_up_own_seen(&st, &me, limit)?;
@@ -1761,8 +1772,8 @@ impl Coord {
     /// Pages `dev`'s followed rows past `from`, or past what is folded if
     /// that is further, up to `top`, each page read outside the lock. Every
     /// followed row up to `top` was committed before the vector was read, so
-    /// when it returns they are all folded and the caller marks `top` read,
-    /// past the unfollowed rows at the device's tail.
+    /// when it returns they are all folded and the caller marks the row at
+    /// `top` read, past the unfollowed rows at the device's tail.
     fn catch_up_device(
         &self,
         st: &Store,
@@ -1847,6 +1858,20 @@ impl Coord {
         let now = f.stamp();
         f.prune(&now);
     }
+}
+
+/// `dev`'s row at `seq`, if the log holds it: one seek along the key.
+fn row_at(st: &Store, dev: &str, seq: i64) -> Result<Option<Event>> {
+    Ok(st
+        .list(&store::Filter {
+            device_id: dev.to_string(),
+            after_seq: seq - 1,
+            limit: 1,
+            ..store::Filter::default()
+        })?
+        .into_iter()
+        .next()
+        .filter(|e| e.seq == seq))
 }
 
 impl Fold {

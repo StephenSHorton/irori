@@ -374,6 +374,31 @@ fn a_cut_of_unfollowed_rows_rebuilds_nothing() {
     assert_eq!(l.e.c.read_to(DEV), 2);
 }
 
+/// A cut, then the device's other branch writes a followed row at a seq a
+/// pass had read, before any pass sees the cut: that row still folds.
+#[test]
+fn a_row_written_where_a_cut_took_read_rows_still_folds() {
+    let mut l = Log::new(&[created("P", "")]);
+    l.insert(&unfollowed());
+    l.insert(&unfollowed());
+    l.e.c.catch_up().unwrap();
+    assert_eq!(l.e.c.read_to(DEV), 3);
+    let db = rusqlite::Connection::open(l.e._dir.path().join("irori.db")).unwrap();
+    db.execute("DELETE FROM events WHERE device_id = ?1 AND seq > 1", [DEV])
+        .unwrap();
+    l.seq = 1;
+    l.insert(&status("P", WORKING));
+    // The other branch's row: here its hlc is the cut one's, as seq sets it.
+    l.insert(&Row {
+        body: json!({"key": "dev-b/other"}),
+        ..unfollowed()
+    });
+    assert_eq!(l.e.st.vector().unwrap().get(DEV).copied(), Some(3));
+    l.e.c.catch_up().unwrap();
+    assert_eq!(l.e.c.get_task("P").unwrap().state, WORKING);
+    assert_eq!(l.e.c.read_to(DEV), 3);
+}
+
 /// A page longer than the store gives is read as the store's: the rows past
 /// its first page still fold.
 #[test]
