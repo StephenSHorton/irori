@@ -120,6 +120,9 @@ crate::go_struct! {
         pub state: String = "state" "omit",
         pub review: String = "review" "omit",
         pub merged_at: GoTime = "mergedAt",
+        /// GitHub's mergeCommit oid on a MERGED row (card #421). Older
+        /// devices skip it.
+        pub merge_sha: String = "mergeSha" "omit",
         pub error: String = "error" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
