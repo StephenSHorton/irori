@@ -2915,3 +2915,27 @@ fn a_card_split_into_parts_cant_be_given() {
     .unwrap();
     assert!(b.c.assign(P2, &t.id, P1).is_err());
 }
+
+/// Plain pull order: rows come device by device, so a device of the person
+/// a card was given to gets their rows before the giver's give. The rows
+/// that beat the give wait beside it, and the card comes out the same.
+#[test]
+fn rows_that_beat_the_give_on_a_plain_pull_still_count() {
+    let (a, b) = two_people_shared();
+    let owners: Owners = Arc::new(Mutex::new(vec![("p1".into(), 0, u64::MAX)]));
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    let t = given(&a, &b);
+    say(&a, P1, &t, 1);
+    sync(&a, &b);
+    let g =
+        a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+            .unwrap()
+            .unwrap();
+    assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+    pull(&a, &a2);
+    let got = a2.c.get_task(&t.id).unwrap();
+    assert!(got.given.is_some(), "{:?}", got.given);
+    assert!(got.holders.iter().any(|h| h == CARD1), "{:?}", got.holders);
+    assert_eq!(a2.c.spawned(CARD1).map(|m| m.task_id), Some(t.id.clone()));
+    assert!(a2.c.given_to_ask().is_empty(), "asks with its agent on it");
+}

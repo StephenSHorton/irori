@@ -774,15 +774,7 @@ function BoardActions({
     const shared = sharedBoard(detail, boards)
     return (
       <>
-        {detail.givenNo && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void cards.startAgent(detail.id, "")}
-          >
-            Start an agent…
-          </Button>
-        )}
+        {detail.givenNo && <StartGiven id={detail.id} />}
         {detail.onBoard.canTransfer && shared && (
           <TransferButton
             cardId={detail.id}
@@ -819,6 +811,31 @@ function BoardActions({
 // PageHeader is the card page's title block: its short ref, state, scope
 // and repo over the title, with the spinner while an agent works on it.
 // extra are buttons beside Pin (the board's, BoardActions).
+// StartGiven takes back a Not now on a card given to you (card #573): the
+// question comes back here, or it says which device to press it on.
+function StartGiven({ id }: { id: string }) {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          setError(null)
+          cards.startAgent(id, "").catch((e: Error) => setError(e.message))
+        }}
+      >
+        Start an agent…
+      </Button>
+      {error && (
+        <span role="alert" className="text-[12.5px] text-destructive">
+          {error}
+        </span>
+      )}
+    </>
+  )
+}
+
 function PageHeader({
   card,
   spinning,
