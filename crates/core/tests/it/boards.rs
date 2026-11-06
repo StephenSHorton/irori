@@ -522,6 +522,19 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     }
 }
 
+/// Card #590: a new board's tag is 8 characters at most, so a ref like
+/// `agility#1234` stays short; the error says so.
+#[test]
+fn a_new_board_tag_is_eight_at_most() {
+    let r = Rig::new();
+    let c = &r.core;
+    c.create_board("Agility", "agility").unwrap();
+    c.create_board("Eight", "abcdefgh").unwrap();
+    let e = c.create_board("Nine", "abcdefghi").unwrap_err();
+    assert_eq!(coord_kind(&e), Some(CK::Invalid), "{e}");
+    assert!(e.to_string().contains("8 characters at most"), "{e}");
+}
+
 /// Card #411: a board note waits, like a space row, while a member device
 /// is known to be too old for note.* (an older Irori would stall on it); a
 /// Mine note never waits. Card #577: one nobody has heard from yet doesn't

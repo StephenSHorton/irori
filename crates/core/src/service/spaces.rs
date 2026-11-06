@@ -216,7 +216,10 @@ impl Services {
         if !irori_identity::membership::valid_board_tag(tag) {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
+                format_args!(
+                    "a board tag is a lowercase letter, then lowercase letters, digits or '-', {} characters at most",
+                    irori_identity::membership::MAX_BOARD_TAG
+                ),
             ));
         }
         let b = self.board(space_id)?;
