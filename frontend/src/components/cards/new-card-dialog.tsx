@@ -24,7 +24,11 @@ import {
   useMentionCandidates,
   type AskRepo,
 } from "@/lib/cards"
-import { usePersonalBoards, type BoardSummary, type SpaceBoard } from "@/lib/boards"
+import {
+  usePersonalBoards,
+  type BoardSummary,
+  type SpaceBoard,
+} from "@/lib/boards"
 import { boardTarget } from "@/lib/new-card"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
@@ -192,7 +196,10 @@ export function NewCardDialog({
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}
-              {!board && on && (list || target.choices.length > 1) && ` Goes on ${plainLine(on.name)}.`}
+              {!board &&
+                on &&
+                (list || target.choices.length > 1) &&
+                ` Goes on ${plainLine(on.name)}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -262,7 +269,11 @@ export function NewCardDialog({
               choices={[
                 {
                   value: "",
-                  label: fresh ? "A fresh agent" : board ? "Nobody yet" : "Any free agent",
+                  label: fresh
+                    ? "A fresh agent"
+                    : board
+                      ? "Nobody yet"
+                      : "Any free agent",
                 },
                 ...members.map((m) => ({
                   value: `person:${m.personId}`,
@@ -300,11 +311,15 @@ export function NewCardDialog({
           )}
           {fresh && spawn && assignTo === "" && (
             <p className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
-              <ZapIcon className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden />
+              <ZapIcon
+                className="mt-0.5 size-3.5 shrink-0 text-primary"
+                aria-hidden
+              />
               <span>
                 A fresh agent starts for this card with{" "}
                 <span className="text-ink">
-                  {modelLabel(spawn.model, "")} · {effortLabel(spawn.effort, "").toLowerCase()}
+                  {modelLabel(spawn.model, "")} ·{" "}
+                  {effortLabel(spawn.effort, "").toLowerCase()}
                 </span>{" "}
                 and ends when it's done.{" "}
                 <Button

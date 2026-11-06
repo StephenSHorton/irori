@@ -525,9 +525,7 @@ export function waitTip(card: {
   waitQuestion?: string
 }): string {
   const label = waitLabel({ ...card, waitOn: card.waitFull || card.waitOn })
-  return card.waitQuestion
-    ? `${label}: ${plainLine(card.waitQuestion)}`
-    : label
+  return card.waitQuestion ? `${label}: ${plainLine(card.waitQuestion)}` : label
 }
 
 // Asker names who asks a blocker's question, above it (card #491): the

@@ -62,8 +62,8 @@ describe("throughLine", () => {
   })
 
   test("a relayed device doesn't read offline", () => {
-    expect(
-      agentStatus({ status: "busy", deviceState: "recent" }).text
-    ).toBe("working")
+    expect(agentStatus({ status: "busy", deviceState: "recent" }).text).toBe(
+      "working"
+    )
   })
 })

@@ -1,6 +1,11 @@
 import { useEffect, useSyncExternalStore } from "react"
 
-import { loadVoiceStatus, megabytes, sharedVoice, subscribeVoice } from "@/lib/voice"
+import {
+  loadVoiceStatus,
+  megabytes,
+  sharedVoice,
+  subscribeVoice,
+} from "@/lib/voice"
 
 // VoiceNote is Settings' word on voice input (card #240): where the audio
 // goes (nowhere: Whisper runs on this device) and whether the speech model

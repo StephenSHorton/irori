@@ -1,5 +1,5 @@
 // Irori design system gallery (card #259). Browser preview only:
-// http://127.0.0.1:9246/?gallery&glass=frost&mode=light
+// <bun run preview:look URL>/?gallery&glass=frost&mode=light
 // Renders the shadcn components on a backdrop under one glass style so the
 // styles can be compared on real components. Not reachable from the app.
 import { useEffect, useState } from "react"

@@ -74,7 +74,11 @@ export function homeBoards(
     )
       continue
     const s = spaces.find((x) => x.boardId === c.board)
-    out.push({ boardId: c.board, name: s?.name || c.scopeLabel, tag: s?.tag ?? "" })
+    out.push({
+      boardId: c.board,
+      name: s?.name || c.scopeLabel,
+      tag: s?.tag ?? "",
+    })
   }
   return out
 }
@@ -286,7 +290,8 @@ export function BoardView({
   // doesn't scroll, the canvas takes its remaining height and a long lead
   // (Needs you) scrolls in a box of its own. A phone keeps one scrolling
   // column with a set-height canvas.
-  const fill = !narrow && view === "canvas" && active !== "done" && mine.length > 0
+  const fill =
+    !narrow && view === "canvas" && active !== "done" && mine.length > 0
   const column = fill ? fillColumn : boardColumn
   const withThreads = (main: ReactNode) =>
     narrow ? (
@@ -386,7 +391,9 @@ export function BoardView({
             lead
           )}
           {rows && (
-            <h2 className="px-1 pt-2 text-base font-semibold">Agent progress</h2>
+            <h2 className="px-1 pt-2 text-base font-semibold">
+              Agent progress
+            </h2>
           )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <FilterBar
@@ -398,7 +405,12 @@ export function BoardView({
             />
             <DeviceBar filter={active} onFilter={onFilter} devices={chips} />
             {members && (
-              <MemberBar filter={active} onFilter={onFilter} members={members} now={now} />
+              <MemberBar
+                filter={active}
+                onFilter={onFilter}
+                members={members}
+                now={now}
+              />
             )}
             {rowBoards && (
               <BoardBar
@@ -526,9 +538,9 @@ export function BoardView({
                 ? "No cards match."
                 : rows && all.length
                   ? "Nothing else in motion."
-                : active === "decide" && nothingDecide
-                  ? nothingDecide
-                  : "Nothing here with this filter."}
+                  : active === "decide" && nothingDecide
+                    ? nothingDecide
+                    : "Nothing here with this filter."}
             </p>
           )}
         </>

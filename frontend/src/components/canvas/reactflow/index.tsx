@@ -54,7 +54,14 @@ import {
   type Point,
   type Rect,
 } from "../data"
-import { AgentBody, BlockerBody, CardBody, CardMarkers, openTarget, toneVar } from "../node"
+import {
+  AgentBody,
+  BlockerBody,
+  CardBody,
+  CardMarkers,
+  openTarget,
+  toneVar,
+} from "../node"
 
 type CardData = { n: CardNode }
 type BlockerData = { n: BlockerNode }
@@ -66,12 +73,32 @@ const hidden = "!size-1.5 !min-h-0 !min-w-0 !border-0 !bg-transparent"
 function CardNodeView({ data, selected }: NodeProps<Node<CardData>>) {
   return (
     <>
-      <Handle type="target" position={Position.Top} id="top" className={hidden} />
-      <Handle type="target" position={Position.Left} id="left" className={hidden} />
-      <Handle type="target" position={Position.Bottom} id="below" className={hidden} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        className={hidden}
+      />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className={hidden}
+      />
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="below"
+        className={hidden}
+      />
       <CardMarkers n={data.n} />
       <CardBody n={data.n} selected={selected} />
-      <Handle type="source" position={Position.Bottom} id="bottom" className={hidden} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        className={hidden}
+      />
     </>
   )
 }
@@ -80,7 +107,12 @@ function BlockerNodeView({ data }: NodeProps<Node<BlockerData>>) {
   return (
     <>
       <BlockerBody n={data.n} />
-      <Handle type="source" position={Position.Top} id="top" className={hidden} />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="top"
+        className={hidden}
+      />
     </>
   )
 }
@@ -88,10 +120,25 @@ function BlockerNodeView({ data }: NodeProps<Node<BlockerData>>) {
 function AgentNodeView({ data }: NodeProps<Node<AgentData>>) {
   return (
     <>
-      <Handle type="target" position={Position.Left} id="talk-in" className={hidden} />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="talk-in"
+        className={hidden}
+      />
       <AgentBody n={data.n} />
-      <Handle type="source" position={Position.Bottom} id="bottom" className={hidden} />
-      <Handle type="source" position={Position.Right} id="right" className={hidden} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        className={hidden}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className={hidden}
+      />
     </>
   )
 }
@@ -99,10 +146,19 @@ function AgentNodeView({ data }: NodeProps<Node<AgentData>>) {
 // An area's box: an agent's hub plain, the cards nobody is on in amber
 // (what nobody is working shows from across the canvas), done faint.
 const areaLook: Record<GroupNode["by"], { box: string; label: string }> = {
-  agent: { box: "border-border/70 bg-foreground/[0.02]", label: "text-muted-foreground" },
+  agent: {
+    box: "border-border/70 bg-foreground/[0.02]",
+    label: "text-muted-foreground",
+  },
   unheld: { box: "border-warning/60 bg-warning/[0.04]", label: "text-warning" },
-  others: { box: "border-border/40 bg-transparent", label: "text-muted-foreground" },
-  done: { box: "border-border/40 bg-transparent opacity-70", label: "text-muted-foreground/70" },
+  others: {
+    box: "border-border/40 bg-transparent",
+    label: "text-muted-foreground",
+  },
+  done: {
+    box: "border-border/40 bg-transparent opacity-70",
+    label: "text-muted-foreground/70",
+  },
 }
 
 function GroupNodeView({ data }: NodeProps<Node<GroupData>>) {
@@ -154,7 +210,12 @@ function toNodes(graph: Graph, layout: Layout): Node[] {
 }
 
 // groupNodes is a box behind each area's members, where they sit now.
-function groupNodes(graph: Graph, layout: Layout, anchor: Record<string, Rect>, nodes: Node[]): Node[] {
+function groupNodes(
+  graph: Graph,
+  layout: Layout,
+  anchor: Record<string, Rect>,
+  nodes: Node[]
+): Node[] {
   const pos: Record<string, Point> = {}
   for (const n of nodes) pos[n.id] = n.position
   const rects = groupRects(graph, pos, layout, anchor)
@@ -183,7 +244,10 @@ function groupNodes(graph: Graph, layout: Layout, anchor: Record<string, Rect>, 
   return out
 }
 
-const edgeStyle: Record<GraphEdge["kind"], { stroke: string; dash?: string; opacity: number }> = {
+const edgeStyle: Record<
+  GraphEdge["kind"],
+  { stroke: string; dash?: string; opacity: number }
+> = {
   subtask: { stroke: "var(--muted-foreground)", opacity: 0.8 },
   blocker: { stroke: "var(--destructive)", dash: "4 4", opacity: 0.9 },
   holder: { stroke: "var(--primary)", opacity: 0.55 },
@@ -191,7 +255,10 @@ const edgeStyle: Record<GraphEdge["kind"], { stroke: string; dash?: string; opac
   talk: { stroke: "var(--info)", dash: "6 4", opacity: 0.9 },
 }
 
-const handlesFor: Record<GraphEdge["kind"], { sourceHandle: string; targetHandle: string }> = {
+const handlesFor: Record<
+  GraphEdge["kind"],
+  { sourceHandle: string; targetHandle: string }
+> = {
   subtask: { sourceHandle: "bottom", targetHandle: "left" },
   blocker: { sourceHandle: "top", targetHandle: "below" },
   holder: { sourceHandle: "bottom", targetHandle: "top" },
@@ -206,19 +273,24 @@ const handlesFor: Record<GraphEdge["kind"], { sourceHandle: string; targetHandle
 export function toEdges(graph: Graph, still: boolean): Edge[] {
   const working = new Set(
     graph.nodes
-      .filter((n): n is AgentNode => n.kind === "agent" && (n.tone === "working" || n.tone === "job"))
+      .filter(
+        (n): n is AgentNode =>
+          n.kind === "agent" && (n.tone === "working" || n.tone === "job")
+      )
       .map((n) => n.id)
   )
   return graph.edges.map((e) => {
     const s = edgeStyle[e.kind]
     const flows =
-      !still && (e.kind === "talk" || (e.kind === "holder" && working.has(e.source)))
+      !still &&
+      (e.kind === "talk" || (e.kind === "holder" && working.has(e.source)))
     return {
       id: e.id,
       source: e.source,
       target: e.target,
       ...handlesFor[e.kind],
-      type: e.kind === "subtask" || e.kind === "holder" ? "smoothstep" : "default",
+      type:
+        e.kind === "subtask" || e.kind === "holder" ? "smoothstep" : "default",
       animated: flows,
       hidden: e.kind === "watcher" || !!e.inHub,
       label: e.label,
@@ -234,7 +306,12 @@ export function toEdges(graph: Graph, still: boolean): Edge[] {
       markerEnd:
         e.kind === "talk"
           ? undefined
-          : { type: MarkerType.ArrowClosed, color: s.stroke, width: 16, height: 16 },
+          : {
+              type: MarkerType.ArrowClosed,
+              color: s.stroke,
+              width: 16,
+              height: 16,
+            },
     }
   })
 }
@@ -270,7 +347,13 @@ function useFlash(graph: Graph, still: boolean): ReadonlySet<string> {
 // FitWhileUntouched fits the whole map again as areas come and go (the
 // cards arrive in more than one load, so the first fit can catch only a
 // few), until the person pans or zooms: from then on the view is theirs.
-function FitWhileUntouched({ areas, touched }: { areas: string; touched: { current: boolean } }) {
+function FitWhileUntouched({
+  areas,
+  touched,
+}: {
+  areas: string
+  touched: { current: boolean }
+}) {
   const { fitView } = useReactFlow()
   useEffect(() => {
     if (touched.current) return
@@ -294,12 +377,24 @@ function KeepCenter() {
     if (!prev.w || !prev.h || !w || !h) return
     if (prev.w === w && prev.h === h) return
     const v = getViewport()
-    void setViewport({ x: v.x + (w - prev.w) / 2, y: v.y + (h - prev.h) / 2, zoom: v.zoom })
+    void setViewport({
+      x: v.x + (w - prev.w) / 2,
+      y: v.y + (h - prev.h) / 2,
+      zoom: v.zoom,
+    })
   }, [w, h, getViewport, setViewport])
   return null
 }
 
-export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onFull }: CanvasProps) {
+export default function Canvas({
+  graph,
+  layout,
+  auto,
+  onOpen,
+  onPlace,
+  full,
+  onFull,
+}: CanvasProps) {
   const start = useMemo(() => toNodes(graph, layout), [graph, layout])
   const [nodes, setNodes] = useState<Node[]>(start)
   const [seed, setSeed] = useState(start)
@@ -316,18 +411,24 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
       setNodes((ns) => {
         const next = applyNodeChanges(changes, ns)
         const cardMoved = changes.some(
-          (c) => c.type === "position" && c.position && next.find((n) => n.id === c.id)?.type === "card"
+          (c) =>
+            c.type === "position" &&
+            c.position &&
+            next.find((n) => n.id === c.id)?.type === "card"
         )
         if (!cardMoved) return next
         const pos: Record<string, Point> = {}
         for (const n of next) pos[n.id] = n.position
         const follow = followers(graph, pos)
         return next.map((n) =>
-          n.type === "blocker" && follow[n.id] ? { ...n, position: follow[n.id] } : n
+          n.type === "blocker" && follow[n.id]
+            ? { ...n, position: follow[n.id] }
+            : n
         )
       })
       for (const c of changes) {
-        if (c.type !== "position" || c.dragging !== false || !c.position) continue
+        if (c.type !== "position" || c.dragging !== false || !c.position)
+          continue
         const n = graph.nodes.find((x) => x.id === c.id)
         if (n?.kind === "card") onPlace(n.id, c.position.x, c.position.y)
       }
@@ -361,7 +462,9 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
   const shown = useMemo(
     () =>
       flash.size
-        ? nodes.map((n) => (flash.has(n.id) ? { ...n, className: "irori-handoff" } : n))
+        ? nodes.map((n) =>
+            flash.has(n.id) ? { ...n, className: "irori-handoff" } : n
+          )
         : nodes,
     [nodes, flash]
   )
@@ -374,8 +477,12 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
   // What the map is made of: its areas and how many cards each holds.
   const areas = useMemo(() => {
     const count = new Map<string, number>()
-    for (const n of graph.nodes) if (n.kind === "card") count.set(n.group, (count.get(n.group) ?? 0) + 1)
-    return [...count].sort().map(([g, c]) => `${g}:${c}`).join(",")
+    for (const n of graph.nodes)
+      if (n.kind === "card") count.set(n.group, (count.get(n.group) ?? 0) + 1)
+    return [...count]
+      .sort()
+      .map(([g, c]) => `${g}:${c}`)
+      .join(",")
   }, [graph])
   // A touch screen (card #227): a finger pans and pinches, so nodes don't
   // drag (a pan that starts on a card would move it), and a phone has no
@@ -398,7 +505,9 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
           if (e) touched.current = true
         }}
         onNodeClick={(_, node) => {
-          const n = (node.data as { n: { kind: string; id: string; card?: string } }).n
+          const n = (
+            node.data as { n: { kind: string; id: string; card?: string } }
+          ).n
           const id = openTarget(n)
           if (id) onOpen(id)
         }}
@@ -411,54 +520,60 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         nodesDraggable={!touch}
         elevateNodesOnSelect={false}
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--border)" />
-        {!narrow && (
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(n) => {
-            const d = (n.data as { n?: CardNode | GroupNode }).n
-            if (d?.kind === "card") return toneVar[d.tone]
-            if (n.type === "blocker") return "var(--destructive)"
-            if (d?.kind === "group") return "transparent"
-            return "var(--primary)"
-          }}
-          maskColor="color-mix(in oklch, var(--background) 70%, transparent)"
-          style={{ background: "var(--card)" }}
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={22}
+          size={1}
+          color="var(--border)"
         />
+        {!narrow && (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(n) => {
+              const d = (n.data as { n?: CardNode | GroupNode }).n
+              if (d?.kind === "card") return toneVar[d.tone]
+              if (n.type === "blocker") return "var(--destructive)"
+              if (d?.kind === "group") return "transparent"
+              return "var(--primary)"
+            }}
+            maskColor="color-mix(in oklch, var(--background) 70%, transparent)"
+            style={{ background: "var(--card)" }}
+          />
         )}
         <Controls showInteractive={false} />
         <KeepCenter />
         <FitWhileUntouched areas={areas} touched={touched} />
       </ReactFlow>
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
-      {placed && (
-        <Button
-          size="sm"
-          variant="secondary"
-          title="Put every card back where Irori lays it out"
-          onClick={() => {
-            for (const n of graph.nodes) {
-              const p = auto.pos[n.id]
-              if (n.kind === "card" && n.card.pos && p) onPlace(n.id, p.x, p.y)
-            }
-          }}
-        >
-          Tidy up
-        </Button>
-      )}
-      {onFull && (
-        <Button
-          size="icon-sm"
-          variant="secondary"
-          aria-pressed={!!full}
-          aria-label={full ? "Exit full screen" : "Full screen"}
-          title={full ? "Exit full screen (Esc)" : "Full screen (F)"}
-          onClick={onFull}
-        >
-          {full ? <Minimize2 /> : <Maximize2 />}
-        </Button>
-      )}
+        {placed && (
+          <Button
+            size="sm"
+            variant="secondary"
+            title="Put every card back where Irori lays it out"
+            onClick={() => {
+              for (const n of graph.nodes) {
+                const p = auto.pos[n.id]
+                if (n.kind === "card" && n.card.pos && p)
+                  onPlace(n.id, p.x, p.y)
+              }
+            }}
+          >
+            Tidy up
+          </Button>
+        )}
+        {onFull && (
+          <Button
+            size="icon-sm"
+            variant="secondary"
+            aria-pressed={!!full}
+            aria-label={full ? "Exit full screen" : "Full screen"}
+            title={full ? "Exit full screen (Esc)" : "Full screen (F)"}
+            onClick={onFull}
+          >
+            {full ? <Minimize2 /> : <Maximize2 />}
+          </Button>
+        )}
       </div>
     </div>
   )

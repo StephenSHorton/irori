@@ -23,7 +23,10 @@ const custom = { base: "blue", accent: "#e2683c", tint: "#5a6b7c" }
 const modes: Mode[] = ["light", "dark"]
 
 async function write(name: string, a: Appearance) {
-  await Bun.write(join(out, `${name}.json`), JSON.stringify(cardLook(a), null, 2) + "\n")
+  await Bun.write(
+    join(out, `${name}.json`),
+    JSON.stringify(cardLook(a), null, 2) + "\n"
+  )
   console.log(`wrote ${join(out, name)}.json`)
 }
 

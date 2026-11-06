@@ -84,7 +84,8 @@ export function cardColors(a: Appearance, m: Mode): CardColors {
   // The test is on the flattened rim, the colour the card will draw
   // (contrast's own compositing is in linear light, brighter than mixHex).
   const rim = mixHex(bg, white(k.rim))
-  const border = contrast(hexToOklch(rim), bg) >= minEdge ? rim : mixHex(bg, t.border)
+  const border =
+    contrast(hexToOklch(rim), bg) >= minEdge ? rim : mixHex(bg, t.border)
   const hover = m === "light" ? { ...t.foreground, a: 0.08 } : white(0.1)
   const s = status[m]
   return {

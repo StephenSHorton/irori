@@ -12,10 +12,19 @@ import { useContext } from "react"
 import { percent, withLive, type CardSummary } from "@/lib/cards"
 import { LiveRoster } from "@/lib/thread"
 import { plainLine } from "@/lib/irori"
-import { groupRows, rowState, rowStateLabel, type RowLine, type RowState } from "@/lib/needs"
+import {
+  groupRows,
+  rowState,
+  rowStateLabel,
+  type RowLine,
+  type RowState,
+} from "@/lib/needs"
 import { cn } from "@/lib/utils"
 
-const stateVariant: Record<RowState, "destructive" | "info" | "slate" | "warning" | "success"> = {
+const stateVariant: Record<
+  RowState,
+  "destructive" | "info" | "slate" | "warning" | "success"
+> = {
   needs: "destructive",
   stuck: "warning",
   working: "info",
@@ -67,7 +76,7 @@ export function ProgressRows({
     // each row's own auto column.
     <ul
       aria-label={name}
-      className="glass-panel grid min-w-0 overflow-hidden sm:grid-cols-[max-content_minmax(0,1fr)_minmax(0,16rem)_5.5rem_4.5rem] sm:gap-x-3"
+      className="grid min-w-0 overflow-hidden glass-panel sm:grid-cols-[max-content_minmax(0,1fr)_minmax(0,16rem)_5.5rem_4.5rem] sm:gap-x-3"
     >
       {rs.map(({ c, r }) => (
         <li
@@ -99,19 +108,21 @@ export function ProgressRows({
   if (!grouped) return list(label, rows)
   return (
     <div className="grid min-w-0 gap-3">
-      {groupRows(rows, (x) => x.r.state).map((g) => g.state === "later" ? (
-        <NotYetFold key={g.state} count={g.rows.length}>
-          {list(`${label}: Not yet`, g.rows, true)}
-        </NotYetFold>
-      ) : (
-        <section key={g.state} className="grid min-w-0 gap-1.5">
-          <h3 className="flex items-center gap-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {rowStateLabel[g.state]}
-            <span className="tabular-nums">{g.rows.length}</span>
-          </h3>
-          {list(`${label}: ${rowStateLabel[g.state]}`, g.rows)}
-        </section>
-      ))}
+      {groupRows(rows, (x) => x.r.state).map((g) =>
+        g.state === "later" ? (
+          <NotYetFold key={g.state} count={g.rows.length}>
+            {list(`${label}: Not yet`, g.rows, true)}
+          </NotYetFold>
+        ) : (
+          <section key={g.state} className="grid min-w-0 gap-1.5">
+            <h3 className="flex items-center gap-2 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {rowStateLabel[g.state]}
+              <span className="tabular-nums">{g.rows.length}</span>
+            </h3>
+            {list(`${label}: ${rowStateLabel[g.state]}`, g.rows)}
+          </section>
+        )
+      )}
     </div>
   )
 }
@@ -160,16 +171,24 @@ function ProgressRow({
       </span>
       {/* The title gives way, not the board's tag: inside the title's
           ellipsis a phone cut "MLG" off (card #479). */}
-      <span className="flex min-w-0 items-baseline gap-2 text-sm font-medium" title={plainLine(c.title)}>
+      <span
+        className="flex min-w-0 items-baseline gap-2 text-sm font-medium"
+        title={plainLine(c.title)}
+      >
         <span className="min-w-0 truncate">{plainLine(c.title)}</span>
         {board && (
-          <span className="shrink-0 text-xs font-normal text-muted-foreground">{board}</span>
+          <span className="shrink-0 text-xs font-normal text-muted-foreground">
+            {board}
+          </span>
         )}
       </span>
       <span className="col-span-3 col-start-2 row-start-2 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-foreground sm:col-span-1 sm:col-start-3 sm:row-start-1">
         {spin && <Spinner className="size-3" />}
         <span
-          className={cn("truncate", (state === "idle" || state === "stuck") && "text-warning")}
+          className={cn(
+            "truncate",
+            (state === "idle" || state === "stuck") && "text-warning"
+          )}
           title={line}
         >
           {line}
@@ -193,7 +212,10 @@ function ProgressRow({
         aria-valuenow={p ?? undefined}
       >
         {p !== null && (
-          <span className={cn("block h-full", barTone[state])} style={{ width: `${p}%` }} />
+          <span
+            className={cn("block h-full", barTone[state])}
+            style={{ width: `${p}%` }}
+          />
         )}
       </span>
     </button>

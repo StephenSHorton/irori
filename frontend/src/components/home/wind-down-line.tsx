@@ -36,7 +36,8 @@ const none: WindDownStatus = {
 
 export function WindDownLine({ onOpen }: { onOpen: () => void }) {
   const load = useCallback(
-    async () => (inWails() ? WindDownService.Status() : (windDownSample() ?? none)),
+    async () =>
+      inWails() ? WindDownService.Status() : (windDownSample() ?? none),
     []
   )
   const { value: st, reload } = useLatest<WindDownStatus>(load, none)
@@ -57,7 +58,10 @@ export function WindDownLine({ onOpen }: { onOpen: () => void }) {
     }
   }
   return (
-    <div role="status" className="flex items-center gap-2 px-1 text-[12.5px] text-muted-foreground">
+    <div
+      role="status"
+      className="flex items-center gap-2 px-1 text-[12.5px] text-muted-foreground"
+    >
       <PowerIcon className="size-3.5 shrink-0" aria-hidden />
       <button
         type="button"

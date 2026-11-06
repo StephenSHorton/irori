@@ -21,11 +21,7 @@ import {
 import { Kbd } from "@/components/ui/kbd"
 import type { BoardSummary } from "@/lib/boards"
 import { cardRef, type CardSummary } from "@/lib/cards"
-import {
-  activeCommands,
-  shortcutKeys,
-  type Command,
-} from "@/lib/commands"
+import { activeCommands, shortcutKeys, type Command } from "@/lib/commands"
 import { rank, queryParts } from "@/lib/fuzzy"
 import type { AgentCard } from "@/lib/models"
 import { cn } from "@/lib/utils"
@@ -63,7 +59,10 @@ function readRecent(): string[] {
 }
 
 function keepRecent(key: string) {
-  const next = [key, ...readRecent().filter((k) => k !== key)].slice(0, maxRecent)
+  const next = [key, ...readRecent().filter((k) => k !== key)].slice(
+    0,
+    maxRecent
+  )
   try {
     localStorage.setItem(recentKey, JSON.stringify(next))
   } catch {
@@ -137,7 +136,12 @@ export function buildItems({
       hint: ref,
       group: "Cards",
       run: () => onCard(c.id),
-      others: [`#${c.short}`, ref, c.shortWas ? `#${c.shortWas}` : "", c.scopeLabel ?? ""],
+      others: [
+        `#${c.short}`,
+        ref,
+        c.shortWas ? `#${c.shortWas}` : "",
+        c.scopeLabel ?? "",
+      ],
     })
   }
   for (const b of boards)
@@ -202,8 +206,7 @@ const groupOrder = [
 export function spawnedCards(cards: CardSummary[]): Map<string, CardSummary> {
   const m = new Map<string, CardSummary>()
   for (const c of cards)
-    for (const w of c.working)
-      if (w.spawned && !m.has(w.key)) m.set(w.key, c)
+    for (const w of c.working) if (w.spawned && !m.has(w.key)) m.set(w.key, c)
   return m
 }
 
@@ -235,10 +238,15 @@ export function results(
     return sortGroups([...rec, ...cmds])
   }
   const ref = isRef(query) ? query.trim().toLowerCase() : ""
-  const ranked = rank(items, query, (i) => ({ title: i.title, others: i.others }))
+  const ranked = rank(items, query, (i) => ({
+    title: i.title,
+    others: i.others,
+  }))
   const exact = ref
     ? ranked.filter(
-        (r) => r.item.kind === "card" && r.item.others.some((o) => o.toLowerCase() === ref)
+        (r) =>
+          r.item.kind === "card" &&
+          r.item.others.some((o) => o.toLowerCase() === ref)
       )
     : []
   const rest = ranked.filter((r) => !exact.includes(r))
@@ -301,12 +309,17 @@ export function CommandPalette({
   const [commands] = useState(() => activeCommands())
 
   const items = useMemo(
-    () => buildItems({ commands, cards, boards, agents, onCard, onBoard, onAgent }),
+    () =>
+      buildItems({ commands, cards, boards, agents, onCard, onBoard, onAgent }),
     [commands, cards, boards, agents, onCard, onBoard, onAgent]
   )
   const shown = useMemo(() => {
     const rows = results(items, query, recent)
-    if (found && found.q === query.trim() && !rows.some((r) => r.key === found.item.key))
+    if (
+      found &&
+      found.q === query.trim() &&
+      !rows.some((r) => r.key === found.item.key)
+    )
       return [found.item, ...rows]
     return rows
   }, [items, query, recent, found])
@@ -366,7 +379,10 @@ export function CommandPalette({
     if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) {
       e.preventDefault()
       setActive((a) => (n ? (a + 1) % n : 0))
-    } else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p" && !e.metaKey)) {
+    } else if (
+      e.key === "ArrowUp" ||
+      (e.ctrlKey && e.key === "p" && !e.metaKey)
+    ) {
       e.preventDefault()
       setActive((a) => (n ? (a - 1 + n) % n : 0))
     } else if (e.key === "Home" && !e.shiftKey) {
@@ -385,15 +401,20 @@ export function CommandPalette({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 isolate z-[60] bg-black/20 backdrop-blur-sm dark:bg-black/50 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
+        <DialogPrimitive.Backdrop className="fixed inset-0 isolate z-[60] bg-black/20 backdrop-blur-sm duration-100 dark:bg-black/50 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
         <DialogPrimitive.Popup
           data-slot="command-palette"
           aria-label="Command palette"
-          className="glass-panel fixed top-[14vh] left-1/2 z-[60] flex max-h-[min(560px,72vh)] w-[min(640px,calc(100%-2rem))] -translate-x-1/2 flex-col overflow-hidden text-sm text-popover-foreground outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0"
+          className="fixed top-[14vh] left-1/2 z-[60] flex max-h-[min(560px,72vh)] w-[min(640px,calc(100%-2rem))] -translate-x-1/2 flex-col overflow-hidden text-sm text-popover-foreground glass-panel outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0"
         >
-          <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">
+            Command palette
+          </DialogPrimitive.Title>
           <div className="flex items-center gap-2 border-b border-border px-3">
-            <SearchIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <SearchIcon
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
             <input
               autoFocus
               value={query}
@@ -450,23 +471,36 @@ export function CommandPalette({
                     onClick={() => pick(it)}
                     className={cn(
                       "flex cursor-default items-center gap-2.5 px-2.5 py-1.5 text-[13.5px]",
-                      i === active ? "bg-accent text-accent-foreground" : "text-foreground"
+                      i === active
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground"
                     )}
                   >
-                    <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                    <Icon
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
                     <span className="min-w-0 truncate">{it.title}</span>
                     {it.hint && (
-                      <span className="shrink-0 text-xs text-muted-foreground">{it.hint}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {it.hint}
+                      </span>
                     )}
                     <span className="ml-auto flex shrink-0 items-center gap-1">
                       {it.shortcut &&
                         shortcutKeys(it.shortcut).map((k) => (
-                          <Kbd key={k} className="h-[18px] min-w-[18px] text-[10px]">
+                          <Kbd
+                            key={k}
+                            className="h-[18px] min-w-[18px] text-[10px]"
+                          >
                             {k}
                           </Kbd>
                         ))}
                       {i === active && (
-                        <CornerDownLeftIcon className="size-3.5 text-muted-foreground" aria-hidden />
+                        <CornerDownLeftIcon
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden
+                        />
                       )}
                     </span>
                   </div>

@@ -3,10 +3,22 @@
 // lazy chunk, so React Flow only loads when Canvas is picked. A card's spot
 // is kept in coord (cards.place), so every device shows the same layout.
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react"
 
 import { Button } from "@/components/ui/button"
-import { cards as cardsApi, type CardDetail, type CardSummary } from "@/lib/cards"
+import {
+  cards as cardsApi,
+  type CardDetail,
+  type CardSummary,
+} from "@/lib/cards"
 import { previewFlag } from "@/lib/preview"
 
 import { autoLayout, toGraph, withPlaced } from "./data"
@@ -58,7 +70,11 @@ export function ViewSwitch({
   onView: (v: BoardView) => void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Board view">
+    <div
+      className="flex flex-wrap items-center gap-1"
+      role="group"
+      aria-label="Board view"
+    >
       {views.map((v) => (
         <Button
           key={v.id}
@@ -84,12 +100,14 @@ function useBlockerDetails(list: CardSummary[]): Map<string, CardDetail> {
   useEffect(() => {
     let live = true
     const ids = key ? key.split(",").map((k) => k.split("@")[0]) : []
-    Promise.all(ids.map((id) => cardsApi.detail(id).catch(() => null))).then((ds) => {
-      if (!live) return
-      const m = new Map<string, CardDetail>()
-      for (const d of ds) if (d) m.set(d.id, d)
-      setGot(m)
-    })
+    Promise.all(ids.map((id) => cardsApi.detail(id).catch(() => null))).then(
+      (ds) => {
+        if (!live) return
+        const m = new Map<string, CardDetail>()
+        for (const d of ds) if (d) m.set(d.id, d)
+        setGot(m)
+      }
+    )
     return () => {
       live = false
     }
@@ -100,7 +118,9 @@ function useBlockerDetails(list: CardSummary[]): Map<string, CardDetail> {
 // typing is a key pressed in a field, where F is a letter, not a shortcut.
 function typing(t: EventTarget | null): boolean {
   const e = t as HTMLElement | null
-  return !!e && (e.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName))
+  return (
+    !!e && (e.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName))
+  )
 }
 
 // BoardCanvas is the canvas over the cards the grid shows. fill: it takes
@@ -141,7 +161,14 @@ export function BoardCanvas({
     return () => window.removeEventListener("keydown", onKey)
   }, [full])
   const onKey = (e: KeyboardEvent) => {
-    if (e.key.toLowerCase() !== "f" || e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return
+    if (
+      e.key.toLowerCase() !== "f" ||
+      e.metaKey ||
+      e.ctrlKey ||
+      e.altKey ||
+      typing(e.target)
+    )
+      return
     e.preventDefault()
     setFull((f) => !f)
   }
@@ -160,14 +187,19 @@ export function BoardCanvas({
       data-canvas-full={full ? "" : undefined}
       // A click on the canvas gives it focus, so F reaches it.
       onPointerDownCapture={() => {
-        if (!box.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true })
+        if (!box.current?.contains(document.activeElement))
+          box.current?.focus({ preventScroll: true })
       }}
       onKeyDown={onKey}
       style={full ? { background: "var(--background)" } : undefined}
       className={`glass-panel ${at}overflow-hidden outline-none ${size}`}
     >
       <Suspense
-        fallback={<p className="p-4 text-sm text-muted-foreground">Loading the canvas…</p>}
+        fallback={
+          <p className="p-4 text-sm text-muted-foreground">
+            Loading the canvas…
+          </p>
+        }
       >
         <Canvas
           graph={graph}

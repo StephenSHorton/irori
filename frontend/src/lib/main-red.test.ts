@@ -12,9 +12,11 @@ describe("mainReds (card #436)", () => {
       { id: "d", short: "4", state: "working" },
       { id: "old", short: "9", state: "completed", mainRed: "flaky" },
     ])
-    expect(got).toEqual([{ id: "r", ref: "#436", test: "attach_exe", waiting: 2 }])
+    expect(got).toEqual([
+      { id: "r", ref: "#436", test: "attach_exe", waiting: 2 },
+    ])
     expect(mainRedText(got[0])).toBe(
-      "Main is red: attach_exe fails on clean main; 2 cards wait on #436.",
+      "Main is red: attach_exe fails on clean main; 2 cards wait on #436."
     )
   })
 
@@ -27,6 +29,8 @@ describe("mainReds (card #436)", () => {
       { id: "r", short: "7", tag: "wind", state: "working", mainRed: "boards" },
       { id: "a", short: "1", state: "blocked", waitTask: "r" },
     ])
-    expect(mainRedText(r)).toBe("Main is red: boards fails on clean main; 1 card waits on wind#7.")
+    expect(mainRedText(r)).toBe(
+      "Main is red: boards fails on clean main; 1 card waits on wind#7."
+    )
   })
 })

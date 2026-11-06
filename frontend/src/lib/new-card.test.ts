@@ -35,7 +35,9 @@ describe("boardTarget", () => {
 
   test("a pick wins; a pick from elsewhere is ignored", () => {
     expect(boardTarget(space, personal, undefined, "n").spaceBoard).toBe("n")
-    expect(boardTarget(space, personal, space.boards[1], "p-home").spaceBoard).toBe("n")
+    expect(
+      boardTarget(space, personal, space.boards[1], "p-home").spaceBoard
+    ).toBe("n")
   })
 
   test("a space with one board has one choice", () => {
@@ -49,12 +51,20 @@ describe("boardTarget", () => {
     const t = boardTarget(undefined, personal, undefined, null)
     expect(t.choices.map((x) => x.boardId)).toEqual([Personal, "p-home"])
     expect([t.board, t.spaceBoard]).toEqual([undefined, Personal])
-    expect(boardTarget(undefined, personal, personal[1], null).spaceBoard).toBe("p-home")
-    expect(boardTarget(undefined, personal, undefined, "p-home").spaceBoard).toBe("p-home")
+    expect(boardTarget(undefined, personal, personal[1], null).spaceBoard).toBe(
+      "p-home"
+    )
+    expect(
+      boardTarget(undefined, personal, undefined, "p-home").spaceBoard
+    ).toBe("p-home")
   })
 
   test("Personal's boards not loaded yet: the open list, else nothing", () => {
-    expect(boardTarget(undefined, [], personal[1], null).spaceBoard).toBe("p-home")
-    expect(boardTarget(undefined, [], undefined, null).spaceBoard).toBeUndefined()
+    expect(boardTarget(undefined, [], personal[1], null).spaceBoard).toBe(
+      "p-home"
+    )
+    expect(
+      boardTarget(undefined, [], undefined, null).spaceBoard
+    ).toBeUndefined()
   })
 })

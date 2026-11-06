@@ -79,7 +79,10 @@ export function canOpen(f: FileRef): boolean {
 // <scheme>://localhost elsewhere. AttachmentInfo.url is the same URL.
 function schemeOrigin(): string {
   const { protocol, hostname } = window.location
-  if ((protocol === "http:" || protocol === "https:") && hostname.endsWith(".localhost")) {
+  if (
+    (protocol === "http:" || protocol === "https:") &&
+    hostname.endsWith(".localhost")
+  ) {
     return `${protocol}//irori.localhost`
   }
   return "irori://localhost"

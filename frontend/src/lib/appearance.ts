@@ -96,7 +96,8 @@ export function oklchToHex(x: Oklch): string {
   return linearToHex(toLinear(x))
 }
 
-const encode = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)
+const encode = (v: number) =>
+  v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055
 
 function linearToHex(rgb: Rgb): string {
   return encodedToHex(rgb.map(encode) as Rgb)
@@ -185,7 +186,8 @@ const apart = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
 const infoHue = (accentHue: number) => (apart(accentHue, 250) < 35 ? 200 : 250)
 // The person's face is violet (300), clear of the status hues; next to a
 // violet accent it moves to rose.
-const personHue = (accentHue: number) => (apart(accentHue, 300) < 40 ? 345 : 300)
+const personHue = (accentHue: number) =>
+  apart(accentHue, 300) < 40 ? 345 : 300
 
 export function tokensFrom(seed: Seed, mode: Mode): Tokens {
   const { nh, nc } = seed
@@ -289,7 +291,11 @@ const hearthExact: Record<Mode, Partial<Tokens>> = {
     "glass-ember-tint": ok(0.97, 0.035, 60),
     "ink-2": ok(0.36, 0.014, 52),
     "blue-deep": ok(0.5, 0.17, 36),
-    backdrop: [ok(0.8, 0.12, 55, 0.55), ok(0.78, 0.09, 340, 0.35), ok(0.8, 0.07, 195, 0.35)],
+    backdrop: [
+      ok(0.8, 0.12, 55, 0.55),
+      ok(0.78, 0.09, 340, 0.35),
+      ok(0.8, 0.07, 195, 0.35),
+    ],
   },
   dark: {
     background: ok(0.17, 0.012, 45),
@@ -305,7 +311,11 @@ const hearthExact: Record<Mode, Partial<Tokens>> = {
     "glass-ember-tint": ok(0.27, 0.06, 42),
     "ink-2": ok(0.86, 0.01, 65),
     "blue-deep": ok(0.68, 0.16, 48),
-    backdrop: [ok(0.5, 0.14, 45, 0.4), ok(0.42, 0.12, 330, 0.28), ok(0.44, 0.08, 195, 0.3)],
+    backdrop: [
+      ok(0.5, 0.14, 45, 0.4),
+      ok(0.42, 0.12, 330, 0.28),
+      ok(0.44, 0.08, 195, 0.3),
+    ],
   },
 }
 
@@ -314,38 +324,75 @@ export const themes: Theme[] = [
     id: "blue",
     name: "Blue",
     note: "Cool slate, a clear blue accent",
-    seed: { nh: 255, nc: 0.014, light: { h: 255, c: 0.17, l: 0.53 }, dark: { h: 250, c: 0.14, l: 0.74 }, spots: [245, 290, 200] },
+    seed: {
+      nh: 255,
+      nc: 0.014,
+      light: { h: 255, c: 0.17, l: 0.53 },
+      dark: { h: 250, c: 0.14, l: 0.74 },
+      spots: [245, 290, 200],
+    },
   },
   {
     id: "hearth",
     name: "Hearth",
     note: "Warm ash, an ember accent",
-    seed: { nh: 55, nc: 0.012, light: { h: 38, c: 0.17 }, dark: { h: 52, c: 0.15 }, spots: [55, 340, 195] },
+    seed: {
+      nh: 55,
+      nc: 0.012,
+      light: { h: 38, c: 0.17 },
+      dark: { h: 52, c: 0.15 },
+      spots: [55, 340, 195],
+    },
     exact: hearthExact,
   },
   {
     id: "midnight",
     name: "Midnight",
     note: "Deep indigo, a violet glow",
-    seed: { nh: 280, nc: 0.02, light: { h: 285, c: 0.17, l: 0.5 }, dark: { h: 290, c: 0.13, l: 0.74 }, spots: [280, 320, 230] },
+    seed: {
+      nh: 280,
+      nc: 0.02,
+      light: { h: 285, c: 0.17, l: 0.5 },
+      dark: { h: 290, c: 0.13, l: 0.74 },
+      spots: [280, 320, 230],
+    },
   },
   {
     id: "forest",
     name: "Forest",
     note: "Moss and bark, a green accent",
-    seed: { nh: 145, nc: 0.014, light: { h: 150, c: 0.13, l: 0.5 }, dark: { h: 150, c: 0.13, l: 0.76 }, spots: [140, 90, 190] },
+    seed: {
+      nh: 145,
+      nc: 0.014,
+      light: { h: 150, c: 0.13, l: 0.5 },
+      dark: { h: 150, c: 0.13, l: 0.76 },
+      spots: [140, 90, 190],
+    },
   },
   {
     id: "sakura",
     name: "Sakura",
     note: "Petal pink on soft stone",
-    seed: { nh: 350, nc: 0.012, light: { h: 355, c: 0.16, l: 0.54 }, dark: { h: 355, c: 0.12, l: 0.78 }, spots: [355, 20, 300] },
+    seed: {
+      nh: 350,
+      nc: 0.012,
+      light: { h: 355, c: 0.16, l: 0.54 },
+      dark: { h: 355, c: 0.12, l: 0.78 },
+      spots: [355, 20, 300],
+    },
   },
   {
     id: "mono",
     name: "Mono",
     note: "Greys only; the status colours keep theirs",
-    seed: { nh: 0, nc: 0, light: { h: 0, c: 0, l: 0.3 }, dark: { h: 0, c: 0, l: 0.88 }, spots: [0, 0, 0], spotC: 0 },
+    seed: {
+      nh: 0,
+      nc: 0,
+      light: { h: 0, c: 0, l: 0.3 },
+      dark: { h: 0, c: 0, l: 0.88 },
+      spots: [0, 0, 0],
+      spotC: 0,
+    },
   },
 ]
 
@@ -434,7 +481,10 @@ const sel = (id: string, mode: Mode) =>
 
 // themeCSS is one theme's light and dark blocks.
 export function themeCSS(id: string, tokens: (m: Mode) => Tokens): string {
-  return block(sel(id, "light"), tokens("light")) + block(sel(id, "dark"), tokens("dark"))
+  return (
+    block(sel(id, "light"), tokens("light")) +
+    block(sel(id, "dark"), tokens("dark"))
+  )
 }
 
 // themesCSS is design/themes.css.
@@ -474,13 +524,18 @@ export interface Appearance {
   css?: string
 }
 
-export const defaults: Appearance = { theme: defaultTheme, mode: "dark", glass: "frost" }
+export const defaults: Appearance = {
+  theme: defaultTheme,
+  mode: "dark",
+  glass: "frost",
+}
 
 // clean drops what this build doesn't know.
 export function clean(a: Partial<Appearance> | null | undefined): Appearance {
   const out: Appearance = { ...defaults }
   if (!a || typeof a !== "object") return out
-  if (a.mode === "light" || a.mode === "dark" || a.mode === "system") out.mode = a.mode
+  if (a.mode === "light" || a.mode === "dark" || a.mode === "system")
+    out.mode = a.mode
   if (glassStyles.some((g) => g.id === a.glass)) out.glass = a.glass!
   if (themes.some((t) => t.id === a.theme)) out.theme = a.theme!
   const c = a.custom
@@ -491,7 +546,11 @@ export function clean(a: Partial<Appearance> | null | undefined): Appearance {
     /^#[0-9a-f]{6}$/i.test(c.accent) &&
     /^#[0-9a-f]{6}$/i.test(c.tint)
   ) {
-    out.custom = { base: themes.some((t) => t.id === c.base) ? c.base : defaultTheme, accent: c.accent, tint: c.tint }
+    out.custom = {
+      base: themes.some((t) => t.id === c.base) ? c.base : defaultTheme,
+      accent: c.accent,
+      tint: c.tint,
+    }
     if (a.theme === "custom") {
       out.theme = "custom"
       out.css = customCSS(out.custom)
@@ -517,7 +576,8 @@ function saveAppearance(a: Appearance) {
 }
 
 const systemDark = () =>
-  typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-color-scheme: dark)").matches
 
 export function resolvedMode(m: ModeChoice): Mode {
   return m === "system" ? (systemDark() ? "dark" : "light") : m
@@ -593,5 +653,9 @@ export function swatch(id: string, mode: Mode, custom?: Custom) {
     id === "custom" && custom
       ? customTokens(custom, mode)
       : themeTokens(themes.find((x) => x.id === id) ?? themes[0], mode)
-  return { bg: css(t.background), accent: css(t.primary), text: css(t.foreground) }
+  return {
+    bg: css(t.background),
+    accent: css(t.primary),
+    text: css(t.foreground),
+  }
 }
