@@ -642,6 +642,20 @@ impl Fold {
         !me.is_empty() && kp(&t.created_by) == me && (s.by == SWEEPER || kp(&s.by) == me)
     }
 
+    /// Whether card t is this device's person's to start agents for: every
+    /// card on the private log; on a shared board, one they made. A
+    /// teammate's card waits on the teammate's computers, not theirs.
+    pub(crate) fn persons_card(&self, t: &Task) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && kp(&t.created_by) == me
+    }
+
     /// Whether card t waits for an agent Irori starts for it, wherever it
     /// would start (card #541): nobody has it, none is starting, and it's
     /// no agent's turn to end. Unlike [`Self::ask_needs_agent`] it doesn't
@@ -651,6 +665,7 @@ impl Fold {
     pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
         let now = self.stamp();
         if !self.spawning_on()
+            || !self.persons_card(t)
             || t.spawn_request()
                 .is_some_and(|s| s.pending() && !s.stale(&now))
             || t.spawn_crashes >= MAX_SPAWN_CRASHES

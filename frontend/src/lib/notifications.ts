@@ -37,6 +37,8 @@ export const Kind = {
   Agent: "agent",
   // The one card for several messages that waited (card #482).
   Waited: "waited",
+  // No device can start an agent for a card or thread (card #541).
+  NoAgent: "no_agent",
 } as const
 
 export const kindLabel: Record<string, string> = {
@@ -52,6 +54,7 @@ export const kindLabel: Record<string, string> = {
   held: "Held",
   agent: "Agent",
   waited: "Messages",
+  no_agent: "No agent",
 }
 
 export const kindTone: Record<
@@ -70,6 +73,7 @@ export const kindTone: Record<
   held: "warning",
   agent: "secondary",
   waited: "info",
+  no_agent: "warning",
 }
 
 // onCard: the item is about a card's blocker, done check or question.

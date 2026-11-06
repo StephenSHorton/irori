@@ -423,7 +423,9 @@ impl Window {
                     .filter(|sp| sp.op == coord::SPAWN_FAILED && state == THREAD_WAITING)
                     .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),
-                no_agent: if state == THREAD_WAITING {
+                // Any open thread, not only waiting ones: a follow-up to an
+                // answered thread waits on an agent too (card #541).
+                no_agent: if !resolved {
                     p.no_agent_for(&t.id)
                 } else {
                     String::new()
