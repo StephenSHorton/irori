@@ -504,6 +504,14 @@ impl Fold {
                     }
                     t.done_criteria = d.clone();
                 }
+                // Its repo (card #600): set, never cleared, by a row.
+                if let Some(r) = &p.repo_key {
+                    let r = ledger::canonical_repo_key(r);
+                    if !r.is_empty() && r != t.repo_key {
+                        changed.push(format!("set its repo to {}", ledger::repo_name(&r)));
+                        t.repo_key = r;
+                    }
+                }
                 // A yes is for the words they read: someone else changing
                 // them asks again (card #573).
                 if !changed.is_empty() && another {

@@ -13,6 +13,8 @@
 //!   and asked again (card #531: a question reads as one, not as a bad
 //!   path). If a copy turns up here (a Where, or a checkout Irori sees),
 //!   the blocker resolves itself and the agent starts.
+//! - A card that names no repo is never asked about (card #600): its
+//!   agent starts where an ask's does and works the repo out itself.
 //! - The spawner itself fails [`SPAWN_TRIES`] times in a row (the person's
 //!   number from Settings › Agents, if they set one): one blocker,
 //!   "Irori couldn't start an agent for this card: try again?".
@@ -218,18 +220,6 @@ impl Services {
             .find(|f| !f.is_empty() && Path::new(f).is_absolute() && Path::new(f).is_dir())
     }
 
-    /// The folder to offer for t, whose repo nobody named: where this
-    /// device's agents work now, as an ask's agent would start. A card with
-    /// a repo gets none: another repo's folder is no copy of it.
-    fn likely_folder(&self, t: &Task) -> Option<String> {
-        if !t.repo_key.is_empty() {
-            return None;
-        }
-        self.ask_home()
-            .map(|(_, folder)| folder)
-            .filter(|f| f.chars().count() <= coord::MAX_ANSWER)
-    }
-
     /// The "no copy" question, its context and its options for t on this
     /// device. `reply` is what the person said to the last one, if it
     /// wasn't a folder: the new question quotes it, so it can't read as the
@@ -237,13 +227,7 @@ impl Services {
     fn no_copy_ask(&self, t: &Task, reply: Option<&str>) -> (String, String, Vec<BlockerOption>) {
         let dev = self.this_device_name();
         let name = coord::repo_name(&t.repo_key);
-        let (question, why) = if t.repo_key.is_empty() {
-            (
-                format!("This card names no repo. {CHOOSE_FOLDER} on {dev}?"),
-                "A card takes its repo from where it is made, and this one was made outside any repo, so Irori doesn't know where its work lives. Its agent has to start in a folder."
-                    .to_string(),
-            )
-        } else if self.capture.repo_roots(&t.repo_key).is_empty() {
+        let (question, why) = if self.capture.repo_roots(&t.repo_key).is_empty() {
             (
                 format!("No device has a copy of {name}. {CHOOSE_FOLDER} on {dev}?"),
                 format!(
@@ -265,7 +249,6 @@ impl Services {
             ),
             None => question,
         };
-        let likely = self.likely_folder(t);
         let mut context = String::new();
         if let Some(r) = reply {
             context += &not_a_folder_line(r, &dev);
@@ -273,28 +256,10 @@ impl Services {
         }
         context += &why;
         context.push(' ');
-        context += &match (&likely, t.repo_key.is_empty()) {
-            (Some(_), _) => format!(
-                "Pick the folder an agent on {dev} works in now, or reply with another folder's full path, and its agent starts in it."
-            ),
-            (None, true) => {
-                format!("Reply with the full path of a folder on {dev} and its agent starts in it.")
-            }
-            (None, false) => format!(
-                "Reply with the folder's full path on {dev} (clone it first if it isn't there) and its agent starts in it."
-            ),
-        };
-        // The option's answer is the path itself: a pick reads as a reply.
-        let options = likely
-            .map(|f| BlockerOption {
-                answer: f,
-                why: format!("Its agent starts here, on {dev}."),
-                by: SWEEPER.into(),
-                recommended: true,
-                ..BlockerOption::default()
-            })
-            .into_iter()
-            .collect();
+        context += &format!(
+            "Reply with the folder's full path on {dev} (clone it first if it isn't there) and its agent starts in it."
+        );
+        let options = Vec::new();
         (
             cut(&question, 200),
             cut(&context, coord::MAX_CONTEXT),
@@ -309,7 +274,10 @@ impl Services {
         let Some(t) = self.coord.get_task(&t.id) else {
             return;
         };
-        if is_helper(&t) || coord::is_terminal(&t.state) {
+        // A card that names no repo isn't asked about (card #600): its
+        // agent works the repo out. It has no folder here only when this
+        // device has no checkout of any repo; its failed request says so.
+        if is_helper(&t) || coord::is_terminal(&t.state) || t.repo_key.is_empty() {
             return;
         }
         let dev = self.this_device_name();
@@ -435,7 +403,7 @@ impl Services {
         let dev = self.this_device_name();
         let folder = cut(folder, 200);
         let found = if name.is_empty() {
-            format!("Its folder is {folder} on {dev}")
+            format!("Irori starts its agent in {folder} on {dev}, and it works out the card's repo")
         } else {
             format!("Irori found a copy of {name} on {dev} ({folder})")
         };

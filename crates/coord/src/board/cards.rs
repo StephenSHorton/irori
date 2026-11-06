@@ -2469,10 +2469,18 @@ impl Fold {
         let title = e.title.map(|s| trim_space(&s).to_string());
         let obj = e.objective.map(|s| trim_space(&s).to_string());
         let done = e.done_when.map(|s| trim_space(&s).to_string());
-        if title.is_none() && obj.is_none() && done.is_none() {
+        // Its repo (card #600), in the checkout's spelling: set, not cleared.
+        let repo = e
+            .repo
+            .map(|s| ledger::canonical_repo_key(trim_space(&s)))
+            .filter(|r| !r.is_empty());
+        if title.is_none() && obj.is_none() && done.is_none() && repo.is_none() {
             return Err(invalid(
-                "give title, objective or done_when: what the card is now",
+                "give title, objective, done_when or repo: what the card is now",
             ));
+        }
+        if let Some(r) = &repo {
+            super::resource::check_repo_key(r)?;
         }
         if title.as_deref() == Some("") {
             return Err(invalid("a card needs a title"));
@@ -2504,7 +2512,8 @@ impl Fold {
         }
         let same = title.as_ref().is_none_or(|v| *v == t.title)
             && obj.as_ref().is_none_or(|v| *v == t.objective)
-            && done.as_ref().is_none_or(|v| *v == t.done_criteria);
+            && done.as_ref().is_none_or(|v| *v == t.done_criteria)
+            && repo.as_ref().is_none_or(|v| *v == t.repo_key);
         if same {
             return Ok(t);
         }
@@ -2521,6 +2530,7 @@ impl Fold {
                 title: title.clone(),
                 objective: obj.clone(),
                 done_criteria: done.clone(),
+                repo_key: repo.clone(),
                 by: by.clone(),
                 from,
                 at,
@@ -2531,7 +2541,8 @@ impl Fold {
         let now = &self.tasks[id];
         let landed = title.as_ref().is_none_or(|v| *v == now.title)
             && obj.as_ref().is_none_or(|v| *v == now.objective)
-            && done.as_ref().is_none_or(|v| *v == now.done_criteria);
+            && done.as_ref().is_none_or(|v| *v == now.done_criteria)
+            && repo.as_ref().is_none_or(|v| *v == now.repo_key);
         if !landed {
             return Err(super::error::Error::raw(
                 super::error::ErrorKind::BadState,
