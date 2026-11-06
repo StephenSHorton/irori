@@ -7,7 +7,7 @@
 //   bun run preview:look                 # in another terminal
 //   bun run check:phone                  # or: bun scripts/phone-check.ts home card-1
 //
-// PREVIEW_URL (default http://127.0.0.1:9246/), BROWSER_EXE, PHONE_WIDTH
+// PREVIEW_URL (default: frontend/.preview-url, which preview:look writes), BROWSER_EXE, PHONE_WIDTH
 // (390), PHONE_HEIGHT (844; taller shows more of a long page), PHONE_DPR (1),
 // PHONE_OUT (the folder), PHONE_TRACE=1 (where a cut sits), PHONE_MOBILE=0 for a narrow desktop window instead.
 //
@@ -23,8 +23,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
+import { checkPreview, devtoolsPort, previewUrl } from "./preview-url.ts"
 
-const base = process.env.PREVIEW_URL ?? "http://127.0.0.1:9246/"
 const width = Number(process.env.PHONE_WIDTH ?? 390)
 const height = Number(process.env.PHONE_HEIGHT ?? 844)
 const dpr = Number(process.env.PHONE_DPR ?? 1)
@@ -159,28 +159,22 @@ async function main() {
   const only = process.argv.slice(2)
   const pages = only.length ? PAGES.filter(([n]) => only.includes(n)) : PAGES
   if (!pages.length) throw new Error(`no page named ${only.join(", ")}; pages: ${PAGES.map(([n]) => n).join(" ")}`)
+  const base = previewUrl()
+  await checkPreview(base)
   const profile = mkdtempSync(join(tmpdir(), "phone-check-"))
-  const port = 9700 + (process.pid % 200)
   const chrome = spawn(
     findBrowser(),
     ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-      `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank"],
+      "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"],
     { stdio: "ignore" },
   )
   let failed = 0
   try {
-    let ver: any
-    for (let i = 0; i < 100 && !ver; i++) {
-      ver = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json()).catch(() => null)
-      if (!ver) await Bun.sleep(100)
-    }
-    if (!ver) throw new Error("Chrome's DevTools port never answered")
+    const port = await devtoolsPort(profile)
+    const ver: any = await fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.json())
     const ws = new WebSocket(ver.webSocketDebuggerUrl)
     await new Promise((r, j) => ((ws.onopen = r), (ws.onerror = j)))
     const cdp = new Cdp(ws)
-    await fetch(base).catch(() => {
-      throw new Error(`nothing at ${base}: start \`bun run preview:look\` or set PREVIEW_URL`)
-    })
     for (const [name, query] of pages) {
       const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" })
       const { sessionId: s } = await cdp.send("Target.attachToTarget", { targetId, flatten: true })
