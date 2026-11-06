@@ -310,7 +310,7 @@ export function TalkPage({
     <nav
       aria-label="Talk"
       className={cn(
-        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto py-3",
+        "flex min-h-0 shrink-0 flex-col gap-1 overflow-y-auto py-3 mac:overscroll-none",
         narrow ? "w-full px-1" : "w-[260px] border-r border-border px-2"
       )}
     >
@@ -975,7 +975,7 @@ function Conversation({
       className={cn(
         // Fills the pane: only the thread's messages scroll (card #564).
         // The column scrolls only when its fixed lines alone outgrow it.
-        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto",
+        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto mac:overscroll-none",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >

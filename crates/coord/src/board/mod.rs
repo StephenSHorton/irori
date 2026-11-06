@@ -111,7 +111,7 @@ pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrState,
+    PrNews, PrState,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -1730,6 +1730,22 @@ impl Coord {
             .get(id)
             .map(|t| f.merge_waits(t))
             .unwrap_or_default()
+    }
+
+    /// The PRs of [`Coord::merge_waits`] the poller still asks about, a
+    /// closed one too (card #548).
+    pub fn polled_waits(&self, id: &str) -> Vec<String> {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.polled_waits(t))
+            .unwrap_or_default()
+    }
+
+    /// What this board's PR rows say, for each device to pass to the
+    /// agents it hosts (card #548), told already or not.
+    pub fn pr_news(&self) -> Vec<PrNews> {
+        self.lock().pr_news()
     }
 
     pub fn tick(&self) {

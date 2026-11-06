@@ -1916,7 +1916,7 @@ impl Core {
                     if stop.sleep(crate::prwatch::TICK) {
                         return;
                     }
-                    s.check_prs();
+                    s.check_prs(std::time::Instant::now());
                 }
             });
         }
@@ -2630,7 +2630,12 @@ impl Core {
     /// Asks GitHub about the linked PRs that are due now (card #208); the
     /// Core's own loop does every [`crate::prwatch::TICK`].
     pub fn check_prs(&self) {
-        self.s.check_prs()
+        self.s.check_prs(std::time::Instant::now())
+    }
+
+    /// [`Self::check_prs`] as if it were `now`: its throttles are minutes.
+    pub fn check_prs_at(&self, now: std::time::Instant) {
+        self.s.check_prs(now)
     }
 
     /// Polls the merge desks this device polls that are due now (card
@@ -3712,10 +3717,22 @@ impl Services {
 
     /// Asks GitHub about the PRs that are due (card #208) and routes what
     /// coord says changed.
-    fn check_prs(self: &Arc<Self>) {
-        let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) else {
-            return;
-        };
+    fn check_prs(self: &Arc<Self>, now: std::time::Instant) {
+        // First, while another person's row is still theirs alone: a poll
+        // here hearing the same would count as this person's word for it.
+        self.tell_pr_news();
+        if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
+            self.ask_github(checker.as_ref(), now);
+        }
+        // And what folded while gh answered.
+        self.tell_pr_news();
+    }
+
+    fn ask_github(
+        self: &Arc<Self>,
+        checker: &dyn crate::prwatch::PrChecker,
+        now: std::time::Instant,
+    ) {
         let local: std::collections::HashSet<String> = self
             .presence
             .snapshot()
@@ -3724,14 +3741,24 @@ impl Services {
             .collect();
         let mut coords = vec![self.coord.clone()];
         coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
-        let due = self.pr_watch.due(
-            &coords,
-            &local,
-            &|k| self.private_key(k),
-            std::time::Instant::now(),
-        );
+        let due = self
+            .pr_watch
+            .due(&coords, &local, &|k| self.private_key(k), now);
         for d in due {
+            let known = |co: &coord::Coord| {
+                co.pr_state(&d.task_id, &d.url)
+                    .filter(|p| !p.state.is_empty())
+                    .map(|p| (p.state, p.review))
+            };
+            let before = known(&d.co);
             let c = checker.check(&d.url);
+            self.pr_watch
+                .answered(&d.task_id, &d.url, c.error.is_empty());
+            // Overtaken while gh answered (card #548): an OPEN from before
+            // a closing that just folded is no reopen. The next poll asks.
+            if known(&d.co) != before {
+                continue;
+            }
             match d.co.record_pr_state(&d.task_id, c) {
                 Ok((_, ns)) => {
                     for n in ns {

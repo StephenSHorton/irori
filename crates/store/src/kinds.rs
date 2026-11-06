@@ -4,7 +4,7 @@
 //! Every kind the tree writes is a constant here, and the [`kinds!`] table
 //! that defines the constants is also the registry, so a kind can't exist
 //! without a Side and (when it replicates) a Board verdict. Go's two maps
-//! (`kindSides`, `kindBoards`) are one table here; `tests/kinds.rs` checks it
+//! (`kindSides`, `kindBoards`) are one table here; `tests/it/kinds.rs` checks it
 //! against the Go-exported table and the consistency rules Go's
 //! `TestEveryKindIsClassified` checks.
 //!
@@ -337,6 +337,10 @@ kinds! {
     BOARD_PIN = "board.pin" => Local;
     /// `{boardId, upTo}`: this device forgot the board.
     BOARD_FORGOTTEN = "board.forgotten" => Local;
+    /// `{deviceId, personId, coreVersion, spaces, spawns, tolerant, seq,
+    /// atMs}`: the last hello this device heard from `deviceId` on the
+    /// board (card #577).
+    BOARD_HELLO = "board.hello" => Local;
 }
 
 fn index() -> &'static HashMap<&'static str, (Side, Board)> {

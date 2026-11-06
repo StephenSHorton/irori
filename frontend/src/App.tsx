@@ -1164,7 +1164,7 @@ export default App
 // it scrolls by itself under the header (card #170).
 function Scroll({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10">
+    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none">
       {children}
     </div>
   )
