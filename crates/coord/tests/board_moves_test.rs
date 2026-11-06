@@ -78,13 +78,10 @@ fn opts(s: &Space) -> Options {
             if l.deleted.iter().any(|(b, _)| b == id) {
                 return None;
             }
-            l.tags
-                .iter()
-                .find(|(_, b)| b == id)
-                .map(|(t, _)| t.clone())
+            l.tags.iter().find(|(_, b)| b == id).map(|(t, _)| t.clone())
         })),
         board_tags: Some(Arc::new(|| vec!["net".to_string(), "art".to_string()])),
-        board_view: Some(Arc::new(move || l2.lock().unwrap().clone())),
+        board_view: Some(Arc::new(move || Some(l2.lock().unwrap().clone()))),
         ..Options::default()
     }
 }
@@ -238,7 +235,10 @@ fn a_move_to_the_first_board_writes_the_empty_board() {
     assert!(text.contains(r#""num":3"#), "{text}");
     let plain = gocompat::json::marshal(&TaskEditedRow::default()).unwrap();
     let plain = String::from_utf8(plain).unwrap();
-    assert!(!plain.contains("board") && !plain.contains("num"), "{plain}");
+    assert!(
+        !plain.contains("board") && !plain.contains("num"),
+        "{plain}"
+    );
 }
 
 #[test]
@@ -322,7 +322,11 @@ fn a_clash_takes_letters_and_a_lost_claim_settles_both_boards() {
     land(&s, &c, &moved("dev-b", 3, base + 4, "X", 1, ART));
     assert_eq!(c.get_task("Y").unwrap().short_ref(), "net#1");
     assert_eq!(c.get_task("X").unwrap().short_ref(), "art#1");
-    assert_eq!(c.task_ref("net#1").unwrap(), "Y", "who holds it comes first");
+    assert_eq!(
+        c.task_ref("net#1").unwrap(),
+        "Y",
+        "who holds it comes first"
+    );
 }
 
 #[test]
@@ -389,7 +393,11 @@ fn a_deleted_boards_cards_go_to_the_first_board_with_old_refs_working() {
     assert_eq!(place(&c, &n2.id), (String::new(), "wind#3".to_string()));
     assert_eq!(c.task_ref("net#1").unwrap(), n1.id);
     assert_eq!(c.task_ref("net#2").unwrap(), n2.id);
-    assert_eq!(c.board(&BoardFilter::default()).open.len(), 3, "no card lost");
+    assert_eq!(
+        c.board(&BoardFilter::default()).open.len(),
+        3,
+        "no card lost"
+    );
     // Numbers carry on past the ones a delete gave out, and a restart
     // gives the same.
     let w = card(&c, "", "w4");
@@ -456,7 +464,7 @@ fn permutations(n: usize) -> Vec<Vec<usize>> {
 fn every_arrival_order_settles_on_the_same_places() {
     let base = hlc_at(fixed_now());
     let del = 4;
-    let rows = vec![
+    let rows = [
         created("dev-b", 1, base + 1, "A", 1, ""),
         created("dev-c", 1, base + 2, "B", 1, NET),
         moved("dev-e", 1, base + 5, "A", 3, NET),
@@ -515,4 +523,164 @@ fn a_cards_tag_follows_the_board_list() {
         ),
     );
     assert_eq!(c.get_task(&w.id).unwrap().tag, "sockets");
+}
+
+/// Found by review: letters go with the claim, so a lettered old ref means
+/// the one card that held it, and a made-up letter means nothing.
+#[test]
+fn a_lettered_old_ref_finds_only_the_card_that_held_it() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let base = hlc_at(fixed_now());
+    land(&s, &c, &created("dev-b", 1, base + 1, "X", 5, NET));
+    land(&s, &c, &created("dev-c", 1, base + 2, "Y", 5, NET));
+    assert_eq!(c.task_ref("net#5a").unwrap(), "X");
+    assert_eq!(c.task_ref("net#5b").unwrap(), "Y");
+    land(&s, &c, &moved("dev-c", 2, base + 3, "Y", 1, ART));
+    assert_eq!(c.task_ref("net#5").unwrap(), "X");
+    assert_eq!(c.task_ref("net#5a").unwrap(), "X");
+    assert_eq!(c.task_ref("net#5b").unwrap(), "Y");
+    assert!(c.task_ref("net#5z").is_err());
+}
+
+#[test]
+fn a_deleted_boards_lettered_refs_still_tell_its_cards_apart() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let base = hlc_at(fixed_now());
+    land(&s, &c, &created("dev-b", 1, base + 1, "P", 1, NET));
+    land(&s, &c, &created("dev-c", 1, base + 2, "Q", 1, NET));
+    delete(&s, &c, "dev-d", 1, base + 3, NET);
+    assert_eq!(c.task_ref("net#1a").unwrap(), "P");
+    assert_eq!(c.task_ref("net#1b").unwrap(), "Q");
+    let e = c.task_ref("net#1").unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::Ambiguous);
+    assert!(e.to_string().contains("net#1 was more than one"), "{e}");
+}
+
+/// A card made on a board already deleted keeps the ref its maker saw.
+#[test]
+fn a_card_made_on_a_deleted_board_keeps_the_ref_its_writer_saw() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let base = hlc_at(fixed_now());
+    delete(&s, &c, "dev-b", 1, base + 1, NET);
+    land(&s, &c, &created("dev-c", 1, base + 2, "Z", 7, NET));
+    assert_eq!(c.get_task("Z").unwrap().short_ref(), "wind#1");
+    assert_eq!(c.task_ref("net#7").unwrap(), "Z");
+}
+
+/// A family that came apart comes back together with one move, and a card
+/// already on the board keeps its number.
+#[test]
+fn a_move_reunites_a_family_and_leaves_alone_a_card_already_there() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let p = card(&c, NET, "parent");
+    let k = card(&c, "", "kid");
+    c.split(ME, &p.id, Vec::new(), vec![k.id.clone()]).unwrap();
+    assert_eq!(
+        place(&c, &k.id),
+        (NET.to_string(), "net#2".to_string()),
+        "adopting puts it on the parent's board"
+    );
+    let base = hlc_at(fixed_now()) + (1 << 30);
+    land(&s, &c, &moved("dev-b", 1, base, &k.id, 1, ART));
+    assert_eq!(place(&c, &k.id).0, ART, "apart");
+    let t = c.move_task(ME, &p.id, NET).unwrap();
+    assert_eq!(t.short_ref(), "net#1", "the parent didn't move");
+    assert_eq!(place(&c, &k.id).0, NET);
+
+    let p2 = card(&c, NET, "parent two");
+    let k2 = c
+        .create_task(
+            ME,
+            NewTask {
+                title: "kid two".into(),
+                parent: p2.id.clone(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    land(&s, &c, &moved("dev-b", 2, base + 100_000, &k2.id, 5, ART));
+    assert_eq!(c.get_task(&k2.id).unwrap().short_ref(), "art#5");
+    let t = c.move_task(ME, &p2.id, ART).unwrap();
+    assert_eq!(t.board, ART);
+    assert_eq!(c.get_task(&k2.id).unwrap().short_ref(), "art#5", "kept");
+}
+
+/// History doesn't change at a restart when the board is deleted later,
+/// and a board the log doesn't hold yet isn't guessed at.
+#[test]
+fn the_move_line_names_the_board_the_row_named() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let w = card(&c, "", "w1");
+    c.move_task(ME, &w.id, NET).unwrap();
+    s.clk.add(std::time::Duration::from_secs(5));
+    delete(&s, &c, "dev-b", 1, hlc_at(s.clk.now()), NET);
+    let c = coord_on(&s);
+    let d = c.get_task(&w.id).unwrap();
+    assert_eq!(d.short_ref(), "wind#2");
+    let lines = c.activity(&w.id).unwrap();
+    assert!(
+        lines.iter().any(|a| a.what.contains("moved it to net")),
+        "{lines:?}"
+    );
+    assert!(!lines.iter().any(|a| a.what.contains("moved it to wind")));
+}
+
+/// A card's old ref in text reaches it, as task_ref does.
+#[test]
+fn a_mention_of_an_old_ref_reaches_the_moved_card() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let w = card(&c, "", "w1");
+    let other = card(&c, "", "w2");
+    c.move_task(ME, &w.id, NET).unwrap();
+    c.add_comment(ME, &other.id, "see wind#1", false).unwrap();
+    let lines = c.activity(&w.id).unwrap();
+    assert!(
+        lines.iter().any(|a| a.what.contains("mentioned this in")),
+        "{lines:?}"
+    );
+}
+
+/// A failed read keeps the list: a blank one would undo every delete.
+#[test]
+fn a_board_list_that_cant_be_read_changes_nothing() {
+    let s = space("dev-a");
+    let dark = Arc::new(Mutex::new(false));
+    let (d2, l2) = (dark.clone(), s.list.clone());
+    let c = Coord::new(
+        s.st.clone(),
+        None,
+        Options {
+            board_view: Some(Arc::new(move || {
+                if *d2.lock().unwrap() {
+                    return None;
+                }
+                Some(l2.lock().unwrap().clone())
+            })),
+            ..opts(&s)
+        },
+    )
+    .unwrap();
+    let n = card(&c, NET, "n1");
+    s.clk.add(std::time::Duration::from_secs(5));
+    delete(&s, &c, "dev-b", 1, hlc_at(s.clk.now()), NET);
+    assert_eq!(place(&c, &n.id).0, "");
+    *dark.lock().unwrap() = true;
+    land(
+        &s,
+        &c,
+        &event(
+            "dev-c",
+            1,
+            hlc_at(s.clk.now()) + 1,
+            kinds::SPACE_BOARD_RENAMED,
+            format!(r#"{{"boardId":"{ART}","name":"Paint","tag":""}}"#).into_bytes(),
+        ),
+    );
+    assert_eq!(place(&c, &n.id).0, "", "still on the first board");
 }

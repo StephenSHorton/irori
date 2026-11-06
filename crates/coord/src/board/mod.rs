@@ -245,7 +245,10 @@ pub struct BoardList {
     pub tags: Vec<(String, String)>,
 }
 /// See [`Options::board_view`].
-pub type BoardViewFn = Arc<dyn Fn() -> BoardList + Send + Sync>;
+///
+/// None when the list can't be read just now: the fold keeps what it has,
+/// since a blank list would undo every delete.
+pub type BoardViewFn = Arc<dyn Fn() -> Option<BoardList> + Send + Sync>;
 
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
@@ -805,6 +808,12 @@ impl Coord {
         f.mention_notice(&by, id, &ms, text, &format!("task:{id}"), "")
     }
     /// Renames a card or changes its objective or done-when (board_edit).
+    /// Reads the board list now: Core calls this after writing a board row
+    /// itself, so a read straight after sees the cards where they went.
+    pub fn refresh_boards(&self) {
+        self.lock().refresh_boards();
+    }
+
     pub fn move_task(&self, by: &str, id: &str, board: &str) -> Result<Task> {
         self.lock().move_task(by, id, board)
     }

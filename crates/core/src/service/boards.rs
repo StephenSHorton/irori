@@ -1448,9 +1448,8 @@ impl Services {
                     board_view: Some({
                         let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
                         Arc::new(move || {
-                            st.upgrade().map_or_else(Default::default, |st| {
-                                super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
-                            })
+                            let st = st.upgrade()?;
+                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
                         })
                     }),
                     ..Default::default()

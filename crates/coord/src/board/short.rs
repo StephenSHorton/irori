@@ -87,9 +87,13 @@ fn displace(
     at: &RowPos,
     live: &mut HashMap<String, ShortClaim>,
     tops: &mut HashMap<String, i64>,
-    hist: &mut Vec<(String, i64, String)>,
+    hist: &mut Vec<(String, i64, String, RowPos)>,
 ) {
-    let mut on: Vec<ShortClaim> = live.values().filter(|c| c.board == board).cloned().collect();
+    let mut on: Vec<ShortClaim> = live
+        .values()
+        .filter(|c| c.board == board)
+        .cloned()
+        .collect();
     on.sort_by(|a, b| a.at.cmp(&b.at).then_with(|| a.id.cmp(&b.id)));
     for was in on {
         let num = tops.get("").copied().unwrap_or(0) + 1;
@@ -105,7 +109,7 @@ fn displace(
                 displaced: true,
             },
         );
-        hist.push((was.board, was.num, was.id));
+        hist.push((was.board, was.num, was.id, was.at));
     }
 }
 
@@ -135,6 +139,26 @@ pub(crate) fn ambiguous(short: &str, cards: &[&Task]) -> Error {
     Error::new(ErrorKind::Ambiguous, text)
 }
 
+/// Ambiguous, for an old ref more than one card has left.
+fn ambiguous_old(typed: &str, cards: &[&Task]) -> Error {
+    let names: Vec<String> = cards
+        .iter()
+        .map(|t| {
+            format!(
+                "{} {} (task:{})",
+                t.short_ref(),
+                quote(&one_line_title(&t.title)),
+                t.id
+            )
+        })
+        .collect();
+    let names = names.join(", ");
+    Error::new(
+        ErrorKind::Ambiguous,
+        format!("{typed} was more than one card, now {names}"),
+    )
+}
+
 /// A title cut to one short line for an error's text.
 fn one_line_title(s: &str) -> String {
     let s = collapse_space(s);
@@ -150,9 +174,7 @@ impl Fold {
     /// Records a task.created row's claim.
     pub(crate) fn claim_short(&mut self, id: &str, at: RowPos, num: i64, board: &str) {
         if self.claimed.contains(id) {
-            if !self.replaying {
-                self.renumber();
-            }
+            self.walk();
             return;
         }
         let cl = ShortClaim {
@@ -169,7 +191,7 @@ impl Fold {
             return;
         }
         if cl.num == 0 || self.needs_walk(&cl) {
-            self.renumber();
+            self.walk();
             return;
         }
         let key = (cl.board.clone(), cl.num);
@@ -183,14 +205,28 @@ impl Fold {
         self.settle(&key);
     }
 
+    /// Walks now, or at the end of a catch-up; a replay walks when it ends.
+    fn walk(&mut self) {
+        if self.replaying {
+            return;
+        }
+        if self.batching {
+            self.batch_dirty = true;
+            return;
+        }
+        self.renumber();
+    }
+
     /// Whether a claim can change what the last walk gave, so only another
-    /// walk will do: it sits before the walk's end, or names a deleted
-    /// board. With no moves or deletes, claims don't touch each other.
+    /// walk will do: it sits before the walk's end, its card has a move
+    /// waiting, or it names a deleted board. With no moves or deletes,
+    /// claims don't touch each other.
     fn needs_walk(&self, cl: &ShortClaim) -> bool {
-        if !self.any_moves && self.board_view.deleted.is_empty() {
+        if self.moved_ids.is_empty() && self.board_view.deleted.is_empty() {
             return false;
         }
-        self.walked_to.as_ref().is_some_and(|w| cl.at.before(w))
+        self.moved_ids.contains(&cl.id)
+            || self.walked_to.as_ref().is_some_and(|w| cl.at.before(w))
             || self.board_view.deleted.iter().any(|(b, _)| *b == cl.board)
     }
 
@@ -198,9 +234,10 @@ impl Fold {
     /// landed yet; false for a repeat. The walk decides what it does, so
     /// arrival order can't.
     pub(crate) fn fold_move(&mut self, id: &str, at: RowPos, board: &str, num: i64) -> bool {
-        if id.is_empty() || self.claims.iter().any(|c| c.moved && c.at == at) {
+        if id.is_empty() || !self.moved_rows.insert((at.dev.clone(), at.seq)) {
             return false;
         }
+        self.moved_ids.insert(id.into());
         self.claims.push(ShortClaim {
             id: id.into(),
             at,
@@ -209,16 +246,24 @@ impl Fold {
             moved: true,
             displaced: false,
         });
-        self.any_moves = true;
-        if !self.replaying {
-            self.renumber();
-        }
+        self.walk();
         true
     }
 
-    /// The thread's line for a move to `board`.
+    /// The thread's line for a move to `board`. It names the board the row
+    /// named, even one deleted since, or history would change at a restart;
+    /// a board the log doesn't hold yet isn't guessed at.
     pub(crate) fn moved_line(&self, board: &str) -> String {
-        let tag = self.tag_of(board);
+        let b = self.own_board(board);
+        let named = self.board_view.tags.iter().rfind(|(_, id)| *id == b);
+        let tag = match named {
+            _ if b.is_empty() => self.tag(),
+            Some((t, _)) => t.clone(),
+            None => match self.board_tag(&b) {
+                Some(t) => t,
+                None => return "moved it to another board".to_string(),
+            },
+        };
         if tag.is_empty() {
             return "moved it to the default board".to_string();
         }
@@ -235,10 +280,9 @@ impl Fold {
 
     /// Reads the board list. True when it changed.
     pub(crate) fn read_board_view(&mut self) -> bool {
-        let Some(f) = &self.board_view_fn else {
+        let Some(mut v) = self.board_view_fn.as_ref().and_then(|f| f()) else {
             return false;
         };
-        let mut v = f();
         v.deleted.sort_by(|a, b| a.1.cmp(&b.1));
         if v == self.board_view {
             return false;
@@ -302,7 +346,7 @@ impl Fold {
         let mut tops: HashMap<String, i64> = HashMap::new();
         let mut live: HashMap<String, ShortClaim> = HashMap::new();
         let mut gone: HashSet<String> = HashSet::new();
-        let mut hist: Vec<(String, i64, String)> = Vec::new();
+        let mut hist: Vec<(String, i64, String, RowPos)> = Vec::new();
         let (mut legacy, mut d) = (0, 0);
         let mut end = None;
         for cl in &self.claims {
@@ -313,6 +357,10 @@ impl Fold {
             }
             let mut c = cl.clone();
             if gone.contains(&c.board) {
+                // The ref its writer saw still finds it.
+                if c.num > 0 {
+                    hist.push((c.board.clone(), c.num, c.id.clone(), c.at.clone()));
+                }
                 c.board.clear();
                 c.num = 0;
                 c.displaced = true;
@@ -327,7 +375,7 @@ impl Fold {
             }
             raise_top(&mut tops, &c.board, c.num);
             if let Some(was) = live.insert(c.id.clone(), c) {
-                hist.push((was.board, was.num, was.id));
+                hist.push((was.board, was.num, was.id, was.at));
             }
             end = Some(cl.at.clone());
         }
@@ -338,10 +386,10 @@ impl Fold {
         for (b, n) in tops {
             raise_top(&mut self.short_tops, &b, n);
         }
-        for (board, num, id) in hist {
-            let ids = self.short_hist.entry((board, num)).or_default();
-            if !ids.contains(&id) {
-                ids.push(id);
+        for (board, num, id, at) in hist {
+            let old = self.short_hist.entry((board, num)).or_default();
+            if !old.iter().any(|(_, x)| *x == id) {
+                old.push((at, id));
             }
         }
         let mut claims: Vec<ShortClaim> = live.into_values().collect();
@@ -364,11 +412,19 @@ impl Fold {
     fn settle(&mut self, key: &(String, i64)) {
         let g = self.short_groups.get(key).cloned().unwrap_or_default();
         let (board, base) = (key.0.clone(), key.1.to_string());
-        self.short_idx
-            .retain(|(b, s), _| *b != board || short_num(s) != base);
+        // A group only grows between walks, so these are all it held.
+        self.short_idx.remove(&(board.clone(), base.clone()));
+        for i in 0..g.len() {
+            let short = format!("{base}{}", short_suffix(i as i64));
+            self.short_idx.remove(&(board.clone(), short));
+        }
+        let by_move = g.iter().any(|c| c.moved || c.displaced);
         for (i, cl) in g.iter().enumerate() {
             let (short, was) = if g.len() > 1 {
-                (format!("{base}{}", short_suffix(i as i64)), base.clone())
+                // A card that came by a move never held the bare number.
+                let held = !cl.moved && !cl.displaced;
+                let was = if held { base.clone() } else { String::new() };
+                (format!("{base}{}", short_suffix(i as i64)), was)
             } else {
                 (base.clone(), String::new())
             };
@@ -388,7 +444,7 @@ impl Fold {
                 if moved {
                     self.short_left(&cl.id, cl, &short);
                 } else if old != short && !old.is_empty() {
-                    self.short_moved_to(&cl.id, &old, &short);
+                    self.short_moved_to(&cl.id, &old, &short, by_move);
                 }
             }
             let tag = moved.then(|| self.tag_of(&board));
@@ -420,13 +476,15 @@ impl Fold {
             ..Change::default()
         });
         if cl.displaced {
-            let what = format!("its board was deleted, so it moved to the default board as #{to}");
+            let tag = self.tag();
+            let what =
+                format!("its board was deleted, so it moved to the default board as {tag}#{to}");
             self.queue_watch(id, has_watchers, SWEEPER, &what, also);
         }
     }
 
     /// Notes that a card's short ref moved, outside replay.
-    pub(crate) fn short_moved_to(&mut self, id: &str, from: &str, to: &str) {
+    pub(crate) fn short_moved_to(&mut self, id: &str, from: &str, to: &str, by_move: bool) {
         let now = self.stamp();
         self.short_moved.insert(id.into(), now);
         let Some(t) = self.tasks.get(id) else { return };
@@ -442,7 +500,11 @@ impl Fold {
         });
         let mut what = format!("renumbered it #{to} (it was #{from})");
         let num = short_num(to);
-        if num != to {
+        if num != to && by_move {
+            what.push_str(&format!(
+                ": a card that came from another board took #{num} too, so #{num} alone names none of them now"
+            ));
+        } else if num != to {
             what.push_str(&format!(
                 ": more than one card made on devices that were apart claimed #{num}, so #{num} alone names none of them now"
             ));
@@ -479,10 +541,14 @@ impl Fold {
         // would take over the `#3` a moved card's links still say.
         if tag.is_empty()
             && !self.on_board
-            && let Ok(n) = short_num(short).parse::<i64>()
+            && bare
+            && let Ok(n) = short.parse::<i64>()
             && let Some(ids) = self.short_hist.get(&(String::new(), n))
         {
-            let old: Vec<&Task> = ids.iter().filter_map(|id| self.tasks.get(id)).collect();
+            let old: Vec<&Task> = ids
+                .iter()
+                .filter_map(|(_, id)| self.tasks.get(id))
+                .collect();
             if !old.is_empty() {
                 return old;
             }
@@ -492,9 +558,13 @@ impl Fold {
 
     /// The cards that once held `short`, on the boards showing `tag`: a
     /// moved card's old ref still finds it, whatever became of that board
-    /// (card #563).
-    fn old_hits(&self, tag: &str, short: &str) -> Vec<&Task> {
-        let Ok(num) = short_num(short).parse::<i64>() else {
+    /// (card #563). A bare number means whoever left it. A lettered ref
+    /// means one claimant: the letters went by RowPos among everyone who
+    /// held the number, so the same order finds the same card.
+    pub(crate) fn old_hits(&self, tag: &str, short: &str) -> Vec<&Task> {
+        let base = short_num(short);
+        let letters = &short[base.len()..];
+        let Ok(num) = base.parse::<i64>() else {
             return Vec::new();
         };
         let named = |b: &str| {
@@ -508,15 +578,39 @@ impl Fold {
                         .any(|(t, id)| t == tag && id == b)
                 }
         };
-        let mut ids: Vec<&String> = self
-            .short_hist
-            .iter()
-            .filter(|((b, n), _)| *n == num && named(b))
-            .flat_map(|(_, ids)| ids)
-            .collect();
+        let mut ids: Vec<&String> = Vec::new();
+        for ((b, n), old) in &self.short_hist {
+            if *n != num || !named(b) {
+                continue;
+            }
+            if letters.is_empty() {
+                ids.extend(old.iter().map(|(_, id)| id));
+                continue;
+            }
+            let mut all: Vec<(&RowPos, &String)> = old.iter().map(|(at, id)| (at, id)).collect();
+            if let Some(g) = self.short_groups.get(&(b.clone(), num)) {
+                all.extend(g.iter().map(|c| (&c.at, &c.id)));
+            }
+            all.sort();
+            if all.len() < 2 {
+                continue;
+            }
+            let hit = (0..all.len()).find(|i| short_suffix(*i as i64) == letters);
+            ids.extend(hit.map(|i| all[i].1));
+        }
         ids.sort();
         ids.dedup();
         ids.iter().filter_map(|id| self.tasks.get(*id)).collect()
+    }
+
+    /// The cards a ref in text means: who holds it now, else who held it.
+    pub(crate) fn ref_hits(&self, tag: Option<&str>, short: &str) -> Vec<&Task> {
+        let tag = tag.unwrap_or("");
+        let hits = self.short_hits(tag, short);
+        if hits.is_empty() {
+            return self.old_hits(tag, short);
+        }
+        hits
     }
 
     /// Resolves what someone typed for a card to its task id.
@@ -541,7 +635,7 @@ impl Fold {
         match self.old_hits(&tag, &short).as_slice() {
             [t] => return Ok(t.id.clone()),
             [] => {}
-            many => return Err(ambiguous(&short, many)),
+            many => return Err(ambiguous_old(&v, many)),
         }
         let gone = self
             .short_idx

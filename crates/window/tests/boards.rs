@@ -345,7 +345,10 @@ fn moving_a_card_and_deleting_a_board_from_the_window() {
     assert_eq!(t.short_ref(), "net#2");
     let grid = w.cards();
     let c = grid.iter().find(|c| c.id == a.id).unwrap();
-    assert_eq!((c.tag.as_str(), c.space_board.as_str()), ("net", net.as_str()));
+    assert_eq!(
+        (c.tag.as_str(), c.space_board.as_str()),
+        ("net", net.as_str())
+    );
 
     let t = w.move_card(&a.id, &id).unwrap();
     assert_eq!(t.short_ref(), "wind#2");

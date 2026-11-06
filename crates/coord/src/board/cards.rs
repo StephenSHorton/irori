@@ -2464,13 +2464,18 @@ impl Fold {
         if !board.is_empty() && self.board_tag(&board).is_none() {
             return Err(not_found(format!("board {}", quote(&board))));
         }
-        if t.board == board {
-            return Ok(t);
-        }
-        let mut family = vec![id.to_string()];
+        // Only the ones not there yet: this also brings together a family
+        // that came apart, and a card already there keeps its number.
         let mut kids: Vec<&Task> = self.tasks.values().filter(|k| k.parent == id).collect();
         kids.sort_by(|a, b| a.id.cmp(&b.id));
-        family.extend(kids.iter().map(|k| k.id.clone()));
+        let family: Vec<String> = std::iter::once(&t)
+            .chain(kids)
+            .filter(|k| k.board != board)
+            .map(|k| k.id.clone())
+            .collect();
+        if family.is_empty() {
+            return Ok(t);
+        }
         for task_id in &family {
             let (num, at) = (self.next_short(&board), self.stamp());
             self.write(

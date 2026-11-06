@@ -394,17 +394,34 @@ impl Fold {
             out.push(self.create_locked(&by, ct)?);
         }
         for k in adopt_ids {
+            let on = self.tasks.get(&k).map(|x| x.board.clone());
             let at = self.stamp();
             self.write(
                 &by,
                 kinds::TASK_PARENT,
                 &TaskParentRow {
-                    task_id: k,
+                    task_id: k.clone(),
                     parent: id.into(),
                     by: by.clone(),
                     at,
                 },
             )?;
+            // A subtask sits on its parent's board (card #563).
+            if on.is_some_and(|b| b != t.board) {
+                let (num, at) = (self.next_short(&t.board), self.stamp());
+                self.write(
+                    &by,
+                    self.ask_kind(kinds::TASK_EDITED),
+                    &TaskEditedRow {
+                        task_id: k,
+                        board: Some(t.board.clone()),
+                        num,
+                        by: by.clone(),
+                        at,
+                        ..TaskEditedRow::default()
+                    },
+                )?;
+            }
         }
         if !placed.is_empty() {
             let keep: Vec<Step> = t.steps.iter().filter(|s| s.done).cloned().collect();

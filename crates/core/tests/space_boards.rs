@@ -255,7 +255,10 @@ fn a_card_moves_and_a_deleted_boards_cards_land_on_the_first() {
     assert_eq!(r.core.task_ref("net#2").unwrap(), w.id);
     assert_eq!(r.core.task_ref("wind#1").unwrap(), w.id);
 
-    let e = r.core.create_space_board(&id, "Network", "net").unwrap_err();
+    let e = r
+        .core
+        .create_space_board(&id, "Network", "net")
+        .unwrap_err();
     assert!(e.to_string().contains("already board"), "{e}");
     let e = co.move_task(&by, &w.id, &net).unwrap_err();
     assert_eq!(e.kind(), CK::NotFound);

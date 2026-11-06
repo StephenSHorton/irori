@@ -345,11 +345,17 @@ pub struct Fold {
     pub(crate) short_tops: HashMap<String, i64>,
     /// Numbers cards moved away from (card #563): each stays claimed, and
     /// its old ref still finds the card unless a card holds it now.
-    pub(crate) short_hist: BTreeMap<(String, i64), Vec<String>>,
-    /// Whether any move has folded, and how far the last walk went: a claim
-    /// past it can't change what the walk gave.
-    pub(crate) any_moves: bool,
+    pub(crate) short_hist: BTreeMap<(String, i64), Vec<(RowPos, String)>>,
+    /// Cards a move has named, and those rows by (device, seq).
+    pub(crate) moved_ids: HashSet<String>,
+    pub(crate) moved_rows: HashSet<(String, i64)>,
+    /// How far the last walk went: a claim past it can't change what the
+    /// walk gave.
     pub(crate) walked_to: Option<RowPos>,
+    /// During a catch-up: walks wait for its end, so a pull of thousands of
+    /// rows walks once, not once per row, under coord's lock.
+    pub(crate) batching: bool,
+    pub(crate) batch_dirty: bool,
     pub(crate) short_moved: HashMap<String, GoTime>,
 
     pub(crate) subs: Vec<Sub>,
@@ -499,8 +505,11 @@ impl Fold {
             short_idx: BTreeMap::new(),
             short_tops: HashMap::new(),
             short_hist: BTreeMap::new(),
-            any_moves: false,
+            moved_ids: HashSet::new(),
+            moved_rows: HashSet::new(),
             walked_to: None,
+            batching: false,
+            batch_dirty: false,
             short_moved: HashMap::new(),
             subs: Vec::new(),
             pending: Vec::new(),
@@ -543,6 +552,8 @@ impl Fold {
         let Some(st) = self.st.clone() else {
             return Ok(());
         };
+        // Rows name boards as the list does, so it's read before them.
+        self.read_board_view();
         let mut f = store::Filter {
             kinds: FOLLOW_KINDS.iter().map(|k| k.to_string()).collect(),
             limit: store::MAX_LIST_LIMIT,
@@ -1144,7 +1155,13 @@ impl Fold {
         let Some(p) = row::<TaskCreatedRow>(&ev.payload) else {
             return;
         };
-        if p.task_id.is_empty() || self.deleted.contains(&p.task_id) {
+        if p.task_id.is_empty() {
+            return;
+        }
+        if self.deleted.contains(&p.task_id) {
+            // Its number still counts, or a device that heard the delete
+            // first numbers other cards unlike the rest (card #563).
+            self.claim_short(&p.task_id, RowPos::of(ev), p.num, &p.board);
             return;
         }
         let t = at(p.at);
@@ -1521,10 +1538,12 @@ impl Fold {
         };
         let mut done: HashSet<String> = HashSet::new();
         for (tag, n) in card_refs(text) {
-            let mut hits = self.tasks.values().filter(|t| {
-                t.id != from && t.short == n && tag.as_ref().is_none_or(|g| *g == t.tag)
-            });
-            let (Some(t), None) = (hits.next(), hits.next()) else {
+            let hits: Vec<&Task> = self
+                .ref_hits(tag.as_deref(), &n)
+                .into_iter()
+                .filter(|t| t.id != from)
+                .collect();
+            let [t] = hits.as_slice() else {
                 continue;
             };
             if !done.insert(t.id.clone()) {

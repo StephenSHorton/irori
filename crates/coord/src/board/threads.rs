@@ -89,10 +89,12 @@ impl Fold {
         };
         let mut seen = BTreeSet::new();
         for (tag, n) in card_refs(text) {
-            let mut hits = self.tasks.values().filter(|t| {
-                t.short == n && tag.as_ref().is_none_or(|g| *g == t.tag) && t.ask.is_none()
-            });
-            let (Some(t), None) = (hits.next(), hits.next()) else {
+            let hits: Vec<&Task> = self
+                .ref_hits(tag.as_deref(), &n)
+                .into_iter()
+                .filter(|t| t.ask.is_none())
+                .collect();
+            let [t] = hits.as_slice() else {
                 continue;
             };
             if is_terminal(&t.state) || !seen.insert(t.id.clone()) {

@@ -196,13 +196,17 @@ pub(crate) fn member_wrote(
 
 /// What coord needs of the board list in log `st`, whose first board is
 /// `own`.
-pub(crate) fn board_list_in(st: &store::Store, own: &str, may: MayDelete) -> coord::BoardList {
-    let rows = space_board_rows(st).unwrap_or_default();
-    coord::BoardList {
+pub(crate) fn board_list_in(
+    st: &store::Store,
+    own: &str,
+    may: MayDelete,
+) -> Option<coord::BoardList> {
+    let rows = space_board_rows(st).ok()?;
+    Some(coord::BoardList {
         own: own.to_string(),
         deleted: deletes(own, &rows, may).into_iter().collect(),
         tags: tag_ids(&rows),
-    }
+    })
 }
 
 /// Every (tag, board) in these rows.
@@ -445,6 +449,7 @@ impl Services {
             ..Default::default()
         };
         b.store.append(&by, kinds::SPACE_BOARD_RENAMED, &row)?;
+        b.coord().refresh_boards();
         self.boards.moved();
         Ok(())
     }
@@ -546,6 +551,7 @@ impl Services {
             ..row
         };
         self.store.append("user", kind, &row)?;
+        self.coord.refresh_boards();
         self.boards.moved();
         Ok(())
     }
@@ -559,7 +565,10 @@ impl Services {
         }
         // Every tag a log has named, a deleted board's too: its old refs
         // still mean its cards, so it never goes to a new board (card #563).
-        if let Some((_, id)) = board_tag_ids(&self.store).into_iter().find(|(t, _)| t == tag) {
+        if let Some((_, id)) = board_tag_ids(&self.store)
+            .into_iter()
+            .find(|(t, _)| t == tag)
+        {
             return Some(id);
         }
         for b in self.shown_boards() {
@@ -1014,8 +1023,7 @@ mod tests {
 
     #[test]
     fn a_delete_row_keeps_the_fields_an_older_decoder_needs() {
-        let v: serde_json::Value =
-            serde_json::from_slice(&deleted_row("b1", 1).payload).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&deleted_row("b1", 1).payload).unwrap();
         assert_eq!(v["name"], "");
         assert_eq!(v["tag"], "");
         assert_eq!(v["deleted"], true);

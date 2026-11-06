@@ -254,7 +254,11 @@ fn a_private_card_moves_and_a_deleted_personal_board_empties_onto_the_default() 
     assert_eq!(t.short_ref(), "home#2");
     assert_eq!(r.core.task_ref("#1").unwrap(), a.id, "its old ref");
 
-    let t = r.core.coord().move_task(&by, &b.id, PERSONAL_BOARD).unwrap();
+    let t = r
+        .core
+        .coord()
+        .move_task(&by, &b.id, PERSONAL_BOARD)
+        .unwrap();
     assert_eq!((t.board.as_str(), t.short_ref().as_str()), ("", "#2"));
     assert_eq!(r.core.task_ref("home#1").unwrap(), b.id);
 

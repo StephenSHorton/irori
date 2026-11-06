@@ -996,8 +996,12 @@ impl Fold {
         self.short_groups.clear();
         self.short_idx.clear();
         self.short_hist.clear();
-        self.any_moves = false;
+        self.moved_ids.clear();
+        self.moved_rows.clear();
         self.walked_to = None;
+        // A set-aside row the cut took out mustn't fold when its card lands:
+        // replay sets aside again what the store still holds.
+        self.aside.clear();
         self.last.clear();
         self.conflicts.clear();
         self.stolen.clear();
@@ -1023,7 +1027,7 @@ impl Fold {
                 && t.short != was
             {
                 let (to, ti) = (t.short.clone(), id.clone());
-                self.short_moved_to(&ti, &was, &to);
+                self.short_moved_to(&ti, &was, &to, false);
             }
         }
         self.note(Change {
@@ -1033,15 +1037,9 @@ impl Fold {
         Ok(())
     }
 
-    /// After a store resync signal: refold if cut, then page each other
-    /// device's rows past what was folded.
-    pub(crate) fn catch_up(&mut self) -> Result<()> {
-        let Some(st) = self.st.clone() else {
-            return Ok(());
-        };
-        let vec = st.vector()?;
-        self.refold_if_cut(&vec)?;
-        for (dev, top) in &vec {
+    /// Pages each other device's rows past what was folded.
+    fn catch_up_rows(&mut self, st: &store::Store, vec: &store::Vector) -> Result<()> {
+        for (dev, top) in vec {
             if *dev == self.dev {
                 continue;
             }
@@ -1068,6 +1066,24 @@ impl Fold {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// After a store resync signal: refold if cut, then page each other
+    /// device's rows past what was folded.
+    pub(crate) fn catch_up(&mut self) -> Result<()> {
+        let Some(st) = self.st.clone() else {
+            return Ok(());
+        };
+        let vec = st.vector()?;
+        self.refold_if_cut(&vec)?;
+        self.batching = true;
+        let pulled = self.catch_up_rows(&st, &vec);
+        self.batching = false;
+        if std::mem::take(&mut self.batch_dirty) {
+            self.renumber();
+        }
+        pulled?;
         self.catch_up_own_seen(&st)?;
         self.holder_duties();
         Ok(())

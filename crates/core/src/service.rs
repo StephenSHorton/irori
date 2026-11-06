@@ -1120,9 +1120,8 @@ impl Core {
                     board_view: Some({
                         let st = Arc::downgrade(&st);
                         Arc::new(move || {
-                            st.upgrade().map_or_else(Default::default, |st| {
-                                spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
-                            })
+                            let st = st.upgrade()?;
+                            spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
                         })
                     }),
                     ..Default::default()
