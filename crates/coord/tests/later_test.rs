@@ -12,7 +12,7 @@ use std::time::Duration;
 use common::two_people::*;
 use common::*;
 use coord::roster::AgentCard;
-use coord::rows::{BlockerResolvedRow, BlockerRow, TaskStateRow};
+use coord::rows::{BlockerResolvedRow, BlockerRow, TaskCommentRow, TaskStateRow};
 use coord::*;
 use gocompat::time::GoTime;
 use store::kinds;
@@ -580,6 +580,25 @@ fn answered_left_skips_a_hold() {
         },
     )
     .unwrap();
+    // A new build keeps it a plain comment, so the hold isn't ANSWERED.
+    assert_eq!(
+        e.c.get_task(&t.id).unwrap().blockers[0].status,
+        BLOCKER_OPEN
+    );
+    // An older window's reply goes on the item and marks it ANSWERED.
+    e.write_raw(
+        "user",
+        kinds::TASK_COMMENT,
+        &TaskCommentRow {
+            task_id: t.id.clone(),
+            comment_id: "c-old".into(),
+            by: USER.into(),
+            text: "ok".into(),
+            blocker_id: bid.clone(),
+            at: e.clk.now(),
+            ..TaskCommentRow::default()
+        },
+    );
     assert_eq!(
         e.c.get_task(&t.id).unwrap().blockers[0].status,
         BLOCKER_ANSWERED

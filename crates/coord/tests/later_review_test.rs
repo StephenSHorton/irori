@@ -1249,3 +1249,178 @@ mod read_loops {
         assert!(!e.c.gone_waits(&t.id).is_empty());
     }
 }
+
+// ---- findings 4, 9, 20, 25 and section 5 bugs 2, 3: what counts as order, and how waits end ----
+
+mod waits_end {
+    use super::*;
+
+    fn block_on(e: &Env, id: &str, reason: &str, k: &str) {
+        e.c.block(ALICE, id, reason, on(BLOCKED_ON_TASK, k))
+            .unwrap();
+    }
+
+    /// Finding 4, case 1: a hold until K isn't order on K, so add_after
+    /// writes one, and bringing the card back leaves it after K.
+    #[test]
+    fn add_after_beside_a_card_hold_is_real_order() {
+        let e = Env::new();
+        let k = make(&e, "first");
+        let a = make(&e, "second");
+        e.c.park(USER, &a.id, "not yet", Back::Card(k.id.clone()))
+            .unwrap();
+        e.c.add_after(ALICE, &a.id, std::slice::from_ref(&k.id))
+            .unwrap();
+        let (got, _) = e.c.bring_back(USER, &a.id, "now").unwrap();
+        assert_eq!(got.state, BLOCKED, "{:?}", got.blockers);
+        assert_eq!(task_waits(&got), vec![k.id.clone()]);
+    }
+
+    /// Finding 4, case 2: a reason-only waits_on isn't order: a later
+    /// block replaces it, and the after item must stay.
+    #[test]
+    fn add_after_beside_a_reason_only_wait_is_real_order() {
+        let e = Env::new();
+        let k = make(&e, "first");
+        let a = make(&e, "second");
+        block_on(&e, &a.id, "needs the first one", &k.id);
+        e.c.add_after(ALICE, &a.id, std::slice::from_ref(&k.id))
+            .unwrap();
+        let got = e.c.block(ALICE, &a.id, "something else now", None).unwrap();
+        assert_eq!(task_waits(&got), vec![k.id.clone()], "{:?}", got.blockers);
+    }
+
+    /// Finding 4, case 3: a new card's blocked_by is reason-only too.
+    #[test]
+    fn a_new_cards_after_beside_its_blocked_by_is_real_order() {
+        let e = Env::new();
+        let x = make(&e, "first");
+        let t =
+            e.c.create_task(
+                ALICE,
+                NewTask {
+                    block_reason: "needs the first one".into(),
+                    blocked_by: on(BLOCKED_ON_TASK, &x.id),
+                    after: vec![x.id.clone()],
+                    ..nt("second")
+                },
+            )
+            .unwrap();
+        let got = e.c.block(ALICE, &t.id, "something else now", None).unwrap();
+        assert_eq!(task_waits(&got), vec![x.id.clone()], "{:?}", got.blockers);
+    }
+
+    /// Finding 9: the deleted card's short ref still takes its wait off.
+    #[test]
+    fn remove_after_by_a_deleted_cards_short_ref() {
+        let e = Env::new();
+        let k = make(&e, "first");
+        let a = make(&e, "second");
+        e.c.add_after(ALICE, &a.id, std::slice::from_ref(&k.id))
+            .unwrap();
+        e.c.delete_task(USER, &k.id).unwrap();
+        let got = e.c.remove_after(ALICE, &a.id, &[k.short_ref()]).unwrap();
+        assert_eq!(got.state, SUBMITTED, "{:?}", got.blockers);
+        assert!(task_waits(&got).is_empty());
+    }
+
+    /// Parent P with one subtask, and P's lane done once it's completed.
+    fn parent_and_kid(e: &Env) -> (Task, Task) {
+        let p = make(e, "parent");
+        let s =
+            e.c.create_task(
+                ALICE,
+                NewTask {
+                    parent: p.id.clone(),
+                    ..nt("only subtask")
+                },
+            )
+            .unwrap();
+        (p, s)
+    }
+
+    /// Finding 20 h2 and section 5 bug 2: a hold until a parent ends when
+    /// the parent finishes by rollup.
+    #[test]
+    fn a_hold_on_a_parent_finished_by_rollup_returns() {
+        let e = Env::new();
+        let (p, s) = parent_and_kid(&e);
+        let t = make(&e, "after the parent");
+        e.c.park(USER, &t.id, "not yet", Back::Card(p.id.clone()))
+            .unwrap();
+        e.c.set_task_state(USER, &s.id, COMPLETED, "done").unwrap();
+        e.c.sweep_notices().unwrap();
+        let got = e.c.get_task(&t.id).unwrap();
+        assert_eq!(got.state, SUBMITTED, "{:?}", got.blockers);
+        assert!(got.parked().is_none());
+    }
+
+    /// Section 5 bug 2: a plain after on a parent ends the same way.
+    #[test]
+    fn an_after_on_a_parent_finished_by_rollup_ends() {
+        let e = Env::new();
+        let (p, s) = parent_and_kid(&e);
+        let t = make(&e, "after the parent");
+        e.c.add_after(ALICE, &t.id, std::slice::from_ref(&p.id))
+            .unwrap();
+        e.c.set_task_state(USER, &s.id, COMPLETED, "done").unwrap();
+        e.c.sweep_notices().unwrap();
+        let got = e.c.get_task(&t.id).unwrap();
+        assert_eq!(got.state, SUBMITTED, "{:?}", got.blockers);
+    }
+
+    /// Finding 20 h1 and section 5 bug 3: a hold until a deleted card, and
+    /// an after on one, both end in the sweep.
+    #[test]
+    fn waits_on_a_deleted_card_end() {
+        let e = Env::new();
+        let k = make(&e, "goes away");
+        let held = make(&e, "held until it");
+        let after = make(&e, "after it");
+        e.c.park(USER, &held.id, "not yet", Back::Card(k.id.clone()))
+            .unwrap();
+        e.c.add_after(ALICE, &after.id, std::slice::from_ref(&k.id))
+            .unwrap();
+        e.c.delete_task(USER, &k.id).unwrap();
+        e.c.sweep_notices().unwrap();
+        for id in [&held.id, &after.id] {
+            let got = e.c.get_task(id).unwrap();
+            assert_eq!(got.state, SUBMITTED, "{:?}", got.blockers);
+            assert!(got.parked().is_none());
+        }
+    }
+
+    /// Finding 25: the person's reply on a hold is a plain comment, so the
+    /// hold is never ANSWERED, which arms v0.12.3's answered_left.
+    #[test]
+    fn a_reply_on_a_hold_never_marks_it_answered() {
+        use crate::common::two_people::*;
+        let (a, b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        a.c.claim_task(CARD1, &t.id).unwrap();
+        let (got, _) = a.c.park(CARD1, &t.id, "not now", Back::Word).unwrap();
+        let bid = got.parked().unwrap().id.clone();
+        a.c.answer(
+            P1,
+            &t.id,
+            &bid,
+            BlockerAnswer {
+                text: "fine, later".into(),
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+        sync(&a, &b);
+        for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+            let got = s.c.get_task(&t.id).unwrap();
+            let p = got.parked().unwrap_or_else(|| panic!("{name}: not held"));
+            assert_ne!(p.status, BLOCKER_ANSWERED, "{name}");
+            let cs = s.c.comments(&t.id).unwrap_or_default();
+            assert!(
+                cs.iter()
+                    .any(|c| c.text == "fine, later" && c.blocker_id.is_empty()),
+                "{name}: {cs:?}"
+            );
+        }
+    }
+}

@@ -1316,14 +1316,20 @@ impl Fold {
                         });
                     }
                 }
-                BLOCKED_ON_TASK => {
-                    if let Some(o) = self.tasks.get(&on.reference)
-                        && let Some(w) = work_done(o)
-                    {
-                        ids.push(b.id.clone());
-                        why.push(w);
+                BLOCKED_ON_TASK => match self.tasks.get(&on.reference) {
+                    Some(o) => {
+                        if let Some(w) = work_done(o) {
+                            ids.push(b.id.clone());
+                            why.push(w);
+                        }
                     }
-                }
+                    // Only a deleted card: one not synced yet may still come.
+                    None if self.deleted.contains(&on.reference) => {
+                        ids.push(b.id.clone());
+                        why.push("task deleted".into());
+                    }
+                    None => {}
+                },
                 BLOCKED_ON_VERSION if self.version_behind(&on.reference).is_empty() => {
                     ids.push(b.id.clone());
                     why.push(version_ran(&on.reference));
@@ -2034,12 +2040,13 @@ pub(crate) fn names_lease(text: &str, name: &str) -> bool {
 /// Whether a card another waits on has finished its work (card #347): it
 /// ended, it's in review, or an agent said it's done and it waits on the
 /// person's Done. A wait on it is over; what's left is the person's.
-/// Says how, for the closing note.
+/// Says how, for the closing note. A parent's lane is its rollup.
 fn work_done(o: &Task) -> Option<String> {
-    if is_terminal(&o.state) {
-        return Some(format!("task {}", o.state));
+    let state = effective_state(o);
+    if is_terminal(state) {
+        return Some(format!("task {state}"));
     }
-    if o.state == IN_REVIEW {
+    if state == IN_REVIEW {
         return Some("task in review".into());
     }
     o.blockers

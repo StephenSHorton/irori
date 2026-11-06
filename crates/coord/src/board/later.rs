@@ -1126,8 +1126,8 @@ impl Fold {
     }
 
     /// Puts card `id` after `cards`, keeping its holder as `board_block`
-    /// does. The whole list is checked before the first row; a card it
-    /// already waits on is left as it is.
+    /// does. The whole list is checked before the first row; a card it is
+    /// already after (a plain after item) is left as it is.
     pub(crate) fn add_after(&mut self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
         let by = caller(by)?;
         let t = self.open_task(id)?.clone();
@@ -1140,7 +1140,7 @@ impl Fold {
         if cards.is_empty() {
             return Err(invalid("give the cards it comes after"));
         }
-        let have = task_waits(&t);
+        let have = after_items(&t);
         let mut waits: Vec<(String, BlockedBy)> = Vec::new();
         for r in cards {
             let k = self.task_ref_locked(r)?;
@@ -1183,7 +1183,7 @@ impl Fold {
         }
         let mut gone: Vec<(String, Vec<String>)> = Vec::new();
         for r in cards {
-            let k = self.task_ref_locked(r)?;
+            let k = self.removal_ref(r)?;
             if gone.iter().any(|(id, _)| *id == k) {
                 continue;
             }
@@ -1237,11 +1237,10 @@ impl Fold {
         if !ct.reason.is_empty() && ct.later.is_none() {
             asked.push(block_question(&ct.reason).0);
         }
+        // A blocked_by is reason-only, so it isn't order: after writes its own.
         for r in &ct.after {
             let k = self.task_ref_locked(r)?;
-            if bb.is_some_and(|bb| bb.reference == k)
-                || out.after.iter().any(|(_, on)| on.reference == k)
-            {
+            if out.after.iter().any(|(_, on)| on.reference == k) {
                 continue;
             }
             let on = Back::Card(k).on();
@@ -1290,6 +1289,18 @@ impl Fold {
         }
         Ok(())
     }
+}
+
+/// The cards `t` is after: open task waits that are no hold, no
+/// reason-only item (a later block replaces it) and no question.
+fn after_items(t: &Task) -> Vec<String> {
+    t.blockers
+        .iter()
+        .filter(|b| b.open() && b.later.is_empty() && !b.legacy && b.options.is_empty())
+        .filter_map(|b| b.on.as_ref())
+        .filter(|on| on.kind == BLOCKED_ON_TASK)
+        .map(|on| on.reference.clone())
+        .collect()
 }
 
 /// The refusal for two items of one new card that read the same.

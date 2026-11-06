@@ -1727,6 +1727,22 @@ impl Fold {
         } else {
             check_text("the answer", &text, 1, MAX_OWN_ANSWER)?;
         }
+        // A reply on a hold is a plain comment on the card (card #570): an
+        // ANSWERED hold arms v0.12.3's answered_left, which ends it.
+        if !a.resolve && !b.later.is_empty() {
+            let (cm, mut n) = self.add_comment_full(&by, id, &text, a.wake, a.files, "", &ms)?;
+            super::mention::without_mentioned(&mut n, &ms);
+            let mut ns = vec![n];
+            ns.extend(self.mention_notice(
+                &by,
+                id,
+                &ms,
+                &cm.text,
+                &format!("comment:{}", cm.id),
+                "",
+            )?);
+            return Ok((self.tasks[id].clone(), ns));
+        }
         let mut n = Notice {
             kind: NOTICE_ANSWERED.into(),
             task_id: id.into(),

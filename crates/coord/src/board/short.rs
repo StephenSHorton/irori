@@ -226,6 +226,25 @@ impl Fold {
         Err(Error::bare(ErrorKind::NotFound))
     }
 
+    /// [`Self::task_ref_locked`] that also names a deleted card, for taking
+    /// a wait on it off (card #570).
+    pub(crate) fn removal_ref(&self, r: &str) -> Result<String> {
+        let e = match self.task_ref_locked(r) {
+            Ok(id) => return Ok(id),
+            Err(e) => e,
+        };
+        let mut v = trim_space(r).to_string();
+        if let Some((k, id)) = v.split_once(':')
+            && gocompat::text::equal_fold(trim_space(k), "task")
+        {
+            v = trim_space(id).to_string();
+        }
+        match parse_ref(&v).and_then(|(_, short)| self.short_idx.get(&short)) {
+            Some(id) if self.deleted.contains(id) => Ok(id.clone()),
+            _ => Err(e),
+        }
+    }
+
     /// Ambiguous, naming each card, when short is a bare number more than
     /// one card claimed.
     pub(crate) fn ambiguous(&self, short: &str) -> Option<Error> {

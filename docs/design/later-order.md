@@ -100,7 +100,9 @@ Field rules:
 - The replace fold sets `later` only when the row carries one: an old device's
   revise rewrites the row without it, and that must not clear it.
 - After items are not `reasonOnly`. Today's `waits_on` is, and a later
-  reason-only block replaces such an item.
+  reason-only block replaces such an item. So a card counts as already
+  after #N only through an open plain after item: a hold until #N, a
+  `waits_on` or a new card's `blocked_by` on #N still gets one.
 - Each after item needs its own question, because the fold dedupes on question
   text and would overwrite `on`. Use the short ref plus title, and refuse a
   clash rather than overwrite. A new card's after items, its own reason and
@@ -154,12 +156,16 @@ devices.
 | `board_step owner`, `board_steps` with a new owner | Agents refused, so nobody is woken onto it; a person's is their word, as assign |
 | `back_on_board` | Another item's answer can't unpark the card |
 | `answered_left` | Skips `later` items |
+| `answer` on a hold, not resolving | A plain comment on the card, never on the item: an `ANSWERED` hold arms v0.12.x's `answered_left` |
 | `hand_on` | Refused on a parked card |
 
 ### Coming back
 
-- `gone_away` gets one arm for `date` and `version`. `card` needs nothing new,
-  and `word` has no arm.
+- `gone_away` gets one arm for `date` and `version`, and `word` has no arm.
+  `card` goes by the task arm, as any wait on a card: it closes when the
+  card's lane is done (a parent's rollup, not its raw state) or the card
+  was deleted. A card this device hasn't seen yet isn't gone.
+- `remove_after` still takes a deleted card's short ref.
 - `sweep_rest` closes every item per item with `blocker.resolved`, never
   `blocker.closed`, which names no item and would end a hold the sweeping
   device hasn't seen. The last close sets `restored`.
@@ -262,6 +268,11 @@ devices.
    another member's park reaches it, the park's device can't drop a holder it
    hasn't seen, so the agent stays on the held card. Old author devices bind
    with no check at all.
+12. **v0.12.x `answered_left` can end a hold.** New builds put a reply on a
+   hold on the card's thread, not the item. A reply an older window puts
+   on the item marks it `ANSWERED`, and a v0.12.x device of the raiser's
+   person then closes it once the raiser left the card (an agent that
+   parked a card it held), and the card goes out.
 
 ## 5. Bugs found on the way
 
@@ -269,9 +280,6 @@ From reading only, none run. Not part of #570:
 
 - Fixed in #570: `sweep_rest` had no writer check before `close_blocker`, so
   a non-raiser's device on a board wrote a dead `blocker.closed` every 5s.
-- `work_done` reads raw state, so a wait on a parent whose finish lives only in
-  its rollup may never close.
-- A wait on a deleted card never closes: `gone_away` acts only on `Some(o)`.
 
 ## 6. Moving today's fake holds
 
