@@ -161,6 +161,8 @@ export const commands = {
 	boardMovePin: (id: string, before: string) => __TAURI_INVOKE<null>("board_move_pin", { id, before }),
 	boardReopen: (id: string) => __TAURI_INVOKE<TaskResult>("board_reopen", { id }),
 	boardsList: () => __TAURI_INVOKE<BoardSummary[]>("boards_list"),
+	/**  How fresh the private log and each shared space are (card #580). */
+	syncFreshness: () => __TAURI_INVOKE<LogFreshness[]>("sync_freshness"),
 	/**  Pins a board to the sidebar, or unpins it (card #135). */
 	boardsPin: (boardId: string, pinned: boolean) => __TAURI_INVOKE<null>("boards_pin", { boardId, pinned }),
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
@@ -1792,6 +1794,21 @@ export type Link = {
 
 /**  coord.LinkKind. */
 export type LinkKind = "url" | "path" | "commit";
+
+/**  One log's freshness. */
+export type LogFreshness = {
+	/**  "personal", or a shared space's id. */
+	log: string,
+	/**
+	 *  When this device was last in step with another device on it; left
+	 *  out when never, as far as it knows.
+	 */
+	at?: string,
+	/**  That device as the person says it: "your PC", or "Blake". */
+	with?: string,
+	/**  Another device holds this log at all. */
+	shared: boolean,
+};
 
 /**
  *  One agent a comment, ask or message names (coord.Mention, card #77).

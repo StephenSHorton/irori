@@ -1,6 +1,7 @@
 //! `irori serve --headless` (Go `runServe`, main.go; surface.md §1): the
 //! Core with no window, its loopback API on 127.0.0.1:0 and the lockfile,
-//! until Ctrl+C. M4 has no network: no mesh, no home server.
+//! until Ctrl+C (or SIGTERM on Unix). M4 has no network: no mesh, no home
+//! server.
 
 use crate::commands::version;
 use crate::{datadir, host};
@@ -52,10 +53,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
         data.display(),
         if host::offline() { ", offline" } else { "" }
     ));
-    rt.block_on(async {
-        let _ = tokio::signal::ctrl_c().await;
-    });
+    rt.block_on(stopped());
+    // Card #580: the last rows leave before the Core closes.
+    hosted.core.sync_out(std::time::Duration::from_secs(3));
     hosted.close()
+}
+
+/// Ctrl+C, on Unix a SIGTERM (a service manager's stop), on Windows the
+/// console closing, a logoff or a shutdown (card #580). Tokio holds the
+/// Windows handler until the process exits, so the sync out still runs.
+async fn stopped() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows::{ctrl_close, ctrl_logoff, ctrl_shutdown};
+        if let (Ok(mut close), Ok(mut logoff), Ok(mut shutdown)) =
+            (ctrl_close(), ctrl_logoff(), ctrl_shutdown())
+        {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = close.recv() => {}
+                _ = logoff.recv() => {}
+                _ = shutdown.recv() => {}
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 #[cfg(test)]

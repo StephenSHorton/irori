@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 
 const roleChoices = [
   { value: "desktop", label: "Desktop" },
-  { value: "node", label: "Always-on node" },
+  { value: "node", label: "Often-on PC" },
 ]
 
 // DevicesPanel is Settings → Devices and connections (docs/design/v0.4-devices.md §3, §9):
@@ -415,7 +415,7 @@ function HomeServer({ open }: { open: boolean }) {
             {!hs.on && (
               <p className="text-xs text-muted-foreground">
                 {hs.suggest &&
-                  "This is your always-on device: run the server here so your devices reach each other from anywhere. "}
+                  "This device is on most of the time, so it suits the server: your devices can reach each other through it from anywhere, even with public relays off. It's optional: any device that's on often keeps the others up to date. "}
                 Windows asks once to allow Irori on private networks; the server
                 needs it.
               </p>

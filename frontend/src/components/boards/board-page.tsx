@@ -51,6 +51,7 @@ import { go } from "@/lib/nav"
 import { boardsOf } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
+import { FreshnessLine } from "@/components/common/freshness-line"
 
 import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
 import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
@@ -492,12 +493,13 @@ function BoardActionsMenu({
   )
 }
 
-// BoardNotes is what the page says about the board under its header: a tag
-// that clashes with another board's, and the board's warning lines.
+// BoardNotes is what the page says about the board under its header: when
+// its space last synced and with whom (card #580), a tag that clashes with
+// another board's, and the board's warning lines.
 function BoardNotes({ board: b }: { board: BoardSummary }) {
-  if (!b.tagClash && !b.warnings?.length) return null
   return (
     <div className="grid gap-1">
+      <FreshnessLine log={b.boardId} />
       {b.tagClash && (
         <p className="text-xs text-destructive">
           Another board is also {plainLine(b.tag)}#: its refs need the card's id.
