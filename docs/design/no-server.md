@@ -146,9 +146,9 @@ With a machine off you lose freshness, not data. Rows wait on whichever devices 
 
 Built on #579:
 
-- `BoardMesh::stalled` feeds a line in the board's warnings, shown after `STALL_AFTER` like the line others see. It says to update when this build doesn't know the kind.
+- `BoardMesh::stalled` feeds a line in the board's warnings, shown after `STALL_AFTER` like the line others see. It says to update when this build doesn't know the kind and the kind's name is well formed. It shows only while some peer's vector holds the refused row, so a junk row past a stream's end, or one a revoke has since cut off, says nothing.
 - A refused writer goes on hold per peer, waiting one vector tick and doubling up to an hour. Per peer, so a bad row from one peer can't hold up that writer's rows from another. Holds live in memory, so the restart that lands an update tries at once.
-- While on hold, the pull's vector names that writer at `i64::MAX`, so its rows aren't sent. Older peers read that the same way. Vector frames and hellos stay true, so others still see the stall.
+- While on hold, the pull's vector names that writer at `i64::MAX`, so its rows aren't sent. Older peers read that the same way. Vector frames and hellos stay true, so others still see the stall. A peer's frame doesn't wake a pull for a writer held from it, so two stalled devices don't trade empty pulls.
 - `Store::missing_by_turns` serves board pulls. `missing` stays in byte order for the private mesh, which the goldens pin.
 - Not held: a run refused for no cert yet. It retries on every pull as before, because a cert can land by any path, and holding it could delay a new device's rows by an hour. Turns keep it from starving anyone.
 
