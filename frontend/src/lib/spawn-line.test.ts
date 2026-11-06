@@ -58,11 +58,6 @@ describe("spawnLine (card #448)", () => {
     )
     expect(usageResets("nope")).toBe("")
   })
-  test("the daily limit waits for the person (card #450)", () => {
-    expect(spawnLine({ dailyLimit: 20 })?.text).toBe(
-      "waiting: today's 20 agents are started; start this one yourself"
-    )
-  })
   test("ordinals", () => {
     expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111].map(ordinal)).toEqual([
       "1st",
@@ -78,12 +73,11 @@ describe("spawnLine (card #448)", () => {
       "111th",
     ])
   })
-  test("queued is a place, a hold or the limit, never a failure", () => {
+  test("queued is a place or a hold, never a failure", () => {
     expect(queued({ atCap: "pc", queuePlace: 1 })).toBe(true)
     expect(queued({ usageLimit: "2026-11-04T23:30:00Z" })).toBe(true)
-    expect(queued({ dailyLimit: 3 })).toBe(true)
     expect(queued({ starting: "pc", atCap: "pc" })).toBe(false)
-    expect(queued({ cantStart: "x", dailyLimit: 3 })).toBe(false)
+    expect(queued({ cantStart: "x", atCap: "pc" })).toBe(false)
     expect(queued({})).toBe(false)
   })
   test("at its cap", () => {
@@ -95,16 +89,16 @@ describe("spawnLine (card #448)", () => {
 })
 
 describe("startPastLimit (card #576)", () => {
-  test("only a limit offers it", () => {
+  test("only a usage limit offers it", () => {
     expect(startPastLimit({})).toBe("")
     expect(startPastLimit({ atCap: "the PC", queuePlace: 2 })).toBe("")
-    expect(startPastLimit({ dailyLimit: 20 })).toContain("past today's limit")
     expect(startPastLimit({ usageLimit: "2026-11-05T16:30:00Z" })).toContain(
       "Tries now"
     )
   })
   test("not while one is starting or can't", () => {
-    expect(startPastLimit({ dailyLimit: 20, starting: "the PC" })).toBe("")
-    expect(startPastLimit({ dailyLimit: 20, cantStart: "no copy" })).toBe("")
+    const usageLimit = "2026-11-05T16:30:00Z"
+    expect(startPastLimit({ usageLimit, starting: "the PC" })).toBe("")
+    expect(startPastLimit({ usageLimit, cantStart: "no copy" })).toBe("")
   })
 })

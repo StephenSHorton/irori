@@ -692,7 +692,7 @@ impl Fold {
                 .then_with(|| gotime::cmp(&a.created_at, &b.created_at))
                 .then_with(|| a.id.cmp(&b.id))
         });
-        self.within_limits(v)
+        v
     }
 
     /// Where card t goes in the spawn queue (§6, card #450): first what
@@ -710,7 +710,7 @@ impl Fold {
     }
 
     /// The spawned_for marks written at or after `since` (card #450:
-    /// today's count and the daily limit), with their agents' keys.
+    /// today's count), with their agents' keys.
     pub(crate) fn spawned_since(&self, since: &GoTime) -> Vec<(String, Spawned)> {
         let mut v: Vec<(String, Spawned)> = self
             .spawned

@@ -753,7 +753,6 @@ function summary(c: CardDetail): CardSummary {
     atCap: c.atCap,
     queuePlace: c.queuePlace,
     usageLimit: c.usageLimit,
-    dailyLimit: c.dailyLimit,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
     goneWait: c.goneWait,

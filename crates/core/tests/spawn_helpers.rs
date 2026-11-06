@@ -166,3 +166,80 @@ fn a_helpers_part_starts_in_a_worktree_from_the_card_branch() {
             .any(|s| HELPER_SESS.starts_with(s.as_str()) || s.starts_with(&HELPER_SESS[..8]))
     });
 }
+
+/// A card has no limit of its own on helpers (card #576): the device's cap
+/// is what bounds them, and the rest queue for a slot.
+#[test]
+fn a_cards_helpers_are_bound_by_the_devices_cap() {
+    let r = Rig::new();
+    let d = tempfile::tempdir().unwrap();
+    let repo = d.path().join("game-repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("a.txt"), "a").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    git(&repo, &["checkout", "-q", "-b", "lead/576-card"]);
+
+    let fake = Arc::new(Fake::default());
+    let person = format!("user:{}", r.core.device_id());
+    let co = r.core.coord();
+    let p = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "big card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &p.id).unwrap();
+    co.set_where(
+        &p.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: repo.to_string_lossy().into(),
+            branch: "lead/576-card".into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    let parts = (0..7)
+        .map(|i| NewSubtask {
+            title: format!("part {i}"),
+            spawn: true,
+            ..NewSubtask::default()
+        })
+        .collect();
+    co.split(&r.key_a, &p.id, parts, vec![]).unwrap();
+    assert_eq!(co.cards_to_spawn().len(), 7, "no limit of the card's own");
+
+    r.core.set_spawn_cap(3).unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let started = || fake.started.lock().unwrap().len();
+    let kick = || r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+    wait_for(60, "the cap's helpers started", || {
+        kick();
+        started() == 3
+    });
+    for _ in 0..5 {
+        kick();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    assert_eq!(started(), 3, "the cap holds");
+    assert_eq!(r.core.spawn_queue().places.len(), 4, "the rest queue");
+
+    r.core.set_spawn_cap(5).unwrap();
+    wait_for(60, "a higher cap starts two more", || {
+        kick();
+        started() == 5
+    });
+}

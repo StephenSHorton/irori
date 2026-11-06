@@ -50,7 +50,7 @@ mod threads;
 pub use offers::{
     IdleReport, OFFER_HANDED, OFFER_PASSED, OFFER_WAITING, Unoffered, machine_needed,
 };
-pub use parts::{DEFAULT_AGENTS_PER_CARD, MAX_AGENTS_PER_CARD, PART_QUESTION};
+pub use parts::PART_QUESTION;
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, GONE_USAGE_LIMIT, MAX_SPAWN_CRASHES, PERMISSION_MODES,
     SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk,
@@ -300,10 +300,6 @@ pub struct Options {
     /// a mention, its own board_join or ask_claim). Read when the hand-out
     /// runs. `None`: every agent does, as before.
     pub offers: Option<OffersFn>,
-    /// The board's "Agents per card" (spawned agents §3, part 7): how many
-    /// agents a card may have at once, its lead and helpers, unless the
-    /// card sets its own. `None` or below 1: [`DEFAULT_AGENTS_PER_CARD`].
-    pub agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (card #576). Read when it's needed. `None` or
     /// below 1: [`MAX_SPAWN_CRASHES`].

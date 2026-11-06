@@ -501,53 +501,24 @@ fn a_long_spawner_error_still_asks() {
     });
 }
 
-/// A copy turning up isn't the person asking (card #576): past the daily
-/// limit the card waits for them like any other, and under it the agent
-/// starts with no retry wait.
+/// A copy turning up starts the card's agent with no retry wait, though it
+/// isn't the person asking (card #576).
 #[test]
-fn a_copy_turning_up_is_held_by_the_daily_limit() {
+fn a_copy_turning_up_starts_with_no_retry_wait() {
     let t = rig();
     let waits = t.card("Port the parser", LOWER);
     t.start();
     t.wait_blocked(&waits.id);
-    let dir = tempfile::tempdir().unwrap();
-    let other = "remote:github.com/stephen/other";
-    t.seen(other, dir.path());
-    t.r.core
-        .set_spawn_setting(SpawnSetting {
-            on: true,
-            daily_limit: 1,
-            ..SpawnSetting::default()
-        })
-        .unwrap();
-    t.card("Today's one", other);
-    wait_for(60, "today's agent started", || {
-        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
-        t.fake.started.lock().unwrap().len() == 1
-    });
-
     let copy = tempfile::tempdir().unwrap();
     t.seen(MIXED, copy.path());
     wait_for(60, "the blocker lifted", || {
         t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
         t.no_copy_blockers(&waits.id).is_empty()
     });
-    for _ in 0..5 {
-        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    assert_eq!(t.fake.started.lock().unwrap().len(), 1, "it waits for him");
-    assert!(!t.r.core.coord().spawn_asked_now(&waits.id));
-
-    // Under the limit it needs no retry wait: the clock doesn't move.
-    t.r.core
-        .set_spawn_setting(SpawnSetting {
-            on: true,
-            ..SpawnSetting::default()
-        })
-        .unwrap();
+    // The clock doesn't move: it needs no retry wait.
     wait_for(60, "its agent starts", || {
         t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
-        t.fake.started.lock().unwrap().len() == 2
+        t.fake.started.lock().unwrap().len() == 1
     });
+    assert!(!t.r.core.coord().spawn_asked_now(&waits.id));
 }

@@ -1,7 +1,6 @@
-// StartPastLimit is Start an agent on a card or thread that a limit keeps
-// waiting (cards #450, #576): past the daily limit, a card starts only
-// when the person asks, and under a usage limit their ask tries now rather
-// than wait for the reset. Nothing when neither stops it.
+// StartPastLimit is Start an agent on a card or thread that a usage limit
+// keeps waiting (cards #450, #576): the person's ask tries now rather than
+// wait for the reset. Nothing when no usage limit stops it.
 
 import { useState } from "react"
 

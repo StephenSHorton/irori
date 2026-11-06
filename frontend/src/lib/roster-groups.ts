@@ -22,7 +22,6 @@ type Card = {
   ready?: boolean
   queuePlace?: number
   usageLimit?: string | null
-  dailyLimit?: number
   cantStart?: string
 }
 

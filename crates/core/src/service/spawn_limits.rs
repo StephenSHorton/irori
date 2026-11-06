@@ -1,6 +1,6 @@
 //! The spawn queue's limits (docs/design/spawned-agents.md §6, card #450):
-//! where each waiting card stands in the queue, Claude plan usage limits,
-//! and the board's daily limit.
+//! where each waiting card stands in the queue, and Claude plan usage
+//! limits.
 //!
 //! A usage limit is not a crash. A spawn that fails on one, or a spawned
 //! agent that stops on one, puts its card back in the queue as "queued:
@@ -203,16 +203,13 @@ pub struct SpawnQueue {
     pub places: HashMap<String, usize>,
     /// Spawns are held on a usage limit until then.
     pub held_until: Option<GoTime>,
-    /// The board's daily limit, when today's spawns reached it: then a
-    /// waiting card starts only when the person asks (ask first).
-    pub daily_reached: Option<i64>,
-    /// Today's starts as the daily limit counts them.
+    /// Today's starts, as Settings › Agents shows them.
     pub today: i64,
     /// The spawned agents live here and starting, and the cap.
     pub running: i64,
     pub cap: i64,
     /// This person's cards on shared boards that this device would start
-    /// but for the hold or the daily limit (card #576), by id.
+    /// but for the hold (card #576), by id.
     pub on_boards: HashSet<String>,
 }
 
@@ -271,15 +268,15 @@ impl Services {
     }
 
     /// The agents Irori started today for the private board, every
-    /// device's (the daily limit and Settings › Agents count them).
+    /// device's (Settings › Agents counts them).
     pub(crate) fn spawned_today(&self) -> Vec<(String, coord::Spawned)> {
         let now = (self.now)();
         self.coord.spawned_since(&local_midnight(&now))
     }
 
-    /// How many agents count toward today's limit: those started today,
-    /// and the requests still waiting for theirs (bound later, their mark
-    /// would come too late for the same pass).
+    /// How many agents count toward today: those started today, and the
+    /// requests still waiting for theirs (bound later, their mark would
+    /// come later).
     pub(crate) fn started_today(&self) -> i64 {
         let midnight = local_midnight(&(self.now)());
         let waiting = |cards: &[Task]| {
@@ -293,7 +290,7 @@ impl Services {
         };
         // Shared boards' too: bound, their marks are in the private log.
         // Only this person's cards: Irori starts no other, and another
-        // member's agents count toward that member's limit.
+        // member's agents count toward that member's day.
         let person = self.person_id();
         let on_boards: usize = self
             .shown_boards()
@@ -310,19 +307,6 @@ impl Services {
         (self.spawned_today().len() + waiting(&self.open_cards()) + on_boards) as i64
     }
 
-    /// Whether the daily limit stops card t starting by itself now: the
-    /// limit, when today's spawns reached it and the person hasn't asked
-    /// for t's agent.
-    pub(crate) fn daily_stops(&self, t: &Task, today: i64) -> bool {
-        self.daily_reached(today) && !self.coord.spawn_asked_now(&t.id)
-    }
-
-    /// Whether `today`'s starts reached the daily limit.
-    pub(crate) fn daily_reached(&self, today: i64) -> bool {
-        let limit = self.spawn_setting("").daily_limit;
-        limit > 0 && today >= limit
-    }
-
     /// The queue as the sweep would walk it now (card #450): every card
     /// that waits for an agent and would take a slot, past the free slots,
     /// gets its place. A card whose last start failed here (no checkout,
@@ -331,12 +315,9 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let running = self.spawned_here();
-        let today = self.started_today();
-        let limit = self.spawn_setting("").daily_limit;
         let mut q = SpawnQueue {
             held_until: self.usage_held(),
-            daily_reached: (limit > 0 && today >= limit).then_some(limit),
-            today,
+            today: self.started_today(),
             running,
             cap,
             ..SpawnQueue::default()
@@ -361,9 +342,6 @@ impl Services {
         };
         let mut place = 0;
         for t in waiting {
-            if !held && self.daily_stops(&t, today) {
-                continue;
-            }
             // Bound for another device, or waiting for one: it takes no
             // slot here and isn't queued for this one (card #455's routing,
             // as the sweep does).
@@ -377,17 +355,16 @@ impl Services {
             place += 1;
             q.places.insert(t.id.clone(), place);
         }
-        if held || q.daily_reached.is_some() {
-            q.on_boards = self.board_cards_held(held);
+        if held {
+            q.on_boards = self.board_cards_held();
         }
         q
     }
 
-    /// The cards on shared boards that the hold (`held`), else the daily
-    /// limit, stops here: what [`Self::sweep_board_spawns`] would start,
-    /// less a card the person already asked for or whose last start failed
-    /// here (it says "can't start" instead).
-    fn board_cards_held(&self, held: bool) -> HashSet<String> {
+    /// The cards on shared boards that the hold stops here: what
+    /// [`Self::sweep_board_spawns`] would start, less a card whose last
+    /// start failed here (it says "can't start" instead).
+    fn board_cards_held(&self) -> HashSet<String> {
         let person = self.person_id();
         let mut out = HashSet::new();
         for b in self.shown_boards() {
@@ -398,7 +375,6 @@ impl Services {
             for t in co.cards_to_spawn() {
                 if b.verifier.key_person(&t.created_by) != person
                     || t.open_ask().is_some_and(|a| !a.thread)
-                    || (!held && co.spawn_asked_now(&t.id))
                     || t.spawn_request()
                         .is_some_and(|s| s.op == SPAWN_FAILED && !coord::usage_limited(s))
                 {

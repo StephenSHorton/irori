@@ -1319,11 +1319,6 @@ impl Services {
                     board: true,
                     done_check: true,
                     // A board's own limit, else the person's (card #576).
-                    agents_per_card: Some(super::spawn::SpawnState::limit_fn(
-                        &self.spawn,
-                        &b.id,
-                        |s| s.agents_per_card,
-                    )),
                     crash_limit: Some(super::spawn::SpawnState::limit_fn(
                         &self.spawn,
                         &b.id,

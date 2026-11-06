@@ -31,12 +31,8 @@ fn no_tool_takes_a_limit() {
     for bad in [
         "cap",
         "spawn_cap",
-        "daily_limit",
-        "dailylimit",
         "idle_mins",
         "idlemins",
-        "agents_per_card",
-        "agentspercard",
         "crash_limit",
         "crashlimit",
         "start_tries",

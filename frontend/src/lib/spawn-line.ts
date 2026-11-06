@@ -1,9 +1,9 @@
 // The card line for a card on a spawning board that has no agent yet
 // (card #448, docs/design/spawned-agents.md §14 part 4, sa-1): an agent
 // starting, its place in a device's queue, why one can't start, or what
-// holds the queue (card #450, part 6: a Claude usage limit, the daily
-// limit). It replaces "nobody on it yet" there; a repo that isn't trusted
-// also gets #449's Trust and start row in Needs you.
+// holds the queue (card #450, part 6: a Claude usage limit). It replaces
+// "nobody on it yet" there; a repo that isn't trusted also gets #449's
+// Trust and start row in Needs you.
 
 export type SpawnState = {
   starting?: string
@@ -12,8 +12,6 @@ export type SpawnState = {
   queuePlace?: number
   // While a usage limit holds spawns: when they start again (RFC 3339).
   usageLimit?: string | null
-  // The daily limit, when today's spawns reached it.
-  dailyLimit?: number
   cantStart?: string
 }
 
@@ -52,32 +50,23 @@ export function spawnLine(c: SpawnState): SpawnLine | null {
   if (c.atCap) {
     return { text: `waiting: ${c.atCap} is at its cap`, tone: "quiet" }
   }
-  if (c.dailyLimit) {
-    return {
-      text: `waiting: today's ${c.dailyLimit} agents are started; start this one yourself`,
-      tone: "quiet",
-    }
-  }
   return null
 }
 
-// startPastLimit says what Start an agent does for a card a limit keeps
-// waiting (a usage limit or the daily limit), for its button's title; ""
-// when no limit is what it waits on.
+// startPastLimit says what Start an agent does for a card a usage limit
+// keeps waiting, for its button's title; "" when that isn't what it waits
+// on.
 export function startPastLimit(c: SpawnState): string {
   if (c.starting || c.cantStart) return ""
-  if (c.usageLimit) {
-    return "Tries now instead of waiting for the reset. If the limit still stands, Irori holds again."
-  }
-  return c.dailyLimit ? "Starts this card's agent now, past today's limit" : ""
+  return c.usageLimit
+    ? "Tries now instead of waiting for the reset. If the limit still stands, Irori holds again."
+    : ""
 }
 
-// queued is whether a card waits in the spawn queue (a place, a usage
-// limit or the daily limit), for the roster's "N queued".
+// queued is whether a card waits in the spawn queue (a place or a usage
+// limit), for the roster's "N queued".
 export function queued(c: SpawnState): boolean {
-  return (
-    !c.starting && !c.cantStart && !!(c.atCap || c.usageLimit || c.dailyLimit)
-  )
+  return !c.starting && !c.cantStart && !!(c.atCap || c.usageLimit)
 }
 
 // usageResets says when a usage limit's hold ends: "resets 4:30 PM".

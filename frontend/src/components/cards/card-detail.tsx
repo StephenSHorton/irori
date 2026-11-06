@@ -585,9 +585,8 @@ function WorkingRow({ card }: { card: CardSummary }) {
 
 // QueueRow is the card page's top line while nobody is on it and Irori is
 // getting it an agent (spawned-agents §10, card #450): starting, its place
-// in a device's queue, held on a usage limit until its reset or waiting
-// past the daily limit (each with Start an agent), or why one can't start.
-// Nothing otherwise.
+// in a device's queue, held on a usage limit until its reset (with Start
+// an agent), or why one can't start. Nothing otherwise.
 function QueueRow({ card }: { card: CardSummary }) {
   const line = spawnLine(card)
   if (!line) return null

@@ -64,13 +64,12 @@ describe("rosterGroups", () => {
       [
         card("64", [], { starting: "Macbook Pro (this one)" }),
         card("67", [], { atCap: "Macbook Pro (this one)", queuePlace: 1 }),
-        // Card #450: held on a usage limit, or past the daily limit.
+        // Card #450: held on a usage limit.
         card("68", [], { usageLimit: "2026-11-04T23:30:00Z" }),
-        card("69", [], { dailyLimit: 20 }),
         card("70", [], { cantStart: "no copy of irori on PC" }),
       ]
     )
-    expect([g.starting, g.queued]).toEqual([1, 3])
+    expect([g.starting, g.queued]).toEqual([1, 2])
   })
 })
 

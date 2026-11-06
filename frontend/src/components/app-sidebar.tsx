@@ -492,7 +492,7 @@ export function AppSidebar({
                 groups.starting > 0 &&
                   `${groups.starting} cards starting an agent`,
                 groups.queued > 0 &&
-                  `${groups.queued} cards queued for an agent: a device's free slot, a usage limit's reset, or you (the daily limit)`,
+                  `${groups.queued} cards queued for an agent: a device's free slot or a usage limit's reset`,
                 `${n.total} of yours`,
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
                 blockedNow > 0 &&

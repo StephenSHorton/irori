@@ -247,16 +247,6 @@ pub struct SpawnSetting {
     /// [`DEFAULT_EFFORT`].
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub effort: String,
-    /// The daily limit (§6, card #450): once this many agents started
-    /// today, a card waits until the person starts its agent (ask first).
-    /// 0 is no limit.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub daily_limit: i64,
-    /// Agents per card (§3, card #576): how many may work one card at
-    /// once, lead and helpers, unless the card sets its own. 0 is
-    /// [`coord::DEFAULT_AGENTS_PER_CARD`].
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub agents_per_card: i64,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (§2, card #576). 0 is
     /// [`coord::MAX_SPAWN_CRASHES`].
@@ -268,8 +258,6 @@ pub struct SpawnSetting {
     pub start_tries: i64,
 }
 
-/// The most a daily limit may be.
-pub const MAX_DAILY_LIMIT: i64 = 1000;
 /// The most tries Settings › Agents takes, crashes or failed starts.
 pub const MAX_TRIES: i64 = 20;
 
@@ -388,18 +376,6 @@ impl SpawnSetting {
     /// Refuses a model or effort Settings › Agents doesn't offer, so a bad
     /// row never reaches `claude`'s command line.
     pub fn check(&self) -> Result<(), String> {
-        if !(0..=MAX_DAILY_LIMIT).contains(&self.daily_limit) {
-            return Err(format!(
-                "a daily limit is 0 (none) to {MAX_DAILY_LIMIT}, not {}",
-                self.daily_limit
-            ));
-        }
-        if !(0..=MAX_CAP).contains(&self.agents_per_card) {
-            return Err(format!(
-                "agents per card is 1 to {MAX_CAP}, not {}",
-                self.agents_per_card
-            ));
-        }
         for n in [self.crash_limit, self.start_tries] {
             if !(0..=MAX_TRIES).contains(&n) {
                 return Err(format!("tries are 1 to {MAX_TRIES}, not {n}"));
@@ -1079,8 +1055,6 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
                 if r.s.check().is_err() {
                     r.s.model.clear();
                     r.s.effort.clear();
-                    r.s.daily_limit = 0;
-                    r.s.agents_per_card = 0;
                     r.s.crash_limit = 0;
                     r.s.start_tries = 0;
                 }
@@ -1333,17 +1307,11 @@ impl Services {
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
-        let mut today = self.started_today();
         // In queue order (§6): what the person asked for, helpers, the rest.
         // A usage limit holds every start here until it resets (card #450).
         for t in self.coord.cards_to_spawn() {
             if self.usage_held().is_some() {
                 break;
-            }
-            // The daily limit reached: only what the person starts himself,
-            // wherever it would start.
-            if self.daily_stops(&t, today) {
-                continue;
             }
             // Which of the person's devices starts it (card #455, decision
             // 7 (a)); None waits for the machine it needs or for the retry.
@@ -1351,10 +1319,8 @@ impl Services {
                 continue;
             };
             if dev != me {
-                match self.request_on(&t, &dev) {
-                    Ok(true) => today += 1,
-                    Ok(false) => {}
-                    Err(e) => logf(format_args!("spawn {}: on {dev}: {e}", t.short_ref())),
+                if let Err(e) = self.request_on(&t, &dev) {
+                    logf(format_args!("spawn {}: on {dev}: {e}", t.short_ref()));
                 }
                 continue;
             }
@@ -1362,16 +1328,13 @@ impl Services {
                 continue;
             }
             match self.spawn_for(&sp, &t) {
-                Ok(true) => {
-                    running += 1;
-                    today += 1;
-                }
+                Ok(true) => running += 1,
                 Ok(false) => {}
                 Err(e) => logf(format_args!("spawn {}: {e}", t.short_ref())),
             }
         }
         // This person's own cards on shared boards whose switch is on.
-        self.sweep_board_spawns(&sp, cap, &mut running, &mut today);
+        self.sweep_board_spawns(&sp, cap, &mut running);
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
         self.start_requested(&sp, &mut running);
@@ -2599,8 +2562,7 @@ impl Services {
     /// The person asks for an agent on card `id` now, with `note` in its
     /// brief ("Start an agent with this", §4): the card goes back on the
     /// Board if nobody holds it, and the next sweep starts its agent. His
-    /// ask goes past the daily limit and ends a usage hold here (card
-    /// #576).
+    /// ask ends a usage hold here (card #576).
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         let Some(t) = self.coord.get_task(id) else {
             return self.start_board_agent(id);

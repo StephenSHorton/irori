@@ -1096,11 +1096,8 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
-                    // The limits the coord reads (card #576): from the
+                    // The limit the coord reads (card #576): from the
                     // same map, so a change holds at once.
-                    agents_per_card: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
-                        s.agents_per_card
-                    })),
                     crash_limit: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
                         s.crash_limit
                     })),
@@ -2504,7 +2501,7 @@ impl Core {
     }
 
     /// Where the spawn queue stands here (card #450): each waiting card's
-    /// place, a usage-limit hold, the daily limit reached.
+    /// place, a usage-limit hold.
     pub fn spawn_queue(&self) -> spawn_limits::SpawnQueue {
         self.s.spawn_queue()
     }

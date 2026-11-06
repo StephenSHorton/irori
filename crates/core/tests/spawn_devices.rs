@@ -756,11 +756,10 @@ fn a_shared_board_card_gets_its_makers_agent_and_never_another_members() {
     b.core.close().unwrap();
 }
 
-/// The limits across devices (card #576): a card bound for the Mac takes no
-/// place in the PC's queue however full the PC is, and the PC's daily limit
-/// stops a card it would send to the Mac, not only one it starts itself.
+/// The queue across devices (card #576): a card bound for the Mac takes no
+/// place in the PC's queue however full the PC is.
 #[test]
-fn the_daily_limit_and_the_queue_follow_a_card_to_the_mac() {
+fn the_queue_follows_a_card_to_the_mac() {
     let t2 = Two::new();
     let b_id = t2.b_id();
     t2.spawner_b();
@@ -770,7 +769,6 @@ fn the_daily_limit_and_the_queue_follow_a_card_to_the_mac() {
     t2.a.core
         .set_spawn_setting(SpawnSetting {
             on: true,
-            daily_limit: 1,
             ..SpawnSetting::default()
         })
         .unwrap();
@@ -780,14 +778,7 @@ fn the_daily_limit_and_the_queue_follow_a_card_to_the_mac() {
             .spawn_request()
             .is_some_and(|s| s.device == b_id)
     });
-    let over = t2.card("Over the daily limit");
-    t2.kick();
-    assert!(
-        t2.on_a(&over.id).spawn_request().is_none(),
-        "the daily limit stopped it being sent"
-    );
     let q = t2.a.core.spawn_queue();
-    assert_eq!(q.daily_reached, Some(1));
     assert!(q.places.is_empty(), "{:?}", q.places);
 
     // A cap set for B on A reaches B, with no restart there.
@@ -1078,11 +1069,10 @@ fn a_shared_board_agent_on_a_usage_limit_is_ended_and_requeued() {
     o.close();
 }
 
-/// The daily limit counts this person's agents, not another member's
-/// (card #576), and past it the person can still start their own board
-/// card, which says it waits.
+/// Today's count on a shared board is this person's agents, not another
+/// member's (card #576), and Start refuses another member's card.
 #[test]
-fn the_daily_limit_on_a_shared_board_counts_mine_and_can_be_passed() {
+fn todays_count_on_a_shared_board_counts_mine() {
     let o = OnBoard::new();
     let bco = o.b.core.board_coord(&o.board).unwrap();
     let theirs = bco
@@ -1112,31 +1102,12 @@ fn the_daily_limit_on_a_shared_board_counts_mine_and_can_be_passed() {
     });
     assert_eq!(o.s.core.spawn_queue().today, 0, "Bob's isn't counted");
 
-    o.s.core
-        .set_spawn_setting(SpawnSetting {
-            daily_limit: 1,
-            ..SpawnSetting::default()
-        })
-        .unwrap();
-    let first = o.card("Today's one");
-    o.held(&first.id);
-    let second = o.card("Past the limit");
-    for _ in 0..5 {
-        o.kick();
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    assert_eq!(o.fake.started(), 1, "the limit stopped the second");
-    let q = o.s.core.spawn_queue();
-    assert_eq!((q.today, q.daily_reached), (1, Some(1)));
-    assert!(q.on_boards.contains(&second.id), "{:?}", q.on_boards);
+    let mine = o.card("Today's one");
+    o.held(&mine.id);
+    assert_eq!(o.s.core.spawn_queue().today, 1);
 
     let bob_says = o.s.core.start_agent(&theirs.id, "");
     assert!(bob_says.is_err(), "another member's card: {bob_says:?}");
-    o.s.core.start_agent(&second.id, "").unwrap();
-    wait_for(WAIT, "his Start goes past the limit", || {
-        o.kick();
-        o.fake.started() == 2
-    });
     o.close();
 }
 

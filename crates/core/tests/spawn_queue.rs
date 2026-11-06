@@ -3,8 +3,7 @@
 //! order (what the person asked for first, then the rest by age) and each
 //! knows its place; a Claude usage limit, whether the spawn fails on it or
 //! the agent stops on it, queues the card without counting as a crash and
-//! holds new spawns until the reset; the daily limit makes spawning ask
-//! first.
+//! holds new spawns until the reset.
 
 mod common;
 
@@ -397,56 +396,10 @@ fn an_agent_that_stops_on_the_usage_limit_is_no_crash() {
     assert_eq!(s.started()[1], t.id);
 }
 
-/// Once today's spawns reach the daily limit, a card waits for the person
-/// to start its agent (ask first); his "Start an agent" still starts one.
+/// A cap set for a device is checked before it is stored.
 #[test]
-fn the_daily_limit_makes_spawning_ask_first() {
+fn a_devices_cap_is_checked() {
     let s = Setup::new();
-    s.r.core
-        .set_spawn_setting(SpawnSetting {
-            on: true,
-            daily_limit: 1,
-            ..SpawnSetting::default()
-        })
-        .unwrap();
-    let a = s.card(&s.person, "today's one");
-    let b = s.card(&s.person, "over the limit");
-    s.install();
-    wait_for(60, "the first agent bound", || {
-        s.r.core.coord().spawned(&s.agent(1)).is_some()
-    });
-    s.settle(1);
-    assert_eq!(s.started(), vec![a.id.clone()]);
-    assert_eq!(s.r.core.spawned_today().len(), 1);
-    let q = s.r.core.spawn_queue();
-    assert_eq!(q.daily_reached, Some(1));
-    assert!(
-        q.places.is_empty(),
-        "it waits for him, not for a slot: {:?}",
-        q.places
-    );
-
-    s.r.core.start_agent(&b.id, "").unwrap();
-    wait_for(60, "his start goes past the limit", || {
-        s.kick();
-        s.started().len() == 2
-    });
-    assert_eq!(s.started()[1], b.id);
-}
-
-/// A daily limit past what Settings offers is refused.
-#[test]
-fn a_daily_limit_is_checked() {
-    let s = Setup::new();
-    let e =
-        s.r.core
-            .set_spawn_setting(SpawnSetting {
-                on: true,
-                daily_limit: -1,
-                ..SpawnSetting::default()
-            })
-            .unwrap_err();
-    assert!(e.contains("daily limit"), "{e}");
     assert!(s.r.core.set_spawn_cap_of("", 3).is_err());
     assert!(s.r.core.set_spawn_cap_of("other-device", 999).is_err());
     s.r.core.set_spawn_cap_of("other-device", 12).unwrap();
@@ -454,35 +407,11 @@ fn a_daily_limit_is_checked() {
     assert!(s.r.core.spawn_cap_set("other-device"));
 }
 
-/// Every limit in Settings › Agents holds from the next pass, with no
-/// restart (card #576): a lower cap stops the next start, and agents per
-/// card reaches the coord that hands helpers out.
+/// A changed cap holds from the next pass, with no restart (card #576).
 #[test]
 fn a_changed_limit_holds_without_a_restart() {
     let s = Setup::new();
-    let co = s.r.core.coord();
     s.r.core.set_spawn_cap(0).unwrap();
-    let lead = s.r.key_a.clone();
-    let p = s.card(&s.person, "big card");
-    co.claim_task(&lead, &p.id).unwrap();
-    let subs = (0..6)
-        .map(|i| NewSubtask {
-            title: format!("part {i}"),
-            spawn: true,
-            ..NewSubtask::default()
-        })
-        .collect();
-    co.split(&lead, &p.id, subs, vec![]).unwrap();
-    assert_eq!(co.cards_to_spawn().len(), 3, "the default 4: lead and 3");
-    let limit = |n: i64| {
-        let mut set = s.r.core.spawn_setting("");
-        set.agents_per_card = n;
-        s.r.core.set_spawn_setting(set).unwrap();
-    };
-    limit(2);
-    assert_eq!(co.cards_to_spawn().len(), 1);
-    limit(6);
-    assert_eq!(co.cards_to_spawn().len(), 5);
 
     // A cap of 0 starts nothing, and raising it starts one, untouched.
     let plain = s.card(&s.person, "a card with a folder");
@@ -532,11 +461,8 @@ fn the_new_limits_are_checked() {
         f(&mut v);
         s.r.core.set_spawn_setting(v)
     };
-    assert!(set(|v| v.agents_per_card = -1).is_err());
-    assert!(set(|v| v.agents_per_card = 201).is_err());
     assert!(set(|v| v.crash_limit = 21).is_err());
     assert!(set(|v| v.start_tries = -1).is_err());
-    set(|v| v.agents_per_card = 200).unwrap();
     set(|v| v.crash_limit = 20).unwrap();
 }
 
@@ -563,14 +489,14 @@ fn an_agent_cant_change_a_limit() {
     st.append(
         &agent,
         kinds::SPAWN_SET,
-        &serde_json::json!({ "on": true, "dailyLimit": 900, "agentsPerCard": 100 }),
+        &serde_json::json!({ "on": true, "crashLimit": 9, "startTries": 9 }),
     )
     .unwrap();
     s.kick();
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(s.r.core.spawn_cap(), 2);
     let set = s.r.core.spawn_setting("");
-    assert_eq!((set.daily_limit, set.agents_per_card), (0, 0));
+    assert_eq!((set.crash_limit, set.start_tries), (0, 0));
 }
 
 /// A usage hold isn't only the reset's to end (card #576): the person can

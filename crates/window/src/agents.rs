@@ -60,19 +60,12 @@ pub struct AgentsSettings {
     pub idle_mins: u32,
     /// The idle limits Settings › Agents offers, in minutes.
     pub idle_choices: Vec<u32>,
-    /// The daily limit (card #450): once this many agents started today,
-    /// cards wait for the person to start theirs. 0 is none.
-    pub daily_limit: u32,
-    /// Agents per card (card #576): how many may work one card at once,
-    /// its lead and helpers.
-    pub agents_per_card: u32,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks (card #576).
     pub crash_limit: u32,
     /// How many failed starts in a row before Irori stops and asks.
     pub start_tries: u32,
     /// Their defaults, for the choices' labels.
-    pub default_agents_per_card: u32,
     pub default_crash_limit: u32,
     pub default_start_tries: u32,
 }
@@ -94,11 +87,6 @@ pub struct AgentsChange {
     pub effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
-    /// 0 turns the daily limit off.
-    #[serde(default)]
-    pub daily_limit: Option<u32>,
-    #[serde(default)]
-    pub agents_per_card: Option<u32>,
     #[serde(default)]
     pub crash_limit: Option<u32>,
     #[serde(default)]
@@ -118,14 +106,11 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         default_effort: spawn::DEFAULT_EFFORT.into(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
-        daily_limit: s.daily_limit.clamp(0, i64::from(u32::MAX)) as u32,
-        agents_per_card: or_default(s.agents_per_card, coord::DEFAULT_AGENTS_PER_CARD),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
         start_tries: or_default(
             s.start_tries,
             i64::from(irori_core::spawn_stop::SPAWN_TRIES),
         ),
-        default_agents_per_card: coord::DEFAULT_AGENTS_PER_CARD as u32,
         default_crash_limit: coord::MAX_SPAWN_CRASHES,
         default_start_tries: irori_core::spawn_stop::SPAWN_TRIES,
     }
@@ -152,18 +137,12 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
         s.idle_mins = if m == def { 0 } else { i64::from(m) };
     }
-    if let Some(n) = c.daily_limit {
-        s.daily_limit = i64::from(n);
-    }
     // A default is stored as 0, as the idle limit's is, so a later default
     // change reaches it.
     let stored = |n: u32, def: i64| {
         let n = i64::from(n);
         if n == def { 0 } else { n }
     };
-    if let Some(n) = c.agents_per_card {
-        s.agents_per_card = stored(n, coord::DEFAULT_AGENTS_PER_CARD);
-    }
     if let Some(n) = c.crash_limit {
         s.crash_limit = stored(n, i64::from(coord::MAX_SPAWN_CRASHES));
     }
@@ -205,9 +184,6 @@ pub struct AgentsLimits {
     /// What today's agents here used, in dollars at API prices (on a Claude
     /// plan that is plan usage, not a bill).
     pub cost_usd: f64,
-    /// The daily limit, 0 for none, and whether today reached it.
-    pub daily_limit: u32,
-    pub daily_reached: bool,
     /// While a Claude usage limit holds new spawns here: until when, in ms.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional, type = f64)]
@@ -428,8 +404,6 @@ impl Window {
             today: u(q.today),
             today_here: here,
             cost_usd: cost,
-            daily_limit: u(self.core.spawn_setting("").daily_limit),
-            daily_reached: q.daily_reached.is_some(),
             held_until: q.held_until.map(|h| h.unix_milli_value()),
             queued: q.places.len() as u32,
         }
@@ -466,27 +440,25 @@ mod tests {
         let s = apply(
             SpawnSetting::default(),
             AgentsChange {
-                agents_per_card: Some(6),
                 crash_limit: Some(5),
                 start_tries: Some(1),
                 ..AgentsChange::default()
             },
         );
-        assert_eq!((s.agents_per_card, s.crash_limit, s.start_tries), (6, 5, 1));
+        assert_eq!((s.crash_limit, s.start_tries), (5, 1));
         let v = view(&s, true);
-        assert_eq!((v.agents_per_card, v.crash_limit, v.start_tries), (6, 5, 1));
+        assert_eq!((v.crash_limit, v.start_tries), (5, 1));
         let s = apply(
             s,
             AgentsChange {
-                agents_per_card: Some(v.default_agents_per_card),
                 crash_limit: Some(v.default_crash_limit),
                 start_tries: Some(v.default_start_tries),
                 ..AgentsChange::default()
             },
         );
-        assert_eq!((s.agents_per_card, s.crash_limit, s.start_tries), (0, 0, 0));
+        assert_eq!((s.crash_limit, s.start_tries), (0, 0));
         let v = view(&s, true);
-        assert_eq!((v.agents_per_card, v.crash_limit, v.start_tries), (4, 2, 3));
+        assert_eq!((v.crash_limit, v.start_tries), (2, 3));
     }
 
     #[test]

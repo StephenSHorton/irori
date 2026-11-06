@@ -4,9 +4,9 @@
 // start with, the idle limit, the agents running now, what they may do
 // and how each repo's work reaches main, and which of this computer's
 // repos are trusted for agents (card #456); and every limit on them (cards
-// #450, #576): how many may run on each device, the daily limit, agents per
-// card, the idle limit and the crashes and failed starts before Irori asks,
-// with today's count and cost and a Claude usage limit holding the queue.
+// #450, #576): how many may run on each device, the idle limit and the
+// crashes and failed starts before Irori asks, with today's count and cost
+// and a Claude usage limit holding the queue.
 // Only you set these, here; no agent's tool can.
 
 import { useContext, useId, useState, type ReactNode } from "react"
@@ -18,12 +18,9 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
-  DAILY_CHOICES,
-  PER_CARD_CHOICES,
   TRIES_CHOICES,
   costLabel,
   countLabel,
-  dailyLabel,
   effortLabel,
   endAgent,
   idleLabel,
@@ -241,44 +238,6 @@ function LimitsSection({
         </p>
       )}
       <ul className="grid divide-y divide-border rounded-md border border-border">
-        <LimitRow
-          title="Daily limit"
-          hint={
-            <>
-              Once this many agents started today, on all your computers, cards
-              this computer hands out wait for you to start theirs.
-              {l?.dailyReached && " Today's are started."}
-            </>
-          }
-        >
-          <ChoiceSelect
-            label="Daily limit"
-            size="sm"
-            value={String(s.dailyLimit)}
-            choices={withChoice(DAILY_CHOICES, s.dailyLimit).map((n) => ({
-              value: String(n),
-              label: dailyLabel(n),
-            }))}
-            onValueChange={(v) => set({ dailyLimit: Number(v) })}
-            className="w-44 text-[13px]"
-          />
-        </LimitRow>
-        <LimitRow
-          title="Agents per card"
-          hint="How many may work one card at once: its lead and the helpers it asks for."
-        >
-          <ChoiceSelect
-            label="Agents per card"
-            size="sm"
-            value={String(s.agentsPerCard)}
-            choices={withChoice(PER_CARD_CHOICES, s.agentsPerCard).map((n) => ({
-              value: String(n),
-              label: countLabel(n, s.defaultAgentsPerCard, "agent", "agents"),
-            }))}
-            onValueChange={(v) => set({ agentsPerCard: Number(v) })}
-            className="w-44 text-[13px]"
-          />
-        </LimitRow>
         <LimitRow
           title="Idle limit"
           hint="An agent that waits this long on a question for you writes where it left off and goes. Your answer starts a fresh one."

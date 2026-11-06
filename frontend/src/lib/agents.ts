@@ -41,11 +41,8 @@ export function sampleAgents(): AgentsSettings {
     defaultEffort: "medium",
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
-    dailyLimit: 0,
-    agentsPerCard: 4,
     crashLimit: 2,
     startTries: 3,
-    defaultAgentsPerCard: 4,
     defaultCrashLimit: 2,
     defaultStartTries: 3,
   }
@@ -113,8 +110,6 @@ export function useAgents(open: boolean, boardId = "") {
         model: c.model ?? null,
         effort: c.effort ?? null,
         idleMins: c.idleMins ?? null,
-        dailyLimit: c.dailyLimit ?? null,
-        agentsPerCard: c.agentsPerCard ?? null,
         crashLimit: c.crashLimit ?? null,
         startTries: c.startTries ?? null,
       }
@@ -128,8 +123,6 @@ export function useAgents(open: boolean, boardId = "") {
                 model: c.model ?? x.model,
                 effort: c.effort ?? x.effort,
                 idleMins: c.idleMins ?? x.idleMins,
-                dailyLimit: c.dailyLimit ?? x.dailyLimit,
-                agentsPerCard: c.agentsPerCard ?? x.agentsPerCard,
                 crashLimit: c.crashLimit ?? x.crashLimit,
                 startTries: c.startTries ?? x.startTries,
               }
@@ -336,14 +329,9 @@ export function useRunning(open: boolean) {
   return { rows, error, refresh }
 }
 
-// DAILY_CHOICES are the daily limits Settings › Agents offers (card #450);
-// 0 is none.
-export const DAILY_CHOICES = [0, 10, 20, 40, 80]
-
-// PER_CARD_CHOICES are the agents per card offered (card #576), and
-// TRIES_CHOICES the crashes or failed starts before Irori asks you. A
-// number set some other way is added to the list where it's shown.
-export const PER_CARD_CHOICES = [1, 2, 3, 4, 6, 8, 12, 16, 24]
+// TRIES_CHOICES are the crashes or failed starts before Irori asks you
+// (card #576). A number set some other way is added to the list where it's
+// shown.
 export const TRIES_CHOICES = [1, 2, 3, 5, 10, 20]
 
 // withChoice is the choices with n among them, in order.
@@ -360,11 +348,6 @@ export function countLabel(
 ): string {
   const s = `${n} ${n === 1 ? one : many}`
   return n === def ? `${s} (default)` : s
-}
-
-// dailyLabel names a daily limit.
-export function dailyLabel(n: number): string {
-  return n === 0 ? "No limit (default)" : `${n} agents a day`
 }
 
 // costLabel says what today's agents used at API prices: "$1.24",
@@ -403,8 +386,6 @@ function sampleLimits(): AgentsLimits {
     today: 14,
     todayHere: 11,
     costUsd: 3.42,
-    dailyLimit: 0,
-    dailyReached: false,
     heldUntil:
       previewFlag("spawn") === "limit" ? Date.now() + 90 * 60_000 : null,
     queued: 2,

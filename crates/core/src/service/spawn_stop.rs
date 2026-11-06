@@ -474,8 +474,8 @@ impl Services {
             // Not trusted: the request fails as such and Needs you offers
             // Trust and start. Resolving moves the card on past its failed
             // request, so the sweep asks again without waiting out the
-            // retry; it isn't the person's ask, so the daily limit and the
-            // queue order still hold (card #576).
+            // retry; it isn't the person's ask, so the queue order still
+            // holds (card #576).
             let trusted = (sp.trusted)(Path::new(&folder));
             self.resolve_no_copy(&t, &folder, trusted);
         }

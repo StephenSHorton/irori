@@ -94,13 +94,7 @@ impl Services {
     /// The shared boards' spawning pass: bind started agents, then start
     /// agents for this person's own cards on boards whose switch is on,
     /// under this device's cap.
-    pub(crate) fn sweep_board_spawns(
-        &self,
-        sp: &Spawner,
-        cap: i64,
-        running: &mut i64,
-        today: &mut i64,
-    ) {
+    pub(crate) fn sweep_board_spawns(&self, sp: &Spawner, cap: i64, running: &mut i64) {
         for b in self.shown_boards() {
             self.bind_board_spawns(&b);
             let co = b.coord().clone();
@@ -113,11 +107,6 @@ impl Services {
                 if *running >= cap || self.usage_held().is_some() {
                     break;
                 }
-                // The daily limit counts every agent the person's devices
-                // start: past it, only what they start themselves.
-                if self.daily_reached(*today) && !co.spawn_asked_now(&t.id) {
-                    continue;
-                }
                 // A plain board ask is served by the members' idle agents,
                 // as before; a board thread gets its own agent on the
                 // poster's device (card #512).
@@ -125,10 +114,7 @@ impl Services {
                     continue;
                 }
                 match self.spawn_board_card(sp, &b, &t) {
-                    Ok(true) => {
-                        *running += 1;
-                        *today += 1;
-                    }
+                    Ok(true) => *running += 1,
                     Ok(false) => {}
                     Err(e) => logf(format_args!("spawn {} on {}: {e}", t.short_ref(), b.id)),
                 }
@@ -310,10 +296,10 @@ impl Services {
     }
 
     /// The person's Start an agent on their own waiting card or thread on
-    /// a shared board (card #576): past the daily limit it is the only way
-    /// to start one. The window offers it on the card's waiting line, on
-    /// the device that made the card, which is the device its agent starts
-    /// on; the card is waiting for an agent already, and takes no note.
+    /// a shared board (card #576): it ends a usage hold here, so the card
+    /// tries now. The window offers it on the card's waiting line, on the
+    /// device that made the card, which is the device its agent starts on;
+    /// the card is waiting for an agent already, and takes no note.
     pub(crate) fn start_board_agent(&self, id: &str) -> Result<(), String> {
         let (b, t) = self
             .shown_boards()

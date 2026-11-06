@@ -88,10 +88,6 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional, type = Option<ts::Time>)]
     pub usage_limit: Option<GoTime>,
-    /// The daily limit, when it holds this thread's agent back.
-    #[serde(skip_serializing_if = "is_zero")]
-    #[specta(optional)]
-    pub daily_limit: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -450,7 +446,6 @@ impl Window {
                 s.at_cap = w.at_cap;
                 s.queue_place = w.queue_place;
                 s.usage_limit = w.usage_limit;
-                s.daily_limit = w.daily_limit;
             }
             if resolved {
                 done.push(s);
