@@ -95,7 +95,6 @@ pub struct Hooks {
 }
 
 pub struct Harness {
-    pub dir: tempfile::TempDir,
     pub st: Arc<Store>,
     pub ros: Arc<FakeRoster>,
     pub clk: FakeClock,
@@ -104,6 +103,8 @@ pub struct Harness {
     pub device: String,
     /// The current inbox, for hooks that call back into it.
     pub slot: Slot,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    pub dir: tempfile::TempDir,
 }
 
 /// The harness's current inbox, for hooks.

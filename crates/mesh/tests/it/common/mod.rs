@@ -42,7 +42,6 @@ impl Clock {
 
 pub struct Dev {
     pub name: String,
-    _tmp: tempfile::TempDir,
     pub dir: PathBuf,
     pub net: FakeNet,
     pub clk: Arc<Clock>,
@@ -54,6 +53,8 @@ pub struct Dev {
     pub trust: bool,
     cancel: Option<CancellationToken>,
     task: Option<JoinHandle<()>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: tempfile::TempDir,
 }
 
 fn open_parts(
@@ -296,6 +297,8 @@ impl Drop for Dev {
         if let Some(c) = self.cancel.take() {
             c.cancel();
         }
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
     }
 }
 

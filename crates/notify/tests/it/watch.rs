@@ -113,7 +113,6 @@ fn alpha() -> Sender {
 }
 
 struct Rig {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     ib: Arc<Inbox>,
     co: Arc<Coord>,
@@ -123,6 +122,8 @@ struct Rig {
     opened: mpsc::Receiver<Target>,
     handle: Option<WatchHandle>,
     views: Arc<AtomicUsize>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 type Wrap = Arc<dyn Fn(&str, &str) -> String + Send + Sync>;
@@ -221,6 +222,8 @@ impl Drop for Rig {
         if let Some(h) = self.handle.take() {
             h.stop();
         }
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
     }
 }
 
@@ -1346,4 +1349,6 @@ fn ask_cards_answer_and_clear() {
         "{a:?}"
     );
     h.stop();
+    // Book::start's thread keeps the store: close it so the dir can go.
+    st.close().unwrap();
 }

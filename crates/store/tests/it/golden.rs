@@ -141,6 +141,10 @@ const SINCE_GO_REFUSED: [&str; 23] = [
     kinds::DEVICE_SIDES,
 ];
 
+/// Device-local kinds added after the Go port: the last hello this device
+/// heard from each other device on a board (card #577).
+const SINCE_GO_LOCAL: [&str; 1] = [kinds::BOARD_HELLO];
+
 #[test]
 fn kinds_registry_matches_go() {
     let g = golden("store/kinds.json");
@@ -152,7 +156,14 @@ fn kinds_registry_matches_go() {
         assert_eq!(store::kind_side(k), Side::Replicated, "{k}");
         assert!(!store::board_accepted(k), "{k}");
     }
-    let since_go = |k: &str| SINCE_GO.contains(&k) || SINCE_GO_REFUSED.contains(&k);
+    for k in SINCE_GO_LOCAL {
+        assert_eq!(store::kind_side(k), Side::Local, "{k}");
+        assert!(store::is_local(k), "{k}");
+        assert!(!store::board_accepted(k), "{k}");
+    }
+    let since_go = |k: &str| {
+        SINCE_GO.contains(&k) || SINCE_GO_REFUSED.contains(&k) || SINCE_GO_LOCAL.contains(&k)
+    };
     let sides: BTreeMap<String, String> = REGISTRY
         .iter()
         .filter(|e| !since_go(e.kind))
@@ -294,11 +305,12 @@ fn v3_migration_matches_go() {
 // ------------------------------------------------------------ script replay
 
 struct Replay {
-    dir: tempfile::TempDir,
     rel: &'static str,
     board: bool,
     ver: Arc<FakeVerifier>,
     s: Option<Store>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    dir: tempfile::TempDir,
 }
 
 impl Replay {

@@ -179,6 +179,7 @@ The gate stays for adding or deleting a board, space Talk and notes. Three chang
 - `reads` absent means no word, not level 0, or every older home server would read as too old.
 - A phone's row has `public: null`. The only production reader skips those (`meshnode.rs:207`), so a phone isn't taken for a home server.
 - A live hello beats the row, which covers a downgrade.
+- A saved hello and a row go by which the device wrote later, on its own row counter: a saved hello keeps the device's own entry of the hello's vector, and a row its seq. No clock decides. The same hello heard again is saved again only when a later row said otherwise (#577).
 - What it's for: a device can know about a device it never met, and the Devices page and warnings can show who's behind, on any device. That fixes two gaps: the out-of-date warning skips your own devices, and it keeps only a person's newest version, so Blake's laptop hides Blake's old phone (`boards_status.rs:136-145`). It also means a future level can name a sleeping device correctly.
 - What it isn't for: an older build writes no `reads`, and every build that does is past today's levels. So at today's levels these rows only ever say ready. They don't themselves remove the wait; the next change does.
 

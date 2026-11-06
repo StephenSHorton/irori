@@ -62,7 +62,9 @@ pub fn parse_ref(r: &str) -> Option<(String, String)> {
     Some((tag, parse_short(s)?))
 }
 
-/// A board tag: a lowercase letter, then up to 15 of `a-z 0-9 -`.
+/// A tag in a ref: a lowercase letter, then up to 15 of `a-z 0-9 -`.
+/// Wider than a new board's tag (MAX_BOARD_TAG): boards made before
+/// card #590 keep tags up to 16, and refs to them must still read.
 pub(crate) fn valid_tag(t: &str) -> bool {
     let b = t.as_bytes();
     if b.is_empty() || b.len() > 16 || !b[0].is_ascii_lowercase() {

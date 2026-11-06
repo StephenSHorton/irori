@@ -8,7 +8,10 @@ use std::sync::Arc;
 use ed25519_dalek::SigningKey;
 use irori_identity::*;
 use mesh::PublicAddr;
-use mesh::boardmesh::{BoardServer, KIND_BOARD_SERVER, board_servers, write_board_server};
+use mesh::boardmesh::{
+    BoardReads, BoardServer, KIND_BOARD_HELLO, KIND_BOARD_SERVER, SavedHello, board_servers,
+    saved_hellos, write_board_server,
+};
 use serde::Serialize;
 use store::{Event, Store};
 
@@ -257,14 +260,85 @@ fn the_fold_keeps_each_counted_servers_newest_own_row() {
                 device_id: "bpc".into(),
                 port: 7,
                 public: Some(pa.clone()),
+                ..Default::default()
             },
             BoardServer {
                 device_id: "pc".into(),
                 port: 2,
                 public: Some(pa),
+                ..Default::default()
             },
         ]
     );
+}
+
+/// Card #577: a row without `reads` is no word, and an older decoder (one
+/// that knows only the first three fields) still reads a row that has it.
+#[test]
+fn a_rows_reads_are_no_word_when_absent_and_harmless_to_an_older_decoder() {
+    let bare = serde_json::to_value(BoardServer {
+        device_id: "pc".into(),
+        port: 7,
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(
+        bare,
+        serde_json::json!({"deviceId": "pc", "port": 7, "public": null}),
+        "an unset row keeps today's shape"
+    );
+    let old: BoardServer = serde_json::from_value(bare).unwrap();
+    assert_eq!(old.reads, None);
+
+    let full = serde_json::to_value(BoardServer {
+        device_id: "phone".into(),
+        reads: Some(BoardReads {
+            spaces: 1,
+            spawns: 1,
+            tolerant: 1,
+        }),
+        version: "0.12.0".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(full["reads"]["spaces"], 1);
+    assert_eq!(full["version"], "0.12.0");
+    assert_eq!(full["public"], serde_json::Value::Null, "not a home server");
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", default)]
+    #[derive(Default)]
+    struct Older {
+        device_id: String,
+        port: i64,
+    }
+    let o: Older = serde_json::from_value(full).unwrap();
+    assert_eq!((o.device_id.as_str(), o.port), ("phone", 0));
+}
+
+/// Card #577: a saved hello stays on this device: the store refuses it as
+/// a row to share, and the newest one per device wins.
+#[test]
+fn saved_hellos_are_local_and_the_newest_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = log(dir.path(), "pc");
+    let hello = |version: &str, spaces| SavedHello {
+        device_id: "phone".into(),
+        core_version: version.into(),
+        spaces,
+        ..Default::default()
+    };
+    assert!(
+        st.append("irori", KIND_BOARD_HELLO, &hello("0.10.2", 0))
+            .is_err()
+    );
+    st.append_local("irori", KIND_BOARD_HELLO, &hello("0.10.2", 0))
+        .unwrap();
+    st.append_local("irori", KIND_BOARD_HELLO, &hello("0.11.0", 1))
+        .unwrap();
+    let saved = saved_hellos(&st).unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved["phone"].core_version, "0.11.0");
+    assert_eq!(saved["phone"].spaces, 1);
 }
 
 #[test]
@@ -275,6 +349,7 @@ fn a_server_row_is_written_only_on_change() {
         device_id: "pc".into(),
         port: 41641,
         public: None,
+        ..Default::default()
     };
     assert!(write_board_server(&st, &row).unwrap());
     assert!(!write_board_server(&st, &row).unwrap(), "same row twice");

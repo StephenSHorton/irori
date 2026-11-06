@@ -793,6 +793,7 @@ async fn the_board_server_row_names_only_the_public_address() {
             device_id: me.clone(),
             port,
             public: None,
+            ..Default::default()
         },
         "outside reach off"
     );
