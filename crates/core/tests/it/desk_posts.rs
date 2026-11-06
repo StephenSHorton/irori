@@ -111,7 +111,7 @@ fn a_pr_is_posted_on_its_card_once_then_each_push() {
     // A stranger's PR on the same desk: not ours, so no card, no post.
     set_pr(&gh, pr(5, "a-stranger", "eeeeeee5555"));
     r.core.poll_desk(REPO).unwrap();
-    let p = posts(&co, &id);
+    let p = posts(co, &id);
     assert_eq!(p.len(), 1, "{p:?}");
     assert!(
         p[0].text
@@ -124,17 +124,17 @@ fn a_pr_is_posted_on_its_card_once_then_each_push() {
     // The same list again, and again: nothing new.
     r.core.poll_desk(REPO).unwrap();
     r.core.poll_desk(REPO).unwrap();
-    assert_eq!(posts(&co, &id).len(), 1);
+    assert_eq!(posts(co, &id).len(), 1);
 
     // A push: "Pushed <sha>", waking nobody.
     set_pr(&gh, pr(1, "StephenSHorton", "bbbbbbb2222"));
     r.core.poll_desk(REPO).unwrap();
-    let p = posts(&co, &id);
+    let p = posts(co, &id);
     assert_eq!(p.len(), 2, "{p:?}");
     assert_eq!(p[1].text, "Pushed `bbbbbbb` to PR #1.");
     assert!(!p[1].wake);
     r.core.poll_desk(REPO).unwrap();
-    assert_eq!(posts(&co, &id).len(), 2);
+    assert_eq!(posts(co, &id).len(), 2);
     std::thread::sleep(Duration::from_millis(300));
     assert!(
         told(&r, &r.key_a, "PR #1").is_empty(),
@@ -144,7 +144,7 @@ fn a_pr_is_posted_on_its_card_once_then_each_push() {
     // Nothing about the stranger's PR anywhere.
     for t in co.list_tasks(&coord::TaskFilter::default()) {
         assert!(
-            posts(&co, &t.id).iter().all(|c| !c.text.contains("PR #5")),
+            posts(co, &t.id).iter().all(|c| !c.text.contains("PR #5")),
             "{t:?}"
         );
     }
@@ -162,13 +162,13 @@ fn a_conflict_wakes_the_author_once_per_head() {
     p.mergeable = "UNKNOWN".into();
     set_pr(&gh, p.clone());
     r.core.poll_desk(REPO).unwrap();
-    assert_eq!(posts(&co, &id).len(), 1);
+    assert_eq!(posts(co, &id).len(), 1);
 
     p.mergeable = "CONFLICTING".into();
     p.merge_state_status = "DIRTY".into();
     set_pr(&gh, p.clone());
     r.core.poll_desk(REPO).unwrap();
-    let c = posts(&co, &id);
+    let c = posts(co, &id);
     assert_eq!(c.len(), 2, "{c:?}");
     assert!(
         c[1].text
@@ -183,7 +183,7 @@ fn a_conflict_wakes_the_author_once_per_head() {
     // Still conflicting at the same head: no second post or wake.
     r.core.poll_desk(REPO).unwrap();
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(posts(&co, &id).len(), 2);
+    assert_eq!(posts(co, &id).len(), 2);
     assert_eq!(told(&r, &r.key_a, "conflicts with").len(), 1);
 
     // Behind main alone is no post.
@@ -192,7 +192,7 @@ fn a_conflict_wakes_the_author_once_per_head() {
     p.merge_state_status = "BEHIND".into();
     set_pr(&gh, p.clone());
     r.core.poll_desk(REPO).unwrap();
-    let c = posts(&co, &id);
+    let c = posts(co, &id);
     assert_eq!(c.len(), 3, "{c:?}");
     assert_eq!(c[2].text, "Pushed `ccccccc` to PR #1.");
 }
@@ -228,7 +228,7 @@ fn failed_checks_post_the_log_and_wake_the_author() {
     p.checks = "failure".into();
     set_pr(&gh, p.clone());
     r.core.poll_desk(REPO).unwrap();
-    let c = posts(&co, &id);
+    let c = posts(co, &id);
     assert_eq!(c.len(), 2, "{c:?}");
     let f = &c[1];
     assert!(
@@ -266,14 +266,14 @@ fn failed_checks_post_the_log_and_wake_the_author() {
     // Asked once: the same head failing again posts and fetches nothing.
     r.core.poll_desk(REPO).unwrap();
     assert_eq!(*gh.asked.lock().unwrap(), vec![1]);
-    assert_eq!(posts(&co, &id).len(), 2);
+    assert_eq!(posts(co, &id).len(), 2);
 
     // The fix: a push whose checks pass is only "Pushed".
     p.head_ref_oid = "ddddddd4444".into();
     p.checks = "success".into();
     set_pr(&gh, p);
     r.core.poll_desk(REPO).unwrap();
-    let c = posts(&co, &id);
+    let c = posts(co, &id);
     assert_eq!(c.len(), 3);
     assert_eq!(c[2].text, "Pushed `ddddddd` to PR #1.");
 }
@@ -300,7 +300,7 @@ fn an_unheld_pr_card_gets_posts_and_wakes_nobody() {
         .find(|t| t.links.iter().any(|l| l.reference == url(2)))
         .expect("a PR #2 card");
     r.core.poll_desk(REPO).unwrap();
-    let c = posts(&co, &card.id);
+    let c = posts(co, &card.id);
     assert_eq!(c.len(), 2, "{c:?}");
     assert!(c[0].text.starts_with("PR #2 is on the merge desk"));
     assert!(c[1].text.starts_with("GitHub checks failed on PR #2"));
@@ -388,7 +388,7 @@ fn live_posts_on_a_real_pr() {
             std::thread::sleep(Duration::from_secs(60));
         }
         r.core.poll_desk(&key).unwrap();
-        let ps = posts(&co, &t.id);
+        let ps = posts(co, &t.id);
         for p in &ps[shown..] {
             println!(
                 "--- Irori post (wake: {}, files: {:?})\n{}",
