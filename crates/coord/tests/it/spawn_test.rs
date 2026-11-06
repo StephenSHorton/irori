@@ -723,6 +723,379 @@ fn a_request_naming_another_device_or_superseded_or_stale_starts_nothing_here() 
     assert!(e.c.spawns_here().is_empty(), "moved on to dev-c");
 }
 
+/// Card #574: what a card says about getting an agent, reason by reason.
+#[test]
+fn spawn_hold_names_what_the_card_itself_is_waiting_on() {
+    let e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    let c = spawning(&e, &on);
+
+    let free = c.create_task(USER, nt("Free")).unwrap();
+    assert_eq!(c.spawn_hold(&free.id), SpawnHold::Clear);
+    assert_eq!(c.spawn_hold("nope"), SpawnHold::NoNeed, "no such card");
+
+    let held = c.create_task(ALICE, nt("Held")).unwrap();
+    c.claim_task(ALICE, &held.id).unwrap();
+    assert_eq!(c.spawn_hold(&held.id), SpawnHold::NoNeed);
+
+    let join = c
+        .create_task(
+            USER,
+            NewTask {
+                shared: true,
+                ..nt("Join it")
+            },
+        )
+        .unwrap();
+    assert_eq!(c.spawn_hold(&join.id), SpawnHold::Joinable);
+
+    let first = c.create_task(BOB, nt("First")).unwrap();
+    c.claim_task(BOB, &first.id).unwrap();
+    let after = c.create_task(USER, nt("After")).unwrap();
+    c.raise(
+        USER,
+        &after.id,
+        NewBlocker {
+            question: "waits".into(),
+            blocked_by: Some(BlockedBy {
+                kind: BLOCKED_ON_TASK.into(),
+                reference: first.id.clone(),
+            }),
+            ..NewBlocker::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(c.spawn_hold(&after.id), SpawnHold::Blocked);
+
+    let done = c.create_task(CAROL, nt("Done")).unwrap();
+    c.claim_task(CAROL, &done.id).unwrap();
+    c.set_task_state(CAROL, &done.id, CANCELED, "").unwrap();
+    assert_eq!(c.spawn_hold(&done.id), SpawnHold::NoNeed);
+    assert_eq!(
+        c.card_origin(&free.id),
+        "dev-a",
+        "a person's card, from its key"
+    );
+    assert_eq!(c.card_origin(&held.id), "dev-a");
+}
+
+/// Card #574: a board wait in this log fires as a card's would, on what the
+/// core reads from the board; a lost card ends it and says so.
+#[test]
+fn a_board_wait_fires_on_the_state_the_core_reads() {
+    let e = Env::new();
+    let c = &e.c;
+    let spec = |until: &[&str], state: &str| WaitSpec {
+        task_id: "01BOARDCARD".into(),
+        until: until.iter().map(|u| u.to_string()).collect(),
+        on_board: Some(BoardCard {
+            board: "b1".into(),
+            card: "mlg#7, task:01BOARDCARD".into(),
+            title: "Theirs".into(),
+            state: state.into(),
+            own: false,
+        }),
+        ..WaitSpec::default()
+    };
+    let w = c
+        .create_wait(ALICE, spec(&["done", "unblocked"], BLOCKED))
+        .unwrap();
+    assert_eq!(w.from_state, BLOCKED);
+    assert_eq!(c.board_waits().len(), 1);
+    assert_eq!(c.board_wait_moved(&w.id, BLOCKED), None, "still blocked");
+    assert_eq!(
+        c.board_wait_moved(&w.id, WORKING).as_deref(),
+        Some(BLOCKED),
+        "unblocked"
+    );
+    c.fire_wait(&w.id, "mlg#7 is now working");
+    let (ns, r) = c.sweep_notices_partial();
+    r.unwrap();
+    let n = ns
+        .iter()
+        .find(|n| n.to.contains(&ALICE.to_string()))
+        .expect("a wake");
+    assert!(n.wake);
+    assert_eq!(n.title, "Theirs");
+    assert!(
+        n.text
+            .contains("mlg#7, task:01BOARDCARD until done or unblocked"),
+        "{}",
+        n.text
+    );
+    assert!(c.board_waits().is_empty(), "it fires once");
+
+    // The sweep leaves a board wait alone: its card is in no log here.
+    let w = c.create_wait(ALICE, spec(&["done"], WORKING)).unwrap();
+    c.sweep_notices_partial().1.unwrap();
+    assert_eq!(c.board_waits().len(), 1, "not ended as card_gone");
+    c.board_wait_lost(&w.id);
+    let (ns, r) = c.sweep_notices_partial();
+    r.unwrap();
+    assert!(c.board_waits().is_empty());
+    let n = ns.iter().find(|n| n.kind == NOTICE_WAIT).expect("a notice");
+    assert!(!n.wake, "nothing happened: said at its next turn");
+    assert!(n.text.contains("ended without firing"), "{}", n.text);
+
+    let own = BoardCard {
+        own: true,
+        ..spec(&[], WORKING).on_board.unwrap()
+    };
+    let e2 = c
+        .create_wait(
+            ALICE,
+            WaitSpec {
+                on_board: Some(own),
+                ..spec(&[], WORKING)
+            },
+        )
+        .unwrap_err();
+    assert!(e2.to_string().contains("your own card"), "{e2}");
+}
+
+/// A wait's waiter on another device is that device's: this one reads
+/// nothing for it.
+#[test]
+fn a_board_wait_is_read_on_its_waiters_device() {
+    let e = Env::new();
+    let c = &e.c;
+    c.create_wait(
+        "dev-b/agent",
+        WaitSpec {
+            task_id: "01BOARDCARD".into(),
+            on_board: Some(BoardCard {
+                board: "b1".into(),
+                state: WORKING.into(),
+                ..BoardCard::default()
+            }),
+            ..WaitSpec::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(c.waits("").len(), 1);
+    assert!(c.board_waits().is_empty());
+}
+
+/// Card #574: the crash question blocks the card, and the line still says
+/// it crashed, not just that it's blocked.
+#[test]
+fn a_card_that_crashed_twice_says_so() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    assert_eq!(e.c.spawn_hold(&t.id), SpawnHold::Crashed);
+}
+
+/// Card #541: two computers (dev-a and dev-b) both took one card's
+/// generation 1, and dev-b started, bound and then failed its own. Every
+/// device, whatever order the rows reach it in, ends with dev-a's request
+/// (the lowest id), not bound to dev-b's agent, and dev-a's agent binds.
+#[test]
+fn two_computers_taking_one_generation_agree_in_any_order() {
+    let row = |id: &str, op: &str, dev: &str| TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: op.into(),
+        device: dev.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{dev}"),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    let mark = |id: &str, dev: &str| coord::rows::TaskSpawnedRow {
+        task_id: id.into(),
+        key: format!("{dev}/session"),
+        generation: 1,
+        device: dev.into(),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..Default::default()
+    };
+    // dev-b's rows keep their order; dev-a's request lands anywhere.
+    for at in 0..4 {
+        let e = Env::on("dev-p");
+        let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+        let id = t.id.clone();
+        let mut b_seq = 0;
+        let mut b = |n: usize| {
+            b_seq += 1;
+            let at = hlc_at(fixed_now()) + 10 + b_seq as u64;
+            match n {
+                0 => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_REQUESTED, "dev-b"),
+                ),
+                1 => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWNED,
+                    &mark(&id, "dev-b"),
+                ),
+                _ => e.remote(
+                    "dev-b",
+                    b_seq,
+                    at,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_FAILED, "dev-b"),
+                ),
+            };
+        };
+        for n in 0..3 {
+            if n == at {
+                e.remote(
+                    "dev-a",
+                    1,
+                    hlc_at(fixed_now()) + 1,
+                    SWEEPER_KEY,
+                    kinds::TASK_SPAWN,
+                    &row(&id, SPAWN_REQUESTED, "dev-a"),
+                );
+            }
+            b(n);
+        }
+        if at == 3 {
+            e.remote(
+                "dev-a",
+                1,
+                hlc_at(fixed_now()) + 1,
+                SWEEPER_KEY,
+                kinds::TASK_SPAWN,
+                &row(&id, SPAWN_REQUESTED, "dev-a"),
+            );
+        }
+        let s = e.c.get_task(&id).unwrap().spawn_request().cloned().unwrap();
+        assert_eq!(
+            (s.device.as_str(), s.op.as_str(), s.key.as_str()),
+            ("dev-a", SPAWN_REQUESTED, ""),
+            "dev-a's request arrived at {at}"
+        );
+        e.remote(
+            "dev-a",
+            2,
+            hlc_at(fixed_now()) + 2,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWNED,
+            &mark(&id, "dev-a"),
+        );
+        let s = e.c.get_task(&id).unwrap().spawn_request().cloned().unwrap();
+        assert_eq!(s.key, "dev-a/session", "dev-a's agent binds at {at}");
+    }
+}
+
+/// Card #541: the computer whose request lost the generation can't bind
+/// its agent to the winner's, nor fail the winner's with its own refusal.
+#[test]
+fn the_losing_computer_neither_binds_nor_fails_the_winners_request() {
+    let e = Env::on("dev-b");
+    let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+    let row = TaskSpawnRow {
+        task_id: t.id.clone(),
+        generation: 1,
+        op: SPAWN_REQUESTED.into(),
+        device: "dev-a".into(),
+        permission_mode: "acceptEdits".into(),
+        name: "for-dev-a".into(),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    e.remote(
+        "dev-a",
+        1,
+        hlc_at(fixed_now()) + 1,
+        SWEEPER_KEY,
+        kinds::TASK_SPAWN,
+        &row,
+    );
+    assert!(!e.c.bind_spawn(&t.id, 1, "dev-b/session").unwrap());
+    assert!(
+        !e.c.fail_own_spawn(&t.id, 1, "Claude Code isn't installed on the Mac")
+            .unwrap()
+    );
+    let s =
+        e.c.get_task(&t.id)
+            .unwrap()
+            .spawn_request()
+            .cloned()
+            .unwrap();
+    assert_eq!(
+        (s.device.as_str(), s.op.as_str(), s.key.as_str()),
+        ("dev-a", SPAWN_REQUESTED, "")
+    );
+}
+
+/// Card #541: the person cancels from the phone, which saw only dev-b's
+/// request; dev-a's (the lowest id) arrives before or after. The cancel
+/// ends the generation on every device, so nothing starts.
+#[test]
+fn a_cancel_ends_the_generation_whichever_request_it_saw() {
+    let row = |id: &str, op: &str, dev: &str| TaskSpawnRow {
+        task_id: id.into(),
+        generation: 1,
+        op: op.into(),
+        device: dev.into(),
+        permission_mode: "acceptEdits".into(),
+        name: format!("for-{dev}"),
+        by: SWEEPER_KEY.into(),
+        at: fixed_now(),
+        ..TaskSpawnRow::default()
+    };
+    for a_first in [true, false] {
+        let e = Env::on("dev-p");
+        let t = e.c.create_task(USER, nt("Rename the handlers")).unwrap();
+        let a = |e: &Env| {
+            e.remote(
+                "dev-a",
+                1,
+                hlc_at(fixed_now()) + 1,
+                SWEEPER_KEY,
+                kinds::TASK_SPAWN,
+                &row(&t.id, SPAWN_REQUESTED, "dev-a"),
+            );
+        };
+        if a_first {
+            a(&e);
+        }
+        e.remote(
+            "dev-b",
+            1,
+            hlc_at(fixed_now()) + 2,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_REQUESTED, "dev-b"),
+        );
+        e.remote(
+            "dev-c",
+            1,
+            hlc_at(fixed_now()) + 3,
+            SWEEPER_KEY,
+            kinds::TASK_SPAWN,
+            &row(&t.id, SPAWN_CANCELED, "dev-b"),
+        );
+        if !a_first {
+            a(&e);
+        }
+        let s =
+            e.c.get_task(&t.id)
+                .unwrap()
+                .spawn_request()
+                .cloned()
+                .unwrap();
+        assert_eq!(s.op, SPAWN_CANCELED, "dev-a's first: {a_first}");
+    }
+}
+
 /// The crash limit is the person's (card #576): read live, with the
 /// question saying the number; at the default it's the words it always was.
 fn limited_crashes(e: &Env, on: &Arc<AtomicBool>, limit: &Arc<AtomicI64>) -> Coord {
@@ -792,4 +1165,44 @@ fn a_crash_limit_lowered_under_a_card_asks_the_person() {
 #[test]
 fn the_crash_question_at_the_default_is_unchanged() {
     assert_eq!(coord::crash_question(MAX_SPAWN_CRASHES), CRASHED_QUESTION);
+}
+
+/// Card #575: a start an agent asked for counts toward the person's limit
+/// and never goes first, even on their own card, until they say so.
+#[test]
+fn an_agents_counted_start_queues_behind_the_persons_cards() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let older =
+        e.c.create_task(USER, nt("An agent asked for this"))
+            .unwrap();
+    e.clk.add(std::time::Duration::from_secs(1));
+    let newer = e.c.create_task(USER, nt("Mine")).unwrap();
+    let g =
+        e.c.request_spawn(
+            SWEEPER_KEY,
+            SpawnAsk {
+                counted: true,
+                ..ask(&older.id)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(e.c.bind_spawn(&older.id, g, "dev-a/first").unwrap());
+    e.c.claim_task("dev-a/first", &older.id).unwrap();
+    e.ros.set("dev-a/first", "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [newer.id.clone(), older.id.clone()]
+    );
+    // The person's Start puts it first again.
+    e.c.spawn_now(&older.id);
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [older.id.clone(), newer.id.clone()]
+    );
 }

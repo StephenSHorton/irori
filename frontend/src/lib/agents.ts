@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import type {
   AgentsChange,
+  AgentStartsView,
   AgentsLimits,
   AgentsSettings,
   RunningAgent,
@@ -20,6 +21,7 @@ import { previewFlag } from "./preview"
 export type {
   AgentsChange,
   AgentsLimits,
+  AgentStartsView,
   AgentsSettings,
   RunningAgent,
   TrustedRepo,
@@ -84,13 +86,83 @@ export function idleLabel(m: number, def = 30): string {
   return m === def ? `${n} (default)` : n
 }
 
+// "My agents may start agents on my cards" (card #575): the person's own
+// limit, on all their devices. Only this pane changes it; no agent's tool can.
+// The preview's sample, read when used: tests load this file outside a page.
+function sampleStarts(): AgentStartsView {
+  return {
+    on: previewFlag("agentstarts") !== "off",
+    max: 100,
+    used: previewFlag("agentstarts") === "full" ? 100 : 3,
+    ceiling: 1000,
+  }
+}
+
+export function useAgentStarts(open: boolean) {
+  const [s, setS] = useState<AgentStartsView | null>(
+    inWails() ? null : sampleStarts()
+  )
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AgentsService.Starts().then(
+      (v) => live && (setS(v), setError("")),
+      (e: Error) => live && setError(e.message)
+    )
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = (on: boolean, max: number) => {
+    if (!inWails()) {
+      setS((p) => p && { ...p, on, max })
+      return
+    }
+    AgentsService.SetStarts(on, max).then(
+      (v) => (setS(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }
+  return { starts: s, error, set }
+}
+
+// The preview's settings by board; a space's switch starts off, as it does
+// in the app.
+const sampleSaved = new Map<string, AgentsSettings>()
+function sampleFor(boardId: string): AgentsSettings {
+  const s = sampleAgents()
+  return sampleSaved.get(boardId) ?? { ...s, boardId, on: !boardId && s.on }
+}
+
+// Every open copy of a board's settings hears a save (card #573): a
+// space's switch and its off line sit on one page.
+const saved = new Set<(s: AgentsSettings) => void>()
+function publish(s: AgentsSettings) {
+  for (const fn of saved) fn(s)
+}
+
 // useAgents loads a board's settings while open and saves a change,
 // keeping the last good settings when a save fails.
 export function useAgents(open: boolean, boardId = "") {
-  const [s, setS] = useState<AgentsSettings | null>(() =>
-    inWails() ? null : { ...sampleAgents(), boardId }
-  )
+  const first = () => (inWails() ? null : sampleFor(boardId))
+  const [s, setS] = useState<AgentsSettings | null>(first)
   const [error, setError] = useState("")
+  // Another board's settings are never shown as this one's.
+  const [shown, setShown] = useState(boardId)
+  if (shown !== boardId) {
+    setShown(boardId)
+    setS(first())
+  }
+  useEffect(() => {
+    const fn = (v: AgentsSettings) => {
+      if (v.boardId === boardId) setS(v)
+    }
+    saved.add(fn)
+    return () => {
+      saved.delete(fn)
+    }
+  }, [boardId])
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
@@ -114,24 +186,23 @@ export function useAgents(open: boolean, boardId = "") {
         startTries: c.startTries ?? null,
       }
       if (!inWails()) {
-        setS((x) =>
-          x
-            ? {
-                ...x,
-                on: c.on ?? x.on,
-                chosen: x.chosen || c.on != null,
-                model: c.model ?? x.model,
-                effort: c.effort ?? x.effort,
-                idleMins: c.idleMins ?? x.idleMins,
-                crashLimit: c.crashLimit ?? x.crashLimit,
-                startTries: c.startTries ?? x.startTries,
-              }
-            : x
-        )
+        const x = sampleFor(boardId)
+        const next = {
+          ...x,
+          on: c.on ?? x.on,
+          chosen: x.chosen || c.on != null,
+          model: c.model ?? x.model,
+          effort: c.effort ?? x.effort,
+          idleMins: c.idleMins ?? x.idleMins,
+          crashLimit: c.crashLimit ?? x.crashLimit,
+          startTries: c.startTries ?? x.startTries,
+        }
+        sampleSaved.set(boardId, next)
+        publish(next)
         return
       }
       AgentsService.Set(change).then(
-        (v) => (setS(v), setError("")),
+        (v) => (publish(v), setError("")),
         (e: Error) => setError(e.message)
       )
     },

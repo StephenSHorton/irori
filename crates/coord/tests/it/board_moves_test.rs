@@ -714,8 +714,14 @@ fn a_delete_folded_by_a_catch_up_moves_the_cards() {
         .deleted
         .push((NET.into(), pos("dev-b", 2, 20)));
     let raw = format!(r#"{{"boardId":"{NET}","name":"","tag":"","deleted":true}}"#);
-    s.st.insert(&event("dev-b", 2, 20, kinds::SPACE_BOARD_RENAMED, raw.into_bytes()))
-        .unwrap();
+    s.st.insert(&event(
+        "dev-b",
+        2,
+        20,
+        kinds::SPACE_BOARD_RENAMED,
+        raw.into_bytes(),
+    ))
+    .unwrap();
     c.catch_up().unwrap();
     assert_eq!(place(&c, "n"), (String::new(), "wind#1".to_string()));
     assert_eq!(c.task_ref("net#1").unwrap(), "n");

@@ -379,6 +379,11 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
+    /// Why no agent can start for this card now, by device, and what
+    /// happens next (card #541): shown in Needs you until one can.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_agent: String,
     /// The device an agent is starting on for this card ("<its own name>
     /// (this one)" or the other device's name, card #489), while Irori's
     /// spawn request waits for it (card #448).
@@ -390,6 +395,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub at_cap: String,
+    /// The card was given to this person and they said Not now: its page
+    /// offers Start an agent (card #573).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub given_no: bool,
     /// Its place in that device's spawn queue, from 1 (card #450): "queued:
     /// 1st for the PC". 0 when it isn't queued.
     #[serde(skip_serializing_if = "is_zero")]
@@ -963,6 +972,12 @@ type OwnerFn = Box<dyn Fn(&str) -> bool>;
 /// Resolves keys against the roster once per call (Go `people`).
 #[derive(Default)]
 pub(crate) struct People {
+    /// Why no agent can start, by the card that waits (card #541).
+    pub(crate) no_agent: HashMap<String, String>,
+    /// When this list was read, for a request past its grace.
+    pub(crate) now: gocompat::time::GoTime,
+    /// The devices that can't run agents (card #541).
+    pub(crate) cant_run: std::collections::HashSet<String>,
     by_key: HashMap<String, coord::roster::AgentCard>,
     user: String,
     owner: Option<OwnerFn>,
@@ -1053,6 +1068,9 @@ impl Window {
     pub(crate) fn people(&self) -> People {
         let c = &self.core;
         let mut p = People {
+            no_agent: self.core.no_agent(),
+            now: GoTime::from_system(std::time::SystemTime::now()),
+            cant_run: self.core.cant_run_devices(),
             user: c.user_sender().key,
             self_id: c.device_id().to_string(),
             ..People::default()
@@ -1154,6 +1172,12 @@ impl Window {
 }
 
 impl People {
+    /// Why no agent can start for card `id`; empty when one can or it
+    /// doesn't wait for one.
+    pub(crate) fn no_agent_for(&self, id: &str) -> String {
+        self.no_agent.get(id).cloned().unwrap_or_default()
+    }
+
     /// Whether `dev` is this device: empty, unknown here, or this one.
     fn is_here(&self, dev: &str) -> bool {
         dev.is_empty() || self.self_id.is_empty() || dev == self.self_id
@@ -1503,9 +1527,16 @@ pub(crate) fn name_wait(s: &mut CardSummary, refr: &dyn Fn(&str) -> String) {
 /// checkout is said in today's words from the card and the device's name,
 /// whatever the stored row says: rows from before #480 read "no checkout of
 /// remote:github.com/StephenSHorton/irori on 05f1844a…".
-fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
+pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
     if !irori_core::spawn_stop::no_folder_reason(&sp.reason) {
         return sp.reason.clone();
+    }
+    // Before card #541 a phone tried, and blamed a repo.
+    if p.cant_run.contains(&sp.device) {
+        return match p.names.get(&sp.device) {
+            Some(n) if !n.trim().is_empty() => format!("{n} can't run agents"),
+            _ => "that device can't run agents".into(),
+        };
     }
     // Mid-sentence, so where_'s "This PC" and "Another device" go lowercase.
     let dev = match p.names.get(&sp.device) {
@@ -1516,11 +1547,7 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
             w => w.to_string(),
         },
     };
-    if t.repo_key.is_empty() {
-        format!("this card names no repo, and {dev} has no folder for it")
-    } else {
-        format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
-    }
+    irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
@@ -1599,9 +1626,12 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
+        no_agent: p.no_agent_for(&t.id),
+        // A request past its grace isn't starting: its device went away,
+        // and no_agent says so (card #541).
         starting: t
             .spawn_request()
-            .filter(|sp| sp.pending())
+            .filter(|sp| sp.pending() && !sp.stale(&p.now))
             .map(|sp| p.where_(&sp.device))
             .unwrap_or_default(),
         ..CardSummary::default()
@@ -2298,6 +2328,7 @@ impl Window {
                 let mut cs = card_summary(&pt, p);
                 let private = |k: &str| self.core.private_key(k);
                 // Comments are read only when nothing cheaper already said so.
+                cs.given_no = co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
                 cs.ours = ours(&t, [], private)
                     || (t.comments > 0
                         && ours(
@@ -2389,6 +2420,9 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        d.summary.given_no = raw
+            .as_ref()
+            .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
         if let Some(raw) = &raw
             && !d.summary.board.is_empty()
         {
@@ -2416,7 +2450,20 @@ impl Window {
             });
         }
         let refr = |id: &str| co.get_task(id).map(|x| x.short_ref()).unwrap_or_default();
-        if !co.is_board() {
+        // A wait on a shared card is in the waiter's own log (card #574).
+        if co.is_board() {
+            for w in self.core.coord().waits("") {
+                if w.task_id != t.id {
+                    continue;
+                }
+                d.waits.push(CardWait {
+                    id: w.id.clone(),
+                    who: p.ref_(&w.by),
+                    text: format!("until {}", coord::until_text(&w.until)),
+                    on_this: true,
+                });
+            }
+        } else {
             for w in co.waits("") {
                 let on_this = w.task_id == t.id;
                 if !on_this && (!t.holders.contains(&w.by) || coord::is_terminal(&t.state)) {
@@ -2425,7 +2472,9 @@ impl Window {
                 let text = if on_this {
                     format!("until {}", coord::until_text(&w.until))
                 } else {
-                    coord::wait_line(&w, &refr(&w.task_id))
+                    // A shared card's wait kept its refs: no such card here.
+                    let r = refr(&w.task_id);
+                    coord::wait_line(&w, if r.is_empty() { &w.card } else { &r })
                 };
                 d.waits.push(CardWait {
                     id: w.id.clone(),

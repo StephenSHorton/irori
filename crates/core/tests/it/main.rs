@@ -3,6 +3,7 @@
 //! debug info. Tests from every module run in this one process, side by
 //! side; a test that changes process state lives outside this binary.
 
+mod agent_starts;
 mod agentnames;
 mod ask_spawn;
 mod attachments;
@@ -37,10 +38,15 @@ mod prwatch;
 mod search;
 mod space_boards;
 mod spawn;
+mod spawn_capable;
 mod spawn_checkout;
 mod spawn_devices;
 mod spawn_helpers;
 mod spawn_paths;
 mod spawn_queue;
 mod spawn_settings_devices;
+mod spawn_trees;
+mod spawn_why;
+mod spawn_why_devices;
 mod talk_notify;
+mod treeclean;

@@ -33,6 +33,8 @@ pub const KIND_INPUT: &str = "input";
 pub const KIND_HANDED: &str = "handed";
 pub const KIND_RETURNED: &str = "returned";
 pub const KIND_UNCLAIMED: &str = "unclaimed";
+/// No device can start the agent this work waits for (card #541).
+pub const KIND_NO_AGENT: &str = "no_agent";
 pub const KIND_MENTION: &str = "mention";
 pub const KIND_ASK: &str = "ask";
 pub const KIND_MESSAGE: &str = "message";

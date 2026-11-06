@@ -4,9 +4,10 @@
 // start with, the idle limit, the agents running now, what they may do
 // and how each repo's work reaches main, and which of this computer's
 // repos are trusted for agents (card #456); and every limit on them (cards
-// #450, #576): how many may run on each device, the idle limit and the
-// crashes and failed starts before Irori asks, with today's count and cost
-// and a Claude usage limit holding the queue.
+// #450, #575, #576): how many may run on each device, the idle limit and the
+// crashes and failed starts before Irori asks, and how many your agents
+// may start, with today's count and cost and a Claude usage limit holding
+// the queue.
 // Only you set these, here; no agent's tool can.
 
 import { useContext, useId, useState, type ReactNode } from "react"
@@ -14,6 +15,12 @@ import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { PermissionsSection } from "@/components/settings/agent-permissions"
+import {
+  AGENT_STARTS_HINT,
+  AGENT_STARTS_TITLE,
+  AgentStartsControls,
+} from "@/components/settings/agent-starts"
+import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +35,7 @@ import {
   useLimits,
   modelLabel,
   runningSince,
+  useAgentStarts,
   useAgents,
   useRunning,
   useTrusted,
@@ -41,6 +49,8 @@ import { usageResets } from "@/lib/spawn-line"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { agentStatus } from "@/lib/agent-status"
+import { useBoards } from "@/lib/boards"
+import { plainLine } from "@/lib/irori"
 import { LiveRoster } from "@/lib/thread"
 import { AgentRef } from "@/lib/models"
 
@@ -85,6 +95,7 @@ export function AgentsPane({ open }: { open: boolean }) {
                 className="mt-0.5"
               />
             </div>
+            <SpacesSection open={open} />
             <section className="grid gap-2">
               <h3 className="text-sm font-medium text-ink">
                 What a new agent starts with
@@ -131,6 +142,34 @@ export function AgentsPane({ open }: { open: boolean }) {
       <TrustedSection open={open} />
       {s && error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
+  )
+}
+
+// SpacesSection is each shared space's own switch (card #573): off until
+// the person turns it on, and only for cards they make there.
+function SpacesSection({ open }: { open: boolean }) {
+  const { boards } = useBoards()
+  if (boards.length === 0) return null
+  return (
+    <section className="grid gap-2" aria-label="Spaces">
+      <h3 className="text-sm font-medium text-ink">Spaces</h3>
+      <p className="text-[12.5px] text-muted-foreground">
+        Each space has its own switch, off until you turn it on. It runs your
+        agents on your computers, for the cards you make there. A card someone
+        gives you always asks you first, whatever the switch says.
+      </p>
+      <ul className="grid gap-2">
+        {boards.map((b) => (
+          <li key={b.boardId}>
+            <SpaceAgentSwitch
+              boardId={b.boardId}
+              name={plainLine(b.name) || "(unnamed)"}
+              open={open}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -302,9 +341,33 @@ function LimitsSection({
             className="w-44 text-[13px]"
           />
         </LimitRow>
+        <AgentStartsRow open={open} />
       </ul>
       {error && l && <p className="text-[12.5px] text-destructive">{error}</p>}
     </section>
+  )
+}
+
+// AgentStartsRow is "My agents may start agents on my cards" (card #575):
+// the switch and the maximum, with how much of it is in use now.
+function AgentStartsRow({ open }: { open: boolean }) {
+  const { starts: s, error, set } = useAgentStarts(open)
+  if (!s) return null
+  return (
+    <LimitRow
+      title={AGENT_STARTS_TITLE}
+      hint={
+        <>
+          {AGENT_STARTS_HINT}{" "}
+          <span className="tabular-nums">
+            {s.on ? `${s.used} of ${s.max} in use.` : `Off; ${s.used} in use.`}
+          </span>
+          {error && <span className="text-destructive"> {error}</span>}
+        </>
+      }
+    >
+      <AgentStartsControls starts={s} set={set} />
+    </LimitRow>
   )
 }
 

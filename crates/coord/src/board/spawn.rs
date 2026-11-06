@@ -16,7 +16,7 @@ use gocompat::time::GoTime;
 use irori_identity::owner;
 use store::{Event, kinds};
 
-use super::error::{Result, bad_state};
+use super::error::{Result, bad_state, not_allowed};
 use super::fold::Fold;
 use super::rows::*;
 use super::types::*;
@@ -67,6 +67,16 @@ pub fn crash_question(n: u32) -> String {
     }
 }
 
+/// What a person is asked about a card another person gave them (card
+/// #573): Irori stops there, and nothing starts until they say yes.
+pub const GIVEN_QUESTION: &str = "OK to start an agent on this?";
+
+/// The answer that starts it.
+pub const GIVEN_START: &str = "Start an agent";
+
+/// The answer that leaves the card theirs, with no agent.
+pub const GIVEN_NOT_NOW: &str = "Not now";
+
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 
@@ -89,6 +99,8 @@ pub struct Spawn {
     pub reason: String,
     /// The person's words for the agent's brief (card #455).
     pub note: String,
+    /// It counts toward "My agents may start agents" (card #575).
+    pub counted: bool,
     pub by: String,
     pub at: GoTime,
     /// The agent bound to this request, once presence listed it.
@@ -122,6 +134,9 @@ pub struct Spawned {
     /// The shared board whose card it is, for a mark kept in the person's
     /// own log for a board card's agent (card #455); empty otherwise.
     pub board: String,
+    /// It counts toward "My agents may start agents" (card #575), and so
+    /// does whatever it goes on to start.
+    pub counted: bool,
     pub at: GoTime,
 }
 
@@ -142,6 +157,31 @@ pub struct SpawnAsk {
     /// The person's words for the agent's brief, for the device that
     /// starts it (card #455).
     pub note: String,
+    /// It counts toward "My agents may start agents" (card #575).
+    pub counted: bool,
+}
+
+/// What the card itself says about getting an agent (card #574): what
+/// [`Fold::cards_to_spawn`] looks at, as a reason. The core adds the switch,
+/// the devices and the cap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnHold {
+    /// Nothing on the card is in the way.
+    Clear,
+    /// It doesn't want an agent: done, withdrawn, held, offered, a parent.
+    NoNeed,
+    /// A shared card: agents join it themselves.
+    Joinable,
+    /// It waits on a blocker.
+    Blocked,
+    /// Its agents crashed twice in a row.
+    Crashed,
+    /// A thread whose last agent Irori ended: it waits for the person.
+    Resting,
+    /// On a side this device doesn't run: why, in the card's words.
+    OffSide(String),
+    /// An unmarked subtask of a card with a lead.
+    ForLead,
 }
 
 impl Task {
@@ -220,8 +260,13 @@ impl Fold {
         let Some(t) = self.tasks.get(task_id) else {
             return false;
         };
-        let author = kp(&t.created_by);
-        !author.is_empty() && author == dp(&ev.device_id) && (by == SWEEPER || kp(by) == author)
+        // One person serves a card: who it was given to, else its author.
+        // Their devices alone write its spawn rows, so the author's write
+        // nothing for a card they gave away. The yes isn't checked here:
+        // only their own devices pass this, and the asking device checks
+        // it before it starts or binds anything (card #573).
+        let serves = self.serving_person(t);
+        !serves.is_empty() && serves == dp(&ev.device_id) && (by == SWEEPER || kp(by) == serves)
     }
 
     pub(crate) fn fold_spawn(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
@@ -250,22 +295,43 @@ impl Fold {
             name: p.name,
             reason: p.reason,
             note: p.note,
+            counted: p.counted,
             by: p.by,
             at: at(p.at),
             key: String::new(),
         };
         match t.spawns.iter_mut().find(|o| o.part() == s.part()) {
-            // Only a newer generation moves a request on; its own generation may end it.
+            // Only a newer generation moves a request on.
+            Some(o) if s.generation > o.generation => *o = s,
+            // Its own generation's rows from the same device may end it;
+            // a cancel (the person's) ends the generation, whichever
+            // computer's request it named.
             Some(o)
-                if s.generation > o.generation
-                    || (s.generation == o.generation && s.op != SPAWN_REQUESTED) =>
+                if s.generation == o.generation
+                    && s.op != SPAWN_REQUESTED
+                    && o.op != SPAWN_CANCELED
+                    && (s.op == SPAWN_CANCELED || same_device(&s.device, &o.device)) =>
             {
-                let key = if s.generation == o.generation {
-                    o.key.clone()
-                } else {
-                    String::new()
+                // A request's end doesn't repeat that it counts (card #575).
+                *o = Spawn {
+                    key: o.key.clone(),
+                    counted: s.counted || o.counted,
+                    ..s
                 };
-                *o = Spawn { key, ..s };
+            }
+            // Two computers took one card at once (card #541): the lowest
+            // device id's request wins over anything of the other's in
+            // that generation, so every device ends with the same request
+            // whatever order the rows arrive in. The other one's session
+            // ends as superseded.
+            Some(o)
+                if s.generation == o.generation
+                    && s.op == SPAWN_REQUESTED
+                    && o.op != SPAWN_CANCELED
+                    && !same_device(&s.device, &o.device)
+                    && s.device < o.device =>
+            {
+                *o = s;
             }
             Some(_) => return,
             None => t.spawns.push(s),
@@ -288,10 +354,11 @@ impl Fold {
             return;
         }
         // An agent is started for one card, once: a later mark never moves
-        // it to another card. On a shared board the agent must be the card
-        // author's own: another member's Irori can't mark this person's
-        // agent as started for their card, which would let their hand-out
-        // reach it (card #455).
+        // it to another card. On a shared board the agent must be the card's
+        // own person's (its author, or who it was given to, card #573):
+        // another member's Irori can't mark this person's agent as started
+        // for their card, which would let their hand-out reach it (card
+        // #455).
         if self
             .spawned
             .get(&p.key)
@@ -304,12 +371,12 @@ impl Fold {
             let Some(kp) = &self.key_person else {
                 return;
             };
-            let author = self
+            let serves = self
                 .tasks
                 .get(&p.task_id)
-                .map(|t| kp(&t.created_by))
+                .map(|t| self.serving_person(t))
                 .unwrap_or_default();
-            if author.is_empty() || kp(&p.key) != author {
+            if serves.is_empty() || kp(&p.key) != serves {
                 self.ignore(&ev.device_id);
                 return;
             }
@@ -327,17 +394,21 @@ impl Fold {
                 subtask: p.subtask.clone(),
                 device: p.device.clone(),
                 board: p.board.clone(),
+                counted: p.counted,
                 at: at(p.at),
             },
         );
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             return;
         };
-        if let Some(s) = t
-            .spawns
-            .iter_mut()
-            .find(|s| s.generation == p.generation && s.step == p.step && s.subtask == p.subtask)
-        {
+        // Only on the request of the device that started it: the losing
+        // computer's agent never binds the winner's (card #541).
+        if let Some(s) = t.spawns.iter_mut().find(|s| {
+            s.generation == p.generation
+                && s.step == p.step
+                && s.subtask == p.subtask
+                && same_device(&s.device, &p.device)
+        }) {
             s.key = p.key.clone();
         }
         let holder = t.holder.clone();
@@ -373,7 +444,11 @@ impl Fold {
             return Ok(None);
         }
         let card = a.step.is_empty() && a.subtask.is_empty();
-        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) && !self.needs_lead(t)
+        if card
+            && !super::offers::needs_agent(t)
+            && !self.ask_needs_agent(t)
+            && !self.needs_lead(t)
+            && !self.given_starts(t)
         {
             return Ok(None);
         }
@@ -402,11 +477,34 @@ impl Fold {
                 name: a.name,
                 reason: String::new(),
                 note: a.note,
+                counted: a.counted,
                 by,
                 at: now,
             },
         )?;
         Ok(Some(generation))
+    }
+
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it (card #541): Ok(false), writing nothing, when the
+    /// request is now another computer's, which this failure isn't about.
+    pub(crate) fn fail_own_spawn(
+        &mut self,
+        id: &str,
+        generation: i64,
+        reason: &str,
+    ) -> Result<bool> {
+        let theirs = self.tasks.get(id).is_some_and(|t| {
+            t.spawns.iter().any(|s| {
+                s.part() == ("", "")
+                    && s.generation == generation
+                    && !same_device(&s.device, &self.dev)
+            })
+        });
+        if theirs {
+            return Ok(false);
+        }
+        self.end_spawn(SWEEPER, id, ("", ""), generation, SPAWN_FAILED, reason)
     }
 
     /// Ends request `generation` for card `id`'s part as failed or canceled, with
@@ -481,6 +579,10 @@ impl Fold {
         if s.op != SPAWN_REQUESTED || !s.key.is_empty() {
             return Ok(s.key == key);
         }
+        // Another computer's request won this generation (card #541).
+        if !same_device(&s.device, &self.dev) {
+            return Ok(false);
+        }
         let now = self.stamp();
         self.write_as(
             SWEEPER,
@@ -492,6 +594,7 @@ impl Fold {
                 step: s.step.clone(),
                 subtask: s.subtask.clone(),
                 device: s.device.clone(),
+                counted: s.counted,
                 by: SWEEPER.into(),
                 at: now,
                 ..TaskSpawnedRow::default()
@@ -555,6 +658,7 @@ impl Fold {
         generation: i64,
         device: &str,
         board: &str,
+        counted: bool,
     ) -> Result<()> {
         if self.spawned.get(key).is_some_and(|m| m.task_id == task_id) {
             return Ok(());
@@ -569,12 +673,64 @@ impl Fold {
                 generation,
                 device: device.into(),
                 board: board.into(),
+                counted,
                 by: SWEEPER.into(),
                 at: now,
                 ..TaskSpawnedRow::default()
             },
         )?;
         Ok(())
+    }
+
+    /// Whether card t's next agent counts toward "My agents may start
+    /// agents" (card #575) with no new ask: the card's last request did,
+    /// or an agent that counts made the card. That is the chain: an agent
+    /// started by an agent can't get past the limit by posting a card, or
+    /// by splitting one for helpers.
+    pub(crate) fn in_chain(&self, t: &Task) -> bool {
+        match t.spawn_request() {
+            // A request that didn't count was the person's Start, which
+            // holds through a retry; a crash they answered is theirs too.
+            Some(s) => s.counted && t.person_restart != s.generation,
+            None => self.spawned.get(&t.created_by).is_some_and(|m| m.counted),
+        }
+    }
+
+    /// The agents that count toward the limit and haven't gone, by key:
+    /// on any of the person's devices, since marks replicate. An agent on
+    /// a device that's off still counts, so the count never reads low.
+    pub(crate) fn counted_live(&self) -> Vec<String> {
+        let rs = self.roster_status();
+        let mut v: Vec<String> = self
+            .spawned
+            .iter()
+            .filter(|(k, m)| m.counted && !self.key_gone_in(k, &rs))
+            .map(|(k, _)| k.clone())
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Whether agent `key`, marked as started by Irori, hasn't gone.
+    pub(crate) fn spawned_live(&self, key: &str) -> bool {
+        self.spawned.contains_key(key) && !self.key_gone(key)
+    }
+
+    /// This person's counted requests of this log still waiting for their
+    /// agent, oldest first: (when, card id). Another member's on a shared
+    /// board are their limit's, and one past its grace holds no slot.
+    pub(crate) fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        let now = self.stamp();
+        let mut v: Vec<(GoTime, String)> = self
+            .tasks
+            .values()
+            .filter(|t| !is_terminal(&t.state))
+            .flat_map(|t| t.spawns.iter().map(move |s| (t, s)))
+            .filter(|(t, s)| s.counted && s.pending() && !s.stale(&now) && self.mine_to_start(t, s))
+            .map(|(t, s)| (s.at, t.id.clone()))
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.0, &b.0).then_with(|| a.1.cmp(&b.1)));
+        v
     }
 
     /// Whether this log spawns an agent per card (the board's switch).
@@ -623,7 +779,10 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                super::offers::needs_agent(t) || self.ask_needs_agent(t) || self.needs_lead(t)
+                super::offers::needs_agent(t)
+                    || self.ask_needs_agent(t)
+                    || self.needs_lead(t)
+                    || self.given_starts(t)
             })
             .filter_map(|t| {
                 let s = t.spawn_request()?;
@@ -635,10 +794,12 @@ impl Fold {
         v
     }
 
-    /// Whether this device's person may have it start card t's request s
-    /// (§7, card #455): always on the private log, which only their own
-    /// devices write; on a shared board only for a card they made, asked
-    /// for by them (or Irori on their device).
+    /// Whether this device's person may have it start or bind card t's
+    /// request s (§7, card #455): always on the private log, which only
+    /// their own devices write; on a shared board only for a card they
+    /// serve, asked for by them (or Irori on their device), and on a card
+    /// given to them only a request made since their yes, on the device
+    /// that asked them (card #573).
     pub(crate) fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
         if !self.on_board {
             return true;
@@ -647,11 +808,517 @@ impl Fold {
             return false;
         };
         let me = kp(&self.person);
-        !me.is_empty() && kp(&t.created_by) == me && (s.by == SWEEPER || kp(&s.by) == me)
+        if me.is_empty() || self.serving_person(t) != me || !(s.by == SWEEPER || kp(&s.by) == me) {
+            return false;
+        }
+        match &t.given {
+            None => true,
+            Some(g) => {
+                g.asker == self.dev
+                    && t.given_said
+                        .as_ref()
+                        .is_some_and(|y| y.yes && s.generation > y.generation)
+            }
+        }
+    }
+
+    /// The person whose Irori serves card t on a shared board: who it was
+    /// given to, else its author. Only theirs may start its agent.
+    pub(crate) fn serving_person(&self, t: &Task) -> String {
+        if let Some(g) = &t.given {
+            return g.person.clone();
+        }
+        self.key_person
+            .as_ref()
+            .map(|kp| kp(&t.created_by))
+            .unwrap_or_default()
+    }
+
+    /// Whether this device's person serves card t.
+    pub(crate) fn mine_to_serve(&self, t: &Task) -> bool {
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && self.serving_person(t) == me
+    }
+
+    /// The person a `task.assigned` row gives a card to: a `person:` key,
+    /// another person's, written from a device of the person it names as
+    /// the giver, who made or owns the card. Nobody gives away a card that
+    /// isn't theirs, nor gives one that isn't given to the person who
+    /// serves it already; giving it again starts its question over.
+    pub(crate) fn gave_to_person(&self, ev: &Event, p: &TaskAssignedRow) -> Option<String> {
+        let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
+            return None;
+        };
+        let t = self.tasks.get(&p.task_id)?;
+        let (to, by) = (kp(&p.to), kp(&p.by));
+        (p.to.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            && !to.is_empty()
+            && !by.is_empty()
+            && to != by
+            && by == dp(&ev.device_id)
+            && self.may_give(t, &by)
+            && (t.given.is_some() || self.serving_person(t) != to))
+            .then_some(to)
+    }
+
+    /// The persons whose card t is: who made it and who owns it.
+    fn card_persons(&self, t: &Task) -> [String; 2] {
+        [self.person_of(&t.created_by), self.owner_person(t)]
+    }
+
+    /// Whether `person` may give card t to someone: it is theirs.
+    pub(crate) fn may_give(&self, t: &Task, person: &str) -> bool {
+        !person.is_empty() && self.card_persons(t).iter().any(|p| p == person)
+    }
+
+    /// Whether a `task.assigned` row is the card's author taking it back:
+    /// to their own `person:` key, from their own device.
+    pub(crate) fn takes_back(&self, ev: &Event, p: &TaskAssignedRow) -> bool {
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let me = dp(&ev.device_id);
+        !me.is_empty()
+            && p.to.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            && kp(&p.to) == me
+            && kp(&p.by) == me
+            && self.tasks.get(&p.task_id).is_some_and(|t| {
+                t.given.as_ref().is_some_and(|g| g.person != me) && kp(&t.created_by) == me
+            })
+    }
+
+    /// Whether someone other than card `id`'s given person wrote ev, a
+    /// change to what its agent's brief says. Decided by the device that
+    /// wrote it as well as the `by` it claims: a row anyone can write
+    /// names whoever its writer likes.
+    pub(crate) fn edited_by_another(&self, ev: &Event, id: &str, by: &str) -> bool {
+        let Some(g) = self.tasks.get(id).and_then(|t| t.given.as_ref()) else {
+            return false;
+        };
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return true;
+        };
+        kp(by) != g.person || dp(&ev.device_id) != g.person
+    }
+
+    /// Whether an assignment to `to`, already on card t, is someone else
+    /// giving it again once it has been asked about: after a Not now, or
+    /// when the device that asked is gone. It starts over, and a device
+    /// that can start it asks.
+    pub(crate) fn gives_again(&self, t: &Task, by: &str, to: &str) -> bool {
+        t.given
+            .as_ref()
+            .is_some_and(|g| g.key == to && (t.given_said.is_some() || !g.asker.is_empty()))
+            && self.person_of(by) != self.person_of(to)
+    }
+
+    /// A card with an agent on it, or one starting, can't be given: its
+    /// agent would be orphaned on its person's device. A parent card's
+    /// agents are its parts' (card #573).
+    pub(crate) fn check_give(&self, t: &Task, by: &str, to: &str) -> Result<()> {
+        if !self.on_board
+            || !to.starts_with(kinds::PERSON_ACTOR_PREFIX)
+            || self.person_of(by) == self.person_of(to)
+        {
+            return Ok(());
+        }
+        if !self.may_give(t, &self.person_of(by)) {
+            return Err(not_allowed(format!(
+                "{} isn't yours to give: only the person who made or owns it gives it to someone",
+                t.short_ref()
+            )));
+        }
+        if t.given.is_none() && self.serving_person(t) == self.person_of(to) {
+            return Err(bad_state(format!(
+                "{} is already theirs: assign it to one of their agents instead",
+                t.short_ref()
+            )));
+        }
+        if !t.subtasks.is_empty() {
+            return Err(bad_state(format!(
+                "{} is split into parts: give a part, not the whole card",
+                t.short_ref()
+            )));
+        }
+        let agent = t
+            .holders
+            .iter()
+            .any(|h| !h.starts_with(kinds::PERSON_ACTOR_PREFIX));
+        let now = self.stamp();
+        if agent
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+        {
+            return Err(bad_state(format!(
+                "{} has an agent on it: end it before giving the card to someone",
+                t.short_ref()
+            )));
+        }
+        Ok(())
+    }
+
+    /// What a `blocker.resolved` row says on the card's "OK to start an
+    /// agent on this?", if it is one and the given person wrote it as
+    /// themselves (`person`: never their agent): yes on the question
+    /// they raised. Anyone else closing it says nothing, so they are asked
+    /// again.
+    pub(crate) fn given_say(&self, p: &BlockerResolvedRow, person: bool) -> Option<GivenSaid> {
+        let t = self.tasks.get(&p.task_id)?;
+        let b = t.blockers.iter().find(|b| b.id == p.blocker_id)?;
+        if b.question != GIVEN_QUESTION || !b.open() {
+            return None;
+        }
+        let g = t.given.as_ref()?;
+        let who = g.person.clone();
+        let kp = self.key_person.as_ref()?;
+        if !person || kp(&p.by) != who || g.question != p.blocker_id {
+            return None;
+        }
+        Some(GivenSaid {
+            yes: !p.closed && p.answer == GIVEN_START,
+            generation: t.spawn_request().map_or(0, |s| s.generation),
+            person: who,
+        })
+    }
+
+    /// Notes the given person raising the question on card t, as
+    /// themselves from their own device: no agent's or other member's row
+    /// makes a question their yes can stand on. True when it is a second
+    /// row for the question the card already has: it changes nothing, and
+    /// the lowest device of the two acts.
+    pub(crate) fn given_raised(&self, t: &mut Task, p: &TaskStateRow, ev: &Event) -> bool {
+        let Some(br) = p.blocker.as_ref().filter(|b| b.question == GIVEN_QUESTION) else {
+            return false;
+        };
+        let mine = t.given.as_ref().is_some_and(|g| g.key == p.by);
+        if !mine || !self.person_row(ev, &p.by) {
+            return false;
+        }
+        let known = t.blockers.iter().any(|b| b.id == br.id);
+        let Some(g) = t.given.as_mut() else {
+            return false;
+        };
+        // The lowest device that raised it asks, whatever has been said:
+        // every device works that out the same from the same rows, so one
+        // yes can't have two askers.
+        if known {
+            if ev.device_id < g.asker {
+                g.asker = ev.device_id.clone();
+            }
+            return true;
+        }
+        g.asker = ev.device_id.clone();
+        g.question = br.id.clone();
+        t.given_said = None;
+        false
+    }
+
+    /// Whether ev waits beside the row that lets it in: rows come device
+    /// by device, and a store batch holds one device's rows ahead of
+    /// another's. Every row of a card that isn't folded yet waits for it,
+    /// so they all fold in the order they came. On a card never given,
+    /// the given person's rows wait for the give: their spawn rows, the
+    /// bind's assignment, the question and an answer on a blocker not
+    /// raised yet. Once a card has been given or taken back, nothing
+    /// waits: rows from someone who no longer serves it are ignored, not
+    /// kept for a later give.
+    pub(crate) fn ahead_of_give(&self, ev: &Event) -> bool {
+        if !self.on_board || ev.kind == kinds::TASK_CREATED {
+            return false;
+        }
+        let Some(id) = row::<TaskIdRow>(&ev.payload).filter(|p| !p.task_id.is_empty()) else {
+            return false;
+        };
+        let Some(t) = self.tasks.get(&id.task_id) else {
+            return !self.deleted.contains(&id.task_id);
+        };
+        if t.given.is_some() || self.given_ever.contains(&t.id) {
+            return false;
+        }
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return false;
+        };
+        let writer = dp(&ev.device_id);
+        if writer.is_empty() || kp(&t.created_by) == writer {
+            return false;
+        }
+        match ev.kind.as_str() {
+            kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            kinds::TASK_ASSIGNED => ev.actor == SWEEPER,
+            kinds::TASK_STATUS => row::<TaskStateRow>(&ev.payload)
+                .is_some_and(|p| p.blocker.is_some_and(|b| b.question == GIVEN_QUESTION)),
+            // Only a blocker not raised yet: one already trimmed folds as
+            // nothing, as it always has.
+            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload).is_some_and(|p| {
+                !t.blockers.iter().any(|b| b.id == p.blocker_id)
+                    && super::cards::seq_of(&p.blocker_id, "b")
+                        > self.blocker_seq.get(&t.id).copied().unwrap_or(0)
+            }),
+            _ => false,
+        }
+    }
+
+    /// Whether ev waits behind an earlier row of its device about the same
+    /// card that waits for the give: one device's rows keep their order,
+    /// so an agent's leave can't fold before the bind that put it on.
+    pub(crate) fn behind_held(&self, ev: &Event, earlier: &[Event]) -> bool {
+        // The card's own row is what the others wait for.
+        if !self.on_board || ev.kind == kinds::TASK_CREATED {
+            return false;
+        }
+        let Some(id) = row::<TaskIdRow>(&ev.payload).filter(|p| !p.task_id.is_empty()) else {
+            return false;
+        };
+        earlier.iter().any(|a| {
+            a.device_id == ev.device_id
+                && row::<TaskIdRow>(&a.payload).is_some_and(|p| p.task_id == id.task_id)
+                && self.ahead_of_give(a)
+        })
+    }
+
+    /// Whether card t, given to someone, is free for an agent: only people
+    /// on it, and nothing else in the way.
+    fn given_free(&self, t: &Task) -> bool {
+        t.given.is_some()
+            && (t.state == SUBMITTED || t.state == WORKING)
+            && !t.withdrawn
+            && t.open_ask().is_none()
+            && !super::offers::waits_on_work(t)
+            && t.holders
+                .iter()
+                .all(|h| h.starts_with(kinds::PERSON_ACTOR_PREFIX))
+    }
+
+    /// Why the agent their yes asked for failed to start, if it did.
+    pub(crate) fn given_failed(t: &Task) -> Option<String> {
+        let y = t.given_said.as_ref().filter(|y| y.yes)?;
+        t.spawn_request()
+            .filter(|s| s.op == SPAWN_FAILED && s.generation > y.generation)
+            .map(|s| s.reason.clone())
+    }
+
+    /// Whether the card's yes still has an agent to start: one yes starts
+    /// one agent, and a later one is asked for again.
+    pub(crate) fn yes_unspent(t: &Task) -> bool {
+        t.given_said.as_ref().is_some_and(|y| {
+            y.yes
+                && t.spawn_request()
+                    .is_none_or(|s| s.generation <= y.generation || s.key.is_empty())
+        }) && Self::given_failed(t).is_none()
+    }
+
+    /// Whether card t was given to someone who said yes, and may have its
+    /// agent now.
+    pub(crate) fn given_starts(&self, t: &Task) -> bool {
+        self.given_free(t) && Self::yes_unspent(t)
+    }
+
+    /// The cards given to this device's person that wait on their say:
+    /// not asked yet, or asked and their yes's agent went with the card
+    /// unfinished or couldn't start. Once asked, only the device that
+    /// asked asks again. A Not now stays until it's given again or they
+    /// ask for it on the card.
+    pub(crate) fn given_to_ask(&self) -> Vec<Task> {
+        let now = self.stamp();
+        let mut v: Vec<Task> = self
+            .tasks
+            .values()
+            .filter(|t| self.mine_to_serve(t) && self.given_free(t))
+            .filter(|t| t.spawn_crashes < self.crash_limit())
+            .filter(|t| {
+                t.spawn_request()
+                    .is_none_or(|s| !s.pending() || s.stale(&now))
+            })
+            .filter(|t| {
+                t.given
+                    .as_ref()
+                    .is_some_and(|g| g.asker.is_empty() || g.asker == self.dev)
+            })
+            .filter(|t| t.given_said.as_ref().is_none_or(|y| y.yes) && !Self::yes_unspent(t))
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
+        v
+    }
+
+    /// The given cards with a yes this device starts now: the device that
+    /// asked, so one yes never starts two agents, wherever it was said.
+    pub(crate) fn given_to_spawn(&self) -> Vec<Task> {
+        let now = self.stamp();
+        let mut v: Vec<Task> = self
+            .tasks
+            .values()
+            .filter(|t| self.mine_to_serve(t) && self.given_starts(t))
+            .filter(|t| t.given.as_ref().is_some_and(|g| g.asker == self.dev))
+            .filter(|t| self.runs_here(t))
+            .filter(|t| t.spawn_crashes < self.crash_limit())
+            .filter(|t| self.spawn_due(t, &now))
+            .cloned()
+            .collect();
+        v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
+        v
+    }
+
+    /// Asks the person about card `id` given to them, in their own name:
+    /// a person's row, so every member's fold takes it from their device.
+    pub(crate) fn ask_given(&mut self, by: &str, id: &str, context: &str) -> Result<()> {
+        let t = self.open_task(id)?.clone();
+        let Some(p) = t.given.as_ref().map(|g| g.person.clone()) else {
+            return Ok(());
+        };
+        let now = self.stamp();
+        let opt = |answer: &str, why: &str| BlockerOption {
+            answer: answer.into(),
+            why: why.into(),
+            by: by.to_string(),
+            at: now,
+            recommended: false,
+            link: None,
+        };
+        self.raise_locked(
+            by,
+            &t,
+            GIVEN_QUESTION,
+            GIVEN_QUESTION,
+            context,
+            vec![
+                opt(GIVEN_START, "It starts under your own settings and cap."),
+                opt(GIVEN_NOT_NOW, "The card stays yours, with no agent."),
+            ],
+            Some(BlockedBy {
+                kind: BLOCKED_ON_PERSON.into(),
+                reference: format!("{}{p}", kinds::PERSON_ACTOR_PREFIX),
+            }),
+            false,
+            now,
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        )?;
+        Ok(())
+    }
+
+    /// Whether card t's last request lets a new one go now: none is
+    /// pending, and a failed one here has waited or the card changed.
+    fn spawn_due(&self, t: &Task, now: &GoTime) -> bool {
+        t.spawn_request().is_none_or(|s| {
+            (!s.pending() || s.stale(now))
+                && (s.op != SPAWN_FAILED
+                    || s.device != self.dev
+                    || usage_limited(s)
+                    || self.spawn_now.contains(&t.id)
+                    || gotime::at_least(now, &s.at, SPAWN_RETRY)
+                    || gotime::before(&s.at, &t.updated_at))
+        })
+    }
+
+    /// Whether card t is this device's person's to start agents for: every
+    /// card on the private log; on a shared board, one they made. A
+    /// teammate's card waits on the teammate's computers, not theirs.
+    pub(crate) fn persons_card(&self, t: &Task) -> bool {
+        if !self.on_board {
+            return true;
+        }
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let me = kp(&self.person);
+        !me.is_empty() && kp(&t.created_by) == me
+    }
+
+    /// Whether card t waits for an agent Irori starts for it, wherever it
+    /// would start (card #541): nobody has it, none is starting, and it's
+    /// no agent's turn to end. Unlike [`Self::ask_needs_agent`] it doesn't
+    /// ask who owns an ask or whether the hand-out ran, so the device the
+    /// person posted on can tell them. A request past its grace isn't
+    /// starting: the device it named went away.
+    pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
+        let now = self.stamp();
+        if !self.spawning_on()
+            || !self.persons_card(t)
+            || t.spawn_request()
+                .is_some_and(|s| s.pending() && !s.stale(&now))
+            || t.spawn_crashes >= self.crash_limit()
+            || self.ask_resting(t)
+            || self.waits_for_lead(t)
+        {
+            return false;
+        }
+        match t.open_ask() {
+            Some(a) => {
+                (!self.on_board || a.thread)
+                    && !is_terminal(&t.state)
+                    && !t.withdrawn
+                    && !t.shared
+                    && a.taker.is_empty()
+                    && a.reason != super::threads::TAKE_ANSWERED
+                    && (a.thread || a.mentions.is_empty())
+                    && (!a.thread || a.wake)
+            }
+            None => super::offers::needs_agent(t) || self.needs_lead(t),
+        }
     }
 
     /// The cards this device hands out that need an agent and have none
     /// starting, oldest first; none while the board doesn't spawn.
+    /// See [`SpawnHold`]. Sides are judged on the device that hands the
+    /// card out, as its sweep will, whichever device asks.
+    pub(crate) fn spawn_hold(&self, t: &Task) -> SpawnHold {
+        if is_terminal(&t.state) || t.withdrawn {
+            return SpawnHold::NoNeed;
+        }
+        let unheld = t.holders.is_empty() && t.assigned.is_empty();
+        if unheld && t.subtasks.is_empty() && t.spawn_crashes >= self.crash_limit() {
+            return SpawnHold::Crashed;
+        }
+        if self.ask_resting(t) {
+            return SpawnHold::Resting;
+        }
+        let wanted = super::offers::needs_agent(t) || self.needs_lead(t) || self.ask_needs_agent(t);
+        if !wanted {
+            return if !unheld || !t.subtasks.is_empty() || t.open_ask().is_some() {
+                SpawnHold::NoNeed
+            } else if t.shared {
+                SpawnHold::Joinable
+            } else if t.state == BLOCKED
+                || t.state == INPUT_REQUIRED
+                || super::offers::waits_on_work(t)
+            {
+                SpawnHold::Blocked
+            } else {
+                SpawnHold::NoNeed
+            };
+        }
+        let origin = self.card_origin(t);
+        let asked_there = origin == self.dev && self.spawn_now.contains(&t.id);
+        if !origin.is_empty() && !self.sides.runs(&origin, &t.side) && !asked_there {
+            return SpawnHold::OffSide(format!(
+                "no device here runs {}",
+                crate::sides::clean(&t.side)
+            ));
+        }
+        if self.waits_for_lead(t) {
+            return SpawnHold::ForLead;
+        }
+        SpawnHold::Clear
+    }
+
+    /// The device whose sweep starts card t's agent: an open ask's owner,
+    /// else the device that hands it out. `""` when none does.
+    pub(crate) fn card_origin(&self, t: &Task) -> String {
+        if let Some(a) = t.open_ask() {
+            return a.owner.clone();
+        }
+        if self.on_board {
+            return self.origin.get(&t.id).cloned().unwrap_or_default();
+        }
+        owner::device_of(&t.created_by).to_string()
+    }
+
     pub(crate) fn cards_to_spawn(&self) -> Vec<Task> {
         if !self.spawning_on() {
             return Vec::new();
@@ -661,7 +1328,7 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.hands_out(t))
+                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.spawns_out(t))
                     || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
@@ -670,20 +1337,7 @@ impl Fold {
             .filter(|t| t.spawn_crashes < self.crash_limit())
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
-            .filter(|t| {
-                t.spawn_request()
-                    .is_none_or(|s| !s.pending() || s.stale(&now))
-            })
-            .filter(|t| {
-                t.spawn_request().is_none_or(|s| {
-                    s.op != SPAWN_FAILED
-                        || s.device != self.dev
-                        || usage_limited(s)
-                        || self.spawn_now.contains(&t.id)
-                        || gotime::at_least(&now, &s.at, SPAWN_RETRY)
-                        || gotime::before(&s.at, &t.updated_at)
-                })
-            })
+            .filter(|t| self.spawn_due(t, &now))
             .cloned()
             .collect();
         v.sort_by(|a, b| {
@@ -699,8 +1353,12 @@ impl Fold {
     /// the person asked for (a card or ask they made, which New card on a
     /// spawning board gives "a fresh agent", or their "Start an agent"),
     /// then a lead's helper parts, then the rest (agents' cards) by age.
+    /// A start an agent asked for counts toward the person's limit and
+    /// never goes first, even on their own card (card #575).
     pub(crate) fn queue_class(&self, t: &Task) -> u8 {
-        if self.spawn_now.contains(&t.id) || (t.parent.is_empty() && self.is_owner(&t.created_by)) {
+        if self.spawn_now.contains(&t.id)
+            || (t.parent.is_empty() && self.is_owner(&t.created_by) && !self.in_chain(t))
+        {
             0
         } else if t.spawn && !t.parent.is_empty() {
             1
@@ -721,6 +1379,12 @@ impl Fold {
         v.sort_by(|a, b| gotime::cmp(&a.1.at, &b.1.at).then_with(|| a.0.cmp(&b.0)));
         v
     }
+}
+
+/// Whether two spawn rows' devices are the same one; a row from before
+/// devices were named matches any.
+fn same_device(a: &str, b: &str) -> bool {
+    a.is_empty() || b.is_empty() || a == b
 }
 
 impl Fold {

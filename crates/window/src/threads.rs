@@ -88,6 +88,12 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
+    /// Why no agent can start now, by device, and what happens next (card
+    /// #541): it needs the person to know, not to answer.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_agent: String,
+
     /// The shared space it is in, or a private thread is about (card #558);
     /// absent for Personal. Matches the switcher's space id.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -491,7 +497,7 @@ impl Window {
                 agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
                 starting: t
                     .spawn_request()
-                    .filter(|sp| sp.pending() && state == THREAD_WAITING)
+                    .filter(|sp| sp.pending() && !sp.stale(&p.now) && state == THREAD_WAITING)
                     .map(|sp| p.where_(&sp.device))
                     .unwrap_or_default(),
                 cant_start: t
@@ -501,8 +507,18 @@ impl Window {
                             && !coord::usage_limited(sp)
                             && state == THREAD_WAITING
                     })
-                    .map(|sp| sp.reason.clone())
+                    .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),
+                // A waiting thread, or an answered one the person followed
+                // up on: that waits on an agent too (card #541).
+                no_agent: if state == THREAD_WAITING
+                    || (state == THREAD_ANSWERED && a.reason == coord::TAKE_REOPENED)
+                {
+                    p.no_agent_for(&t.id)
+                } else {
+                    String::new()
+                },
+
                 space_id: space.to_string(),
                 ..ThreadSummary::default()
             };

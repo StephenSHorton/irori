@@ -111,4 +111,18 @@ describe("a thread Irori starts an agent for (card #470)", () => {
   test("without a spawn it reads as before", () => {
     expect(stateLine(waiting, "")).toBe("Waiting for an agent")
   })
+  test("a follow-up no agent can start for says why (card #541)", () => {
+    const why =
+      "No agent can start: Mac is offline. It starts by itself when it's back."
+    expect(
+      stateLine({
+        ...waiting,
+        state: "answered",
+        lastBy: "user:x",
+        lastText: "And?",
+        noAgent: why,
+      })
+    ).toBe(why)
+    expect(stateLine({ ...waiting, noAgent: why })).toBe(why)
+  })
 })

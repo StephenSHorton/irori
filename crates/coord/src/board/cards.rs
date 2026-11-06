@@ -122,6 +122,33 @@ fn nobody_on(t: &Task) -> bool {
         && t.open_ask().is_none()
 }
 
+/// Closes card t's open "OK to start an agent on this?": what it asked no
+/// longer holds (the card went to someone else, they came off it, or its
+/// text changed). A fold's own step, so every member does the same.
+pub(crate) fn close_given_question(t: &mut Task, at: GoTime) {
+    let mut closed = false;
+    for b in t
+        .blockers
+        .iter_mut()
+        .filter(|b| b.open() && b.question == super::spawn::GIVEN_QUESTION)
+    {
+        b.resolved = Some(Resolution {
+            option: -1,
+            by: super::util::SWEEPER.into(),
+            at,
+            closed: true,
+            ..Resolution::default()
+        });
+        closed = true;
+    }
+    if closed && t.state == BLOCKED && count_open(t) == 0 {
+        t.state = super::fold::restore_state(t).into();
+    }
+    if closed {
+        sync_reason(t);
+    }
+}
+
 fn trim_resolved(t: &mut Task) {
     let n = t.blockers.len() - count_open(t);
     if n <= KEEP_RESOLVED {
@@ -804,6 +831,7 @@ impl Fold {
                     return;
                 };
                 let person = self.person_row(ev, &p.by);
+                let said = self.given_say(&p, person);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -811,10 +839,13 @@ impl Fold {
                 else {
                     return;
                 };
+                if said.is_some() {
+                    t.given_said = said;
+                }
                 // Their say on the crash question clears the run on a card
                 // no answer can put back on the Board too (card #540).
                 if person && super::spawn::is_crash_question(&t.blockers[i]) {
-                    t.spawn_crashes = 0;
+                    t.person_cleared_crashes();
                 }
                 let when = at(p.at);
                 let mut opt = p.option;
@@ -825,7 +856,7 @@ impl Fold {
                 // A parent's state can't be set, so closing this is the
                 // person's say that clears its run of crashes (#451).
                 if person && super::spawn::is_crash_text(&q) {
-                    t.spawn_crashes = 0;
+                    t.person_cleared_crashes();
                 }
                 t.blockers[i].resolved = Some(Resolution {
                     answer: p.answer.clone(),
@@ -873,6 +904,13 @@ impl Fold {
                     *seq = (*seq).max(seq_of(&s.id, "s"));
                     ss.push(s.clone());
                 }
+                // Steps go in the brief: someone else's change asks again,
+                // as a change to its words does (card #573).
+                let edited = self.edited_by_another(ev, &p.task_id, &p.by);
+                if edited && let Some(t) = self.tasks.get_mut(&p.task_id) {
+                    close_given_question(t, at(p.at));
+                    t.given_said = None;
+                }
                 // Spawn marks only from the card's owner's side (§3).
                 let refused = {
                     let t = &self.tasks[&p.task_id];
@@ -899,6 +937,13 @@ impl Fold {
                 let Some(p) = row::<TaskStepRow>(&ev.payload) else {
                     return;
                 };
+                // Left off goes in the brief too: someone else's asks again.
+                let edited = !trim_space(&p.left_off).is_empty()
+                    && self.edited_by_another(ev, &p.task_id, &p.by);
+                // Kept by who wrote it, not who it says (card #573).
+                let lo_by = self
+                    .written_as(&p.by, &ev.device_id)
+                    .unwrap_or_else(|| p.by.clone());
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -918,10 +963,14 @@ impl Fold {
                     t.steps[i].owner = trim_space(o).to_string();
                 }
                 let lo = trim_space(&p.left_off);
+                if edited {
+                    close_given_question(t, at(p.at));
+                    t.given_said = None;
+                }
                 if !lo.is_empty() {
                     t.left_off = Some(LeftOff {
                         text: lo.to_string(),
-                        by: p.by.clone(),
+                        by: lo_by.clone(),
                         at: at(p.at),
                     });
                 }
@@ -1626,7 +1675,11 @@ impl Fold {
             None
         };
         let (mut opt, mut rec_by, mut rec, mut note) = (-1i64, String::new(), false, String::new());
-        if let Some(last) = last.as_ref().filter(|_| a.pick == 0) {
+        // "OK to start an agent?" stands only on the person's own pick: an
+        // earlier reply, maybe another member's, is never carried into it
+        // (card #573).
+        let carried = b.question != super::spawn::GIVEN_QUESTION;
+        if let Some(last) = last.as_ref().filter(|_| a.pick == 0 && carried) {
             if !self.is_owner(&by) {
                 if text.is_empty() {
                     return Err(invalid(

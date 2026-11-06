@@ -86,9 +86,10 @@ export function talkMatches(t: ThreadSummary, query: string): boolean {
 }
 
 // needsYou is whether a thread waits on the person: an agent answered and
-// it isn't resolved. Talk's count in the sidebar counts these.
-export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
-  return t.state === "answered"
+// it isn't resolved, or no computer can start its agent (card #541). Talk's
+// count in the sidebar counts these.
+export function needsYou(t: Pick<ThreadSummary, "state" | "noAgent">): boolean {
+  return t.state === "answered" || !!t.noAgent
 }
 
 // convMatches is whether a channel or DM fits the list's search: its name,

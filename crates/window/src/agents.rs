@@ -70,6 +70,20 @@ pub struct AgentsSettings {
     pub default_start_tries: u32,
 }
 
+/// "My agents may start agents on my cards" (card #575): the person's, on
+/// all their devices, set here and never by a tool.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStartsView {
+    pub on: bool,
+    /// The most agents their agents may have started at once.
+    pub max: u32,
+    /// How many count toward it now.
+    pub used: u32,
+    /// The highest maximum the app accepts.
+    pub ceiling: u32,
+}
+
 /// The idle limits offered, in minutes; 30 is the default.
 pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
@@ -337,6 +351,23 @@ impl Window {
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         out
+    }
+
+    /// "My agents may start agents on my cards", as Settings › Agents shows it.
+    pub fn agents_starts(&self) -> AgentStartsView {
+        let u = self.core.agent_starts();
+        AgentStartsView {
+            on: u.on,
+            max: u.max.max(0) as u32,
+            used: u.used.max(0) as u32,
+            ceiling: irori_core::spawn_agents::AGENT_STARTS_CEILING as u32,
+        }
+    }
+
+    /// The person changes it: the app only, never a tool.
+    pub fn agents_starts_set(&self, on: bool, max: u32) -> Result<AgentStartsView, String> {
+        self.core.set_agent_starts(on, i64::from(max))?;
+        Ok(self.agents_starts())
     }
 
     /// Settings › Agents' caps, today's count and cost, and any usage-limit

@@ -2,7 +2,7 @@
 //! reaches a state, or when a branch moves.
 
 use capture::gitlink::{branch_tips, worktree_root};
-use coord::{Wait, WaitSpec, until_text, wait_line};
+use coord::{BoardCard, Wait, WaitSpec, until_text, wait_line};
 
 use crate::args::Ty;
 use crate::format::{one_line, q, trim};
@@ -87,22 +87,42 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Ok(id) => id,
             Err(m) => return m,
         };
-        let (co, _) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
+        // No keys: mapping the caller to a board key would put it on the
+        // shared board, and this wait stays off it (card #574).
+        let (co, _) = match s.on(&id, &[]) {
             Ok(v) => v,
             Err(e) => return map_err(e),
         };
-        if !std::sync::Arc::ptr_eq(&co, s.b.coord()) {
-            return err_text(&format!(
-                "{} is in a shared space: waits work only on cards in Personal for now. board_watch it instead (you hear at your next turn when it changes).",
-                s.short_of(&id)
-            ));
-        }
-        let w = match co.create_wait(
+        // A wait stays in the waiter's own log (card #574): on a shared
+        // space's card it holds what that log can't read.
+        let on_board = if std::sync::Arc::ptr_eq(&co, s.b.coord()) {
+            None
+        } else {
+            let (Some(t), Some(b)) = (
+                co.get_task(&id),
+                s.b.shared_boards().and_then(|sb| sb.board_of(&id)),
+            ) else {
+                return err_text(&format!("can't read {} here.", s.short_of(&id)));
+            };
+            Some(BoardCard {
+                board: b.board_id,
+                card: t.refs(),
+                title: t.title.clone(),
+                state: t.state.clone(),
+                own: t.holders.len() == 1
+                    && s.b
+                        .router()
+                        .is_some_and(|r| r.private_key(&t.holders[0]) == c.sender.key),
+            })
+        };
+        let shared = on_board.is_some();
+        let w = match s.b.coord().create_wait(
             &c.sender.key,
             WaitSpec {
                 task_id: id.clone(),
                 until: a.strs("until"),
                 note,
+                on_board,
                 ..WaitSpec::default()
             },
         ) {
@@ -110,11 +130,16 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Err(e) => return map_err(e),
         };
         return format!(
-            "Waiting ({}): you'll be woken once when {} is {} (it is {} now). It ends when it fires, after a day, or when your session ends; wait_cancel id={} drops it.",
+            "Waiting ({}): you'll be woken once when {} is {} (it is {} now).{} It ends when it fires, after a day, or when your session ends; wait_cancel id={} drops it.",
             w.id,
             s.short_of(&id),
             until_text(&w.until),
             w.from_state,
+            if shared {
+                " Only you see this wait: it stays off the shared board."
+            } else {
+                ""
+            },
             w.id
         );
     }

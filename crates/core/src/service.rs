@@ -69,16 +69,20 @@ pub mod notes;
 mod notifications;
 pub mod spaces;
 pub mod spawn;
+pub mod spawn_agents;
 pub mod spawn_boards;
+pub mod spawn_capable;
 pub mod spawn_limits;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
 mod spawn_waiting;
+pub mod spawn_why;
 pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod trees;
 
 use boards::Boards;
 
@@ -258,8 +262,11 @@ struct Services {
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
-    builds_looked: Mutex<crate::buildclean::Looked>,
+    builds_looked: Arc<Mutex<crate::buildclean::Looked>>,
     builds_busy: Arc<std::sync::atomic::AtomicBool>,
+    /// These Services, once built (card #565: a sweep's thread asks them
+    /// again just before a tree goes).
+    this: Arc<OnceLock<Weak<Services>>>,
     members: Arc<Members>,
     names_kick: Arc<Kick>,
     /// This device's agents that stopped answering their wakes (#110).
@@ -413,6 +420,23 @@ impl tools::Backend for ToolsView {
     }
     fn device_labels(&self) -> std::collections::BTreeMap<String, String> {
         self.0.device_labels()
+    }
+    fn agent_start(&self, caller: &str, task_id: &str) -> Result<String, String> {
+        self.0.agent_start(caller, task_id)
+    }
+    fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
+        self.0.agent_end(caller, key)
+    }
+    fn agent_limit(&self) -> Option<tools::AgentLimit> {
+        let u = self.0.agent_starts_use();
+        Some(tools::AgentLimit {
+            on: u.on,
+            max: u.max,
+            used: u.used,
+        })
+    }
+    fn spawn_wait(&self, task_id: &str, asked: bool) -> String {
+        self.0.spawn_wait(task_id, asked)
     }
     fn avatar(&self, name: &str) -> String {
         self.0.faces.get(name)
@@ -1119,6 +1143,7 @@ impl Core {
                         let def = spawn_state.private_default.clone();
                         Arc::new(move || spawn::SpawnState::switch(&on, &def, ""))
                     }),
+                    agent_devices: Some(spawn_state.agent_devices_fn()),
                     // The limit the coord reads (card #576): from the
                     // same map, so a change holds at once.
                     crash_limit: Some(spawn::SpawnState::limit_fn(&spawn_state, "", |s| {
@@ -1407,6 +1432,7 @@ impl Core {
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
+            this: services_cell.clone(),
             members,
             names_kick: Kick::new(),
             answering,
@@ -2540,6 +2566,12 @@ impl Core {
 
     /// This device's spawned agents (live, and starting) and its cap, for
     /// the card line "waiting: the PC is at its cap" (card #448).
+    /// What card `id` waits on for an agent (card #574); `asked`: the caller
+    /// just asked for one.
+    pub fn why_no_agent(&self, id: &str, asked: bool) -> Option<spawn_why::Why> {
+        self.s.why_no_agent(id, asked)
+    }
+
     pub fn spawn_slots(&self) -> (i64, i64) {
         (self.s.spawned_here(), self.s.spawn_cap(&self.s.device.id))
     }
@@ -2554,6 +2586,23 @@ impl Core {
     /// Whether Irori started agent `key` for a card (its spawned mark).
     pub fn agent_spawned(&self, key: &str) -> bool {
         self.s.coord.is_spawned(key)
+    }
+
+    /// The open cards and threads no agent can start for now, each with
+    /// why (card #541), on the private board and the shared ones.
+    pub fn no_agent(&self) -> std::collections::HashMap<String, String> {
+        self.s.no_agent_all()
+    }
+
+    /// This device never runs agents (a phone, card #541).
+    pub fn set_runs_no_agents(&self) {
+        self.s.set_runs_no_agents();
+        self.s.asks_kick.kick();
+    }
+
+    /// The devices that can't run agents (card #541).
+    pub fn cant_run_devices(&self) -> std::collections::HashSet<String> {
+        self.s.cant_run_devices()
     }
 
     /// The person's "Offer it cards" on one of their terminal agents: the
@@ -2626,6 +2675,16 @@ impl Core {
 
     /// The person asks for an agent on card `id` now, with `note` (their
     /// comment) in its brief: "Start an agent with this" (§4). App only.
+    /// "My agents may start agents on my cards" (card #575).
+    pub fn agent_starts(&self) -> spawn_agents::AgentStartsUse {
+        self.s.agent_starts_use()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_agent_starts(&self, on: bool, max: i64) -> Result<(), String> {
+        self.s.set_agent_starts(on, max)
+    }
+
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
     }
@@ -2643,10 +2702,15 @@ impl Core {
         self.s.start_agent(id, "")?;
         // The device that made the card runs its hand-out (card #485: the
         // PC's cards go out from the PC).
+        if let Some(why) = self.s.no_agent_all().remove(id) {
+            return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
+        }
         if !self.s.coord.hands_out_here(id) {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
-            if name.is_empty() {
+            if self.s.cant_run_devices().contains(&dev) {
+                name = "one of your computers".into();
+            } else if name.is_empty() {
                 name = "the device that made it".into();
             }
             return Ok(format!(
@@ -3987,8 +4051,37 @@ impl Services {
         }
     }
 
+    /// Waits on shared boards' cards (card #574): the wait is in this log
+    /// and the card in the board's, so its state is read here, as a branch
+    /// wait's refs are. It sees the state at each sweep, so a move and
+    /// back between two sweeps goes unseen. A card that's gone or withdrawn,
+    /// or a board this person left, ends the wait.
+    fn check_board_waits(&self) {
+        for w in self.coord.board_waits() {
+            let b = match self.board(&w.board) {
+                Ok(b) if !self.board_leaving(&b) => b,
+                _ => {
+                    self.coord.board_wait_lost(&w.id);
+                    continue;
+                }
+            };
+            let co = b.coord();
+            let Some(t) = co.get_task(&w.task_id) else {
+                self.coord.board_wait_lost(&w.id);
+                continue;
+            };
+            if let Some(was) = self.coord.board_wait_moved(&w.id, &t.state) {
+                let what = co.wait_what(&t.id, &was, &t.state);
+                self.coord.fire_wait(&w.id, &what);
+            } else if t.withdrawn {
+                self.coord.board_wait_lost(&w.id);
+            }
+        }
+    }
+
     fn sweep_coord(self: &Arc<Self>) -> Result<(), String> {
         check_branch_waits(&self.coord);
+        self.check_board_waits();
         self.sweep_where();
         self.sweep_builds();
         let (ns, err) = self.coord.sweep_notices_partial();
@@ -4205,10 +4298,11 @@ impl Services {
 }
 
 impl Services {
-    /// Card #427: when a card settles, and every [`crate::buildclean::EVERY`],
-    /// clears the `target/` of each settled card's worktree here that
-    /// nothing uses, on a thread of its own (a build folder takes a while
-    /// to delete).
+    /// Cards #427 and #565: when a card settles, and every
+    /// [`crate::buildclean::EVERY`], removes each settled card's worktree
+    /// here that nothing uses and holds no work, and clears the `target/`
+    /// of one that holds work, on a thread of its own (a build folder
+    /// takes a while to delete).
     fn sweep_builds(&self) {
         let Some(idle) = self.clear_builds else {
             return;
@@ -4220,18 +4314,20 @@ impl Services {
         if self.builds_busy.swap(true, Ordering::SeqCst) {
             return;
         }
-        let mut tasks = self.coord.list_tasks(&coord::TaskFilter::default());
-        for b in self.visible_boards() {
-            tasks.extend(b.coord().list_tasks(&coord::TaskFilter::default()));
-        }
-        let trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id);
+        self.note_held_trees();
+        let (tasks, homes) = self.all_tasks();
+        self.restore_probed(&tasks);
+        let book = self.booked_trees();
+        let mut trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id, &book);
+        self.forget_gone_trees(&trees);
+        let names: Vec<String> = trees.iter().map(|t| t.worktree.clone()).collect();
         {
             // At once when a card has just settled, else every EVERY (a
             // build kept as recent may since have gone idle).
             let mut l = self.builds_looked.lock().unwrap();
             let now = Instant::now();
             l.listed = Some(now);
-            if l.seen == trees
+            if l.seen == names
                 && l.cleared
                     .is_some_and(|t| t.elapsed() < crate::buildclean::EVERY)
             {
@@ -4239,21 +4335,40 @@ impl Services {
                 return;
             }
             l.cleared = Some(now);
-            l.seen.clone_from(&trees);
+            l.seen = names;
+            // A tree kept for its work rests; one that isn't a worktree
+            // any more isn't looked at again.
+            trees.retain(|t| match l.rest.get(&t.worktree) {
+                Some(Some(until)) => *until <= now,
+                Some(None) => false,
+                None => true,
+            });
         }
+        let pass = trees::Pass {
+            trees,
+            homes,
+            live: self.session_dirs(),
+            list: self
+                .spawn
+                .spawner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .and_then(|s| s.list.clone()),
+            idle,
+            looked: self.builds_looked.clone(),
+            recheck: self.this.get().cloned().map(|w| -> trees::Recheck {
+                Arc::new(move |tree: &str| match w.upgrade() {
+                    Some(s) => s.tree_recheck(tree),
+                    None => Err("Irori is stopping".into()),
+                })
+            }),
+        };
         let busy = self.builds_busy.clone();
         let spawned = std::thread::Builder::new()
             .name("clear-builds".into())
             .spawn(move || {
-                for w in trees {
-                    match crate::buildclean::clear(Path::new(&w), idle, SystemTime::now()) {
-                        Ok(crate::buildclean::Cleared::Gone) => {
-                            logf(format_args!("cleared {w}/target: its card is settled"));
-                        }
-                        Ok(crate::buildclean::Cleared::Kept(_)) => {}
-                        Err(e) => logf(format_args!("clear build {w}: {e}")),
-                    }
-                }
+                pass.run();
                 busy.store(false, Ordering::SeqCst);
             });
         if let Err(e) = spawned {

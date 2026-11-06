@@ -52,9 +52,10 @@ pub use offers::{
 };
 pub use parts::PART_QUESTION;
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, GONE_USAGE_LIMIT, MAX_SPAWN_CRASHES, PERMISSION_MODES,
-    SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk,
-    Spawned, USAGE_LIMIT, crash_question, is_crash_question, usage_limited,
+    CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START, GONE_USAGE_LIMIT,
+    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
+    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned, USAGE_LIMIT, crash_question,
+    is_crash_question, usage_limited,
 };
 mod resource;
 mod review;
@@ -253,6 +254,33 @@ pub struct BoardList {
 /// since a blank list would undo every delete.
 pub type BoardViewFn = Arc<dyn Fn() -> Option<BoardList> + Send + Sync>;
 
+/// See [`Options::agent_devices`].
+pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
+
+/// Which of the person's devices can run agents (card #541).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentDevices {
+    /// The computers that can run agents, best first: work goes to the
+    /// first. Offline ones count, so work can wait for one.
+    pub homes: Vec<String>,
+    /// The devices that can't run agents.
+    pub cant: std::collections::HashSet<String>,
+    /// The devices not connected now.
+    pub away: std::collections::HashSet<String>,
+    /// Since when each device in `away` has been away, in unix nanoseconds,
+    /// as this device saw it: a link that dropped a moment ago moves
+    /// nothing.
+    pub away_since: std::collections::BTreeMap<String, i64>,
+    /// The devices whose Irori reads `ask.moved` (a `spawn.host` row
+    /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
+    /// one of these, since an older one would keep acting on it.
+    pub moves: std::collections::HashSet<String>,
+}
+
+/// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
+/// and stands in for a phone (card #541). Older rows have none (0).
+pub const HOST_MOVES: i64 = 1;
+
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -325,6 +353,10 @@ pub struct Options {
     /// the app only. Read when the hand-out runs. `None` or false: idle
     /// agents, as before.
     pub spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Which of the person's devices can run agents (card #541). Read
+    /// under the coord's lock, so never the store. `None`: every device
+    /// can, as before.
+    pub agent_devices: Option<AgentDevicesFn>,
     /// Whether an agent Irori didn't start (a terminal agent, spawned
     /// agents §5) takes work Irori hands out: unheld cards, asks and
     /// threads (card #453). Only when the person turned on "Offer it
@@ -827,6 +859,13 @@ impl Coord {
     pub fn unresolved(&self) -> usize {
         self.lock().aside.len()
     }
+    /// The `person:` key of whoever wrote a row from device `dev`, when
+    /// it isn't the `by` the row claims (card #573): on a shared board a
+    /// row names whoever its writer likes. None when they agree, for
+    /// Irori's rows from this person's devices, or off a board.
+    pub fn written_as(&self, by: &str, dev: &str) -> Option<String> {
+        self.lock().written_as(by, dev)
+    }
     pub fn is_board(&self) -> bool {
         self.board
     }
@@ -1010,6 +1049,24 @@ impl Coord {
     /// Queues a wait to fire with `what` at the next sweep (a branch moved).
     pub fn fire_wait(&self, id: &str, what: &str) {
         self.lock().fire_wait(id, what)
+    }
+    /// Open waits on shared boards' cards with their waiter on this device
+    /// (card #574).
+    pub fn board_waits(&self) -> Vec<Wait> {
+        self.lock().board_waits()
+    }
+    /// See [`Fold::board_wait_moved`].
+    pub fn board_wait_moved(&self, id: &str, cur: &str) -> Option<String> {
+        self.lock().board_wait_moved(id, cur)
+    }
+    /// See [`Fold::board_wait_lost`].
+    pub fn board_wait_lost(&self, id: &str) {
+        self.lock().board_wait_lost(id)
+    }
+    /// What a wait says happened to card `id` of this log, for a wait kept
+    /// in another log.
+    pub fn wait_what(&self, id: &str, was: &str, now: &str) -> String {
+        self.lock().wait_what(id, was, now)
     }
     /// A task's newest activity lines, newest first (`None`: no such task).
     pub fn activity(&self, id: &str) -> Option<Vec<Activity>> {
@@ -1558,11 +1615,29 @@ impl Coord {
     pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
         self.lock().hand_on(by, id)
     }
-    /// Whether this device runs card `id`'s hand-out (it made the card):
-    /// only then does its own sweep start or offer the card's agent.
+    /// Whether this device starts card `id`'s agent: it made the card and
+    /// can run agents, it stands in for a device that can't, or it owns
+    /// the ask (card #541).
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
-        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
+        f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Takes to this device the waiting asks whose owner can't serve them,
+    /// when work goes here (card #541).
+    pub fn pull_asks(&self) -> Result<()> {
+        self.lock().pull_asks()
+    }
+    /// Whether card t waits for an agent to start for it (card #541).
+    pub fn waits_for_agent(&self, t: &Task) -> bool {
+        self.lock().waits_for_agent(t)
+    }
+    /// Whether card t was made on this device (card #541).
+    pub fn made_here(&self, t: &Task) -> bool {
+        self.lock().hands_out(t)
+    }
+    /// The computer agent work on `side` goes to (card #541).
+    pub fn agent_home(&self, side: &str) -> Option<String> {
+        self.lock().agent_home(side)
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
@@ -1596,6 +1671,11 @@ impl Coord {
         self.lock()
             .end_spawn(by, id, ("", ""), generation, op, reason)
     }
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it; Ok(false) when it is another computer's now.
+    pub fn fail_own_spawn(&self, id: &str, generation: i64, reason: &str) -> Result<bool> {
+        self.lock().fail_own_spawn(id, generation, reason)
+    }
     /// Binds agent `key` to request `generation` of card `id`: the mark, and the
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {
@@ -1605,6 +1685,55 @@ impl Coord {
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.
     pub fn cards_to_spawn(&self) -> Vec<Task> {
         self.lock().cards_to_spawn()
+    }
+    /// What card `id` itself says about getting an agent (card #574).
+    pub fn spawn_hold(&self, id: &str) -> SpawnHold {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map_or(SpawnHold::NoNeed, |t| f.spawn_hold(t))
+    }
+    /// The device that hands card `id` out; `""` when this log can't say.
+    pub fn card_origin(&self, id: &str) -> String {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.card_origin(t))
+            .unwrap_or_default()
+    }
+    /// Whether this device's person serves card t on a shared board: they
+    /// made it, or it was given to them (card #573).
+    pub fn mine_to_serve(&self, t: &Task) -> bool {
+        self.lock().mine_to_serve(t)
+    }
+    /// Whether this device may start or bind card t's request s on a
+    /// shared board. See [`Fold::mine_to_start`].
+    pub fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
+        self.lock().mine_to_start(t, s)
+    }
+    /// Why the agent card t's yes asked for couldn't start (card #573).
+    pub fn given_failed(t: &Task) -> Option<String> {
+        Fold::given_failed(t)
+    }
+    /// Makes a card and gives it in one step, so no sweep sees it unheld
+    /// and starts its author's agent first (card #573).
+    pub fn create_and_assign(&self, by: &str, task: NewTask, to: &str) -> Result<(Task, Notice)> {
+        let mut f = self.lock();
+        let t = f.create_task(by, task)?;
+        f.assign_notice(by, &t.id, to, "")
+    }
+    /// The cards given to this person that wait on "OK to start an agent
+    /// on this?" (card #573). See [`Fold::given_to_ask`].
+    pub fn given_to_ask(&self) -> Vec<Task> {
+        self.lock().given_to_ask()
+    }
+    /// The given cards with a yes this device starts now (card #573).
+    pub fn given_to_spawn(&self) -> Vec<Task> {
+        self.lock().given_to_spawn()
+    }
+    /// Asks the person `by` about card `id` given to them (card #573).
+    pub fn ask_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
+        self.lock().ask_given(by, id, context)
     }
     /// The requests naming this device it may start an agent for now
     /// (card #455): another of the person's devices chose it, or it chose
@@ -1621,9 +1750,33 @@ impl Coord {
         generation: i64,
         device: &str,
         board: &str,
+        counted: bool,
     ) -> Result<()> {
         self.lock()
-            .mark_spawned_elsewhere(key, task_id, generation, device, board)
+            .mark_spawned_elsewhere(key, task_id, generation, device, board, counted)
+    }
+    /// Whether card t's next agent counts toward "My agents may start
+    /// agents" with no new ask (card #575). See [`Fold::in_chain`].
+    pub fn in_chain(&self, t: &Task) -> bool {
+        self.lock().in_chain(t)
+    }
+    /// Whether card t was given to this device's person (card #573): it
+    /// starts only on their own yes.
+    pub fn given_to_me(&self, t: &Task) -> bool {
+        let f = self.lock();
+        t.given.is_some() && f.mine_to_serve(t)
+    }
+    /// Whether agent `key`, started by Irori, hasn't gone (card #575).
+    pub fn spawned_live(&self, key: &str) -> bool {
+        self.lock().spawned_live(key)
+    }
+    /// The live agents that count toward that limit, by key (card #575).
+    pub fn counted_live(&self) -> Vec<String> {
+        self.lock().counted_live()
+    }
+    /// This log's counted requests still starting, oldest first (card #575).
+    pub fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        self.lock().counted_pending()
     }
     /// This log's device id.
     pub fn device_id(&self) -> String {

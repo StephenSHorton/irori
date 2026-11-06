@@ -88,6 +88,12 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// board's cards only once every member device has said at least this.
 pub const SPAWNS_PROTOCOL: i64 = 1;
 
+/// The `board.ask.moved` row this build reads (card #541): a board hello's
+/// `moves`. As with [`SPAWNS_PROTOCOL`], an older Irori refuses it and the
+/// writer's stream waits on the gap, so a computer takes a board's ask only
+/// once every member device has said at least this.
+pub const MOVES_PROTOCOL: i64 = 1;
+
 /// The hand-off of a person-to-person DM this build speaks (`dm` frames,
 /// card #538): a board hello's `dms`. Built like [`SPAWNS_PROTOCOL`]: an
 /// older Irori skips the frame and says 0, so its device is never asked.
@@ -143,6 +149,10 @@ pub struct BoardHello {
     /// (absent) from an Irori before them.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub spawns: i64,
+    /// The ask moves the sender reads ([`MOVES_PROTOCOL`]); 0 (absent)
+    /// from an Irori before them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub moves: i64,
     /// The DM hand-off the sender speaks ([`DMS_PROTOCOL`]); 0 (absent)
     /// from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -626,6 +636,9 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// The `moves` its last hello said (card #541).
+    pub moves: i64,
+
     /// When a pull from it last left this device holding every row its
     /// newest vector named (card #580); 0 never. That vector may have come
     /// by gossip rather than this connection: either way it was its own.
@@ -1012,6 +1025,21 @@ impl BoardMesh {
                     .is_none_or(|l| l < SPAWNS_PROTOCOL)
             })
             .map(|(d, _)| d)
+            .collect()
+    }
+
+    /// The member devices not yet heard to read ask moves (card #541):
+    /// until there are none, no computer takes this board's asks.
+    pub fn not_ready_for_moves(&self) -> Vec<MemberDevice> {
+        let heard = self.s.heard.lock().expect("heard");
+        self.s
+            .member_devices()
+            .into_iter()
+            .filter(|d| {
+                heard
+                    .get(&d.device_id)
+                    .is_none_or(|h| h.moves < MOVES_PROTOCOL)
+            })
             .collect()
     }
 
@@ -1811,6 +1839,7 @@ impl Shared {
             schema: 1,
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
+            moves: MOVES_PROTOCOL,
             dms: DMS_PROTOCOL,
             tolerant: TOLERANT_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
@@ -1940,6 +1969,7 @@ impl Shared {
             h.core_version = said.core_version.clone();
             h.spaces = said.spaces;
             h.spawns = said.spawns;
+            h.moves = said.moves;
             h.dms = said.dms;
             h.tolerant = said.tolerant;
         }
@@ -2324,6 +2354,29 @@ mod tests {
         assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("spaces").is_none(), "0 isn't sent");
+    }
+
+    /// Card #541: an older Irori's hello has no `moves` and parses as 0, so
+    /// [`BoardMesh::not_ready_for_moves`] counts it and no computer takes
+    /// the board's asks; ours says MOVES_PROTOCOL.
+    #[test]
+    fn hello_says_it_reads_moves() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.3","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.moves, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            moves: MOVES_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["moves"], MOVES_PROTOCOL);
+        assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
     }
 
     /// Card #538: `dms` is built like `spawns`. An older hello parses as 0,

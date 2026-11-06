@@ -171,6 +171,9 @@ impl TaskRouter for Fake {
         n.by = self.back(&n.by);
         n
     }
+    fn private_key(&self, key: &str) -> String {
+        self.back(key)
+    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         if r.starts_with("mlg#") {
             return self.co.task_ref(r);
@@ -743,6 +746,41 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
 
 /// Card #189: show opens a shared board's card and its comments, which live
 /// in the board's log (capture indexes only the private one).
+/// Card #573: on a shared card a member can be named: the card is given to
+/// their `person:` key, and a name that is no member's or agent's fails.
+#[test]
+fn a_shared_card_can_be_given_to_a_member_by_name() {
+    let r = rig();
+    r.autonomy("trusted");
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg", "assign_to": "blake"}),
+    ));
+    let t = r.fake.co.get_task(&id).unwrap();
+    assert_eq!(t.assigned, vec!["person:pBlake".to_string()]);
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Saver", "board": "mlg"}),
+    ));
+    r.h.okj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "person:pBlake"}),
+    );
+    assert_eq!(
+        r.fake.co.get_task(&id).unwrap().assigned,
+        vec!["person:pBlake".to_string()]
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "nobody-here"}),
+        &["nobody-here"],
+    );
+}
+
 #[test]
 fn show_opens_a_shared_card_and_its_comments() {
     let r = rig();
@@ -848,4 +886,76 @@ fn a_question_is_for_whoever_for_names() {
         json!({"task_id": pid, "question": "Mine?", "for": "Blake"}),
         &["leave for out"],
     );
+}
+
+/// Card #574: a wait on a shared card lives in the waiter's own log, so
+/// nothing of it reaches the board, and it lists and cancels like any wait.
+#[test]
+fn a_wait_on_a_shared_card_stays_off_the_board() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Ship it".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let rows = || r.fake.st.list(&store::Filter::default()).unwrap().len();
+    let before = rows();
+    let out = r.h.okj(
+        &a,
+        "wait",
+        json!({"task_id": t.id, "until": ["done", "unblocked"], "note": "the API I build on"}),
+    );
+    has(
+        &out,
+        &[
+            "woken once when mlg#1 is done or unblocked",
+            "Only you see this wait",
+        ],
+    );
+    assert!(!out.contains("Visible to"), "{out}");
+    assert_eq!(
+        rows(),
+        before,
+        "nothing reached the board, not even the agent"
+    );
+    let ws = r.h.b.co.waits("");
+    assert_eq!(ws.len(), 1, "{ws:?}");
+    assert_eq!(ws[0].board, "b0");
+    assert_eq!(ws[0].title, "Ship it");
+    assert_eq!(ws[0].from_state, t.state);
+    assert!(r.fake.co.waits("").is_empty(), "nothing in the board's log");
+    has(
+        &r.h.okj(&a, "waits", json!({})),
+        &["mlg#1 until done or unblocked"],
+    );
+    has(
+        &r.h.okj(&a, "wait_cancel", json!({"id": ws[0].id})),
+        &["Canceled your wait on mlg#1"],
+    );
+}
+
+#[test]
+fn your_own_shared_card_is_no_wait() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Mine".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.h.okj(&a, "board_join", json!({"task_id": t.id}));
+    r.h.failsj(&a, "wait", json!({"task_id": t.id}), &["your own card"]);
 }

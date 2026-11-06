@@ -53,6 +53,7 @@ import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { FreshnessLine } from "@/components/common/freshness-line"
 
+import { SpaceAgentsOff } from "@/components/settings/space-agents"
 import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
 import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
 
@@ -127,6 +128,7 @@ export function BoardPage({
   return (
     <>
       <BoardNotes board={b} />
+      <SpaceAgentsOff boardId={boardId} />
       <BoardView
         scope={boardId}
         plain={!open}

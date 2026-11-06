@@ -37,6 +37,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
     let (a, b) = (f.clone(), f.clone());
     let s2 = sessions.clone();
     Spawner {
+        ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
             let n = {
                 let mut v = a.started.lock().unwrap();
@@ -363,6 +364,7 @@ fn after_a_restart_its_gone_agent_ends_as_finished_and_a_fresh_one_starts() {
         Ok(vec![ClaudeAgent {
             session_id: gone.clone(),
             live: false,
+            ..ClaudeAgent::default()
         }])
     }));
     s.r.core.set_spawner(Some(sp));
@@ -394,6 +396,7 @@ fn a_live_agent_survives_the_cleanup() {
         Ok(vec![ClaudeAgent {
             session_id: live.clone(),
             live: true,
+            ..ClaudeAgent::default()
         }])
     }));
     s.r.core.set_spawner(Some(sp));
@@ -503,6 +506,43 @@ fn a_kept_worktree_is_said_on_the_card() {
     });
 }
 
+/// Card #565: `rm` keeps saying kept about a folder that isn't a worktree
+/// any more, and Claude Code keeps listing the job. It is asked once: 92
+/// log lines came from asking at every reap.
+#[test]
+fn a_job_rm_kept_is_asked_about_once() {
+    let s = at_done_check();
+    *s.fake.says.lock().unwrap() =
+        "kept f83d401f, its worktree is still at /r/.claude/worktrees/506-solid-popovers".into();
+    let mut sp = spawner(&s.fake, s.r.claude.join("sessions"));
+    let left = sess(1);
+    sp.list = Some(Arc::new(move || {
+        Ok(vec![ClaudeAgent {
+            session_id: left.clone(),
+            live: false,
+            ..ClaudeAgent::default()
+        }])
+    }));
+    s.r.core.set_spawner(Some(sp));
+    past_grace(&s);
+    wait_for(60, "the agent ended", || ended(&s, 1));
+    let asked = ends(&s);
+    for _ in 0..3 {
+        skew_by(&s, irori_core::spawn::REAP_EVERY);
+        std::thread::sleep(Duration::from_millis(700));
+    }
+    assert_eq!(ends(&s), asked, "rm was asked again");
+    assert_eq!(gone_rows(&s, &s.first()), 1);
+    let lines = s.r.core.coord().comments(&s.t.id).unwrap_or_default();
+    let said = lines
+        .iter()
+        .filter(|c| c.text.starts_with(irori_core::spawn::KEPT_WORKTREE))
+        .count();
+    assert_eq!(said, 1, "{lines:?}");
+    let book = irori_core::treeclean::Book::load(s.r.core.data_dir());
+    assert!(book.kept_jobs.contains(&s.first()), "it outlives a restart");
+}
+
 /// Card #474: a job Irori ended that Claude Code still lists (its stop and
 /// rm failed before) is removed by the sweep, with no new `agent.gone`.
 #[test]
@@ -523,6 +563,7 @@ fn a_leftover_job_of_an_ended_agent_is_removed() {
         Ok(vec![ClaudeAgent {
             session_id: left.clone(),
             live: false,
+            ..ClaudeAgent::default()
         }])
     }));
     s.r.core.set_spawner(Some(sp));
@@ -551,6 +592,7 @@ fn the_reaper_leaves_a_running_agent_alone() {
         Ok(vec![ClaudeAgent {
             session_id: running.clone(),
             live: true,
+            ..ClaudeAgent::default()
         }])
     }));
     s.r.core.set_spawner(Some(sp));
@@ -559,6 +601,76 @@ fn the_reaper_leaves_a_running_agent_alone() {
         std::thread::sleep(Duration::from_millis(700));
     }
     assert_eq!(ends(&s), tries, "a running agent was stopped");
+}
+
+/// Card #565 finding A: an end that only stopped the job (its tree is on
+/// disk) is an end, says nothing on the card, and isn't a kept job: the
+/// reap asks again once the tree goes.
+#[test]
+fn an_end_that_only_stopped_is_an_end_and_not_a_kept_job() {
+    let s = at_done_check();
+    *s.fake.says.lock().unwrap() = format!(
+        "{} its folder /r/.claude/worktrees/card-1-1 is a worktree Irori removes itself",
+        irori_core::spawn::STOPPED_ONLY
+    );
+    past_grace(&s);
+    wait_for(60, "the agent ended", || ended(&s, 1));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(gone_rows(&s, &s.first()), 1);
+    let lines = s.r.core.coord().comments(&s.t.id).unwrap_or_default();
+    assert!(
+        !lines
+            .iter()
+            .any(|c| c.text.starts_with(irori_core::spawn::KEPT_WORKTREE)),
+        "{lines:?}"
+    );
+    let book = irori_core::treeclean::Book::load(s.r.core.data_dir());
+    assert!(!book.kept_jobs.contains(&s.first()));
+}
+
+/// Card #565 finding A: `claude rm` deletes a job's worktree without
+/// Irori's checks, so the reaper leaves a finished job whose folder is a
+/// tree still on disk, and asks again once the tree has gone.
+#[test]
+fn the_reaper_waits_for_a_jobs_tree_to_go() {
+    let s = at_done_check();
+    s.fake.fail.store(usize::MAX, Ordering::SeqCst);
+    past_grace(&s);
+    let tries = irori_core::spawn::END_TRIES as usize;
+    for n in 1..=tries {
+        wait_for(60, "a try", || ends(&s) >= n);
+        skew_by(&s, irori_core::spawn::END_RETRY);
+    }
+    s.fake.fail.store(0, Ordering::SeqCst);
+    let d = tempfile::tempdir().unwrap();
+    let tree = d.path().join("repo/.claude/worktrees/card-9-1");
+    std::fs::create_dir_all(tree.join("src")).unwrap();
+    let mut sp = spawner(&s.fake, s.r.claude.join("sessions"));
+    let left = sess(1);
+    let cwd = tree.join("src").to_string_lossy().into_owned();
+    sp.list = Some(Arc::new(move || {
+        Ok(vec![ClaudeAgent {
+            session_id: left.clone(),
+            live: false,
+            cwd: cwd.clone(),
+        }])
+    }));
+    s.r.core.set_spawner(Some(sp));
+    // The cleanup after a new spawner ends the listed job once more, the
+    // usual way (the window's end then only stops it, as its tree is on
+    // disk); the reaper doesn't ask again while the tree is there.
+    std::thread::sleep(Duration::from_millis(1500));
+    let base = ends(&s);
+    assert!(base <= tries + 1, "{base}");
+    for _ in 0..2 {
+        skew_by(&s, irori_core::spawn::REAP_EVERY);
+        std::thread::sleep(Duration::from_millis(700));
+    }
+    assert_eq!(ends(&s), base, "rm was asked while its tree was there");
+    assert!(tree.join("src").is_dir());
+    std::fs::remove_dir_all(&tree).unwrap();
+    skew_by(&s, irori_core::spawn::REAP_EVERY);
+    wait_for(60, "the job removed once its tree went", || ends(&s) > base);
 }
 
 /// A card the person posts that gets no spawned agent of its own (shared),

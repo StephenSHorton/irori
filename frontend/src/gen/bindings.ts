@@ -343,6 +343,10 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**  "My agents may start agents on my cards" and its maximum (card #575). */
+	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
 	/**
 	 *  Settings › Agents' caps per device, today's count and cost, and any
 	 *  usage-limit hold (card #450).
@@ -510,6 +514,20 @@ export type AgentRef = {
 	 *  the default for its name.
 	 */
 	avatar?: string,
+};
+
+/**
+ *  "My agents may start agents on my cards" (card #575): the person's, on
+ *  all their devices, set here and never by a tool.
+ */
+export type AgentStartsView = {
+	on: boolean,
+	/**  The most agents their agents may have started at once. */
+	max: number,
+	/**  How many count toward it now. */
+	used: number,
+	/**  The highest maximum the app accepts. */
+	ceiling: number,
 };
 
 /**  The person's change: the fields left `None` keep what is stored. */
@@ -1253,6 +1271,11 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
+	 *  Why no agent can start for this card now, by device, and what
+	 *  happens next (card #541): shown in Needs you until one can.
+	 */
+	noAgent?: string,
+	/**
 	 *  The device an agent is starting on for this card ("<its own name>
 	 *  (this one)" or the other device's name, card #489), while Irori's
 	 *  spawn request waits for it (card #448).
@@ -1263,6 +1286,11 @@ export type CardSummary = {
 	 *  that device already runs as many as it may (card #448).
 	 */
 	atCap?: string,
+	/**
+	 *  The card was given to this person and they said Not now: its page
+	 *  offers Start an agent (card #573).
+	 */
+	givenNo?: boolean,
 	/**
 	 *  Its place in that device's spawn queue, from 1 (card #450): "queued:
 	 *  1st for the PC". 0 when it isn't queued.
@@ -2563,6 +2591,11 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  Why no agent can start now, by device, and what happens next (card
+	 *  #541): it needs the person to know, not to answer.
+	 */
+	noAgent?: string,
 	/**
 	 *  The shared space it is in, or a private thread is about (card #558);
 	 *  absent for Personal. Matches the switcher's space id.
