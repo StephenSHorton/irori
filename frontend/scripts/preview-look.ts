@@ -24,7 +24,9 @@ function free(port: number): Promise<boolean> {
   return new Promise((res) => {
     const s = createServer()
     s.once("error", () => res(false))
-    s.listen({ port, host: "127.0.0.1", exclusive: true }, () => s.close(() => res(true)))
+    s.listen({ port, host: "127.0.0.1", exclusive: true }, () =>
+      s.close(() => res(true))
+    )
   })
 }
 
@@ -47,7 +49,12 @@ let url = ""
 function forget() {
   // Only our own line: a newer preview:look in this folder may have replaced it.
   try {
-    if (url && existsSync(urlFile) && readFileSync(urlFile, "utf8").trim() === url) rmSync(urlFile)
+    if (
+      url &&
+      existsSync(urlFile) &&
+      readFileSync(urlFile, "utf8").trim() === url
+    )
+      rmSync(urlFile)
   } catch {
     // gone already
   }
@@ -61,14 +68,21 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
   })
 
 async function main() {
-  if (!existsSync(vite)) throw new Error("no vite in node_modules: run `bun install --frozen-lockfile` first")
+  if (!existsSync(vite))
+    throw new Error(
+      "no vite in node_modules: run `bun install --frozen-lockfile` first"
+    )
   for (let port = FIRST; port <= LAST; port++) {
     if (!(await free(port))) continue
     const at = `http://127.0.0.1:${port}/`
-    child = spawn("node", [vite, "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
-      cwd: dir,
-      stdio: "inherit",
-    })
+    child = spawn(
+      "node",
+      [vite, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
+      {
+        cwd: dir,
+        stdio: "inherit",
+      }
+    )
     const failed = await up(child, at)
     if (failed !== null) {
       // Someone took the port after the check: try the next one.
@@ -77,9 +91,13 @@ async function main() {
     }
     url = at
     writeFileSync(urlFile, url + "\n")
-    console.log(`\n  preview:look on ${url}  (written to frontend/.preview-url)\n`)
+    console.log(
+      `\n  preview:look on ${url}  (written to frontend/.preview-url)\n`
+    )
     const c = child
-    const code = c.exitCode ?? (await new Promise<number>((res) => c.once("exit", (n) => res(n ?? 0))))
+    const code =
+      c.exitCode ??
+      (await new Promise<number>((res) => c.once("exit", (n) => res(n ?? 0))))
     forget()
     process.exit(code)
   }

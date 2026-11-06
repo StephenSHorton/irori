@@ -9,13 +9,16 @@ export function previewUrl(): string {
   if (process.env.PREVIEW_URL) return process.env.PREVIEW_URL
   let url = ""
   try {
-    url = readFileSync(join(import.meta.dir, "..", ".preview-url"), "utf8").trim()
+    url = readFileSync(
+      join(import.meta.dir, "..", ".preview-url"),
+      "utf8"
+    ).trim()
   } catch {
     // not running
   }
   if (!url)
     throw new Error(
-      "no preview running in this checkout: start `bun run preview:look` (it writes frontend/.preview-url) or set PREVIEW_URL",
+      "no preview running in this checkout: start `bun run preview:look` (it writes frontend/.preview-url) or set PREVIEW_URL"
     )
   return url.endsWith("/") ? url : url + "/"
 }
@@ -44,13 +47,25 @@ function normal(p: string): string {
 export async function checkPreview(url: string): Promise<void> {
   const root = await servedRoot(url)
   if (process.env.PREVIEW_URL) {
-    if (!(await fetch(url).then(() => true, () => false)))
-      throw new Error(`nothing at ${url}: start \`bun run preview:look\` or set PREVIEW_URL`)
+    if (
+      !(await fetch(url).then(
+        () => true,
+        () => false
+      ))
+    )
+      throw new Error(
+        `nothing at ${url}: start \`bun run preview:look\` or set PREVIEW_URL`
+      )
     return
   }
-  if (root === null) throw new Error(`no preview at ${url}: start \`bun run preview:look\` in this checkout`)
+  if (root === null)
+    throw new Error(
+      `no preview at ${url}: start \`bun run preview:look\` in this checkout`
+    )
   if (root !== frontendDir)
-    throw new Error(`${url} is another checkout's preview (${root}): start \`bun run preview:look\` in this one`)
+    throw new Error(
+      `${url} is another checkout's preview (${root}): start \`bun run preview:look\` in this one`
+    )
 }
 
 // Start Chrome with --remote-debugging-port=0 so two runs never pick the same
@@ -58,7 +73,9 @@ export async function checkPreview(url: string): Promise<void> {
 export async function devtoolsPort(profile: string): Promise<number> {
   for (let i = 0; i < 100; i++) {
     try {
-      const port = Number(readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n")[0])
+      const port = Number(
+        readFileSync(join(profile, "DevToolsActivePort"), "utf8").split("\n")[0]
+      )
       if (port) return port
     } catch {
       // not yet
