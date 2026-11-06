@@ -6,6 +6,14 @@
 //! This crate knows nothing of iroh: a peer is a [`Link`] that sends a
 //! datagram, and received datagrams are handed to [`Engine::receive`].
 
+pub mod device;
+pub mod dsp;
+pub mod engine;
+pub mod jitter;
 pub mod platform;
+pub mod probe;
+pub mod resample;
+pub mod wire;
 
+pub use engine::{Config, Engine, Inlet, Link, PeerStats, Stats};
 pub use platform::{AudioRoute, Platform, PlatformError, PlatformEvent, PlatformSink};
