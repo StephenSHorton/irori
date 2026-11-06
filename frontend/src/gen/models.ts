@@ -279,7 +279,7 @@ export function CallPeerView(p: Partial<B.CallPeerView> = {}): B.CallPeerView {
 
 /** CallRingView with Go's zero values for every field left out. */
 export function CallRingView(p: Partial<B.CallRingView> = {}): B.CallRingView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "by": "", "atMs": 0, ...p } as B.CallRingView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "by": "", "byDevice": "", "atMs": 0, ...p } as B.CallRingView
 }
 
 /** CallView with Go's zero values for every field left out. */
