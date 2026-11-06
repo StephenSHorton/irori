@@ -4086,6 +4086,9 @@ impl Services {
                 .collect();
             let said: Vec<&str> = said.iter().map(String::as_str).collect();
             for post in deskpost::due(p, &said) {
+                if self.desk_watch.fell_back(&m.task_id, &post.tag(p)) {
+                    continue;
+                }
                 let (text, files) = if post == Post::ChecksFailed {
                     let got = match self.desk_lister.as_ref() {
                         Some(l) => l.failed_checks(&repo, p.number),
@@ -4099,10 +4102,11 @@ impl Services {
                                 deskpost::actions_job(&c.url).is_none() || !c.log.trim().is_empty()
                             })
                     });
-                    if !whole
-                        && self
-                            .desk_watch
-                            .fetch_again(repo_key, p.number, &p.head_ref_oid)
+                    if whole {
+                        self.desk_watch.fetched(repo_key, p.number, &p.head_ref_oid);
+                    } else if self
+                        .desk_watch
+                        .fetch_again(repo_key, p.number, &p.head_ref_oid)
                     {
                         if let Err(e) = &got {
                             logf(format_args!("desk: PR #{} checks: {e}", p.number));
@@ -4115,7 +4119,9 @@ impl Services {
                 } else {
                     (deskpost::text(post, p), Vec::new())
                 };
-                self.desk_post(&co, &m.task_id, p.number, &text, post.wakes(), files);
+                if !self.desk_post(&co, &m.task_id, p.number, &text, post.wakes(), files) {
+                    self.desk_watch.fall_back(&m.task_id, &post.tag(p));
+                }
             }
         }
     }
@@ -4123,7 +4129,7 @@ impl Services {
     /// Puts one of Irori's posts on card `id` in `co`, and wakes its
     /// holders when `wake`. When the card's board refuses Irori's comment,
     /// its holders get the same text as an inbox notice instead, so the
-    /// author still hears it.
+    /// author still hears it. False when the comment didn't go up.
     fn desk_post(
         &self,
         co: &Arc<Coord>,
@@ -4132,19 +4138,20 @@ impl Services {
         text: &str,
         wake: bool,
         files: Vec<coord::FileRef>,
-    ) {
+    ) -> bool {
         let from = inbox::system_sender();
-        match co.add_comment_with(crate::deskpost::IRORI, id, text, wake, files) {
+        match co.add_comment_with(crate::deskpost::IRORI, id, text, wake, files.clone()) {
             Ok((_, n)) => {
                 // Opened and pushed are the thread's record: nobody is told.
                 if wake && let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
                     logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
                 }
+                true
             }
             Err(e) => {
                 logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
                 let Some(t) = co.get_task(id) else {
-                    return;
+                    return false;
                 };
                 let to: Vec<String> = t
                     .holders
@@ -4154,7 +4161,7 @@ impl Services {
                     .cloned()
                     .collect();
                 if to.is_empty() {
-                    return;
+                    return false;
                 }
                 let n = Notice {
                     kind: coord::NOTICE_COMMENT.into(),
@@ -4169,11 +4176,13 @@ impl Services {
                         t.short_ref()
                     ),
                     wake,
+                    attachments: files,
                     ..Notice::default()
                 };
                 if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
                     logf(format_args!("desk: PR #{pr} notice for {id}: {e}"));
                 }
+                false
             }
         }
     }

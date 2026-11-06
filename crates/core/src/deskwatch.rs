@@ -126,11 +126,23 @@ impl PrLister for GhLister {
             let Some(job) = crate::deskpost::actions_job(&c.url).map(str::to_string) else {
                 continue;
             };
-            match run_gh_raw(
+            // The job's own log comes as soon as the job ends, while the
+            // rest of its run may go on; `run view --log-failed` only once
+            // the whole run is done, so it is the fallback (an older gh).
+            let api = format!("repos/{repo}/actions/jobs/{job}/logs");
+            let got = run_gh_raw(
                 &gh,
-                &["run", "view", "--job", &job, "--repo", repo, "--log-failed"],
+                &["api", &api, "--allow-escape-sequences"],
                 "gh couldn't fetch the job's log",
-            ) {
+            )
+            .or_else(|_| {
+                run_gh_raw(
+                    &gh,
+                    &["run", "view", "--job", &job, "--repo", repo, "--log-failed"],
+                    "gh couldn't fetch the job's log",
+                )
+            });
+            match got {
                 Ok(out) => c.log = String::from_utf8_lossy(&out).into_owned(),
                 Err(e) => crate::logf(format_args!("desk: PR #{number} job {job} log: {e}")),
             }
@@ -254,6 +266,8 @@ pub(crate) struct DeskWatch {
     /// Polls that couldn't fetch a PR's failing checks in full, by
     /// `repo\0pr\0head` (card #420).
     tries: Mutex<HashMap<String, u32>>,
+    /// Posts that went out as inbox notices, by `task\0tag` (card #420).
+    fallbacks: Mutex<std::collections::HashSet<String>>,
 }
 
 /// Polls a "checks failed" post waits for its checks and logs before it
@@ -303,6 +317,32 @@ impl DeskWatch {
         }
         t.remove(&k);
         false
+    }
+
+    /// PR `pr`'s failing checks at `head` were fetched in full: no more
+    /// tries are kept for it.
+    pub(crate) fn fetched(&self, repo_key: &str, pr: i64, head: &str) {
+        let mut t = self.tries.lock().unwrap_or_else(|e| e.into_inner());
+        t.remove(&format!(
+            "{}\0{pr}\0{head}",
+            coord::canonical_repo_key(repo_key)
+        ));
+    }
+
+    /// Whether post `tag` on card `task_id` already went out as an inbox
+    /// notice because its board refused the comment. Comments are the
+    /// record of what was said; a refused one leaves none, so this keeps
+    /// the notice from going out again each poll (once more after a
+    /// restart).
+    pub(crate) fn fell_back(&self, task_id: &str, tag: &str) -> bool {
+        let f = self.fallbacks.lock().unwrap_or_else(|e| e.into_inner());
+        f.contains(&format!("{task_id}\0{tag}"))
+    }
+
+    /// Notes post `tag` on card `task_id` went out as a notice.
+    pub(crate) fn fall_back(&self, task_id: &str, tag: &str) {
+        let mut f = self.fallbacks.lock().unwrap_or_else(|e| e.into_inner());
+        f.insert(format!("{task_id}\0{tag}"));
     }
 
     /// Whether `repo_key` is due at `now` (always, before its first poll).

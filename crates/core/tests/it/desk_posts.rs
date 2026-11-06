@@ -287,6 +287,12 @@ fn an_unheld_pr_card_gets_posts_and_wakes_nobody() {
     let mut p = pr(2, "StephenSHorton", "fffffff6666");
     p.checks = "failure".into();
     set_pr(&gh, p);
+    // Not an Actions job: no log to wait for.
+    *gh.failed.lock().unwrap() = vec![FailedCheck {
+        name: "lint".into(),
+        url: "https://example.com/check/1".into(),
+        log: String::new(),
+    }];
     r.core.poll_desk(REPO).unwrap();
     let card = co
         .list_tasks(&coord::TaskFilter::default())

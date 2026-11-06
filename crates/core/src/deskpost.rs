@@ -32,6 +32,8 @@ const TAIL_LINES: usize = 20;
 const LINE_CHARS: usize = 200;
 /// The comment's limit (coord's MAX_COMMENT), with room to spare.
 const MAX_TEXT: usize = 3900;
+/// How much of the post the failing checks' list may take.
+const MAX_LIST: usize = 2000;
 
 /// One of Irori's posts on a PR's card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +49,15 @@ pub enum Post {
 }
 
 impl Post {
+    /// What `due` keys this post on for PR `p`: once for Opened, once per
+    /// head for the rest.
+    pub fn tag(self, p: &DeskPr) -> String {
+        match self {
+            Post::Opened => format!("{}:opened", p.number),
+            _ => format!("{}:{self:?}:{}", p.number, short(p.head_ref_oid.trim())),
+        }
+    }
+
     /// Whether the post wakes the card's holders: only when the author has
     /// something to fix.
     pub fn wakes(self) -> bool {
@@ -102,12 +113,19 @@ fn failed_prefix(n: i64, head: &str) -> String {
     format!("GitHub checks failed on PR #{n} at `{head}`")
 }
 
-/// Whether one of Irori's earlier posts named head `head` of PR `n`.
+/// The head an Opened or Pushed post of PR `n` named, if `t` is one.
+fn named_head(t: &str, n: i64) -> Option<&str> {
+    if let Some(rest) = t.strip_prefix(&opened_prefix(n)) {
+        return rest.strip_prefix('`')?.split('`').next();
+    }
+    t.strip_prefix("Pushed `")?
+        .strip_suffix(&format!("` to PR #{n}."))
+}
+
+/// Whether Irori's latest Opened or Pushed post of PR `n` named head
+/// `head`: a force-push back to an older head is posted again.
 fn told_head(said: &[&str], n: i64, head: &str) -> bool {
-    let opened = format!("{}`{head}`", opened_prefix(n));
-    let pushed = format!("Pushed `{head}` to PR #{n}.");
-    said.iter()
-        .any(|t| t.starts_with(&opened) || t.starts_with(&pushed))
+    said.iter().rev().find_map(|t| named_head(t, n)) == Some(head)
 }
 
 /// The posts PR `p` is due, given the texts of Irori's comments already on
@@ -206,11 +224,18 @@ fn log_line(l: &str) -> String {
     cut.trim_end().to_string()
 }
 
-/// The last `lines` non-empty lines of `log`, cleaned.
+/// The last `lines` non-empty lines of `log`, cleaned, ending at its last
+/// `##[error]` line: what follows (the job's post-run cleanup) says
+/// nothing about the failure.
 pub fn tail(log: &str, lines: usize) -> Vec<String> {
-    let all: Vec<String> = log
-        .lines()
-        .map(log_line)
+    let raw: Vec<&str> = log.lines().collect();
+    let end = raw
+        .iter()
+        .rposition(|l| l.contains("##[error]"))
+        .map_or(raw.len(), |i| i + 1);
+    let all: Vec<String> = raw[..end]
+        .iter()
+        .map(|l| log_line(l))
         .filter(|l| !l.trim().is_empty())
         .collect();
     all[all.len().saturating_sub(lines)..].to_vec()
@@ -226,18 +251,29 @@ pub fn failed_text(p: &DeskPr, checks: &[FailedCheck], attached: bool) -> String
     if checks.is_empty() {
         s.push_str(&format!(" see {}/checks", p.url));
     }
-    for c in checks {
+    // The list keeps room for the logs and the end: a long one (a failed
+    // matrix) is cut with a link to the rest, so the post stays under the
+    // comment's limit.
+    let more = format!("\n- and more: {}/checks", clean(&p.url, 300));
+    for (i, c) in checks.iter().enumerate() {
         let name = clean(&c.name, 120);
         let name = if name.is_empty() {
             "a check".into()
         } else {
             name
         };
-        if c.url.is_empty() {
-            s.push_str(&format!("\n- {name}"));
+        let line = if c.url.is_empty() {
+            format!("\n- {name}")
         } else {
-            s.push_str(&format!("\n- {name}: {}", clean(&c.url, 300)));
+            format!("\n- {name}: {}", clean(&c.url, 300))
+        };
+        let last = i + 1 == checks.len();
+        let reserve = if last { 0 } else { more.chars().count() };
+        if s.chars().count() + line.chars().count() + reserve > MAX_LIST {
+            s.push_str(&more);
+            break;
         }
+        s.push_str(&line);
     }
     let end = if attached {
         "\nThe full logs are attached. Fix it and push: Irori posts the new sha here."
@@ -352,8 +388,56 @@ mod tests {
         let pushed = text(Post::Pushed, &q);
         assert_eq!(pushed, "Pushed `1234567` to PR #12.");
         assert_eq!(due(&q, &[&opened, &pushed]), vec![]);
-        // Back to a head already posted: nothing new.
-        assert_eq!(due(&p, &[&opened, &pushed]), vec![]);
+        // A force-push back to the first head: the record says so.
+        assert_eq!(due(&p, &[&opened, &pushed]), vec![Post::Pushed]);
+        let back = text(Post::Pushed, &p);
+        assert_eq!(due(&p, &[&opened, &pushed, &back]), vec![]);
+    }
+
+    #[test]
+    fn a_long_list_of_failed_checks_stays_under_the_limit() {
+        let mut p = pr(9, "ddddddd111");
+        p.checks = "failure".into();
+        let checks: Vec<FailedCheck> = (0..60)
+            .map(|i| FailedCheck {
+                name: format!("CI / a rather long matrix job name number {i:03}"),
+                url: format!(
+                    "https://github.com/o/r/actions/runs/123456789012/job/{:012}",
+                    i
+                ),
+                log: if i < MAX_LOGS {
+                    "x\n##[error]boom\n".repeat(30)
+                } else {
+                    String::new()
+                },
+            })
+            .collect();
+        let t = failed_text(&p, &checks, true);
+        assert!(t.chars().count() <= MAX_TEXT, "{}", t.chars().count());
+        assert!(
+            t.contains("- and more: https://github.com/o/r/pull/9/checks"),
+            "{t}"
+        );
+        assert!(t.contains("number 000"), "{t}");
+        assert!(t.contains("Error: boom"), "the logs keep room: {t}");
+        assert!(t.ends_with("Irori posts the new sha here."), "{t}");
+    }
+
+    #[test]
+    fn the_tail_ends_at_the_last_error() {
+        let log = "a\nb\ncheck.sh: a file contains CHECK-FAIL\n\
+            ##[error]Process completed with exit code 1.\n\
+            Post job cleanup.\n[command]/usr/bin/git version\n";
+        assert_eq!(
+            tail(log, 3),
+            vec![
+                "b",
+                "check.sh: a file contains CHECK-FAIL",
+                "Error: Process completed with exit code 1."
+            ]
+        );
+        // No error marker: the log's own end.
+        assert_eq!(tail("a\nb\nc\n", 2), vec!["b", "c"]);
     }
 
     #[test]
