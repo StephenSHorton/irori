@@ -88,6 +88,13 @@ impl Prefetch {
         (self.now)().unix_milli_value()
     }
 
+    /// Whether any other device is connected: one of this person's, or a
+    /// member's on an open board.
+    fn connected(&self) -> bool {
+        self.mesh.node.connected_count() > 0
+            || self.mesh.board_list().iter().any(|b| !b.peers().is_empty())
+    }
+
     /// Queues `ev` if it offers a file to pick up. A pending file a new
     /// device offers is tried again at once.
     fn take(&self, q: &mut BTreeMap<String, Pending>, ev: &Event) {
@@ -202,7 +209,11 @@ impl Prefetch {
                 .filter(|(_, p)| p.due <= now)
                 .map(|(sha, _)| sha.clone())
                 .next();
-            if let Some(sha) = next {
+            // With no device connected every fetch would only say Offline
+            // (after scanning the logs for holders): wait for one, and keep
+            // the files due so the first connection picks them up.
+            let idle = next.is_some() && !self.connected();
+            if let Some(sha) = next.filter(|_| !idle) {
                 let r = q[&sha].r.clone();
                 let got = tokio::select! {
                     _ = stop.cancelled() => return,
@@ -233,6 +244,7 @@ impl Prefetch {
             let wake = q
                 .values()
                 .map(|p| p.due)
+                .filter(|_| !idle)
                 .min()
                 .unwrap_or(boards_at)
                 .min(boards_at)
