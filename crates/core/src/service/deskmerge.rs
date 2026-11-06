@@ -27,11 +27,7 @@ impl Services {
         }
         let open: HashSet<i64> = snap.prs.iter().map(|p| p.number).collect();
         let (tasks, home) = self.desk_cards(true);
-        let known = |id: &str, url: &str| {
-            home.get(id)
-                .unwrap_or(&self.coord)
-                .pr_state(id, url)
-        };
+        let known = |id: &str, url: &str| home.get(id).unwrap_or(&self.coord).pr_state(id, url);
         let (gone, listed) = crate::deskmerge::gone_prs(&tasks, &repo, &open, &known);
         // Back in the list (reopened): asked again once it leaves.
         for (id, url) in listed {

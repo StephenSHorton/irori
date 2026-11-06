@@ -75,7 +75,10 @@ impl PrChecker for GhChecker {
                 c.state = v["state"].as_str().unwrap_or_default().to_string();
                 c.review = v["reviewDecision"].as_str().unwrap_or_default().to_string();
                 // Card #421: the sha the merge made, said on the card.
-                c.merge_sha = v["mergeCommit"]["oid"].as_str().unwrap_or_default().to_string();
+                c.merge_sha = v["mergeCommit"]["oid"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 if let Some(m) = v["mergedAt"].as_str().filter(|m| !m.is_empty()) {
                     c.merged_at = gocompat::time::GoTime::parse_rfc3339(m).unwrap_or_default();
                 }

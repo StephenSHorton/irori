@@ -529,15 +529,15 @@ impl Fold {
             && old.merge_sha.is_empty();
         let unchanged = !new_sha
             && (!beside_open && certainty(&c.state) < certainty(&old.state)
-            || if c.error.is_empty() {
-                old.error.is_empty()
-                    && old.state == c.state
-                    && old.review == c.review
-                    && !old.at.is_zero()
-            } else {
-                // Said once: a later failure stays quiet until it is heard again.
-                !old.error.is_empty()
-            });
+                || if c.error.is_empty() {
+                    old.error.is_empty()
+                        && old.state == c.state
+                        && old.review == c.review
+                        && !old.at.is_zero()
+                } else {
+                    // Said once: a later failure stays quiet until it is heard again.
+                    !old.error.is_empty()
+                });
         if unchanged {
             return Ok((t, Vec::new()));
         }
@@ -595,9 +595,7 @@ impl Fold {
         // completes itself once its PRs are merged, held or not. A merge an
         // older device heard first (no sha, no such rule) completes it when
         // the sha comes.
-        if (newly(PR_MERGED) || new_sha)
-            && desk_pr_card(&t)
-            && self.all_prs_merged(&self.tasks[id])
+        if (newly(PR_MERGED) || new_sha) && desk_pr_card(&t) && self.all_prs_merged(&self.tasks[id])
         {
             let sha = self
                 .pr_states

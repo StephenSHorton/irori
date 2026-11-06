@@ -306,7 +306,10 @@ fn a_closed_pr_reopened_and_merged_is_heard() {
     gh.open.lock().unwrap().clear();
     *gh.view.lock().unwrap() = (coord::PR_CLOSED.into(), String::new());
     r.core.poll_desk(REPO).unwrap();
-    assert_eq!(co.pr_state(&card.id, &url(6)).unwrap().state, coord::PR_CLOSED);
+    assert_eq!(
+        co.pr_state(&card.id, &url(6)).unwrap().state,
+        coord::PR_CLOSED
+    );
     // Reopened and merged between two polls.
     merged(&gh, SHA);
     *gh.open.lock().unwrap() = vec![pr(6)];

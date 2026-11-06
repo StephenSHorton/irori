@@ -78,7 +78,10 @@ pub fn is_pr_merge(command: &str) -> bool {
     capture::gitlink::split_commands(command).iter().any(|w| {
         let words: Vec<String> = w
             .iter()
-            .map(|s| s.trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase())
+            .map(|s| {
+                s.trim_matches(|c| c == '"' || c == '\'')
+                    .to_ascii_lowercase()
+            })
             .collect();
         let Some(gh) = words.iter().position(|s| {
             let base = s.rsplit(['/', '\\']).next().unwrap_or(s);
@@ -127,7 +130,9 @@ impl MergeHeard {
             .map(|(c, at)| (at.unix_nano(), c.to_string()))
             .collect();
         let mut h = self.heard.lock().unwrap_or_else(|e| e.into_inner());
-        let new = h.as_ref().is_some_and(|was| now.iter().any(|k| !was.contains(k)));
+        let new = h
+            .as_ref()
+            .is_some_and(|was| now.iter().any(|k| !was.contains(k)));
         match h.as_mut() {
             Some(was) => was.extend(now),
             None => *h = Some(now),
@@ -194,7 +199,12 @@ mod tests {
         ] {
             assert!(is_pr_merge(c), "{c}");
         }
-        for c in ["gh pr view 12", "git commit -m merge", "gh pr list", "echo gh pr merge"] {
+        for c in [
+            "gh pr view 12",
+            "git commit -m merge",
+            "gh pr list",
+            "echo gh pr merge",
+        ] {
             assert!(!is_pr_merge(c), "{c}");
         }
     }
