@@ -183,7 +183,7 @@ function AgentSummary({
           )}
           {spawnedFor && (
             <div className="truncate text-xs text-muted-foreground">
-              Irori started it for #{spawnedFor.short}
+              Irori started it for {cardRef(spawnedFor)}
             </div>
           )}
         </div>

@@ -371,6 +371,38 @@ fn scrub_blocks_a_write_and_names_why() {
     has_not(&out, &["Visible to"]);
 }
 
+/// talk_post on a space's card is a comment that replicates to its members,
+/// so it passes the same fence as board_comment (card #558).
+#[test]
+fn talk_post_on_a_space_card_keeps_the_fence() {
+    let r = rig();
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Speed", "board": "mlg"}),
+    );
+    let before = cs_text(&r, "mlg#1").len();
+    r.h.failsj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "notes in /Users/fixture/x"}),
+        &["nothing was written", "home directory"],
+    );
+    r.h.failsj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "key sk-ant-api03-abcdefghijklmnopqrstuvwxyz012345"}),
+        &["nothing was written", "secret"],
+    );
+    assert_eq!(cs_text(&r, "mlg#1").len(), before);
+    let out = r.h.okj(
+        &call_a(),
+        "talk_post",
+        json!({"conv": "mlg#1", "text": "profiled: the decoder is the slow part"}),
+    );
+    assert!(out.ends_with("\nVisible to: Stephen, Blake"), "{out}");
+}
+
 #[test]
 fn ask_me_requests_a_card_and_the_answer_makes_it() {
     let r = rig();
@@ -491,15 +523,15 @@ fn the_board_tool_lists_shared_boards() {
     has(
         &out,
         &[
-            "Shared boards you may post on",
-            "- mlg \"MLG farming\": Stephen, Blake; your autonomy there: trusted",
+            "Spaces you may post on",
+            "- \"MLG farming\": Stephen, Blake; your autonomy there: trusted\n  boards: mlg \"MLG farming\"",
         ],
     );
     r.h.failsj(
         &call_a(),
         "board_create",
         json!({"title": "x", "board": "nope"}),
-        &["no shared board \"nope\"", "Yours: mlg."],
+        &["no board \"nope\" in a shared space", "Yours: mlg."],
     );
 }
 
@@ -596,7 +628,7 @@ fn a_reply_to_a_bridged_message_goes_on_the_card() {
         &call_a(),
         "send",
         json!({"to": "board:b0/cBlake", "text": "hi", "task_id": p}),
-        &["isn't on that person's board"],
+        &["isn't in a space with that person"],
     );
 }
 
@@ -650,7 +682,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
     );
     has(
         &out,
-        &["Mentioned: blake (on the board), mlg-lead (on the board), gamma (woke)."],
+        &["Mentioned: blake (in the space), mlg-lead (in the space), gamma (woke)."],
     );
     has_not(&out, &["Not delivered"]);
     // The comment row names them by board key. (Board rows keep their
@@ -684,7 +716,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
         "board_comment",
         json!({"task_id": id, "text": "see above", "mention": ["agent:cb1", "Blake"]}),
     );
-    has(&out, &["mlg-lead (on the board)", "Blake (on the board)"]);
+    has(&out, &["mlg-lead (in the space)", "Blake (in the space)"]);
     // Ambiguous and unknown, as on the private board.
     let out = r.h.okj(
         &call_a(),
@@ -705,7 +737,7 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
         "board_comment",
         json!({"task_id": pid, "text": "@Blake?"}),
     );
-    has_not(&out, &["Blake (on the board)"]);
+    has_not(&out, &["Blake (in the space)"]);
 }
 
 /// Card #189: show opens a shared board's card and its comments, which live

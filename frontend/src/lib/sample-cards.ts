@@ -340,11 +340,12 @@ export function sampleCards(now: Date): CardDetail[] {
       waitsOn: { kind: "task", label: `#${short}`, taskId: id, title },
     })
   const ring = [
-    { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
-    { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
+    { id: "sample-card-loop-70", short: "70", tag: "", title: "Talk 4: Spaces" },
+    { id: "sample-card-loop-72", short: "72", tag: "", title: "Talk 8: release Talk" },
     {
       id: "sample-card-loop-71",
       short: "71",
+      tag: "",
       title: "Talk 6: person-to-person DMs",
     },
   ]
@@ -487,7 +488,7 @@ export function sampleCards(now: Date): CardDetail[] {
                 question:
                   "Waiting for your permission: sample-thyme is stopped on a prompt",
                 context:
-                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the board's allow list in Settings › Agents and start a fresh agent.",
+                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the space's allow list in Settings › Agents and start a fresh agent.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",

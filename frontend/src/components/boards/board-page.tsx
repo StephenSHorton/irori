@@ -96,7 +96,7 @@ export function BoardPage({
       <div className="grid gap-2">
         <BackToBoards />
         <p className="text-sm text-muted-foreground">
-          This board isn't here any more: you may have left or forgotten it.
+          This space isn't here any more: you may have left or forgotten it.
         </p>
       </div>
     )
@@ -177,7 +177,7 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
       ? [
           {
             id: "board.pin",
-            title: b.pinned ? "Unpin this board" : "Pin this board",
+            title: b.pinned ? "Unpin this space" : "Pin this space",
             keywords: ["sidebar", "favourite", "favorite"],
             run: () => {
               setError(null)
@@ -191,7 +191,7 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
             ? [
                 {
                   id: "board.rename",
-                  title: "Rename this board",
+                  title: "Rename this space",
                   run: () => {
                     setName(b.name)
                     setRenaming(true)
@@ -203,7 +203,7 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
       : []
   )
   if (!b)
-    return <h1 className="text-lg font-semibold text-ink">Board</h1>
+    return <h1 className="text-lg font-semibold text-ink">Space</h1>
   const rename = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -410,7 +410,7 @@ function BoardActionsMenu({
         <DropdownMenuContent align="end" className="w-auto">
           {onRename && (
             <DropdownMenuItem className="sm:hidden" onClick={onRename}>
-              Rename
+              Rename space
             </DropdownMenuItem>
           )}
           <DropdownMenuItem variant="destructive" onClick={() => setAsking("leave")}>

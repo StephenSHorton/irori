@@ -54,7 +54,7 @@ targets:
         CFBundleShortVersionString: 0.0.0
         CFBundleVersion: "0.0.0"
         NSMicrophoneUsageDescription: Irori turns what you say into text when you hold the mic button.
-        NSLocalNetworkUsageDescription: Irori syncs your boards with your other devices on this network.
+        NSLocalNetworkUsageDescription: Irori syncs your spaces with your other devices on this network.
     entitlements:
       path: irori-app_iOS/irori-app_iOS.entitlements
     scheme:

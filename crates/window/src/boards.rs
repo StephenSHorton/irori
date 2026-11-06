@@ -64,7 +64,8 @@ pub struct BoardSummary {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceBoard {
-    /// Its id: the space's own id for its first board.
+    /// Its id: the space's own id for its first board, and
+    /// [`irori_core::PERSONAL_BOARD`] for Personal's default.
     pub board_id: String,
     pub name: String,
     pub tag: String,
@@ -147,15 +148,17 @@ impl From<irori_core::BoardSummary> for BoardSummary {
             warnings: s.warnings,
             pinned: false,
             pin_rank: 0.0,
-            boards: s
-                .boards
-                .into_iter()
-                .map(|b| SpaceBoard {
-                    board_id: b.board_id,
-                    name: b.name,
-                    tag: b.tag,
-                })
-                .collect(),
+            boards: s.boards.into_iter().map(SpaceBoard::from).collect(),
+        }
+    }
+}
+
+impl From<irori_core::SpaceBoard> for SpaceBoard {
+    fn from(b: irori_core::SpaceBoard) -> Self {
+        Self {
+            board_id: b.board_id,
+            name: b.name,
+            tag: b.tag,
         }
     }
 }
@@ -283,7 +286,7 @@ impl Window {
         self.boards_list()
             .into_iter()
             .find(|b| b.board_id == id)
-            .ok_or_else(|| format!("core: no such board on this device: {id}"))
+            .ok_or_else(|| format!("core: no such space on this device: {id}"))
     }
 
     /// BoardsService.Create: a board between this person's own devices,
@@ -311,7 +314,50 @@ impl Window {
         self.boards_find(space_id)
     }
 
-    /// BoardsService.Rename (owners).
+    /// Renames a board of space `space_id`, its first (the space's id) too
+    /// (card #558): any member may, and the space keeps its own name.
+    /// Refused, like adding one, until every member device reads spaces.
+    pub fn boards_rename_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        name: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .rename_space_board(space_id, board_id, name)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Personal's boards (card #558), its default first: the private log
+    /// holds them, so no [`BoardSummary`] does.
+    pub fn boards_personal(&self) -> Result<Vec<SpaceBoard>, String> {
+        let bs = self.core.personal_boards().map_err(text)?;
+        Ok(bs.into_iter().map(SpaceBoard::from).collect())
+    }
+
+    /// Adds board `name` (tag `tag`) to Personal, and returns its boards.
+    pub fn boards_add_to_personal(&self, name: &str, tag: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .create_personal_board(name, &crate::trim(tag).to_lowercase())
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Renames one of Personal's boards, its default
+    /// ([`irori_core::PERSONAL_BOARD`]) too, and returns its boards.
+    pub fn boards_rename_in_personal(
+        &self,
+        board_id: &str,
+        name: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .rename_personal_board(board_id, name)
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// BoardsService.Rename (owners): the space's own name.
     pub fn boards_rename(&self, board_id: &str, name: &str) -> Result<BoardSummary, String> {
         self.core.rename_board(board_id, name).map_err(text)?;
         self.boards_find(board_id)
@@ -412,7 +458,9 @@ impl Window {
             d.summary.scope = SCOPE_BOARD.into();
             d.summary.scope_label = s.name.clone();
             d.summary.board = s.board_id.clone();
-            d.summary.tag = s.tag.clone();
+            let (tag, space_board) = crate::cards::card_place(t, &s);
+            d.summary.tag = tag.clone();
+            d.summary.space_board = space_board.clone();
             // The fold takes a cancel only from the creator's person or an
             // owner (§5.3); with one person on the board that is always
             // them.
@@ -420,7 +468,8 @@ impl Window {
             d.on_board = Some(CardBoard {
                 id: s.board_id,
                 name: s.name,
-                tag: s.tag,
+                tag,
+                space_board,
                 visible_to: s.people,
                 can_withdraw: !t.withdrawn
                     && (s.owner || t.created_by.starts_with("user:") || t.created_by == user),

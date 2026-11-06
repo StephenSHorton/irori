@@ -118,20 +118,20 @@ pub fn admit(
 ) -> Result<Bundle, String> {
     let st = boards
         .board_store(board_id)
-        .ok_or("this device doesn't hold that board")?;
+        .ok_or("this device doesn't hold that space")?;
     let ver = boards
         .board_verifier(board_id)
-        .ok_or("this device doesn't hold that board")?;
+        .ok_or("this device doesn't hold that space")?;
     let secrets = boards
         .board_secrets(board_id)
-        .ok_or("this device has no secret for that board")?;
+        .ok_or("this device has no secret for that space")?;
     let me = ident.current();
     let m = ver.membership();
     if !m.owner(&me.id) {
-        return Err("only an owner of the board can invite".into());
+        return Err("only an owner of the space can invite".into());
     }
     if m.active(&pin.person_id) {
-        return Err(format!("{name} is already on this board"));
+        return Err(format!("{name} is already in this space"));
     }
     let epoch = ver.epoch(&me.id);
     let row = ident
@@ -142,7 +142,7 @@ pub fn admit(
     let board_epoch = secrets.epoch();
     let (secret, maker) = secrets
         .secret(board_epoch)
-        .ok_or("this device has no secret for the board's epoch")?;
+        .ok_or("this device has no secret for the space's epoch")?;
     let rows = all_rows(&st)?.iter().map(WireRow::of).collect();
     Ok(Bundle {
         board_id: board_id.into(),
@@ -166,7 +166,7 @@ pub fn join(
     b: &Bundle,
 ) -> Result<Vec<Event>, String> {
     if b.board_id != want_board {
-        return Err("the inviter sent a different board than the link names".into());
+        return Err("the inviter sent a different space than the link names".into());
     }
     let evs: Vec<Event> = b.rows.iter().map(WireRow::event).collect();
     let created = evs
@@ -174,18 +174,18 @@ pub fn join(
         .filter(|e| e.kind == kinds::BOARD_CREATED)
         .find_map(|e| decode::<BoardCreated>(&e.payload))
         .filter(|c| c.board_id == b.board_id)
-        .ok_or("the bundle has no board.created for this board")?;
+        .ok_or("the bundle has no board.created for this space")?;
     let secret = Zeroizing::new(
         B64.decode(&b.secret)
-            .map_err(|_| "the board secret is damaged")?,
+            .map_err(|_| "the space's secret is damaged")?,
     );
     boards.open_board(&b.board_id, Some(created.creator.clone()))?;
     let st = boards
         .board_store(&b.board_id)
-        .ok_or("the board didn't open")?;
+        .ok_or("the space didn't open")?;
     let ver = boards
         .board_verifier(&b.board_id)
-        .ok_or("the board didn't open")?;
+        .ok_or("the space didn't open")?;
     // A row the store refuses is recorded there; what matters is whether
     // the membership below came out right.
     let inserted = mesh::boards::insert_board_rows(&st, evs);
@@ -193,17 +193,17 @@ pub fn join(
     let m = ver.membership();
     if !m.created {
         return Err(format!(
-            "the board's log doesn't verify ({})",
+            "the space's log doesn't verify ({})",
             inserted.err().unwrap_or_default()
         ));
     }
     if !m.owner(inviter) {
-        return Err("the person who invited you isn't an owner of this board".into());
+        return Err("the person who invited you isn't an owner of this space".into());
     }
     let mine = m.person(&me.id).filter(|_| m.active(&me.id));
     match mine {
         Some(p) if p.pin.person_pub == me.pub_hex && p.pin.root_device_id == ident.device_id() => {}
-        _ => return Err("the board doesn't list you under the key you proved".into()),
+        _ => return Err("the space doesn't list you under the key you proved".into()),
     }
     let epoch = me.epoch;
     let cert = ident
@@ -225,7 +225,7 @@ pub fn join(
         .map_err(|e| e.to_string())?;
     let secrets = boards
         .board_secrets(&b.board_id)
-        .ok_or("the board's secrets didn't open")?;
+        .ok_or("the space's secrets didn't open")?;
     secrets
         .add(b.board_epoch, &b.maker, &secret)
         .map_err(|e| e.to_string())?;

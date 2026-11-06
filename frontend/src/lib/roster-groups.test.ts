@@ -100,3 +100,10 @@ describe("spawnedKeys", () => {
     expect([...g.blocked].sort()).toEqual(["clover", "fern"])
   })
 })
+
+// Numbers are per board (card #558): a group's ref needs its card's tag.
+test("a group carries its card's tag", () => {
+  const c = { ...card("3", [{ key: "thyme", spawned: true }]), tag: "net" }
+  const g = rosterGroups([a("thyme")], [c])
+  expect(g.onCards[0].tag).toBe("net")
+})

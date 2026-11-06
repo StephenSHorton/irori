@@ -20,7 +20,9 @@ Numbers are claimed in `task.created.num`, so existing rows don't change.
 - When moves come (§3): `task.board {taskId, board, num, by, at}` claims a number on the new board, last writer wins by RowPos, and a row that sorts before `task.created` is kept and applied after, as `links` does (`subtasks.rs:34-60`). A card keeps a history of (tag, number) so an old ref still finds it; `short_was` won't do, since replay stamps only the final tag.
 - Bare `#N` in a space: the card if it is unique across the space, else the ambiguous error naming each `tag#N`.
 - `has_tag` is card-derived (`fold.rs:2000`), so an emptied board breaks `net#4`. It reads every tag the log has named instead.
-- Devices still on an older Irori fold numbers as one run, so two boards' `#1` show as `#1a`/`#1b` there until they update. Cosmetic: the row is accepted and nothing stalls.
+- Devices still on an older Irori fold numbers as one run, so two boards' `#1` show as `#1a`/`#1b` there until they update. The row is accepted and nothing stalls, and those letters still resolve on a newer device: `one_run_claim` (`short.rs`) reads them from the claims, as it does a `#5a` from before this card. An exact ref on a board comes first.
+- A card's tag comes from its board's row, which can land after the card. `space.board.*` is folded for that alone: it stamps the board's cards again, so devices agree with no restart.
+- Personal's rule: a bare `#N` means the default board first, deleted cards included, so a stale `#3` is refused rather than passed to `home#3`. Comment mentions and thread hearers read refs by the same rule (`short_hits`).
 
 ## 3. Held: moves and board deletes
 

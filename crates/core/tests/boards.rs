@@ -446,8 +446,8 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
     );
     wait_for(45, "b gets the second board", || names(&b.core).len() == 2);
     assert_eq!(names(&b.core), names(&a.core));
-    // A card on the new board shows its tag; the space numbers its boards'
-    // cards in one run, and a ref finds it by either device.
+    // A card on the new board shows its tag; each board has its own run,
+    // and a ref finds the card by either device.
     let co = a.core.board_coord(&id).unwrap();
     let by = a.core.board_key(&id, &a.user()).unwrap();
     let on_wind = co.create_task(&by, new_task("boats")).unwrap();
@@ -462,16 +462,17 @@ fn a_second_board_in_a_space_reaches_the_other_device() {
         )
         .unwrap();
     assert_eq!(on_wind.short_ref(), "wind#1");
-    assert_eq!(on_net.short_ref(), "net#2");
+    assert_eq!(on_net.short_ref(), "net#1");
     assert_eq!(on_net.board, sub);
-    assert_eq!(a.core.task_ref("net#2").unwrap(), on_net.id);
-    assert!(a.core.task_ref("wind#2").is_err(), "#2 is on net");
+    assert_eq!(a.core.task_ref("net#1").unwrap(), on_net.id);
+    assert_eq!(a.core.task_ref("wind#1").unwrap(), on_wind.id);
+    assert!(a.core.task_ref("wind#2").is_err(), "wind has no #2");
     let bco = b.core.board_coord(&id).unwrap();
     wait_for(45, "b gets the card on net", || {
         bco.get_task(&on_net.id)
-            .is_some_and(|t| t.short_ref() == "net#2")
+            .is_some_and(|t| t.short_ref() == "net#1")
     });
-    assert_eq!(b.core.task_ref("net#2").unwrap(), on_net.id);
+    assert_eq!(b.core.task_ref("net#1").unwrap(), on_net.id);
     // A board the space doesn't hold is refused.
     let e = co
         .create_task(
@@ -574,7 +575,7 @@ fn a_space_waits_for_devices_that_dont_read_spaces() {
         )
         .unwrap();
     assert!(
-        out.contains("lemmings#2"),
+        out.contains("lemmings#1"),
         "board_create on lemmings: {out}"
     );
     r.core.close().unwrap();
@@ -931,7 +932,7 @@ fn share_and_withdraw() {
         Ok(_) => panic!("a write to the private id was let through"),
     };
     assert!(
-        e.contains("shared to a board") && e.contains("mlg#1") && e.contains("visible to"),
+        e.contains("shared to a space") && e.contains("mlg#1") && e.contains("visible to"),
         "a write to the private id: {e}"
     );
     assert!(
@@ -1312,7 +1313,7 @@ fn board_cards_across_own_devices() {
         .core
         .task_coord(&priv_t.id, std::slice::from_ref(&mac.agent))
     {
-        Err(e) => assert!(e.to_string().contains("shared to a board"), "{e}"),
+        Err(e) => assert!(e.to_string().contains("shared to a space"), "{e}"),
         Ok(_) => panic!("a write to the shared private card on the mac went through"),
     }
 
@@ -1439,7 +1440,7 @@ fn board_create_and_the_bridge_on_the_core() {
     assert_eq!(co.list_tasks(&coord::TaskFilter::default()).len(), 1);
     let out = call(&r.key_a, "board", serde_json::json!({}));
     assert!(
-        out.contains("Shared boards you may post on") && out.contains("- mlg "),
+        out.contains("Spaces you may post on") && out.contains("boards: mlg "),
         "{out}"
     );
     // beta, assigned, hears alpha's comment as a notice, never as a bridged

@@ -139,11 +139,16 @@ impl Fold {
                 if t.is_none()
                     && let Some(short) = parse_short(&id)
                 {
-                    t = self.short_idx.get(&short).and_then(|i| self.tasks.get(i));
-                    if let Some(t) = t {
-                        id = t.id.clone();
-                    } else if let Some(e) = self.ambiguous(&short) {
-                        return Err(search::Error::Other(e.to_string()));
+                    match self.short_hits("", &short).as_slice() {
+                        [one] => {
+                            t = Some(*one);
+                            id = one.id.clone();
+                        }
+                        [] => {}
+                        many => {
+                            let e = super::short::ambiguous(&short, many);
+                            return Err(search::Error::Other(e.to_string()));
+                        }
                     }
                 }
                 let Some(t) = t else {

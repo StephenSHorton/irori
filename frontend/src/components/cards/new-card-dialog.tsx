@@ -24,7 +24,7 @@ import {
   useMentionCandidates,
   type AskRepo,
 } from "@/lib/cards"
-import type { BoardSummary } from "@/lib/boards"
+import type { BoardSummary, SpaceBoard } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
@@ -49,7 +49,8 @@ export function NewCardDialog({
   open,
   onClose,
   onMade,
-  board,
+  board: space,
+  list,
   from,
   spawned,
 }: {
@@ -58,11 +59,16 @@ export function NewCardDialog({
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
+  // The board it goes on when made from one's list (card #558): one inside
+  // `board`, or one of Personal's with no `board`.
+  list?: SpaceBoard
   // A Talk message it's made from (card #390): the form starts filled.
   from?: { title: string; objective: string }
   // Agents Irori started for a card, left out of the picker.
   spawned?: Set<string>
 }) {
+  // The space, showing the board it goes on when one's list is open.
+  const board = space && list ? { ...space, name: list.name, tag: list.tag } : space
   const [title, setTitle] = useState("")
   const [objective, setObjective] = useState("")
   const [doneWhen, setDoneWhen] = useState("")
@@ -117,7 +123,7 @@ export function NewCardDialog({
     setError(null)
     try {
       const res = await cards.create(
-        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId },
+        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId, spaceBoard: list?.boardId },
         attach.files
       )
       reset()
@@ -141,14 +147,15 @@ export function NewCardDialog({
         >
           <DialogHeader>
             <DialogTitle>
-              {board ? `New card on ${plainLine(board.name)}` : "New card"}
+              {board ? `New card in ${plainLine(board.name)}` : "New card"}
             </DialogTitle>
             <DialogDescription>
               {board
-                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
+                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone in the space to take it up.`
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}
+              {!board && list && ` Goes on ${plainLine(list.name)}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">

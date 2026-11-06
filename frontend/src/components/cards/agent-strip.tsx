@@ -1,3 +1,4 @@
+import { cardRef } from "@/components/cards/bits"
 import { faceColor, Identicon } from "@/components/cards/faces"
 import { AgentRef } from "@/gen/models"
 import { agentStatus } from "@/lib/agent-status"
@@ -129,12 +130,12 @@ export function OnCards({
     <div className="grid max-h-56 grid-cols-[minmax(0,1fr)] gap-0.5 overflow-y-auto px-1">
       {groups.map((g) =>
         g.agents.length === 1 ? (
-          row(g.cardId, g.agents[0], `#${g.short}`)
+          row(g.cardId, g.agents[0], cardRef(g))
         ) : (
           <div
             key={g.cardId}
             role="group"
-            aria-label={`#${g.short} ${g.title}`}
+            aria-label={`${cardRef(g)} ${g.title}`}
             className="rounded-md border border-border py-0.5"
           >
             <button
@@ -143,7 +144,7 @@ export function OnCards({
               className="flex w-full min-w-0 items-center gap-1.5 px-1.5 py-0.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
             >
               <span className="shrink-0 font-mono tabular-nums">
-                #{g.short}
+                {cardRef(g)}
               </span>
               <span className="truncate">
                 {g.title} · {g.agents.length} agents

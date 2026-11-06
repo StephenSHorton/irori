@@ -399,12 +399,12 @@ function sampleThreadSeed(now: Date): CardDetail[] {
   ]
 }
 
-// sampleThreads is BoardService.Threads on the sample.
-function sampleThreads(boardId = ""): ThreadSummary[] {
+// sampleThreads is BoardService.Threads on the sample; null is ThreadsAll.
+function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
   const all = sampleState().filter(
     (c) =>
       sampleThreadIds.has(c.id) &&
-      (sampleThreadBoard.get(c.id) ?? "") === boardId
+      (boardId === null || (sampleThreadBoard.get(c.id) ?? "") === boardId)
   )
   const rows = all.map((c) => {
     const replies = c.thread.filter((it) => it.kind === "comment")
@@ -442,6 +442,7 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
+      spaceId: sampleThreadBoard.get(c.id),
       starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
@@ -466,6 +467,13 @@ export const threads = {
     return sampleThreads(boardId)
   },
 
+  // listAll is every thread on this device, each with its spaceId (card
+  // #558): Talk filters them by the pick, as it does channels.
+  async listAll(): Promise<ThreadSummary[]> {
+    if (inWails()) return (await BoardService.ThreadsAll()) ?? []
+    return sampleThreads(null)
+  },
+
   // start is the header box's message as a thread: the agents on the
   // cards it names (#12) and the ones it @mentions hear it, and at once
   // one idle agent or Irori's own agent gets it (card #512).
@@ -486,7 +494,7 @@ export const threads = {
         return BoardService.StartThread(text, mentions, boardId, agentsNow)
       if (boardId)
         throw new Error(
-          "files go with a thread on your own board only; on a shared board, attach them on a card"
+          "files go with a thread in Personal only; in a shared space, attach them on a card"
         )
       return BoardService.StartThreadWithFiles(
         text,
@@ -708,6 +716,17 @@ export function useThreads(boardId = ""): {
   return { threads: value, error }
 }
 
+// useAllThreads is every thread on this device, fresh on every card change.
+export function useAllThreads(): {
+  threads: ThreadSummary[]
+  error: string | null
+} {
+  const load = useCallback(() => threads.listAll(), [])
+  const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  useFresh(reload, error, true)
+  return { threads: value, error }
+}
+
 function sampleChanged() {
   for (const fn of sampleListeners) fn()
 }
@@ -784,6 +803,12 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
   sampleBoardOf = fn
 }
 
+// samplePersonalOf finds one of Personal's sample boards, the same way.
+let samplePersonalOf: (id: string) => { boardId: string; tag: string } | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => { boardId: string; tag: string } | undefined) {
+  samplePersonalOf = fn
+}
+
 // sampleCreate is BoardService.Create on the sample: a new open card,
 // handed to the agent picked or to sample-heron (the free one).
 function sampleCreate(input: NewCardInput): TaskResult {
@@ -791,26 +816,38 @@ function sampleCreate(input: NewCardInput): TaskResult {
   if (!title) throw new Error("coord: invalid input: give the card a title")
   const now = new Date().toISOString()
   const cs = sampleState()
-  const top = Math.max(0, ...cs.map((c) => parseInt(c.short, 10) || 0))
   // From a board's page (card #126): on that board, unheld unless picked.
   const board = input.board ? sampleBoardOf(input.board) : undefined
+  // The list it was made from (card #558), each with its own numbers.
+  const list = board
+    ? board.boards?.find((x) => x.boardId === input.spaceBoard)
+    : input.spaceBoard
+      ? samplePersonalOf(input.spaceBoard)
+      : undefined
+  const tag = list?.tag ?? board?.tag ?? ""
+  const top = Math.max(
+    0,
+    ...cs.filter((c) => (c.tag ?? "") === tag).map((c) => parseInt(c.short, 10) || 0)
+  )
   const to = input.assignTo || (board ? "" : "sample-heron")
   const onBoard = board
     ? {
         scope: "board",
         scopeLabel: board.name,
         board: board.boardId,
-        tag: board.tag,
+        tag,
+        spaceBoard: list?.boardId ?? board.boardId,
         onBoard: {
           id: board.boardId,
           name: board.name,
-          tag: board.tag,
+          tag,
+          spaceBoard: list?.boardId ?? board.boardId,
           visibleTo: board.people,
           canWithdraw: true,
           canTransfer: true,
         },
       }
-    : {}
+    : { board: "", onBoard: null, tag, spaceBoard: list?.boardId ?? "" }
   const c = {
     ...cs[0],
     id: `sample-new-${Date.now()}`,
@@ -998,6 +1035,7 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
+  boards?: { boardId: string; name: string; tag: string }[]
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and
@@ -1022,7 +1060,7 @@ export function samplePreview(
 ): SharePreviewShape {
   const c = sampleCard(id)
   if (c.scope === "board")
-    throw new Error("coord: invalid input: the card is already on a board")
+    throw new Error("coord: invalid input: the card is already in a space")
   if (c.parent)
     throw new Error(
       `coord: invalid input: #${c.short} is a subtask of #${c.parent.short}: share #${c.parent.short} and its subtasks go with it`
@@ -1126,10 +1164,12 @@ export function sampleShare(id: string, board: SampleBoard): string {
     scopeLabel: board.name,
     board: board.boardId,
     tag: board.tag,
+    spaceBoard: board.boardId,
     onBoard: {
       id: board.boardId,
       name: board.name,
       tag: board.tag,
+      spaceBoard: board.boardId,
       visibleTo: board.people,
       canWithdraw: true,
       canTransfer: true,
@@ -1156,7 +1196,7 @@ export function sampleTransferOwner(id: string, to: string): string {
   const c = sampleCard(id)
   if (!c.onBoard)
     throw new Error(
-      `coord: invalid input: ${id} is a private card: only a card on a shared board changes owner`
+      `coord: invalid input: ${id} is a private card: only a card in a shared space changes owner`
     )
   if (c.blockers.some((b) => !b.resolved && b.transfer))
     throw new Error(
@@ -2007,7 +2047,7 @@ function sampleIdleReport(idle: number): IdleReport {
         id: "sample-gap-1",
         short: "wind#87",
         title: "Slot 1 rig",
-        why: "nobody on this board is free",
+        why: "nobody in this space is free",
       }),
       UnofferedCard({
         id: "sample-gap-2",

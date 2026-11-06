@@ -597,7 +597,7 @@ impl Fold {
             return Err(not_allowed("only the person pauses a card"));
         }
         if self.on_board {
-            return Err(invalid("a shared board's card can't be paused"));
+            return Err(invalid("a shared space's card can't be paused"));
         }
         let Some(t) = self.tasks.get(id).cloned() else {
             return Err(not_found(format!("task {}", quote(id))));
@@ -685,7 +685,7 @@ impl Fold {
         }
         if self.on_board {
             return Err(invalid(
-                "a card on a shared board is withdrawn, not deleted",
+                "a card in a shared space is withdrawn, not deleted",
             ));
         }
         let Some(t) = self.tasks.get(id).cloned() else {

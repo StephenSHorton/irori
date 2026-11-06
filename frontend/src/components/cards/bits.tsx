@@ -430,7 +430,7 @@ export function OwnerChip({ card }: { card: OwnerCard }) {
           ? `Yours: you decide Done and answer its questions`
           : o.known
             ? `${name}'s card: they decide Done and answer its questions`
-            : "Made by someone who is no longer on the board"
+            : "Made by someone who is no longer in the space"
       }
     >
       <UserIcon className="size-3" aria-hidden />

@@ -1109,14 +1109,14 @@ function PersonColor({ open }: { open: boolean }) {
   return (
     <div className="grid gap-1 border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm">Your colour on shared boards</span>
+        <span className="text-sm">Your colour in shared spaces</span>
         <span className="flex items-center gap-1">
           {DeviceColors.map((c) => (
             <button
               key={c}
               type="button"
               title={c}
-              aria-label={`${c} on shared boards`}
+              aria-label={`${c} in shared spaces`}
               aria-pressed={color === c}
               className={cn(
                 "size-4 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring",

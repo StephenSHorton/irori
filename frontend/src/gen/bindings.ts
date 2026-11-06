@@ -137,6 +137,8 @@ export const commands = {
 	 *  board's, or with `board_id` that shared board's (card #134).
 	 */
 	boardThreads: (boardId: string) => __TAURI_INVOKE<ThreadSummary[]>("board_threads", { boardId }),
+	/**  Every thread on this device, each with its space (card #558). */
+	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
 	/**  Resolve on a thread: the person is done with it. */
@@ -160,6 +162,10 @@ export const commands = {
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
 	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
+	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
+	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -798,9 +804,13 @@ export type CardBlocker = {
 
 /**  The shared board a card lives on (v0.5 §8). */
 export type CardBoard = {
+	/**  The space's id. */
 	id: string,
 	name: string,
+	/**  The tag of the board it's on, which is the card's. */
 	tag: string,
+	/**  The board in the space it's on (see [`CardSummary::space_board`]). */
+	spaceBoard: string,
 	visibleTo: string[],
 	canWithdraw: boolean,
 	/**
@@ -922,6 +932,11 @@ export type CardRead = {
 export type CardRef = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), so `short` alone
+	 *  doesn't name it. "": Personal's default board.
+	 */
+	tag: string,
 	title: string,
 };
 
@@ -971,6 +986,8 @@ export type CardRound = {
 export type CardSubtask = {
 	id: string,
 	short: string,
+	/**  As [`CardRef::tag`]. */
+	tag: string,
 	title: string,
 	state: TaskState,
 	holder: CardHolder,
@@ -988,7 +1005,14 @@ export type CardSummary = {
 	repoKey: string,
 	scope: string,
 	scopeLabel: string,
+	/**  The space it's in, by id (the space's first board has this id too). */
 	board?: string,
+	/**
+	 *  The board in that space it's on (card #558): the space's id for the
+	 *  first board, or a board this device hasn't heard of yet. Personal's
+	 *  default is [`irori_core::PERSONAL_BOARD`], `board` staying empty.
+	 */
+	spaceBoard?: string,
 	/**  The work/personal side it's on (card #494); empty for any side. */
 	side?: string,
 	/**  Why it waits on its side (card #495): "no device here runs Work". */
@@ -1686,6 +1710,12 @@ export type NewCardInput = {
 	 */
 	board?: string,
 	/**
+	 *  The board inside that space it goes on (card #558), by id: "" or
+	 *  the space's own id for its first board. With `board` empty, one of
+	 *  Personal's, whose default is "" or [`irori_core::PERSONAL_BOARD`].
+	 */
+	spaceBoard?: string,
+	/**
 	 *  Files pasted, dropped or picked in the form (card #124): they go on
 	 *  the card as the person's first comment, and with the hand-out.
 	 */
@@ -1811,6 +1841,8 @@ export type NotificationAsk = {
 export type NotificationCard = {
 	id: string,
 	short: string,
+	/**  Its board's tag: numbers are per board (card #558). */
+	tag: string,
 	title: string,
 };
 
@@ -2042,7 +2074,10 @@ export type SharedCopy = {
 
 /**  One board of a space (card #392). */
 export type SpaceBoard = {
-	/**  Its id: the space's own id for its first board. */
+	/**
+	 *  Its id: the space's own id for its first board, and
+	 *  [`irori_core::PERSONAL_BOARD`] for Personal's default.
+	 */
 	boardId: string,
 	name: string,
 	tag: string,
@@ -2140,8 +2175,9 @@ export type TalkConversation = {
 	 */
 	agentsNow: boolean,
 	/**
-	 *  The shared space a channel is in (card #461); absent for Personal,
-	 *  DMs and threads. Matches the switcher's space id (its first board's).
+	 *  The shared space a channel or thread is in (card #461, #558); absent
+	 *  for Personal and DMs. Matches the switcher's space id (its first
+	 *  board's).
 	 */
 	spaceId?: string,
 };
@@ -2286,6 +2322,8 @@ export type TermMsg = { t: "title"; title: string } | { t: "bell" } |
 export type ThreadCard = {
 	id: string,
 	short: string,
+	/**  As [`ThreadSummary::tag`]. */
+	tag: string,
 	title: string,
 	state: string,
 };
@@ -2294,6 +2332,11 @@ export type ThreadCard = {
 export type ThreadSummary = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), and the channel
+	 *  pointer says `mlg#5`. "": a private thread.
+	 */
+	tag: string,
 	title: string,
 	/**  What the person asked, in full. */
 	text: string,
@@ -2328,6 +2371,11 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  The shared space it is in, or a private thread is about (card #558);
+	 *  absent for Personal. Matches the switcher's space id.
+	 */
+	spaceId?: string,
 };
 
 /**  Who an action's notice went to. */

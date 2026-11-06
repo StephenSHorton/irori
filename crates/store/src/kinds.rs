@@ -281,7 +281,9 @@ kinds! {
     // and its id is that board's. These add more boards to it; the first
     // board is the space's own (board.created). An Irori before spaces
     // refuses them, so a space writes them only once every member device
-    // said it reads spaces (mesh SPACES_PROTOCOL).
+    // said it reads spaces (mesh SPACES_PROTOCOL). Personal's boards are
+    // these rows in the private log (card #558), where an older Irori
+    // stores them and folds past them, so they need no gate there.
     /// `{boardId, name, tag, by, at}`: another board in the space.
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.

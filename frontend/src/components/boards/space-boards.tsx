@@ -2,11 +2,15 @@
 // list of tasks. SpaceBoards is what a space opens on: a tile per board,
 // each opening that board's list, and Add board. ListHeaderBar is the
 // header over one open board: which space it's in, and renaming the
-// board. Leave, Invite and Space settings stay on the space.
+// board. Leave, Invite and Space settings stay on the space. Personal has
+// the same page and list, over the person's own log.
 
 import { useState, type FormEvent } from "react"
 import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 
+import { BoardView, ScopeOwn } from "@/components/cards/board-view"
+import type { Filter } from "@/components/cards/card-grid"
+import type { BoardView as View } from "@/components/canvas/switch"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -19,13 +23,14 @@ import {
   boards as actions,
   MaxBoardName,
   reloadBoards,
+  usePersonalBoards,
   type BoardSummary,
   type SpaceBoard,
 } from "@/lib/boards"
-import type { CardSummary } from "@/lib/cards"
+import type { CardSummary, DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
-import { boardsOf } from "@/lib/spaces"
+import { boardsOf, cardsOnPersonal, Personal } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 
 import { boardSegs, RecentCards, StateBar } from "./boards-page"
@@ -86,7 +91,7 @@ function BoardTile({
 }
 
 // AddBoard is + Add board and its small form.
-function AddBoard({ spaceId }: { spaceId: string }) {
+function AddBoard({ onAdd }: { onAdd: (name: string, tag: string) => Promise<unknown> }) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
   const [tag, setTag] = useState("")
@@ -95,11 +100,10 @@ function AddBoard({ spaceId }: { spaceId: string }) {
     e.preventDefault()
     setError(null)
     try {
-      await actions.addToSpace(spaceId, name, tag)
+      await onAdd(name, tag)
       setAdding(false)
       setName("")
       setTag("")
-      await reloadBoards()
     } catch (err) {
       setError(errorText(err))
     }
@@ -160,7 +164,14 @@ export function SpaceBoards({
     <section className="grid gap-2" aria-label="Boards in this space">
       <div className="flex items-center gap-2">
         <h2 className="px-1 text-base font-semibold">Boards</h2>
-        {b.ready && <AddBoard spaceId={b.boardId} />}
+        {b.ready && (
+          <AddBoard
+            onAdd={async (name, tag) => {
+              await actions.addToSpace(b.boardId, name, tag)
+              await reloadBoards()
+            }}
+          />
+        )}
       </div>
       <ul className={tiles}>
         {list.map((x, i) => (
@@ -180,11 +191,7 @@ export function SpaceBoards({
 // PersonalBoards is Personal's page: its boards, private to you. Nobody can
 // be invited, so it has no people or settings of its own.
 export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
-  const own = cards.filter((c) => !c.board)
-  const list: SpaceBoard[] = [
-    { boardId: "", name: "My cards", tag: "" },
-    { boardId: "sample-personal-home", name: "House", tag: "home" },
-  ]
+  const { boards: list, error, reload } = usePersonalBoards()
   return (
     <section className="grid gap-2" aria-label="Boards in Personal">
       <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
@@ -192,18 +199,22 @@ export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
       </p>
       <div className="flex items-center gap-2">
         <h2 className="px-1 text-base font-semibold">Boards</h2>
-        <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12.5px]">
-          + Add board
-        </Button>
+        <AddBoard
+          onAdd={async (name, tag) => {
+            await actions.addToPersonal(name, tag)
+            await reload()
+          }}
+        />
       </div>
+      {error && <p className="text-xs text-destructive">{plainLine(error)}</p>}
       <ul className={tiles}>
         {list.map((x, i) => (
           <BoardTile
             key={x.boardId}
             board={x}
             isDefault={i === 0}
-            cards={i === 0 ? own : []}
-            onOpen={() => go({ kind: "home" })}
+            cards={cardsOnPersonal(cards, x.boardId)}
+            onOpen={() => go({ kind: "board", id: Personal, board: x.boardId })}
           />
         ))}
       </ul>
@@ -211,42 +222,180 @@ export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
   )
 }
 
-// ListHeaderBar is the header over one board's list: the space it's in
-// (back to the space's page), its name and tag, and Rename.
+// PersonalList is one of Personal's boards open: the same list a space's
+// board has, over the person's own cards on it.
+export function PersonalList({
+  list,
+  cards,
+  done,
+  filter,
+  onFilter,
+  view,
+  onView,
+  query,
+  onQuery,
+  selected,
+  onOpen,
+  now,
+}: {
+  list: string
+  cards: CardSummary[]
+  done: DoneState
+  filter: Filter
+  onFilter: (f: Filter) => void
+  view: View
+  onView: (v: View) => void
+  query: string
+  onQuery: (q: string) => void
+  selected: string
+  onOpen: (id: string) => void
+  now: Date
+}) {
+  return (
+    <BoardView
+      scope={ScopeOwn}
+      cards={cardsOnPersonal(cards, list)}
+      done={done}
+      filter={filter}
+      onFilter={onFilter}
+      view={view}
+      onView={onView}
+      query={query}
+      onQuery={onQuery}
+      selected={selected}
+      onOpen={onOpen}
+      now={now}
+      empty={
+        <p className="px-1 text-[12.5px] text-muted-foreground">
+          No cards on this board yet. Make one with New card.
+        </p>
+      }
+    />
+  )
+}
+
+// PersonalHeaderBar is ListHeader over one of Personal's boards.
+export function PersonalHeaderBar({ list }: { list: string }) {
+  const { boards: all, reload } = usePersonalBoards()
+  const x = all.find((b) => b.boardId === list)
+  if (!x) return <h1 className="text-lg font-semibold text-ink">Personal</h1>
+  return (
+    <ListHeader
+      space="Personal"
+      onBack={() => go({ kind: "boards" })}
+      list={x}
+      save={async (name) => {
+        await actions.renameInPersonal(x.boardId, name)
+        await reload()
+      }}
+    />
+  )
+}
+
+// ListHeaderBar is ListHeader over one board in a shared space.
 export function ListHeaderBar({ space: b, list: x }: { space: BoardSummary; list: SpaceBoard }) {
   return (
+    <ListHeader
+      space={plainLine(b.name) || "(unnamed)"}
+      onBack={() => go({ kind: "board", id: b.boardId })}
+      list={x}
+      save={async (name) => {
+        await actions.renameInSpace(b.boardId, x.boardId, name)
+        await reloadBoards()
+      }}
+    />
+  )
+}
+
+// ListHeader is the header over one board's list: the space it's in (back
+// to the space's page), its name and tag, and Rename, which any member may
+// use (card #558). The space keeps its own name.
+function ListHeader({
+  space,
+  onBack,
+  list: x,
+  save,
+}: {
+  space: string
+  onBack: () => void
+  list: SpaceBoard
+  save: (name: string) => Promise<void>
+}) {
+  const [renaming, setRenaming] = useState(false)
+  const [name, setName] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const start = () => {
+    setError(null)
+    setName(x.name)
+    setRenaming(true)
+  }
+  const rename = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      await save(name)
+      setRenaming(false)
+    } catch (err) {
+      setError(errorText(err))
+    }
+  }
+  return (
     <div className="flex min-w-0 flex-1 items-center gap-x-1.5">
-      <Button variant="ghost" size="sm" className="px-1.5" onClick={() => go({ kind: "board", id: b.boardId })}>
-        {plainLine(b.name) || "(unnamed)"}
+      <Button variant="ghost" size="sm" className="px-1.5" onClick={onBack}>
+        {space}
       </Button>
       <ChevronRightIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-      <h1 className="flex min-w-0 items-baseline gap-2 text-lg font-semibold text-ink">
-        <span className="truncate">{plainLine(x.name) || "(unnamed)"}</span>
-        <span className="font-mono text-sm font-normal text-muted-foreground">{plainLine(x.tag)}#</span>
-      </h1>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-          Rename
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="sm:hidden"
-                aria-label="Board actions"
-                title="Board actions"
-              />
-            }
-          >
-            <EllipsisIcon aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-auto">
-            <DropdownMenuItem>Rename</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </span>
+      {renaming ? (
+        <form className="flex gap-1.5" onSubmit={rename}>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={MaxBoardName}
+            aria-label="Board name"
+            className="h-8 w-40 sm:w-64"
+            autoFocus
+          />
+          <Button type="submit" size="sm" className="h-8" disabled={!name.trim()}>
+            Save
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setRenaming(false)}>
+            Cancel
+          </Button>
+        </form>
+      ) : (
+        <h1 className="flex min-w-0 items-baseline gap-2 text-lg font-semibold text-ink">
+          <span className="truncate">{plainLine(x.name) || "(unnamed)"}</span>
+          {x.tag && (
+            <span className="font-mono text-sm font-normal text-muted-foreground">{plainLine(x.tag)}#</span>
+          )}
+        </h1>
+      )}
+      {error && <span className="truncate text-xs text-destructive">{plainLine(error)}</span>}
+      {!renaming && (
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={start}>
+            Rename
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="sm:hidden"
+                  aria-label="Board actions"
+                  title="Board actions"
+                />
+              }
+            >
+              <EllipsisIcon aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto">
+              <DropdownMenuItem onClick={start}>Rename</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
+      )}
     </div>
   )
 }

@@ -86,7 +86,7 @@ export function AppHeader({
               size="sm"
               onClick={onNewBoard}
               aria-label="New space"
-              title="Make a board for a project, or join one with an invite"
+              title="Make a space for a group of people, or join one with an invite"
             >
               <PlusIcon aria-hidden className="sm:hidden" />
               <span className="hidden sm:inline">+ New space</span>
@@ -99,7 +99,9 @@ export function AppHeader({
                 aria-label="New card"
                 title={
                   section.kind === "board"
-                    ? "Make a card on this board"
+                    ? section.board
+                      ? "Make a card on this board"
+                      : "Make a card in this space"
                     : "Make a card for an agent to pick up"
                 }
               >

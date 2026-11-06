@@ -302,6 +302,10 @@ impl Services {
                 self.fold_card_key(&ev);
             } else if ev.kind == kinds::PERSON_PROFILE {
                 self.follow_person_name();
+            } else if ev.kind == kinds::SPACE_BOARD_CREATED || ev.kind == kinds::SPACE_BOARD_RENAMED
+            {
+                // Personal's boards, from another of the person's devices.
+                self.boards.moved();
             }
         }
     }
@@ -696,7 +700,17 @@ impl Services {
         let coords: Vec<Arc<Coord>> = if !tag.is_empty() {
             // A tag two boards share (made on two devices apart) names a
             // card only when one of them has it, like a bare number (B3).
-            let tagged = self.boards_by_tag(&tag);
+            let mut tagged: Vec<Arc<Coord>> = self
+                .boards_by_tag(&tag)
+                .iter()
+                .map(|b| b.coord().clone())
+                .collect();
+            if self
+                .personal_boards()
+                .is_ok_and(|bs| bs.iter().any(|b| b.tag == tag))
+            {
+                tagged.push(self.coord.clone());
+            }
             match tagged.len() {
                 0 => {
                     return Err(coord::Error::new(
@@ -704,8 +718,8 @@ impl Services {
                         format_args!("no board here is tagged {}", q(&tag)),
                     ));
                 }
-                1 => return tagged[0].coord().task_ref(v),
-                _ => tagged.iter().map(|b| b.coord().clone()).collect(),
+                1 => return tagged[0].task_ref(v),
+                _ => tagged,
             }
         } else {
             std::iter::once(self.coord.clone())
@@ -838,8 +852,8 @@ impl Services {
         let sc = self.shared_copy_of(task_id).filter(|sc| !sc.withdrawn)?;
         let b = self.board(&sc.board_id).ok()?; // the board went just now
         Some(Error::Shared(format!(
-            "core: the card was shared to a board: it was shared to {} as {} (visible to: {}), and this private card is closed; write to {} instead",
-            or(&sc.board_name, "a board"),
+            "core: the card was shared to a space: it was shared to {} as {} (visible to: {}), and this private card is closed; write to {} instead",
+            or(&sc.board_name, "a space"),
             sc.reference,
             self.board_people(&b).join(", "),
             sc.reference
@@ -850,7 +864,7 @@ impl Services {
     fn shareable(&self, task_id: &str) -> Result<Task> {
         let Some(t) = self.coord.get_task(task_id) else {
             if self.route(task_id).is_ok_and(|(id, _)| !id.is_empty()) {
-                return Err(Error::coord(CK::Invalid, "the card is already on a board"));
+                return Err(Error::coord(CK::Invalid, "the card is already in a space"));
             }
             return Err(Error::coord(
                 CK::NotFound,
@@ -955,7 +969,7 @@ impl Services {
             return Err(Error::coord(
                 CK::BadState,
                 format_args!(
-                    "board {} isn't ready on this device yet",
+                    "space {} isn't ready on this device yet",
                     or(&m.name, board_id)
                 ),
             ));
@@ -1190,7 +1204,7 @@ impl Services {
                     return Err(Error::coord(
                         CK::NotAllowed,
                         format_args!(
-                            "{} has a subtask someone else added, {}, which only its creator or a board owner withdraws; {} stays on the board",
+                            "{} has a subtask someone else added, {}, which only its creator or a space owner withdraws; {} stays in the space",
                             t.short_ref(),
                             k.short_ref(),
                             t.short_ref()
@@ -1214,7 +1228,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "{task_id} is a private card: only a card on a shared board changes owner"
+                    "{task_id} is a private card: only a card in a shared space changes owner"
                 ),
             ));
         }
@@ -1224,7 +1238,7 @@ impl Services {
 
     /// Withdraws one board card and carries its work on privately.
     fn withdraw_one(&self, co: &Coord, task_id: &str) -> Result<Option<Task>> {
-        let t = co.withdraw(&self.person_actor(), task_id, "withdrawn from the board")?;
+        let t = co.withdraw(&self.person_actor(), task_id, "withdrawn from the space")?;
         let user = self.user_sender().key;
         let locals: Vec<String> = t
             .holders

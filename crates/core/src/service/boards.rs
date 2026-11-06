@@ -77,7 +77,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
     pub(crate) fn no_board(id: &str) -> Error {
-        Error::NoBoard(format!("core: no such board on this device: {id}"))
+        Error::NoBoard(format!("core: no such space on this device: {id}"))
     }
     pub(crate) fn coord(kind: CK, detail: impl std::fmt::Display) -> Error {
         Error::Coord(coord::Error::new(kind, detail))
@@ -424,12 +424,16 @@ pub(crate) fn each_row(st: &Store, mut f: Filter, mut fun: impl FnMut(&Event)) -
 }
 
 /// Whether a board row changes what the boards list shows (card #233): a
-/// resync, or a board.* / member.* row (name, tag, ready, people, devices).
+/// resync, a board.* / member.* row (name, tag, ready, people, devices), or
+/// a space.board.* row (the boards in a space, card #558).
 /// A board opened from another device's board.joined is empty until its
 /// rows arrive, so the window has to read the list again as they land.
 /// agent.card rows don't change the list and come often, so they don't.
 pub(crate) fn summary_row(ev: &Event) -> bool {
-    ev.seq == 0 || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
+    ev.seq == 0
+        || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
+        || ev.kind == kinds::SPACE_BOARD_CREATED
+        || ev.kind == kinds::SPACE_BOARD_RENAMED
 }
 
 pub(crate) fn created_task_id(ev: &Event) -> String {
@@ -977,7 +981,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -988,8 +992,8 @@ impl Services {
                 "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
             ));
         }
-        let other = self.tag_holder(tag);
-        if !other.is_empty() {
+        // A board inside a space holds its tag too (card #558).
+        if let Some(other) = self.board_tag_holder(tag) {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
@@ -1096,7 +1100,7 @@ impl Services {
             return Err(Error::coord(
                 CK::Invalid,
                 format_args!(
-                    "a board name is 1 to {} characters",
+                    "a space name is 1 to {} characters",
                     irori_identity::membership::MAX_BOARD_NAME
                 ),
             ));
@@ -1106,14 +1110,14 @@ impl Services {
         if !b.verifier.membership().owner(&me) {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("only an owner renames board {board_id}"),
+                format_args!("only an owner renames this space"),
             ));
         }
         let epoch = b.verifier.epoch(&me);
         if epoch != self.ident.current().epoch {
             return Err(Error::coord(
                 CK::NotAllowed,
-                "this device's person key isn't the board's newest yet",
+                "this device's person key isn't the space's newest yet",
             ));
         }
         let row = self.ident.board_renamed_row(epoch, name, (self.now)())?;
@@ -1429,6 +1433,17 @@ impl Services {
                             super::spaces::board_tag_in(&st, board)
                         })
                     }),
+                    no_cards: Some({
+                        let (s, id) = (Arc::downgrade(self), b.id.clone());
+                        Arc::new(move || s.upgrade().is_some_and(|s| s.is_hidden_space(&id)))
+                    }),
+                    board_tags: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move || {
+                            st.upgrade()
+                                .map_or_else(Vec::new, |st| super::spaces::board_tags_in(&st))
+                        })
+                    }),
                     ..Default::default()
                 },
             )
@@ -1740,7 +1755,7 @@ impl Services {
             return Err(Error::coord(
                 CK::NotAllowed,
                 format_args!(
-                    "{} is not a person on this board",
+                    "{} is not a person in this space",
                     gocompat::quote::quote(key)
                 ),
             ));
@@ -2174,7 +2189,7 @@ impl Services {
         if !input.repo_key.trim().is_empty() {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board ask goes to every member's free agents; leave the repo out",
+                "a space ask goes to every member's free agents; leave the repo out",
             ));
         }
         let b = self.board(board_id)?;
@@ -2502,7 +2517,7 @@ impl super::Core {
             let br = b.coord().idle_report(&s.board_ask_agents(&b));
             for mut u in br.unoffered {
                 if br.idle == 0 {
-                    u.why = "nobody on this board takes offered cards".into();
+                    u.why = "nobody in this space takes offered cards".into();
                 }
                 r.unoffered.push(u);
             }

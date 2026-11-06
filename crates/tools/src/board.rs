@@ -1201,7 +1201,7 @@ impl Inner {
         });
         let Some((b, cards)) = board else {
             return Err(err_text(
-                "for names who decides on a shared board's card; a private card's questions are for your person, so leave for out.",
+                "for names who decides on a shared space's card; a private card's questions are for your person, so leave for out.",
             ));
         };
         let people: Vec<_> = cards
@@ -2597,7 +2597,7 @@ fn release_request(s: &Inner, c: &Caller, res: &str, why: &str) -> Option<String
     let rt = s.b.router()?;
     let (_, cm, _) = rt.request_release(&c.sender.key, res, why).ok()?;
     let mut out = format!(
-        "{} isn't yours: another person's agent holds it on a shared board, and nobody steals another person's lease. Asked its holder to release it on {} (comment:{}); they hear at their next turn, and the lease is yours to take once they release it or it expires.",
+        "{} isn't yours: another person's agent holds it in a shared space, and nobody steals another person's lease. Asked its holder to release it on {} (comment:{}); they hear at their next turn, and the lease is yours to take once they release it or it expires.",
         one_line(res, MAX_FIELD_RUNES),
         s.short_of(&cm.task_id),
         cm.id

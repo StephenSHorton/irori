@@ -444,12 +444,12 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 text: Box::new(move |name| {
                     if !agents_now {
                         return format!(
-                            "{name} started a thread on this board ({refs}). It's a conversation, not a card:\n{objective}\nYou see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {short} only if you have something to add or a correction. {}",
+                            "{name} started a thread in this space ({refs}). It's a conversation, not a card:\n{objective}\nYou see it because it names your card or you. \"Agents answer now\" is off for it, so no agent was woken or handed it. A reply is optional: answer in the thread with board_comment {short} only if you have something to add or a correction. {}",
                             coord::THREAD_NOT_YOURS
                         );
                     }
                     format!(
-                        "{name} started a thread on this board ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {}",
+                        "{name} started a thread in this space ({refs}). It's a question or a conversation, not a card:\n{objective}\nYou hear it because it names your card or you. If you can answer, answer in the thread with board_comment {short}; if it isn't about your work, leave it. Nobody waits on you: Irori gives it to another agent now too, and you can still add to it later. {}",
                         coord::THREAD_NOT_YOURS
                     )
                 }),
@@ -466,7 +466,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                     "{name} asks the room ({refs}){why}:\n{objective}\nIf you can take it on now, ask_claim {short}: one agent takes it, and you hear if someone else got there first. If you're busy, leave it."
                 );
                 if ask_me {
-                    s.push_str(" Your autonomy on this board is Ask me: a new card from it is a request to your person first.");
+                    s.push_str(" Your autonomy in this space is Ask me: a new card from it is a request to your person first.");
                 }
                 s
             }),
@@ -495,7 +495,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                 wake: true,
                 text: Box::new(move |name| {
                     format!(
-                        "{name} started a thread on this board ({refs}), and Irori handed it to you. It's a question or a conversation, not a card:\n{objective}\nAnswer it in the thread with board_comment {short}: read it first, in case an agent already answered. {} If you can't answer it now, board_leave {short} and it goes to the next idle agent; ending your turn without answering does the same.",
+                        "{name} started a thread in this space ({refs}), and Irori handed it to you. It's a question or a conversation, not a card:\n{objective}\nAnswer it in the thread with board_comment {short}: read it first, in case an agent already answered. {} If you can't answer it now, board_leave {short} and it goes to the next idle agent; ending your turn without answering does the same.",
                         coord::THREAD_NOT_YOURS
                     )
                 }),
@@ -512,7 +512,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
                     "{name} asks the room ({refs}), and Irori handed it to you:\n{objective}\nYou hold it: no ask_claim needed. Take it on, or board_leave {short} and it goes to the next idle agent; ending your turn without touching it does the same."
                 );
                 if ask_me {
-                    s.push_str(" Your autonomy on this board is Ask me: a new card from it is a request to your person first.");
+                    s.push_str(" Your autonomy in this space is Ask me: a new card from it is a request to your person first.");
                 }
                 s
             }),
@@ -542,14 +542,19 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         }
     }
 
-    /// The tools' view of one board.
+    /// The tools' view of a space's first board: its own name, which a
+    /// space not ready yet doesn't have.
     fn tools_board(&self, s: super::boards::BoardSummary) -> tools::BoardInfo {
+        let first = s.boards.first().map(|b| b.name.clone());
         tools::BoardInfo {
             board_id: s.board_id,
             tag: s.tag,
-            name: s.name,
+            name: first
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| s.name.clone()),
             people: s.people,
             space_board: String::new(),
+            space_name: s.name,
         }
     }
 }
@@ -725,7 +730,7 @@ impl tools::SharedBoards for super::ToolsView {
         self.0
             .board_list()
             .into_iter()
-            .filter(|s| s.ready)
+            .filter(|s| s.ready && !self.0.is_hidden_space(&s.board_id))
             .flat_map(|s| {
                 // Each board inside a space is its own entry on the
                 // space's log (card #392).
@@ -747,7 +752,24 @@ impl tools::SharedBoards for super::ToolsView {
     }
 
     fn board_of(&self, task_id: &str) -> Option<tools::BoardInfo> {
-        self.0.board_of(task_id).map(|s| self.0.tools_board(s))
+        let s = self.0.board_of(task_id)?;
+        let inner = self
+            .0
+            .route(task_id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(task_id))
+            .and_then(|t| s.boards.iter().skip(1).find(|b| b.board_id == t.board))
+            .cloned();
+        let own = self.0.tools_board(s);
+        Some(match inner {
+            Some(b) => tools::BoardInfo {
+                tag: b.tag,
+                name: b.name,
+                space_board: b.board_id,
+                ..own
+            },
+            None => own,
+        })
     }
 
     fn board_coord(
