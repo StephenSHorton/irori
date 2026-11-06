@@ -12,6 +12,7 @@ import { GitMergeIcon, PlusIcon, Trash2Icon } from "lucide-react"
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Loading } from "@/components/ui/loading"
 import { Switch } from "@/components/ui/switch"
 import {
   deskActions,
@@ -292,7 +293,7 @@ function DeskEditor({
 }
 
 export function DesksPane({ open }: { open: boolean }) {
-  const { desks } = useDesks()
+  const { desks, loaded } = useDesks()
   const roster = useRoster()
   const { devices } = useDevices(open)
   const [editing, setEditing] = useState("")
@@ -340,82 +341,98 @@ export function DesksPane({ open }: { open: boolean }) {
         you change these: agents can&apos;t. Tags and releases are never the
         desk&apos;s.
       </p>
-      {shown.map((d) => {
-        const s = d.settings
-        const on = s.enabled && s.takesPrs
-        const open = editing === s.repoKey
-        // A poll device that follows where the repo was seen last (the
-        // default's, or a saved blank one) is saved blank so it keeps
-        // following.
-        const start = d.isDefault || d.followsSeen ? { ...s, pollDevice: "" } : s
-        const follow = d.seenOn ? deviceName(d.seenOn) : ""
-        return (
-          <section
-            key={s.repoKey}
-            className={cn(
-              "grid gap-1 rounded-xl border px-4 py-2.5",
-              on
-                ? "border-border bg-card"
-                : "border-dashed border-border opacity-85"
-            )}
-          >
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <GitMergeIcon className="size-4 text-ink" />
-              <span className="font-mono text-[13.5px] text-ink">
-                {ownerName(s.repoKey)}
-              </span>
-              <span className="text-[12px] text-muted-foreground">
-                {!s.takesPrs
-                  ? "No desk: this repo takes no PRs."
-                  : [
-                      d.isDefault && "on by itself",
-                      s.holder ? `held by ${nameOf(s.holder)}` : "unheld",
-                      `${s.checks.length} check line${s.checks.length === 1 ? "" : "s"}`,
-                      s.mergeMethod,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-              </span>
-              <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
-                {!open && (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => setEditing(s.repoKey)}
-                  >
-                    Edit
-                  </Button>
-                )}
-                Desk {s.enabled ? "on" : "off"}
-                <Switch
-                  checked={s.enabled}
-                  disabled={!s.takesPrs && !s.enabled}
-                  aria-label={`Desk for ${ownerName(s.repoKey)}`}
-                  onCheckedChange={(v) =>
-                    deskActions
-                      .setDesk({
-                        ...start,
-                        enabled: v,
-                        pollDevice: start.pollDevice || (d.seenOn ? "" : here),
-                      })
-                      .catch((e: unknown) => setError(errorText(e)))
-                  }
-                />
-              </span>
-            </div>
-            {open && (
-              <DeskEditor
-                key={s.at ?? "new"}
-                start={start}
-                agents={agents}
-                devices={deviceChoices}
-                follow={follow}
-                onDone={() => setEditing("")}
-              />
-            )}
-          </section>
-        )
-      })}
+      {/* The desks wait on the first read (card #598), rather than popping
+          in above the form. With no desks it takes no row, as before. */}
+      <Loading
+        loading={!loaded}
+        label="Loading merge desks"
+        className="not-has-[section]:hidden"
+      >
+        {!loaded ? (
+          <DesksShape />
+        ) : (
+          <div className="grid gap-3">
+            {shown.map((d) => {
+              const s = d.settings
+              const on = s.enabled && s.takesPrs
+              const open = editing === s.repoKey
+              // A poll device that follows where the repo was seen last (the
+              // default's, or a saved blank one) is saved blank so it keeps
+              // following.
+              const start =
+                d.isDefault || d.followsSeen ? { ...s, pollDevice: "" } : s
+              const follow = d.seenOn ? deviceName(d.seenOn) : ""
+              return (
+                <section
+                  key={s.repoKey}
+                  className={cn(
+                    "grid gap-1 rounded-xl border px-4 py-2.5",
+                    on
+                      ? "border-border bg-card"
+                      : "border-dashed border-border opacity-85"
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <GitMergeIcon className="size-4 text-ink" />
+                    <span className="font-mono text-[13.5px] text-ink">
+                      {ownerName(s.repoKey)}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {!s.takesPrs
+                        ? "No desk: this repo takes no PRs."
+                        : [
+                            d.isDefault && "on by itself",
+                            s.holder ? `held by ${nameOf(s.holder)}` : "unheld",
+                            `${s.checks.length} check line${s.checks.length === 1 ? "" : "s"}`,
+                            s.mergeMethod,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                    </span>
+                    <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
+                      {!open && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => setEditing(s.repoKey)}
+                        >
+                          Edit
+                        </Button>
+                      )}
+                      Desk {s.enabled ? "on" : "off"}
+                      <Switch
+                        checked={s.enabled}
+                        disabled={!s.takesPrs && !s.enabled}
+                        aria-label={`Desk for ${ownerName(s.repoKey)}`}
+                        onCheckedChange={(v) =>
+                          deskActions
+                            .setDesk({
+                              ...start,
+                              enabled: v,
+                              pollDevice:
+                                start.pollDevice || (d.seenOn ? "" : here),
+                            })
+                            .catch((e: unknown) => setError(errorText(e)))
+                        }
+                      />
+                    </span>
+                  </div>
+                  {open && (
+                    <DeskEditor
+                      key={s.at ?? "new"}
+                      start={start}
+                      agents={agents}
+                      devices={deviceChoices}
+                      follow={follow}
+                      onDone={() => setEditing("")}
+                    />
+                  )}
+                </section>
+              )
+            })}
+          </div>
+        )}
+      </Loading>
       <form
         className="flex items-center gap-2"
         onSubmit={(e) => {
@@ -439,6 +456,37 @@ export function DesksPane({ open }: { open: boolean }) {
           {error}
         </p>
       )}
+    </div>
+  )
+}
+
+// DesksShape is the desks' skeleton (card #598): plain markup in the shape
+// of two desk rows, with no hooks, for Loading to measure (skullet-block:
+// one block for a control).
+function DesksShape() {
+  const desks = [
+    ["sample-org/app-repo", "held by sample-heron · 2 check lines · squash"],
+    ["sample-org/game-repo", "on by itself · unheld · 1 check line · merge"],
+  ]
+  return (
+    <div className="grid gap-3">
+      {desks.map(([repo, line]) => (
+        <section
+          key={repo}
+          className="grid gap-1 rounded-xl border border-border px-4 py-2.5"
+        >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span skullet-block="" className="block size-4 rounded-sm" />
+            <span className="font-mono text-[13.5px] text-ink">{repo}</span>
+            <span className="text-[12px] text-muted-foreground">{line}</span>
+            <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
+              <span className="block h-6 w-9 rounded-lg" />
+              Desk on
+              <span skullet-block="" className="block h-5 w-9 rounded-full" />
+            </span>
+          </div>
+        </section>
+      ))}
     </div>
   )
 }
