@@ -63,4 +63,10 @@ impl Window {
     pub fn update_restart(&self) -> Result<(), String> {
         self.seams.updater.restart_to_update()
     }
+    pub fn update_keep_up_to_date(&self) -> Option<bool> {
+        self.seams.updater.keep_up_to_date()
+    }
+    pub fn update_set_keep_up_to_date(&self, on: bool) -> Result<Option<bool>, String> {
+        self.seams.updater.set_keep_up_to_date(on)
+    }
 }

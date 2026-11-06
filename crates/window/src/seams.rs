@@ -97,6 +97,15 @@ pub trait Updater: Send + Sync {
     fn supported(&self) -> bool;
     fn check_and_download(&self) -> UpdateStatus;
     fn restart_to_update(&self) -> Result<(), String>;
+    /// Keep this device up to date (card #578): `None` where the device
+    /// doesn't update itself, else whether it's on.
+    fn keep_up_to_date(&self) -> Option<bool> {
+        None
+    }
+    /// Saves the person's choice and returns the setting after it.
+    fn set_keep_up_to_date(&self, _on: bool) -> Result<Option<bool>, String> {
+        Err("this device doesn't update itself".into())
+    }
 }
 
 /// Every seam, with this build's defaults.
