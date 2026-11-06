@@ -51,6 +51,10 @@ pub(crate) struct CleanTask {
     pub shared: bool,
     pub blocked_by: Option<BlockedBy>,
     pub steps: Vec<Step>,
+    /// The cards it comes after, as given (card #570).
+    pub after: Vec<String>,
+    /// Held as Not yet from the start (card #570).
+    pub later: Option<super::later::Back>,
 }
 
 /// CreateTask's checks.
@@ -126,6 +130,8 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         shared: nt.shared,
         blocked_by: nt.blocked_by.clone(),
         steps: new_steps(&steps),
+        after: nt.after.clone(),
+        later: nt.later.clone(),
         parent: String::new(),
         spawn: false,
         agents: nt.agents,
@@ -193,6 +199,8 @@ impl Fold {
         if !ct.reason.is_empty() {
             bb = self.check_blocker(ct.blocked_by.as_ref(), "")?;
         }
+        // All of it before the first row (card #570).
+        let waits = self.new_waits(&ct, bb.as_ref())?;
         let at = self.stamp();
         let id = new_id(&at);
         let num = self.next_short();
@@ -232,7 +240,8 @@ impl Fold {
                 },
             )?;
         }
-        if !ct.reason.is_empty() {
+        // With later the reason is why it's held: that row says it.
+        if !ct.reason.is_empty() && ct.later.is_none() {
             let (q, cx) = block_question(&ct.reason);
             let bid = self.next_blocker_id(&id);
             self.write(
@@ -256,6 +265,9 @@ impl Fold {
                     ..TaskStateRow::default()
                 },
             )?;
+        }
+        if self.tasks.contains_key(&id) {
+            self.write_new_waits(by, &id, waits)?;
         }
         // The fold can set the row aside (a writer the board doesn't count).
         self.tasks
@@ -289,6 +301,7 @@ impl Fold {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(&t, "one agent takes it"));
         }
+        self.parked_take_refusal(&by, &t)?;
         if engaged(&t, &by) && t.state != SUBMITTED {
             return Ok(t);
         }
@@ -310,6 +323,7 @@ impl Fold {
                 }
             }
         }
+        self.end_park(&by, id, "the person took it")?;
         self.write(
             &by,
             kinds::TASK_CLAIMED,
@@ -340,12 +354,14 @@ impl Fold {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(&t, "nobody is assigned one"));
         }
+        self.parked_take_refusal(&by, &t)?;
         if is_holder(&t, &to) {
             return Ok((t, false));
         }
         // An agent hands a card only to a device that runs its side, unless
         // the person asked (card #496).
         self.check_side_assign(&by, &t, &to)?;
+        self.end_park(&by, id, "the person handed it on")?;
         let at = self.stamp();
         self.write(
             &by,
@@ -427,6 +443,13 @@ impl Fold {
                 },
             )?;
             return Ok(self.tasks[id].clone());
+        }
+        // Held as Not yet (card #570): any other state would end it.
+        if self.is_agent_key(&by) && s != CANCELED && s != FAILED && t.parked().is_some() {
+            return Err(super::later::parked_refusal(
+                &t,
+                "an agent can only cancel or fail it",
+            ));
         }
         if s == IN_REVIEW {
             self.review_refusal(&t)?;

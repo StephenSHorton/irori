@@ -13,6 +13,7 @@ use super::error::{Result, bad_state, invalid, not_allowed, not_found};
 use super::fold::{
     Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, RefusalRec, engaged, is_holder, may_record,
 };
+use super::later::Back;
 use super::links::parse_link;
 use super::resource::{RESOURCE_PATH, Resource, conflicts, normalize_resource, parse_resource};
 use super::rows::*;
@@ -30,6 +31,16 @@ use crate::names::trim_space;
 
 /// Why the sweep closes an answered item whose agent left (card #481).
 const ANSWERED_LEFT: &str = "the agent it went to left the card";
+
+/// Why a version wait closed, for the closing note.
+fn version_ran(r: &str) -> String {
+    let (min, devs) = super::version_wait::parse_version_wait(r);
+    if devs.len() > 1 {
+        format!("{min} or later running on all {} devices", devs.len())
+    } else {
+        format!("{min} or later running")
+    }
+}
 
 /// Validates a block reason or unblock note (trimmed).
 pub(crate) fn check_reason(s: &str, required: bool) -> Result<()> {
@@ -91,6 +102,18 @@ impl Fold {
         bb: Option<&BlockedBy>,
         me: &str,
     ) -> Result<Option<BlockedBy>> {
+        self.check_wait(bb, me, true)
+    }
+
+    /// [`Self::check_blocker`] for an item that may ask a question: one
+    /// with options is the person's to decide (card #347), so it is no
+    /// `edge` of a circle.
+    pub(crate) fn check_wait(
+        &self,
+        bb: Option<&BlockedBy>,
+        me: &str,
+        edge: bool,
+    ) -> Result<Option<BlockedBy>> {
         let Some(bb) = bb else {
             return Ok(None);
         };
@@ -138,6 +161,16 @@ impl Fold {
                 };
                 if let Some(w) = work_done(o) {
                     return Err(invalid(format!("{} is already {w}", o.short_ref())));
+                }
+                // Every wait comes through here (card #570). A new card has
+                // nothing waiting on it yet, so nothing to close a circle.
+                if edge
+                    && !me.is_empty()
+                    && let Some(path) = self.order_path(&out.reference, me)
+                {
+                    let mut ids = vec![me.to_string()];
+                    ids.extend(path);
+                    return Err(self.circle(&ids));
                 }
             }
             BLOCKED_ON_PERSON => {
@@ -276,6 +309,7 @@ impl Fold {
                 "task {id} isn't shared; claim it instead"
             )));
         }
+        self.parked_take_refusal(&by, t)?;
         if engaged(t, &who) && t.state != SUBMITTED {
             return Ok(t.clone());
         }
@@ -284,6 +318,7 @@ impl Fold {
         if by == who {
             self.check_side_take(&who, t)?;
         }
+        self.end_park(&by, id, "the person took it")?;
         let at = self.stamp();
         self.write(
             &by,
@@ -495,6 +530,9 @@ impl Fold {
         let t = self.open_task(id)?;
         if t.state != BLOCKED {
             return Err(bad_state(format!("task {id} is {}, not blocked", t.state)));
+        }
+        if t.parked().is_some() {
+            return self.unblock_parked(&by, id, &note);
         }
         let now = self.stamp();
         let n = self.close_blocker(&by, id, &note, now)?;
@@ -1199,8 +1237,13 @@ impl Fold {
     /// person closes it, so the row folds everywhere (card #242).
     fn answered_left(&self, t: &Task, b: &Blocker) -> bool {
         // A done check or an ownership change is the person's to close,
-        // never Irori's.
-        if !b.open() || b.status != BLOCKER_ANSWERED || b.done_check || b.transfer {
+        // never Irori's; a Not yet (card #570) ends by what it names.
+        if !b.open()
+            || b.status != BLOCKER_ANSWERED
+            || b.done_check
+            || b.transfer
+            || !b.later.is_empty()
+        {
             return false;
         }
         if !b.sent_to.is_empty() && b.sent_to != b.raised_by {
@@ -1234,6 +1277,32 @@ impl Fold {
             let Some(on) = b.on.as_ref().filter(|_| b.open()) else {
                 continue;
             };
+            // A Not yet (card #570): a card's goes by the task arm below;
+            // anything else that isn't a date or a version waits for the
+            // person, whatever its `on` says.
+            if let Some(back) = b.back() {
+                if !self.may_close_later(t, b) {
+                    continue;
+                }
+                match back {
+                    Back::Card(_) => {}
+                    Back::Date(d) => {
+                        if !gotime::before(now, &d) {
+                            ids.push(b.id.clone());
+                            why.push(format!("{} came", super::later::day_of(&d)));
+                        }
+                        continue;
+                    }
+                    Back::Version(r) => {
+                        if self.version_behind(&r).is_empty() {
+                            ids.push(b.id.clone());
+                            why.push(version_ran(&r));
+                        }
+                        continue;
+                    }
+                    Back::Word => continue,
+                }
+            }
             match on.kind.as_str() {
                 BLOCKED_ON_LEASE => {
                     let names: Vec<&str> = on.reference.split_whitespace().collect();
@@ -1255,13 +1324,8 @@ impl Fold {
                     }
                 }
                 BLOCKED_ON_VERSION if self.version_behind(&on.reference).is_empty() => {
-                    let (min, devs) = super::version_wait::parse_version_wait(&on.reference);
                     ids.push(b.id.clone());
-                    why.push(if devs.len() > 1 {
-                        format!("{min} or later running on all {} devices", devs.len())
-                    } else {
-                        format!("{min} or later running")
-                    });
+                    why.push(version_ran(&on.reference));
                 }
                 BLOCKED_ON_EXTERNAL if self.outside_wait_gone(&t.id, b) => {
                     ids.push(b.id.clone());
@@ -1347,10 +1411,15 @@ impl Fold {
                 }
             }
             let state = effective_state(t);
+            // A Later section must not hide a loop (card #570): the one
+            // time a held card is the person's.
+            let looped = !agent_viewer && t.parked().is_some() && self.order_loop(t);
             if is_terminal(state) {
                 v.done.push(card);
-            } else if self.needs_you(t, &viewer, agent_viewer, &rs) {
+            } else if looped || self.needs_you(t, &viewer, agent_viewer, &rs) {
                 v.needs_you.push(card);
+            } else if t.parked().is_some() {
+                v.later.push(card);
             } else if state == BLOCKED && !t.all_answered() {
                 v.blocked.push(card);
             } else if !t.holders.is_empty() {
@@ -1364,6 +1433,7 @@ impl Fold {
             &mut v.blocked,
             &mut v.working,
             &mut v.open,
+            &mut v.later,
             &mut v.done,
         ] {
             g.sort_by(|a, b| {
@@ -1451,6 +1521,7 @@ impl Fold {
             }
             return t.blockers.iter().any(|b| {
                 b.open()
+                    && b.later.is_empty()
                     && b.status == BLOCKER_ANSWERED
                     && (b.sent_to == viewer || b.sent_to.is_empty() && b.raised_by == viewer)
             });
@@ -1529,7 +1600,17 @@ impl Fold {
                         .is_some_and(|b| self.answered_left(&t, b))
                 })
                 .collect();
-            if ids.len() == count_open(&t) && !left.contains(&true) {
+            // A Not yet goes by itself too (card #570): blocker.closed names
+            // no item, so a late one could end a newer hold.
+            let later: Vec<bool> = ids
+                .iter()
+                .map(|bid| {
+                    t.blockers
+                        .iter()
+                        .any(|b| &b.id == bid && !b.later.is_empty())
+                })
+                .collect();
+            if ids.len() == count_open(&t) && !left.contains(&true) && !later.contains(&true) {
                 out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
                 continue;
             }
@@ -1549,6 +1630,12 @@ impl Fold {
                     Some(a) => (a.text.clone(), a.pick - 1, why[i].clone()),
                     None => (why[i].clone(), -1, String::new()),
                 };
+                let cur = &self.tasks[&id];
+                let restored = if later[i] && count_open(cur) == 1 {
+                    self.restore_for(cur).to_string()
+                } else {
+                    String::new()
+                };
                 self.write(
                     SWEEPER,
                     kinds::BLOCKER_RESOLVED,
@@ -1560,8 +1647,8 @@ impl Fold {
                         note,
                         by: SWEEPER.into(),
                         closed: true,
+                        restored,
                         at: now,
-                        ..BlockerResolvedRow::default()
                     },
                 )?;
             }
@@ -1592,12 +1679,17 @@ impl Fold {
                 .zip(&why)
                 .map(|(i, w)| format!("{i} ({w})"))
                 .collect();
+            let rest = match count_open(&nt) {
+                0 => format!("It is {} again.", nt.state),
+                n => format!(
+                    "{n} more blockers are still open; board_unblock with blocker_id answers one."
+                ),
+            };
             n.text = format!(
-                "Irori closed {} on {} ({}): what it waited on went away. {} more blockers are still open; board_unblock with blocker_id answers one.{}",
+                "Irori closed {} on {} ({}): what it waited on went away. {rest}{}",
                 items.join(", "),
                 quote(&nt.title),
                 nt.refs(),
-                count_open(&nt),
                 deeper(&id)
             );
             if !n.to.is_empty() {

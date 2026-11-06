@@ -214,6 +214,10 @@ pub struct Blocker {
     /// the other person, Decline leaves it with its owner.
     #[serde(skip_serializing_if = "omit")]
     pub transfer: bool,
+    /// What brings a held card back (card #570): this item is its Not yet.
+    /// [`Blocker::back`] reads it. Empty on every other item.
+    #[serde(skip_serializing_if = "omit")]
+    pub later: String,
     /// The row's reason: Task.reason while this is the first open item.
     #[serde(skip)]
     pub(crate) reason: String,
@@ -654,6 +658,13 @@ pub struct NewTask {
     /// else the side of this device (the first it runs), else none.
     /// Ignored on a shared board.
     pub side: String,
+    /// Cards this one comes after (card #570), by short ref or id: one
+    /// wait each, all checked before anything is written.
+    pub after: Vec<String>,
+    /// Makes the card held as Not yet from the start (card #570), for
+    /// `block_reason` (or the title when that is empty). Not with
+    /// `blocked_by`.
+    pub later: Option<super::later::Back>,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -797,6 +808,8 @@ pub const NOTICE_STEP_OWNER: &str = "step_owner";
 pub const NOTICE_COMMENT: &str = "comment";
 pub const NOTICE_UNBLOCKED: &str = "unblocked";
 pub const NOTICE_RETURNED: &str = "returned";
+/// The card went to Not yet with the agent on it (card #570): it is off it.
+pub const NOTICE_PARKED: &str = "parked";
 pub const NOTICE_REOPENED: &str = "reopened";
 pub const NOTICE_ANSWERED: &str = "answered";
 pub const NOTICE_WATCHED: &str = "watched";
@@ -926,6 +939,10 @@ pub struct BoardView {
     pub blocked: Vec<Card>,
     pub working: Vec<Card>,
     pub open: Vec<Card>,
+    /// Cards held as Not yet (card #570). Left out when there are none,
+    /// so the shape older readers know doesn't change.
+    #[serde(skip_serializing_if = "omit")]
+    pub later: Vec<Card>,
     pub done: Vec<Card>,
     pub done_total: i64,
     pub leases: Vec<LeaseCard>,

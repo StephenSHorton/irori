@@ -208,7 +208,9 @@ impl Fold {
     /// would refuse), said before anything is written; "" when it can.
     /// Home's Needs you row (card #520) says it instead of offering it.
     pub(crate) fn hand_on_refusal(&self, t: &Task) -> &'static str {
-        if t.shared || self.on_board {
+        if t.parked().is_some() {
+            "it is held as Not yet; bring it back first"
+        } else if t.shared || self.on_board {
             "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
         } else if t.open_ask().is_some() {
             "it has an open ask"

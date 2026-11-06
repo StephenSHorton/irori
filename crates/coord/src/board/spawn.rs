@@ -444,6 +444,21 @@ impl Fold {
         Ok(true)
     }
 
+    /// Ends every request of card `id` still waiting for its agent (card
+    /// #570): binding one has no state check, so it would land on the card.
+    pub(crate) fn end_pending_spawns(&mut self, by: &str, id: &str, reason: &str) -> Result<()> {
+        let pending: Vec<Spawn> = self.tasks[id]
+            .spawns
+            .iter()
+            .filter(|s| s.pending())
+            .cloned()
+            .collect();
+        for s in pending {
+            self.end_spawn(by, id, s.part(), s.generation, SPAWN_CANCELED, reason)?;
+        }
+        Ok(())
+    }
+
     /// Binds agent `key` to request `generation` of card `id` once presence
     /// lists it: the spawned_for mark, then the card assigned to it (which
     /// keeps it out of hand-out and lets `check_free` through, §2).

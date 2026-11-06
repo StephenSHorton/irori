@@ -120,6 +120,9 @@ fn nobody_on(t: &Task) -> bool {
         && t.state != SUBMITTED
         && t.state != WORKING
         && t.open_ask().is_none()
+        // Held as Not yet (card #570): an answer on another item, or Irori
+        // finding nobody on it, doesn't end that.
+        && t.parked().is_none()
 }
 
 fn trim_resolved(t: &mut Task) {
@@ -639,6 +642,11 @@ impl Fold {
                 }
                 b.at = at;
                 b.on = br.on.clone();
+                // Only when the row has one (card #570): an older device's
+                // revise rewrites the row without it.
+                if !br.later.is_empty() {
+                    b.later = br.later.clone();
+                }
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
                 b.asked = pos;
@@ -662,6 +670,9 @@ impl Fold {
             if let Some(i) = open_with_question(t, &br.question) {
                 let b = &mut t.blockers[i];
                 b.on = br.on.clone();
+                if !br.later.is_empty() {
+                    b.later = br.later.clone();
+                }
                 if !brings_new(b, &br.links, &br.attachments) {
                     return none();
                 }
@@ -689,6 +700,7 @@ impl Fold {
                 attachments: capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS),
                 done_check: br.done_check,
                 transfer: br.transfer,
+                later: br.later.clone(),
                 ..Blocker::default()
             };
             if br.replace {
@@ -1266,7 +1278,7 @@ impl Fold {
                 "a choice only the person can make goes on a card: ask_close it with outcome card (it stays yours), then board_block that card, one blocker per question; a question about what they meant goes on its thread (board_comment)",
             ));
         }
-        let mut nb = self.check_blocker(bb.as_ref(), &t.id)?;
+        let mut nb = self.check_wait(bb.as_ref(), &t.id, opts.is_empty())?;
         self.decider_default(by, t, &mut nb);
         let same_q = open_with_question(t, q);
         if let Some(i) = same_q
@@ -1431,6 +1443,7 @@ impl Fold {
                     on: b.on.clone(),
                     links: b.links.clone(),
                     attachments: b.attachments.clone(),
+                    later: b.later.clone(),
                     ..BlockerRow::default()
                 }),
                 by: by.clone(),
@@ -1584,6 +1597,10 @@ impl Fold {
         let b = t.blockers[i].clone();
         if !b.open() {
             return Err(bad_state(format!("blocker {} is already resolved", b.id)));
+        }
+        // Held on the person's word (card #570): only a person ends it.
+        if a.resolve && b.back() == Some(super::later::Back::Word) && !self.is_person(&by) {
+            return Err(super::later::word_refusal(&t));
         }
         // An ownership item (card #432): Accept or Decline moves the card
         // (or not) and resolves it; only the person it asks may.
@@ -1798,6 +1815,11 @@ impl Fold {
                 ..BlockerResolvedRow::default()
             },
         )?;
+        // Ending a hold on a parent ends what its subtasks took from it
+        // (card #570).
+        if !b.later.is_empty() {
+            self.close_kid_parks(&by, &t, std::slice::from_ref(&b), &text)?;
+        }
         let nt = self.tasks[id].clone();
         let mut s = String::new();
         if last.is_some() {

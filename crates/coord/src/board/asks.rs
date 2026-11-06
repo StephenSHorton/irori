@@ -1806,11 +1806,12 @@ impl Fold {
                         kinds::TASK_PARENT,
                         &TaskParentRow {
                             task_id: id.into(),
-                            parent,
+                            parent: parent.clone(),
                             by: by.clone(),
                             at,
                         },
                     )?;
+                    self.inherit_park(&by, &parent, id)?;
                 }
             }
             OUTCOME_EDIT => {
