@@ -8,15 +8,16 @@
 //! the dialer measures round trip, loss and jitter per second, and which path
 //! iroh is on (relay or direct). One-way delay is about RTT/2.
 //!
-//! Throwaway keys, n0's public relays and n0's address lookup (preset N0), so
-//! a peer is found by its endpoint id alone. It never touches an Irori data
-//! dir or the live app's keys.
+//! Throwaway keys and n0's four public relays as Irori uses them
+//! (irori_net::public, decision 43; no preset, no address lookup), so a
+//! peer is found through the relays by its endpoint id alone. It never
+//! touches an Irori data dir or the live app's keys.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use iroh::endpoint::presets;
+use iroh::endpoint::Builder;
 use iroh::{Endpoint, EndpointId, SecretKey};
 use irori_net::path::{self, PathKind};
 
@@ -39,9 +40,15 @@ async fn main() -> Result<()> {
 }
 
 async fn bind(relay_only: bool) -> Result<Endpoint> {
-    let mut b = Endpoint::builder(presets::N0)
+    // n0's public relays as Irori uses them (irori_net::public, decision
+    // 43): no preset and no address lookup.
+    let mut b = Builder::empty()
+        .crypto_provider(irori_net::tls::provider())
         .secret_key(SecretKey::generate())
-        .alpns(vec![ALPN.to_vec()]);
+        .alpns(vec![ALPN.to_vec()])
+        .relay_mode(iroh::RelayMode::Custom(iroh::RelayMap::from_iter(
+            irori_net::public::configs(),
+        )));
     if relay_only {
         b = b.clear_ip_transports();
     }
@@ -165,10 +172,16 @@ async fn dial(args: &[String]) -> Result<()> {
         o.label
     );
     let t0 = Instant::now();
-    let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(o.to, ALPN))
-        .await
-        .map_err(|_| anyhow!("connect timed out after 30 s"))?
-        .context("connect")?;
+    let conn = tokio::time::timeout(
+        Duration::from_secs(30),
+        ep.connect(
+            irori_net::public::with_public(iroh::EndpointAddr::new(o.to), true),
+            ALPN,
+        ),
+    )
+    .await
+    .map_err(|_| anyhow!("connect timed out after 30 s"))?
+    .context("connect")?;
     let connect_ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!(
         "dial     connected in {connect_ms:.0}ms {}",

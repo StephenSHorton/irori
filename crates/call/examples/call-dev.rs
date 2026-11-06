@@ -6,8 +6,10 @@
 //! and dials every --dial id, so three runs where the later ones dial the
 //! earlier ones make a full mesh. Real mic and speaker (cpal), the real
 //! engine (Opus, FEC, DTX, jitter buffer, echo cancelling), QUIC datagrams
-//! over iroh. Throwaway keys and n0's relays and address lookup, like
-//! spike-call; it never touches an Irori data dir.
+//! over iroh. Throwaway keys, and n0's four public relays as the meeting
+//! point the way Irori uses them (irori_net::public, decision 43): no
+//! preset and no address lookup, so a peer is found through the relays by
+//! its endpoint id. It never touches an Irori data dir.
 //!
 //! Mouth-to-ear: put two devices side by side, run the far one with
 //! --mute, and this one with --probe. Every 2.5 s it clicks its own speaker
@@ -26,8 +28,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use call::dsp::DspConfig;
 use call::{Config, Engine, Inlet, Link};
-use iroh::endpoint::{Connection, presets};
-use iroh::{Endpoint, EndpointId, SecretKey};
+use iroh::endpoint::{Builder, Connection};
+use iroh::{EndpointAddr, EndpointId, RelayMap, RelayMode, SecretKey};
 
 const ALPN: &[u8] = b"irori/call-dev/1";
 
@@ -116,9 +118,13 @@ async fn serve(conn: Connection, engine: Arc<Engine>, inlet: Inlet) {
 #[tokio::main]
 async fn main() -> Result<()> {
     let o = parse()?;
-    let ep = Endpoint::builder(presets::N0)
+    let ep = Builder::empty()
+        .crypto_provider(irori_net::tls::provider())
         .secret_key(SecretKey::generate())
         .alpns(vec![ALPN.to_vec()])
+        .relay_mode(RelayMode::Custom(RelayMap::from_iter(
+            irori_net::public::configs(),
+        )))
         .bind()
         .await
         .context("bind")?;
@@ -156,7 +162,8 @@ async fn main() -> Result<()> {
     for id in o.dial.clone() {
         let (ep, engine, inlet) = (ep.clone(), engine.clone(), inlet.clone());
         tokio::spawn(async move {
-            match ep.connect(id, ALPN).await {
+            let to = irori_net::public::with_public(EndpointAddr::new(id), true);
+            match ep.connect(to, ALPN).await {
                 Ok(c) => serve(c, engine, inlet).await,
                 Err(e) => println!("call-dev dial {} failed: {e:#}", id.fmt_short()),
             }
