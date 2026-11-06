@@ -73,6 +73,8 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { HuddleLine, useCallPart } from "./huddle"
+import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
@@ -749,6 +751,8 @@ export function ConvItem({
       (!!person && !waiting) ||
       (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
+  // A huddle on here (#654): who's in it.
+  const huddle = useCallPart((s) => huddleNames(s, c.convId).join(", "))
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -785,10 +789,14 @@ export function ConvItem({
           </span>
           {when && <When text={when} />}
         </span>
-        {sub && (
-          <span className="truncate text-[11px] text-muted-foreground">
-            {sub}
-          </span>
+        {huddle ? (
+          <HuddleLine names={huddle} />
+        ) : (
+          sub && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              {sub}
+            </span>
+          )
         )}
       </span>
       {c.mentions > 0 ? (

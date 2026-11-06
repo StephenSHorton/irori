@@ -90,9 +90,10 @@ impl BoardAdmit for NoBoards {
 
 /// The stage 2 endpoint gate: `irori/mesh/1` and `irori/pair/1` admit only
 /// this person's certified devices ([`ChainAdmit`], unchanged);
-/// `irori/board/1` and `irori/gossip/1` also admit member devices counted
-/// on at least one board held here. The per-board check is the board
-/// room's `RoomConfig::accept` after the board-open proof.
+/// `irori/board/1`, `irori/gossip/1` and `irori/call/1` (#654) also admit
+/// member devices counted on at least one board held here. The per-board
+/// check is the board room's `RoomConfig::accept` after the board-open
+/// proof; a call's is its `CallJoin::accept` after the call-open proof.
 #[derive(Clone, Debug)]
 pub struct MemberAdmit {
     pub chain: ChainAdmit,
@@ -104,7 +105,7 @@ impl Admit for MemberAdmit {
         if alpn == MESH_ALPN || alpn == PAIR_ALPN {
             return self.chain.admits(alpn, id);
         }
-        if alpn == BOARD_ALPN || alpn == GOSSIP_ALPN {
+        if alpn == BOARD_ALPN || alpn == GOSSIP_ALPN || alpn == crate::call::CALL_ALPN {
             return self.chain.admits(alpn, id) || !self.boards.boards_of(id).is_empty();
         }
         false
@@ -162,7 +163,8 @@ impl IrohNet {
     }
 
     /// Closes every connection of board `board_id` (removal, leave, forget)
-    /// with `why`, leaves its rooms and forgets its member devices.
+    /// with `why`, leaves its rooms and forgets its member devices. Calls in
+    /// that space end too, with the same reason (#654).
     pub fn drop_board(&self, board_id: &str, why: &str) -> Result<(), TransportError> {
         let inner = self.inner();
         let rooms: Vec<_> = inner
@@ -172,6 +174,11 @@ impl IrohNet {
             .collect();
         for r in rooms {
             inner.close_room(&r, why);
+        }
+        for c in inner.calls_snapshot() {
+            if c.join.space_id == board_id {
+                inner.close_call(&c, why);
+            }
         }
         inner
             .board_book

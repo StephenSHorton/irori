@@ -367,6 +367,7 @@ impl Dev {
             own_devices: None,
             files: Some(self.files.clone()),
             dms: None,
+            calls: None,
         });
         m.set_intervals(iv);
         hook(&m);

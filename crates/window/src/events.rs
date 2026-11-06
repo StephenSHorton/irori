@@ -18,12 +18,14 @@
 //! | `update:status` | [`UpdateStatus`] | updater transitions (M8) |
 //! | `voice:event` | `VoiceEvent` | a voice input session's words and end (#240, voice.rs) |
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
+//! | `call:state` | `CallView` | coalesced, 100 ms: every huddle change, and its health and speaking during one (#654, call.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
 //! (`Core.Changes` is `presence.Subscribe`).
 
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use gocompat::sub::Queue;
 use irori_core::events::{BOARD_EMIT_EVERY, CAPTURE_EMIT_EVERY, INBOX_EMIT_EVERY, coalesce};
@@ -36,6 +38,7 @@ use crate::Window;
 use crate::roster::RosterChange;
 
 pub use crate::boards::EVENT_BOARDS_CHANGED;
+pub use crate::call::EVENT_CALL_STATE;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
@@ -53,6 +56,10 @@ pub const EVENT_APP_OPEN: &str = "app:open";
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
 pub const EVENT_APP_OPEN_READY: &str = "app:open-ready";
+
+/// How often call:state goes at most (#654): a call's health and
+/// speaking change about twice a second.
+const CALL_EMIT_EVERY: Duration = Duration::from_millis(100);
 
 /// The board:changed and boards:changed payload.
 #[derive(Debug, Clone, Default, Serialize, Type)]
@@ -271,6 +278,24 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_NOTIFICATIONS_CHANGED, &Empty {});
+            });
+        }));
+    }
+    {
+        // Huddles (#654): the whole picture again on every change.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Call]);
+        out.push(spawn("irori-window-call", move || {
+            let q = feed.queue().clone();
+            // During a call the Core publishes about twice a second; send
+            // the picture only when it changed.
+            let mut last: Option<crate::call::CallView> = None;
+            coalesce(&q, CALL_EMIT_EVERY, &stop, |_| {
+                let v = w.call_state();
+                if last.as_ref() != Some(&v) {
+                    w.emit(EVENT_CALL_STATE, &v);
+                    last = Some(v);
+                }
             });
         }));
     }

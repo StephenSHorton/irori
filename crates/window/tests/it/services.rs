@@ -1192,3 +1192,89 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     let a = w.core.coord().get_task(&res.task.id).unwrap().ask.unwrap();
     assert_eq!((a.channel.as_str(), a.repo_key.as_str()), (ch.as_str(), ""));
 }
+
+/// Huddles (#654) through the window: nothing on at first, and a snapshot
+/// named for the person: their own devices as "you" with the device's name,
+/// someone nothing names as "another person" (never a key), a channel by
+/// its name; the TS shape of what call:state sends.
+#[test]
+fn huddles_through_the_window() {
+    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let r = Rig::new();
+    let w = &r.w;
+    assert_eq!(w.call_state(), irori_window::call::CallView::default());
+    assert!(w.call_start("  ").is_err());
+
+    let ch = w.talk_channel_create("standup", None, None).unwrap();
+    let me = w.core.chain().person_id();
+    let here = w.core.device_id().to_string();
+    let label = w
+        .core
+        .device_labels()
+        .get(&here)
+        .cloned()
+        .unwrap_or_default();
+    let stranger = "p0123456789abcdef".to_string();
+    let peer = |device: &str, person: &str| irori_core::CallPeer {
+        device_id: device.into(),
+        person_id: person.into(),
+        phase: "live".into(),
+        path: "direct".into(),
+        rtt_ms: 26.0,
+        ..Default::default()
+    };
+    let v = w.call_view(irori_core::CallSnapshot {
+        mine: Some(irori_core::MyCall {
+            call_id: "call-1".into(),
+            conv_id: ch.clone(),
+            joined_at_ms: 5,
+            peers: vec![peer(&here, &me), peer("dev-x", &stranger)],
+            error: Some("  ".into()),
+            ..Default::default()
+        }),
+        ringing: vec![irori_core::Ringing {
+            call_id: "call-2".into(),
+            conv_id: ch.clone(),
+            by_person: stranger.clone(),
+            ..Default::default()
+        }],
+        live: vec![irori_core::LiveCall {
+            call_id: "call-1".into(),
+            conv_id: ch.clone(),
+            devices: vec![
+                (here.clone(), me.clone()),
+                ("dev-y".into(), me.clone()),
+                ("dev-x".into(), stranger.clone()),
+            ],
+            ..Default::default()
+        }],
+    });
+    let m = v.mine.as_ref().unwrap();
+    assert_eq!(
+        (m.conv_kind.as_str(), m.conv_name.as_str()),
+        ("channel", "standup")
+    );
+    assert_eq!(m.device, label);
+    assert_eq!(m.peers[0].name, "you");
+    assert_eq!(m.peers[0].device, label);
+    assert_eq!(m.peers[1].name, "another person");
+    assert_eq!(
+        m.peers[1].device, "",
+        "another person's device has no name here"
+    );
+    assert_eq!(m.error, None, "a blank error is none");
+    assert_eq!(v.ringing[0].by, "another person");
+    assert_eq!(v.ringing[0].conv_name, "standup");
+    assert_eq!(v.live[0].people, ["you", "another person"]);
+    let json = serde_json::to_string(&v).unwrap();
+    assert!(!json.contains(&stranger) && !json.contains(&me), "{json}");
+    check_shape(&src, "CallView", &serde_json::to_value(&v).unwrap());
+    check_shape(&src, "CallMineView", &serde_json::to_value(m).unwrap());
+    check_shape(
+        &src,
+        "CallPeerView",
+        &serde_json::to_value(&m.peers[0]).unwrap(),
+    );
+}
