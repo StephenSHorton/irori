@@ -119,6 +119,9 @@ crate::go_struct! {
         pub error: String = "error" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
+        /// OPEN heard by a device that knew the PR closed: a reopen
+        /// (card #548). An OPEN without it can't undo a closing.
+        pub over_closed: bool = "overClosed" "omit",
     }
 }
 

@@ -123,12 +123,13 @@ impl Agents for TestRoster {
 pub type KeyFn = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 pub struct Env {
-    pub _dir: tempfile::TempDir,
     pub st: Arc<Store>,
     pub clk: Clk,
     pub ros: Arc<TestRoster>,
     pub c: Coord,
     pub owner: Option<KeyFn>,
+    /// Last: fields drop in order, and Windows can't delete an open file.
+    pub _dir: tempfile::TempDir,
 }
 
 impl Env {
@@ -149,12 +150,12 @@ impl Env {
         let st = Arc::new(Store::open(dir.path().join("irori.db"), dev, Arc::new(hc)).unwrap());
         let ros = TestRoster::new(&[ALICE, BOB, CAROL]);
         let mut e = Env {
-            _dir: dir,
             st,
             clk,
             ros,
             c: Coord::from_rows(dev, &[], None, Options::default()),
             owner,
+            _dir: dir,
         };
         e.c = e.reopen();
         e

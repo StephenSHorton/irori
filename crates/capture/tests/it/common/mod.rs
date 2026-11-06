@@ -118,7 +118,6 @@ pub fn canon(p: &Path) -> String {
 }
 
 pub struct Rig {
-    _tmp: Vec<tempfile::TempDir>,
     pub data: String,
     pub claude: String,
     pub st: Arc<Store>,
@@ -127,12 +126,21 @@ pub struct Rig {
     pub clock: Arc<Clock>,
     pub opts: Options,
     pub blobs: Arc<MemBlobs>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: Vec<tempfile::TempDir>,
 }
 
 pub fn tempdir() -> (tempfile::TempDir, String) {
     let d = tempfile::tempdir().unwrap();
     let p = canon(d.path());
     (d, p)
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
+    }
 }
 
 impl Rig {

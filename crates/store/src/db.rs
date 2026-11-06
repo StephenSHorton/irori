@@ -8,8 +8,9 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use gocompat::sub::{Queue, TryRecv};
 use rusqlite::types::{Value, ValueRef};
@@ -142,6 +143,8 @@ struct Inner {
     now: WallFn,
     writer: Mutex<Writer>,
     readers: Mutex<Vec<Connection>>,
+    /// Reads running now: each holds a connection outside `readers`.
+    reading: AtomicUsize,
     verify_mu: Mutex<()>,
     subs: Mutex<Subs>,
 }
@@ -152,6 +155,26 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn closed() -> Error {
     Error::sentinel(ErrorKind::Closed)
+}
+
+/// How long `close` waits for reads already running.
+const CLOSE_READS_WAIT: Duration = Duration::from_secs(2);
+
+/// Counts a read from before it checks `closed` until its connection is gone
+/// or back in the pool, so `close` sees every read that got past the check.
+struct Reading<'a>(&'a AtomicUsize);
+
+impl<'a> Reading<'a> {
+    fn start(n: &'a AtomicUsize) -> Reading<'a> {
+        n.fetch_add(1, Ordering::SeqCst);
+        Reading(n)
+    }
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A connection with Go's DSN settings (store.md §2.2).
@@ -530,6 +553,7 @@ impl Store {
                 hold_seq: 0,
             }),
             readers: Mutex::new(Vec::new()),
+            reading: AtomicUsize::new(0),
             verify_mu: Mutex::new(()),
             subs: Mutex::new(Subs {
                 closed: false,
@@ -884,10 +908,17 @@ impl Inner {
         }
         lock(&self.writer).conn = None;
         lock(&self.readers).clear();
+        // A read holds its connection until it returns, and Windows can't
+        // delete the file while one is open (#556).
+        let deadline = Instant::now() + CLOSE_READS_WAIT;
+        while self.reading.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// Run `f` on a read connection from the pool.
     fn read<R>(&self, f: impl FnOnce(&Connection) -> Result<R>) -> Result<R> {
+        let _reading = Reading::start(&self.reading);
         if self.is_closed() {
             return Err(closed());
         }
