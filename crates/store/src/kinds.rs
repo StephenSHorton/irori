@@ -308,7 +308,8 @@ kinds! {
     /// `{repoKey, paused, by, at}`: no longer written (card #418); old
     /// rows are folded past.
     DESK_PAUSE = "desk.pause" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, by, at}`: person only.
+    /// `{repoKey, pr, headSha, by, at}`: legacy, read only. Old rows still
+    /// decode; nothing writes it since card #625 removed Outside PR's OK.
     DESK_OK = "desk.ok" => Replicated, Refuses;
     /// `{repoKey, pr, headSha, baseSha?, by, at}`: the old desk holder's
     /// merge run, no longer written (card #418); old rows are folded past.

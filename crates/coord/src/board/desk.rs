@@ -4,16 +4,20 @@
 //! a `repo.seen` row for a `remote:github.com/...` key gives it default
 //! settings (on, polled from the device whose `repo.seen` is the latest).
 //! The person's `repo.desk` row, once written, replaces the default: it
-//! turns the desk off or picks the poll device. The desk never merges
-//! (card #418): it lists PRs for review, and each agent asks the person
-//! "Can I merge PR #N?" on its own card. One device, `pollDevice`, asks GitHub for the repo's
+//! turns the desk off or picks the poll device. Only the person's own
+//! repos count (card #625): the Core tells the fold which those are
+//! ([`Fold::desk_repos`]), and a desk on any other repo is stray: off,
+//! whatever its settings say. The desk never merges (card #418): it lists
+//! PRs for review, and each agent asks the person "Can I merge PR #N?" on
+//! its own card. One device, `pollDevice`, asks GitHub for the repo's
 //! open PRs (`gh pr list`, the Core's desk poller) and hands the list to
 //! [`Fold::record_desk_prs`], which writes a `desk.prs` snapshot only when
 //! the list changed. coord never shells out.
 //!
 //! v1 keeps every desk row in the person's private log (§10 question 5).
 //! `repo.desk` and `desk.ok` are the person's alone: the fold ignores them
-//! from anyone else (§7). `desk.prs` is Irori's.
+//! from anyone else (§7). `desk.ok` is legacy: nothing writes it since
+//! card #625, and old rows still fold. `desk.prs` is Irori's.
 //!
 //! Older builds had a desk holder that merged under a desk lease, with
 //! check lines, a merge method, holds and a pause. Their rows still
@@ -47,6 +51,7 @@ crate::go_struct! {
         pub takes_prs: bool = "takesPrs",
         pub poll_device: String = "pollDevice",
         pub trusted: Vec<String> = "trusted" "omit",
+        /// Kept so rows round-trip; nothing reads it (§10 question 12).
         pub per_pr_ok: bool = "perPrOk" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
@@ -98,7 +103,9 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
-    /// `desk.ok`: the person's OK on an Outside PR at one head (§5).
+    /// `desk.ok`: the person's OK on an Outside PR at one head. Legacy:
+    /// card #625 removed Outside PR and its OK, so nothing writes it; old
+    /// rows still decode and fold.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct DeskOkRow {
         pub repo_key: String = "repoKey",
@@ -133,7 +140,8 @@ pub struct Desk {
     /// The latest snapshot; `None` before the first poll.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prs: Option<DeskPrsRow>,
-    /// The person's OKs on Outside PRs, by PR number (latest wins).
+    /// Old `desk.ok` rows by PR number (latest wins). Nothing reads them
+    /// since card #625 removed Outside PR; folded so old logs replay.
     pub oks: BTreeMap<i64, DeskOkRow>,
     /// Not one of the person's repos (card #625): nobody in their spaces
     /// opens PRs there (a cloned upstream repo). A stray desk is off
@@ -231,7 +239,9 @@ impl Fold {
             kinds::REPO_SEEN => {
                 // Every GitHub repo an agent works in has a desk, on by
                 // default, polled from the device that saw it last (card
-                // #521). Desks live in the person's own log, never a board's.
+                // #521); it stays off unless it is one of the person's
+                // repos (#625, desk_ours). Desks live in the person's own
+                // log, never a board's.
                 if self.on_board {
                     return;
                 }
@@ -315,9 +325,10 @@ impl Fold {
     /// Whether `repo_key` is one of the person's repos, as the Core last
     /// said (card #625); every repo until it has said.
     pub(crate) fn desk_ours(&self, repo_key: &str) -> bool {
+        let k = ledger::canonical_repo_key(repo_key);
         self.desk_repos
             .as_ref()
-            .is_none_or(|r| r.contains(&ledger::canonical_repo_key(repo_key)))
+            .is_none_or(|r| r.contains(&k) || !self.desk_judged.contains(&k))
     }
 
     /// Whether `repo_key` has a desk that is on and one of the person's.

@@ -62,7 +62,7 @@ import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
-import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
+import { deskShown, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
@@ -771,18 +771,7 @@ export function App() {
             roster={roster}
             held={held.held.length}
             talk={talkWaiting}
-            desks={{
-              on: desks.desks.filter(deskOn).length,
-              needYou: desks.desks
-                .filter(deskOn)
-                .reduce(
-                  (n, d) =>
-                    n +
-                    deskQueue(inputsOf(d)).filter((l) => l.state === "outside")
-                      .length,
-                  0
-                ),
-            }}
+            desks={desks.desks.filter(deskShown).length}
             onHeld={() => openHeld("")}
             unread={unreadNotifications}
             section={open ? null : section}
@@ -885,7 +874,6 @@ export function App() {
                   conversations={conversations}
                   threadsLoading={threadsLoading}
                   conversationsLoading={conversationsLoading}
-                  desksLoading={!desks.loaded}
                   agents={roster.agents.map((a) => ({
                     key: a.key,
                     name: a.name,
@@ -899,8 +887,6 @@ export function App() {
                   )}
                   board={threadsSpace(space)}
                   space={space}
-                  desks={desks.desks}
-                  onOpenDesk={(repo) => go({ kind: "desk", repo })}
                 />
               ) : section.kind === "notes" ? (
                 <Scroll>

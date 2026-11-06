@@ -1022,6 +1022,76 @@ fn merge_desk_settings() {
     }
 }
 
+/// Card #625: the desk page lists only the person's repos' desks, each
+/// with only their PRs: a stranger's PR isn't shown, and a stray desk (a
+/// repo nobody in their spaces opens PRs in) isn't listed.
+#[test]
+fn the_desk_page_shows_only_our_repos_and_prs() {
+    use irori_window::desk::DeskSettings;
+    let r = Rig::new();
+    let repo = "remote:github.com/example-org/example-app";
+    let upstream = "remote:github.com/blaizzy/mlx-video";
+    let co = r.w.core.coord();
+    // The person's agent linked a PR in example-app on a card: their repo,
+    // on every desk tick. Nobody here opened one in mlx-video.
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "the PR".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.add_link(
+        &r.key_a,
+        &t.id,
+        "https://github.com/example-org/example-app/pull/1",
+    )
+    .unwrap();
+    for k in [repo, upstream] {
+        r.w.desk_set(DeskSettings {
+            repo_key: k.into(),
+            enabled: true,
+            takes_prs: true,
+            poll_device: r.w.core.device_id().to_string(),
+            ..DeskSettings::default()
+        })
+        .unwrap();
+    }
+    // The Core's desk pass judged both: only example-app is ours.
+    co.set_desk_repos([repo.to_string()]);
+    let pr = |n: i64, author: &str| coord::DeskPr {
+        number: n,
+        url: format!("https://github.com/example-org/example-app/pull/{n}"),
+        title: format!("PR {n}"),
+        author: author.into(),
+        ..coord::DeskPr::default()
+    };
+    // "you" is the person's login, as their gh said it.
+    co.record_desk_snapshot(repo, vec![pr(1, "you"), pr(2, "a-stranger")], false, "you")
+        .unwrap();
+    // mlx-video's desk is stray: not listed at all.
+    assert!(co.desk(upstream).unwrap().stray);
+    let d = r.w.desks();
+    assert_eq!(
+        d.iter()
+            .map(|d| d.settings.repo_key.as_str())
+            .collect::<Vec<_>>(),
+        [repo]
+    );
+    let shown: Vec<i64> = d[0]
+        .prs
+        .as_ref()
+        .unwrap()
+        .prs
+        .iter()
+        .map(|p| p.number)
+        .collect();
+    assert_eq!(shown, [1]);
+    assert_eq!(d[0].authors.iter().map(|a| a.pr).collect::<Vec<_>>(), [1]);
+}
+
 /// Card #452: "Start an agent with this" on the person's comment puts a
 /// card nobody is on back on the Board; a card with an agent on it is
 /// refused (spawned-agents §4).

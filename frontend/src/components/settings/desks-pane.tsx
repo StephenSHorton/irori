@@ -1,10 +1,11 @@
 // DesksPane is Settings › Merge desks (card #417, docs/design/
-// merge-desk.md §7, mockup desk-6). Every GitHub repo an agent works in
-// has a desk by itself (card #521): on, held by nobody so nothing merges,
-// polled from the device that saw the repo last. Here the person turns a
-// desk off, names its holder, the device that polls GitHub, the logins it
-// trusts besides their agents and their own, its check lines and merge
-// method. Agents can't write any of this: only you, here.
+// merge-desk.md §7, mockup desk-6). A GitHub repo the person or their
+// space members open PRs in has a desk by itself (card #521, #625): on,
+// held by nobody so nothing merges, polled from the device that saw the
+// repo last. Here the person turns a desk off, names its holder, the
+// device that polls GitHub, the logins whose PRs also count as ours, its
+// check lines and merge method. Agents can't write any of this: only you,
+// here.
 
 import { useMemo, useState } from "react"
 import { GitMergeIcon, PlusIcon, Trash2Icon } from "lucide-react"
@@ -255,7 +256,7 @@ function DeskEditor({
       </Field>
       <Field
         label="Trusted authors"
-        hint="GitHub logins whose PRs the desk acts on, besides your agents'. Anyone else's PR waits for your OK on its queue line."
+        hint="GitHub logins whose PRs show here too, beside yours, your space members' and your agents'. Anyone else's PR isn't listed."
       >
         <Input
           className="h-8 text-[12.5px]"
@@ -263,16 +264,6 @@ function DeskEditor({
           value={trusted}
           onChange={(e) => setTrusted(e.target.value)}
           aria-label="Trusted GitHub logins"
-        />
-      </Field>
-      <Field
-        label="OK each PR"
-        hint="Off: the holder merges a trusted PR once its checks pass. On: it asks you on the queue line first."
-      >
-        <Switch
-          checked={d.perPrOk}
-          onCheckedChange={(v) => set({ perPrOk: v })}
-          aria-label="OK each PR"
         />
       </Field>
       {error && (
@@ -330,16 +321,17 @@ export function DesksPane({ open }: { open: boolean }) {
   }
   const shown = [...desks]
   if (editing && !shown.some((d) => d.settings.repoKey === editing)) {
-    shown.unshift({ settings: newDesk(editing, here), holds: {}, oks: {} })
+    shown.unshift({ settings: newDesk(editing, here), holds: {} })
   }
   return (
     <div className="grid gap-3">
       <p className="text-[12.5px] text-muted-foreground">
-        Every GitHub repo your agents work in has a desk: its open PRs come from
-        GitHub. Nobody holds a new desk, so nothing merges until you name a
-        holder; then it merges them in turn under the repo&apos;s checks. Only
-        you change these: agents can&apos;t. Tags and releases are never the
-        desk&apos;s.
+        A GitHub repo you or your space members open PRs in has a desk: it lists
+        your PRs, your people&apos;s and your agents&apos; from GitHub, and
+        shows while one is open. Nobody holds a new desk, so nothing merges
+        until you name a holder; then it merges them in turn under the
+        repo&apos;s checks. Only you change these: agents can&apos;t. Tags and
+        releases are never the desk&apos;s.
       </p>
       {/* The desks wait on the first read (card #598), rather than popping
           in above the form. With no desks it takes no row, as before. */}

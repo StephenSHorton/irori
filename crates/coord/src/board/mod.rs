@@ -1927,20 +1927,33 @@ impl Coord {
     }
 
     /// Tells the fold which repos are the person's (card #625): those they
-    /// or a member of their spaces open PRs in. A desk on any other repo is
-    /// stray: off, never polled, listed or leased. Kept in memory only; the
-    /// Core says it again as it learns more. Whether the set changed.
+    /// or a member of their spaces open PRs in, judged over every desk the
+    /// fold has now. A desk on any other repo is stray: off, never polled,
+    /// listed or leased. Kept in memory only; the Core says it again as it
+    /// learns more. Whether the set changed.
     pub fn set_desk_repos<I: IntoIterator<Item = String>>(&self, repos: I) -> bool {
-        let set: std::collections::BTreeSet<String> = repos
-            .into_iter()
-            .map(|r| ledger::canonical_repo_key(&r))
-            .collect();
+        let judged: Vec<String> = self.lock().desks.keys().cloned().collect();
+        self.judge_desk_repos(judged, repos)
+    }
+
+    /// [`Self::set_desk_repos`] for the desks in `judged` only: a desk made
+    /// after the Core read the desks counts until it judges it.
+    pub fn judge_desk_repos<J, I>(&self, judged: J, repos: I) -> bool
+    where
+        J: IntoIterator<Item = String>,
+        I: IntoIterator<Item = String>,
+    {
+        let key = |r: String| ledger::canonical_repo_key(&r);
+        let set: std::collections::BTreeSet<String> = repos.into_iter().map(key).collect();
+        let judged: std::collections::BTreeSet<String> = judged.into_iter().map(key).collect();
         let mut f = self.lock();
-        if f.desk_repos.as_ref() == Some(&set) {
+        if f.desk_repos.as_ref() == Some(&set) && f.desk_judged == judged {
             return false;
         }
+        let changed = f.desk_repos.as_ref() != Some(&set);
         f.desk_repos = Some(set);
-        true
+        f.desk_judged = judged;
+        changed
     }
 
     /// Every merge desk in this log, by repo key.

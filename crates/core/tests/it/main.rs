@@ -16,6 +16,7 @@ mod common;
 mod core;
 mod desk_default;
 mod desk_opened;
+mod desk_ours;
 mod deskmap;
 mod deskmap_live;
 mod deskwatch;

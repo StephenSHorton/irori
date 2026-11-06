@@ -547,6 +547,4 @@ export const DeskService = {
     done(commands.deskHold(repoKey, pr, note, cleared)),
   Pause: (repoKey: string, paused: boolean) =>
     done(commands.deskPause(repoKey, paused)),
-  Ok: (repoKey: string, pr: number, headSha: string) =>
-    done(commands.deskOk(repoKey, pr, headSha)),
 }

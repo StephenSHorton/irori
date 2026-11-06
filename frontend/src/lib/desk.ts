@@ -1,8 +1,9 @@
 // Merge desk (card #417, docs/design/merge-desk.md §3, §5, §7): the queue
 // each desk shows, worked out from the poller's snapshot (desk.prs, slice
 // 1) and the desk's own rows. deskQueue is pure so every row of §3's state
-// table is a test (desk.test.ts); the page and, after slice 8, the Talk
-// desk channel only draw what it returns.
+// table is a test (desk.test.ts); the page only draws what it returns.
+// The host's snapshot holds only our PRs (the person's, their space
+// members' and their agents'; card #625): anyone else's never reaches it.
 //
 // Field names follow §7's row schemas so the generated models drop in.
 
@@ -14,7 +15,6 @@ import { inWails, parseTime } from "./irori"
 import type { DeskView } from "./models"
 import { previewFlag } from "./preview"
 import { sampleDesks } from "./sample-desk"
-import { AllSpaces, Personal } from "./spaces"
 
 // A PR as the poller keeps it (coord DeskPr, slice 1): gh pr list's
 // fields, with statusCheckRollup summed up in checks: "" (none),
@@ -61,6 +61,8 @@ export type RepoDesk = {
   trusted: string[]
   checks: CheckLine[]
   mergeMethod: MergeMethod
+  // Kept only so a save writes the row back as it was (card #625: no
+  // per-PR OKs any more).
   perPrOk: boolean
   by?: string
   at?: string
@@ -77,13 +79,6 @@ export type DeskHold = {
 export type DeskPause = {
   repoKey: string
   paused: boolean
-  by: string
-  at: string
-}
-export type DeskOk = {
-  repoKey: string
-  pr: number
-  headSha: string
   by: string
   at: string
 }
@@ -107,15 +102,11 @@ export type DeskCheck = {
 
 // Where a PR's thread is (slice 2): the author card, and the agent behind
 // it when the author is one of the person's own agents.
-// outside is slice 2's verdict (Core::desk_verdicts), which also counts
-// the trusted list and the person's OKs; without it the page judges by
-// the trusted list and OKs alone.
 export type PrAuthor = {
   card?: string
   cardRef?: string
   agent?: string
   name?: string
-  outside?: boolean
 }
 
 export type MergedPr = {
@@ -127,7 +118,6 @@ export type MergedPr = {
 }
 
 export type DeskState =
-  | "outside"
   | "draft"
   | "held"
   | "merging"
@@ -138,7 +128,6 @@ export type DeskState =
   | "merged"
 
 export const stateLabel: Record<DeskState, string> = {
-  outside: "Outside PR",
   draft: "Draft",
   held: "Held",
   merging: "Merging",
@@ -161,16 +150,12 @@ export type QueueLine = {
   headSha: string
   createdAt: string
   hold?: DeskHold
-  // The PR is from an untrusted author and Stephen's OK would let the
-  // desk act on this head.
-  canOk: boolean
 }
 
 export type DeskInputs = {
   desk?: RepoDesk
   snapshot?: DeskSnapshot | null
   holds?: DeskHold[]
-  oks?: DeskOk[]
   run?: DeskRun | null
   checks?: DeskCheck[]
   authors?: Record<number, PrAuthor>
@@ -186,30 +171,11 @@ export function activeHolds(holds: DeskHold[]): Map<number, DeskHold> {
   return last
 }
 
-// trusted: one of the person's own agents is behind it, its login is on
-// the desk's list, or Stephen okayed this very head (§5 Trust).
-function isTrusted(
-  p: SnapPr,
-  a: PrAuthor,
-  desk: RepoDesk | undefined,
-  oks: DeskOk[]
-): boolean {
-  if (a.outside !== undefined) return !a.outside
-  if (a.agent) return true
-  const login = (p.author ?? "").toLowerCase()
-  if (login && desk?.trusted?.some((t) => t.toLowerCase() === login))
-    return true
-  return oks.some(
-    (o) => o.pr === p.number && !!p.headRefOid && o.headSha === p.headRefOid
-  )
-}
-
 // deskQueue is the queue panel's lines in order: Merging first, then
 // Waiting on desk oldest PR first, then the rest (also oldest first), then
 // any just-merged PRs (§3).
 export function deskQueue(inp: DeskInputs): QueueLine[] {
   const holds = activeHolds(inp.holds ?? [])
-  const oks = inp.oks ?? []
   const checks = inp.checks ?? []
   const lines: QueueLine[] = []
   for (const p of inp.snapshot?.prs ?? []) {
@@ -217,16 +183,12 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
     const head = p.headRefOid ?? ""
     const login = p.author ?? ""
     const hold = holds.get(p.number)
-    const trusted = isTrusted(p, author, inp.desk, oks)
     const mine = checks.find((c) => c.pr === p.number && c.headSha === head)
     const gh = p.checks ?? ""
     const run = inp.run && inp.run.pr === p.number ? inp.run : null
     let state: DeskState
     let note: string
-    if (!trusted) {
-      state = "outside"
-      note = `${login ? "@" + login : "the author"} isn't trusted: never checked or merged until you OK it`
-    } else if (p.isDraft) {
+    if (p.isDraft) {
       state = "draft"
       note = "draft · listed, never queued"
     } else if (hold) {
@@ -273,7 +235,6 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
       headSha: head,
       createdAt: p.createdAt,
       hold,
-      canOk: state === "outside",
     })
   }
   const open = new Set(lines.map((l) => l.pr))
@@ -293,7 +254,6 @@ export function deskQueue(inp: DeskInputs): QueueLine[] {
       note: `merged as ${short(m.sha)}`,
       headSha: m.sha,
       createdAt: m.at,
-      canOk: false,
     })
   }
   return lines
@@ -315,56 +275,14 @@ export function short(sha: string): string {
   return sha.slice(0, 7)
 }
 
-// queueCount is the panel head's count: "n open on GitHub", or what the
+// queueCount is the panel head's count: "n of ours open", or what the
 // panel shows when the list is cut short or can't be read.
 export function queueCount(snap: DeskSnapshot | null | undefined): string {
   if (!snap) return "not polled yet"
   const n = snap.prs.length
   return snap.truncated
-    ? `showing the first ${n}; GitHub has more`
-    : `${n} open on GitHub`
-}
-
-// TalkDesk is a merge desk as Talk › Channels lists it (card #521): every
-// desk that is on, under the repo's owner/name, its open PRs in the
-// subtitle and its Outside PRs as what needs you.
-export type TalkDesk = {
-  repoKey: string
-  name: string
-  sub: string
-  needYou: number
-}
-
-// talkDesks is the desks Talk › Channels lists for the picked space and
-// search. Desks live in the person's own log (§7 Scope), so a shared
-// space lists none.
-export function talkDesks(
-  desks: Desk[],
-  space: string,
-  query = ""
-): TalkDesk[] {
-  if (space !== AllSpaces && space !== Personal) return []
-  const q = query.trim().toLowerCase()
-  return desks
-    .filter((d) => deskOn(d) && d.settings.repoKey)
-    .map((d) => ({
-      repoKey: d.settings.repoKey,
-      name: ownerName(d.settings.repoKey),
-      sub: deskSub(d.prs),
-      needYou: deskQueue(inputsOf(d)).filter((l) => l.state === "outside")
-        .length,
-    }))
-    .filter(
-      (t) => !q || t.name.toLowerCase().includes(q) || "merge desk".includes(q)
-    )
-    .sort((a, b) => a.name.localeCompare(b.name))
-}
-
-// deskSub is a desk's line under its name in Talk.
-export function deskSub(snap: DeskSnapshot | null | undefined): string {
-  if (snap && snap.prs.length === 0 && !snap.truncated)
-    return "No open PRs on GitHub"
-  return `merge desk · ${queueCount(snap)}`
+    ? `showing ${n} of ours; GitHub has more`
+    : `${n} of ours open`
 }
 
 // ---- the gateway ------------------------------------------------------------
@@ -378,7 +296,6 @@ export type Desk = {
   prs?: DeskSnapshot | null
   holds: Record<number, DeskHold>
   pause?: DeskPause | null
-  oks: Record<number, DeskOk>
   run?: DeskRun | null
   poll?: { at?: string; unreachableSince?: string; device?: string }
   authors?: Record<number, PrAuthor>
@@ -400,7 +317,6 @@ export function inputsOf(d: Desk): DeskInputs {
     desk: d.settings,
     snapshot: d.prs ?? null,
     holds: Object.values(d.holds ?? {}),
-    oks: Object.values(d.oks ?? {}),
     run: d.run ?? null,
     checks: d.checks ?? [],
     authors: d.authors ?? {},
@@ -411,6 +327,12 @@ export function inputsOf(d: Desk): DeskInputs {
 // deskOn: enabled, and the repo takes PRs.
 export function deskOn(d: Desk): boolean {
   return d.settings.enabled && d.settings.takesPrs
+}
+
+// deskShown: on, with an open PR of ours (card #625). The page and the
+// sidebar list only these; a desk comes back once one of ours opens.
+export function deskShown(d: Desk): boolean {
+  return deskOn(d) && (d.prs?.prs.length ?? 0) > 0
 }
 
 export function paused(d: Desk): boolean {
@@ -480,12 +402,6 @@ export function fromHost(v: DeskView): Desk {
     pause: v.paused
       ? { repoKey, paused: true, by: v.paused.by, at: v.paused.at }
       : null,
-    oks: Object.fromEntries(
-      v.oks.map((o) => [
-        o.pr,
-        { repoKey, pr: o.pr, headSha: o.headSha, by: o.by, at: o.at },
-      ])
-    ),
     run: v.run
       ? {
           repoKey,
@@ -510,7 +426,6 @@ export function fromHost(v: DeskView): Desk {
           card: a.card || undefined,
           cardRef: a.cardRef || undefined,
           agent: a.agent || undefined,
-          outside: a.outside,
         },
       ])
     ),
@@ -575,7 +490,6 @@ export const deskActions = {
       list.push({
         settings: { ...d, by: "user:you", at: now() },
         holds: {},
-        oks: {},
       })
     changed()
   },
@@ -608,15 +522,6 @@ export const deskActions = {
       paused: on,
       by: "user:you",
       at: now(),
-    }
-    changed()
-  },
-  async ok(repoKey: string, pr: number, headSha: string): Promise<void> {
-    if (inWails()) return DeskService.Ok(repoKey, pr, headSha).then(refresh)
-    const d = sampleDesk(repoKey)
-    d.oks = {
-      ...d.oks,
-      [pr]: { repoKey, pr, headSha, by: "user:you", at: now() },
     }
     changed()
   },

@@ -4033,14 +4033,14 @@ impl Services {
     /// devices keep their own view until they update.
     fn check_desk_repos(&self, lister: Option<&dyn crate::deskwatch::PrLister>) {
         let ev = self.desk_evidence(lister);
-        let ours: Vec<String> = self
-            .coord
-            .desks()
-            .into_iter()
+        let desks = self.coord.desks();
+        let ours: Vec<String> = desks
+            .iter()
             .filter(|d| crate::deskmap::our_repo(d, &ev))
-            .map(|d| d.settings.repo_key)
+            .map(|d| d.settings.repo_key.clone())
             .collect();
-        if self.coord.set_desk_repos(ours) {
+        let judged = desks.into_iter().map(|d| d.settings.repo_key);
+        if self.coord.judge_desk_repos(judged, ours) {
             logf(format_args!(
                 "desks: {} of the person's repos",
                 self.coord.desks().iter().filter(|d| !d.stray).count()

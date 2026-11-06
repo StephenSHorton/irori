@@ -1,8 +1,9 @@
 // DeskPage is the interim merge desk page (card #417, docs/design/
 // merge-desk.md §1, §11 slice 3, mockup desk-2): every desk down the
-// left, and the open desk's queue: every open PR on GitHub with its
-// state, author card, and Stephen's holds and OKs. The queue panel is
-// DeskPanel so slice 8 can move it into the desk's Talk channel as is.
+// left, and the open desk's queue: every open PR of ours on GitHub (the
+// person's, their space members' and their agents'; card #625) with its
+// state, author card, and Stephen's holds. A desk with none of ours open
+// is left off the list.
 
 import { useState, type ReactNode } from "react"
 import {
@@ -16,7 +17,6 @@ import {
   PauseIcon,
   PlayIcon,
   SettingsIcon,
-  ShieldAlertIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -27,6 +27,7 @@ import {
   deskActions,
   deskOn,
   deskQueue,
+  deskShown,
   inputsOf,
   ownerName,
   paused,
@@ -71,16 +72,6 @@ export function StateChip({ s }: { s: DeskState }) {
           {label}
         </Badge>
       )
-    case "outside":
-      return (
-        <Badge
-          variant="outline"
-          className="border-destructive/60 text-destructive"
-        >
-          <ShieldAlertIcon />
-          {label}
-        </Badge>
-      )
     case "merged":
       return (
         <Badge variant="success">
@@ -104,7 +95,7 @@ function clock(at: string | undefined): string {
 }
 
 // QueueLineRow is one PR: its number (to GitHub), title, author, author
-// card, and state, with the person's Hold and, on an Outside PR, OK.
+// card, and state, with the person's Hold.
 function QueueLineRow({
   l,
   repoKey,
@@ -186,16 +177,6 @@ function QueueLineRow({
       <div className="-mt-1 flex min-h-5 flex-wrap items-center gap-2 pr-2 pb-0.5 pl-[72px] text-[11px] text-muted-foreground">
         <span className="min-w-0 truncate">{l.note}</span>
         <span className="ml-auto flex items-center gap-1">
-          {l.canOk && (
-            <Button
-              size="xs"
-              variant="outline"
-              title="Let the desk check and merge this PR at this head; a new push needs a new OK"
-              onClick={() => run(deskActions.ok(repoKey, l.pr, l.headSha))}
-            >
-              OK this PR
-            </Button>
-          )}
           {l.state === "held" ? (
             <Button
               size="xs"
@@ -267,8 +248,8 @@ function QueueHead({ count, right }: { count: ReactNode; right?: ReactNode }) {
 }
 
 // DeskPanel is one desk's queue (§1, §3): never blank. Before the first
-// poll it says so; with no open PRs it says GitHub has none and when it
-// last asked; when GitHub can't be asked it keeps the last list.
+// poll it says so; with no open PRs of ours it says so and when it last
+// asked; when GitHub can't be asked it keeps the last list.
 export function DeskPanel({
   desk,
   now,
@@ -318,7 +299,8 @@ export function DeskPanel({
       )}
       {snap?.truncated && (
         <div className="px-3 pt-2.5 text-[12px] text-warning">
-          Showing the first {snap.prs.length}; GitHub has more.
+          Showing {snap.prs.length} of ours; GitHub has more open PRs than it
+          listed.
         </div>
       )}
       {error && (
@@ -336,12 +318,11 @@ export function DeskPanel({
         <div className="grid justify-items-center gap-1 px-4 py-6 text-center">
           <CircleCheckIcon className="size-6 text-success" />
           <div className="text-[13.5px] font-medium text-ink">
-            No open PRs on GitHub
+            No open PRs of yours on {repo}
           </div>
           <div className="text-[11.5px] text-muted-foreground">
-            Last poll {clock(lastPoll)} ·{" "}
-            <span className="font-mono">gh pr list --repo {repo}</span> returned
-            none
+            Last poll {clock(lastPoll)} · the desk shows here again once you or
+            your people open one
           </div>
         </div>
       ) : (
@@ -454,17 +435,21 @@ export function DeskPage({
   nameOf: (key: string) => string
   now: Date
 }) {
-  const on = desks.filter(deskOn)
-  const desk = on.find((d) => d.settings.repoKey === open) ?? on[0]
+  // Only desks with an open PR of ours are listed (card #625). A link to
+  // one that has none left opens it anyway, with its calm empty queue.
+  const on = desks.filter(deskShown)
+  const desk =
+    desks.find((d) => deskOn(d) && !!open && d.settings.repoKey === open) ??
+    on[0]
   if (!desk) {
     return (
       <div className="grid justify-items-start gap-2 p-5 text-[13px] text-ink-2 glass-panel">
         <span className="text-[15px] font-medium text-ink">
-          No merge desks yet
+          No open PRs right now
         </span>
         A merge desk lists a repo&apos;s open PRs from GitHub and lets one agent
-        merge them in turn. Every GitHub repo gets one by itself once an agent
-        works in it.
+        merge them in turn. A desk shows here while you or your people have a PR
+        open in a repo you work in.
         <Button size="sm" onClick={onSettings}>
           Merge desk settings
         </Button>
@@ -516,8 +501,8 @@ export function DeskPage({
         />
         <p className="text-[11.5px] text-muted-foreground">
           Order: Merging, then Waiting on desk oldest first, then the rest. Each
-          PR&apos;s thread is its author&apos;s card. Holds, pause and OKs are
-          yours alone; agents can&apos;t write them.
+          PR&apos;s thread is its author&apos;s card. Holds and pause are yours
+          alone; agents can&apos;t write them.
         </p>
       </div>
     </div>

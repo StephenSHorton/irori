@@ -199,3 +199,69 @@ fn the_snapshot_keeps_the_persons_login() {
             .unwrap()
     );
 }
+
+/// Card #625: a repo.seen desk counts until the Core says which repos are
+/// the person's. A desk on any other repo is stray: off, never snapshotted,
+/// held, paused or leased, until the Core counts it again.
+#[test]
+fn a_desk_off_the_persons_repos_is_stray_until_the_core_counts_it() {
+    let e = Env::new();
+    seen_here(&e, REPO_A);
+    let mut s = e.c.desk(REPO_A).unwrap().settings;
+    s.holder = ALICE.into();
+    e.c.set_desk(USER, s).unwrap();
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(
+        d.on() && !d.stray,
+        "no word from the Core: every desk counts"
+    );
+
+    // The Core: none of the person's repos.
+    assert!(e.c.set_desk_repos(Vec::<String>::new()));
+    assert!(!e.c.set_desk_repos(Vec::<String>::new()), "no change");
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(d.stray && !d.on());
+    assert!(e.c.desks()[0].stray);
+    assert!(e.c.record_desk_prs(REPO_A, vec![pr(1)], false).is_err());
+    assert!(e.c.hold_desk_pr(USER, REPO_A, 1, "", false).is_err());
+    assert!(e.c.pause_desk(USER, REPO_A, true).is_err());
+    want_err(
+        e.c.acquire(ALICE, "desk/a/b", mins(30), false),
+        ErrorKind::NotAllowed,
+    );
+    // A resync keeps what the Core said.
+    e.c.catch_up().unwrap();
+    assert!(e.c.desk(REPO_A).unwrap().stray);
+
+    // Now it is one of theirs, in any spelling.
+    assert!(e.c.set_desk_repos(["remote:github.com/A/B/".to_string()]));
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(d.on() && !d.stray);
+    assert!(e.c.record_desk_prs(REPO_A, vec![pr(1)], false).unwrap());
+    e.c.hold_desk_pr(USER, REPO_A, 1, "", false).unwrap();
+    e.c.acquire(ALICE, "desk/a/b", mins(30), false).unwrap();
+    e.c.catch_up().unwrap();
+    assert!(e.c.desk(REPO_A).unwrap().on());
+}
+
+/// Card #625: a desk made after the Core's last pass (an agent just started
+/// in a new repo) counts until the Core judges it; then it is stray unless
+/// the repo is the person's.
+#[test]
+fn a_desk_the_core_has_not_judged_yet_counts() {
+    let e = Env::new();
+    let new = "remote:github.com/c/d";
+    seen_here(&e, REPO_A);
+    // The Core judged REPO_A's desk: not ours.
+    assert!(e.c.set_desk_repos(Vec::<String>::new()));
+    assert!(e.c.desk(REPO_A).unwrap().stray);
+    seen_here(&e, new);
+    let d = e.c.desk(new).unwrap();
+    assert!(d.on() && !d.stray, "not judged yet: it counts");
+    // Its next pass judges both.
+    assert!(!e.c.judge_desk_repos(
+        [REPO_A.to_string(), new.to_string()],
+        Vec::<String>::new()
+    ));
+    assert!(e.c.desk(new).unwrap().stray);
+}

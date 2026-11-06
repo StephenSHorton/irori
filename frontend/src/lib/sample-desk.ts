@@ -1,6 +1,6 @@
 // The merge desks the browser preview shows (card #417): ww's stand-in
-// game-repo with every live state (desk-2), an app repo with no open PRs,
-// and a repo that takes no PRs. ?desk=unreachable makes the game-repo's
+// game-repo with every live state (desk-2), an app repo with no open PRs
+// of ours (so it isn't listed, card #625), and a repo that takes no PRs. ?desk=unreachable makes the game-repo's
 // poll fail and ?desk=truncated cuts its list short.
 
 import type { Desk, SnapPr } from "./desk"
@@ -47,7 +47,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
     pr(216, "Save slots: keep the last 3", "irori-agents", 350),
     pr(217, "Night fog tweak", "irori-agents", 320),
     pr(221, "New title screen", "irori-agents", 60, { isDraft: true }),
-    pr(222, "Add a speedrun timer", "drive-by-fork", 30),
   ]
   const unreachable = flag === "unreachable"
   const game: Desk = {
@@ -85,7 +84,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
         at: ago(now, 7),
       },
     },
-    oks: {},
     run: {
       repoKey: GAME,
       pr: 212,
@@ -138,7 +136,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
     },
     prs: { repoKey: APP, at: ago(now, 40), truncated: false, prs: [] },
     holds: {},
-    oks: {},
     poll: { at: ago(now, 2), device: "pc" },
   }
   const irori: Desk = {
@@ -153,7 +150,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       perPrOk: false,
     },
     holds: {},
-    oks: {},
   }
   return [game, app, irori]
 }

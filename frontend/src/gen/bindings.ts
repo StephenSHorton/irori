@@ -395,8 +395,6 @@ export const commands = {
 	deskHold: (repoKey: string, pr: number, note: string, cleared: boolean) => __TAURI_INVOKE<null>("desk_hold", { repoKey, pr, note, cleared }),
 	/**  The person pauses or resumes a desk. */
 	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
-	/**  The person okays an Outside PR at one head. */
-	deskOk: (repoKey: string, pr: number, headSha: string) => __TAURI_INVOKE<null>("desk_ok", { repoKey, pr, headSha }),
 };
 
 /* Types */
@@ -1530,7 +1528,7 @@ export type Delivery = {
 /**  inbox.DeliveryMode. */
 export type DeliveryMode = "wake" | "next_turn";
 
-/**  A PR's author card and trust (slice 2's read-only verdict). */
+/**  One of our PRs' author card (slice 2's read-only verdict). */
 export type DeskAuthorView = {
 	pr: number,
 	/**  The author card's id; "" none yet. */
@@ -1539,8 +1537,6 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
-	/**  An Outside PR: never checked or merged until the person's OK. */
-	outside: boolean,
 };
 
 /**  One check line (§7). */
@@ -1553,10 +1549,10 @@ export type DeskCheckLine = {
 	device?: string,
 };
 
-/**  A hold, a pause, an OK or the holder's run: one PR (0 for a pause). */
+/**  A hold, a pause or the holder's run: one PR (0 for a pause). */
 export type DeskMark = {
 	pr: number,
-	/**  A hold's note; an OK's or a run's head sha. */
+	/**  A hold's note; a run's base sha. */
 	note: string,
 	headSha: string,
 	by: string,
@@ -1640,10 +1636,13 @@ export type DeskView = {
 	prs?: DeskSnapshotView | null,
 	holds: DeskMark[],
 	paused?: DeskMark | null,
-	oks: DeskMark[],
 	run?: DeskMark | null,
 	poll: DeskPollView,
-	/**  Each PR in the snapshot: its author card and whether it is Outside. */
+	/**
+	 *  Each PR in the snapshot: its author card. The snapshot holds only
+	 *  our PRs (the person's, their members' and their agents'; card
+	 *  #625): anyone else's is left out here.
+	 */
 	authors: DeskAuthorView[],
 };
 
