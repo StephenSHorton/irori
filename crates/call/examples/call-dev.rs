@@ -1,6 +1,6 @@
 //! `call-dev`: a real call between machines, outside the app (#654).
 //!
-//!   call-dev [--dial <endpointId>]... [--mute] [--probe] [--say] [--no-aec] [--no-ns] [--no-agc] [--secs N]
+//!   call-dev [--dial <endpointId>]... [--mute] [--probe] [--say] [--local] [--no-aec] [--no-ns] [--no-agc] [--secs N]
 //!
 //! Each run is one participant: it prints its endpoint id, accepts calls,
 //! and dials every --dial id, so three runs where the later ones dial the
@@ -15,6 +15,12 @@
 //! --mute, and this one with --probe. Every 2.5 s it clicks its own speaker
 //! and times the click's return from the far speaker at its own mic (see
 //! src/probe.rs). Turn the volume up on both.
+//!
+//! Mouth-to-ear between the real apps: with two devices in an Irori
+//! huddle, side by side, run `call-dev --local --probe` on one of them. It
+//! opens no network: it only clicks that device's speaker and listens at
+//! its mic. Irori there hears the click like a voice and sends it through
+//! the huddle; the far device plays it; T1 - T0 is the apps' mouth-to-ear.
 //!
 //! Echo cancelling: run the far one with --say (a stand-in voice it sends
 //! every other 1.5 s) and this one plain, on laptop speakers. The far one
@@ -37,6 +43,8 @@ struct Opts {
     dial: Vec<EndpointId>,
     cfg: Config,
     secs: u64,
+    /// No network: only the probe (or --say) on this device's own speaker.
+    local: bool,
 }
 
 fn parse() -> Result<Opts> {
@@ -44,6 +52,7 @@ fn parse() -> Result<Opts> {
         dial: Vec::new(),
         cfg: Config::default(),
         secs: 0,
+        local: false,
     };
     let mut dsp = DspConfig::default();
     let mut it = std::env::args().skip(1);
@@ -56,6 +65,7 @@ fn parse() -> Result<Opts> {
                     .map_err(|e| anyhow!("endpoint id: {e}"))?,
             ),
             "--mute" => o.cfg.muted = true,
+            "--local" => o.local = true,
             "--probe" => o.cfg.probe = true,
             "--say" => o.cfg.say = true,
             "--no-aec" => dsp.echo_cancel = false,
@@ -64,7 +74,7 @@ fn parse() -> Result<Opts> {
             "--secs" => o.secs = it.next().context("--secs")?.parse()?,
             "-h" | "--help" => {
                 eprintln!(
-                    "usage: call-dev [--dial <endpointId>]... [--mute] [--probe] [--say] [--no-aec] [--no-ns] [--no-agc] [--secs N]"
+                    "usage: call-dev [--dial <endpointId>]... [--mute] [--probe] [--say] [--local] [--no-aec] [--no-ns] [--no-agc] [--secs N]"
                 );
                 std::process::exit(2)
             }
@@ -118,6 +128,16 @@ async fn serve(conn: Connection, engine: Arc<Engine>, inlet: Inlet) {
 #[tokio::main]
 async fn main() -> Result<()> {
     let o = parse()?;
+    if o.local {
+        let engine = tokio::task::spawn_blocking({
+            let cfg = o.cfg;
+            move || Engine::start(cfg, call::device::default_devices())
+        })
+        .await?
+        .map_err(|e| anyhow!(e))?;
+        println!("call-dev local: no network; clicking and listening here");
+        return report(&engine, o.secs).await;
+    }
     let ep = Builder::empty()
         .crypto_provider(irori_net::tls::provider())
         .secret_key(SecretKey::generate())
@@ -170,6 +190,14 @@ async fn main() -> Result<()> {
         });
     }
 
+    report(&engine, o.secs).await?;
+    ep.close().await;
+    Ok(())
+}
+
+/// Prints the engine's stats every 2 s until Ctrl+C or `secs`, then the
+/// mouth-to-ear summary.
+async fn report(engine: &Engine, secs: u64) -> Result<()> {
     let t0 = Instant::now();
     let mut seen = 0;
     loop {
@@ -221,7 +249,7 @@ async fn main() -> Result<()> {
             println!("call-dev mouth-to-ear {ms:.1} ms");
         }
         seen = st.mouth_to_ear_ms.len();
-        if o.secs > 0 && t0.elapsed() >= Duration::from_secs(o.secs) {
+        if secs > 0 && t0.elapsed() >= Duration::from_secs(secs) {
             break;
         }
     }
@@ -237,6 +265,5 @@ async fn main() -> Result<()> {
             v[v.len() - 1]
         );
     }
-    ep.close().await;
     Ok(())
 }
