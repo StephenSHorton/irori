@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/common/confirm-button"
 import {
   BlockerState,
   cards as cardsApi,
+  cardStore,
   displayName,
   useCard,
   type CardBlocker,
@@ -775,7 +776,12 @@ export function BlockerAnswer({
   const send = (option: number, text: string) => {
     const started = instant({
       key: answerKey(cardId, b.id),
-      patch: answerPatch(cardId, b, option),
+      patch: answerPatch(
+        cardId,
+        b,
+        option,
+        cardStore.slot(cardId)?.detail?.openBlockers
+      ),
       send: () => cardsApi.answer(cardId, b.id, option, text),
       failed: b.doneCheck
         ? "Your answer to the done check wasn't saved"

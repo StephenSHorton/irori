@@ -108,12 +108,15 @@ const isOver = (c: { state: string }) =>
   c.state === TaskState.Failed
 
 // openBelow: the summary shows at most one open item fewer than it did
-// when the change first met it. The first summary it patches sets the
-// mark, so a read that already counts the answer isn't lowered twice.
-function openBelow() {
+// when the person answered. before is the card's count then (its page
+// data, read at the click); without it, the first summary the change
+// meets sets the mark, so a read that already counts the answer isn't
+// lowered twice.
+function openBelow(before?: number) {
   const seen = new Map<string, number>()
   const mark = (c: CardSummary) => {
-    if (!seen.has(c.id)) seen.set(c.id, Math.max(0, c.openBlockers - 1))
+    if (!seen.has(c.id))
+      seen.set(c.id, Math.max(0, (before ?? c.openBlockers) - 1))
     return seen.get(c.id)!
   }
   return {
@@ -121,8 +124,23 @@ function openBelow() {
       ...c,
       openBlockers: Math.min(c.openBlockers, mark(c)),
     }),
-    agrees: (c: CardSummary) => seen.has(c.id) && c.openBlockers <= mark(c),
+    agrees: (c: CardSummary) =>
+      (before !== undefined || seen.has(c.id)) && c.openBlockers <= mark(c),
   }
+}
+
+// counted: the item is one the card's open count holds (cards.rs
+// card_summary): open or replied back to the person, not another
+// member's question nor a wait. An answered one already isn't.
+function counted(
+  b: Partial<Pick<CardBlocker, "state" | "resolved" | "decider" | "waitsOn">>
+): boolean {
+  return (
+    !b.resolved &&
+    !b.decider &&
+    !b.waitsOn &&
+    (!b.state || b.state === "open" || b.state === "replied")
+  )
 }
 
 // The coord's Done answer: the done check's option that closes the card.
@@ -144,8 +162,11 @@ export function isDone(
 // card; anything else leaves the item with the agent.
 export function answerPatch(
   cardId: string,
-  b: Pick<CardBlocker, "id" | "doneCheck" | "options">,
-  option: number
+  b: Pick<CardBlocker, "id" | "doneCheck" | "options"> &
+    Partial<Pick<CardBlocker, "state" | "resolved" | "decider" | "waitsOn">>,
+  option: number,
+  // The card's open count at the click, when its page data is loaded.
+  before?: number
 ): Omit<Patch, "key"> {
   if (b.id === NoteItem) {
     const back = (c: CardSummary) =>
@@ -199,7 +220,23 @@ export function answerPatch(
       summaryAgrees: isOver,
     }
   }
-  const open = openBelow()
+  const open = openBelow(before)
+  // An item the count doesn't hold (already answered: "Add to your
+  // answer") leaves the count alone; a done check still stops being ready.
+  const summary: Pick<Patch, "summary" | "summaryAgrees"> = counted(b)
+    ? {
+        summary: (c) => {
+          const out = open.apply(c)
+          return b.doneCheck ? { ...out, ready: undefined } : out
+        },
+        summaryAgrees: open.agrees,
+      }
+    : b.doneCheck
+      ? {
+          summary: (c) => ({ ...c, ready: undefined }),
+          summaryAgrees: (c) => !c.ready,
+        }
+      : {}
   return {
     cardId,
     detail: (d) =>
@@ -215,11 +252,7 @@ export function answerPatch(
             ),
           },
     detailAgrees: (d) => blockerShut(d, b.id),
-    summary: (c) => {
-      const out = open.apply(c)
-      return b.doneCheck ? { ...out, ready: undefined } : out
-    },
-    summaryAgrees: open.agrees,
+    ...summary,
   }
 }
 

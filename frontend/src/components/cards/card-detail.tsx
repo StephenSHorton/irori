@@ -56,6 +56,7 @@ import {
   type CardWait,
   type Step,
   type Told,
+  cardStore,
 } from "@/lib/cards"
 import {
   parseTime,
@@ -1795,7 +1796,12 @@ function BlockerItem({
     const kept = { text, mentions }
     const started = instant({
       key: answerKey(cardId, b.id),
-      patch: answerPatch(cardId, b, option),
+      patch: answerPatch(
+        cardId,
+        b,
+        option,
+        cardStore.slot(cardId)?.detail?.openBlockers
+      ),
       send: () => cards.answer(cardId, b.id, option, own, true, ms),
       failed: b.doneCheck
         ? "Your answer to the done check wasn't saved"
@@ -1808,7 +1814,10 @@ function BlockerItem({
         setAdding(true)
       },
     })
-    if (!started) return
+    if (!started) {
+      setError("Your last answer to this is still saving; send again then.")
+      return
+    }
     setError(null)
     setTold(null)
     if (option < 0) {

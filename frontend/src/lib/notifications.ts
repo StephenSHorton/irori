@@ -214,14 +214,16 @@ export function useNotifications(): {
   error: string | null
   reload: () => Promise<void>
 } {
-  const load = useCallback(async (): Promise<Notification[]> => {
-    const list = inWails()
-      ? await NotificationService.List()
-      : sampleNotifications()
-    pending.observeNotifications(list)
-    return list
-  }, [])
+  const load = useCallback(
+    async (): Promise<Notification[]> =>
+      inWails() ? NotificationService.List() : sampleNotifications(),
+    []
+  )
   const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  // A read ends the answers it agrees with once it is shown (useCards).
+  useEffect(() => {
+    if (!loading && !error) pending.observeNotifications(value)
+  }, [value, loading, error])
   const v = useSyncExternalStore(pending.subscribe, pending.version)
   const list = useMemo(
     () => pending.notifications(value),

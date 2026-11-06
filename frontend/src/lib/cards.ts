@@ -2208,11 +2208,18 @@ export type CardsState = {
 // with the person's pending changes on them (card #644).
 export function useCards(): CardsState {
   const { value, loading, error, reload } = useLatest<CardSummary[]>(
-    loadLiveCards,
+    loadCards,
     [],
     "cards"
   )
   useFresh(reload, error)
+  // A read the person sees ends the changes it agrees with: after it is
+  // shown, so the old state never paints in between (the change applied
+  // to data that already says so changes nothing). Not the empty list
+  // before the first read lands, where every card would seem gone.
+  useEffect(() => {
+    if (!loading && !error) pending.observeSummaries(value)
+  }, [value, loading, error])
   const v = useSyncExternalStore(pending.subscribe, pending.version)
   const cards = useMemo(
     () => pending.summaries(value),
@@ -2220,13 +2227,6 @@ export function useCards(): CardsState {
     [value, v]
   )
   return { cards, loading, error }
-}
-
-// loadLiveCards is loadCards, telling the pending changes what came in.
-async function loadLiveCards(): Promise<CardSummary[]> {
-  const list = await loadCards()
-  pending.observeSummaries(list)
-  return list
 }
 
 // useIdleReport is Home's idle line (card #341): BoardService.IdleReport,
