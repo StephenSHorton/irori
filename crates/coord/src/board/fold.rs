@@ -343,6 +343,11 @@ pub struct Fold {
     pub(crate) asks: AskBook,
     pub(crate) stale: Arc<RwLock<StaleMap>>,
     pub(crate) links: Vec<ParentLink>,
+    /// A row changed what [`Fold::relink`] derives parents and subtasks
+    /// from: the link rows, which cards exist, or an ask's being open. The
+    /// next rows of a catch-up page read those fields, so such a row relinks
+    /// at once (card #567). A plain row only moves rollups.
+    pub(crate) links_moved: bool,
     pub(crate) pins: HashMap<String, PinRec>,
     /// Done cards the person cleared from the window (card #138), by id,
     /// with the row that last set it. Any id: a board card's too.
@@ -490,6 +495,7 @@ impl Fold {
             asks: AskBook::default(),
             stale: Arc::new(RwLock::new(StaleMap::default())),
             links: Vec::new(),
+            links_moved: false,
             pins: HashMap::new(),
             archived: HashMap::new(),
             paused: HashMap::new(),
@@ -643,6 +649,14 @@ impl Fold {
     /// Folds one row, then any rows the take lock and the board's
     /// references kept back that it lets through now.
     pub(crate) fn apply(&mut self, ev: &Event) {
+        self.apply_row(ev);
+        if !self.replaying {
+            self.relink();
+        }
+    }
+
+    /// [`Fold::apply`] short of the relink.
+    pub(crate) fn apply_row(&mut self, ev: &Event) {
         self.fold(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.sync_offer_stale(&p.task_id);
@@ -652,9 +666,6 @@ impl Fold {
         // After both: a claim either let through may be the holder a kept
         // pr.state row waited for (card #548), and replay has no tick.
         self.retry_pr_ahead();
-        if !self.replaying {
-            self.relink();
-        }
     }
 
     pub(crate) fn fold(&mut self, ev: &Event) {
@@ -1191,6 +1202,7 @@ impl Fold {
                 .is_some_and(|pt| self.may_spawn_on(pt, &ev.device_id));
         self.sync_pin(&mut task);
         self.tasks.insert(p.task_id.clone(), task);
+        self.links_moved = true;
         if !p.parent.is_empty() {
             self.fold_parent(&p.task_id, &p.parent, ev);
         }
@@ -1273,6 +1285,7 @@ impl Fold {
                 a.outcome = None;
             }
             self.asks.closed_at.remove(&t.id);
+            self.links_moved = true;
         } else if t.open_ask().is_some() {
             let o = p.outcome.clone().unwrap_or_else(|| Outcome {
                 kind: super::asks::OUTCOME_NONE.into(),

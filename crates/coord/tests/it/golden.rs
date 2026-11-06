@@ -185,7 +185,46 @@ fn live_fold_matches_replay() {
     }
 }
 
+/// A catch-up's pages end where the live fold does, and say the same at any
+/// page size (card #567). These rows include the coord's own, which a real
+/// catch-up never folds: `catchup_test.rs` holds it against
+/// [`Coord::handle`] on a store.
+#[test]
+fn pages_of_any_size_fold_the_same() {
+    let mut said_something = false;
+    for c in &golden() {
+        let name = s(&c["name"]);
+        let paged = |n: usize| {
+            let co = coord_of_empty(c);
+            co.fold_pages(&rows(c), n);
+            let notices: Vec<String> = co
+                .sweep_notices_partial()
+                .0
+                .iter()
+                .map(|x| format!("{:?} {} {} {}", x.to, x.task_id, x.wake, x.text))
+                .collect();
+            (json(&co.list_tasks(&TaskFilter::default())), notices)
+        };
+        let (want, heard) = paged(1);
+        said_something |= !heard.is_empty();
+        let live = json(&coord_of_live(c).list_tasks(&TaskFilter::default()));
+        assert!(live == want, "{name} live: {}", diff(&live, &want));
+        for n in [2, 7, 1000] {
+            let (got, said) = paged(n);
+            assert!(want == got, "{name} by {n}: {}", diff(&want, &got));
+            assert_eq!(heard, said, "{name} by {n}");
+        }
+    }
+    assert!(said_something, "the goldens gave no notices to compare");
+}
+
 fn coord_of_live(c: &Value) -> Coord {
+    let co = coord_of_empty(c);
+    co.fold_live(&rows(c));
+    co
+}
+
+fn coord_of_empty(c: &Value) -> Coord {
     let now = GoTime::parse_rfc3339(s(&c["now"])).unwrap();
     let mut o = Options {
         now: Some(Arc::new(move || now)),
@@ -200,9 +239,7 @@ fn coord_of_live(c: &Value) -> Coord {
     if o.board {
         o.tag = Some(Arc::new(|| "mlg".to_string()));
     }
-    let co = Coord::from_rows(s(&c["device"]), &[], None, o);
-    co.fold_live(&rows(c));
-    co
+    Coord::from_rows(s(&c["device"]), &[], None, o)
 }
 
 use crate::common;
