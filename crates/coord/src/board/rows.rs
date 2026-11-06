@@ -502,6 +502,8 @@ crate::go_struct! {
         pub title: Option<String> = "title" "omit",
         pub objective: Option<String> = "objective" "omit",
         pub done_criteria: Option<String> = "doneCriteria" "omit",
+        /// The card's repoKey (card #600); an older Irori ignores it.
+        pub repo_key: Option<String> = "repoKey" "omit",
         pub by: String = "by",
         pub from: String = "from" "omit",
         pub note: String = "note" "omit",

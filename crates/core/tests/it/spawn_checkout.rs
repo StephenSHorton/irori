@@ -3,7 +3,8 @@
 //! gets one plain blocker instead of being asked for on every sweep, and
 //! its agent starts once the person names a folder or a copy turns up; the
 //! spawner failing three times in a row asks too. No line names a raw key
-//! or a device id.
+//! or a device id. A card that names no repo is never asked about (card
+//! #600): its agent starts where this device's agents work and finds it.
 
 use crate::common;
 
@@ -318,20 +319,27 @@ fn a_checkout_seen_on_another_device_is_not_a_folder_here() {
     );
 }
 
+/// Card #600: a card that names no repo on a device with no checkout of
+/// any repo has nowhere to start an agent. Its failed request says so,
+/// and Irori asks the person nothing, now or later.
 #[test]
-fn a_card_with_no_repo_asks_for_a_folder() {
+fn a_card_with_no_repo_and_no_checkout_here_asks_nothing() {
     let t = rig();
     let c = t.card("A card with no repo", "");
     t.start();
-    let b = t.wait_blocked(&c.id);
-    assert!(
-        b.question
-            .starts_with("This card names no repo. Choose its folder on"),
-        "{b:?}"
-    );
+    wait_for(60, "its request failed", || {
+        t.get(&c.id)
+            .spawn_request()
+            .is_some_and(|s| s.op == coord::SPAWN_FAILED)
+    });
     let sr = t.get(&c.id).spawn_request().cloned().unwrap();
     assert!(sr.reason.starts_with("this card names no repo"), "{sr:?}");
     t.plain(&sr.reason);
+    t.later();
+    let c2 = t.get(&c.id);
+    assert!(c2.blockers.iter().all(|b| !b.open()), "{:?}", c2.blockers);
+    assert_ne!(c2.state, coord::BLOCKED);
+    assert!(t.fake.started.lock().unwrap().is_empty());
 }
 
 /// Card #531: the close that going back on the Board writes carries the
@@ -340,7 +348,7 @@ fn a_card_with_no_repo_asks_for_a_folder() {
 #[test]
 fn going_back_on_the_board_is_no_reply() {
     let t = rig();
-    let c = t.card("A card with no repo", "");
+    let c = t.card("Port the parser", LOWER);
     t.start();
     let b = t.wait_blocked(&c.id);
     let co = t.r.core.coord();
@@ -357,11 +365,8 @@ fn going_back_on_the_board_is_no_reply() {
     assert_eq!(b2.context, b.context);
 }
 
-/// Card #531: a card with no repo is offered where this device's agents
-/// work, and picking it starts the agent there.
-#[test]
-fn a_card_with_no_repo_is_offered_the_folder_agents_work_in() {
-    let t = rig();
+/// A new git repo in a temp folder, with one commit.
+fn git_repo() -> (tempfile::TempDir, PathBuf) {
     let d = tempfile::tempdir().unwrap();
     let dir = d.path().canonicalize().unwrap();
     let git = |args: &[&str]| {
@@ -376,6 +381,16 @@ fn a_card_with_no_repo_is_offered_the_folder_agents_work_in() {
     };
     git(&["init", "-q"]);
     git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+    (d, dir)
+}
+
+/// Card #600: a card with no repo gets an agent at once, in the folder this
+/// device's agents work in, with no blocker; its brief tells it to work the
+/// repo out and set it, or ask only when it can't tell.
+#[test]
+fn a_card_with_no_repo_starts_where_agents_work_and_finds_its_repo() {
+    let t = rig();
+    let (_d, dir) = git_repo();
     let sess = "eeeeeeee-5555-4555-8555-000000000005";
     write_session(
         &t.r.claude.join("sessions"),
@@ -393,31 +408,77 @@ fn a_card_with_no_repo_is_offered_the_folder_agents_work_in() {
     });
     let c = t.card("A card with no repo", "");
     t.start();
-    let b = t.wait_blocked(&c.id);
-    assert_eq!(b.options.len(), 1, "{b:?}");
-    assert_eq!(Path::new(&b.options[0].answer).canonicalize().unwrap(), dir);
-    assert!(b.context.contains("Pick the folder"), "{}", b.context);
-
-    // As the window answers an Irori ask: picked, and resolved with it.
-    t.r.core
-        .coord()
-        .answer(
-            &t.person,
-            &c.id,
-            &b.id,
-            BlockerAnswer {
-                pick: 1,
-                resolve: true,
-                ..BlockerAnswer::default()
-            },
-        )
-        .unwrap();
     wait_for(60, "its agent started", || {
         t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
         !t.fake.started.lock().unwrap().is_empty()
     });
     let req = t.fake.started.lock().unwrap()[0].clone();
     assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), dir);
+    assert!(t.no_copy_blockers(&c.id).is_empty());
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    let short = t.get(&c.id).short_ref();
+    assert!(
+        brief.contains(&format!("{short} names no repo, so Irori started you in")),
+        "{brief}"
+    );
+    assert!(
+        brief.contains(&format!("board_edit task_id={short} repo=")),
+        "{brief}"
+    );
+    assert!(brief.contains(&format!("board_leave {short}")), "{brief}");
+    assert!(brief.contains("raise one board_block asking which repo"), "{brief}");
+    assert!(brief.contains("Repos with a checkout on this device:"), "{brief}");
+}
+
+/// Card #600: with no agent working here, a card with no repo starts in a
+/// checkout this device has seen, and its brief lists that repo.
+#[test]
+fn a_card_with_no_repo_and_no_agent_starts_in_a_checkout_seen_here() {
+    let t = rig();
+    let (_d, dir) = git_repo();
+    t.seen(LOWER, &dir);
+    let c = t.card("A card with no repo", "");
+    t.start();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), dir);
+    assert!(t.no_copy_blockers(&c.id).is_empty());
+    let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    assert!(
+        brief.contains(&format!("- irori: {LOWER} at {}", dir.display())),
+        "{brief}"
+    );
+    assert!(brief.contains("a checkout of irori"), "{brief}");
+}
+
+/// Card #600: a card's Where from before its repo was set is another
+/// repo's folder; its next agent starts in a checkout of its repo instead.
+#[test]
+fn a_where_in_another_repo_is_not_the_cards_folder() {
+    let t = rig();
+    let (_a, other) = git_repo();
+    let (_b, mine) = git_repo();
+    t.seen(LOWER, &mine);
+    let c = t.card("Port the parser", LOWER);
+    let me = t.r.core.device_id().to_string();
+    let w = coord::Where {
+        who: format!("{me}/{SESS}"),
+        cwd: other.to_string_lossy().into_owned(),
+        worktree: other.to_string_lossy().into_owned(),
+        branch: "main".into(),
+        ..coord::Where::default()
+    };
+    assert!(t.r.core.coord().set_where(&c.id, w).unwrap());
+    t.start();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), mine);
 }
 
 #[test]

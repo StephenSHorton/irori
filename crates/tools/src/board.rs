@@ -822,8 +822,19 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         return err_text("give the card a title: what is being worked on now.");
     }
     let mut repo = coord::canonical_repo_key(trim(a.str("repo")));
+    // Card #600: its parent's repo, then its thread's, then the caller's.
+    // An agent working from a folder outside any repo has none, and such a
+    // card's agent works its repo out.
     if repo.is_empty() {
-        repo = s.caller_repo(c);
+        repo = [a.str("parent"), a.str("from")]
+            .into_iter()
+            .map(trim)
+            .filter(|r| !r.is_empty())
+            .filter_map(|r| s.task_ref(r).ok())
+            .filter_map(|id| s.task(&id))
+            .map(|t| t.repo_key)
+            .find(|k| !k.is_empty())
+            .unwrap_or_else(|| s.caller_repo(c));
     }
     let mut to = String::new();
     let v = trim(a.str("assign_to"));
@@ -943,10 +954,10 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                     t = nt;
                 }
             }
-            // A card with no repo has no checkout to start in (card #467:
-            // v0.11.0 looped on one), so say so instead of promising one.
+            // A card with no repo still gets an agent (card #600): it
+            // works out the repo and sets it.
             Ok(_) if co.spawning() && t.repo_key.is_empty() && t.where_.is_none() => {
-                out += " It names no repo, so Irori has no checkout to start an agent in: take it up with board_join, or post it again with repo set.";
+                out += " It names no repo: Irori starts an agent for it, which works out its repo from the card and sets it (board_edit repo). Give repo now if you know it.";
             }
             Ok(_) if co.spawning() => {
                 out += " Irori starts an agent for it.";
@@ -2400,6 +2411,7 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("title", Ty::OptStr),
     ("objective", Ty::OptStr),
     ("done_when", Ty::OptStr),
+    ("repo", Ty::OptStr),
     ("from", Ty::Str),
 ];
 
@@ -2416,11 +2428,16 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         title: a.opt_str("title"),
         objective: a.opt_str("objective"),
         done_when: a.opt_str("done_when"),
+        repo: a
+            .opt_str("repo")
+            .map(|r| coord::canonical_repo_key(trim(&r)))
+            .filter(|r| !r.is_empty()),
         from: trim(a.str("from")).into(),
     };
-    if e.title.is_none() && e.objective.is_none() && e.done_when.is_none() {
-        return err_text("give title, objective or done_when: what the card is for now.");
+    if e.title.is_none() && e.objective.is_none() && e.done_when.is_none() && e.repo.is_none() {
+        return err_text("give title, objective, done_when or repo: what the card is for now.");
     }
+    let repo_set = e.repo.is_some();
     let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
         Ok(v) => v,
         Err(e) => return map_err(e),
@@ -2429,11 +2446,24 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(t) => t,
         Err(e) => return map_err(e),
     };
-    format!(
-        "Edited {}; its thread says what changed. If the plan changed too, give it new steps with board_steps.\n{}",
-        t.short_ref(),
-        s.line(&t)
-    )
+    let mut out = format!(
+        "Edited {}; its thread says what changed. If the plan changed too, give it new steps with board_steps.",
+        t.short_ref()
+    );
+    // Card #600: whether the one setting it can work it where it is.
+    if repo_set && t.holders.contains(&c.sender.key) {
+        let mine = s.caller_repo(c);
+        let name = coord::repo_name(&t.repo_key);
+        if coord::same_repo_key(&mine, &t.repo_key) {
+            out += &format!(" You are in {name}: work it here, in a worktree.");
+        } else {
+            out += &format!(
+                " You are in another repo, so leave {name}'s work to an agent there: give left_off (board_step) with what you found, then board_leave {}. Irori starts its next agent in a checkout of {name}.",
+                t.short_ref()
+            );
+        }
+    }
+    format!("{out}\n{}", s.line(&t))
 }
 
 // --- leases ---
