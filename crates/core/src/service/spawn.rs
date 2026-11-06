@@ -688,7 +688,7 @@ pub const NO_HANDOFF_ASK: &str = "The agent Irori started for this ended without
 pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, so it goes when the card settles. Irori sets CARGO_TARGET_DIR for you when it knows your worktree: don't set or override it, and don't build into a shared or temp folder.";
 
 /// What every spawned agent is told about notes (§13.6, card #454).
-pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, propose it as a note (notes_propose) before you go.";
+pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, write it as a note (notes_propose) before you go.";
 
 /// How many Talk channels a brief quotes, and how many of each one's
 /// newest posts (card #454; spawned-agents.md §4 "Channels").

@@ -2516,11 +2516,10 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         assert!(d.core.board_agents().iter().all(|a| a.board_id != id));
         assert!(d.core.board_people().iter().all(|p| p.board_id != id));
         assert!(d.core.search_notes("HIDDEN", false).is_empty());
-        assert!(d.core.notes(&id, false).is_err());
         for got in [
             format!("{:?}", d.core.board_views(&Default::default())),
             format!("{:?}", d.core.idle_report()),
-            format!("{:?}", d.core.notes("", false)),
+            format!("{:?}", d.core.notes(false)),
             d.tool("board", serde_json::json!({})),
             d.tool("overview", serde_json::json!({})),
             d.tool("agents", serde_json::json!({})),

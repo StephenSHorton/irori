@@ -332,26 +332,6 @@ fn the_tools_put_a_card_on_the_inner_board_they_name() {
     assert!(out.contains("as net#3"), "{out}");
 }
 
-/// A notes scope that names a board inside a space means that space:
-/// notes are kept per space (card #558).
-#[test]
-fn a_notes_scope_by_an_inner_board_means_its_space() {
-    let r = Rig::new();
-    let (id, net) = wind_and_net(&r.core);
-    let me = r.core.user_sender().key;
-    for scope in ["net", net.as_str()] {
-        let n = coord::NewNote {
-            kind: "rule".into(),
-            text: format!("rollback by {scope}"),
-            tags: vec!["topic:netcode".into()],
-            ..Default::default()
-        };
-        let got = r.core.propose_note(&me, scope, n).unwrap();
-        assert_eq!(got.board_id, id, "scope {scope}");
-        assert_eq!(got.scope, "wind", "scope {scope}");
-    }
-}
-
 /// Spaces-boards.md §1, agreed with #538: a hidden DM space, known by its
 /// private marker only, lists no boards, takes no board and takes no card.
 #[test]

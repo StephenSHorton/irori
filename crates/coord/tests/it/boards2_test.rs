@@ -2500,41 +2500,18 @@ fn board_note(text: &str) -> NewNote {
     }
 }
 
+/// Board logs still take note rows (card #616: an older device can write
+/// them, and Irori no longer reads them), and fold them like the private
+/// log's: live at once, on every member's device.
 #[test]
-fn a_board_note_any_member_accepts_reaches_every_members_agents() {
+fn a_board_note_row_syncs_to_every_member() {
     let (a, b, _) = two_people();
     let n =
         a.c.propose_note(CARD1, board_note("MLG models ship to the repo, not zips."))
             .unwrap();
     sync(&a, &b);
-    let cx = NoteContext {
-        repo_key: REPO_A.into(),
-        ..NoteContext::default()
-    };
     for s in [&a, &b] {
-        assert_eq!(s.c.note_by_id(&n.id).unwrap().state, NOTE_PROPOSED);
-        assert!(
-            s.c.notes_for(&cx).is_empty(),
-            "a proposed note reaches no agent"
-        );
-    }
-    // p2's device can't accept as p1: the forged row is ignored.
-    let _ = b.c.accept_note(P1, &n.id);
-    sync(&a, &b);
-    assert_eq!(a.c.note_by_id(&n.id).unwrap().state, NOTE_PROPOSED);
-    // An agent never accepts.
-    let e = b.c.accept_note(CARD2, &n.id).unwrap_err();
-    assert!(e.is(ErrorKind::NotAllowed), "{e}");
-    // The other person accepts it: live for both people's agents.
-    b.c.accept_note(P2, &n.id).unwrap();
-    sync(&a, &b);
-    for s in [&a, &b] {
-        let n2 = s.c.note_by_id(&n.id).unwrap();
-        assert_eq!(
-            (n2.state.as_str(), n2.accepted_by.as_str()),
-            (NOTE_ACCEPTED, P2)
-        );
-        assert_eq!(s.c.notes_for(&cx).len(), 1);
+        assert_eq!(s.c.note_by_id(&n.id).unwrap().state, NOTE_ACCEPTED);
     }
     // Either member removes it.
     a.c.remove_note(P1, &n.id, "done with zips").unwrap();

@@ -1,279 +1,91 @@
-//! Where a note lives (decision 45, card #401, docs/design/notes.md §3):
-//! a Mine note in the person's private log, a board note in that board's
-//! log, never the other way round. Tools and the window reach the log
-//! through these, as they reach a card's through `task_coord`.
+//! Notes are Mine only (decision 53, card #616, docs/design/notes.md §3):
+//! every note lives in the person's private log and only their own agents
+//! read it. Whoever writes a note, edit or removal (the person or one of
+//! their agents), it applies at once: there is no approval step. Board
+//! logs still accept `note.*` rows, since devices on
+//! 0.11.0-0.12.3 can write them and refusing one would stall that writer's
+//! stream, but Irori never reads them. Tools and the window reach the log
+//! through these.
 
-use std::sync::Arc;
-
-use coord::{Coord, ErrorKind as CK};
 use store::kinds::AGENT_ACTOR_PREFIX;
 
 use super::Services;
-use super::boards::{Error, trim};
 
-/// The scope name of the person's own notes.
-pub const SCOPE_MINE: &str = "mine";
-
-/// One log notes can live in: Mine, or a shared board.
-#[derive(Clone)]
-pub struct NoteLog {
-    /// `""` for Mine, else the board's id.
-    pub board_id: String,
-    /// `"mine"`, or the board's tag.
-    pub scope: String,
-    pub coord: Arc<Coord>,
-}
-
-impl Services {
-    /// Whether this device may write note rows into board `board_id`'s log
-    /// (#411). An older Irori refuses an unknown kind, and every later row
-    /// of that writer's stream then fails its gap check there, so one
-    /// note.* row would stall this device's whole stream on any member
-    /// device that predates notes (nutmeg, #392). The note kinds landed
-    /// before the board hello's `spaces` field (0f6544ab, then 9d5a72dc),
-    /// so a device that reads space rows reads note rows too: the
-    /// space gate ([`Services::space_not_ready`]) is the notes gate. Mine
-    /// notes never wait.
-    pub(crate) fn board_notes_ready(
-        &self,
-        board_id: &str,
-    ) -> std::result::Result<(), coord::Error> {
-        let waiting = self.space_not_ready(board_id).map_err(Error::into_coord)?;
-        if waiting.is_empty() {
-            return Ok(());
-        }
-        Err(Error::coord(
-            CK::NotAllowed,
-            format_args!(
-                "every device in the space must run an Irori with notes first; waiting on {}. Keep it in Mine for now",
-                waiting.join(", ")
-            ),
-        )
-        .into_coord())
-    }
-
-    /// The log for `scope` (`""` or `mine`: the private log; else a board's
-    /// tag or id), with each of `keys` as that log knows the caller.
-    pub(crate) fn notes_log(
-        self: &Arc<Self>,
-        scope: &str,
-        keys: &[String],
-    ) -> std::result::Result<(NoteLog, Vec<String>), coord::Error> {
-        let scope = trim(scope);
-        if scope.is_empty() || scope.eq_ignore_ascii_case(SCOPE_MINE) {
-            return Ok((
-                NoteLog {
-                    board_id: String::new(),
-                    scope: SCOPE_MINE.into(),
-                    coord: self.coord.clone(),
-                },
-                keys.to_vec(),
-            ));
-        }
-        let boards = self.visible_boards();
-        let hits: Vec<_> = boards
-            .iter()
-            .filter(|b| {
-                // A board inside a space names that space: notes are kept
-                // per space (card #558).
-                b.id == scope
-                    || b.verifier.membership().tag.eq_ignore_ascii_case(scope)
-                    || self.space_boards(&b.id).is_ok_and(|bs| {
-                        bs.iter()
-                            .any(|x| x.board_id == scope || x.tag.eq_ignore_ascii_case(scope))
-                    })
-            })
-            .cloned()
-            .collect();
-        let b = match hits.as_slice() {
-            [b] => b.clone(),
-            [] => {
-                return Err(Error::coord(
-                    CK::NotFound,
-                    format_args!("no space {scope:?}: give mine, or the tag or id of a space or one of its boards"),
-                )
-                .into_coord());
-            }
-            _ => {
-                return Err(Error::coord(
-                    CK::Ambiguous,
-                    format_args!("two spaces are tagged {scope:?}: give its id"),
-                )
-                .into_coord());
-            }
-        };
-        let out = keys
-            .iter()
-            .map(|k| self.board_key(&b.id, k))
-            .collect::<super::boards::Result<Vec<_>>>()
-            .map_err(Error::into_coord)?;
-        Ok((
-            NoteLog {
-                board_id: b.id.clone(),
-                scope: b.verifier.membership().tag.clone(),
-                coord: b.coord().clone(),
-            },
-            out,
-        ))
-    }
-
-    /// [`Services::board_notes_ready`] for a board log; Mine always passes.
-    pub(crate) fn write_gate(&self, l: &NoteLog) -> std::result::Result<(), coord::Error> {
-        if l.board_id.is_empty() {
-            return Ok(());
-        }
-        self.board_notes_ready(&l.board_id)
-    }
-
-    /// Every log this device reads notes from: Mine first, then each shown
-    /// board.
-    pub(crate) fn note_logs(&self) -> Vec<NoteLog> {
-        let mut out = vec![NoteLog {
-            board_id: String::new(),
-            scope: SCOPE_MINE.into(),
-            coord: self.coord.clone(),
-        }];
-        for b in self.visible_boards() {
-            out.push(NoteLog {
-                board_id: b.id.clone(),
-                scope: b.verifier.membership().tag.clone(),
-                coord: b.coord().clone(),
-            });
-        }
-        out
-    }
-
-    /// The log holding note `id`, with `keys` as it knows them.
-    pub(crate) fn note_log(
-        self: &Arc<Self>,
-        id: &str,
-        keys: &[String],
-    ) -> std::result::Result<(NoteLog, Vec<String>), coord::Error> {
-        let id = trim(id.strip_prefix("note:").unwrap_or(id)).to_string();
-        let Some(l) = self
-            .note_logs()
-            .into_iter()
-            .find(|l| l.coord.note_by_id(&id).is_some())
-        else {
-            return Err(Error::coord(CK::NotFound, format_args!("note {id}")).into_coord());
-        };
-        if l.board_id.is_empty() {
-            return Ok((l, keys.to_vec()));
-        }
-        let out = keys
-            .iter()
-            .map(|k| self.board_key(&l.board_id, k))
-            .collect::<super::boards::Result<Vec<_>>>()
-            .map_err(Error::into_coord)?;
-        Ok((l, out))
-    }
-}
-
-// ---- the Core's notes API (card #401) ---------------------------------------
-
-/// A note with the log it lives in.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScopedNote {
-    /// `"mine"`, or the board's tag.
-    pub scope: String,
-    /// `""` for Mine.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub board_id: String,
-    #[serde(flatten)]
-    pub note: coord::Note,
-}
-
-fn scoped(l: &NoteLog, n: coord::Note) -> ScopedNote {
-    ScopedNote {
-        scope: l.scope.clone(),
-        board_id: l.board_id.clone(),
-        note: n,
-    }
+/// A note id without its `note:` prefix.
+fn bare(id: &str) -> &str {
+    let id = id.trim();
+    id.strip_prefix("note:").unwrap_or(id).trim()
 }
 
 impl Services {
     // The writes, shared by the window (through `Core`) and the agent tools
-    // (through `ToolsView`, card #412): a gate on board writes (Notes 2,
-    // #411) belongs here so both front ends pass it.
+    // (through `ToolsView`, card #412).
 
     pub(crate) fn propose_note(
-        self: &Arc<Self>,
+        &self,
         by: &str,
-        scope: &str,
-        n: coord::NewNote,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
-        let (l, keys) = self.notes_log(scope, &[by.to_string()])?;
-        self.write_gate(&l)?;
-        let note = l.coord.propose_note(&keys[0], n)?;
-        Ok(scoped(&l, note))
-    }
-
-    pub(crate) fn accept_note(
-        self: &Arc<Self>,
-        by: &str,
-        id: &str,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
-        let (l, keys) = self.note_log(id, &[by.to_string()])?;
-        self.write_gate(&l)?;
-        let id = id.strip_prefix("note:").unwrap_or(id);
-        Ok(scoped(&l, l.coord.accept_note(&keys[0], id)?))
+        mut n: coord::NewNote,
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        // A source card on a shared space isn't in the private log, so it
+        // stays the note's source text only: the log checks a task_id
+        // against its own cards, and Still true? watches only those.
+        if !n.task_id.is_empty() && self.coord.get_task(&n.task_id).is_none() {
+            n.task_id.clear();
+        }
+        self.coord.propose_note(by, n)
     }
 
     pub(crate) fn edit_note(
-        self: &Arc<Self>,
+        &self,
         by: &str,
         id: &str,
         e: coord::NoteEdit,
         why: &str,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
-        let (l, keys) = self.note_log(id, &[by.to_string()])?;
-        self.write_gate(&l)?;
-        let id = id.strip_prefix("note:").unwrap_or(id);
-        Ok(scoped(&l, l.coord.edit_note(&keys[0], id, e, why)?))
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.coord.edit_note(by, bare(id), e, why)
     }
 
     pub(crate) fn remove_note(
-        self: &Arc<Self>,
+        &self,
         by: &str,
         id: &str,
         why: &str,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
-        let (l, keys) = self.note_log(id, &[by.to_string()])?;
-        self.write_gate(&l)?;
-        let id = id.strip_prefix("note:").unwrap_or(id);
-        Ok(scoped(&l, l.coord.remove_note(&keys[0], id, why)?))
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.coord.remove_note(by, bare(id), why)
     }
 
-    pub(crate) fn search_notes(&self, q: &str, live_only: bool) -> Vec<ScopedNote> {
-        self.note_logs()
-            .iter()
-            .flat_map(|l| {
-                l.coord
-                    .search_notes(q, live_only)
-                    .into_iter()
-                    .map(|n| scoped(l, n))
-            })
-            .collect()
+    pub(crate) fn search_notes(&self, q: &str, live_only: bool) -> Vec<coord::Note> {
+        self.coord.search_notes(q, live_only)
+    }
+
+    /// The names a `machine:` tag can match, lower case: each of the
+    /// person's devices by the name a wake on it reads
+    /// ([`Services::machine_name`] there: the name the person chose, else
+    /// its own).
+    pub(crate) fn machine_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .device_labels()
+            .into_values()
+            .map(|n| n.trim().to_lowercase())
+            .filter(|n| !n.is_empty())
+            .collect();
+        out.push(self.machine_name().trim().to_lowercase());
+        out.retain(|n| !n.is_empty());
+        out.sort();
+        out.dedup();
+        out
     }
 }
 
 impl super::Core {
-    /// Writes a note in `scope` (`mine`, or a board's tag or id) as `by`,
-    /// the person at this device or one of their agents. A Mine note stays
-    /// in the private log whatever its tags name.
+    /// Writes a note as `by`, the person at this device or one of their
+    /// agents. It stays in the private log whatever its tags name.
     pub fn propose_note(
         &self,
         by: &str,
-        scope: &str,
         n: coord::NewNote,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
-        self.s.propose_note(by, scope, n)
-    }
-
-    /// A person accepts note `id` (or an agent's pending change to it).
-    pub fn accept_note(&self, by: &str, id: &str) -> std::result::Result<ScopedNote, coord::Error> {
-        self.s.accept_note(by, id)
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.s.propose_note(by, n)
     }
 
     pub fn edit_note(
@@ -282,7 +94,7 @@ impl super::Core {
         id: &str,
         e: coord::NoteEdit,
         why: &str,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
+    ) -> std::result::Result<coord::Note, coord::Error> {
         self.s.edit_note(by, id, e, why)
     }
 
@@ -291,51 +103,37 @@ impl super::Core {
         by: &str,
         id: &str,
         why: &str,
-    ) -> std::result::Result<ScopedNote, coord::Error> {
+    ) -> std::result::Result<coord::Note, coord::Error> {
         self.s.remove_note(by, id, why)
     }
 
-    /// The notes in `scope` (`""`: every log), newest first.
-    pub fn notes(
-        &self,
-        scope: &str,
-        removed: bool,
-    ) -> std::result::Result<Vec<ScopedNote>, coord::Error> {
-        let logs = if trim(scope).is_empty() {
-            self.s.note_logs()
-        } else {
-            vec![self.s.notes_log(scope, &[])?.0]
-        };
-        Ok(logs
-            .iter()
-            .flat_map(|l| l.coord.notes(removed).into_iter().map(|n| scoped(l, n)))
-            .collect())
+    /// The person's notes, newest first; removed ones too when asked (the
+    /// history view).
+    pub fn notes(&self, removed: bool) -> Vec<coord::Note> {
+        self.s.coord.notes(removed)
     }
 
-    /// Notes holding every word of `q` across every log this device reads;
-    /// `live_only`: accepted only, what agents may read.
-    pub fn search_notes(&self, q: &str, live_only: bool) -> Vec<ScopedNote> {
+    /// Notes holding every word of `q`; `live_only`: accepted only, what
+    /// agents may read.
+    pub fn search_notes(&self, q: &str, live_only: bool) -> Vec<coord::Note> {
         self.s.search_notes(q, live_only)
+    }
+
+    /// The names a `machine:` tag can match (lower case).
+    pub fn machine_names(&self) -> Vec<String> {
+        self.s.machine_names()
     }
 }
 
 // ---- the agent tools' seam (card #412) ---------------------------------------
 
-fn tool_note(n: ScopedNote) -> tools::ToolNote {
-    tools::ToolNote {
-        scope: n.scope,
-        note: n.note,
-    }
-}
-
 impl tools::NotesBackend for super::ToolsView {
     fn propose(
         &self,
         by: &str,
-        scope: &str,
         n: coord::NewNote,
-    ) -> std::result::Result<tools::ToolNote, coord::Error> {
-        self.0.propose_note(by, scope, n).map(tool_note)
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.0.propose_note(by, n)
     }
     fn edit(
         &self,
@@ -343,24 +141,23 @@ impl tools::NotesBackend for super::ToolsView {
         id: &str,
         e: coord::NoteEdit,
         why: &str,
-    ) -> std::result::Result<tools::ToolNote, coord::Error> {
-        self.0.edit_note(by, id, e, why).map(tool_note)
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.0.edit_note(by, id, e, why)
     }
     fn remove(
         &self,
         by: &str,
         id: &str,
         why: &str,
-    ) -> std::result::Result<tools::ToolNote, coord::Error> {
-        self.0.remove_note(by, id, why).map(tool_note)
+    ) -> std::result::Result<coord::Note, coord::Error> {
+        self.0.remove_note(by, id, why)
     }
-    fn search(&self, q: &str) -> Vec<tools::ToolNote> {
+    fn search(&self, q: &str) -> Vec<coord::Note> {
         // Agents read accepted notes only (§6).
-        self.0
-            .search_notes(q, true)
-            .into_iter()
-            .map(tool_note)
-            .collect()
+        self.0.search_notes(q, true)
+    }
+    fn machines(&self) -> Vec<String> {
+        self.0.machine_names()
     }
 }
 
@@ -383,25 +180,26 @@ impl Services {
     /// the first of `refs` (`task:<id>`) that is a card here, else the card
     /// the agent works now, gives the board, repo and paths; the agent's
     /// roster card gives its repo when the card has none, and its cwd a
-    /// path; the device's name is the machine. Mine's matches and the
-    /// board's are merged, most specific first, [`coord::NOTES_PER_WAKE`]
-    /// at most.
+    /// path; the device's name is the machine. Only Mine is read: a card
+    /// on a shared space gives its tag, for `board:` tags on Mine notes.
+    /// [`coord::NOTES_PER_WAKE`] at most, most specific first.
     ///
     /// Runs under the inbox lock, so it never calls the inbox and never
     /// waits on a board coord (card #561): a board coord's write takes the
     /// inbox lock under its own (`hop_of`). Boards are only tried. A busy
-    /// board reads as no card and no notes here: a note left out goes in a
-    /// later wake. The boards list it may wait on: nothing waits on a coord
-    /// while holding that ([`Services::route`]).
+    /// board reads as no card here: a note left out goes in a later wake.
+    /// The boards list it may wait on: nothing waits on a coord while
+    /// holding that ([`Services::route`]).
     pub(crate) fn wake_notes(&self, agent: &str, refs: &[String]) -> inbox::WakeNotes {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
-        // The card, and the board log it is on (None: the private log).
-        let mut card: Option<(coord::Task, Option<NoteLog>)> = None;
+        // The card, and the tag of the space it is on ("" for the private
+        // log).
+        let mut card: Option<(coord::Task, String)> = None;
         // A comment: ref is for the person's words below, not for notes.
         for r in refs.iter().filter(|r| r.starts_with("task:")) {
             let id = r.strip_prefix("task:").unwrap_or(r);
             if let Some(t) = self.coord.get_task(id) {
-                card = Some((t, None));
+                card = Some((t, String::new()));
                 break;
             }
             if let Some((t, b)) = self
@@ -409,14 +207,7 @@ impl Services {
                 .into_iter()
                 .find_map(|b| b.coord().try_get_task(id).flatten().map(|t| (t, b)))
             {
-                card = Some((
-                    t,
-                    Some(NoteLog {
-                        board_id: b.id.clone(),
-                        scope: b.verifier.membership().tag.clone(),
-                        coord: b.coord().clone(),
-                    }),
-                ));
+                card = Some((t, b.verifier.membership().tag.clone()));
                 break;
             }
         }
@@ -430,16 +221,14 @@ impl Services {
                 })
                 .into_iter()
                 .find(|t| t.state == coord::WORKING)
-                .map(|t| (t, None));
+                .map(|t| (t, String::new()));
         }
         let mut cx = coord::NoteContext {
             machine: self.machine_name(),
             ..Default::default()
         };
-        if let Some((t, b)) = &card {
-            if let Some(b) = b {
-                cx.board = b.scope.clone();
-            }
+        if let Some((t, board)) = &card {
+            cx.board = board.clone();
             cx.repo_key = t.repo_key.clone();
             cx.paths = t
                 .links
@@ -465,33 +254,16 @@ impl Services {
                 }
             }
         }
-        let mut picked: Vec<(coord::NoteMatch, bool)> = self
-            .coord
-            .notes_for(&cx)
-            .into_iter()
-            .map(|m| (m, true))
-            .collect();
-        let board = card.as_ref().and_then(|(_, b)| b.clone());
-        let mut board_people = std::collections::HashSet::new();
-        if let Some((found, people)) = board.as_ref().and_then(|b| b.coord.try_notes_for(&cx)) {
-            picked.extend(found.into_iter().map(|m| (m, false)));
-            board_people = people;
-        }
-        // Most specific first (stable: each log's newest first within a
-        // score, Mine's before the board's).
-        picked.sort_by_key(|(m, _)| std::cmp::Reverse(m.score));
+        // Most specific first, newest first within a score.
+        let mut picked = self.coord.notes_for(&cx);
         picked.truncate(coord::NOTES_PER_WAKE);
         let names = self.agent_names.all();
-        let who = |key: &str, mine: bool| -> String {
+        let who = |key: &str| -> String {
             if key.is_empty() {
                 return String::new();
             }
-            if (mine && self.coord.is_person(key)) || (!mine && board_people.contains(key)) {
-                return if mine {
-                    "the person".into()
-                } else {
-                    "a person in the space".into()
-                };
+            if self.coord.is_person(key) {
+                return "the person".into();
             }
             match names.get(key).filter(|n| !n.trim().is_empty()) {
                 Some(n) => format!("{n} ({key})"),
@@ -500,9 +272,9 @@ impl Services {
         };
         let notes: Vec<inbox::WakeNote> = picked
             .into_iter()
-            .map(|(m, mine)| inbox::WakeNote {
-                by: who(&m.note.by, mine),
-                accepted_by: who(&m.note.accepted_by, mine),
+            .map(|m| inbox::WakeNote {
+                by: who(&m.note.by),
+                accepted_by: who(&m.note.accepted_by),
                 id: m.note.id,
                 why: m.why,
                 kind: m.note.kind,
