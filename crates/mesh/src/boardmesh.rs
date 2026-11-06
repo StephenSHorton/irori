@@ -99,6 +99,11 @@ pub const MOVES_PROTOCOL: i64 = 1;
 /// older Irori skips the frame and says 0, so its device is never asked.
 pub const DMS_PROTOCOL: i64 = 1;
 
+/// The call layer this build speaks (`call` frames, card #654): a board
+/// hello's `calls`. Built like [`DMS_PROTOCOL`]: an older Irori skips the
+/// frame and says 0, so its device is never rung.
+pub const CALLS_PROTOCOL: i64 = 1;
+
 /// This build's tolerant reader (no-server.md §3.5): a board hello's
 /// `tolerant`. A device saying at least this stores a pulled `task.*` or
 /// `space.*` kind it doesn't know instead of stalling on it, so once a
@@ -157,6 +162,10 @@ pub struct BoardHello {
     /// from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dms: i64,
+    /// The call layer the sender speaks ([`CALLS_PROTOCOL`]); 0 (absent)
+    /// from an Irori before it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub calls: i64,
     /// Whether the sender stores kinds it doesn't know
     /// ([`TOLERANT_PROTOCOL`]); 0 (absent) from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -191,6 +200,33 @@ pub struct DmFrame {
     pub step: String,
     #[serde(default)]
     pub body: serde_json::Value,
+}
+
+/// `call {spaceId, callId, op, convId, epoch, devices, atMs}`: one step of
+/// a voice call's ringing (card #654). It rides on a connection of the
+/// space the call is in, so `space_id` must name this board.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallFrame {
+    pub space_id: String,
+    /// The call it's about: the same id on every frame of one call.
+    pub call_id: String,
+    /// `ring`, `join`, `leave` or `end`. A string, not an enum, so a newer
+    /// op still reaches the hooks instead of dropping the frame.
+    pub op: String,
+    /// The conversation the call is in: a channel or a DM.
+    #[serde(default)]
+    pub conv_id: String,
+    /// The topic epoch the sender proves call connections with.
+    #[serde(default)]
+    pub epoch: i64,
+    /// The devices in the call this sender knows of, so each one dials the
+    /// rest (a full mesh).
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// When it was sent, Unix ms.
+    #[serde(default)]
+    pub at_ms: i64,
 }
 
 /// Leaves `body` out: an `offer`'s holds the space's secret, as `Bundle`'s
@@ -551,6 +587,9 @@ pub struct BoardMeshOpts {
     /// Who hears about DM hand-offs on this board's connections. `None`:
     /// `dm` frames are dropped.
     pub dms: Option<Arc<dyn DmHooks>>,
+    /// Who hears about call ringing on this board's connections (card
+    /// #654). `None`: `call` frames are dropped.
+    pub calls: Option<Arc<dyn CallHooks>>,
 }
 
 /// This person's other devices (see [`BoardMeshOpts::own_devices`]).
@@ -573,6 +612,18 @@ pub trait DmHooks: Send + Sync {
     fn frame(&self, via: &str, peer: &LivePeer, frame: DmFrame);
 }
 
+/// What a board's connections tell the Core for calls (card #654). `via` is
+/// the board whose connection it was. As with [`DmHooks`], each call runs
+/// on that connection's own task, so it must return at once.
+pub trait CallHooks: Send + Sync {
+    /// `peer` said hello, whatever it said about `calls`: a device too old
+    /// for calls is told apart from one not heard at all.
+    fn hello(&self, via: &str, peer: &LivePeer);
+    /// `peer` sent `frame` about a call in this space. It comes only from
+    /// a device `via`'s verifier admits now.
+    fn frame(&self, via: &str, peer: &LivePeer, frame: CallFrame);
+}
+
 /// A device with a live connection that said hello.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LivePeer {
@@ -584,6 +635,8 @@ pub struct LivePeer {
     pub person_id: String,
     /// The `dms` its last hello said.
     pub dms: i64,
+    /// The `calls` its last hello said.
+    pub calls: i64,
 }
 
 /// One counted member device of a board (a dial target).
@@ -611,6 +664,8 @@ enum Wire {
     Secret(BoardSecretFrame),
     #[serde(rename = "dm")]
     Dm(DmFrame),
+    #[serde(rename = "call")]
+    Call(CallFrame),
 }
 
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
@@ -647,6 +702,8 @@ pub struct PeerHeard {
     pub dms: i64,
     /// The `tolerant` its last hello said (card #579).
     pub tolerant: i64,
+    /// The `calls` its last hello said (card #654).
+    pub calls: i64,
 }
 
 /// A writer this device has stopped taking rows from: what the device says
@@ -1136,6 +1193,54 @@ impl BoardMesh {
         s.send(&p, &Wire::Dm(frame)).await
     }
 
+    /// Sends a call `frame` to `device` alone (card #654), on its
+    /// connection of the newest epoch. Refused as [`Self::send_to`] is, and
+    /// when it never said it speaks [`CALLS_PROTOCOL`].
+    pub async fn send_call(&self, device: &str, frame: CallFrame) -> Result<(), String> {
+        let s = &self.s;
+        let p = s
+            .live_peer(device)
+            .ok_or_else(|| format!("{device} isn't connected"))?;
+        if !admitted(&s.opts.verifier, device, &p.conn.pub_key()) {
+            return Err(format!("{device} isn't a member device here"));
+        }
+        let said = s
+            .heard
+            .lock()
+            .expect("heard")
+            .get(device)
+            .map_or(0, |h| h.calls);
+        if said < CALLS_PROTOCOL {
+            return Err(format!("{device}'s Irori is too old for calls"));
+        }
+        s.send(&p, &Wire::Call(frame)).await
+    }
+
+    /// The newest joined epoch and its topic key: what a call connection
+    /// is proved with (card #654). `None` before any epoch is joined.
+    pub fn newest_key(&self) -> Option<(i64, [u8; 32])> {
+        self.s
+            .keys
+            .lock()
+            .expect("keys")
+            .last_key_value()
+            .map(|(e, k)| (*e, *k))
+    }
+
+    /// Every joined epoch's topic key, newest first: the newest, and the
+    /// previous until it settles. A call connection's proof is checked
+    /// against these (card #654).
+    pub fn topic_keys(&self) -> Vec<(i64, [u8; 32])> {
+        self.s
+            .keys
+            .lock()
+            .expect("keys")
+            .iter()
+            .rev()
+            .map(|(e, k)| (*e, *k))
+            .collect()
+    }
+
     /// What each member device last said here (closed connections too).
     pub fn heard(&self) -> Vec<PeerHeard> {
         self.s
@@ -1487,23 +1592,33 @@ impl Shared {
         } else {
             return None;
         };
-        let dms = self
+        let (dms, calls) = self
             .heard
             .lock()
             .expect("heard")
             .get(id)
-            .map_or(0, |h| h.dms);
+            .map_or((0, 0), |h| (h.dms, h.calls));
         Some(LivePeer {
             device_id: id.to_string(),
             device_pub: hex::encode(key),
             person_id,
             dms,
+            calls,
         })
     }
 
     /// Tells the DM hooks about `p`: `f` gets them, this board and the peer.
     fn tell_dms(&self, p: &Peer, f: impl FnOnce(&dyn DmHooks, &str, &LivePeer)) {
         if let Some(h) = &self.opts.dms
+            && let Some(l) = self.live(p)
+        {
+            f(h.as_ref(), &self.opts.board_id, &l);
+        }
+    }
+
+    /// Tells the call hooks about `p`, as [`Self::tell_dms`] does.
+    fn tell_calls(&self, p: &Peer, f: impl FnOnce(&dyn CallHooks, &str, &LivePeer)) {
+        if let Some(h) = &self.opts.calls
             && let Some(l) = self.live(p)
         {
             f(h.as_ref(), &self.opts.board_id, &l);
@@ -1841,6 +1956,7 @@ impl Shared {
             spawns: SPAWNS_PROTOCOL,
             moves: MOVES_PROTOCOL,
             dms: DMS_PROTOCOL,
+            calls: CALLS_PROTOCOL,
             tolerant: TOLERANT_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
@@ -1920,6 +2036,7 @@ impl Shared {
                         p.wake.notify_one();
                     }
                     self.tell_dms(&p, |d, via, l| d.hello(via, l));
+                    self.tell_calls(&p, |c, via, l| c.hello(via, l));
                     self.share_secrets(&p).await;
                     if self.maybe_settle() {
                         let s = self.clone();
@@ -1950,6 +2067,14 @@ impl Shared {
                         self.tell_dms(&p, |d, via, l| d.frame(via, l, f));
                     }
                 }
+                // Only about a call in this space, from a device it admits.
+                Wire::Call(f) => {
+                    if f.space_id == self.opts.board_id
+                        && admitted(&self.opts.verifier, p.conn.id(), &p.conn.pub_key())
+                    {
+                        self.tell_calls(&p, |c, via, l| c.frame(via, l, f));
+                    }
+                }
             }
         }
     }
@@ -1971,6 +2096,7 @@ impl Shared {
             h.spawns = said.spawns;
             h.moves = said.moves;
             h.dms = said.dms;
+            h.calls = said.calls;
             h.tolerant = said.tolerant;
         }
         let now = std::time::SystemTime::now()
@@ -2406,6 +2532,71 @@ mod tests {
         assert_eq!(back, ours);
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("dms").is_none(), "0 isn't sent");
+    }
+
+    /// Card #654: `calls` is built like `dms`. An older hello parses as 0,
+    /// ours round-trips, 0 isn't sent, and `v` stays 1.
+    #[test]
+    fn hello_says_it_speaks_calls() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.4","schema":1,"vector":{},"wallMs":0,"spaces":1,"dms":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.calls, 0);
+        let ours = BoardHello {
+            v: BOARD_PROTOCOL,
+            calls: CALLS_PROTOCOL,
+            ..Default::default()
+        };
+        let b = serde_json::to_vec(&Wire::Hello(ours.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["calls"], CALLS_PROTOCOL);
+        assert_eq!(v["v"], 1, "v stays 1: older Irori keeps syncing");
+        let Wire::Hello(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a hello")
+        };
+        assert_eq!(back, ours);
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("calls").is_none(), "0 isn't sent");
+    }
+
+    /// A `call` frame's shape: tagged `call`, camelCase, only `spaceId`,
+    /// `callId` and `op` required, and an op this build doesn't know still
+    /// parses.
+    #[test]
+    fn a_call_frame_is_tagged_and_keeps_any_op() {
+        let f = CallFrame {
+            space_id: "s".into(),
+            call_id: "c".into(),
+            op: "ring".into(),
+            conv_id: "chan".into(),
+            epoch: 2,
+            devices: vec!["a1".into(), "b1".into()],
+            at_ms: 7,
+        };
+        let b = serde_json::to_vec(&Wire::Call(f.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["type"], "call");
+        assert_eq!(v["spaceId"], "s");
+        assert_eq!(v["callId"], "c");
+        assert_eq!(v["convId"], "chan");
+        assert_eq!(v["atMs"], 7);
+        let Wire::Call(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a call")
+        };
+        assert_eq!(back, f);
+        let Wire::Call(later) =
+            serde_json::from_str(r#"{"type":"call","spaceId":"s","callId":"c","op":"mute"}"#)
+                .unwrap()
+        else {
+            panic!("not a call")
+        };
+        assert_eq!(later.op, "mute");
+        assert!(later.devices.is_empty());
+        assert!(serde_json::from_slice::<Wire>(br#"{"type":"call","op":"ring"}"#).is_err());
     }
 
     /// A `dm` frame's shape, and what its reader does with the rest: an
