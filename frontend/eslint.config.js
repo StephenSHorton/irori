@@ -20,6 +20,14 @@ export default defineConfig([
     },
     rules: {
       'react-refresh/only-export-components': 'off',
+      // Card #598: skullet is young, so only our wrapper uses it.
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['skullet', 'skullet/*'], message: 'Use Loading from @/components/ui/loading.' }],
+      }],
     },
+  },
+  {
+    files: ['src/components/ui/loading.tsx'],
+    rules: { 'no-restricted-imports': 'off' },
   },
 ])
