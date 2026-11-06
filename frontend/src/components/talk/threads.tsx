@@ -21,6 +21,7 @@ import {
   displayName,
   threads as threadsApi,
   useCard,
+  type AgentRef,
   type ThreadCard,
   type ThreadSummary,
 } from "@/lib/cards"
@@ -76,6 +77,9 @@ export const stateBadges: Record<
 
 // stateLine says where a thread stands, under its title in the Talk list.
 export function stateLine(t: ThreadSummary, why = ""): string {
+  // A follow-up no computer can start an agent for (card #541): why, even
+  // on a thread an agent answered before.
+  if (t.state === "answered" && t.noAgent) return t.noAgent
   switch (t.state) {
     case "answered":
       return t.lastBy && t.lastText
@@ -181,6 +185,9 @@ export function ThreadView({
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-col gap-2", bound)}>
       <div className="grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)] gap-1 text-[12.5px]">
+        {/* An agent's own thread says whose it is (card #631): the
+            question is the agent's, not the person's. */}
+        {t.openedBy && <OpenedBy who={t.openedBy} />}
         {/* A long question scrolls by itself, so it leaves the messages
             and the reply box their room in a short window. */}
         <div className={cn("min-w-0 overflow-y-auto", QuestionMax)}>
@@ -211,13 +218,22 @@ export function ThreadView({
         cardId={t.id}
         items={items}
         now={now}
-        on={{ agents: [...t.told, ...t.answeredBy], over: resolved }}
+        on={{
+          agents: [
+            ...(t.openedBy ? [t.openedBy] : []),
+            ...t.told,
+            ...t.answeredBy,
+          ],
+          over: resolved,
+        }}
         compact
         empty={
           reading ? (
             <Loading loading label="Loading the answers">
               <MessageRowsShape rows={2} />
             </Loading>
+          ) : t.openedBy ? (
+            emptyOpened(t.openedBy)
           ) : t.state === "waiting" && t.agentsNow ? (
             "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
           ) : t.agentsNow ? (
@@ -265,6 +281,26 @@ export function ThreadView({
       </div>
     </div>
   )
+}
+
+// OpenedBy names the agent that opened a thread itself (card #631).
+export function OpenedBy({ who }: { who: AgentRef }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+      <Face who={who} inline className="size-3 text-(--face-tint)" />
+      <span className="truncate">{openedLine(who)}</span>
+    </span>
+  )
+}
+
+export function openedLine(who: AgentRef): string {
+  return `${displayName(who)} opened this thread`
+}
+
+// emptyOpened is an agent's own thread before anyone writes in it: its
+// agent holds it, and none other starts until the person writes.
+export function emptyOpened(who: AgentRef): string {
+  return `No replies yet. ${displayName(who)} hears yours; no other agent is started for it until you write.`
 }
 
 // How tall a thread's question grows before it scrolls (card #564).

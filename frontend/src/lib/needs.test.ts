@@ -23,6 +23,7 @@ import {
   needsYou,
   prChip,
   rowState,
+  GIVEN_QUESTION,
   spawnNeed,
   stuckLine,
   toPerson,
@@ -725,6 +726,7 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
       spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))
     ).toBe("permission")
     expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
+    expect(spawnNeed(q(GIVEN_QUESTION))).toBe("given")
     // At another crash limit (card #576).
     expect(spawnNeed(q("Its agent crashed: start another?"))).toBe("crashed")
     expect(
@@ -790,6 +792,10 @@ describe("Home's groups (card #487)", () => {
       state: "waiting",
       line: "Your answer is with the agent",
     })
+    // Card #557: nobody on it, an agent starting for the answer says so.
+    expect(
+      rowState(card({ waiting: 1, subtasks: 2, starting: "This PC" }))
+    ).toEqual({ state: "working", line: "Starting an agent on This PC" })
     const lease = card({
       state: TaskState.Blocked,
       waitingOn: 1,
@@ -896,5 +902,25 @@ describe("Home's groups (card #487)", () => {
       ["working", ["c"]],
       ["waiting", ["a"]],
     ])
+  })
+})
+
+describe("no agent can start (card #541)", () => {
+  const line =
+    "No agent can start: Mac is offline. It starts by itself when it's back."
+  const c = {
+    id: "c1",
+    title: "Fix it",
+    openBlockers: 0,
+    noAgent: line,
+  } as CardSummary
+
+  test("it's a row of its own, never a decision", () => {
+    expect(needsOf([c], []).map((n) => n.kind)).toEqual(["noAgent"])
+  })
+
+  test("a real question on the card still reads as one", () => {
+    const asked = { ...c, openBlockers: 1 }
+    expect(needsOf([asked], []).map((n) => n.kind)).toEqual(["decision"])
   })
 })

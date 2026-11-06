@@ -35,7 +35,9 @@ import {
   dmGone,
   dmPerson,
   dmWith,
+  isYou,
   listed,
+  memberOf,
   readAll,
   talkApi,
   waitingText,
@@ -73,6 +75,8 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { HuddleLine, useCallPart } from "./huddle"
+import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
@@ -86,9 +90,10 @@ export function talkMatches(t: ThreadSummary, query: string): boolean {
 }
 
 // needsYou is whether a thread waits on the person: an agent answered and
-// it isn't resolved. Talk's count in the sidebar counts these.
-export function needsYou(t: Pick<ThreadSummary, "state">): boolean {
-  return t.state === "answered"
+// it isn't resolved, or no computer can start its agent (card #541). Talk's
+// count in the sidebar counts these.
+export function needsYou(t: Pick<ThreadSummary, "state" | "noAgent">): boolean {
+  return t.state === "answered" || !!t.noAgent
 }
 
 // convMatches is whether a channel or DM fits the list's search: its name,
@@ -748,6 +753,8 @@ export function ConvItem({
       (!!person && !waiting) ||
       (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
+  // A huddle on here (#654): who's in it.
+  const huddle = useCallPart((s) => huddleNames(s, c.convId).join(", "))
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -784,10 +791,14 @@ export function ConvItem({
           </span>
           {when && <When text={when} />}
         </span>
-        {sub && (
-          <span className="truncate text-[11px] text-muted-foreground">
-            {sub}
-          </span>
+        {huddle ? (
+          <HuddleLine names={huddle} />
+        ) : (
+          sub && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              {sub}
+            </span>
+          )
         )}
       </span>
       {c.mentions > 0 ? (
@@ -814,13 +825,11 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const at = parseTime(c.lastAt)
   const when = at ? relativeTime(at, now) : ""
   if (!text) return { line: "", when }
-  const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
-  const who =
-    c.readOnly && by
-      ? `${memberName(by)}: `
-      : by?.kind === "person"
-        ? "You: "
-        : ""
+  const by = c.lastBy ? memberOf(c.members, c.lastBy) : undefined
+  // "You: " only for the person themselves: in a DM with another person
+  // (card #538) their post is theirs, not yours.
+  const mine = by?.kind === "person" && (isYou(by.key) || by.name === "you")
+  const who = c.readOnly && by ? `${memberName(by)}: ` : mine ? "You: " : ""
   return { line: `${who}${text}`, when }
 }
 
@@ -850,7 +859,7 @@ function BroadcastItem({
   onToggle: () => void
   onOpen: (id: string) => void
 }) {
-  const from = b.convs[0].members.find((m) => m.key === b.by)
+  const from = memberOf(b.convs[0].members, b.by)
   const to = broadcastTo(b)
   const when = parseTime(b.lastAt)
   const Chevron = unfolded ? ChevronDownIcon : ChevronRightIcon

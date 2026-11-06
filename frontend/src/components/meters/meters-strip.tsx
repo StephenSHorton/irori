@@ -173,12 +173,26 @@ function Item({
   className?: string
 }) {
   return (
-    <span title={title} className={cn("flex items-center gap-1 whitespace-nowrap", className)}>
+    <span
+      title={title}
+      className={cn("flex items-center gap-1 whitespace-nowrap", className)}
+    >
       <span>{label}</span>
       <span style={{ color }} className="flex">
-        <Sparkline values={values} slots={RING} max={max} width={28} height={12} />
+        <Sparkline
+          values={values}
+          slots={RING}
+          max={max}
+          width={28}
+          height={12}
+        />
       </span>
-      <span className={cn("text-right text-foreground/80", wide ? "min-w-[9ch]" : "min-w-[4ch]")}>
+      <span
+        className={cn(
+          "text-right text-foreground/80",
+          wide ? "min-w-[9ch]" : "min-w-[4ch]"
+        )}
+      >
         {value}
       </span>
     </span>

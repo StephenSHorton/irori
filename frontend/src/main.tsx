@@ -4,13 +4,20 @@ import { createRoot } from "react-dom/client"
 import "./index.css"
 import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster, toast } from "@/components/ui/toast"
 import { commands } from "./gen/bindings"
 import { inHost } from "./lib/irori"
-import { applyAppearance, clean, loadAppearance, onAppearanceApplied } from "./lib/appearance"
+import {
+  applyAppearance,
+  clean,
+  loadAppearance,
+  onAppearanceApplied,
+} from "./lib/appearance"
 import { sendCardLook } from "./lib/card-look"
 import { previewFlag } from "./lib/preview"
 import { followInsets } from "./lib/insets"
 import { isMac } from "./lib/commands"
+import { setToast } from "./lib/optimistic"
 
 followInsets()
 
@@ -62,12 +69,18 @@ async function mount() {
       glass: previewFlag("glass") ?? saved.glass,
     })
   )
+  setToast((title, reason) =>
+    toast.add({ title, description: reason, type: "error", timeout: 8000 })
+  )
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       {/* The look is set on <html> (lib/appearance.ts); Settings >
           Appearance changes it. */}
       <TooltipProvider delay={300}>
-        <App />
+        {/* An instant action the host refused says why here (card #644). */}
+        <Toaster>
+          <App />
+        </Toaster>
       </TooltipProvider>
     </StrictMode>
   )

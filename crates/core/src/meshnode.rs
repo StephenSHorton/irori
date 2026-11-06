@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use irori_identity::{Chain, Identity};
 use irori_net::book::{ServerAddrs, feed};
 use irori_net::transport::IrohNet;
-use mesh::boardmesh::{BoardMesh, BoardMeshOpts, DmHooks};
+use mesh::boardmesh::{BoardMesh, BoardMeshOpts, CallHooks, DmHooks};
 use store::Store;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -62,6 +62,9 @@ pub(crate) struct Mesh {
     /// boards are hidden DM spaces (card #538). Set once, before any board
     /// opens.
     dms: std::sync::OnceLock<(Arc<dyn DmHooks>, HiddenFn)>,
+    /// Who hears about call ringing on every board's connections (card
+    /// #654). Set once, before any board opens.
+    calls: std::sync::OnceLock<Arc<dyn CallHooks>>,
 }
 
 /// Whether a board is a hidden DM space (card #538).
@@ -159,12 +162,20 @@ impl Mesh {
             board_hints: Mutex::new(std::collections::BTreeMap::new()),
             home: std::sync::OnceLock::new(),
             dms: std::sync::OnceLock::new(),
+            calls: std::sync::OnceLock::new(),
         })
     }
 
     /// Sets the DM hooks every board's mesh carries (card #538).
     pub(crate) fn set_dms(&self, hooks: Arc<dyn DmHooks>, hidden: HiddenFn) {
         let _ = self.dms.set((hooks, hidden));
+    }
+
+    /// Sets the call hooks every board's mesh carries (card #654).
+    /// The call service sets it, before any space opens.
+    #[allow(dead_code)] // until the call service lands (#654)
+    pub(crate) fn set_calls(&self, hooks: Arc<dyn CallHooks>) {
+        let _ = self.calls.set(hooks);
     }
 
     fn hidden(&self, board_id: &str) -> bool {
@@ -453,6 +464,7 @@ impl Mesh {
             own_devices: Some(own),
             files: self.files.clone(),
             dms: self.dms.get().map(|(hooks, _)| hooks.clone()),
+            calls: self.calls.get().cloned(),
         }));
         m.set_log(Arc::new(|l: &str| crate::log(l)));
         {

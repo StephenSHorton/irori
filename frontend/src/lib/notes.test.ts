@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 
 import {
-  MineScope,
   NoteMaxChars,
   cleanTags,
   kindCounts,
-  needsLook,
   noteProblem,
   notes,
   parseTag,
@@ -73,46 +71,42 @@ describe("the form's checks match the write's (§11)", () => {
 describe("sample notes (the browser preview)", () => {
   beforeEach(() => resetSampleNotes())
 
-  test("Mine lists its own; a board's tab its own", async () => {
-    const mine = await notes.list(MineScope)
-    const mlg = await notes.list("mlg")
-    expect(mine.every((n) => n.scope === MineScope)).toBe(true)
-    expect(mlg.length).toBeGreaterThan(0)
-    expect(mlg.every((n) => n.scope === "mlg")).toBe(true)
+  test("one list: notes are the person's own (card #616)", async () => {
+    const all = await notes.list()
+    expect(all.length).toBeGreaterThan(0)
+    // A note about a shared space is a Mine note with a board: tag.
+    expect(all.some((n) => n.tags.includes("board:mlg"))).toBe(true)
+    expect(all.every((n) => !("scope" in n) && !("boardId" in n))).toBe(true)
   })
 
-  test("Keep makes a proposal live; Remove turns it down", async () => {
-    const waiting = (await notes.list(MineScope)).filter(
-      (n) => n.state === "proposed"
+  test("agents' notes are live with no accepter, and removable (card #616)", async () => {
+    const list = await notes.list()
+    expect(list.every((n) => n.state === "accepted")).toBe(true)
+    const theirs = list.filter((n) => !n.byPerson)
+    expect(theirs.length).toBeGreaterThan(0)
+    expect(theirs.every((n) => !n.acceptedBy)).toBe(true)
+    await notes.remove(theirs[0].id)
+    expect(
+      (await notes.list()).find((n) => n.id === theirs[0].id)
+    ).toBeUndefined()
+  })
+
+  test("the person's edit of an agent's note applies at once", async () => {
+    const n = (await notes.list()).find((x) => !x.byPerson)!
+    await notes.edit(n.id, { text: "Shorter." })
+    expect((await notes.list()).find((x) => x.id === n.id)!.text).toBe(
+      "Shorter."
     )
-    expect(waiting.length).toBe(2)
-    await notes.accept(waiting[0].id)
-    await notes.remove(waiting[1].id)
-    const after = await notes.list(MineScope)
-    expect(after.find((n) => n.id === waiting[0].id)?.state).toBe("accepted")
-    expect(after.find((n) => n.id === waiting[1].id)).toBeUndefined()
-  })
-
-  test("accepting an agent's edit applies it; New from agents empties", async () => {
-    const edit = (await notes.list(MineScope)).find((n) => n.pending)!
-    expect(needsLook(edit)).toBe(true)
-    const proposed = edit.pending!.text!
-    await notes.accept(edit.id)
-    const n = (await notes.list(MineScope)).find((x) => x.id === edit.id)!
-    expect(n.text).toBe(proposed)
-    expect(n.pending).toBeUndefined()
-    expect(needsLook(n)).toBe(false)
   })
 
   test("a person's new note is live at once and counted", async () => {
-    const before = kindCounts(await notes.list(MineScope))[0].count
+    const before = kindCounts(await notes.list())[0].count
     await notes.create({
-      scope: MineScope,
       kind: "decision",
       text: "Ship on Fridays.",
       tags: ["Everywhere"],
     })
-    const list = await notes.list(MineScope)
+    const list = await notes.list()
     expect(kindCounts(list)[0].count).toBe(before + 1)
     expect(list[0].tags).toEqual(["everywhere"])
     expect(list[0].state).toBe("accepted")
@@ -120,7 +114,7 @@ describe("sample notes (the browser preview)", () => {
 
   test("a bad note is refused before it is written", async () => {
     await expect(
-      notes.create({ scope: MineScope, kind: "rule", text: "x", tags: [] })
+      notes.create({ kind: "rule", text: "x", tags: [] })
     ).rejects.toThrow()
   })
 })

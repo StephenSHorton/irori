@@ -57,13 +57,19 @@ describe("Task Manager's numbers (card #599)", () => {
     expect(fmtCpu({ pct: null, ghz: null, cores: 16 })).toBe("—")
   })
   test("memory used of total", () => {
-    expect(fmtMemory({ usedBytes: 26.2 * GiB, totalBytes: 61.6 * GiB })).toBe("26.2/61.6 GB (43%)")
+    expect(fmtMemory({ usedBytes: 26.2 * GiB, totalBytes: 61.6 * GiB })).toBe(
+      "26.2/61.6 GB (43%)"
+    )
     expect(fmtMemory({ usedBytes: 0, totalBytes: 0 })).toBe("—")
   })
   test("network: sent and received in one unit, by the larger", () => {
-    expect(fmtNet({ txBitsPerS: 280e3, rxBitsPerS: 72e3 })).toBe("S: 280 R: 72.0 Kbps")
+    expect(fmtNet({ txBitsPerS: 280e3, rxBitsPerS: 72e3 })).toBe(
+      "S: 280 R: 72.0 Kbps"
+    )
     expect(fmtNet({ txBitsPerS: 0, rxBitsPerS: 0 })).toBe("S: 0 R: 0 Kbps")
-    expect(fmtNet({ txBitsPerS: 400e3, rxBitsPerS: 12.5e6 })).toBe("S: 0.4 R: 12.5 Mbps")
+    expect(fmtNet({ txBitsPerS: 400e3, rxBitsPerS: 12.5e6 })).toBe(
+      "S: 0.4 R: 12.5 Mbps"
+    )
     expect(fmtBits(1.2e9)).toBe("1.2 Gbps")
     expect(fmtBits(500)).toBe("0.5 Kbps")
     expect(fmtBits(72e3)).toBe("72.0 Kbps")
@@ -86,7 +92,9 @@ describe("Task Manager's numbers (card #599)", () => {
     }
     expect(fmtGpu(gpu)).toBe("21% (30 °C)")
     expect(fmtGpuMemory(gpu)).toBe("2.4/16.0 GB")
-    expect(fmtGpuMemory({ ...gpu, memUsedBytes: null, memTotalBytes: null })).toBeNull()
+    expect(
+      fmtGpuMemory({ ...gpu, memUsedBytes: null, memTotalBytes: null })
+    ).toBeNull()
     expect(fmtGpu({ ...gpu, utilPct: null, tempC: null })).toBe("—")
   })
 })
@@ -101,7 +109,10 @@ describe("what the strip picks (card #599)", () => {
     memTotalBytes: null,
   })
   // at is a reading with just these GPUs and disks.
-  const at = (gpus: MetersGpu[], disks: { name: string; activePct: number | null }[] = []) => ({
+  const at = (
+    gpus: MetersGpu[],
+    disks: { name: string; activePct: number | null }[] = []
+  ) => ({
     ...sampleAt(0),
     gpus,
     disks: disks.map((d) => ({ ...d, readBytesPerS: 0, writeBytesPerS: 0 })),
@@ -111,7 +122,11 @@ describe("what the strip picks (card #599)", () => {
     const b = (u: number) => ({ ...g(false, u), name: "B" })
     const igpu = { ...g(true, 90), name: "iGPU" }
     // B is busier on average though A is busier now.
-    const window = [at([igpu, a(5), b(60)]), at([igpu, a(5), b(60)]), at([igpu, a(40), b(30)])]
+    const window = [
+      at([igpu, a(5), b(60)]),
+      at([igpu, a(5), b(60)]),
+      at([igpu, a(40), b(30)]),
+    ]
     expect(pickGpu(window)).toBe("B")
     // The list changing order doesn't change the pick.
     expect(pickGpu([...window, at([b(50), igpu, a(10)])])).toBe("B")
@@ -134,7 +149,10 @@ describe("what the strip picks (card #599)", () => {
     expect(pickDisk([])).toBeNull()
   })
   test("a device is found by name", () => {
-    const s = at([{ ...g(false, 7), name: "X" }], [{ name: "0 C:", activePct: 3 }])
+    const s = at(
+      [{ ...g(false, 7), name: "X" }],
+      [{ name: "0 C:", activePct: 3 }]
+    )
     expect(gpuByName(s, "X")?.utilPct).toBe(7)
     expect(gpuByName(s, "Y")).toBeUndefined()
     expect(diskByName(s, "0 C:")?.activePct).toBe(3)

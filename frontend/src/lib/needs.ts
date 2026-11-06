@@ -3,6 +3,7 @@
 // its row, and every other card is one compact row in one of four
 // states. Pure, so the order and the words are tested without a window.
 
+import { laterOf } from "@/lib/later"
 import { NotAnswering } from "./agent-counts"
 import { spawnLine } from "./spawn-line"
 import {
@@ -42,7 +43,7 @@ import { waitLine, waitName } from "./wait-name"
 // - Idle: held, its holders idle a while with nothing named (card #305).
 // - Done.
 export type RowState =
-  "needs" | "stuck" | "working" | "waiting" | "idle" | "done"
+  "needs" | "stuck" | "working" | "waiting" | "idle" | "later" | "done"
 
 // RowGroups is Home's group order.
 export const RowGroups: readonly RowState[] = [
@@ -51,6 +52,7 @@ export const RowGroups: readonly RowState[] = [
   "working",
   "waiting",
   "idle",
+  "later",
   "done",
 ]
 
@@ -60,6 +62,7 @@ export const rowStateLabel: Record<RowState, string> = {
   working: "Working",
   waiting: "Waiting",
   idle: "Idle",
+  later: "Not yet",
   done: "Done",
 }
 
@@ -67,10 +70,16 @@ export const rowStateLabel: Record<RowState, string> = {
 export const IDLE_LINE = "Idle, no reason given"
 
 // needsYou says the card waits on the person: an open blocker or done
-// check, or its question (input required).
+// check, its question (input required), or no computer can start its agent
+// (card #541), which they need to know even with nothing to answer.
 export function needsYou(c: CardSummary): boolean {
   if (over(c)) return false
-  return c.openBlockers > 0 || !!c.ready || c.state === TaskState.InputRequired
+  return (
+    c.openBlockers > 0 ||
+    !!c.ready ||
+    c.state === TaskState.InputRequired ||
+    !!c.noAgent
+  )
 }
 
 // RowLine is a row's state, the line under its title, and whether an
@@ -103,7 +112,12 @@ type Row = RowLine & { nobody?: boolean }
 
 function row(c: CardSummary, now: number): Row {
   if (over(c)) return { state: "done", line: overLabel(c) }
+  // Card #570: parked, so nothing is asked of anyone until it comes back.
+  const parked = laterOf(c)
+  if (parked) return { state: "later", line: `Back ${parked.line}` }
   if (needsYou(c)) {
+    if (c.noAgent && !c.ready && !c.openBlockers)
+      return { state: "needs", line: c.noAgent }
     if (c.ready && c.openBlockers <= 1)
       return { state: "needs", line: "Says it's done: is it?" }
     if (c.openBlockers > 1)
@@ -154,7 +168,9 @@ function row(c: CardSummary, now: number): Row {
       line: `Waiting on ${waitName(c) || "an agent"}, who is gone`,
     }
   if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
-  if (c.waiting > 0)
+  // With nobody on it, an agent starting for the answer (or why one
+  // can't) says more (card #557: a split card whose lead went).
+  if (c.waiting > 0 && (held.length > 0 || !spawnLine(c)))
     return { state: "waiting", line: "Your answer is with the agent" }
   const who = held.map(displayName).slice(0, 2).join(", ")
   if (busy(c))
@@ -313,20 +329,26 @@ export function waitsOnTrust(c: CardSummary): boolean {
 // #456, sa-7). They must match the Rust constants word for word:
 // WAITING_PERMISSION in crates/core/src/service/spawn_waiting.rs (the
 // blocker reads "Waiting for your permission: <name> is stopped on a
-// prompt") and CRASHED_QUESTION in crates/coord/src/board/spawn.rs, whose
-// number follows the crash limit in Settings › Agents (card #576).
+// prompt"), and CRASHED_QUESTION (whose number follows the crash limit in
+// Settings › Agents, card #576) and GIVEN_QUESTION in
+// crates/coord/src/board/spawn.rs.
 export const WAITING_PERMISSION = "Waiting for your permission"
 export const CRASHED_QUESTION =
   "Its agent crashed twice in a row: start another?"
+export const GIVEN_QUESTION = "OK to start an agent on this?"
 
 // spawnNeed says a card's decision is one of those: its agent stopped on
 // a permission prompt nobody is there to answer, or its agents kept going
-// away before finishing, so Irori stopped starting them.
-export function spawnNeed(c: CardSummary): "permission" | "crashed" | null {
+// away before finishing, so Irori stopped starting them, or another person
+// gave them the card and Irori stopped to ask (card #573).
+export function spawnNeed(
+  c: CardSummary
+): "permission" | "crashed" | "given" | null {
   const q = c.blockerQuestion ?? ""
   if (q.startsWith(WAITING_PERMISSION)) return "permission"
   if (q.startsWith("Its agent crashed") && q.endsWith(": start another?"))
     return "crashed"
+  if (q === GIVEN_QUESTION) return "given"
   return null
 }
 
@@ -362,6 +384,8 @@ export type Need =
   | { kind: "merge"; id: string; at: number; card: CardSummary; pr: WaitPr }
   // Card #520: a wait no agent will end, on a card nobody holds.
   | { kind: "gone"; id: string; at: number; card: CardSummary; wait: GoneWait }
+  // Card #541: no computer can start its agent, and nothing to decide.
+  | { kind: "noAgent"; id: string; at: number; card: CardSummary }
   | { kind: "trust"; id: string; at: number; card: CardSummary }
   | { kind: "held"; id: string; at: number; delivery: Delivery }
   | { kind: "heldQuiet"; id: string; at: number; deliveries: Delivery[] }
@@ -434,6 +458,11 @@ export function needsOf(cards: CardSummary[], held: Delivery[]): Need[] {
   for (const c of cards) {
     if (!needsYou(c)) continue
     const check = !!c.ready && c.openBlockers <= 1
+    // Card #541: nothing to decide, so it never reads as a decision.
+    if (c.noAgent && !check && !c.openBlockers) {
+      out.push({ kind: "noAgent", id: c.id, at: time(c.updatedAt), card: c })
+      continue
+    }
     out.push({
       kind: check ? "check" : "decision",
       id: c.id,

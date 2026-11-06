@@ -1,8 +1,8 @@
 # Notes: shared and private context for agents
 
-*2026-11-03, card #388 (from Stephen's thread #387). This document records the direction only; nothing has been built. Stephen: "shared context and private context ... per area (board/private board) ... accessible to the user and users of a board. So agent can have a shared sort of knowledge base that can be reviewed by people." Mockups: branch `marjoram/388-notes-mockups`, browser preview `?mockup=notes&view=1..3`.*
+*2026-11-03, card #388 (from Stephen's thread #387). Built on #401, #411, #412 and the Notes page. 2026-11-06, card #616: notes are Mine only (decision 53), the board scope is gone, and agents' notes apply without review. Stephen's first ask: "shared context and private context ... per area (board/private board) ... accessible to the user and users of a board. So agent can have a shared sort of knowledge base that can be reviewed by people." Mockups: branch `marjoram/388-notes-mockups`, browser preview `?mockup=notes&view=1..3`.*
 
-This document records the direction. It amends decision 27 (decision 45). Build details (storage rows, tool names, caps) get their own card when Stephen says go.
+This document records the direction and, in §11, what was built. It amends decision 27 (decision 45), and decision 53 amends it: notes are each person's own.
 
 ## 1. Why
 
@@ -28,78 +28,81 @@ A note is a short fact that an agent should know before it acts. It has these pa
 
 - **Kind:** rule, gotcha, decision, pointer or preference.
 - **Text:** one or two sentences, a few hundred characters at most. Notes are not documents; long material stays in the repo's docs.
-- **Applies to:** tags that say where the note is relevant. A tag can be `everywhere`, a board, a repo, paths in a repo, a machine (`on the PC`) or a topic.
-- **Source:** where it came from, when the agent that proposed it names one. That can be a card, a comment, a blocker answer or a done proof, and the note links back to it.
-- **Who:** the author (person or agent) and, once accepted, who accepted it.
-- **State:** proposed, accepted or removed. The note's history is kept.
+- **Applies to:** tags that say where the note is relevant. A tag can be `everywhere`, a space, a repo, paths in a repo, a machine (`on the PC`) or a topic.
+- **Source:** where it came from, when the agent that wrote it names one. That can be a card, a comment, a blocker answer or a done proof, and the note links back to it.
+- **Who:** the author (person or agent). A person's note also names them as its accepter; an agent's has none.
+- **State:** accepted or removed. The note's history is kept.
 
 ## 3. Scopes
 
-- **Mine:** the note stays on the person's own devices and is read by their own agents. It never goes to a board's other members, even when it applies to a shared board ("on MLG"). A person-level preference, such as "say Version, not take", is a Mine note that applies everywhere. There is no separate person scope.
-- **A board:** the note is in the board's log, and every member's agents read it, as they read the board's cards.
+- **Mine:** every note is Mine. It stays in the person's private log, on their own devices, and only their own agents read it. A person-level preference, such as "say Version, not take", is a Mine note that applies everywhere.
+- **About a shared space:** a Mine note tagged `board:<tag>`. It reaches the person's own agents when their card is on that space, and never the space's other members.
+- **No board scope.** Board notes were designed (decision 45) and built, but no `note.*` row was ever written to a space log, so #616 removed them (decision 53).
 
-## 4. Review: proposed, then accepted
+## 4. No review step
 
-- **Mine:** a note an agent writes stays proposed until the person OKs it (Stephen, b2: "Wait for my OK"). A note the person writes is accepted at once.
-- **A shared board:** a note stays proposed until any person on the board accepts it. Once accepted, it is live for every member's agents (Stephen, b3: "Any person on the board, for everyone"). Any member can edit or remove an accepted note, and the board's Notes page shows who accepted what and when.
-- **Proposed notes:** they reach no agent. An edit made by an agent is itself a proposal.
+- **At first, agents' notes waited for the person:** an agent's note stayed proposed until the person OKed it (Stephen, b2: "Wait for my OK"), and an agent's edit was itself a proposal.
+- **#616 removed that step.** Stephen (11-06, b1): "notes are really just a section for agents to put up notes for themselves ... I can totally go and look at that stuff and change it myself whenever I want to ... We don't need to confirm changes and deletions in additions of notes."
+- **Now:** a note, an edit or a removal applies at once, whether an agent or the person makes it. The person edits or removes any note on the Notes page.
 
 ## 5. Capture
 
-- Agents propose notes with a tool, the way they raise blockers: on their own, or when the person asks for one in a comment. A wrong note costs only a review, since nothing goes live unaccepted.
+- Agents write notes with a tool, the way they raise blockers: on their own, or when the person asks for one in a comment. A note goes live at once; a wrong one is fixed by the agent that finds it (§7) or by the person on the Notes page.
 - There is no Keep as note button on comments, blocker answers or done proofs. It was built (#413) and taken out (#475): the person does not save notes by hand from a card, and the button showed everywhere it was irrelevant.
-- **New note** is on the Notes page. Nothing becomes a note by itself: the board is still scratch (decision 27). A note exists only because a person, or an agent's proposal plus a person's accept, made it.
+- **New note** is on the Notes page. Nothing becomes a note by itself: the board is still scratch (decision 27). A note exists only because a person or one of their agents wrote it.
 
 ## 6. Recall
 
-- **On wake:** an agent gets the accepted notes that match the card it holds:
-  - its board
+- **On wake:** an agent gets the person's live Mine notes that match the card it holds:
+  - its space, when the card is on a shared one (`board:<tag>`)
   - its repo and the paths of its worktree
   - the agent's machine
   - every note tagged `everywhere`
 
   Each wake carries a few notes, about 8 at most, ranked by how specific the match is.
 - **The person's words ride along:** the same hook adds what the person said lately on the cards around the agent's, in a section of its own (card #555, `docs/design/spawned-agents.md` §2).
-- **More by search:** an agent can search notes for anything else, within the scopes it can read: Mine for the person's own agents, and the boards it is on.
-- **How notes are framed:** notes reach agents as data with who wrote and who accepted them, never as instructions. This matches how messages from other agents are framed today. On a shared board a note is something a teammate wrote, not the person's own word.
+- **More by search:** an agent can search the person's Mine notes for anything else.
+- **How notes are framed:** notes reach agents as data with who wrote them, and who accepted them when a person did, never as instructions. This matches how messages from other agents are framed today.
 
 ## 7. Staleness
 
-When the paths, flags or versions a note names have changed since it was accepted, the note shows **Still true?** on the Notes page. An agent that finds a note wrong proposes an edit or a removal instead of working around it.
+When the paths, flags or versions a note names have changed since it was written, the note shows **Still true?** on the Notes page. An agent that finds a note wrong edits or removes it, with a `why`, instead of working around it.
 
 ## 8. Safety and privacy
 
-- On a shared board, a note is another person's agent's words that reach yours. The review step, together with the data framing in §6, keeps such notes from steering agents. One accept by any person makes a board note live, so the board's Notes page shows newly accepted notes, and any member can remove one.
-- Mine notes never go into a board log. A note that applies to a shared board, written in Mine, stays in the private log.
-- The refusals already used for attachments apply to note text: no credentials, keys or `.env` content. Things that must never be shared in practice include home IPs, key and notary names, private paths and personal finances. These stay in Mine, and the New note form offers Mine first.
+- Every note is Mine: it lives in the person's private log and never goes into a space log, whatever its tags name. No other person's agent writes or reads it.
+- A note reaches agents as data (§6). The person sees every note, with its history, on the Notes page and can change any of them (§4).
+- The refusals already used for attachments apply to note text: no credentials, keys or `.env` content.
 
 ## 9. Where it lives in the app
 
-**Notes** is a sidebar item next to **Talk** (#382, which has its own design round). The page has one tab for Mine and one per shared board. **New from agents** sits at the top, with Keep or Accept, Edit and Remove. Below it is the list, filtered by kind, where each row shows its tags, its source chip, its author and accepter, and how often it was read.
+**Notes** is a sidebar item next to **Talk** (#382, which has its own design round). The page is one list: no tab per space and no "Who reads it" picker (#616). There is no **New from agents** section and no count in the sidebar (#616). The list is filtered by kind, and each row shows its tags, its source chip and its author (the agent, or You), with Edit and Remove. The route is `#notes`; an old `#notes/<tag>` link opens the same page.
 
 ## 10. Not in scope
 
 - Stephen's personal knowledge-base repo (`~/projects/knowledge-base`). Irori's notes are the knowledge base this design is about (b4).
 - Building notes automatically from the board's history. That was shape B, set aside because it is noisy, goes stale and is unsafe on shared boards.
 - A per-board handbook page. That was shape C.
+- Notes shared with a space's members. Built and removed (decision 53).
 
 ## 11. Build contract (card #401)
 
-What v1 is built on. The rows and the coord/Core layer are on main; the window, the agent tools and the Notes page build on them.
+What v1 is built on, as it stands after #616.
 
-**Rows** (`crates/store/src/kinds.rs`, replicated, board logs accept them; `crates/coord/src/board/notes.rs` folds them):
+**Rows** (`crates/store/src/kinds.rs`, replicated; `crates/coord/src/board/notes.rs` folds them). Notes are written to the private log only. Board logs still accept the kinds, forever: devices on 0.11.0-0.12.3 can still write them, and refusing one would stall that writer's stream on every device. The board coord folds them, but nothing reads them (decision 53), like decision 27's decision rows.
 
 | Kind | Payload |
 |---|---|
 | `note.proposed` | `{noteId, kind, text, tags, source?, taskId?, commentId?, blockerId?, by, at}` |
-| `note.accepted` | `{noteId, by, at}`: a person accepts a proposal, or an agent's pending edit or removal |
+| `note.accepted` | `{noteId, by, at}`: written only by older devices, when the person accepted a proposal or a pending change; folds to nothing now (#616) |
 | `note.edited` | `{noteId, kind?, text?, tags?, why?, by, at}` |
 | `note.removed` | `{noteId, why?, by, at}` |
 
-- A person's note is accepted at once. An agent's is `proposed` until a person accepts it: on Mine, the person; on a board, any member's `person:` key, written from that member's own device.
-- An agent's edit or removal of a live note becomes the note's `pending` change; the live text stays until a person accepts. An agent edits or withdraws its own proposal directly. A person's edit or removal applies at once and drops any pending change.
-- `history` keeps every step: proposed, accepted, edited, edit_proposed, removal_proposed, removed.
-- Board closure: `taskId`, `commentId` and `blockerId` go through the board log's closure check like any card row, so a board note's source is always on that board.
+- Every `note.proposed` row folds as `accepted` at once. A person's note has `acceptedBy` = the person; an agent's has none.
+- An edit or removal applies at once, whoever writes it. There is no pending change.
+- Notes that were waiting as proposals become live, since the fold decides. Devices from before #616 still fold agents' rows the old way until they update.
+- `history` keeps every step: proposed (written), edited, removed.
+- Board closure: a note row that an old device writes to a board log still goes through that log's closure check (`taskId`, `commentId`, `blockerId`) like any card row.
 - Refused when written: an unknown kind, empty text, text over 500 characters, no tags, a tag of unknown shape, and text the scrubber would mask (keys, tokens, passwords).
 
 **Kinds:** `rule`, `gotcha`, `decision`, `pointer`, `preference`.
@@ -110,20 +113,24 @@ What v1 is built on. The rows and the coord/Core layer are on main; the window, 
 |---|---|---|
 | `path:<repoKey>:<path>` | the agent's repo is `<repoKey>` and one of its paths is `<path>` or under it | 5 |
 | `repo:<repoKey>` | the card's or worktree's repo | 4 |
-| `board:<tag>` | a Mine note about a shared board: the card is on that board | 3 |
+| `board:<tag>` | a Mine note about a shared space: the card is on that space | 3 |
 | `machine:<device name>` | the agent's device name | 2 |
 | `everywhere` | always | 1 |
 | `topic:<word>` | never on wake; for search | 0 |
 
-A wake takes the accepted notes of every log the agent reads: Mine for the person's own agents, plus the card's board when it is on one. Each note scores by its best tag; the wake keeps the top 8 (`NOTES_PER_WAKE`), newest first within a score. `Coord::notes_for(&NoteContext{board, repo_key, paths, machine})` does one log; the wake merges Mine and the board's.
+Tags are OR'd: a note goes to every wake that any one of its tags matches. So the narrowest tag is the right one: a fact about one machine gets `machine:` and no `repo:`, code internals get `path:`, and a rare how-to gets `topic:` only.
 
-**Scopes and routing** (`crates/core/src/service/notes.rs`): `mine`, or a board's tag or id. A Mine note never enters a board log, whatever its tags name (`crates/core/tests/it/notes.rs`). Core API: `propose_note(by, scope, NewNote)`, `accept_note(by, id)`, `edit_note(by, id, NoteEdit, why)`, `remove_note(by, id, why)`, `notes(scope, removed)`, `search_notes(q, live_only)`. Each returns `ScopedNote {scope, boardId?, ...note}`. Ids may carry `note:`.
+A wake takes the person's live Mine notes: `Coord::notes_for(&NoteContext{board, repo_key, paths, machine})` on the private coord. Each note scores by its best tag; the wake keeps the top 8 (`NOTES_PER_WAKE`), newest first within a score. `board` is the tag of the shared space the card is on (looked up without blocking), so `board:<tag>` notes still match. Board logs are not read (#616).
 
-**Window commands** (`crates/window/src/notes.rs`, #411): `notes_list {scope, removed}` returns `NoteView[]` (an empty scope lists Mine and every board), `note_new {note: {scope, kind, text, tags}}` (New note), `note_accept {id}`, `note_edit {id, edit: {kind?, text?, tags?}}` and `note_remove {id, why}`, all as the person. A `NoteView` carries `pending` (an agent's edit, or `remove: true`), `history`, `byPerson` and `stale`.
+**Core API** (`crates/core/src/service/notes.rs`), all on the private coord: `propose_note(by, NewNote)`, `edit_note(by, id, NoteEdit, why)`, `remove_note(by, id, why)`, `notes(removed)`, `search_notes(q, live_only)`, and `machine_names()` (each of the person's devices by the name a wake on it reads: the chosen name, else its own). A note never enters a board log, whatever its tags name (`crates/core/tests/it/notes.rs`). Ids may carry `note:`. `propose_note` clears a `taskId` that is not a card in the private log; a source card on a shared space stays as source text only. `accept_note` is gone (#616).
 
-**Board writes are gated** (#411): an older Irori refuses an unknown kind, and every later row of that writer's stream then fails its gap check, so one `note.*` row would stall this device's stream on any member device that predates notes. The note kinds landed on main before the board hello's `spaces` field (#392), so a device heard to read space rows reads note rows too: `Services::board_notes_ready` (applied by `Services::write_gate`) refuses a board-scope write while `space_not_ready` names any member device, with "every device on the board must run an Irori with notes first; waiting on …". Mine writes never wait. A later kind that older notes-reading devices don't know needs its own hello level.
+**Window commands** (`crates/window/src/notes.rs`, #411): `notes_list {removed}` returns `NoteView[]`, `note_new {note: {kind, text, tags}}` (New note), `note_edit {id, edit: {kind?, text?, tags?}}` and `note_remove {id, why}`, all as the person. A `NoteView` carries `history`, `byPerson` and `stale`. `note_accept` and `notes_waiting` went in #616.
 
-**Agent tools** (built, #412; `crates/tools/src/notes.rs`): `notes_propose {scope?, kind, text, tags, source?}` for a new note, or `{note, kind?, text?, tags?, why}` / `{note, remove: true, why}` for an agent's proposed edit or removal. `notes_search {q}` searches accepted notes only, in the logs the agent reads. A proposal reaches no agent. The wake gets a short **Notes** section in the same untrusted-data framing as other agents' messages: each note's kind, text, `note:<id>`, author and accepter, and the tag that matched. Only full wakes carry notes (not reminders, appends or stops), and a note goes to one agent once: a later wake to the same agent leaves out the notes an earlier one gave it. The wake's card is the first `task:` ref among its messages, else the card the agent is working; its repo (else the agent's), its repo-path links and the agent's cwd under the repo root give the context, and the device's name the machine (the inbox's `Options::notes` hook, `Services::wake_notes`). Writes go through `Services::propose_note` and its siblings, which the window's `Core` calls too, so a board write gate there covers both. The gate (`Services::write_gate`, #411) sits in those bodies.
+The board write gate (#411, `Services::write_gate` and `board_notes_ready`) went with board notes in #616: nothing writes a note row to a board log now.
+
+**Agent tools** (built, #412; `crates/tools/src/notes.rs`): `notes_propose` ("Write a note"; the name is kept) takes `{kind, text, tags, source?}` for a new note, or `{note, kind?, text?, tags?, why}` / `{note, remove: true, why}` for an edit or removal. Each applies at once, and `why` is kept in the note's history. It answers "Wrote note:<id> (kind): it is live, ...", "Changed note:<id>." or "Removed note:<id>.". `scope` is gone from the spec but still decoded, on new notes and edits alike, so an agent with an old spec doesn't fail: empty or `mine` is fine, and anything else is refused with "notes are your person's own: only their agents read them, and there are no shared notes, so leave scope out. For a note about a shared space, tag it board:<tag>." Tags on a new note, or on an agent's edit that gives tags, are refused when they can never match a wake: a tag with `*` (tags never expand one: `path:<repoKey>:<path>` matches that path and everything under it), and `machine:<name>` when none of the person's devices is called that (the refusal lists `machine:<name>` for each device). The spec text steers to the narrowest tag (above). The person's own New note and edits in the window are not checked, so old notes with such tags can still be edited. `notes_search {q}` searches the person's live notes ("N notes match", else "No note holds all of ..."); each line shows "by X", with no accepter.
+
+A note reaches agents once it is written. The wake gets a short **Notes** section in the same untrusted-data framing as other agents' messages, introduced as "short facts the person or their agents wrote about where you are working": each note's kind, text, `note:<id>`, author, accepter (only when there is one), and the tag that matched. Only full wakes carry notes (not reminders, appends or stops), and a note goes to one agent once: a later wake to the same agent leaves out the notes an earlier one gave it. The wake's card is the first `task:` ref among its messages, else the card the agent is working; its repo (else the agent's), its repo-path links and the agent's cwd under the repo root give the context, and the device's name the machine (the inbox's `Options::notes` hook, `Services::wake_notes`). Writes go through `Services::propose_note` and its siblings, which the window's `Core` calls too.
 
 **Notes a wake carried** (built, #412): the private log's `wake.issued` row carries `notesTask` (`task:<id>`) and `notes: [{id, why, kind, text, by, acceptedBy}]`, names rendered (board logs refuse the kind). A replayed inbox rebuilds the prompt from them, and a later wake reads them to leave out what the agent already got. The card page doesn't list them (#547).
 

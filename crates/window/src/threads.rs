@@ -88,6 +88,12 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub cant_start: String,
+    /// Why no agent can start now, by device, and what happens next (card
+    /// #541): it needs the person to know, not to answer.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_agent: String,
+
     /// The shared space it is in, or a private thread is about (card #558);
     /// absent for Personal. Matches the switcher's space id.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -105,6 +111,12 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional, type = Option<ts::Time>)]
     pub usage_limit: Option<GoTime>,
+    /// The agent that opened it (card #631); absent for the person's own.
+    /// Until the person writes in it, it waits on them and no agent is
+    /// started for it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub opened_by: Option<AgentRef>,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -438,13 +450,17 @@ impl Window {
                     answered.push(k);
                 }
             }
+            // An agent's own thread (card #631) waits on the person until
+            // they write in it: no agent is handed or started for it.
+            let rests = co.agent_thread_rests(&t);
             let cs = self.priv_comments(raw);
             let t = self.priv_task(t);
             let a = t.ask.clone().unwrap_or_default();
+            let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
             let state = if resolved {
                 THREAD_RESOLVED
-            } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED {
+            } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
                 THREAD_ANSWERED
             } else if !a.taker.is_empty() {
                 THREAD_HANDED
@@ -456,11 +472,18 @@ impl Window {
             if !taker.is_empty() && !told.contains(&taker) {
                 told.push(taker);
             }
+            told.retain(|k| *k != opener);
             let last = cs.iter().filter(|c| c.msg_id.is_empty()).max_by(|x, y| {
                 x.at.unix_nano()
                     .cmp(&y.at.unix_nano())
                     .then_with(|| x.id.cmp(&y.id))
             });
+            // Nothing written yet: its newest word is its opener's.
+            let (last_by, last_text) = match last {
+                Some(c) => (Some(p.ref_(&c.by)), c.text.clone()),
+                None if !opener.is_empty() => (Some(p.ref_(&opener)), t.objective.clone()),
+                None => (None, String::new()),
+            };
             let s = ThreadSummary {
                 id: t.id.clone(),
                 short: t.short.clone(),
@@ -471,8 +494,9 @@ impl Window {
                 told: p.refs(&told),
                 answered_by: p.refs(&answered),
                 replies: cs.iter().filter(|c| c.msg_id.is_empty()).count() as i64,
-                last_by: last.map(|c| p.ref_(&c.by)),
-                last_text: last.map(|c| c.text.clone()).unwrap_or_default(),
+                last_by,
+                last_text,
+                opened_by: (!opener.is_empty()).then(|| p.ref_(&opener)),
                 cards: t
                     .made
                     .iter()
@@ -491,7 +515,7 @@ impl Window {
                 agents_now: t.ask.as_ref().is_some_and(|a| a.wake),
                 starting: t
                     .spawn_request()
-                    .filter(|sp| sp.pending() && state == THREAD_WAITING)
+                    .filter(|sp| sp.pending() && !sp.stale(&p.now) && state == THREAD_WAITING)
                     .map(|sp| p.where_(&sp.device))
                     .unwrap_or_default(),
                 cant_start: t
@@ -501,8 +525,18 @@ impl Window {
                             && !coord::usage_limited(sp)
                             && state == THREAD_WAITING
                     })
-                    .map(|sp| sp.reason.clone())
+                    .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),
+                // A waiting thread, or an answered one the person followed
+                // up on: that waits on an agent too (card #541).
+                no_agent: if state == THREAD_WAITING
+                    || (state == THREAD_ANSWERED && a.reason == coord::TAKE_REOPENED)
+                {
+                    p.no_agent_for(&t.id)
+                } else {
+                    String::new()
+                },
+
                 space_id: space.to_string(),
                 ..ThreadSummary::default()
             };

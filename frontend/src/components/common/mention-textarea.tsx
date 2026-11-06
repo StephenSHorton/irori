@@ -65,7 +65,9 @@ type Props = Omit<ComponentProps<typeof Textarea>, "value" | "onChange"> & {
   disabledMentions?: string
   // Voice input (card #240): a mic button right after the box (a sibling,
   // so the site lays it out in its row). Hidden where there's no engine.
-  voice?: boolean
+  // "main": the page's or dialog's main composer, which Cmd/Ctrl+D starts
+  // when no box has focus (card #634).
+  voice?: boolean | "main"
   // The card the box is on: its "the agent on #N" row comes first (card
   // #452, sa-4).
   card?: string
@@ -462,6 +464,7 @@ export function MentionTextarea({
       {voice && (
         <MicButton
           target={el}
+          main={voice === "main"}
           value={value}
           disabled={!!rest.disabled || !!rest.readOnly}
           onText={(text, at) => {

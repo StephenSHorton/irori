@@ -93,7 +93,9 @@ export function useCommands(cmds: Command[]): void {
   useEffect(() => {
     latest.current = cmds
   })
-  const key = cmds.map((c) => `${c.id}\u0000${c.title}\u0000${c.shortcut ?? ""}`).join("\u0001")
+  const key = cmds
+    .map((c) => `${c.id}\u0000${c.title}\u0000${c.shortcut ?? ""}`)
+    .join("\u0001")
   useEffect(() => {
     const live: Command[] = latest.current.map((c, i) => ({
       ...c,

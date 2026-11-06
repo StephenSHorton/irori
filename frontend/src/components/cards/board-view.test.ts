@@ -58,11 +58,20 @@ describe("Home lists your agents' board cards (card #199)", () => {
     expect(homeBoards([priv])).toEqual([])
   })
   test("the board row tags a space as the space, not by its first card (card #558)", () => {
-    const net = CardSummary({ ...ours, id: "n", tag: "net", scopeLabel: "Wind · Netcode" })
-    const spaces = [{ boardId: "b-wind", name: "Wind Waker Multiplayer", tag: "wind" }]
+    const net = CardSummary({
+      ...ours,
+      id: "n",
+      tag: "net",
+      scopeLabel: "Wind · Netcode",
+    })
+    const spaces = [
+      { boardId: "b-wind", name: "Wind Waker Multiplayer", tag: "wind" },
+    ]
     expect(homeBoards([net, ours], spaces)).toEqual(spaces)
     // A space not heard of yet: the card's label, no tag.
-    expect(homeBoards([net])).toEqual([{ boardId: "b-wind", name: "Wind · Netcode", tag: "" }])
+    expect(homeBoards([net])).toEqual([
+      { boardId: "b-wind", name: "Wind · Netcode", tag: "" },
+    ])
   })
 })
 
@@ -141,12 +150,15 @@ describe("activeFilter's member chips (card #268)", () => {
     { personId: "p-blake", name: "Blake", me: false },
   ]
   test("a member chip holds on a board that member is on", () => {
-    expect(activeFilter("owner:p-blake", [], undefined, members)).toBe("owner:p-blake")
+    expect(activeFilter("owner:p-blake", [], undefined, members)).toBe(
+      "owner:p-blake"
+    )
   })
   test("elsewhere it falls back to All", () => {
     expect(activeFilter("owner:p-gone", [], undefined, members)).toBe("all")
-    expect(activeFilter("owner:p-blake", [], undefined, [members[0]])).toBe("all")
+    expect(activeFilter("owner:p-blake", [], undefined, [members[0]])).toBe(
+      "all"
+    )
     expect(activeFilter("owner:p-blake", [])).toBe("all")
   })
 })
-

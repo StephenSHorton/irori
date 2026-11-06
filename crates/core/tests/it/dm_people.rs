@@ -31,7 +31,7 @@ fn dm_with(d: &Dev, other: &Dev) -> String {
 
 fn post(d: &Dev, conv: &str, text: &str) {
     d.core
-        .talk_post(&d.core.user_sender(), conv, text, &[], false, None)
+        .talk_post(&d.core.user_sender(), conv, text, &[], false, None, vec![])
         .unwrap();
 }
 

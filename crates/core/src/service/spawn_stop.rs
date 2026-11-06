@@ -29,7 +29,7 @@ use coord::{BlockedBy, Blocker, BlockerAnswer, BlockerOption, NewBlocker, Task, 
 use super::Services;
 use crate::logf;
 
-const SWEEPER: &str = "irori";
+pub(crate) const SWEEPER: &str = "irori";
 
 /// In every "no copy" question: how a sweep finds its own blocker, whatever
 /// the device is called today.
@@ -51,6 +51,16 @@ pub fn no_folder_reason(reason: &str) -> bool {
     reason.starts_with("no checkout of ")
         || reason.starts_with("no copy of ")
         || reason.starts_with("this card names no repo")
+}
+
+/// A missing checkout in the card line's words (card #480): the repo's short
+/// name, or that the card names none, and the device's name.
+pub fn no_folder_words(repo_key: &str, device: &str) -> String {
+    if repo_key.is_empty() {
+        format!("this card names no repo, and {device} has no folder for it")
+    } else {
+        format!("no copy of {} on {device}", coord::repo_name(repo_key))
+    }
 }
 
 /// Whether b is one of Irori's "no copy" blockers.
@@ -164,10 +174,16 @@ impl Services {
         if repo_key.is_empty() {
             return None;
         }
-        self.capture
-            .repo_roots(repo_key)
-            .into_iter()
-            .find(|r| Path::new(r).is_dir())
+        // Never a job's temp clone (card #565): with only one, there is no
+        // checkout here, and the card asks for one as for any other.
+        let roots = self.capture.repo_roots(repo_key);
+        let root = crate::treeclean::pick_root(&roots);
+        if root.is_none()
+            && let Some(tmp) = crate::treeclean::only_temp(&roots)
+        {
+            self.say_temp_root(repo_key, &tmp);
+        }
+        root
     }
 
     /// What the person said on blockers `on` of t, newest first: their

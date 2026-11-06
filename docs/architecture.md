@@ -237,6 +237,14 @@ A Go build and a Rust build on one PC would both want:
 
 Development builds therefore always run with `IRORI_HOME=<copy>` and a port offset (`IRORI_DEV_PORT_OFFSET`, which also moves the 38419 lookup). Both are compiled into dev builds only. Two builds never write one data dir.
 
+On the Mac, three scripts do this beside the live Irori (card #611). Each stops what it started by its own pid; never quit Irori by name or bundle id (`osascript`, `pkill irori`), which reaches the live app. `open Irori.app` drops the shell's environment, so a test bundle opened that way runs on `~/.irori` unless its Info.plist carries its own.
+
+- `scripts/scratch-mac.sh start` copies `~/.irori` into a temp dir (every `.db` by a read-only `sqlite3` `VACUUM INTO`, plus `device.key`, `device.json`, `person.json`, `settings.json`, `names.json`, `agent-names.json`, `spaces/`, and `blobs/` and `files/` as APFS clones; never `irori.json` or `irori.log`) and runs the main checkout's `target/debug/irori` with `IRORI_HOME=<copy>`, an empty `CLAUDE_CONFIG_DIR`, a random `IRORI_DEV_PORT_OFFSET`, `IRORI_DEV_KEK_DIR=~/.irori` (the copy's keys are sealed under the live dir's Keychain item) and `IRORI_DEV_OFFLINE=1` (a copy holds this device's key; `--online` only with `--fresh`). It prints `scratch=` and `pid=`. `scripts/scratch-mac.sh stop <scratch> [--rm]` kills that pid alone, after checking it is still that exe, and fails if the test held a file open in `~/.irori` or the live `irori.log` gained a line naming the scratch.
+- `scripts/window-shot.sh --out <png> [--query 'view=canvas&full'] [--after 50]` is the twin of `scripts/window-shot.ps1`: a scratch copy whose debug build saves its own window (`app/src/shell/shot.rs`, `IRORI_DEV_WINDOW_SHOTS`/`_QUERY`/`_SHOT_AFTER`/`_COUNT`), then stopped and removed. Boards take about 45 s to open on a copy.
+- `app/macos/package.sh --test-home <dir> [--test-id x] [--test-env K=V]...`, for rehearsing an update relaunch, writes `IRORI_HOME`, `CLAUDE_CONFIG_DIR`, `IRORI_DEV_OFFLINE=1` and each `--test-env` into Info.plist `LSEnvironment` and signs ad hoc; `--zip`/`--dmg` are optional. `--test-id x` makes the bundle id `com.stephenshorton.irori.test-x`. The updater refuses any id but `com.stephenshorton.irori`, so the update payload zip is built with `--test-home` and without `--test-id`, or the relaunched app lands on `~/.irori`. A release binary ignores `IRORI_DEV_PORT_OFFSET` and `IRORI_DEV_KEK_DIR`, so a test bundle on a copy packages a debug build. The updater does not read `IRORI_DEV_OFFLINE`: a binary built with a real `IRORI_VERSION` and no `IRORI_UPDATE_API` checks the real feed and, on quit, installs a stock `Irori.app` over the test bundle that relaunches on `~/.irori`. Rehearse with `IRORI_UPDATE_API` set at build time to a fake feed.
+
+After a test, the live `~/.irori/irori.log` gains no line from it.
+
 ### 3.3 Stage 2: shared boards with other people, straight on iroh
 
 Stage 1 (Go `be67a86`) moves a board's rows on `board/<boardId>` streams inside the private mesh connection. That shortcut holds only while every member is you, and stage 2 must remove it (I:docs/design/v0.5-shared-boards.md:428-429). The Rust port carries stage 1 as is, then builds stage 2 (build steps 5-11 at I:docs/design/v0.5-shared-boards.md:438-444) this way:
@@ -365,6 +373,15 @@ Each exporter writes into `testdata/golden/`:
 - `fallback_tools.json`, which is embedded in Rust and asserted equal to `GET /v1/tools?client=grok` (surface.md §2.8);
 - a fixture data dir written by Go with the `file` keystore.
 
+**Regenerating the tool-text goldens.** Tool text now changes in Rust (`crates/tools/src/specs.json` and the instructions in `crates/tools`), and three goldens carry copies of it: `testdata/golden/tools/specs.json`, the `tools-grok` step of `testdata/golden/api/go.json`, and `testdata/golden/mcp/wire.json` (the `fallback` list, the `instructions` and the `tools/list` answers). Don't patch them by hand. Run the three tests once with `IRORI_BLESS=1` and they rewrite those parts from this build, then run them normally:
+
+```sh
+IRORI_BLESS=1 cargo test --no-fail-fast -p irori-tools -p irori-api -p irori-mcp   # PowerShell: $env:IRORI_BLESS=1; cargo test ...; Remove-Item env:IRORI_BLESS
+cargo test -p irori-tools -p irori-api -p irori-mcp
+```
+
+The bless rewrites a value only when its content differs from this build, so a bless with nothing changed leaves the files as they are. Everything else keeps its bytes, its key order, its escaping and its line endings (`gocompat::json::rewrite_indented`), and any other difference still fails. Review the diff: it should show one changed line per copy of the text you edited. A rewritten value is written whole, in the file's own escaping, so a value that was patched by hand in other escapes (a raw `<` where Go writes `<`) changes more than the edited words the first time.
+
 ### 6.3 Differential tests on real data (local only)
 
 - **Rows:** open a copy of the PC's and the Mac's `irori.db` with Rust and verify every row signature and `RowHash`. The `Chain` device list must equal Go's `/v1/devices`.
@@ -395,7 +412,7 @@ Run from the repo root before every merge or push. On the Mac, run them too when
 (cd frontend && bun install --frozen-lockfile && bun run build && bun run typecheck && bun test)
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace --no-fail-fast                # every crate runs even when one fails
 cargo test -p irori-capture -- --test-threads=1      # timing-sensitive, as in Go
 cargo xtask bindings --check                         # generated TS matches the Rust commands
 cargo xtask no-third-party                           # fails on presets::N0, RelayMode::Default, mdns or pkarr crates in the tree
@@ -403,7 +420,15 @@ cargo xtask no-third-party                           # fails on presets::N0, Rel
 
 As built (`scripts/check.sh`): the frontend steps, fmt, clippy, the workspace tests and the single-threaded capture run as above; `no-third-party` is `scripts/no-third-party.sh` (there is no xtask crate yet); `bindings --check` waits for the M6 bindings, and until then the shim's table is checked by `gen-compat-table.ts --check`.
 
-Each crate's integration tests are one binary, `tests/it/main.rs` with a module per file (#566): a file in `tests/` would be its own binary, with its own link and copy of the crate's debug info. New tests go in `tests/it/`, and `scripts/one-test-binary.sh` fails check.sh otherwise. Run one with `cargo test -p <crate> --test it <module>::`. Tests in a crate share a process, so one that changes the environment or the working directory, or counts this process's sockets, stays outside `it` and is listed in that script (`capture/tests/repo_git_env.rs`, `core/tests/no_public_contact.rs`). A test that re-runs its own binary names its helper with the module (`--exact proc::helper_sleep`). The dev profile keeps line tables only: panics and backtraces show file and line, but a debugger shows no variables; put `debug = true` back locally to use one.
+Running it (card #609). check.sh prints `check: pid N, stop with sh scripts/check-stop.sh` as it starts. `sh scripts/check-stop.sh` from the same worktree stops that run and everything it started, and gives its check slot back; never `pkill -f check.sh`, which stops every agent's run on the device. A stopped run never prints `check: all passed` (on the PC its caller may still see exit 0). On the PC (Git Bash), check.sh stops at once when `CMAKE` or `LIBCLANG_PATH` isn't set (docs/releasing.md, Build tools), and runs fmt as `rustfmt --check` over the repo's `.rs` files (tracked and new) in batches of 40, because `cargo fmt` from a deep worktree such as `~/.claude/jobs/...` passes Windows' command-line limit (os error 206).
+
+Each crate's integration tests are one binary, `tests/it/main.rs` with a module per file (#566): a file in `tests/` would be its own binary, with its own link and copy of the crate's debug info. New tests go in `tests/it/` with `mod <name>;` in its `main.rs`, and `scripts/one-test-binary.sh` fails check.sh otherwise. A test file reaches the shared helpers with `use crate::common;`, never `mod common;` (which would compile them a second time as a child of that file). Run one with `cargo test -p <crate> --test it <module>::`. Tests in a crate share a process, so one that changes the environment or the working directory, or counts this process's sockets, stays outside `it` and is listed in that script (`capture/tests/repo_git_env.rs`, `core/tests/no_public_contact.rs`). A test that re-runs its own binary names its helper with the module (`--exact proc::helper_sleep`). The dev profile keeps line tables only: panics and backtraces show file and line, but a debugger shows no variables; put `debug = true` back locally to use one.
+
+Three rules for tests and the code they drive:
+
+- **TempDir goes last.** Windows can't delete an open file, and tempfile's `TempDir` ignores the failure. In a test struct, declare the `TempDir` field after anything that holds files open in it (a `Store`, a `Coord`): fields drop in declaration order. The wrong order passes silently on macOS and leaks a folder per test on the PC (175k+ in `%TEMP%` once); `scripts/check-temp.sh` fails a check run that leaves anything behind.
+- **Start fswatch watchers off-thread.** On a busy Mac `FSEventStreamStart` can stall 5–100 s, though events arrive promptly once it is up. Never start a watcher inline before a first scan or pass: start it on a thread of its own and read what it covers once it is up, as presence (`crates/presence/src/run.rs`) and capture (`crates/capture/src/watch.rs`) do since #601.
+- **Test repos with big commits set `maintenance.auto=false`.** git 2.54 detaches a maintenance run that writes into the repo after the `TempDir` is gone.
 
 ### 7.2 Release workflow
 

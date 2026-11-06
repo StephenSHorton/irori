@@ -38,7 +38,8 @@ export function metersOpenAtStart(): boolean {
 // pushRing adds one reading to the end, dropping the oldest past max. It
 // makes a new array, so a reader of the old one sees no change.
 export function pushRing<T>(ring: readonly T[], item: T, max = RING): T[] {
-  const next = ring.length >= max ? ring.slice(ring.length - max + 1) : ring.slice()
+  const next =
+    ring.length >= max ? ring.slice(ring.length - max + 1) : ring.slice()
   next.push(item)
   return next
 }
@@ -88,7 +89,9 @@ export function fmtGpuMemory(gpu: B.MetersGpu): string | null {
 // fmtCpu is "23% 5.33 GHz" (no speed when it isn't read).
 export function fmtCpu(cpu: B.MetersCpu): string {
   const pct = fmtPct(cpu.pct)
-  return cpu.ghz != null && cpu.ghz > 0 ? `${pct} ${cpu.ghz.toFixed(2)} GHz` : pct
+  return cpu.ghz != null && cpu.ghz > 0
+    ? `${pct} ${cpu.ghz.toFixed(2)} GHz`
+    : pct
 }
 
 // fmtGpu is "21% (30 °C)": its use, and its temperature when read.
@@ -158,7 +161,9 @@ export function pickGpu(samples: readonly MetersSample[]): string | null {
   let bestAvg = -1
   for (const g of last.gpus) {
     if (g.integrated) continue
-    const avg = average(samples.map((s) => gpuByName(s, g.name)?.utilPct ?? null))
+    const avg = average(
+      samples.map((s) => gpuByName(s, g.name)?.utilPct ?? null)
+    )
     if (best == null || avg > bestAvg) {
       best = g.name
       bestAvg = avg
@@ -177,10 +182,16 @@ export function pickDisk(samples: readonly MetersSample[]): string | null {
 
 // gpuByName and diskByName find a device in one reading, so a graph follows
 // the device even when the list changes order.
-export function gpuByName(s: MetersSample, name: string): B.MetersGpu | undefined {
+export function gpuByName(
+  s: MetersSample,
+  name: string
+): B.MetersGpu | undefined {
   return s.gpus.find((g) => g.name === name)
 }
-export function diskByName(s: MetersSample, name: string): B.MetersDisk | undefined {
+export function diskByName(
+  s: MetersSample,
+  name: string
+): B.MetersDisk | undefined {
   return s.disks.find((d) => d.name === name)
 }
 
@@ -201,9 +212,14 @@ function average(values: readonly (number | null)[]): number {
 // sampleAt is the preview's reading at time t: moving waves near Stephen's
 // PC (16 cores, 61.6 GB, an RTX 5080 and the CPU's Radeon), with no GPUs
 // for ?gpu=none.
-export function sampleAt(t: number, noGpu = false, jitter: () => number = Math.random): MetersSample {
+export function sampleAt(
+  t: number,
+  noGpu = false,
+  jitter: () => number = Math.random
+): MetersSample {
   const s = t / 1000
-  const wave = (period: number, phase = 0) => (Math.sin((s / period) * 2 * Math.PI + phase) + 1) / 2
+  const wave = (period: number, phase = 0) =>
+    (Math.sin((s / period) * 2 * Math.PI + phase) + 1) / 2
   const clamp = (n: number) => Math.min(Math.max(n, 0), 100)
   const total = 61.6 * GiB
   const burst = wave(23, 1) > 0.85 ? 1 : 0
@@ -258,11 +274,15 @@ export function sampleAt(t: number, noGpu = false, jitter: () => number = Math.r
 
 // startSample runs the made-up machine: two minutes of history at once,
 // then a reading every 2 s.
-function startSample(push: (s: MetersSample) => void, seed: (h: MetersSample[]) => void): () => void {
+function startSample(
+  push: (s: MetersSample) => void,
+  seed: (h: MetersSample[]) => void
+): () => void {
   const noGpu = previewFlag("gpu") === "none"
   const now = Date.now()
   const history: MetersSample[] = []
-  for (let i = RING - 1; i >= 0; i--) history.push(sampleAt(now - i * TICK_MS, noGpu))
+  for (let i = RING - 1; i >= 0; i--)
+    history.push(sampleAt(now - i * TICK_MS, noGpu))
   seed(history)
   const timer = setInterval(() => push(sampleAt(Date.now(), noGpu)), TICK_MS)
   return () => clearInterval(timer)

@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 
-import type { ThreadCard, ThreadSummary } from "@/gen/models"
+import { AgentRef, ThreadSummary } from "@/gen/models"
+import type { ThreadCard } from "@/gen/models"
 import {
+  openedLine,
   ThreadCards,
+  emptyOpened,
   openAfterResolve,
   resolvedShown,
   resolvedToggle,
@@ -110,5 +113,43 @@ describe("a thread Irori starts an agent for (card #470)", () => {
   })
   test("without a spawn it reads as before", () => {
     expect(stateLine(waiting, "")).toBe("Waiting for an agent")
+  })
+  test("a follow-up no agent can start for says why (card #541)", () => {
+    const why =
+      "No agent can start: Mac is offline. It starts by itself when it's back."
+    expect(
+      stateLine({
+        ...waiting,
+        state: "answered",
+        lastBy: "user:x",
+        lastText: "And?",
+        noAgent: why,
+      })
+    ).toBe(why)
+    expect(stateLine({ ...waiting, noAgent: why })).toBe(why)
+  })
+})
+
+describe("a thread an agent opened (card #631)", () => {
+  const alpha = AgentRef({ key: "dev/a", name: "alpha", status: "idle" })
+  const opened = ThreadSummary({
+    id: "t1",
+    short: "31",
+    title: "Which fix?",
+    text: "Which fix?",
+    state: "answered",
+    lastBy: alpha,
+    lastText: "Which fix?",
+    agentsNow: true,
+    openedBy: alpha,
+  })
+  test("its line is the agent's words, waiting on the person", () => {
+    expect(stateLine(opened)).toBe("alpha: Which fix?")
+  })
+  test("it says who opened it, and that no other agent starts", () => {
+    expect(openedLine(alpha)).toBe("alpha opened this thread")
+    expect(emptyOpened(alpha)).toBe(
+      "No replies yet. alpha hears yours; no other agent is started for it until you write."
+    )
   })
 })

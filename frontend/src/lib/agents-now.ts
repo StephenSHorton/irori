@@ -18,7 +18,9 @@ export function namesPerson(key: string): boolean {
 export function agentsNowDefault(
   mentions: readonly { key: string }[]
 ): boolean {
-  const keys = mentions.map((m) => m.key.trim()).filter((k) => k && k !== "irori")
+  const keys = mentions
+    .map((m) => m.key.trim())
+    .filter((k) => k && k !== "irori")
   return keys.length === 0 || keys.some((k) => !namesPerson(k))
 }
 

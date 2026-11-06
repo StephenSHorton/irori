@@ -1,0 +1,317 @@
+//! Huddles' window face (#654): the voice calls in a channel or a person
+//! DM. `call_state` is the whole picture (the call this device is in, the
+//! calls ringing here, the calls on in conversations it can see), and the
+//! pump sends it again as `call:state` on every change. People and
+//! conversations are named here, never sent as keys or ids.
+
+use std::collections::HashMap;
+
+use irori_core::{CallSnapshot, LiveCall, MyCall, Ringing};
+use serde::Serialize;
+use specta::Type;
+
+use crate::Window;
+
+/// The call:state event.
+pub const EVENT_CALL_STATE: &str = "call:state";
+
+/// Every call this device knows of, as the window shows them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallView {
+    /// The call this device is in.
+    pub mine: Option<CallMineView>,
+    /// Calls this device is rung for and hasn't joined or dismissed.
+    pub ringing: Vec<CallRingView>,
+    /// Calls on now, for the Talk list's rows.
+    pub live: Vec<CallLiveView>,
+}
+
+/// The call this device is in.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallMineView {
+    pub call_id: String,
+    pub conv_id: String,
+    /// The channel's name, or the DM's other person.
+    pub conv_name: String,
+    /// `channel` or `dm`.
+    pub conv_kind: String,
+    /// When this device joined, Unix ms.
+    pub joined_at_ms: i64,
+    pub muted: bool,
+    /// This device's mic is above the speech gate.
+    pub speaking: bool,
+    /// This device's name ("" when it has none).
+    pub device: String,
+    /// The other devices in it.
+    pub peers: Vec<CallPeerView>,
+    /// Why the call isn't working, in plain words.
+    pub error: Option<String>,
+}
+
+/// Another device in the call.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallPeerView {
+    /// Whose it is ("you" for another of the person's own devices).
+    pub name: String,
+    /// The device's name when it is one of the person's own, else "".
+    pub device: String,
+    /// `connecting`, `live` or `gone`.
+    pub phase: String,
+    /// `direct`, `relay` or "" (not connected).
+    pub path: String,
+    pub rtt_ms: f64,
+    /// Datagrams lost on the way here, percent.
+    pub loss_pct: f64,
+    pub speaking: bool,
+    pub muted: bool,
+}
+
+/// A call ringing here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallRingView {
+    pub call_id: String,
+    pub conv_id: String,
+    pub conv_name: String,
+    /// `channel` or `dm`.
+    pub conv_kind: String,
+    /// Who started it.
+    pub by: String,
+    /// When it rang, Unix ms.
+    pub at_ms: i64,
+}
+
+/// A call on now in a conversation this device can see.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallLiveView {
+    pub call_id: String,
+    pub conv_id: String,
+    /// Who is in it, each person once, by name.
+    pub people: Vec<String>,
+}
+
+impl Window {
+    /// The calls on now (`call:state`'s payload).
+    pub fn call_state(&self) -> CallView {
+        self.call_view(self.core.call_snapshot())
+    }
+
+    /// Snapshot `s` as the window shows it (tests feed their own).
+    #[doc(hidden)]
+    pub fn call_view(&self, s: CallSnapshot) -> CallView {
+        let names = Names::new(self, &s);
+        CallView {
+            mine: s.mine.map(|m| names.mine(m)),
+            ringing: s.ringing.into_iter().map(|r| names.ring(r)).collect(),
+            live: s.live.into_iter().map(|l| names.live(l)).collect(),
+        }
+    }
+
+    /// Starts a huddle in channel or person DM `conv`; returns its id.
+    /// Blocking: the mic and speaker open first.
+    pub fn call_start(&self, conv: &str) -> Result<String, String> {
+        let conv = crate::trim(conv);
+        if conv.is_empty() {
+            return Err("pick a conversation".into());
+        }
+        self.core.call_start(conv)
+    }
+
+    /// Joins call `call_id`. Blocking, as [`Window::call_start`].
+    pub fn call_join(&self, call_id: &str) -> Result<(), String> {
+        self.core.call_join(crate::trim(call_id))
+    }
+
+    /// Leaves the call this device is in.
+    pub fn call_leave(&self) -> Result<(), String> {
+        self.core.call_leave()
+    }
+
+    pub fn call_mute(&self, on: bool) {
+        self.core.call_mute(on)
+    }
+
+    /// Stops ringing for `call_id` here.
+    pub fn call_dismiss(&self, call_id: &str) {
+        self.core.call_dismiss(crate::trim(call_id))
+    }
+
+    /// Leaves any call and closes the devices: the shell calls it as the
+    /// app exits.
+    pub fn call_shutdown(&self) {
+        self.core.call_shutdown()
+    }
+}
+
+/// The names one snapshot needs, looked up once.
+struct Names<'a> {
+    w: &'a Window,
+    me: String,
+    people: HashMap<String, String>,
+    devices: std::collections::BTreeMap<String, String>,
+    /// The snapshot's conversations (mine, ringing): kind and name.
+    convs: HashMap<String, (String, String)>,
+}
+
+impl<'a> Names<'a> {
+    fn new(w: &'a Window, s: &CallSnapshot) -> Names<'a> {
+        let me = w.core.chain().person_id();
+        let mut ids: Vec<&str> = Vec::new();
+        if let Some(m) = &s.mine {
+            ids.extend(m.peers.iter().map(|p| p.person_id.as_str()));
+        }
+        ids.extend(s.ringing.iter().map(|r| r.by_person.as_str()));
+        ids.extend(
+            s.live
+                .iter()
+                .flat_map(|l| l.devices.iter().map(|(_, p)| p.as_str())),
+        );
+        let mut keys: Vec<String> = Vec::new();
+        for id in ids {
+            let k = person_key(id);
+            if !id.is_empty() && id != me && !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+        // The conversations' names: a DM's other person is named in the
+        // same single lookup as the call's people.
+        let talk = w.core.talk();
+        let mut convs: HashMap<String, (String, String)> = HashMap::new();
+        let mut dms: Vec<(String, String)> = Vec::new();
+        let conv_ids = s
+            .mine
+            .iter()
+            .map(|m| m.conv_id.as_str())
+            .chain(s.ringing.iter().map(|r| r.conv_id.as_str()));
+        for conv in conv_ids {
+            if convs.contains_key(conv) || dms.iter().any(|(c, _)| c == conv) {
+                continue;
+            }
+            if coord::talk::is_channel(conv) {
+                let name = talk.channel(conv).map(|c| c.name).unwrap_or_default();
+                convs.insert(conv.to_string(), ("channel".into(), name));
+            } else if let Some(k) = talk.pair_other(conv) {
+                if !keys.contains(&k) {
+                    keys.push(k.clone());
+                }
+                dms.push((conv.to_string(), k));
+            } else {
+                convs.insert(
+                    conv.to_string(),
+                    ("dm".into(), tools::talk::UNKNOWN_PERSON.into()),
+                );
+            }
+        }
+        let people: HashMap<String, String> =
+            keys.iter().cloned().zip(w.core.talk_names(&keys)).collect();
+        for (conv, k) in dms {
+            let name = people
+                .get(&k)
+                .cloned()
+                .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into());
+            convs.insert(conv, ("dm".into(), name));
+        }
+        Names {
+            w,
+            me,
+            people,
+            devices: w.core.device_labels(),
+            convs,
+        }
+    }
+
+    /// Person `id` by name: "you" for the person, "another person" when
+    /// nothing names them.
+    fn person(&self, id: &str) -> String {
+        if id == self.me {
+            return "you".into();
+        }
+        self.people
+            .get(&person_key(id))
+            .cloned()
+            .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
+    }
+
+    /// Device `id`'s name when it is one of the person's own, else "".
+    fn device(&self, person: &str, id: &str) -> String {
+        if person != self.me {
+            return String::new();
+        }
+        self.devices.get(id).cloned().unwrap_or_default()
+    }
+
+    /// Conversation `conv`'s kind and name: a channel's name, a DM's other
+    /// person.
+    fn conv(&self, conv: &str) -> (String, String) {
+        self.convs.get(conv).cloned().unwrap_or_default()
+    }
+
+    fn mine(&self, m: MyCall) -> CallMineView {
+        let (conv_kind, conv_name) = self.conv(&m.conv_id);
+        CallMineView {
+            device: self
+                .devices
+                .get(self.w.core.device_id())
+                .cloned()
+                .unwrap_or_default(),
+            peers: m
+                .peers
+                .into_iter()
+                .map(|p| CallPeerView {
+                    name: self.person(&p.person_id),
+                    device: self.device(&p.person_id, &p.device_id),
+                    phase: p.phase,
+                    path: p.path,
+                    rtt_ms: p.rtt_ms,
+                    loss_pct: p.loss_pct,
+                    speaking: p.speaking,
+                    muted: p.muted,
+                })
+                .collect(),
+            call_id: m.call_id,
+            conv_id: m.conv_id,
+            conv_name,
+            conv_kind,
+            joined_at_ms: m.joined_at_ms,
+            muted: m.muted,
+            speaking: m.speaking,
+            error: m.error.filter(|e| !e.trim().is_empty()),
+        }
+    }
+
+    fn ring(&self, r: Ringing) -> CallRingView {
+        let (conv_kind, conv_name) = self.conv(&r.conv_id);
+        CallRingView {
+            by: self.person(&r.by_person),
+            call_id: r.call_id,
+            conv_id: r.conv_id,
+            conv_name,
+            conv_kind,
+            at_ms: r.at_ms,
+        }
+    }
+
+    fn live(&self, l: LiveCall) -> CallLiveView {
+        let mut people: Vec<String> = Vec::new();
+        let mut seen: Vec<&str> = Vec::new();
+        for (_, p) in &l.devices {
+            if !seen.contains(&p.as_str()) {
+                seen.push(p);
+                people.push(self.person(p));
+            }
+        }
+        CallLiveView {
+            call_id: l.call_id,
+            conv_id: l.conv_id,
+            people,
+        }
+    }
+}
+
+fn person_key(id: &str) -> String {
+    format!("{}{id}", store::kinds::PERSON_ACTOR_PREFIX)
+}

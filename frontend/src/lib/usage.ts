@@ -92,7 +92,10 @@ function sameDay(a: number, b: number): boolean {
 
 // resetLine says when a window starts over: "resets in 2h 10m" within a
 // day, "resets Thu 14:00" further off, "reset" once it has.
-export function resetLine(resetsAtMs: number | null, now: number): string | null {
+export function resetLine(
+  resetsAtMs: number | null,
+  now: number
+): string | null {
   if (resetsAtMs == null) return null
   const left = resetsAtMs - now
   if (left <= 0) return "reset"
@@ -109,7 +112,9 @@ export function resetLine(resetsAtMs: number | null, now: number): string | null
 // 14:05" on another day; null when it is recent.
 export function staleLine(observedAtMs: number, now: number): string | null {
   if (observedAtMs <= 0 || now - observedAtMs <= STALE_MS) return null
-  const day = sameDay(observedAtMs, now) ? "" : `${DAYS[new Date(observedAtMs).getDay()]} `
+  const day = sameDay(observedAtMs, now)
+    ? ""
+    : `${DAYS[new Date(observedAtMs).getDay()]} `
   return `as of ${day}${clock(observedAtMs)}`
 }
 
@@ -140,13 +145,20 @@ export function asLimits(v: UsageLimits | null | undefined): UsageLimits {
 }
 
 // sampleUsage is the preview's reading, taken two minutes before now.
-export function sampleUsage(now: number, kind: string | null = null): UsageLimits {
+export function sampleUsage(
+  now: number,
+  kind: string | null = null
+): UsageLimits {
   if (kind === "none") return NO_USAGE
   const observed = kind === "stale" ? now - 40 * MIN : now - 2 * MIN
   return {
     observedAtMs: observed,
     windows: [
-      { kind: "five_hour", percentUsed: 38, resetsAtMs: now + 2 * HOUR + 10 * MIN },
+      {
+        kind: "five_hour",
+        percentUsed: 38,
+        resetsAtMs: now + 2 * HOUR + 10 * MIN,
+      },
       { kind: "seven_day", percentUsed: 61, resetsAtMs: now + 3 * 24 * HOUR },
     ],
   }
@@ -219,7 +231,11 @@ export function useUsage(): UsageLimits {
 
 // ---- a clock for countdowns ---------------------------------------------------------
 
-const clockState = { now: Date.now(), readers: new Set<() => void>(), timer: 0 as ReturnType<typeof setInterval> | 0 }
+const clockState = {
+  now: Date.now(),
+  readers: new Set<() => void>(),
+  timer: 0 as ReturnType<typeof setInterval> | 0,
+}
 
 function subscribeClock(reader: () => void): () => void {
   clockState.readers.add(reader)

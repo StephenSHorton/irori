@@ -111,6 +111,14 @@ fn closed_unmerged_tells_the_holder() {
         "{}",
         ns[0].text
     );
+    // Card #614: the closing comment may say where the work landed.
+    assert!(
+        ns[0].text.contains(&format!(
+            "Read the closing comment first (`gh pr view {PR} --comments`)"
+        )),
+        "{}",
+        ns[0].text
+    );
     // A closed PR doesn't hold completed.
     e.c.set_task_state(ALICE, &t.id, COMPLETED, "dropped")
         .unwrap();
@@ -301,4 +309,113 @@ fn only_a_linked_pr_is_recorded() {
     let mut c = check(PR_OPEN, "");
     c.pr = "https://github.com/a/b/pull/8".into();
     want_err(e.c.record_pr_state(&t.id, c), ErrorKind::Invalid);
+}
+
+/// Card #421: a desk "PR #n" card whose merge an older device heard first
+/// (no sha, and no rule completing the card) completes when the sha comes.
+#[test]
+fn a_desk_pr_card_merged_without_its_sha_completes_when_the_sha_comes() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let e = Env::new();
+    let t =
+        e.c.create_task(
+            "irori",
+            NewTask {
+                title: "PR #7: fix it".into(),
+                objective: format!("PR #7 on a/b {DESK_PR_CARD_MARK}; its thread."),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    e.c.add_link("irori", &t.id, PR).unwrap();
+    let t = e.c.get_task(&t.id).unwrap();
+    assert!(desk_pr_card(&t), "{t:?}");
+    // The older device's row: MERGED, no sha; its fold left the card open.
+    e.clk.add(secs(60));
+    e.remote(
+        "dev-old",
+        1,
+        1,
+        "irori",
+        store::kinds::PR_STATE,
+        &serde_json::json!({
+            "taskId": t.id, "pr": PR, "state": PR_MERGED,
+            "mergedAt": "2026-10-26T12:00:30Z", "by": "irori",
+            "at": "2026-10-26T12:01:00Z",
+        }),
+    );
+    assert_eq!(e.c.pr_states(&t.id)[0].state, PR_MERGED);
+    assert_ne!(e.c.get_task(&t.id).unwrap().state, COMPLETED);
+
+    e.clk.add(secs(60));
+    e.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_MERGED.into(),
+            merge_sha: SHA.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(e.c.get_task(&t.id).unwrap().state, COMPLETED);
+}
+
+/// Card #421: the holder's poller and the desk's poller, on two devices,
+/// both hear the merge with its sha before either's rows reach the other.
+/// Each says the sha on the card; once both logs meet, the card shows it
+/// once, on both devices.
+#[test]
+fn two_devices_hearing_one_merge_say_its_sha_once() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let a = Env::on("dev-a");
+    let t = held_with_pr(&a);
+    let rows = |e: &Env, dev: &str| -> Vec<store::Event> {
+        e.st.missing(&store::Vector::new(), 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|ev| ev.device_id == dev)
+            .collect()
+    };
+    let mut b = Env::on("dev-b");
+    let (_, r) = b.st.insert_batch(&rows(&a, "dev-a"));
+    r.unwrap();
+    b.c = b.reopen();
+    assert!(b.c.get_task(&t.id).is_some());
+
+    let merged_at = plus(fixed_now(), secs(30));
+    let heard = || PrCheck {
+        pr: PR.into(),
+        state: PR_MERGED.into(),
+        merge_sha: SHA.into(),
+        merged_at,
+        ..PrCheck::default()
+    };
+    a.clk.add(secs(60));
+    b.clk.add(secs(61));
+    let before = rows(&a, "dev-a").len();
+    a.c.record_pr_state(&t.id, heard()).unwrap();
+    b.c.record_pr_state(&t.id, heard()).unwrap();
+
+    // The logs meet: each device takes the other's new rows.
+    let from_a: Vec<_> = rows(&a, "dev-a").into_iter().skip(before).collect();
+    let from_b = rows(&b, "dev-b");
+    for (e, evs) in [(&a, from_b), (&b, from_a)] {
+        let (_, r) = e.st.insert_batch(&evs);
+        r.unwrap();
+        e.c.fold_live(&evs);
+    }
+    let said = |c: &Coord| {
+        c.comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.text.contains(SHA))
+            .count()
+    };
+    for e in [&a, &b] {
+        assert_eq!(said(&e.c), 1);
+        assert_eq!(e.c.pr_states(&t.id)[0].merge_sha, SHA);
+        // Replayed from the log, still once.
+        assert_eq!(said(&e.reopen()), 1);
+    }
 }

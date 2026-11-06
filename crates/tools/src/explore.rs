@@ -78,13 +78,18 @@ pub fn spawned_lines(
 }
 
 fn task_overview_line(t: &Task, n: &Names<'_>) -> capture::Line {
+    // Card #570: a card put aside says so, and why.
+    let held = t.parked();
     let mut text = format!(
         "{} [{}] {}",
         t.short_ref(),
-        t.state,
+        if held.is_some() { "not yet" } else { &t.state },
         one_line(&t.title, MAX_CARD_TITLE)
     );
-    if t.state == coord::BLOCKED {
+    if let Some(b) = held {
+        let why = b.question.strip_prefix("Not yet: ").unwrap_or(&b.question);
+        text += &format!(": {}", one_line(why, 80));
+    } else if t.state == coord::BLOCKED {
         text += &format!(": {}", one_line(&t.reason, 80));
     } else if let Some(h) = t.holders.first() {
         text += &format!(", {}", n.who(h));
@@ -164,6 +169,8 @@ impl Inner {
         }
         tasks.extend(mine);
         tasks.extend(others);
+        // Card #570: put aside, last: they are open but not to start.
+        tasks.extend(v.later.iter().map(|cd| task_overview_line(&cd.task, n)));
         input.blockers.truncate(capture::OVERVIEW_LINES);
         if tasks.len() > capture::OVERVIEW_LINES {
             input.more_tasks = (tasks.len() - capture::OVERVIEW_LINES) as i64;
@@ -528,6 +535,11 @@ pub(crate) fn show(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let _ = write!(b, ". {CAPTURED_UNTRUSTED}\n\n");
     let _ = writeln!(b, "{}", sh.text.trim_end_matches('\n'));
+    if offset == 0
+        && let Some(id) = sh.r#ref.strip_prefix("task:")
+    {
+        b.push_str(s.no_agent_line(id, false).trim_start());
+    }
     if sh.more {
         let _ = write!(
             b,

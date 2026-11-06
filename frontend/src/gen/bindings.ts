@@ -98,12 +98,25 @@ export const commands = {
 	boardCloseAsk: (id: string, note: string) => __TAURI_INVOKE<Task>("board_close_ask", { id, note }),
 	boardClose: (id: string, state: string, note: string) => __TAURI_INVOKE<Task>("board_close", { id, state, note }),
 	boardDelete: (id: string) => __TAURI_INVOKE<null>("board_delete", { id }),
+	boardMove: (id: string, board: string) => __TAURI_INVOKE<Task>("board_move", { id, board }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
 	 *  refused until Resume (`paused: false`). Returns who was told.
 	 */
 	boardPause: (id: string, paused: boolean, note: string) => __TAURI_INVOKE<string[]>("board_pause", { id, paused, note }),
+	/**
+	 *  Not yet on a card (card #570): the person holds it back from the
+	 *  agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+	 *  "2026-12-01": the start of that day here), a version on this device
+	 *  ("v0.13.0"), or empty for until they say. `why` may be empty.
+	 */
+	boardNotYet: (id: string, until: string, why: string) => __TAURI_INVOKE<null>("board_not_yet", { id, until, why }),
+	/**
+	 *  Start now on a held card (card #570): it comes back and goes out as
+	 *  if just posted.
+	 */
+	boardStartNow: (id: string) => __TAURI_INVOKE<null>("board_start_now", { id }),
 	/**
 	 *  Stop on an agent (card #207): cuts its running turn; `text` (empty: a
 	 *  plain "stop and wait") is its next prompt.
@@ -173,6 +186,8 @@ export const commands = {
 	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
 	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
 	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
+	boardsDeleteInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_delete_in_space", { spaceId, boardId }),
+	boardsDeleteInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_delete_in_personal", { boardId }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -186,11 +201,8 @@ export const commands = {
 	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
-	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
-	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
-	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
+	notesList: (removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { removed }),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
-	noteAccept: (id: string) => __TAURI_INVOKE<NoteView>("note_accept", { id }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
 	noteRemove: (id: string, why: string) => __TAURI_INVOKE<NoteView>("note_remove", { id, why }),
 	/**
@@ -287,12 +299,30 @@ export const commands = {
 	voiceStart: () => __TAURI_INVOKE<number>("voice_start"),
 	voiceStop: (session: number) => __TAURI_INVOKE<null>("voice_stop", { session }),
 	voiceOpenSettings: (code: string) => __TAURI_INVOKE<null>("voice_open_settings", { code }),
+	/**  The huddles on now: yours, ringing here, and live in your conversations. */
+	callState: () => __TAURI_INVOKE<CallView>("call_state"),
+	/**  Starts a huddle in a channel or person DM; returns its id. */
+	callStart: (convId: string) => __TAURI_INVOKE<string>("call_start", { convId }),
+	/**  Joins a huddle ringing here or live in a conversation. */
+	callJoin: (callId: string) => __TAURI_INVOKE<null>("call_join", { callId }),
+	/**  Leaves the huddle this device is in. */
+	callLeave: () => __TAURI_INVOKE<null>("call_leave"),
+	/**  Mutes or unmutes this device's mic in the huddle. */
+	callMute: (on: boolean) => __TAURI_INVOKE<null>("call_mute", { on }),
+	/**  Stops a huddle ringing here. */
+	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
 	talkConversations: () => __TAURI_INVOKE<TalkConversation[]>("talk_conversations"),
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
 	talkPosts: (convId: string, before: string | null, limit: number) => __TAURI_INVOKE<TalkPost[]>("talk_posts", { convId, before, limit }),
 	/**  Posts as the person; returns the post's id (a thread's: the comment's). */
 	talkPost: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null) => __TAURI_INVOKE<string>("talk_post", { convId, text, mentions, agentsNow, threadFrom }),
+	/**
+	 *  Posts with files (card #643): pasted, dropped or picked in a channel's
+	 *  or DM's composer; the text may then be empty. Returns the post's id (a
+	 *  thread's: the comment's).
+	 */
+	talkPostWithFiles: (convId: string, text: string, mentions: string[], agentsNow: boolean, threadFrom: string | null, files: UploadFile[]) => __TAURI_INVOKE<string>("talk_post_with_files", { convId, text, mentions, agentsNow, threadFrom, files }),
 	/**  The person made card `task_id` from post `post_id` (card #390). */
 	talkLinkCard: (postId: string, taskId: string) => __TAURI_INVOKE<null>("talk_link_card", { postId, taskId }),
 	/**
@@ -315,6 +345,11 @@ export const commands = {
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
 	/**  Everyone the person can DM (card #538). */
 	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**
+	 *  Who is replying in each channel and DM (card #645); `talk:replying`
+	 *  carries the same list when it changes.
+	 */
+	talkReplying: () => __TAURI_INVOKE<TalkReplying[]>("talk_replying"),
 	/**  Leaves a DM with another person (card #538). */
 	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
@@ -340,6 +375,10 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**  "My agents may start agents on my cards" and its maximum (card #575). */
+	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
 	/**
 	 *  Settings › Agents' caps per device, today's count and cost, and any
 	 *  usage-limit hold (card #450).
@@ -520,6 +559,20 @@ export type AgentRef = {
 	avatar?: string,
 };
 
+/**
+ *  "My agents may start agents on my cards" (card #575): the person's, on
+ *  all their devices, set here and never by a tool.
+ */
+export type AgentStartsView = {
+	on: boolean,
+	/**  The most agents their agents may have started at once. */
+	max: number,
+	/**  How many count toward it now. */
+	used: number,
+	/**  The highest maximum the app accepts. */
+	ceiling: number,
+};
+
 /**  The person's change: the fields left `None` keep what is stored. */
 export type AgentsChange = {
 	boardId?: string,
@@ -593,9 +646,17 @@ export type AgentsSettings = {
 	defaultStartTries: number,
 };
 
-/**  Answer's reply: the card after the answer, and who heard. */
+/**
+ *  Answer's reply: whether the item ended, and who heard. It carries no
+ *  card (card #644): rebuilding one was half an answer's time, and the
+ *  window shows the answer at once and reads the card on board:changed.
+ */
 export type AnswerResult = {
-	card: CardDetail,
+	/**
+	 *  The answered item is resolved now (nobody runs to act on it, Done
+	 *  on a done check, or Mark resolved), not left with its agent.
+	 */
+	resolved: boolean,
 	told: Told,
 	/**  What each mention came to (card #77). */
 	mentioned?: MentionOutcome[],
@@ -797,6 +858,75 @@ export type BoardSummary = {
 	boards: SpaceBoard[],
 };
 
+/**  A call on now in a conversation this device can see. */
+export type CallLiveView = {
+	callId: string,
+	convId: string,
+	/**  Who is in it, each person once, by name. */
+	people: string[],
+};
+
+/**  The call this device is in. */
+export type CallMineView = {
+	callId: string,
+	convId: string,
+	/**  The channel's name, or the DM's other person. */
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  When this device joined, Unix ms. */
+	joinedAtMs: number,
+	muted: boolean,
+	/**  This device's mic is above the speech gate. */
+	speaking: boolean,
+	/**  This device's name ("" when it has none). */
+	device: string,
+	/**  The other devices in it. */
+	peers: CallPeerView[],
+	/**  Why the call isn't working, in plain words. */
+	error: string | null,
+};
+
+/**  Another device in the call. */
+export type CallPeerView = {
+	/**  Whose it is ("you" for another of the person's own devices). */
+	name: string,
+	/**  The device's name when it is one of the person's own, else "". */
+	device: string,
+	/**  `connecting`, `live` or `gone`. */
+	phase: string,
+	/**  `direct`, `relay` or "" (not connected). */
+	path: string,
+	rttMs: number | null,
+	/**  Datagrams lost on the way here, percent. */
+	lossPct: number | null,
+	speaking: boolean,
+	muted: boolean,
+};
+
+/**  A call ringing here. */
+export type CallRingView = {
+	callId: string,
+	convId: string,
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  Who started it. */
+	by: string,
+	/**  When it rang, Unix ms. */
+	atMs: number,
+};
+
+/**  Every call this device knows of, as the window shows them. */
+export type CallView = {
+	/**  The call this device is in. */
+	mine: CallMineView | null,
+	/**  Calls this device is rung for and hasn't joined or dismissed. */
+	ringing: CallRingView[],
+	/**  Calls on now, for the Talk list's rows. */
+	live: CallLiveView[],
+};
+
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */
 export type CanvasPos = {
 	x: number,
@@ -961,6 +1091,22 @@ export type CardHolder = {
 	others: number,
 };
 
+/**  A held card's Not yet (card #570). */
+export type CardLater = {
+	/**  Why it was held, as it was given. */
+	why: string,
+	back: LaterBack,
+	/**
+	 *  What brings it back, plainly: "when #12 is done", "on 1 Dec",
+	 *  "when this Mac runs v0.13.0", "when you say".
+	 */
+	line: string,
+	/**  Who held it, by name. */
+	by: string,
+	/**  The card it waits on, for a card hold. */
+	card?: string,
+};
+
 /**  A holder's one line on what's done and what's next (card #137). */
 export type CardLeftOff = {
 	text: string,
@@ -1014,6 +1160,16 @@ export type CardOption = {
 	at: string,
 	recommended: boolean,
 	link?: Link | null,
+};
+
+/**  The run of cards a card is in (card #570): each after the one before. */
+export type CardOrder = {
+	/**  First to last; the card itself among them. */
+	steps: OrderStep[],
+	/**  The card it comes after, if any. */
+	previous?: OrderStep | null,
+	/**  The card that comes after it, if any. */
+	next?: OrderStep | null,
 };
 
 /**  A pull request linked from the card. */
@@ -1184,16 +1340,8 @@ export type CardSummary = {
 	 */
 	waitGone?: boolean,
 	waitQuestion?: string,
-	/**
-	 *  The card the first wait is on, by id (Home counts the cards that
-	 *  wait on a red main's card by it, card #436).
-	 */
+	/**  The card the first wait is on, by id. */
 	waitTask?: string,
-	/**
-	 *  A "main is red" card's failing test (card #436): Home leads with
-	 *  it while it is open.
-	 */
-	mainRed?: string,
 	/**
 	 *  Where the first wait's chain of cards ends at the person (card
 	 *  #347): "your answer on #12". A PR never waits on the person (card
@@ -1261,6 +1409,11 @@ export type CardSummary = {
 	 */
 	cantStart?: string,
 	/**
+	 *  Why no agent can start for this card now, by device, and what
+	 *  happens next (card #541): shown in Needs you until one can.
+	 */
+	noAgent?: string,
+	/**
 	 *  The device an agent is starting on for this card ("<its own name>
 	 *  (this one)" or the other device's name, card #489), while Irori's
 	 *  spawn request waits for it (card #448).
@@ -1271,6 +1424,11 @@ export type CardSummary = {
 	 *  that device already runs as many as it may (card #448).
 	 */
 	atCap?: string,
+	/**
+	 *  The card was given to this person and they said Not now: its page
+	 *  offers Start an agent (card #573).
+	 */
+	givenNo?: boolean,
 	/**
 	 *  Its place in that device's spawn queue, from 1 (card #450): "queued:
 	 *  1st for the PC". 0 when it isn't queued.
@@ -1302,6 +1460,13 @@ export type CardSummary = {
 	 *  board can't say.
 	 */
 	owner?: string,
+	/**
+	 *  The card is held back as Not yet (card #570): why, and what brings
+	 *  it back.
+	 */
+	later?: CardLater | null,
+	/**  The run of cards it is in, each after the one before (card #570). */
+	order?: CardOrder | null,
 };
 
 /**  One entry of a card's thread. */
@@ -1796,6 +1961,17 @@ export type InviteStatus = {
 	error?: string,
 };
 
+/**  What brings a held card back. */
+export type LaterBack = 
+/**  Another card finishing. */
+"card" | 
+/**  A day coming. */
+"date" | 
+/**  A device running an Irori version. */
+"version" | 
+/**  The person's word. */
+"word";
+
 /**  coord.Link. */
 export type Link = {
 	kind: LinkKind,
@@ -1949,19 +2125,6 @@ export type NewCardInput = {
 	files?: UploadFile[],
 };
 
-/**  A pending agent change to a live note, waiting for a person's accept. */
-export type NoteChangeView = {
-	by: string,
-	at: string,
-	/**  The proposed kind, text or tags; empty or absent when unchanged. */
-	kind: string,
-	text: string,
-	tags: string[] | null,
-	/**  The proposal is to remove the note. */
-	remove: boolean,
-	why: string,
-};
-
 /**  An edit: each given field replaces the note's. */
 export type NoteEditInput = {
 	kind?: string | null,
@@ -1971,7 +2134,7 @@ export type NoteEditInput = {
 
 /**  One step of a note's history. */
 export type NoteEventView = {
-	/**  proposed, accepted, edited, edit_proposed, removal_proposed, removed. */
+	/**  proposed (written), edited or removed. */
 	what: string,
 	by: string,
 	at: string,
@@ -1980,8 +2143,6 @@ export type NoteEventView = {
 
 /**  What New note writes. */
 export type NoteInput = {
-	/**  `mine` (the default), or a board's tag or id. */
-	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
@@ -1991,10 +2152,6 @@ export type NoteInput = {
 export type NoteView = {
 	/**  The bare id; refs are `note:<id>`. */
 	id: string,
-	/**  `mine`, or the board's tag. */
-	scope: string,
-	/**  `""` for Mine. */
-	boardId: string,
 	/**  rule, gotcha, decision, pointer or preference. */
 	kind: string,
 	text: string,
@@ -2002,20 +2159,16 @@ export type NoteView = {
 	/**  `task:<id>`, `comment:<id>`, `blocker:<taskId>/<b1>`, `proof:<taskId>`, or "". */
 	source: string,
 	taskId: string,
-	/**
-	 *  The author's key: the person (`user:…`, or `person:…` on a board)
-	 *  or an agent.
-	 */
+	/**  The author's key: the person (`user:…`) or an agent. */
 	by: string,
-	/**  Whether the author is a person (a person's note is live at once). */
+	/**  Whether the author is the person, not one of their agents. */
 	byPerson: boolean,
 	at: string,
-	/**  proposed, accepted or removed. */
+	/**  accepted (live) or removed. */
 	state: string,
 	acceptedBy: string,
 	acceptedAt: string,
 	updated: string,
-	pending: NoteChangeView | null,
 	history: NoteEventView[],
 	/**
 	 *  Still true? (v1): why the note may be out of date, else "". A
@@ -2083,6 +2236,23 @@ export type NotifyOptions = {
 	corner: string,
 	/**  A confetti burst from each success card ("Confetti on good news"). */
 	confetti?: boolean,
+};
+
+/**  Where a step of an order stands. */
+export type OrderState = "done" | "working" | "waiting" | "later";
+
+/**  One card of an order. */
+export type OrderStep = {
+	id: string,
+	/**  Its number on its board, as the card's own `short`: "12". */
+	short: string,
+	/**
+	 *  Its board's tag (card #558): one log holds several boards, each
+	 *  numbered from 1, and an order may cross them. "": Personal's own.
+	 */
+	tag: string,
+	title: string,
+	state: OrderState,
 };
 
 /**  coord.Outcome: how an ask ended. */
@@ -2374,6 +2544,20 @@ export type SummaryMember = {
 	avatar?: string,
 };
 
+/**  What a huddle's start or end post says about it (#654). */
+export type TalkCall = {
+	callId: string,
+	/**  `start` or `end`. */
+	op: string,
+	/**  How long it ran, on an end; 0 on a start. */
+	durationMs: number,
+	/**
+	 *  Who took part, by name ("you" for the person), never a key. Empty
+	 *  on a start.
+	 */
+	people: string[],
+};
+
 /**  One conversation in Talk's list. */
 export type TalkConversation = {
 	convId: string,
@@ -2464,7 +2648,31 @@ export type TalkPost = {
 	threadFrom?: string | null,
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
+	/**  The files sent with it (card #643), as a comment's are. */
+	attachments: FileRef[],
+	/**  A huddle's start or end (#654); null on any other post. */
+	call?: TalkCall | null,
 	at: string,
+};
+
+/**  One agent replying. */
+export type TalkReplier = {
+	key: string,
+	/**  Its name, never its key. */
+	name: string,
+	/**  When the post that woke it was sent: the row drops it 30 minutes on. */
+	since: string,
+};
+
+/**
+ *  The agents replying in one channel or DM (card #645): woken by a post
+ *  there and not answered yet. The row reads "jasmine and kestrel are
+ *  replying…".
+ */
+export type TalkReplying = {
+	convId: string,
+	/**  The earliest woken first. */
+	agents: TalkReplier[],
 };
 
 /**
@@ -2616,6 +2824,11 @@ export type ThreadSummary = {
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
 	/**
+	 *  Why no agent can start now, by device, and what happens next (card
+	 *  #541): it needs the person to know, not to answer.
+	 */
+	noAgent?: string,
+	/**
 	 *  The shared space it is in, or a private thread is about (card #558);
 	 *  absent for Personal. Matches the switcher's space id.
 	 */
@@ -2628,6 +2841,12 @@ export type ThreadSummary = {
 	queuePlace?: number,
 	/**  While a Claude usage limit holds spawns, when they start again. */
 	usageLimit?: string | null,
+	/**
+	 *  The agent that opened it (card #631); absent for the person's own.
+	 *  Until the person writes in it, it waits on them and no agent is
+	 *  started for it.
+	 */
+	openedBy?: AgentRef | null,
 };
 
 /**  Who an action's notice went to. */

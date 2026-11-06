@@ -7,14 +7,23 @@
 // own Threads panel above who is on it.
 
 import { useEffect, useState, type FormEvent } from "react"
-import { ArrowLeftIcon, EllipsisIcon, PinIcon, PinOffIcon, SettingsIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  EllipsisIcon,
+  PinIcon,
+  PinOffIcon,
+  SettingsIcon,
+} from "lucide-react"
 
 import { AskBox } from "@/components/cards/ask-box"
 import { useCommands } from "@/lib/commands"
 import { BoardView } from "@/components/cards/board-view"
 import type { Filter } from "@/components/cards/card-grid"
 import type { BoardView as View } from "@/components/canvas/switch"
-import { ConfirmDialog, type ConfirmAsk } from "@/components/common/confirm-button"
+import {
+  ConfirmDialog,
+  type ConfirmAsk,
+} from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -53,7 +62,13 @@ import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { FreshnessLine } from "@/components/common/freshness-line"
 
-import { BoardSettingsPanel, InviteHow, InvitePanel, useInviteReach } from "./parts"
+import { SpaceAgentsOff } from "@/components/settings/space-agents"
+import {
+  BoardSettingsPanel,
+  InviteHow,
+  InvitePanel,
+  useInviteReach,
+} from "./parts"
 import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
 
 export function BoardPage({
@@ -107,7 +122,11 @@ export function BoardPage({
   // column's scroll.
   if ((!b && !loaded) || cardsLoading)
     return (
-      <Loading loading label={list ? "Loading the board" : "Loading the space"} className="min-h-0 flex-1">
+      <Loading
+        loading
+        label={list ? "Loading the board" : "Loading the space"}
+        className="min-h-0 flex-1"
+      >
         <BoardPageShape />
       </Loading>
     )
@@ -127,6 +146,7 @@ export function BoardPage({
   return (
     <>
       <BoardNotes board={b} />
+      <SpaceAgentsOff boardId={boardId} />
       <BoardView
         scope={boardId}
         plain={!open}
@@ -153,7 +173,8 @@ export function BoardPage({
         empty={
           open ? (
             <p className="px-1 text-[12.5px] text-muted-foreground">
-              No cards on this board yet. Make one with New card.
+              No cards on this board yet. Make one with New card, or move one
+              here from its page.
             </p>
           ) : (
             <SpaceBoards space={b} cards={cards} now={now} />
@@ -206,7 +227,12 @@ function BoardHeaderShape() {
 
 function BackToBoards() {
   return (
-    <Button variant="ghost" size="sm" className="w-fit px-1.5" onClick={() => go({ kind: "boards" })}>
+    <Button
+      variant="ghost"
+      size="sm"
+      className="w-fit px-1.5"
+      onClick={() => go({ kind: "boards" })}
+    >
       <ArrowLeftIcon aria-hidden />
       Spaces
     </Button>
@@ -217,7 +243,13 @@ function BackToBoards() {
 // name and tag, its cards and people, and the actions on the board itself:
 // Pin to the sidebar and Rename (owners) in the open; Leave and Forget here
 // in its ⋯ menu (card #211).
-export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: string }) {
+export function BoardHeaderBar({
+  boardId,
+  list,
+}: {
+  boardId: string
+  list?: string
+}) {
   const { boards, loaded, reload } = useBoards()
   const b = boards.find((x) => x.boardId === boardId)
   const [renaming, setRenaming] = useState(false)
@@ -258,7 +290,11 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
     return loaded ? (
       <h1 className="text-lg font-semibold text-ink">Space</h1>
     ) : (
-      <Loading loading label={list ? "Loading the board" : "Loading the space"} className="min-w-0 flex-1">
+      <Loading
+        loading
+        label={list ? "Loading the board" : "Loading the space"}
+        className="min-w-0 flex-1"
+      >
         <BoardHeaderShape />
       </Loading>
     )
@@ -297,16 +333,33 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
             className="h-8 w-40 sm:w-64"
             autoFocus
           />
-          <Button type="submit" size="sm" className="h-8" disabled={!name.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            className="h-8"
+            disabled={!name.trim()}
+          >
             Save
           </Button>
-          <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => setRenaming(false)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8"
+            onClick={() => setRenaming(false)}
+          >
             Cancel
           </Button>
         </form>
       ) : (
         <h1 className="flex min-w-0 items-baseline gap-2 text-lg font-semibold text-ink">
-          <span className={cn("size-2 shrink-0 self-center rounded-full", ok ? "bg-success" : "bg-warning")} aria-hidden />
+          <span
+            className={cn(
+              "size-2 shrink-0 self-center rounded-full",
+              ok ? "bg-success" : "bg-warning"
+            )}
+            aria-hidden
+          />
           <span className="truncate">{plainLine(b.name) || "(unnamed)"}</span>
         </h1>
       )}
@@ -315,7 +368,9 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
           ? `${boardsOf(b).length === 1 ? "1 board" : `${boardsOf(b).length} boards`} · ${b.people.map(plainLine).join(", ")}`
           : "Its cards are still arriving from your other device"}
       </span>
-      {error && <span className="truncate text-xs text-destructive">{error}</span>}
+      {error && (
+        <span className="truncate text-xs text-destructive">{error}</span>
+      )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         <Button
           variant="ghost"
@@ -323,7 +378,11 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
           aria-pressed={!!b.pinned}
           aria-label={b.pinned ? "Unpin" : "Pin"}
           onClick={() => void pin()}
-          title={b.pinned ? "Take it out of the sidebar" : "Keep it in the sidebar, on all your devices"}
+          title={
+            b.pinned
+              ? "Take it out of the sidebar"
+              : "Keep it in the sidebar, on all your devices"
+          }
         >
           {b.pinned ? <PinOffIcon aria-hidden /> : <PinIcon aria-hidden />}
           <span className="hidden sm:inline">{b.pinned ? "Unpin" : "Pin"}</span>
@@ -364,7 +423,13 @@ export function BoardHeaderBar({ boardId, list }: { boardId: string; list?: stri
 // settings (members, what reaches your agents, what they may do, threads)
 // in a dialog rather than always open beside the cards. Closing it reloads
 // the board so a changed member list shows.
-function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload: () => Promise<unknown> }) {
+function BoardSettingsButton({
+  board: b,
+  reload,
+}: {
+  board: BoardSummary
+  reload: () => Promise<unknown>
+}) {
   const [open, setOpen] = useState(false)
   const changed = async () => {
     await reload()
@@ -391,11 +456,14 @@ function BoardSettingsButton({ board: b, reload }: { board: BoardSummary; reload
           <DialogHeader>
             <DialogTitle>Space settings</DialogTitle>
             <DialogDescription>
-              {plainLine(b.name) || "(unnamed)"}: who is on it, what reaches your agents and what they may do here.
+              {plainLine(b.name) || "(unnamed)"}: who is on it, what reaches
+              your agents and what they may do here.
             </DialogDescription>
           </DialogHeader>
           {open && <BoardInvite board={b} onChanged={changed} />}
-          {open && <BoardSettingsPanel boardId={b.boardId} onChanged={changed} />}
+          {open && (
+            <BoardSettingsPanel boardId={b.boardId} onChanged={changed} />
+          )}
         </DialogContent>
       </Dialog>
     </>
@@ -426,14 +494,15 @@ function BoardActionsMenu({
       question:
         b.people.length > 1 ? (
           <>
-            Leave <b>{plainLine(b.name)}</b>? It goes from every one of your devices now, and nothing
-            you write there counts after it. The others hear that you left when their Irori next
-            reaches one of your devices. Coming back needs a new invite.
+            Leave <b>{plainLine(b.name)}</b>? It goes from every one of your
+            devices now, and nothing you write there counts after it. The others
+            hear that you left when their Irori next reaches one of your
+            devices. Coming back needs a new invite.
           </>
         ) : (
           <>
-            Leave <b>{plainLine(b.name)}</b>? It goes from every one of your devices, with its cards.
-            Coming back needs a new space.
+            Leave <b>{plainLine(b.name)}</b>? It goes from every one of your
+            devices, with its cards. Coming back needs a new space.
           </>
         ),
       onConfirm: async () => {
@@ -447,8 +516,8 @@ function BoardActionsMenu({
       confirmLabel: "Forget on this device",
       question: (
         <>
-          Forget <b>{plainLine(b.name)}</b> on this device only? Its file goes from here; your other
-          devices keep it.
+          Forget <b>{plainLine(b.name)}</b> on this device only? Its file goes
+          from here; your other devices keep it.
         </>
       ),
       onConfirm: async () => {
@@ -461,7 +530,14 @@ function BoardActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon-sm" aria-label="Space actions" title="Space actions" />}
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Space actions"
+              title="Space actions"
+            />
+          }
         >
           <EllipsisIcon aria-hidden />
         </DropdownMenuTrigger>
@@ -471,10 +547,16 @@ function BoardActionsMenu({
               Rename space
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem variant="destructive" onClick={() => setAsking("leave")}>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setAsking("leave")}
+          >
             Leave the space
           </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onClick={() => setAsking("forgetHere")}>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setAsking("forgetHere")}
+          >
             Forget here
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -502,7 +584,8 @@ function BoardNotes({ board: b }: { board: BoardSummary }) {
       <FreshnessLine log={b.boardId} />
       {b.tagClash && (
         <p className="text-xs text-destructive">
-          Another board is also {plainLine(b.tag)}#: its refs need the card's id.
+          Another board is also {plainLine(b.tag)}#: its refs need the card's
+          id.
         </p>
       )}
       {b.warnings?.map((w, i) => (
@@ -529,7 +612,13 @@ function inviteError(err: unknown): string {
 // once the board is ready) with how an invite works, else why there is no
 // Invite. An open invite stands in for the Invite button until it ends
 // (card #103).
-function BoardInvite({ board: b, onChanged }: { board: BoardSummary; onChanged: () => Promise<void> }) {
+function BoardInvite({
+  board: b,
+  onChanged,
+}: {
+  board: BoardSummary
+  onChanged: () => Promise<void>
+}) {
   const { invite, setInvite } = useInvite(true)
   const reach = useInviteReach(true)
   const [error, setError] = useState<string | null>(null)
@@ -552,27 +641,26 @@ function BoardInvite({ board: b, onChanged }: { board: BoardSummary; onChanged: 
             </p>
           ) : !b.ready ? (
             <p className="text-xs text-muted-foreground">
-              You can invite people once its cards have arrived from your other device.
+              You can invite people once its cards have arrived from your other
+              device.
             </p>
           ) : (
-            (
-              <div className="grid gap-2">
-                <Button
-                  className="w-fit"
-                  onClick={async () => {
-                    setError(null)
-                    try {
-                      setInvite(await actions.invite(b.boardId))
-                    } catch (err) {
-                      setError(inviteError(err))
-                    }
-                  }}
-                >
-                  Invite someone
-                </Button>
-                <InviteHow reach={reach} />
-              </div>
-            )
+            <div className="grid gap-2">
+              <Button
+                className="w-fit"
+                onClick={async () => {
+                  setError(null)
+                  try {
+                    setInvite(await actions.invite(b.boardId))
+                  } catch (err) {
+                    setError(inviteError(err))
+                  }
+                }}
+              >
+                Invite someone
+              </Button>
+              <InviteHow reach={reach} />
+            </div>
           )}
           {error && <p className="text-xs text-destructive">{error}</p>}
         </>

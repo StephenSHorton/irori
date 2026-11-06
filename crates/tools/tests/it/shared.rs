@@ -171,6 +171,9 @@ impl TaskRouter for Fake {
         n.by = self.back(&n.by);
         n
     }
+    fn private_key(&self, key: &str) -> String {
+        self.back(key)
+    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         if r.starts_with("mlg#") {
             return self.co.task_ref(r);
@@ -517,6 +520,49 @@ fn share_follows_the_autonomy_setting() {
     has(&r.told_a(), &["withdrew mlg#2"]);
 }
 
+/// Card #570: a card made Not yet, or after another, on a shared board
+/// says so, and isn't offered to be taken now.
+#[test]
+fn a_card_made_not_yet_on_a_board_isnt_taken_now() {
+    let r = rig();
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Tune the loader", "board": "mlg"}),
+    );
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Ship the loader", "board": "mlg", "after": ["mlg#1"]}),
+    );
+    has(&out, &["Created mlg#2", "It comes after mlg#1"]);
+    has_not(&out, &["Take it up with board_join"]);
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "board": "mlg", "assign_to": KEY_B,
+               "later": {"why": "after the move"}}),
+    );
+    has(
+        &out,
+        &[
+            "Created mlg#3",
+            "It is Not yet: it comes back when the person says.",
+            "It isn't assigned",
+        ],
+    );
+    has_not(&out, &["Take it up with board_join", "Assigning it failed"]);
+    assert!(out.ends_with("Visible to: Stephen, Blake"), "{out}");
+    let t = r
+        .fake
+        .co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.title == "Voice calls")
+        .unwrap();
+    assert!(t.parked().is_some() && t.holders.is_empty(), "{t:?}");
+}
+
 #[test]
 fn the_board_tool_lists_shared_boards() {
     let r = rig();
@@ -743,6 +789,58 @@ fn mentions_on_a_shared_card_name_other_people_and_their_agents() {
 
 /// Card #189: show opens a shared board's card and its comments, which live
 /// in the board's log (capture indexes only the private one).
+/// Card #573: on a shared card a member can be named: the card is given to
+/// their `person:` key, and a name that is no member's or agent's fails.
+#[test]
+fn a_shared_card_can_be_given_to_a_member_by_name() {
+    let r = rig();
+    r.autonomy("trusted");
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Loader", "board": "mlg", "assign_to": "blake"}),
+    ));
+    let t = r.fake.co.get_task(&id).unwrap();
+    assert_eq!(t.assigned, vec!["person:pBlake".to_string()]);
+    let id = created_id(&r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Saver", "board": "mlg"}),
+    ));
+    r.h.okj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "person:pBlake"}),
+    );
+    assert_eq!(
+        r.fake.co.get_task(&id).unwrap().assigned,
+        vec!["person:pBlake".to_string()]
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_assign",
+        json!({"task_id": id, "to": "nobody-here"}),
+        &["nobody-here"],
+    );
+}
+
+/// Card #570 with #573: a shared card made Not yet with a member named
+/// isn't given to them (nobody takes a held card), and making it doesn't
+/// fail half way with the card already on the board.
+#[test]
+fn a_shared_card_made_not_yet_isnt_given() {
+    let r = rig();
+    r.autonomy("trusted");
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "board": "mlg", "assign_to": "blake", "later": {"why": "after the move"}}),
+    );
+    has(&out, &["It isn't assigned"]);
+    let t = r.fake.co.get_task(&created_id(&out)).unwrap();
+    assert!(t.parked().is_some() && t.assigned.is_empty() && t.given.is_none());
+}
+
 #[test]
 fn show_opens_a_shared_card_and_its_comments() {
     let r = rig();
@@ -848,4 +946,76 @@ fn a_question_is_for_whoever_for_names() {
         json!({"task_id": pid, "question": "Mine?", "for": "Blake"}),
         &["leave for out"],
     );
+}
+
+/// Card #574: a wait on a shared card lives in the waiter's own log, so
+/// nothing of it reaches the board, and it lists and cancels like any wait.
+#[test]
+fn a_wait_on_a_shared_card_stays_off_the_board() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Ship it".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let rows = || r.fake.st.list(&store::Filter::default()).unwrap().len();
+    let before = rows();
+    let out = r.h.okj(
+        &a,
+        "wait",
+        json!({"task_id": t.id, "until": ["done", "unblocked"], "note": "the API I build on"}),
+    );
+    has(
+        &out,
+        &[
+            "woken once when mlg#1 is done or unblocked",
+            "Only you see this wait",
+        ],
+    );
+    assert!(!out.contains("Visible to"), "{out}");
+    assert_eq!(
+        rows(),
+        before,
+        "nothing reached the board, not even the agent"
+    );
+    let ws = r.h.b.co.waits("");
+    assert_eq!(ws.len(), 1, "{ws:?}");
+    assert_eq!(ws[0].board, "b0");
+    assert_eq!(ws[0].title, "Ship it");
+    assert_eq!(ws[0].from_state, t.state);
+    assert!(r.fake.co.waits("").is_empty(), "nothing in the board's log");
+    has(
+        &r.h.okj(&a, "waits", json!({})),
+        &["mlg#1 until done or unblocked"],
+    );
+    has(
+        &r.h.okj(&a, "wait_cancel", json!({"id": ws[0].id})),
+        &["Canceled your wait on mlg#1"],
+    );
+}
+
+#[test]
+fn your_own_shared_card_is_no_wait() {
+    let r = rig();
+    let a = call_a();
+    let t = r
+        .fake
+        .co
+        .create_task(
+            ME,
+            NewTask {
+                title: "Mine".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    r.h.okj(&a, "board_join", json!({"task_id": t.id}));
+    r.h.failsj(&a, "wait", json!({"task_id": t.id}), &["your own card"]);
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react"
 
 import { ConfirmButton } from "@/components/common/confirm-button"
+import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -67,7 +68,8 @@ export function inviteReachLine(h: HomeServerView): string {
   if (!h.running || h.reach === "outside") return ""
   const fix = !h.outside
     ? "Turn on Reachable from outside home in Settings, Devices."
-    : plainLine(h.line ?? "") || "Irori is still asking your router to open a port; check Settings, Devices."
+    : plainLine(h.line ?? "") ||
+      "Irori is still asking your router to open a port; check Settings, Devices."
   return `Your home server can't be reached from outside your home yet, so the link only works for someone on your network. ${fix}`
 }
 
@@ -79,8 +81,8 @@ export function InviteHow({ reach }: { reach: string }) {
       <p>
         <span className="text-ink">How an invite works:</span> you invite a
         person, not a device. Send them the one-use link (good for an hour),
-        then they give you the five words their screen shows to check it's
-        them. Their other devices follow once they're in.
+        then they give you the five words their screen shows to check it's them.
+        Their other devices follow once they're in.
       </p>
       {reach && <p className="text-warning">{reach}</p>}
     </div>
@@ -89,7 +91,13 @@ export function InviteHow({ reach }: { reach: string }) {
 
 // NewBoard makes a board: a name, and the short tag its cards' refs carry
 // ("tag#12"), suggested from the name until it is typed.
-export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Promise<void> }) {
+export function NewBoard({
+  taken,
+  onMade,
+}: {
+  taken: string[]
+  onMade: () => Promise<void>
+}) {
   const [name, setName] = useState("")
   const [tag, setTag] = useState("")
   const [typedTag, setTypedTag] = useState(false)
@@ -136,11 +144,23 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
           aria-label="Tag for its first board, the short name in card refs like tag#12"
           className="h-8 w-24 font-mono text-[13px]"
         />
-        <Button type="submit" size="sm" className="h-8" disabled={busy || !name.trim() || !validTag(t) || clash}>
+        <Button
+          type="submit"
+          size="sm"
+          className="h-8"
+          disabled={busy || !name.trim() || !validTag(t) || clash}
+        >
           Create
         </Button>
       </div>
-      <p className={cn("text-xs", clash || (t && !validTag(t)) ? "text-warning" : "text-muted-foreground")}>
+      <p
+        className={cn(
+          "text-xs",
+          clash || (t && !validTag(t))
+            ? "text-warning"
+            : "text-muted-foreground"
+        )}
+      >
         {clash
           ? `Another board is tagged ${t} already.`
           : t && !validTag(t)
@@ -184,7 +204,9 @@ export function NewBoardDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t === "make" ? "New space" : "Join a space"}</DialogTitle>
+          <DialogTitle>
+            {t === "make" ? "New space" : "Join a space"}
+          </DialogTitle>
           <DialogDescription>
             {t === "make"
               ? "A group of people, with its boards and Talk. Only the people you invite see it."
@@ -192,7 +214,11 @@ export function NewBoardDialog({
           </DialogDescription>
         </DialogHeader>
         {join && (
-          <div className="flex gap-1" role="tablist" aria-label="New space or join one">
+          <div
+            className="flex gap-1"
+            role="tablist"
+            aria-label="New space or join one"
+          >
             {(
               [
                 ["make", "Make a space"],
@@ -236,7 +262,11 @@ export function NewBoardDialog({
 }
 
 // JoinInvite is Join with an invite: the irori-invite: link someone sent.
-export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }) {
+export function JoinInvite({
+  onJoined,
+}: {
+  onJoined: (s: InviteStatus) => void
+}) {
   const [link, setLink] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -264,7 +294,12 @@ export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }
           aria-label="The invite link someone sent you"
           className="h-8 min-w-0 flex-1 font-mono text-[13px]"
         />
-        <Button type="submit" size="sm" className="h-8" disabled={busy || !link.trim()}>
+        <Button
+          type="submit"
+          size="sm"
+          className="h-8"
+          disabled={busy || !link.trim()}
+        >
           Join
         </Button>
       </div>
@@ -279,13 +314,22 @@ export function JoinInvite({ onJoined }: { onJoined: (s: InviteStatus) => void }
 // InvitePanel is the open invite, either side (§4.1, B4). The inviter
 // sends the link, then types the five words the invitee gives them; both
 // check each other's fingerprint against their own screen.
-export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => void }) {
+export function InvitePanel({
+  s,
+  onClose,
+}: {
+  s: InviteStatus
+  onClose: () => void
+}) {
   const open = inviteOpen(s)
   const host = s.role === "host"
   const board = plainLine(s.boardName) || "the space"
   const peer = plainLine(s.peerName) || "them"
   return (
-    <section className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[13px]" aria-label="Invite">
+    <section
+      className="grid grid-cols-[minmax(0,1fr)] gap-3 text-[13px]"
+      aria-label="Invite"
+    >
       <p className="font-semibold text-ink">
         {host ? `Inviting someone to ${board}` : `Joining ${board}`}
       </p>
@@ -293,7 +337,11 @@ export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => vo
       {s.state === InviteState.Words && (
         <>
           <Fingerprints s={s} peer={peer} />
-          {host ? <TypeInviteWords s={s} peer={peer} /> : <ReadInviteWords s={s} peer={peer} />}
+          {host ? (
+            <TypeInviteWords s={s} peer={peer} />
+          ) : (
+            <ReadInviteWords s={s} peer={peer} />
+          )}
         </>
       )}
       {s.state === InviteState.Joining && (
@@ -305,7 +353,9 @@ export function InvitePanel({ s, onClose }: { s: InviteStatus; onClose: () => vo
         </p>
       )}
       {s.state === InviteState.Failed && (
-        <p className="text-destructive">{plainLine(s.error ?? "") || "The invite ended."}</p>
+        <p className="text-destructive">
+          {plainLine(s.error ?? "") || "The invite ended."}
+        </p>
       )}
       <div className="flex justify-end">
         {open ? (
@@ -336,7 +386,11 @@ function SendLink({ s }: { s: InviteStatus }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
       <p className="text-muted-foreground">
-        Send this link to the person you're inviting. It works once{until ? `, until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}.
+        Send this link to the person you're inviting. It works once
+        {until
+          ? `, until ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+          : ""}
+        .
       </p>
       <div className="flex gap-1.5">
         <code
@@ -367,7 +421,8 @@ function Fingerprints({ s, peer }: { s: InviteStatus; peer: string }) {
       <dt className="text-muted-foreground">You</dt>
       <dd className="font-mono text-ink">{plainLine(s.myFingerprint)}</dd>
       <dd className="col-span-2 pt-1 text-muted-foreground">
-        Give {peer} your fingerprint, and check that theirs matches what's shown here.
+        Give {peer} your fingerprint, and check that theirs matches what's shown
+        here.
       </dd>
     </dl>
   )
@@ -440,8 +495,8 @@ function Reviewers({
     <section className="grid gap-1" aria-label="Reviews">
       <span className="font-semibold text-ink">Reviews</span>
       <p className="text-muted-foreground">
-        Any free agent of yours reviews other people&apos;s PRs in this space, under your GitHub
-        account. Nothing to set up.
+        Any free agent of yours reviews other people&apos;s PRs in this space,
+        under your GitHub account. Nothing to set up.
       </p>
       <p className="text-muted-foreground">
         Optional: always use one agent, for the whole space or one repo.
@@ -458,7 +513,9 @@ function Reviewers({
                 size="xs"
                 variant="ghost"
                 className="ml-auto"
-                onClick={() => void save(() => actions.setReviewer(s.boardId, "", r.repo))}
+                onClick={() =>
+                  void save(() => actions.setReviewer(s.boardId, "", r.repo))
+                }
               >
                 Remove
               </Button>
@@ -511,7 +568,9 @@ function Reviewers({
           </Button>
         </div>
       ) : (
-        <p className="text-muted-foreground">No agent of yours is running to pin.</p>
+        <p className="text-muted-foreground">
+          No agent of yours is running to pin.
+        </p>
       )}
     </section>
   )
@@ -548,9 +607,7 @@ export function BoardSettingsPanel({
     }
   }
   if (!s) {
-    return error ? (
-      <p className="text-xs text-destructive">{error}</p>
-    ) : null
+    return error ? <p className="text-xs text-destructive">{error}</p> : null
   }
   const others = s.members.filter((m) => !m.me)
   const amOwner = s.members.some((m) => m.me && m.owner)
@@ -559,16 +616,25 @@ export function BoardSettingsPanel({
   const autonomyHint = AutonomyPresets.find((p) => p.value === s.autonomy)?.hint
   return (
     <div className="grid gap-3 text-xs">
+      <SpaceAgentSwitch
+        boardId={boardId}
+        name="Start an agent for each card you make"
+        open
+      />
       <section className="grid gap-1" aria-label="Members">
         <span className="font-semibold text-ink">Members</span>
         <ul className="grid gap-0.5">
           {s.members.map((m) => (
             <li key={m.personId} className="grid gap-0.5">
               <span className="flex items-center gap-1.5">
-                <span className="text-ink">{plainLine(m.name) || "someone"}</span>
+                <span className="text-ink">
+                  {plainLine(m.name) || "someone"}
+                </span>
                 {m.me && <span className="text-muted-foreground">(you)</span>}
                 {m.owner && (
-                  <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">owner</span>
+                  <span className="rounded bg-muted px-1 text-[11px] text-muted-foreground">
+                    owner
+                  </span>
                 )}
                 <span className="ml-auto text-muted-foreground">
                   {m.devices === 1 ? "1 device" : `${m.devices} devices`}
@@ -580,35 +646,42 @@ export function BoardSettingsPanel({
                 </span>
                 {amOwner && (
                   <span className="ml-auto flex items-center gap-1">
-                    {m.me ? (
-                      // Your own row: stepping down is confirmed, and only
-                      // offered while another owner stays (a board needs one).
-                      owners > 1 && (
-                        <ConfirmButton
-                          label="Step down"
-                          confirmLabel="Step down to member"
-                          question={
-                            <>
-                              Step down to a member? You can no longer invite, remove people or change
-                              roles here; another owner would have to make you an owner again.
-                            </>
-                          }
-                          onConfirm={() => save(() => actions.setRole(boardId, m.personId, "member"))}
-                        />
-                      )
-                    ) : (
-                      // Owners are equals (card #142): another owner has
-                      // neither Make a member nor Remove.
-                      !m.owner && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void save(() => actions.setRole(boardId, m.personId, "owner"))}
-                        >
-                          Make an owner
-                        </Button>
-                      )
-                    )}
+                    {m.me
+                      ? // Your own row: stepping down is confirmed, and only
+                        // offered while another owner stays (a board needs one).
+                        owners > 1 && (
+                          <ConfirmButton
+                            label="Step down"
+                            confirmLabel="Step down to member"
+                            question={
+                              <>
+                                Step down to a member? You can no longer invite,
+                                remove people or change roles here; another
+                                owner would have to make you an owner again.
+                              </>
+                            }
+                            onConfirm={() =>
+                              save(() =>
+                                actions.setRole(boardId, m.personId, "member")
+                              )
+                            }
+                          />
+                        )
+                      : // Owners are equals (card #142): another owner has
+                        // neither Make a member nor Remove.
+                        !m.owner && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              void save(() =>
+                                actions.setRole(boardId, m.personId, "owner")
+                              )
+                            }
+                          >
+                            Make an owner
+                          </Button>
+                        )}
                     {!m.me && !m.owner && (
                       <ConfirmButton
                         label="Remove"
@@ -616,13 +689,18 @@ export function BoardSettingsPanel({
                         confirmLabel={`Remove ${plainLine(m.name) || "them"}`}
                         question={
                           <>
-                            {plainLine(m.name) ? `${plainLine(m.name)} keeps` : "They keep"}{" "}
-                            everything already on their devices. Removing them stops them syncing and writing
-                            anything this space accepts.
+                            {plainLine(m.name)
+                              ? `${plainLine(m.name)} keeps`
+                              : "They keep"}{" "}
+                            everything already on their devices. Removing them
+                            stops them syncing and writing anything this space
+                            accepts.
                           </>
                         }
                         onConfirm={async () => {
-                          await save(() => actions.removeMember(boardId, m.personId))
+                          await save(() =>
+                            actions.removeMember(boardId, m.personId)
+                          )
                           await onChanged()
                         }}
                       />
@@ -634,7 +712,10 @@ export function BoardSettingsPanel({
           ))}
         </ul>
         {s.conflicts.length > 0 && (
-          <ul className="grid gap-0.5 text-warning" aria-label="Membership changes that didn't take">
+          <ul
+            className="grid gap-0.5 text-warning"
+            aria-label="Membership changes that didn't take"
+          >
             {s.conflicts.map((c, i) => (
               <li key={i}>{plainLine(c)}</li>
             ))}
@@ -643,7 +724,11 @@ export function BoardSettingsPanel({
       </section>
       <section className="grid gap-1" aria-label="What reaches my agents">
         <span className="font-semibold text-ink">What reaches my agents</span>
-        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Receive preset">
+        <div
+          className="flex flex-wrap gap-1"
+          role="radiogroup"
+          aria-label="Receive preset"
+        >
           {ReceivePresets.map((p) => (
             <Button
               key={p.value}
@@ -653,7 +738,11 @@ export function BoardSettingsPanel({
               aria-checked={s.receive === p.value}
               onClick={() =>
                 void save(() =>
-                  actions.setReceive(boardId, p.value, p.value === "members" ? s.people : [])
+                  actions.setReceive(
+                    boardId,
+                    p.value,
+                    p.value === "members" ? s.people : []
+                  )
                 )
               }
             >
@@ -664,7 +753,10 @@ export function BoardSettingsPanel({
         <p className="text-muted-foreground">{receiveHint}</p>
         {s.receive === "members" &&
           (others.length > 0 ? (
-            <ul className="grid gap-0.5" aria-label="People who wake your agents">
+            <ul
+              className="grid gap-0.5"
+              aria-label="People who wake your agents"
+            >
               {others.map((m) => {
                 const on = s.people.includes(m.personId)
                 return (
@@ -678,7 +770,9 @@ export function BoardSettingsPanel({
                             actions.setReceive(
                               boardId,
                               "members",
-                              on ? s.people.filter((p) => p !== m.personId) : [...s.people, m.personId]
+                              on
+                                ? s.people.filter((p) => p !== m.personId)
+                                : [...s.people, m.personId]
                             )
                           )
                         }
@@ -690,12 +784,18 @@ export function BoardSettingsPanel({
               })}
             </ul>
           ) : (
-            <p className="text-muted-foreground">Nobody else is in this space yet.</p>
+            <p className="text-muted-foreground">
+              Nobody else is in this space yet.
+            </p>
           ))}
       </section>
       <section className="grid gap-1" aria-label="What my agents may do">
         <span className="font-semibold text-ink">What my agents may do</span>
-        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Autonomy preset">
+        <div
+          className="flex flex-wrap gap-1"
+          role="radiogroup"
+          aria-label="Autonomy preset"
+        >
           {AutonomyPresets.map((p) => (
             <Button
               key={p.value}
@@ -703,7 +803,9 @@ export function BoardSettingsPanel({
               variant={s.autonomy === p.value ? "secondary" : "ghost"}
               role="radio"
               aria-checked={s.autonomy === p.value}
-              onClick={() => void save(() => actions.setAutonomy(boardId, p.value))}
+              onClick={() =>
+                void save(() => actions.setAutonomy(boardId, p.value))
+              }
             >
               {p.label}
             </Button>
@@ -713,7 +815,11 @@ export function BoardSettingsPanel({
       </section>
       <section className="grid gap-1" aria-label="My threads">
         <span className="font-semibold text-ink">My threads</span>
-        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Where my threads live">
+        <div
+          className="flex flex-wrap gap-1"
+          role="radiogroup"
+          aria-label="Where my threads live"
+        >
           {ThreadsModes.map((m) => (
             <Button
               key={m.value}
@@ -721,7 +827,9 @@ export function BoardSettingsPanel({
               variant={s.threads === m.value ? "secondary" : "ghost"}
               role="radio"
               aria-checked={s.threads === m.value}
-              onClick={() => void save(() => actions.setThreads(boardId, m.value))}
+              onClick={() =>
+                void save(() => actions.setThreads(boardId, m.value))
+              }
             >
               {m.label}
             </Button>

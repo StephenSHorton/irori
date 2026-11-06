@@ -1402,6 +1402,7 @@ impl Services {
                             s.busy_outside(&agent, Some(&b.id))
                         })
                     }),
+                    agent_devices: Some(self.spawn.agent_devices_fn()),
                     // The person's spawning switch for this board (card
                     // #455): set in the app only, off unless they set it.
                     spawning: Some({
@@ -1448,10 +1449,11 @@ impl Services {
                     // The other boards in this space (card #392), read from
                     // the log itself: a card on one shows its tag.
                     board_tag: Some({
-                        let st = Arc::downgrade(&st);
+                        let (st, vt) = (Arc::downgrade(&st), v.clone());
+                        let may = super::spaces::member_wrote;
                         Arc::new(move |board: &str| {
                             let st = st.upgrade()?;
-                            super::spaces::board_tag_in(&st, board)
+                            super::spaces::board_tag_in(&st, board, &may(&vt))
                         })
                     }),
                     no_cards: Some({
@@ -1463,6 +1465,13 @@ impl Services {
                         Arc::new(move || {
                             st.upgrade()
                                 .map_or_else(Vec::new, |st| super::spaces::board_tags_in(&st))
+                        })
+                    }),
+                    board_view: Some({
+                        let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
+                        Arc::new(move || {
+                            let st = st.upgrade()?;
+                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
                         })
                     }),
                     ..Default::default()

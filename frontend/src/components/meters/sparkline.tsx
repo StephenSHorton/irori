@@ -25,9 +25,7 @@ export function Sparkline({
   const n = Math.max(slots ?? values.length, 2)
   const shown = values.slice(-n)
   const top =
-    max === "auto"
-      ? Math.max(...shown.map((v) => v ?? 0), 1e-9) * 1.1
-      : max
+    max === "auto" ? Math.max(...shown.map((v) => v ?? 0), 1e-9) * 1.1 : max
   const W = 100
   const H = 100
   const step = W / (n - 1)
@@ -38,9 +36,7 @@ export function Sparkline({
   })
   const line = pts.length ? `M${pts.join("L")}` : ""
   const area =
-    pts.length > 1
-      ? `${line}L${W},${H}L${(start * step).toFixed(2)},${H}Z`
-      : ""
+    pts.length > 1 ? `${line}L${W},${H}L${(start * step).toFixed(2)},${H}Z` : ""
   return (
     <svg
       aria-hidden
@@ -50,7 +46,9 @@ export function Sparkline({
       preserveAspectRatio="none"
       className={cn("shrink-0 overflow-visible", className)}
     >
-      {area && <path d={area} fill="currentColor" fillOpacity={0.16} stroke="none" />}
+      {area && (
+        <path d={area} fill="currentColor" fillOpacity={0.16} stroke="none" />
+      )}
       {pts.length > 1 && (
         <path
           d={line}

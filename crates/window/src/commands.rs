@@ -15,10 +15,11 @@ use specta::Type;
 use tauri::State;
 
 use crate::Window;
-use crate::agents::{AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
+use crate::agents::{AgentStartsView, AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
+use crate::call::CallView;
 use crate::cards::{CardDetail, CardMessage, CardSummary, DonePage, IdleReport};
 use crate::desk::{DeskSettings, DeskView};
 use crate::devices::{DeviceView, HomeServerView, PairStatus, RelayView};
@@ -47,6 +48,21 @@ async fn blocking<T: Send + 'static>(
     tauri::async_runtime::spawn_blocking(move || f(&w))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Runs a write command and logs how long it took (card #644), so a wait
+/// the person feels shows in irori.log as `cmd: <name> <ms> ms`. The write
+/// itself goes through [`blocking`]: it takes the coord lock, which
+/// catch-up holds too, so it must not sit on a runtime thread.
+async fn timed<T>(name: &str, f: impl std::future::Future<Output = R<T>>) -> R<T> {
+    let t = std::time::Instant::now();
+    let r = f.await;
+    irori_core::log(&format!(
+        "cmd: {name} {} ms{}",
+        t.elapsed().as_millis(),
+        if r.is_err() { " (refused)" } else { "" }
+    ));
+    r
 }
 
 /// The wake policy as the window sends it.
@@ -326,7 +342,11 @@ pub async fn notifications_unread(w: W<'_>) -> R<u32> {
 #[tauri::command]
 #[specta::specta]
 pub async fn notifications_read(w: W<'_>, keys: Vec<String>) -> R<()> {
-    w.read_notifications(&keys)
+    timed(
+        "notifications_read",
+        blocking(&w, move |w| w.read_notifications(&keys)),
+    )
+    .await
 }
 
 /// Answers an agent's ask from its notification (card #377); refused once
@@ -334,7 +354,11 @@ pub async fn notifications_read(w: W<'_>, keys: Vec<String>) -> R<()> {
 #[tauri::command]
 #[specta::specta]
 pub async fn notifications_answer_ask(w: W<'_>, ask_id: String, choice: String) -> R<()> {
-    w.answer_notification_ask(&ask_id, &choice)
+    timed(
+        "notifications_answer_ask",
+        blocking(&w, move |w| w.answer_notification_ask(&ask_id, &choice)),
+    )
+    .await
 }
 
 /// One scope's live cards (card #161): "" every card, "own" the private
@@ -389,7 +413,11 @@ pub async fn board_comment(
     tell: String,
     mentions: Vec<ts::Mention>,
 ) -> R<CommentResult> {
-    w.comment(&id, &text, &tell, &mentions, &[])
+    timed(
+        "board_comment",
+        blocking(&w, move |w| w.comment(&id, &text, &tell, &mentions, &[])),
+    )
+    .await
 }
 
 /// Comment with files (card #124): pasted, dropped or picked in the
@@ -418,7 +446,13 @@ pub async fn board_answer(
     wake: bool,
     mentions: Vec<ts::Mention>,
 ) -> R<AnswerResult> {
-    w.answer(&task_id, &blocker_id, option, &text, wake, &mentions)
+    timed(
+        "board_answer",
+        blocking(&w, move |w| {
+            w.answer(&task_id, &blocker_id, option, &text, wake, &mentions)
+        }),
+    )
+    .await
 }
 
 /// An answer with files (card #195), stored off the bridge thread as a
@@ -459,7 +493,13 @@ pub async fn board_resolve_blocker(
     note: String,
     mentions: Vec<ts::Mention>,
 ) -> R<AnswerResult> {
-    w.resolve_blocker(&task_id, &blocker_id, &note, &mentions)
+    timed(
+        "board_resolve_blocker",
+        blocking(&w, move |w| {
+            w.resolve_blocker(&task_id, &blocker_id, &note, &mentions)
+        }),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -531,7 +571,11 @@ pub async fn board_close_ask(
     id: String,
     note: String,
 ) -> R<Typed<coord::Task, ts::Task>> {
-    w.close_ask(&id, &note).map(Typed::new)
+    timed(
+        "board_close_ask",
+        blocking(&w, move |w| w.close_ask(&id, &note).map(Typed::new)),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -542,13 +586,25 @@ pub async fn board_close(
     state: String,
     note: String,
 ) -> R<Typed<coord::Task, ts::Task>> {
-    w.close_card(&id, &state, &note).map(Typed::new)
+    timed(
+        "board_close",
+        blocking(&w, move |w| {
+            w.close_card(&id, &state, &note).map(Typed::new)
+        }),
+    )
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn board_delete(w: W<'_>, id: String) -> R<()> {
     w.delete_card(&id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.move_card(&id, &board).map(Typed::new)
 }
 
 #[tauri::command]
@@ -563,6 +619,24 @@ pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
 #[specta::specta]
 pub async fn board_pause(w: W<'_>, id: String, paused: bool, note: String) -> R<Vec<String>> {
     w.pause(&id, paused, &note)
+}
+
+/// Not yet on a card (card #570): the person holds it back from the
+/// agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+/// "2026-12-01": the start of that day here), a version on this device
+/// ("v0.13.0"), or empty for until they say. `why` may be empty.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_not_yet(w: W<'_>, id: String, until: String, why: String) -> R<()> {
+    w.not_yet(&id, &until, &why)
+}
+
+/// Start now on a held card (card #570): it comes back and goes out as
+/// if just posted.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_start_now(w: W<'_>, id: String) -> R<()> {
+    w.start_now(&id)
 }
 
 /// Stop on an agent (card #207): cuts its running turn; `text` (empty: a
@@ -788,6 +862,22 @@ pub async fn boards_rename_in_space(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn boards_delete_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+) -> R<BoardSummary> {
+    w.boards_delete_in_space(&space_id, &board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_delete_in_personal(w: W<'_>, board_id: String) -> R<Vec<SpaceBoard>> {
+    w.boards_delete_in_personal(&board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn boards_personal(w: W<'_>) -> R<Vec<SpaceBoard>> {
     w.boards_personal()
 }
@@ -922,31 +1012,18 @@ pub async fn boards_set_reviewer(
     w.boards_set_reviewer(&board_id, &agent, &repo)
 }
 
-// ---- Notes (card #401) ------------------------------------------------------------
+// ---- Notes (card #401; Mine only since #616) ------------------------------------
 
 #[tauri::command]
 #[specta::specta]
-pub async fn notes_list(w: W<'_>, scope: String, removed: bool) -> R<Vec<crate::notes::NoteView>> {
-    blocking(&w, move |w| w.notes_list(&scope, removed)).await
-}
-
-/// The sidebar's Notes count: notes waiting on the person's look (card #468).
-#[tauri::command]
-#[specta::specta]
-pub async fn notes_waiting(w: W<'_>) -> R<u32> {
-    blocking(&w, move |w| w.notes_waiting().map(|n| n as u32)).await
+pub async fn notes_list(w: W<'_>, removed: bool) -> R<Vec<crate::notes::NoteView>> {
+    blocking(&w, move |w| w.notes_list(removed)).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn note_new(w: W<'_>, note: crate::notes::NoteInput) -> R<crate::notes::NoteView> {
     blocking(&w, move |w| w.note_new(note)).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn note_accept(w: W<'_>, id: String) -> R<crate::notes::NoteView> {
-    blocking(&w, move |w| w.note_accept(&id)).await
 }
 
 #[tauri::command]
@@ -1416,6 +1493,60 @@ pub async fn voice_open_settings(w: W<'_>, code: String) -> R<()> {
     blocking(&w, move |w| w.voice_open_settings(&code)).await
 }
 
+// ---- Huddles (#654) --------------------------------------------------------------
+
+/// The huddles on now: yours, ringing here, and live in your conversations.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_state(w: W<'_>) -> R<CallView> {
+    blocking(&w, |w| Ok(w.call_state())).await
+}
+
+/// Starts a huddle in a channel or person DM; returns its id.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_start(w: W<'_>, conv_id: String) -> R<String> {
+    // Opening the mic and speaker blocks (and on Android the plugin
+    // answers on the main thread).
+    blocking(&w, move |w| w.call_start(&conv_id)).await
+}
+
+/// Joins a huddle ringing here or live in a conversation.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_join(w: W<'_>, call_id: String) -> R<()> {
+    blocking(&w, move |w| w.call_join(&call_id)).await
+}
+
+/// Leaves the huddle this device is in.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_leave(w: W<'_>) -> R<()> {
+    blocking(&w, |w| w.call_leave()).await
+}
+
+/// Mutes or unmutes this device's mic in the huddle.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_mute(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_mute(on);
+        Ok(())
+    })
+    .await
+}
+
+/// Stops a huddle ringing here.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_dismiss(w: W<'_>, call_id: String) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_dismiss(&call_id);
+        Ok(())
+    })
+    .await
+}
+
 // ---- Settings › Agents (card #448) ------------------------------------------
 
 /// A board's spawned-agent switch, model and effort (`""`: the private
@@ -1424,6 +1555,20 @@ pub async fn voice_open_settings(w: W<'_>, code: String) -> R<()> {
 #[specta::specta]
 pub async fn agents_settings(w: W<'_>, board_id: String) -> R<AgentsSettings> {
     Ok(w.agents_settings(&board_id))
+}
+
+/// "My agents may start agents on my cards" and its maximum (card #575).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_starts(w: W<'_>) -> R<AgentStartsView> {
+    Ok(w.agents_starts())
+}
+
+/// The person changes it: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsView> {
+    w.agents_starts_set(on, max)
 }
 
 /// The person changes them: the app only, never a tool.
@@ -1568,7 +1713,35 @@ pub async fn talk_post(
         &mentions,
         agents_now,
         thread_from.filter(|t| !t.is_empty()),
+        &[],
     )
+}
+
+/// Posts with files (card #643): pasted, dropped or picked in a channel's
+/// or DM's composer; the text may then be empty. Returns the post's id (a
+/// thread's: the comment's).
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_post_with_files(
+    w: W<'_>,
+    conv_id: String,
+    text: String,
+    mentions: Vec<String>,
+    agents_now: bool,
+    thread_from: Option<String>,
+    files: Vec<UploadFile>,
+) -> R<String> {
+    blocking(&w, move |w| {
+        w.talk_post(
+            &conv_id,
+            &text,
+            &mentions,
+            agents_now,
+            thread_from.filter(|t| !t.is_empty()),
+            &files,
+        )
+    })
+    .await
 }
 
 /// The person asks about channel `conv_id`'s post `post_id` in a new
@@ -1618,6 +1791,14 @@ pub async fn talk_channel_create(
 #[specta::specta]
 pub async fn talk_dm(w: W<'_>, member: TalkMemberRef) -> R<String> {
     w.talk_dm(&member)
+}
+
+/// Who is replying in each channel and DM (card #645); `talk:replying`
+/// carries the same list when it changes.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_replying(w: W<'_>) -> R<Vec<crate::talk::TalkReplying>> {
+    Ok(w.talk_replying())
 }
 
 /// Everyone the person can DM (card #538).
@@ -1745,8 +1926,11 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_close_ask,
             board_close,
             board_delete,
+            board_move,
             board_pin,
             board_pause,
+            board_not_yet,
+            board_start_now,
             agent_stop,
             wind_down_all,
             wind_down_status,
@@ -1778,6 +1962,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_personal,
             boards_add_to_personal,
             boards_rename_in_personal,
+            boards_delete_in_space,
+            boards_delete_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,
@@ -1792,9 +1978,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
-            notes_waiting,
             note_new,
-            note_accept,
             note_edit,
             note_remove,
             agents_trust_need,
@@ -1858,15 +2042,23 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             voice_start,
             voice_stop,
             voice_open_settings,
+            call_state,
+            call_start,
+            call_join,
+            call_leave,
+            call_mute,
+            call_dismiss,
             talk_conversations,
             talk_posts,
             talk_post,
+            talk_post_with_files,
             talk_link_card,
             talk_thread_from,
             talk_read,
             talk_channel_create,
             talk_dm,
             talk_dm_people,
+            talk_replying,
             talk_dm_leave,
             talk_join,
             talk_leave,
@@ -1886,6 +2078,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            agents_starts,
+            agents_starts_set,
             agents_limits,
             agents_cap_set,
             agents_usage_release,
@@ -1915,6 +2109,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<VoiceDownload>()
         .typ::<MetersSample>()
         .typ::<UsageLimits>()
+        .typ::<CallView>()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()

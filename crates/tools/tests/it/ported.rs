@@ -213,6 +213,7 @@ fn test_unbound_caller() {
         "board_status",
         "board_link",
         "board_edit",
+        "board_later",
         "board_steps",
         "board_step",
         "board_recommend",
@@ -432,6 +433,7 @@ fn test_specs() {
         "board_status",
         "board_link",
         "board_edit",
+        "board_later",
         "board_steps",
         "board_step",
         "board_recommend",
@@ -453,6 +455,7 @@ fn test_specs() {
         "waits",
         "wait_cancel",
         "talk_post",
+        "talk_thread",
         "talk_read",
         "talk_list",
         "talk_join",
@@ -460,6 +463,9 @@ fn test_specs() {
         "avatar",
         "notes_propose",
         "notes_search",
+        "agent_start",
+        "agents_started",
+        "agent_end",
     ];
     for n in want {
         assert!(
@@ -491,6 +497,7 @@ fn test_specs() {
         "talk_read",
         "talk_list",
         "notes_search",
+        "agents_started",
     ];
     for sp in s.specs("") {
         assert_eq!(

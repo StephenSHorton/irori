@@ -61,7 +61,9 @@ export function MetersPanel({
         This computer
       </PopoverTitle>
       {!last ? (
-        <p className="px-3 pb-3 text-xs text-muted-foreground">No reading yet.</p>
+        <p className="px-3 pb-3 text-xs text-muted-foreground">
+          No reading yet.
+        </p>
       ) : (
         <div className="flex flex-col pb-1.5">
           <Row
@@ -80,7 +82,9 @@ export function MetersPanel({
             <Row
               key={`disk:${d.name}`}
               color={meterColor.disk}
-              values={samples.map((s) => diskByName(s, d.name)?.activePct ?? null)}
+              values={samples.map(
+                (s) => diskByName(s, d.name)?.activePct ?? null
+              )}
               title={diskName(d.name)}
               lines={[
                 `${fmtPct(d.activePct)} active`,
@@ -101,7 +105,9 @@ export function MetersPanel({
               <Row
                 key={`gpu:${g.name}`}
                 color={meterColor.gpu}
-                values={samples.map((s) => gpuByName(s, g.name)?.utilPct ?? null)}
+                values={samples.map(
+                  (s) => gpuByName(s, g.name)?.utilPct ?? null
+                )}
                 title={`GPU ${i}`}
                 lines={[g.name, mem ? `${fmtGpu(g)} · ${mem}` : fmtGpu(g)]}
               />
@@ -139,10 +145,18 @@ function Row({
           } as CSSProperties
         }
       >
-        <Sparkline values={values} slots={RING} max={max} width={72} height={46} />
+        <Sparkline
+          values={values}
+          slots={RING}
+          max={max}
+          width={72}
+          height={46}
+        />
       </div>
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-sm leading-snug font-medium text-ink">{title}</span>
+        <span className="truncate text-sm leading-snug font-medium text-ink">
+          {title}
+        </span>
         {lines.map((l, i) => (
           <span
             key={i}
@@ -181,20 +195,31 @@ function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
             return (
               <div key={w.kind} className="flex flex-col gap-1">
                 <div className="flex items-baseline justify-between gap-2 text-xs">
-                  <span className="font-medium text-ink">{windowLabel(w.kind)}</span>
+                  <span className="font-medium text-ink">
+                    {windowLabel(w.kind)}
+                  </span>
                   <span className="text-ink tabular-nums">{left}% left</span>
                 </div>
-                <div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div
+                  aria-hidden
+                  className="h-1.5 overflow-hidden rounded-full bg-muted"
+                >
                   <div
                     className={cn(
                       "h-full rounded-full",
-                      left <= 10 ? "bg-destructive" : left <= 25 ? "bg-warning" : "bg-primary"
+                      left <= 10
+                        ? "bg-destructive"
+                        : left <= 25
+                          ? "bg-warning"
+                          : "bg-primary"
                     )}
                     style={{ width: `${left}%` }}
                   />
                 </div>
                 {reset && (
-                  <span className="text-xs text-muted-foreground tabular-nums">{reset}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {reset}
+                  </span>
                 )}
               </div>
             )

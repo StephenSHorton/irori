@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 
 use coord::ErrorKind as CK;
-use mesh::boardmesh::{DeviceWords, SPACES_PROTOCOL};
+use mesh::boardmesh::{BoardReads, DeviceWords, SPACES_PROTOCOL};
 use serde::{Deserialize, Serialize};
 use store::{Filter, kinds};
 
@@ -44,42 +44,86 @@ pub struct SpaceBoard {
     pub tag: String,
 }
 
-/// `space.board.created` / `space.board.renamed`.
+/// `space.board.created` / `space.board.renamed`. A delete is a rename with
+/// `deleted` set and both names empty (card #563): an older device stores
+/// it and changes nothing, which is why it isn't a kind of its own. `name`
+/// and `tag` are always written, since an older decoder needs them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SpaceBoardRow {
     pub board_id: String,
     pub name: String,
     pub tag: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub deleted: bool,
     pub by: String,
     pub at: String,
 }
 
+/// One `space.board.*` row, with who wrote it and where it sits.
+#[derive(Debug, Clone)]
+pub struct BoardRowAt {
+    pub kind: String,
+    pub payload: Vec<u8>,
+    pub at: coord::RowPos,
+}
+
+/// Whether a delete at this place counts.
+pub(crate) type MayDelete<'a> = &'a dyn Fn(&coord::RowPos) -> bool;
+
+/// Each deleted board with its first valid delete's place. A delete wins
+/// whatever came before or after it; the first board can't be deleted, so
+/// a space always keeps one (fold rules 4, 7, 8).
+fn deletes(own: &str, rows: &[BoardRowAt], may: MayDelete) -> BTreeMap<String, coord::RowPos> {
+    let mut out: BTreeMap<String, coord::RowPos> = BTreeMap::new();
+    for r in rows.iter().filter(|r| r.kind == kinds::SPACE_BOARD_RENAMED) {
+        let Ok(p) = serde_json::from_slice::<SpaceBoardRow>(&r.payload) else {
+            continue;
+        };
+        if !p.deleted || p.board_id.is_empty() || p.board_id == own || !may(&r.at) {
+            continue;
+        }
+        let first = out.entry(p.board_id).or_insert_with(|| r.at.clone());
+        if r.at.before(first) {
+            *first = r.at.clone();
+        }
+    }
+    out
+}
+
 /// The boards in a space's log, its own first: `own` is the space's own
 /// board (from board.created/renamed), then each `space.board.created` in
-/// log order with its newest rename. A rename of a board the log doesn't
-/// hold is ignored, as is a second create of one id.
+/// RowPos order with its newest rename. A rename of a board the log doesn't
+/// hold is ignored, as is a second create of one id, and a deleted board is
+/// gone for good: nothing brings it back.
 ///
 /// `own` comes in with the space's name, and keeps it until a rename names
 /// the first board itself (card #558): only its name, since its tag is the
 /// space's and refs are stamped with it.
-pub fn fold_space_boards(mut own: SpaceBoard, rows: &[(String, Vec<u8>)]) -> Vec<SpaceBoard> {
+pub fn fold_space_boards(
+    mut own: SpaceBoard,
+    rows: &[BoardRowAt],
+    may: MayDelete,
+) -> Vec<SpaceBoard> {
+    let gone = deletes(&own.board_id, rows, may);
+    let mut rows: Vec<&BoardRowAt> = rows.iter().collect();
+    rows.sort_by(|a, b| a.at.cmp(&b.at));
     let mut order: Vec<String> = Vec::new();
     let mut boards: BTreeMap<String, SpaceBoard> = BTreeMap::new();
-    for (kind, payload) in rows {
-        let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(payload) else {
+    for row in rows {
+        let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(&row.payload) else {
             continue;
         };
-        if r.board_id.is_empty() {
+        if r.board_id.is_empty() || gone.contains_key(&r.board_id) {
             continue;
         }
         if r.board_id == own.board_id {
-            if kind == kinds::SPACE_BOARD_RENAMED && !r.name.is_empty() {
+            if row.kind == kinds::SPACE_BOARD_RENAMED && !r.name.is_empty() {
                 own.name = r.name;
             }
             continue;
         }
-        match kind.as_str() {
+        match row.kind.as_str() {
             kinds::SPACE_BOARD_CREATED if !boards.contains_key(&r.board_id) => {
                 order.push(r.board_id.clone());
                 boards.insert(
@@ -109,8 +153,8 @@ pub fn fold_space_boards(mut own: SpaceBoard, rows: &[(String, Vec<u8>)]) -> Vec
     out
 }
 
-/// The space.board.* rows of a space's log, oldest first.
-fn space_board_rows(st: &store::Store) -> store::Result<Vec<(String, Vec<u8>)>> {
+/// The space.board.* rows of a space's log.
+fn space_board_rows(st: &store::Store) -> store::Result<Vec<BoardRowAt>> {
     Ok(st
         .list(&Filter {
             kinds: vec![
@@ -121,19 +165,74 @@ fn space_board_rows(st: &store::Store) -> store::Result<Vec<(String, Vec<u8>)>> 
             ..Default::default()
         })?
         .into_iter()
-        .map(|ev| (ev.kind, ev.payload))
+        .map(|ev| BoardRowAt {
+            at: coord::RowPos::of(&ev),
+            kind: ev.kind,
+            payload: ev.payload,
+        })
         .collect())
 }
 
+/// Whether a space's delete at this place came from a device of someone
+/// who was an active member there: any member may delete a board, as they
+/// may add one, and the fold can't take a row's `by` on trust (rule 7).
+pub(crate) fn member_wrote(
+    v: &std::sync::Arc<irori_identity::board::BoardVerifier>,
+) -> impl Fn(&coord::RowPos) -> bool + use<> {
+    let v = v.clone();
+    move |at: &coord::RowPos| {
+        let Some(person) = v.person_of(&at.dev) else {
+            return false;
+        };
+        v.membership().active_at(
+            &person,
+            &irori_identity::membership::RowAt {
+                hlc: at.hlc,
+                device: at.dev.clone(),
+                seq: at.seq,
+            },
+        )
+    }
+}
+
+/// What coord needs of the board list in log `st`, whose first board is
+/// `own`.
+pub(crate) fn board_list_in(
+    st: &store::Store,
+    own: &str,
+    may: MayDelete,
+) -> Option<coord::BoardList> {
+    let rows = space_board_rows(st).ok()?;
+    Some(coord::BoardList {
+        own: own.to_string(),
+        deleted: deletes(own, &rows, may).into_iter().collect(),
+        tags: tag_ids(&rows),
+    })
+}
+
+/// Every (tag, board) in these rows.
+fn tag_ids(rows: &[BoardRowAt]) -> Vec<(String, String)> {
+    rows.iter()
+        .filter_map(|r| serde_json::from_slice::<SpaceBoardRow>(&r.payload).ok())
+        .filter(|r| !r.tag.is_empty())
+        .map(|r| (r.tag, r.board_id))
+        .collect()
+}
+
+/// Every (tag, board) the log whose store is `st` has named inside it.
+pub(crate) fn board_tag_ids(st: &store::Store) -> Vec<(String, String)> {
+    tag_ids(&space_board_rows(st).unwrap_or_default())
+}
+
 /// The tag of board `board` inside the space whose log is `st`; None when
-/// the log holds no such board.
-pub(crate) fn board_tag_in(st: &store::Store, board: &str) -> Option<String> {
+/// the log holds no such board, or it was deleted.
+pub(crate) fn board_tag_in(st: &store::Store, board: &str, may: MayDelete) -> Option<String> {
     let own = SpaceBoard {
         board_id: String::new(),
         name: String::new(),
         tag: String::new(),
     };
-    fold_space_boards(own, &space_board_rows(st).ok()?)
+    fold_space_boards(own, &space_board_rows(st).ok()?, may)
         .into_iter()
         .skip(1)
         .find(|b| b.board_id == board)
@@ -142,12 +241,7 @@ pub(crate) fn board_tag_in(st: &store::Store, board: &str) -> Option<String> {
 
 /// Every tag the log whose store is `st` has named for a board inside it.
 pub(crate) fn board_tags_in(st: &store::Store) -> Vec<String> {
-    let rows = space_board_rows(st).unwrap_or_default();
-    rows.iter()
-        .filter_map(|(_, p)| serde_json::from_slice::<SpaceBoardRow>(p).ok())
-        .map(|r| r.tag)
-        .filter(|t| !t.is_empty())
-        .collect()
+    board_tag_ids(st).into_iter().map(|(t, _)| t).collect()
 }
 
 impl Services {
@@ -172,13 +266,25 @@ impl Services {
             tag: m.tag.clone(),
         };
         let rows = space_board_rows(&b.store).map_err(Error::from)?;
-        Ok(fold_space_boards(own, &rows))
+        Ok(fold_space_boards(own, &rows, &member_wrote(&b.verifier)))
     }
 
     /// What's known of each other member device of space `b` (no-server.md
     /// §5): its latest word is a live hello, else the newer of a saved hello
     /// and its `board.server` row. All but the live hello need no mesh.
+    /// Too old is below [`SPACES_PROTOCOL`].
     pub(crate) fn space_readers(&self, b: &BoardLog) -> Result<SpaceReaders> {
+        self.space_readers_at(b, ReadsLevel::Spaces, SPACES_PROTOCOL)
+    }
+
+    /// [`Services::space_readers`] for any level: too old is a latest word
+    /// whose `level` is below `need`.
+    pub(crate) fn space_readers_at(
+        &self,
+        b: &BoardLog,
+        level: ReadsLevel,
+        need: i64,
+    ) -> Result<SpaceReaders> {
         let ms = b.verifier.membership();
         let me = self.device.id.clone();
         let mesh = self.mesh.board(&b.id);
@@ -203,17 +309,43 @@ impl Services {
                 })
                 .collect(),
         };
-        let live = mesh.map(|m| m.live_spaces()).unwrap_or_default();
+        let live = mesh.map(|m| m.live_reads()).unwrap_or_default();
         let words = DeviceWords::read(&b.store).map_err(|e| Error::other(e.0))?;
         let mut out = SpaceReaders::default();
         for (person, dev) in devices {
-            match live.get(&dev).copied().or_else(|| words.spaces(&dev)) {
+            let word = live.get(&dev).cloned().or_else(|| words.reads(&dev));
+            match word.map(|r| level.of(&r)) {
                 None => out.unheard.push((person, dev)),
-                Some(level) if level < SPACES_PROTOCOL => out.too_old.push((person, dev)),
+                Some(l) if l < need => out.too_old.push((person, dev)),
                 Some(_) => {}
             }
         }
         Ok(out)
+    }
+
+    /// Whether every other member device of space `space_id` is known to
+    /// store an unknown `call.*` or `talk.*` row it pulls instead of
+    /// stalling on it (card #652, hello `tolerant` >= [`CALLS_TOLERANT`]).
+    /// Unlike the space gate, a device nobody has any word from counts
+    /// against it: calls have somewhere else to put what they'd write (a
+    /// `talk.post` marker, a file), so this gate fails closed
+    /// (irori-fit.md §2, "Recommended path").
+    pub(crate) fn space_tolerance(&self, space_id: &str) -> Result<SpaceTolerance> {
+        let b = self.board(space_id)?;
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(&b, ReadsLevel::Tolerant, CALLS_TOLERANT)?;
+        let name = |(p, d): (String, String)| {
+            let who = b
+                .verifier
+                .profile(&p)
+                .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                .unwrap_or_else(|| short(&p).to_string());
+            format!("{who}/{}", short(&d))
+        };
+        Ok(SpaceTolerance {
+            too_old: r.too_old.into_iter().map(name).collect(),
+            unheard: r.unheard.into_iter().map(name).collect(),
+        })
     }
 
     /// The member devices of space `space_id` known to be too old for space
@@ -273,6 +405,7 @@ impl Services {
             board_id: id.clone(),
             name: name.to_string(),
             tag: tag.to_string(),
+            deleted: false,
             by: format!("{}{me}", kinds::PERSON_ACTOR_PREFIX),
             at: (self.now)().format_rfc3339_nano(),
         };
@@ -324,10 +457,58 @@ impl Services {
             board_id: board_id.to_string(),
             name: name.to_string(),
             tag: String::new(),
+            deleted: false,
             by: by.clone(),
             at: (self.now)().format_rfc3339_nano(),
         };
         b.store.append(&by, kinds::SPACE_BOARD_RENAMED, &row)?;
+        self.boards.moved();
+        Ok(())
+    }
+
+    /// Deletes board `board_id` of space `space_id`: any active member may,
+    /// as for adding one. No row is written per card: the fold puts its
+    /// cards on the first board, with new numbers there (card #563). The
+    /// first board can't go. Refused, like adding one, until every member
+    /// device reads space rows.
+    pub(crate) fn delete_space_board(&self, space_id: &str, board_id: &str) -> Result<()> {
+        let b = self.board(space_id)?;
+        let me = self.person_id();
+        if !b.verifier.membership().active(&me) {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("you aren't a member of space {space_id}"),
+            ));
+        }
+        if board_id == space_id {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("a space's first board can't be deleted"),
+            ));
+        }
+        if !self
+            .space_boards(space_id)?
+            .iter()
+            .any(|x| x.board_id == board_id)
+        {
+            return Err(Error::coord(
+                CK::NotFound,
+                format_args!("no board {board_id} in space {space_id}"),
+            ));
+        }
+        if let Some(why) = gate_refusal(&self.space_not_ready(space_id)?) {
+            return Err(Error::coord(CK::NotAllowed, why));
+        }
+        let by = format!("{}{me}", kinds::PERSON_ACTOR_PREFIX);
+        let row = SpaceBoardRow {
+            board_id: board_id.to_string(),
+            deleted: true,
+            by: by.clone(),
+            at: (self.now)().format_rfc3339_nano(),
+            ..Default::default()
+        };
+        b.store.append(&by, kinds::SPACE_BOARD_RENAMED, &row)?;
+        b.coord().refresh_boards();
         self.boards.moved();
         Ok(())
     }
@@ -340,7 +521,7 @@ impl Services {
             tag: String::new(),
         };
         let rows = space_board_rows(&self.store).map_err(Error::from)?;
-        Ok(fold_space_boards(own, &rows))
+        Ok(fold_space_boards(own, &rows, &|_| true))
     }
 
     /// Adds board `name` (tag `tag`) to Personal and returns its id. It is
@@ -391,6 +572,35 @@ impl Services {
         )
     }
 
+    /// Deletes one of Personal's boards; its cards go to the default board
+    /// (card #563), which can't be deleted itself.
+    pub(crate) fn delete_personal_board(&self, board_id: &str) -> Result<()> {
+        if board_id == PERSONAL_BOARD {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("Personal's default board can't be deleted"),
+            ));
+        }
+        if !self
+            .personal_boards()?
+            .iter()
+            .any(|x| x.board_id == board_id)
+        {
+            return Err(Error::coord(
+                CK::NotFound,
+                format_args!("no board {board_id} in Personal"),
+            ));
+        }
+        self.append_personal(
+            kinds::SPACE_BOARD_RENAMED,
+            SpaceBoardRow {
+                board_id: board_id.to_string(),
+                deleted: true,
+                ..Default::default()
+            },
+        )
+    }
+
     /// Writes a `space.board.*` row to the private log, as the person on
     /// this device.
     fn append_personal(&self, kind: &str, row: SpaceBoardRow) -> Result<()> {
@@ -400,6 +610,7 @@ impl Services {
             ..row
         };
         self.store.append("user", kind, &row)?;
+        self.coord.refresh_boards();
         self.boards.moved();
         Ok(())
     }
@@ -411,20 +622,17 @@ impl Services {
         if !own.is_empty() {
             return Some(own);
         }
-        if let Some(x) = self
-            .personal_boards()
-            .unwrap_or_default()
+        // Every tag a log has named, a deleted board's too: its old refs
+        // still mean its cards, so it never goes to a new board (card #563).
+        if let Some((_, id)) = board_tag_ids(&self.store)
             .into_iter()
-            .skip(1)
-            .find(|x| x.tag == tag)
+            .find(|(t, _)| t == tag)
         {
-            return Some(x.board_id);
+            return Some(id);
         }
         for b in self.visible_boards() {
-            if let Ok(bs) = self.space_boards(&b.id)
-                && let Some(x) = bs.iter().skip(1).find(|x| x.tag == tag)
-            {
-                return Some(x.board_id.clone());
+            if let Some((_, id)) = board_tag_ids(&b.store).into_iter().find(|(t, _)| t == tag) {
+                return Some(id);
             }
         }
         None
@@ -475,10 +683,56 @@ fn tag_taken(tag: &str, other: &str) -> Error {
 /// aren't known to read space rows, as (person, device).
 #[derive(Debug, Default)]
 pub(crate) struct SpaceReaders {
-    /// Their latest word is below [`SPACES_PROTOCOL`]: they block.
+    /// Their latest word is below [`SPACES_PROTOCOL`] (or the level
+    /// [`Services::space_readers_at`] was given): they block.
     pub(crate) too_old: Vec<(String, String)>,
-    /// No word at all: they don't block, and get a warning line.
+    /// No word at all: they don't block the space gate, and get a warning
+    /// line.
     pub(crate) unheard: Vec<(String, String)>,
+}
+
+/// Which level of a device's word [`Services::space_readers_at`] checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReadsLevel {
+    /// The hello's `spaces`.
+    Spaces,
+    /// The hello's `tolerant` (card #652).
+    Tolerant,
+}
+
+impl ReadsLevel {
+    fn of(self, r: &BoardReads) -> i64 {
+        match self {
+            ReadsLevel::Spaces => r.spaces,
+            ReadsLevel::Tolerant => r.tolerant,
+        }
+    }
+}
+
+/// The `tolerant` level that stores unknown `call.*` and `talk.*` rows
+/// (card #652). Fixed at 2: [`mesh::boardmesh::TOLERANT_PROTOCOL`] rises
+/// when a later family joins, and calls must not wait on that.
+pub const CALLS_TOLERANT: i64 = 2;
+
+/// The calls gate's answer for one space ([`super::Core::space_tolerance`]):
+/// the other member devices not known to be at [`CALLS_TOLERANT`], as
+/// `person/device` (short ids).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceTolerance {
+    /// Their latest word says a lower `tolerant`: an Irori before this one,
+    /// which would stall on a `call.*` row.
+    pub too_old: Vec<String>,
+    /// Nobody has any word from them, so they may be that old.
+    pub unheard: Vec<String>,
+}
+
+impl SpaceTolerance {
+    /// Every other device in the space is known to be at
+    /// [`CALLS_TOLERANT`]: the space may take `call.*` rows.
+    pub fn ready(&self) -> bool {
+        self.too_old.is_empty() && self.unheard.is_empty()
+    }
 }
 
 /// The version gate's answer (card #392, spaces.md §4): why a space may
@@ -510,8 +764,8 @@ const SPACE_TALK_KINDS: [&str; 5] = [
 ];
 
 /// Rewrites the keys a talk.* payload names (`by`, `member.key`, each of
-/// `mentions`) with `f`; a key `f` turns into None is dropped from
-/// `mentions` and refuses the row anywhere else.
+/// `mentions` and of `call.people`) with `f`; a key `f` turns into None is
+/// dropped from those lists and refuses the row anywhere else.
 fn map_talk_keys(
     v: &mut serde_json::Value,
     mut f: impl FnMut(&str) -> Option<String>,
@@ -532,6 +786,19 @@ fn map_talk_keys(
             .map(serde_json::Value::String)
             .collect();
         *ms = keep;
+    }
+    // A huddle's people (#654) are mapped as mentions are. Only people:
+    // `board_key` would mint a card for an agent's key.
+    if let Some(serde_json::Value::Array(ps)) = o.get_mut("call").and_then(|c| c.get_mut("people"))
+    {
+        let keep: Vec<serde_json::Value> = ps
+            .iter()
+            .filter_map(|p| p.as_str())
+            .filter(|p| coord::talk::is_person_key(p) || coord::talk::is_other_person_key(p))
+            .filter_map(&mut f)
+            .map(serde_json::Value::String)
+            .collect();
+        *ps = keep;
     }
     Ok(())
 }
@@ -698,6 +965,21 @@ impl Services {
         {
             o.insert("spaceId".into(), space_id.into());
         }
+        // A post's files are offered in this log first, as a board
+        // comment's are (card #643): a member's device may fetch a file
+        // only where one of ours offered it here (v0.5 §5.5).
+        if kind == kinds::TALK_POST
+            && let Some(files) = payload.get("attach").and_then(|a| a.as_array())
+        {
+            let files: Vec<&serde_json::Value> = files.iter().collect();
+            coord::board::offer_files_in(
+                &b.store,
+                &self.device.id,
+                &|sha: &str| self.files.has(sha),
+                &files,
+            )
+            .map_err(|e| e.to_string())?;
+        }
         let ev = b
             .store
             .append(&actor, kind, &payload)
@@ -799,6 +1081,14 @@ impl super::Core {
         self.s.space_not_ready(space_id)
     }
 
+    /// The calls gate (card #652): whether every other device in space
+    /// `space_id` is known to store an unknown `call.*` or `talk.*` row
+    /// (hello `tolerant` >= [`CALLS_TOLERANT`]), and which aren't.
+    /// [`SpaceTolerance::ready`] says the space may take `call.*` rows.
+    pub fn space_tolerance(&self, space_id: &str) -> Result<SpaceTolerance> {
+        self.s.space_tolerance(space_id)
+    }
+
     /// Whether space `space_id` may take a space-only row now: the gate's
     /// refusal if not ([`gate_refusal`]).
     pub fn space_gate(&self, space_id: &str) -> std::result::Result<(), String> {
@@ -818,6 +1108,14 @@ impl super::Core {
     /// Renames a board of space `space_id`, its first too, leaving the
     /// space's own name alone; refused until every member device reads
     /// space rows.
+    pub fn delete_space_board(&self, space_id: &str, board_id: &str) -> Result<()> {
+        self.s.delete_space_board(space_id, board_id)
+    }
+
+    pub fn delete_personal_board(&self, board_id: &str) -> Result<()> {
+        self.s.delete_personal_board(board_id)
+    }
+
     pub fn rename_space_board(&self, space_id: &str, board_id: &str, name: &str) -> Result<()> {
         self.s.rename_space_board(space_id, board_id, name)
     }
@@ -832,6 +1130,16 @@ impl super::Core {
         self.s.create_personal_board(name, tag)
     }
 
+    /// Moves a space nobody else is in into Personal as a board, every
+    /// card with it, then forgets the space on every device (card #640).
+    pub fn move_space_to_personal(
+        &self,
+        space_id: &str,
+        o: &super::space_move::MoveOpts,
+    ) -> Result<super::space_move::SpaceMove> {
+        self.s.move_space_to_personal(space_id, o)
+    }
+
     /// Renames one of Personal's boards, its default ([`PERSONAL_BOARD`])
     /// too.
     pub fn rename_personal_board(&self, board_id: &str, name: &str) -> Result<()> {
@@ -843,14 +1151,22 @@ impl super::Core {
 mod tests {
     use super::*;
 
-    fn row(kind: &str, id: &str, name: &str, tag: &str) -> (String, Vec<u8>) {
+    fn folded(own: SpaceBoard, rows: &[BoardRowAt]) -> Vec<SpaceBoard> {
+        fold_space_boards(own, rows, &|_| true)
+    }
+
+    fn row(kind: &str, id: &str, name: &str, tag: &str) -> BoardRowAt {
         let r = SpaceBoardRow {
             board_id: id.into(),
             name: name.into(),
             tag: tag.into(),
             ..Default::default()
         };
-        (kind.to_string(), serde_json::to_vec(&r).unwrap())
+        BoardRowAt {
+            kind: kind.to_string(),
+            payload: serde_json::to_vec(&r).unwrap(),
+            at: coord::RowPos::default(),
+        }
     }
 
     #[test]
@@ -860,7 +1176,7 @@ mod tests {
             name: "Wind Waker Multiplayer".into(),
             tag: "wind".into(),
         };
-        let got = fold_space_boards(
+        let got = folded(
             own.clone(),
             &[
                 row(kinds::SPACE_BOARD_CREATED, "b2", "Netcode", "net"),
@@ -871,7 +1187,11 @@ mod tests {
                 row(kinds::SPACE_BOARD_CREATED, "b2", "dup", "dup"),
                 row(kinds::SPACE_BOARD_RENAMED, "nope", "x", "x"),
                 row(kinds::SPACE_BOARD_CREATED, "s", "self", "self"),
-                ("space.board.created".into(), b"not json".to_vec()),
+                BoardRowAt {
+                    kind: "space.board.created".into(),
+                    payload: b"not json".to_vec(),
+                    at: coord::RowPos::default(),
+                },
             ],
         );
         let names: Vec<(&str, &str)> = got
@@ -897,14 +1217,15 @@ mod tests {
             name: "Wind".into(),
             tag: "wind".into(),
         };
-        let got = fold_space_boards(
+        let got = folded(
             own,
             &[
                 row(kinds::SPACE_BOARD_CREATED, "b1", "Netcode", "net"),
-                (
-                    kinds::SPACE_BOARD_RENAMED.into(),
-                    br#"{"boardId":"b1","name":"Sockets"}"#.to_vec(),
-                ),
+                BoardRowAt {
+                    kind: kinds::SPACE_BOARD_RENAMED.into(),
+                    payload: br#"{"boardId":"b1","name":"Sockets"}"#.to_vec(),
+                    at: coord::RowPos::default(),
+                },
             ],
         );
         assert_eq!(got[1].name, "Sockets");
@@ -928,6 +1249,82 @@ mod tests {
     /// The first board has a name of its own once a rename gives it one
     /// (card #558), and only its name: its tag is the space's. Until then
     /// it follows the space's name.
+    fn deleted_row(id: &str, seq: i64) -> BoardRowAt {
+        let r = SpaceBoardRow {
+            board_id: id.into(),
+            deleted: true,
+            ..Default::default()
+        };
+        BoardRowAt {
+            kind: kinds::SPACE_BOARD_RENAMED.into(),
+            payload: serde_json::to_vec(&r).unwrap(),
+            at: coord::RowPos {
+                hlc: seq as u64,
+                dev: "d".into(),
+                seq,
+            },
+        }
+    }
+
+    fn at(mut r: BoardRowAt, seq: i64) -> BoardRowAt {
+        r.at = coord::RowPos {
+            hlc: seq as u64,
+            dev: "d".into(),
+            seq,
+        };
+        r
+    }
+
+    fn the_own() -> SpaceBoard {
+        SpaceBoard {
+            board_id: "s".into(),
+            name: "Space".into(),
+            tag: "wind".into(),
+        }
+    }
+
+    #[test]
+    fn a_delete_row_keeps_the_fields_an_older_decoder_needs() {
+        let v: serde_json::Value = serde_json::from_slice(&deleted_row("b1", 1).payload).unwrap();
+        assert_eq!(v["name"], "");
+        assert_eq!(v["tag"], "");
+        assert_eq!(v["deleted"], true);
+        let plain = serde_json::to_value(SpaceBoardRow::default()).unwrap();
+        assert!(plain.get("deleted").is_none());
+    }
+
+    #[test]
+    fn a_delete_wins_whatever_order_the_rows_sit_in() {
+        let create = || at(row(kinds::SPACE_BOARD_CREATED, "b1", "Net", "net"), 1);
+        let rename = || at(row(kinds::SPACE_BOARD_RENAMED, "b1", "Later", "later"), 9);
+        let again = || at(row(kinds::SPACE_BOARD_CREATED, "b1", "Again", "again"), 8);
+        for rows in [
+            vec![create(), deleted_row("b1", 5), rename(), again()],
+            vec![rename(), again(), deleted_row("b1", 5), create()],
+            vec![deleted_row("b1", 5), create()],
+        ] {
+            let got = folded(the_own(), &rows);
+            assert_eq!(got.len(), 1, "only the first board is left: {got:?}");
+        }
+    }
+
+    #[test]
+    fn the_first_board_cant_be_deleted() {
+        let got = folded(the_own(), &[deleted_row("s", 1)]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].board_id, "s");
+    }
+
+    #[test]
+    fn a_delete_from_someone_not_a_member_there_counts_for_nothing() {
+        let rows = [
+            at(row(kinds::SPACE_BOARD_CREATED, "b1", "Net", "net"), 1),
+            deleted_row("b1", 5),
+        ];
+        let got = fold_space_boards(the_own(), &rows, &|_| false);
+        assert_eq!(got.len(), 2, "the board stays: {got:?}");
+    }
+
     #[test]
     fn a_first_board_takes_a_name_from_a_rename_and_nothing_else() {
         let own = |name: &str| SpaceBoard {
@@ -935,12 +1332,12 @@ mod tests {
             name: name.into(),
             tag: "wind".into(),
         };
-        assert_eq!(fold_space_boards(own("New name"), &[])[0].name, "New name");
+        assert_eq!(folded(own("New name"), &[])[0].name, "New name");
         let rows = [
             row(kinds::SPACE_BOARD_RENAMED, "s", "Tasks", "other"),
             row(kinds::SPACE_BOARD_RENAMED, "s", "", ""),
         ];
-        let got = fold_space_boards(own("New name"), &rows);
+        let got = folded(own("New name"), &rows);
         assert_eq!(got.len(), 1);
         assert_eq!(
             (got[0].name.as_str(), got[0].tag.as_str()),

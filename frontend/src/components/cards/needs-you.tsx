@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/common/confirm-button"
 import {
   BlockerState,
   cards as cardsApi,
+  cardStore,
   displayName,
   useCard,
   type CardBlocker,
@@ -23,6 +24,7 @@ import {
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
+  GIVEN_QUESTION,
   goneTitle,
   loopLine,
   mergeLine,
@@ -36,6 +38,8 @@ import {
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { openSettings } from "@/components/settings/settings-menu"
 import { answerable } from "@/lib/thread"
+import { useDraft } from "@/lib/drafts"
+import { answerKey, answerPatch, instant, isDone } from "@/lib/optimistic"
 import {
   allowLifts,
   errorText,
@@ -75,7 +79,10 @@ export function NeedsYou({
       <h2 id="needs-you" className="px-1 text-base font-semibold">
         Needs you
         {rows.length > 0 && (
-          <span className="font-medium text-muted-foreground"> · {rows.length}</span>
+          <span className="font-medium text-muted-foreground">
+            {" "}
+            · {rows.length}
+          </span>
         )}
       </h2>
       {rows.length === 0 && (
@@ -93,6 +100,8 @@ export function NeedsYou({
                 <MergeNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "gone" ? (
                 <GoneNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "noAgent" ? (
+                <NoAgentNeed need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "trust" ? (
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
@@ -129,11 +138,16 @@ const kinds = {
   merge: { label: "Merge", variant: "warning" },
   // Card #520: a wait on an agent that is gone, on a card nobody holds.
   gone: { label: "Gone", variant: "warning" },
+  // Card #541: no computer can start its agent. Nothing to decide.
+  noAgent: { label: "No agent", variant: "warning" },
   trust: { label: "Trust", variant: "warning" },
   // Card #456 (sa-7): a spawned agent stopped on a permission prompt, and
   // a card whose agents crashed twice.
   permission: { label: "Permission", variant: "warning" },
   crashed: { label: "Crashed", variant: "destructive" },
+  // Card #573: another person gave them the card; nothing starts without
+  // their yes.
+  given: { label: "Given to you", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
   // Card #481: waits nothing will end.
@@ -159,7 +173,7 @@ function Row({
 }) {
   const k = kinds[kind]
   return (
-    <article className="glass-panel grid min-w-0 gap-2 px-4 py-3">
+    <article className="grid min-w-0 gap-2 px-4 py-3 glass-panel">
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
         <Badge variant={k.variant}>{k.label}</Badge>
         <span className="min-w-0 truncate">{where}</span>
@@ -181,7 +195,10 @@ export function useAct() {
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState("")
   // said is the outcome's words, or made from fn's answer.
-  const run = async <T,>(fn: () => Promise<T>, said: string | ((r: T) => string)) => {
+  const run = async <T,>(
+    fn: () => Promise<T>,
+    said: string | ((r: T) => string)
+  ) => {
     if (busy) return
     setBusy(true)
     setError(null)
@@ -222,6 +239,7 @@ export function OwnWords({
   busy,
   onSend,
   onCancel,
+  draft,
 }: {
   label: string
   placeholder: string
@@ -229,14 +247,21 @@ export function OwnWords({
   busy: boolean
   onSend: (text: string) => void
   onCancel: () => void
+  // The text kept here instead of in the box (card #644): an instant
+  // answer clears it only once saved, and a refused one finds it again.
+  draft?: [string, (t: string) => void]
 }) {
-  const [text, setText] = useState("")
+  const own = useState("")
+  const [text, setText] = draft ?? own
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (text.trim()) onSend(text)
   }
   return (
-    <form className="flex min-w-0 flex-wrap items-start gap-1.5" onSubmit={submit}>
+    <form
+      className="flex min-w-0 flex-wrap items-start gap-1.5"
+      onSubmit={submit}
+    >
       <Textarea
         autoFocus
         autoSize
@@ -423,7 +448,12 @@ function GoneNeed({
             variant="default"
             open={asking}
             onOpenChange={setAsking}
-            onConfirm={() => run(() => cardsApi.handOn(c.id), (r) => r)}
+            onConfirm={() =>
+              run(
+                () => cardsApi.handOn(c.id),
+                (r) => r
+              )
+            }
             onError={() => {}}
             trigger={
               <Button size="sm" onClick={() => setAsking(true)}>
@@ -483,9 +513,16 @@ function TrustRow({
     </button>
   )
   return (
-    <Row kind="trust" where={where} at={need.at} now={now} title={plainLine(c.title)}>
+    <Row
+      kind="trust"
+      where={where}
+      at={need.at}
+      now={now}
+      title={plainLine(c.title)}
+    >
       <p className="text-sm break-words text-muted-foreground">
-        Can't start an agent: <span className="font-mono">{folder}</span> isn't trusted for agents
+        Can't start an agent: <span className="font-mono">{folder}</span> isn't
+        trusted for agents
         {info ? (info.here ? " on this computer" : ` on ${info.device}`) : ""}.
         {info?.what ? ` ${info.what}` : ""}
       </p>
@@ -513,7 +550,10 @@ function TrustRow({
             size="sm"
             disabled={act.busy || !!act.done}
             onClick={() =>
-              void act.run(() => AgentsService.TrustAndStart(c.id), "Trusted. Starting its agent…")
+              void act.run(
+                () => AgentsService.TrustAndStart(c.id),
+                "Trusted. Starting its agent…"
+              )
             }
           >
             {act.busy ? "Trusting…" : "Trust and start"}
@@ -540,7 +580,9 @@ type TrustInfo = {
 // trustFromReason reads `not trusted: <folder> on <device>` (the failed
 // spawn's reason) when the host can't be asked.
 export function trustFromReason(reason: string): TrustInfo {
-  const rest = reason.startsWith(NOT_TRUSTED) ? reason.slice(NOT_TRUSTED.length) : reason
+  const rest = reason.startsWith(NOT_TRUSTED)
+    ? reason.slice(NOT_TRUSTED.length)
+    : reason
   const at = rest.lastIndexOf(" on ")
   const folder = at > 0 ? rest.slice(0, at) : rest
   return {
@@ -554,6 +596,34 @@ export function trustFromReason(reason: string): TrustInfo {
 // CardNeed is a card waiting on the person: its done check (Done, or Not
 // done with a reason) or each of its decisions (the options, recommended
 // first, or an answer in their own words).
+function NoAgentNeed({
+  need,
+  now,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "noAgent" }>
+  now: Date
+  onOpen: (id: string) => void
+}) {
+  const c = need.card
+  return (
+    <Row
+      kind="noAgent"
+      where={<Where card={c} />}
+      at={need.at}
+      now={now}
+      title={plainLine(c.title)}
+    >
+      <p className="text-sm break-words">{c.noAgent}</p>
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
+          Open card
+        </Button>
+      </span>
+    </Row>
+  )
+}
+
 function CardNeed({
   need,
   now,
@@ -569,19 +639,30 @@ function CardNeed({
   // The permission wait is answered at the agent's prompt, not here.
   const blockers = detail
     ? detail.blockers.filter(
-        (b) => waitsOnYou(b) && !(spawn === "permission" && b.question.startsWith(WAITING_PERMISSION)),
+        (b) =>
+          waitsOnYou(b) &&
+          !(spawn === "permission" && b.question.startsWith(WAITING_PERMISSION))
       )
     : []
   const where = <Where card={c} />
   return (
-    <Row kind={spawn ?? need.kind} where={where} at={need.at} now={now} title={plainLine(c.title)}>
+    <Row
+      kind={spawn ?? need.kind}
+      where={where}
+      at={need.at}
+      now={now}
+      title={plainLine(c.title)}
+    >
       {spawn === "permission" ? (
         <PermissionWait card={c} onOpen={onOpen} />
       ) : null}
-      {spawn === "permission" && blockers.length === 0 ? null : blockers.length === 0 ? (
+      {spawn === "permission" &&
+      blockers.length === 0 ? null : blockers.length === 0 ? (
         <>
           {c.blockerQuestion && (
-            <p className="text-sm break-words">{plainLine(c.blockerQuestion)}</p>
+            <p className="text-sm break-words">
+              {plainLine(c.blockerQuestion)}
+            </p>
           )}
           <span className="flex flex-wrap gap-1.5">
             <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
@@ -590,14 +671,16 @@ function CardNeed({
           </span>
         </>
       ) : (
-        blockers.slice(0, 3).map((b) => (
-          <BlockerAnswer
-            key={b.id}
-            cardId={c.id}
-            b={b}
-            onOpen={() => onOpen(c.id)}
-          />
-        ))
+        blockers
+          .slice(0, 3)
+          .map((b) => (
+            <BlockerAnswer
+              key={b.id}
+              cardId={c.id}
+              b={b}
+              onOpen={() => onOpen(c.id)}
+            />
+          ))
       )}
       {blockers.length > 3 && (
         <Button
@@ -629,8 +712,8 @@ function PermissionWait({
   return (
     <div className="grid min-w-0 gap-1.5">
       <p className="text-sm break-words">
-        {who ? displayName(who) : "Its agent"} is stopped on a permission
-        prompt nobody is there to answer.
+        {who ? displayName(who) : "Its agent"} is stopped on a permission prompt
+        nobody is there to answer.
       </p>
       <div className="flex min-w-0 flex-wrap items-start gap-1.5">
         {who && (
@@ -641,7 +724,11 @@ function PermissionWait({
             only={["attach", "logs"]}
           />
         )}
-        <Button size="xs" variant="outline" onClick={() => openSettings("agents")}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => openSettings("agents")}
+        >
           Add to allow-list…
         </Button>
         <Button size="xs" variant="ghost" onClick={() => onOpen(c.id)}>
@@ -664,33 +751,66 @@ function Where({ card: c }: { card: CardSummary }) {
   )
 }
 
+// BlockerAnswer is an item's answers in a row (Needs you, Notifications).
+// A pick or an own-words answer shows at once and saves in the background
+// (card #644); a refusal brings the item back, with the words typed still
+// in the box, and a toast says why. answerOpens: "Answer…" opens the card
+// to answer there instead (Notifications).
 export function BlockerAnswer({
   cardId,
   b,
   onOpen,
+  answerOpens = false,
 }: {
   cardId: string
   b: CardBlocker
   onOpen: () => void
+  answerOpens?: boolean
 }) {
-  const act = useAct()
-  const [own, setOwn] = useState(false)
+  const [said, setSaid] = useState("")
+  // The same draft as the card page's box for this item; a kept one (a
+  // refused answer's words) opens the box it was typed in.
+  const words = useDraft(`${cardId}/blocker/${b.id}`)
+  const [own, setOwn] = useState(() => !answerOpens && !!words[0])
   const question = plainLine(b.question)
-  const send = (option: number, text: string) =>
-    void act.run(
-      () => cardsApi.answer(cardId, b.id, option, text),
+  const send = (option: number, text: string) => {
+    const started = instant({
+      key: answerKey(cardId, b.id),
+      patch: answerPatch(
+        cardId,
+        b,
+        option,
+        cardStore.slot(cardId)?.detail?.openBlockers
+      ),
+      send: () => cardsApi.answer(cardId, b.id, option, text),
+      failed: b.doneCheck
+        ? "Your answer to the done check wasn't saved"
+        : "Your answer wasn't saved",
+      onSaved: () => {
+        if (option < 0) words[1]("")
+      },
+      onFailed: () => {
+        setSaid("")
+        if (option < 0) setOwn(true)
+      },
+    })
+    if (!started) return
+    setSaid(
       b.doneCheck
-        ? option >= 0
+        ? isDone(b, option)
           ? "Marked done."
           : "Sent back to the agent."
         : "Answer sent."
     )
+    setOwn(false)
+  }
   const replied = b.state === BlockerState.Replied
   return (
     <div className="grid min-w-0 gap-1.5">
       {!b.doneCheck && (
         <div className="grid gap-0.5">
-          <Asker who={b.raisedBy} />
+          {/* Irori asks this one in the person's own name (card #573). */}
+          {b.question !== GIVEN_QUESTION && <Asker who={b.raisedBy} />}
           <p className="text-sm break-words">{question}</p>
         </div>
       )}
@@ -705,7 +825,7 @@ export function BlockerAnswer({
           They still need: {b.missing.map(plainLine).join("; ")}
         </p>
       )}
-      {act.done ? null : own ? (
+      {said ? null : own ? (
         <OwnWords
           label={`${b.doneCheck ? "Why it isn't done" : "Your answer to"}: ${question}`}
           placeholder={
@@ -716,7 +836,8 @@ export function BlockerAnswer({
               : "Answer in your own words"
           }
           send={b.doneCheck ? "Not done" : "Answer"}
-          busy={act.busy}
+          busy={false}
+          draft={words}
           onSend={(t) => send(-1, t)}
           onCancel={() => setOwn(false)}
         />
@@ -731,8 +852,11 @@ export function BlockerAnswer({
               <Button
                 key={i}
                 size="sm"
-                variant={n === 0 && (o.recommended || b.doneCheck) ? "default" : "outline"}
-                disabled={act.busy}
+                variant={
+                  n === 0 && (o.recommended || b.doneCheck)
+                    ? "default"
+                    : "outline"
+                }
                 className="h-auto min-h-8 max-w-full py-1 text-left whitespace-normal"
                 title={o.why ? plainLine(o.why) : undefined}
                 onClick={() => send(i, "")}
@@ -743,20 +867,22 @@ export function BlockerAnswer({
                 )}
               </Button>
             ))}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={act.busy}
-            onClick={() => setOwn(true)}
-          >
-            {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
-          </Button>
+          {/* The given question is its two answers: words aren't a yes. */}
+          {b.question !== GIVEN_QUESTION && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => (answerOpens ? onOpen() : setOwn(true))}
+            >
+              {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onOpen}>
             Open card
           </Button>
         </span>
       )}
-      <Said error={act.error} done={act.done} />
+      <Said error={null} done={said} />
     </div>
   )
 }
@@ -835,7 +961,9 @@ function HeldNeed({
             <Button
               size="sm"
               disabled={act.busy}
-              onClick={() => void act.run(() => talk.release(d.id), "Released.")}
+              onClick={() =>
+                void act.run(() => talk.release(d.id), "Released.")
+              }
             >
               Release
             </Button>
@@ -935,7 +1063,9 @@ function HeldQuiet({
           size="xs"
           variant="outline"
           disabled={busy}
-          title={lists ? "Leaves the ones your block or allow list holds" : undefined}
+          title={
+            lists ? "Leaves the ones your block or allow list holds" : undefined
+          }
           onClick={() => void releaseAll()}
         >
           {busy ? "Releasing…" : "Release all"}

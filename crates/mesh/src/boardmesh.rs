@@ -63,7 +63,8 @@ use zeroize::Zeroizing;
 
 use crate::boards::{BOARD_LABEL_PREFIX, RefusedRow, pull_board, serve_pull};
 use crate::files::{
-    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, serve_blob,
+    BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, prove_over,
+    serve_blob,
 };
 use crate::node::Intervals;
 use crate::servers::PublicAddr;
@@ -88,16 +89,30 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// board's cards only once every member device has said at least this.
 pub const SPAWNS_PROTOCOL: i64 = 1;
 
+/// The `board.ask.moved` row this build reads (card #541): a board hello's
+/// `moves`. As with [`SPAWNS_PROTOCOL`], an older Irori refuses it and the
+/// writer's stream waits on the gap, so a computer takes a board's ask only
+/// once every member device has said at least this.
+pub const MOVES_PROTOCOL: i64 = 1;
+
 /// The hand-off of a person-to-person DM this build speaks (`dm` frames,
 /// card #538): a board hello's `dms`. Built like [`SPAWNS_PROTOCOL`]: an
 /// older Irori skips the frame and says 0, so its device is never asked.
 pub const DMS_PROTOCOL: i64 = 1;
 
+/// The call layer this build speaks (`call` frames, card #654): a board
+/// hello's `calls`. Built like [`DMS_PROTOCOL`]: an older Irori skips the
+/// frame and says 0, so its device is never rung.
+pub const CALLS_PROTOCOL: i64 = 1;
+
 /// This build's tolerant reader (no-server.md §3.5): a board hello's
-/// `tolerant`. A device saying at least this stores a pulled `task.*` or
-/// `space.*` kind it doesn't know instead of stalling on it, so once a
-/// space's devices are past it a new kind of those needs no gate.
-pub const TOLERANT_PROTOCOL: i64 = 1;
+/// `tolerant`. A device saying at least this stores a pulled kind it
+/// doesn't know of a [`store::TOLERATED_FAMILIES`] family instead of
+/// stalling on it, so once a space's devices are past it a new kind of
+/// those needs no gate. 1 (v0.12.4, card #579): `task.*` and `space.*`.
+/// 2 (card #652): `talk.*` and `call.*` too, a release ahead of calls
+/// (#571), which write `call.*` rows only where every device says 2.
+pub const TOLERANT_PROTOCOL: i64 = 2;
 
 /// The longest a refused writer waits before it's tried again from a peer
 /// (no-server.md §4.3). The first wait is one vector tick, then it doubles.
@@ -143,10 +158,18 @@ pub struct BoardHello {
     /// (absent) from an Irori before them.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub spawns: i64,
+    /// The ask moves the sender reads ([`MOVES_PROTOCOL`]); 0 (absent)
+    /// from an Irori before them.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub moves: i64,
     /// The DM hand-off the sender speaks ([`DMS_PROTOCOL`]); 0 (absent)
     /// from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub dms: i64,
+    /// The call layer the sender speaks ([`CALLS_PROTOCOL`]); 0 (absent)
+    /// from an Irori before it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub calls: i64,
     /// Whether the sender stores kinds it doesn't know
     /// ([`TOLERANT_PROTOCOL`]); 0 (absent) from an Irori before it.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -181,6 +204,33 @@ pub struct DmFrame {
     pub step: String,
     #[serde(default)]
     pub body: serde_json::Value,
+}
+
+/// `call {spaceId, callId, op, convId, epoch, devices, atMs}`: one step of
+/// a voice call's ringing (card #654). It rides on a connection of the
+/// space the call is in, so `space_id` must name this board.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallFrame {
+    pub space_id: String,
+    /// The call it's about: the same id on every frame of one call.
+    pub call_id: String,
+    /// `ring`, `join`, `leave` or `end`. A string, not an enum, so a newer
+    /// op still reaches the hooks instead of dropping the frame.
+    pub op: String,
+    /// The conversation the call is in: a channel or a DM.
+    #[serde(default)]
+    pub conv_id: String,
+    /// The topic epoch the sender proves call connections with.
+    #[serde(default)]
+    pub epoch: i64,
+    /// The devices in the call this sender knows of, so each one dials the
+    /// rest (a full mesh).
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// When it was sent, Unix ms.
+    #[serde(default)]
+    pub at_ms: i64,
 }
 
 /// Leaves `body` out: an `offer`'s holds the space's secret, as `Bundle`'s
@@ -330,6 +380,15 @@ pub struct SavedHello {
 }
 
 impl SavedHello {
+    /// The levels it said.
+    pub fn reads(&self) -> BoardReads {
+        BoardReads {
+            spaces: self.spaces,
+            spawns: self.spawns,
+            tolerant: self.tolerant,
+        }
+    }
+
     fn says_the_same(&self, o: &SavedHello) -> bool {
         (
             &self.person_id,
@@ -398,10 +457,21 @@ impl DeviceWords {
     /// device long after its last hello here, and a hello after a row is a
     /// downgrade.
     pub fn spaces(&self, dev: &str) -> Option<i64> {
+        self.reads(dev).map(|r| r.spaces)
+    }
+
+    /// The `tolerant` level of `dev`'s latest word (card #652), None when
+    /// there is none; chosen as [`DeviceWords::spaces`] is.
+    pub fn tolerant(&self, dev: &str) -> Option<i64> {
+        self.reads(dev).map(|r| r.tolerant)
+    }
+
+    /// Every level of `dev`'s latest word, None when there is none.
+    pub fn reads(&self, dev: &str) -> Option<BoardReads> {
         match (self.hellos.get(dev), self.rows.get(dev)) {
-            (Some(h), Some((r, seq))) if *seq > h.seq => Some(r.spaces),
-            (Some(h), _) => Some(h.spaces),
-            (None, Some((r, _))) => Some(r.spaces),
+            (Some(h), Some((r, seq))) if *seq > h.seq => Some(r.clone()),
+            (Some(h), _) => Some(h.reads()),
+            (None, Some((r, _))) => Some(r.clone()),
             (None, None) => None,
         }
     }
@@ -417,7 +487,7 @@ impl DeviceWords {
             .hellos
             .get(&h.device_id)
             .is_some_and(|s| s.says_the_same(h))
-            && self.spaces(&h.device_id) == Some(h.spaces))
+            && self.reads(&h.device_id) == Some(h.reads()))
     }
 }
 
@@ -541,6 +611,9 @@ pub struct BoardMeshOpts {
     /// Who hears about DM hand-offs on this board's connections. `None`:
     /// `dm` frames are dropped.
     pub dms: Option<Arc<dyn DmHooks>>,
+    /// Who hears about call ringing on this board's connections (card
+    /// #654). `None`: `call` frames are dropped.
+    pub calls: Option<Arc<dyn CallHooks>>,
 }
 
 /// This person's other devices (see [`BoardMeshOpts::own_devices`]).
@@ -563,6 +636,18 @@ pub trait DmHooks: Send + Sync {
     fn frame(&self, via: &str, peer: &LivePeer, frame: DmFrame);
 }
 
+/// What a board's connections tell the Core for calls (card #654). `via` is
+/// the board whose connection it was. As with [`DmHooks`], each call runs
+/// on that connection's own task, so it must return at once.
+pub trait CallHooks: Send + Sync {
+    /// `peer` said hello, whatever it said about `calls`: a device too old
+    /// for calls is told apart from one not heard at all.
+    fn hello(&self, via: &str, peer: &LivePeer);
+    /// `peer` sent `frame` about a call in this space. It comes only from
+    /// a device `via`'s verifier admits now.
+    fn frame(&self, via: &str, peer: &LivePeer, frame: CallFrame);
+}
+
 /// A device with a live connection that said hello.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LivePeer {
@@ -574,6 +659,8 @@ pub struct LivePeer {
     pub person_id: String,
     /// The `dms` its last hello said.
     pub dms: i64,
+    /// The `calls` its last hello said.
+    pub calls: i64,
 }
 
 /// One counted member device of a board (a dial target).
@@ -601,6 +688,8 @@ enum Wire {
     Secret(BoardSecretFrame),
     #[serde(rename = "dm")]
     Dm(DmFrame),
+    #[serde(rename = "call")]
+    Call(CallFrame),
 }
 
 type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
@@ -626,6 +715,9 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// The `moves` its last hello said (card #541).
+    pub moves: i64,
+
     /// When a pull from it last left this device holding every row its
     /// newest vector named (card #580); 0 never. That vector may have come
     /// by gossip rather than this connection: either way it was its own.
@@ -634,6 +726,8 @@ pub struct PeerHeard {
     pub dms: i64,
     /// The `tolerant` its last hello said (card #579).
     pub tolerant: i64,
+    /// The `calls` its last hello said (card #654).
+    pub calls: i64,
 }
 
 /// A writer this device has stopped taking rows from: what the device says
@@ -976,10 +1070,28 @@ impl BoardMesh {
     /// The `spaces` each device on a live connection said in its hello:
     /// the word that beats any saved one (no-server.md §5).
     pub fn live_spaces(&self) -> BTreeMap<String, i64> {
+        self.live_reads()
+            .into_iter()
+            .map(|(d, r)| (d, r.spaces))
+            .collect()
+    }
+
+    /// Every level each device on a live connection said in its hello
+    /// (card #652): the word that beats any saved one.
+    pub fn live_reads(&self) -> BTreeMap<String, BoardReads> {
         let live = self.peers();
         let heard = self.s.heard.lock().expect("heard");
         live.into_iter()
-            .filter_map(|(_, d)| heard.get(&d).map(|h| (d, h.spaces)))
+            .filter_map(|(_, d)| {
+                heard.get(&d).map(|h| {
+                    let r = BoardReads {
+                        spaces: h.spaces,
+                        spawns: h.spawns,
+                        tolerant: h.tolerant,
+                    };
+                    (d, r)
+                })
+            })
             .collect()
     }
 
@@ -1012,6 +1124,21 @@ impl BoardMesh {
                     .is_none_or(|l| l < SPAWNS_PROTOCOL)
             })
             .map(|(d, _)| d)
+            .collect()
+    }
+
+    /// The member devices not yet heard to read ask moves (card #541):
+    /// until there are none, no computer takes this board's asks.
+    pub fn not_ready_for_moves(&self) -> Vec<MemberDevice> {
+        let heard = self.s.heard.lock().expect("heard");
+        self.s
+            .member_devices()
+            .into_iter()
+            .filter(|d| {
+                heard
+                    .get(&d.device_id)
+                    .is_none_or(|h| h.moves < MOVES_PROTOCOL)
+            })
             .collect()
     }
 
@@ -1108,6 +1235,54 @@ impl BoardMesh {
         s.send(&p, &Wire::Dm(frame)).await
     }
 
+    /// Sends a call `frame` to `device` alone (card #654), on its
+    /// connection of the newest epoch. Refused as [`Self::send_to`] is, and
+    /// when it never said it speaks [`CALLS_PROTOCOL`].
+    pub async fn send_call(&self, device: &str, frame: CallFrame) -> Result<(), String> {
+        let s = &self.s;
+        let p = s
+            .live_peer(device)
+            .ok_or_else(|| format!("{device} isn't connected"))?;
+        if !admitted(&s.opts.verifier, device, &p.conn.pub_key()) {
+            return Err(format!("{device} isn't a member device here"));
+        }
+        let said = s
+            .heard
+            .lock()
+            .expect("heard")
+            .get(device)
+            .map_or(0, |h| h.calls);
+        if said < CALLS_PROTOCOL {
+            return Err(format!("{device}'s Irori is too old for calls"));
+        }
+        s.send(&p, &Wire::Call(frame)).await
+    }
+
+    /// The newest joined epoch and its topic key: what a call connection
+    /// is proved with (card #654). `None` before any epoch is joined.
+    pub fn newest_key(&self) -> Option<(i64, [u8; 32])> {
+        self.s
+            .keys
+            .lock()
+            .expect("keys")
+            .last_key_value()
+            .map(|(e, k)| (*e, *k))
+    }
+
+    /// Every joined epoch's topic key, newest first: the newest, and the
+    /// previous until it settles. A call connection's proof is checked
+    /// against these (card #654).
+    pub fn topic_keys(&self) -> Vec<(i64, [u8; 32])> {
+        self.s
+            .keys
+            .lock()
+            .expect("keys")
+            .iter()
+            .rev()
+            .map(|(e, k)| (*e, *k))
+            .collect()
+    }
+
     /// What each member device last said here (closed connections too).
     pub fn heard(&self) -> Vec<PeerHeard> {
         self.s
@@ -1154,6 +1329,58 @@ impl BoardMesh {
     /// Whether this board's log offers `sha` (any member's device).
     pub fn offers(&self, sha: &str) -> bool {
         holders_in(&self.s.opts.log, sha).is_ok_and(|h| !h.is_empty())
+    }
+
+    /// Whether one of this person's own devices offered `sha` in this
+    /// board's log ([`Self::may_serve`] without holding it): this person
+    /// put the file on the board, or fetched it for the board (card #659).
+    pub fn own_offer(&self, sha: &str) -> bool {
+        self.s.own_offer(sha)
+    }
+
+    /// [`Self::fetch_file`] for a reader who reached `r` only through this
+    /// board (card #659): a file already here counts only when this
+    /// person offered it on the board, else a device that offered it here
+    /// must show it holds the bytes ([`crate::files::prove_over`]). So a
+    /// row and an offer naming a hash their writer never had can't lend a
+    /// copy this device holds for another conversation. A file not here is
+    /// fetched from this board's holders only. The caller holds the fetch
+    /// turn.
+    pub async fn fetch_for_board(&self, r: &FileRef) -> Result<String, FetchError> {
+        let s = &self.s;
+        let Some(fs) = s.opts.files.clone() else {
+            return Err(FetchError::NoFiles);
+        };
+        check_ref(&fs, r)?;
+        if !fs.has(&r.sha256) {
+            return self.fetch_file(r).await;
+        }
+        if s.own_offer(&r.sha256) {
+            return Ok(String::new());
+        }
+        let held =
+            holders_in(&s.opts.log, &r.sha256).map_err(|e| FetchError::Other(e.to_string()))?;
+        let me = &s.opts.self_id;
+        let cands: Vec<String> = held.into_iter().filter(|h| h != me).collect();
+        if cands.is_empty() {
+            return Err(FetchError::Offline(Vec::new()));
+        }
+        let mut last: Option<FetchError> = None;
+        for dev in &cands {
+            let Some(p) = s.live_peer(dev) else {
+                continue;
+            };
+            match prove_over(p.conn.as_ref(), r).await {
+                Ok(()) => {
+                    if let Err(e) = s.offer(r) {
+                        s.logf(&format!("offer {}: {e}", r.sha256));
+                    }
+                    return Ok(dev.clone());
+                }
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.unwrap_or(FetchError::Offline(cands)))
     }
 
     /// Makes sure `r`'s file (a file on this board's cards) is in this
@@ -1401,7 +1628,12 @@ impl Shared {
         let Some(fs) = &self.opts.files else {
             return false;
         };
-        if !blob::valid_id(sha) || !fs.has(sha) {
+        blob::valid_id(sha) && fs.has(sha) && self.own_offer(sha)
+    }
+
+    /// See [`BoardMesh::own_offer`].
+    fn own_offer(&self, sha: &str) -> bool {
+        if !blob::valid_id(sha) {
             return false;
         }
         let me = self.opts.person_id.as_str();
@@ -1459,23 +1691,33 @@ impl Shared {
         } else {
             return None;
         };
-        let dms = self
+        let (dms, calls) = self
             .heard
             .lock()
             .expect("heard")
             .get(id)
-            .map_or(0, |h| h.dms);
+            .map_or((0, 0), |h| (h.dms, h.calls));
         Some(LivePeer {
             device_id: id.to_string(),
             device_pub: hex::encode(key),
             person_id,
             dms,
+            calls,
         })
     }
 
     /// Tells the DM hooks about `p`: `f` gets them, this board and the peer.
     fn tell_dms(&self, p: &Peer, f: impl FnOnce(&dyn DmHooks, &str, &LivePeer)) {
         if let Some(h) = &self.opts.dms
+            && let Some(l) = self.live(p)
+        {
+            f(h.as_ref(), &self.opts.board_id, &l);
+        }
+    }
+
+    /// Tells the call hooks about `p`, as [`Self::tell_dms`] does.
+    fn tell_calls(&self, p: &Peer, f: impl FnOnce(&dyn CallHooks, &str, &LivePeer)) {
+        if let Some(h) = &self.opts.calls
             && let Some(l) = self.live(p)
         {
             f(h.as_ref(), &self.opts.board_id, &l);
@@ -1811,7 +2053,9 @@ impl Shared {
             schema: 1,
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
+            moves: MOVES_PROTOCOL,
             dms: DMS_PROTOCOL,
+            calls: CALLS_PROTOCOL,
             tolerant: TOLERANT_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
@@ -1891,6 +2135,7 @@ impl Shared {
                         p.wake.notify_one();
                     }
                     self.tell_dms(&p, |d, via, l| d.hello(via, l));
+                    self.tell_calls(&p, |c, via, l| c.hello(via, l));
                     self.share_secrets(&p).await;
                     if self.maybe_settle() {
                         let s = self.clone();
@@ -1921,6 +2166,14 @@ impl Shared {
                         self.tell_dms(&p, |d, via, l| d.frame(via, l, f));
                     }
                 }
+                // Only about a call in this space, from a device it admits.
+                Wire::Call(f) => {
+                    if f.space_id == self.opts.board_id
+                        && admitted(&self.opts.verifier, p.conn.id(), &p.conn.pub_key())
+                    {
+                        self.tell_calls(&p, |c, via, l| c.frame(via, l, f));
+                    }
+                }
             }
         }
     }
@@ -1940,7 +2193,9 @@ impl Shared {
             h.core_version = said.core_version.clone();
             h.spaces = said.spaces;
             h.spawns = said.spawns;
+            h.moves = said.moves;
             h.dms = said.dms;
+            h.calls = said.calls;
             h.tolerant = said.tolerant;
         }
         let now = std::time::SystemTime::now()
@@ -2301,6 +2556,41 @@ mod tests {
         assert_eq!(w.spaces("d"), Some(0), "the downgrade is its latest word");
     }
 
+    /// Card #652: `tolerant` is chosen from the same latest word as
+    /// `spaces`, and a hello that differs from a later row only in
+    /// `tolerant` is saved again too (a v0.12.4 hello after a row of 2).
+    #[test]
+    fn a_devices_tolerant_level_is_its_latest_words() {
+        let hello = |tolerant, seq| SavedHello {
+            device_id: "d".into(),
+            core_version: "0.12.4".into(),
+            spaces: 1,
+            spawns: 1,
+            tolerant,
+            seq,
+            ..Default::default()
+        };
+        let row = |tolerant| BoardReads {
+            spaces: 1,
+            spawns: 1,
+            tolerant,
+        };
+        let mut w = DeviceWords::default();
+        assert_eq!(w.tolerant("d"), None, "no word");
+        w.hellos.insert("d".into(), hello(1, 5));
+        assert_eq!(w.tolerant("d"), Some(1));
+        assert!(!w.needs_saving(&hello(1, 6)), "nothing new");
+        // It updated to tolerant 2; the row came through another device.
+        w.rows.insert("d".into(), (row(TOLERANT_PROTOCOL), 9));
+        assert_eq!(w.tolerant("d"), Some(TOLERANT_PROTOCOL));
+        assert_eq!(w.reads("d"), Some(row(TOLERANT_PROTOCOL)));
+        // Then back to v0.12.4: the same spaces, a lower tolerant.
+        let back = hello(1, 12);
+        assert!(w.needs_saving(&back), "the downgrade is news");
+        w.hellos.insert("d".into(), back);
+        assert_eq!(w.tolerant("d"), Some(1));
+    }
+
     /// Card #392: an older Irori's hello has no `spaces` and still parses
     /// (as 0, not ready); ours says SPACES_PROTOCOL, and an older Irori
     /// reading ours just skips the field (serde ignores unknown fields).
@@ -2324,6 +2614,29 @@ mod tests {
         assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("spaces").is_none(), "0 isn't sent");
+    }
+
+    /// Card #541: an older Irori's hello has no `moves` and parses as 0, so
+    /// [`BoardMesh::not_ready_for_moves`] counts it and no computer takes
+    /// the board's asks; ours says MOVES_PROTOCOL.
+    #[test]
+    fn hello_says_it_reads_moves() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.3","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.moves, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            moves: MOVES_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["moves"], MOVES_PROTOCOL);
+        assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
     }
 
     /// Card #538: `dms` is built like `spawns`. An older hello parses as 0,
@@ -2353,6 +2666,71 @@ mod tests {
         assert_eq!(back, ours);
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("dms").is_none(), "0 isn't sent");
+    }
+
+    /// Card #654: `calls` is built like `dms`. An older hello parses as 0,
+    /// ours round-trips, 0 isn't sent, and `v` stays 1.
+    #[test]
+    fn hello_says_it_speaks_calls() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.4","schema":1,"vector":{},"wallMs":0,"spaces":1,"dms":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.calls, 0);
+        let ours = BoardHello {
+            v: BOARD_PROTOCOL,
+            calls: CALLS_PROTOCOL,
+            ..Default::default()
+        };
+        let b = serde_json::to_vec(&Wire::Hello(ours.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["calls"], CALLS_PROTOCOL);
+        assert_eq!(v["v"], 1, "v stays 1: older Irori keeps syncing");
+        let Wire::Hello(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a hello")
+        };
+        assert_eq!(back, ours);
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("calls").is_none(), "0 isn't sent");
+    }
+
+    /// A `call` frame's shape: tagged `call`, camelCase, only `spaceId`,
+    /// `callId` and `op` required, and an op this build doesn't know still
+    /// parses.
+    #[test]
+    fn a_call_frame_is_tagged_and_keeps_any_op() {
+        let f = CallFrame {
+            space_id: "s".into(),
+            call_id: "c".into(),
+            op: "ring".into(),
+            conv_id: "chan".into(),
+            epoch: 2,
+            devices: vec!["a1".into(), "b1".into()],
+            at_ms: 7,
+        };
+        let b = serde_json::to_vec(&Wire::Call(f.clone())).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["type"], "call");
+        assert_eq!(v["spaceId"], "s");
+        assert_eq!(v["callId"], "c");
+        assert_eq!(v["convId"], "chan");
+        assert_eq!(v["atMs"], 7);
+        let Wire::Call(back) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a call")
+        };
+        assert_eq!(back, f);
+        let Wire::Call(later) =
+            serde_json::from_str(r#"{"type":"call","spaceId":"s","callId":"c","op":"mute"}"#)
+                .unwrap()
+        else {
+            panic!("not a call")
+        };
+        assert_eq!(later.op, "mute");
+        assert!(later.devices.is_empty());
+        assert!(serde_json::from_slice::<Wire>(br#"{"type":"call","op":"ring"}"#).is_err());
     }
 
     /// A `dm` frame's shape, and what its reader does with the rest: an

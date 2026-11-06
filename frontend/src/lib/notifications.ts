@@ -5,12 +5,18 @@
 // from the notification, so they go once it's resolved anywhere. The
 // words here are pure, so they're tested without a window.
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 
 import { Events, NotificationService } from "./host"
 import { inWails } from "./irori"
-import { Notification, NotificationAsk, NotificationCard, State } from "./models"
+import {
+  Notification,
+  NotificationAsk,
+  NotificationCard,
+  State,
+} from "./models"
 import type { CardBlocker, Delivery } from "./models"
+import { pending } from "./pending"
 import { EventInboxChanged, useLatest } from "./talk"
 
 export type { Notification } from "./models"
@@ -37,6 +43,8 @@ export const Kind = {
   Agent: "agent",
   // The one card for several messages that waited (card #482).
   Waited: "waited",
+  // No device can start an agent for a card or thread (card #541).
+  NoAgent: "no_agent",
 } as const
 
 export const kindLabel: Record<string, string> = {
@@ -52,6 +60,7 @@ export const kindLabel: Record<string, string> = {
   held: "Held",
   agent: "Agent",
   waited: "Messages",
+  no_agent: "No agent",
 }
 
 export const kindTone: Record<
@@ -70,13 +79,16 @@ export const kindTone: Record<
   held: "warning",
   agent: "secondary",
   waited: "info",
+  no_agent: "warning",
 }
 
 // onCard: the item is about a card's blocker, done check or question.
 export function asksOnCard(n: Notification): boolean {
   return (
     !!n.taskId &&
-    (n.kind === Kind.Blocker || n.kind === Kind.DoneCheck || n.kind === Kind.Input)
+    (n.kind === Kind.Blocker ||
+      n.kind === Kind.DoneCheck ||
+      n.kind === Kind.Input)
   )
 }
 
@@ -84,11 +96,17 @@ export function asksOnCard(n: Notification): boolean {
 // stands for several messages, not one (card #482). Before #482 it was a
 // message about delivery "waiting".
 export function waitedSummary(n: Notification): boolean {
-  return n.kind === Kind.Waited || (n.kind === Kind.Message && n.deliveryId === "waiting")
+  return (
+    n.kind === Kind.Waited ||
+    (n.kind === Kind.Message && n.deliveryId === "waiting")
+  )
 }
 
 // shown is the list a filter shows, newest first as it comes.
-export function shown(list: Notification[], f: NotificationFilter): Notification[] {
+export function shown(
+  list: Notification[],
+  f: NotificationFilter
+): Notification[] {
   return f === "unread" ? list.filter((n) => !n.read) : list
 }
 
@@ -188,7 +206,8 @@ export function askOutcome(a: NotificationAsk): string {
 }
 
 // useNotifications is the history, re-read whenever it changes and on
-// every card or inbox change (an item's card title follows the card).
+// every card or inbox change (an item's card title follows the card),
+// with the person's pending answers on it (card #644).
 export function useNotifications(): {
   list: Notification[]
   loading: boolean
@@ -201,6 +220,16 @@ export function useNotifications(): {
     []
   )
   const { value, loading, error, reload } = useLatest<Notification[]>(load, [])
+  // A read ends the answers it agrees with once it is shown (useCards).
+  useEffect(() => {
+    if (!loading && !error) pending.observeNotifications(value)
+  }, [value, loading, error])
+  const v = useSyncExternalStore(pending.subscribe, pending.version)
+  const list = useMemo(
+    () => pending.notifications(value),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- v is when pending changes
+    [value, v]
+  )
   useEffect(() => {
     void reload()
     if (!inWails()) {
@@ -209,9 +238,11 @@ export function useNotifications(): {
         sampleListeners.delete(reload)
       }
     }
-    const offs = [EventNotificationsChanged, EventBoardChanged, EventInboxChanged].map(
-      (e) => Events.On(e, () => void reload())
-    )
+    const offs = [
+      EventNotificationsChanged,
+      EventBoardChanged,
+      EventInboxChanged,
+    ].map((e) => Events.On(e, () => void reload()))
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
@@ -219,7 +250,7 @@ export function useNotifications(): {
       window.removeEventListener("focus", onFocus)
     }
   }, [reload])
-  return { list: value, loading, error, reload }
+  return { list, loading, error, reload }
 }
 
 // useUnreadNotifications is the sidebar's badge: just the count, re-read
@@ -285,7 +316,9 @@ function ago(min: number): string {
 }
 
 function sampleNotifications(): Notification[] {
-  if (new URLSearchParams(window.location.search).get("notifications") === "none")
+  if (
+    new URLSearchParams(window.location.search).get("notifications") === "none"
+  )
     return []
   if (sample) return sample
   const card = (id: string, short: string, title: string) =>
@@ -309,7 +342,11 @@ function sampleNotifications(): Notification[] {
       body: "Slot 2's Dolphin stopped answering. Restart it now? The run on it is lost.",
       level: "warn",
       at: ago(4),
-      ask: NotificationAsk({ open: true, actions: ["Restart", "Leave it"], until: ago(-10) }),
+      ask: NotificationAsk({
+        open: true,
+        actions: ["Restart", "Leave it"],
+        until: ago(-10),
+      }),
     }),
     Notification({
       key: "blocker:sample-card-2/b1",
@@ -361,7 +398,12 @@ function sampleNotifications(): Notification[] {
       body: "check.sh is green on the branch.",
       at: ago(180),
       read: true,
-      ask: NotificationAsk({ open: false, answered: true, choice: "Push", actions: ["Push", "Wait"] }),
+      ask: NotificationAsk({
+        open: false,
+        answered: true,
+        choice: "Push",
+        actions: ["Push", "Wait"],
+      }),
     }),
   ]
   return sample

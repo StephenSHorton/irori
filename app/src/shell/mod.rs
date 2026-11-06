@@ -16,6 +16,9 @@
 
 #[cfg(target_os = "android")]
 mod apk;
+// The parsing in it is tested on the desktop too.
+#[cfg(any(target_os = "android", test))]
+mod call_android;
 #[cfg(test)]
 mod golden;
 pub mod instance;
@@ -111,6 +114,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         Some(Arc::new(notify_android::Phone(phone.clone())));
     #[cfg(not(target_os = "android"))]
     let toaster = None;
+    // Card #654: a call's microphone service and audio mode on the phone.
+    #[cfg(target_os = "android")]
+    let call_slot: call_android::Slot = Arc::default();
+    // Handed to the Core's call service (#654); desktops need none.
+    #[cfg(target_os = "android")]
+    let call_platform: Option<Arc<dyn call::Platform>> =
+        Some(Arc::new(call_android::Phone::new(call_slot.clone())));
+    #[cfg(not(target_os = "android"))]
+    let call_platform: Option<Arc<dyn call::Platform>> = None;
     let notifier = notify::Notifier::new(notify::Config {
         dir: Some(data.clone()),
         headless: probe::Probe::from_env().on(),
@@ -156,6 +168,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // again (a tap that brought it back).
     #[cfg(target_os = "android")]
     let app = app.plugin(notify_android::init(phone.clone(), notifier.clone()));
+    // Calls (#654): the Kotlin CallPlugin behind the phone's call::Platform.
+    #[cfg(target_os = "android")]
+    let app = app.plugin(call_android::init(call_slot));
     let app = app
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -266,6 +281,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             data,
                             Started {
                                 notifier,
+                                call_platform,
                                 updater,
                                 keep: Keep {
                                     keeper,
@@ -335,6 +351,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
+                        // Leave any huddle and close its devices (#654).
+                        window.call_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
                         h.close()
@@ -408,6 +426,8 @@ type Running = (host::Hosted, Arc<Window>);
 /// What [`start_core`] wires once the Core is up.
 struct Started {
     notifier: notify::Notifier,
+    /// The phone's microphone service for calls (#654).
+    call_platform: Option<Arc<dyn call::Platform>>,
     updater: Arc<::update::Updater>,
     keep: Keep,
     probe: probe::Probe,
@@ -433,10 +453,14 @@ fn start_core(
     data: std::path::PathBuf,
     s: Started,
 ) -> Result<Running, String> {
-    let hosted = match host::start(rt, data.clone(), false, Some(s.notifier.clone())) {
-        Ok(h) => h,
-        Err(e) => return Err(format!("start: {e}")),
-    };
+    let hosted =
+        match host::options(rt, data.clone(), false, Some(s.notifier.clone())).and_then(|mut o| {
+            o.call_platform = s.call_platform.clone();
+            host::start_with(rt, o)
+        }) {
+            Ok(h) => h,
+            Err(e) => return Err(format!("start: {e}")),
+        };
     let core = hosted.core.clone();
     let api_port = hosted.port;
     irori_core::log(&format!(
@@ -488,6 +512,8 @@ fn start_core(
     if !crate::host::offline() {
         core.set_spawner(Some(spawner()));
     }
+    #[cfg(not(desktop))]
+    core.set_runs_no_agents();
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.
     core.set_spawn_default_on(true);
@@ -575,6 +601,7 @@ fn start_core(
             {
                 probe.watch_terminate(&app);
                 probe.watch_voice(&window);
+                probe.watch_window(&app);
             }
             probe.note(&format!("version {}", version()));
             probe.note(&format!("api-port {api_port}"));
@@ -839,10 +866,10 @@ fn spawner() -> irori_core::spawn::Spawner {
                 permission_mode: r.permission_mode.clone(),
                 model: opt(&r.model),
                 effort: opt(&r.effort),
-                worktree: r.worktree.clone(),
                 settings: r.settings_file.clone(),
                 brief_file: Some(r.brief_path.clone()),
                 prompt: Some(r.prompt.clone()),
+                env: r.env.clone(),
                 ..Default::default()
             })?;
             Ok(SpawnStarted {
@@ -858,9 +885,11 @@ fn spawner() -> irori_core::spawn::Spawner {
                     .map(|a| irori_core::spawn::ClaudeAgent {
                         session_id: a.session_id,
                         live: a.live,
+                        cwd: a.cwd,
                     })
                     .collect()
             })
         })),
+        ready: Some(Arc::new(spawn::claude_installed)),
     }
 }

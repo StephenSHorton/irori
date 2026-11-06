@@ -29,6 +29,7 @@ fn spawner(f: &Arc<Fake>, sessions: PathBuf) -> Spawner {
     let (a, b) = (f.clone(), f.clone());
     let s2 = sessions.clone();
     Spawner {
+        ready: None,
         spawn: Arc::new(move |r: &SpawnReq| {
             a.started.lock().unwrap().push(r.clone());
             write_session(
@@ -217,6 +218,52 @@ fn an_agent_with_offer_it_cards_on_takes_a_thread_first() {
     assert!(fake.started.lock().unwrap().is_empty(), "no agent started");
 }
 
+/// Card #631 through the Core: a thread an agent opens itself starts no
+/// agent, with spawning on, while it holds it and after it gives it back;
+/// the person's post in it goes to the opener while it lives.
+#[test]
+fn an_agents_own_thread_starts_no_agent_until_the_person_writes() {
+    let r = Rig::new();
+    let (_repo, _dir) = agent_in_repo(&r);
+    let fake = Arc::new(Fake::default());
+    let co = r.core.coord();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    spawning_on(&r);
+    let (tk, _) = co
+        .post_agent_thread(
+            &r.key_a,
+            coord::NewAsk {
+                text: "Should the beta go out today?".into(),
+                thread: true,
+                ..coord::NewAsk::default()
+            },
+        )
+        .unwrap();
+    let nothing_starts = |why: &str| {
+        for _ in 0..3 {
+            r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(fake.started.lock().unwrap().is_empty(), "{why}");
+    };
+    nothing_starts("held by its opener");
+    assert_eq!(co.get_task(&tk.id).unwrap().ask.unwrap().taker, r.key_a);
+    co.leave(&r.key_a, &tk.id, &r.key_a).unwrap();
+    nothing_starts("given back");
+    // The person writes while its opener is live: the post goes to the
+    // opener, and still no other agent starts.
+    let person = format!("user:{}", r.core.device_id());
+    let (_, ns) = co
+        .person_comment(&person, &tk.id, "Yes, today.", true, &[], None)
+        .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&r.key_a)),
+        "its opener hears it: {ns:?}"
+    );
+    nothing_starts("the person wrote, its opener live");
+}
+
 // Card #454 (spawned-agents.md §4, §14 part 10): a thread started from a
 // message in a Talk channel. It names its channel and the channel's repo;
 // its agent starts in that repo (not the repo of the agent here active
@@ -278,6 +325,21 @@ fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel()
             })
             .unwrap();
     }
+    // A post of files alone (card #643) reads as Talk's one line for it.
+    r.core
+        .talk()
+        .post(coord::talk::NewPost {
+            conv_id: ch.id.clone(),
+            by: person.clone(),
+            files: vec![blob::FileRef {
+                sha256: "a".repeat(64),
+                name: "save-trace.log".into(),
+                size: 10,
+                ..blob::FileRef::default()
+            }],
+            ..coord::talk::NewPost::default()
+        })
+        .unwrap();
 
     r.core
         .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
@@ -312,7 +374,8 @@ fn a_thread_from_a_repo_channel_starts_its_agent_in_that_repo_with_the_channel()
     assert!(
         brief.contains("The newest lines in #game-repo")
             && brief.contains("the save test times out on Windows")
-            && brief.contains("doesn't make you one"),
+            && brief.contains("doesn't make you one")
+            && brief.contains("📎 save-trace.log"),
         "the channel's lines, as data: {brief}"
     );
     assert!(

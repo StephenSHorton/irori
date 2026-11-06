@@ -29,11 +29,16 @@
 //! - [`invite`]: `irori/invite/1` hooks for the invites part.
 //! - [`boardadmit`]: the boards held here as admission sees them (endpoint
 //!   gate, board gossip, the home relay's B1 widening).
+//!
+//! Voice calls (card #654):
+//! - [`call`]: `irori/call/1`, one connection per pair of devices in a
+//!   call, admitted like boards; audio rides its QUIC datagrams.
 
 pub mod admit;
 pub mod board;
 pub mod boardadmit;
 pub mod book;
+pub mod call;
 pub mod dns;
 pub mod endpoint;
 pub mod fromdb;

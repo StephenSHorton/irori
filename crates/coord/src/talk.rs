@@ -256,10 +256,79 @@ pub struct PostRow {
     pub agents_now: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attach: Option<Vec<serde_json::Value>>,
+    /// The files sent with it (card #643), as a comment's: the bytes stay
+    /// on the attaching device until another one fetches them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attach: Vec<blob::FileRef>,
+    /// A huddle's start or end (#654). An older reader ignores it and
+    /// shows the post's text; a mark this version can't read is dropped
+    /// the same way, never the post.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_call"
+    )]
+    pub call: Option<CallMark>,
     pub by: String,
     pub at: GoTime,
+}
+
+/// A call mark, or None for one of a shape this version doesn't know.
+fn lenient_call<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<CallMark>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
+}
+
+/// What a huddle's start or end post carries (#654): which call, and for
+/// an end, how long it ran and who was in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CallMark {
+    pub call_id: String,
+    /// [`CALL_START`] or [`CALL_END`].
+    pub op: String,
+    /// How long the call ran, on an end; 0 on a start.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub duration_ms: i64,
+    /// The people who took part, by key in this device's form, as
+    /// `mentions` are (#654). Empty on a start.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<String>,
+}
+
+/// A [`CallMark`]'s op when a huddle starts.
+pub const CALL_START: &str = "start";
+/// A [`CallMark`]'s op when a huddle ends.
+pub const CALL_END: &str = "end";
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
+
+/// A call mark as written: an id, a known op, no negative length, each
+/// person once.
+fn check_call(mut c: CallMark) -> Result<CallMark> {
+    c.call_id = c.call_id.trim().to_string();
+    if c.call_id.is_empty() {
+        return Err(invalid("a call mark needs its call's id"));
+    }
+    if c.op != CALL_START && c.op != CALL_END {
+        return Err(invalid(format!(
+            "a call mark's op is {CALL_START} or {CALL_END}, not {:?}",
+            c.op
+        )));
+    }
+    c.duration_ms = c.duration_ms.max(0);
+    let mut people: Vec<String> = Vec::new();
+    for k in &c.people {
+        let k = k.trim();
+        if !k.is_empty() && !people.iter().any(|x| x == k) {
+            people.push(k.to_string());
+        }
+    }
+    c.people = people;
+    Ok(c)
 }
 
 /// `talk.read`.
@@ -325,6 +394,12 @@ pub struct Post {
     /// The card made from it (`talk.card`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<String>,
+    /// The files sent with it (card #643).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<blob::FileRef>,
+    /// A huddle's start or end (#654).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call: Option<CallMark>,
     pub at: GoTime,
     /// Where it sorts: its row's place in the log, or for a post mapped
     /// from elsewhere its time.
@@ -334,6 +409,21 @@ pub struct Post {
     /// DM can be in two logs, and only one may go (card #538).
     #[serde(skip)]
     pub space: String,
+    /// The device that wrote its row (card #659); empty for a post mapped
+    /// from elsewhere.
+    #[serde(skip)]
+    pub device: String,
+}
+
+/// A file on a Talk post, where it is (card #659): see [`Talk::attachments`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostFile {
+    pub conv: String,
+    /// The space whose log holds the post; empty for the private log.
+    pub space: String,
+    /// The device that wrote the post's row.
+    pub device: String,
+    pub file: blob::FileRef,
 }
 
 #[derive(Debug, Clone)]
@@ -379,11 +469,16 @@ pub struct NewPost {
     pub mentions: Vec<String>,
     pub agents_now: bool,
     pub thread_from: Option<String>,
+    /// The files to send with it (card #643): at most
+    /// [`crate::board::MAX_ATTACHMENTS`]. With files the text may be empty.
+    pub files: Vec<blob::FileRef>,
     pub by: String,
     /// Post without joining the channel (card #454): an agent Irori
     /// started for a card or a thread is a member of no channel
     /// (spawned-agents.md §4 "Channels"), so it gets no next-turn readings.
     pub stay_out: bool,
+    /// A huddle's start or end (#654).
+    pub call: Option<CallMark>,
 }
 
 /// The `talk.*` fold, and the writes that append and fold a row. Safe for
@@ -806,7 +901,8 @@ impl Talk {
     pub fn post(&self, p: NewPost) -> Result<Post> {
         let by = need_by(&p.by)?.to_string();
         let conv = p.conv_id.trim().to_string();
-        let text = check_text(&by, &p.text)?;
+        let files = check_files(&p.files)?;
+        let text = check_post(&by, &p.text, !files.is_empty())?;
         let mut space = String::new();
         let pair = self.pair_other(&conv);
         if is_channel(&conv) {
@@ -866,6 +962,7 @@ impl Talk {
         if self.lock().ids.contains(&post_id) {
             return Err(invalid(format!("post {post_id} already exists")));
         }
+        let call = p.call.map(check_call).transpose()?;
         if is_channel(&conv) && !p.stay_out {
             self.join(&conv, &Member::of(&by), &by)?;
         }
@@ -884,7 +981,8 @@ impl Talk {
                 mentions,
                 agents_now: p.agents_now,
                 thread_from,
-                attach: None,
+                attach: files,
+                call,
                 by: by.clone(),
                 at: (self.now)(),
             },
@@ -1042,6 +1140,33 @@ impl Talk {
             .map(|id| {
                 let ms = self.members(&id);
                 (id, ms)
+            })
+            .collect()
+    }
+
+    /// The posts with the file whose hash is `sha` (card #643), the
+    /// earliest first, each with the conversation it is in, the log and
+    /// device that wrote it (card #659) and the file as that post names
+    /// it. Empty when no post has it. A caller that checks a reader takes
+    /// the first conversation the reader may read.
+    pub fn attachments(&self, sha: &str) -> Vec<PostFile> {
+        let s = self.lock();
+        let mut found: Vec<(&Ord3, &String, &Post, &blob::FileRef)> = Vec::new();
+        for (conv, ps) in &s.posts {
+            for p in ps {
+                if let Some(f) = p.files.iter().find(|f| f.sha256 == sha) {
+                    found.push((&p.ord, conv, p, f));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.0.cmp(b.0));
+        found
+            .into_iter()
+            .map(|(_, conv, p, f)| PostFile {
+                conv: conv.clone(),
+                space: p.space.clone(),
+                device: p.device.clone(),
+                file: f.clone(),
             })
             .collect()
     }
@@ -1270,9 +1395,16 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 mentions: r.mentions,
                 agents_now: r.agents_now,
                 thread_from: r.thread_from,
+                files: r
+                    .attach
+                    .into_iter()
+                    .filter(|f| blob::valid_id(&f.sha256))
+                    .collect(),
+                call: r.call,
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),
+                device: ev.device_id.clone(),
             };
             let v = s.posts.entry(r.conv_id).or_default();
             let i = v.partition_point(|x| x.ord <= p.ord);
@@ -1465,8 +1597,14 @@ fn clean_member(m: &Member) -> Result<Member> {
 
 /// A post's text, trimmed and checked as a comment's is.
 pub fn check_text(by: &str, text: &str) -> Result<String> {
+    check_post(by, text, false)
+}
+
+/// [`check_text`] for a post that may carry files: with files it may have
+/// no text, a pasted screenshot on its own (card #643).
+pub fn check_post(by: &str, text: &str, files: bool) -> Result<String> {
     let t = text.trim();
-    if t.is_empty() {
+    if t.is_empty() && !files {
         return Err(invalid("an empty post"));
     }
     if is_person_key(by) {
@@ -1482,6 +1620,27 @@ pub fn check_text(by: &str, text: &str) -> Result<String> {
         )));
     }
     Ok(t.to_string())
+}
+
+/// A post's files, checked: at most [`crate::board::MAX_ATTACHMENTS`], each
+/// a stored file's hash; the same file twice goes once.
+pub fn check_files(files: &[blob::FileRef]) -> Result<Vec<blob::FileRef>> {
+    if files.len() > crate::board::MAX_ATTACHMENTS {
+        return Err(invalid(format!(
+            "at most {} files on a post",
+            crate::board::MAX_ATTACHMENTS
+        )));
+    }
+    let mut out: Vec<blob::FileRef> = Vec::with_capacity(files.len());
+    for f in files {
+        if !blob::valid_id(&f.sha256) {
+            return Err(invalid(format!("{} isn't a stored file", f.name)));
+        }
+        if !out.iter().any(|x| x.sha256 == f.sha256) {
+            out.push(f.clone());
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

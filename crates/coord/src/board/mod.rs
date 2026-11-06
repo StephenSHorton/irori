@@ -24,11 +24,9 @@ mod desk_run;
 mod error;
 mod fold;
 mod idle;
+mod later;
+pub use later::{Back, OrderLoops};
 mod links;
-mod main_red;
-pub use main_red::{
-    MAIN_RED_SCOPE, MainRed, main_red_scope, main_red_test, main_reds, parse_main_red,
-};
 mod mention;
 mod stranded;
 mod version_wait;
@@ -52,9 +50,10 @@ pub use offers::{
 };
 pub use parts::PART_QUESTION;
 pub use spawn::{
-    CRASHED_QUESTION, CRASHED_START, GONE_USAGE_LIMIT, MAX_SPAWN_CRASHES, PERMISSION_MODES,
-    SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk,
-    Spawned, USAGE_LIMIT, crash_question, is_crash_question, usage_limited,
+    CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START, GONE_USAGE_LIMIT,
+    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
+    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned, USAGE_LIMIT, crash_question,
+    is_crash_question, usage_limited,
 };
 mod resource;
 mod review;
@@ -94,24 +93,24 @@ pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT,
-    REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
-    SUB_BUFFER, followed,
+    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
+    REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
+    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
 pub use mirror::RELEASE_REQUEST;
 pub use notes::{
-    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_PROPOSED, NOTE_REMOVED,
-    NOTES_PER_WAKE, NewNote, Note, NoteChange, NoteContext, NoteEdit, NoteEvent, NoteMatch,
-    TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE, TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
+    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_REMOVED, NOTES_PER_WAKE, NewNote,
+    Note, NoteContext, NoteEdit, NoteEvent, NoteMatch, TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE,
+    TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
-    NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrNews, PrState,
+    DESK_PR_CARD_MARK, NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN,
+    PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -236,6 +235,50 @@ pub type BoardTagFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// Every tag a space's log has named for a board inside it (card #558).
 pub type BoardTagsFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
+/// What the fold needs from a space's board list (card #563): the writer
+/// checks and the rule that a delete wins live where the list is folded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardList {
+    /// The first board's id, which a row may name instead of `""`.
+    pub own: String,
+    /// Each deleted board, with its first valid delete's place.
+    pub deleted: Vec<(String, RowPos)>,
+    /// Every (tag, board) the log has named, deleted boards' too.
+    pub tags: Vec<(String, String)>,
+}
+/// See [`Options::board_view`].
+///
+/// None when the list can't be read just now: the fold keeps what it has,
+/// since a blank list would undo every delete.
+pub type BoardViewFn = Arc<dyn Fn() -> Option<BoardList> + Send + Sync>;
+
+/// See [`Options::agent_devices`].
+pub type AgentDevicesFn = Arc<dyn Fn() -> AgentDevices + Send + Sync>;
+
+/// Which of the person's devices can run agents (card #541).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentDevices {
+    /// The computers that can run agents, best first: work goes to the
+    /// first. Offline ones count, so work can wait for one.
+    pub homes: Vec<String>,
+    /// The devices that can't run agents.
+    pub cant: std::collections::HashSet<String>,
+    /// The devices not connected now.
+    pub away: std::collections::HashSet<String>,
+    /// Since when each device in `away` has been away, in unix nanoseconds,
+    /// as this device saw it: a link that dropped a moment ago moves
+    /// nothing.
+    pub away_since: std::collections::BTreeMap<String, i64>,
+    /// The devices whose Irori reads `ask.moved` (a `spawn.host` row
+    /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
+    /// one of these, since an older one would keep acting on it.
+    pub moves: std::collections::HashSet<String>,
+}
+
+/// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
+/// and stands in for a phone (card #541). Older rows have none (0).
+pub const HOST_MOVES: i64 = 1;
+
 /// See [`Options::device_version`].
 pub type DeviceVersionFn = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
@@ -283,6 +326,9 @@ pub struct Options {
     /// On a space (card #558): every tag its log has named for a board
     /// inside it, for a ref to a board that holds no card.
     pub board_tags: Option<BoardTagsFn>,
+    /// On a space or Personal (card #563): its board list, for moves and
+    /// deletes. Read again whenever a board or member row lands.
+    pub board_view: Option<BoardViewFn>,
     /// A person who owned the board just before the row at that place,
     /// or now when there is no row (the cancel rule reads the owners at
     /// the row's time, v0.5 §5.3).
@@ -305,6 +351,10 @@ pub struct Options {
     /// the app only. Read when the hand-out runs. `None` or false: idle
     /// agents, as before.
     pub spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Which of the person's devices can run agents (card #541). Read
+    /// under the coord's lock, so never the store. `None`: every device
+    /// can, as before.
+    pub agent_devices: Option<AgentDevicesFn>,
     /// Whether an agent Irori didn't start (a terminal agent, spawned
     /// agents §5) takes work Irori hands out: unheld cards, asks and
     /// threads (card #453). Only when the person turned on "Offer it
@@ -453,9 +503,13 @@ impl Coord {
     /// short refs settle per row, links re-derive per row), with no duties
     /// run and no repeat check (Go's `impl.apply`). For checks that live
     /// and replay folds agree, and tests that hand the fold a row.
+    ///
+    /// Rows whose kind isn't in [`FOLLOW_KINDS`] are skipped, as
+    /// [`Coord::handle`] and the store replay skip them: a test that folds
+    /// a new kind here fails until production folds it too (card #614).
     pub fn fold_live(&self, rows: &[Event]) {
         let mut f = self.lock();
-        for ev in rows {
+        for ev in rows.iter().filter(|ev| followed(&ev.kind)) {
             let last = f.last.entry(ev.device_id.clone()).or_default();
             *last = (*last).max(ev.seq);
             f.apply(ev);
@@ -545,26 +599,6 @@ impl Coord {
     /// lock (card #561): the outer `None` means the log is busy.
     pub fn try_get_task(&self, id: &str) -> Option<Option<Task>> {
         self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
-    }
-
-    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
-    /// lock (card #561): `None` when the log is busy. With the matches, the
-    /// keys among their writers and accepters that are this log's person
-    /// ([`Coord::is_person`]), so telling them apart needs no second read.
-    pub fn try_notes_for(
-        &self,
-        cx: &NoteContext,
-    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
-        self.try_read(|f| {
-            let notes = f.notes_for(cx);
-            let people = notes
-                .iter()
-                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
-                .filter(|k| f.is_owner(k))
-                .cloned()
-                .collect();
-            (notes, people)
-        })
     }
 
     /// Holds this log's lock until the guard drops, so a test can show a
@@ -732,14 +766,36 @@ impl Coord {
         }
         Ok(t)
     }
-    /// Finds or makes the one open card for main failing `test` (card
-    /// #436), reported from card `from`; true when it was made now, so the
-    /// caller hands it out. Block `from` on it with a task wait.
-    pub fn main_red(&self, by: &str, from: &str, test: &str, commit: &str) -> Result<(Task, bool)> {
-        self.lock().main_red(by, from, test, commit)
-    }
     pub fn unblock(&self, by: &str, id: &str, note: &str) -> Result<(Task, Notice)> {
         self.lock().unblock(by, id, note)
+    }
+    /// Holds card `id` as Not yet until `back` (card #570), or changes the
+    /// hold on a card already held. The notices tell the agents taken off.
+    pub fn park(&self, by: &str, id: &str, why: &str, back: Back) -> Result<(Task, Vec<Notice>)> {
+        self.lock().park(by, id, why, back)
+    }
+    /// Ends card `id`'s hold now (card #570): one on the person's word only
+    /// a person ends.
+    pub fn bring_back(&self, by: &str, id: &str, note: &str) -> Result<(Task, Vec<Notice>)> {
+        self.lock().bring_back(by, id, note)
+    }
+    /// Puts card `id` after `cards` (card #570): one wait on each.
+    pub fn add_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().add_after(by, id, cards)
+    }
+    /// Takes card `id` off its waits on `cards` (card #570).
+    pub fn remove_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().remove_after(by, id, cards)
+    }
+    /// Whether card `from` can't finish until card `to` has (card #570).
+    pub fn order_reaches(&self, from: &str, to: &str) -> bool {
+        self.lock().order_reaches(from, to)
+    }
+    /// Every loop of cards that can't finish before each other (card
+    /// #570): waits on cards and parents on their open subtasks, the
+    /// write check's edges, found in one pass.
+    pub fn order_loops(&self) -> OrderLoops {
+        self.lock().order_loops()
     }
     /// Takes a card back off a shared board.
     pub fn withdraw(&self, by: &str, id: &str, note: &str) -> Result<Task> {
@@ -806,6 +862,13 @@ impl Coord {
     }
     pub fn unresolved(&self) -> usize {
         self.lock().aside.len()
+    }
+    /// The `person:` key of whoever wrote a row from device `dev`, when
+    /// it isn't the `by` the row claims (card #573): on a shared board a
+    /// row names whoever its writer likes. None when they agree, for
+    /// Irori's rows from this person's devices, or off a board.
+    pub fn written_as(&self, by: &str, dev: &str) -> Option<String> {
+        self.lock().written_as(by, dev)
     }
     pub fn is_board(&self) -> bool {
         self.board
@@ -897,6 +960,16 @@ impl Coord {
         f.mention_notice(&by, id, &ms, text, &format!("task:{id}"), "")
     }
     /// Renames a card or changes its objective or done-when (board_edit).
+    /// Reads the board list now: Core calls this after writing a board row
+    /// itself, so a read straight after sees the cards where they went.
+    pub fn refresh_boards(&self) {
+        self.lock().refresh_boards();
+    }
+
+    pub fn move_task(&self, by: &str, id: &str, board: &str) -> Result<Task> {
+        self.lock().move_task(by, id, board)
+    }
+
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
     }
@@ -980,6 +1053,24 @@ impl Coord {
     /// Queues a wait to fire with `what` at the next sweep (a branch moved).
     pub fn fire_wait(&self, id: &str, what: &str) {
         self.lock().fire_wait(id, what)
+    }
+    /// Open waits on shared boards' cards with their waiter on this device
+    /// (card #574).
+    pub fn board_waits(&self) -> Vec<Wait> {
+        self.lock().board_waits()
+    }
+    /// See [`Fold::board_wait_moved`].
+    pub fn board_wait_moved(&self, id: &str, cur: &str) -> Option<String> {
+        self.lock().board_wait_moved(id, cur)
+    }
+    /// See [`Fold::board_wait_lost`].
+    pub fn board_wait_lost(&self, id: &str) {
+        self.lock().board_wait_lost(id)
+    }
+    /// What a wait says happened to card `id` of this log, for a wait kept
+    /// in another log.
+    pub fn wait_what(&self, id: &str, was: &str, now: &str) -> String {
+        self.lock().wait_what(id, was, now)
     }
     /// A task's newest activity lines, newest first (`None`: no such task).
     pub fn activity(&self, id: &str) -> Option<Vec<Activity>> {
@@ -1129,6 +1220,12 @@ impl Coord {
     pub fn comment_attachment(&self, sha: &str) -> Option<FileRef> {
         self.lock().comment_attachment(sha)
     }
+    /// Every comment and blocker carrying sha, with the device whose row
+    /// put it there (card #659): a shared board's caller counts one only
+    /// where that device offered the file in the board's log.
+    pub fn attachment_rows(&self, sha: &str) -> Vec<(FileRef, String)> {
+        self.lock().attachment_rows(sha)
+    }
 
     // ---- links, leases ----
 
@@ -1217,23 +1314,15 @@ impl Coord {
     }
     // ---- notes (card #401) ----
 
-    /// Writes a new note. A person's is accepted at once; an agent's waits
-    /// for a person's accept.
+    /// Writes a new note, live at once whoever writes it (card #616).
     pub fn propose_note(&self, by: &str, n: NewNote) -> Result<Note> {
         self.lock().propose_note(by, n)
     }
-    /// A person accepts a proposed note, or an agent's pending edit or
-    /// removal of one.
-    pub fn accept_note(&self, by: &str, id: &str) -> Result<Note> {
-        self.lock().accept_note(by, id)
-    }
-    /// Edits a note: a person's applies at once, an agent's on a live note
-    /// waits for an accept.
+    /// Edits a note, at once whoever edits it (card #616).
     pub fn edit_note(&self, by: &str, id: &str, e: NoteEdit, why: &str) -> Result<Note> {
         self.lock().edit_note(by, id, e, why)
     }
-    /// Removes a note: a person's removes it, an agent's on a live note
-    /// waits for an accept.
+    /// Removes a note, at once whoever removes it (card #616).
     pub fn remove_note(&self, by: &str, id: &str, why: &str) -> Result<Note> {
         self.lock().remove_note(by, id, why)
     }
@@ -1331,6 +1420,19 @@ impl Coord {
         agents: &[AgentCard],
     ) -> Result<(Task, Notice)> {
         self.lock().post_ask(by, input, agents)
+    }
+
+    /// An agent opens a thread it holds itself (card #631): never handed
+    /// out, and no agent is started for it until its person writes in it.
+    /// The notice is for the agents it names, if any.
+    pub fn post_agent_thread(&self, by: &str, input: NewAsk) -> Result<(Task, Option<Notice>)> {
+        self.lock().post_agent_thread(by, input)
+    }
+
+    /// Whether t is an agent's thread its person hasn't written in yet
+    /// (card #631): it waits on them, and no agent is started for it.
+    pub fn agent_thread_rests(&self, t: &Task) -> bool {
+        self.lock().agent_thread_rests(t)
     }
     /// Asks for an ask's take and waits up to `wait` for the owner's answer.
     pub fn ask_claim(&self, by: &str, id: &str, wait: Duration) -> Result<ClaimResult> {
@@ -1513,6 +1615,19 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
     }
+    /// Who helper part `id`'s "Part done" waits on now (card #557): its
+    /// lead's keys, empty while Irori would start one, None when it isn't
+    /// a part or no lead is coming.
+    pub fn part_lead(&self, id: &str) -> Option<Vec<String>> {
+        let f = self.lock();
+        f.tasks.get(id).and_then(|t| f.part_lead(t))
+    }
+    /// Whether the person's answer on card `id` brings it a fresh lead
+    /// (card #557): a split card nobody is on, where Irori starts leads.
+    pub fn answer_brings_lead(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.answer_brings_lead(t))
+    }
     /// Why "Hand to an agent" can't move card `id` (a shared board's card,
     /// an open ask, subtasks, already on the Board); "" when it can.
     pub fn hand_on_refusal(&self, id: &str) -> String {
@@ -1528,11 +1643,29 @@ impl Coord {
     pub fn hand_on(&self, by: &str, id: &str) -> Result<(Task, Vec<Stranded>)> {
         self.lock().hand_on(by, id)
     }
-    /// Whether this device runs card `id`'s hand-out (it made the card):
-    /// only then does its own sweep start or offer the card's agent.
+    /// Whether this device starts card `id`'s agent: it made the card and
+    /// can run agents, it stands in for a device that can't, or it owns
+    /// the ask (card #541).
     pub fn hands_out_here(&self, id: &str) -> bool {
         let f = self.lock();
-        f.tasks.get(id).is_some_and(|t| f.hands_out(t))
+        f.tasks.get(id).is_some_and(|t| f.spawns_out(t))
+    }
+    /// Takes to this device the waiting asks whose owner can't serve them,
+    /// when work goes here (card #541).
+    pub fn pull_asks(&self) -> Result<()> {
+        self.lock().pull_asks()
+    }
+    /// Whether card t waits for an agent to start for it (card #541).
+    pub fn waits_for_agent(&self, t: &Task) -> bool {
+        self.lock().waits_for_agent(t)
+    }
+    /// Whether card t was made on this device (card #541).
+    pub fn made_here(&self, t: &Task) -> bool {
+        self.lock().hands_out(t)
+    }
+    /// The computer agent work on `side` goes to (card #541).
+    pub fn agent_home(&self, side: &str) -> Option<String> {
+        self.lock().agent_home(side)
     }
     /// The spawned_for mark on agent `key`.
     pub fn spawned(&self, key: &str) -> Option<Spawned> {
@@ -1566,6 +1699,11 @@ impl Coord {
         self.lock()
             .end_spawn(by, id, ("", ""), generation, op, reason)
     }
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it; Ok(false) when it is another computer's now.
+    pub fn fail_own_spawn(&self, id: &str, generation: i64, reason: &str) -> Result<bool> {
+        self.lock().fail_own_spawn(id, generation, reason)
+    }
     /// Binds agent `key` to request `generation` of card `id`: the mark, and the
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {
@@ -1575,6 +1713,55 @@ impl Coord {
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.
     pub fn cards_to_spawn(&self) -> Vec<Task> {
         self.lock().cards_to_spawn()
+    }
+    /// What card `id` itself says about getting an agent (card #574).
+    pub fn spawn_hold(&self, id: &str) -> SpawnHold {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map_or(SpawnHold::NoNeed, |t| f.spawn_hold(t))
+    }
+    /// The device that hands card `id` out; `""` when this log can't say.
+    pub fn card_origin(&self, id: &str) -> String {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.card_origin(t))
+            .unwrap_or_default()
+    }
+    /// Whether this device's person serves card t on a shared board: they
+    /// made it, or it was given to them (card #573).
+    pub fn mine_to_serve(&self, t: &Task) -> bool {
+        self.lock().mine_to_serve(t)
+    }
+    /// Whether this device may start or bind card t's request s on a
+    /// shared board. See [`Fold::mine_to_start`].
+    pub fn mine_to_start(&self, t: &Task, s: &Spawn) -> bool {
+        self.lock().mine_to_start(t, s)
+    }
+    /// Why the agent card t's yes asked for couldn't start (card #573).
+    pub fn given_failed(t: &Task) -> Option<String> {
+        Fold::given_failed(t)
+    }
+    /// Makes a card and gives it in one step, so no sweep sees it unheld
+    /// and starts its author's agent first (card #573).
+    pub fn create_and_assign(&self, by: &str, task: NewTask, to: &str) -> Result<(Task, Notice)> {
+        let mut f = self.lock();
+        let t = f.create_task(by, task)?;
+        f.assign_notice(by, &t.id, to, "")
+    }
+    /// The cards given to this person that wait on "OK to start an agent
+    /// on this?" (card #573). See [`Fold::given_to_ask`].
+    pub fn given_to_ask(&self) -> Vec<Task> {
+        self.lock().given_to_ask()
+    }
+    /// The given cards with a yes this device starts now (card #573).
+    pub fn given_to_spawn(&self) -> Vec<Task> {
+        self.lock().given_to_spawn()
+    }
+    /// Asks the person `by` about card `id` given to them (card #573).
+    pub fn ask_given(&self, by: &str, id: &str, context: &str) -> Result<()> {
+        self.lock().ask_given(by, id, context)
     }
     /// The requests naming this device it may start an agent for now
     /// (card #455): another of the person's devices chose it, or it chose
@@ -1591,9 +1778,33 @@ impl Coord {
         generation: i64,
         device: &str,
         board: &str,
+        counted: bool,
     ) -> Result<()> {
         self.lock()
-            .mark_spawned_elsewhere(key, task_id, generation, device, board)
+            .mark_spawned_elsewhere(key, task_id, generation, device, board, counted)
+    }
+    /// Whether card t's next agent counts toward "My agents may start
+    /// agents" with no new ask (card #575). See [`Fold::in_chain`].
+    pub fn in_chain(&self, t: &Task) -> bool {
+        self.lock().in_chain(t)
+    }
+    /// Whether card t was given to this device's person (card #573): it
+    /// starts only on their own yes.
+    pub fn given_to_me(&self, t: &Task) -> bool {
+        let f = self.lock();
+        t.given.is_some() && f.mine_to_serve(t)
+    }
+    /// Whether agent `key`, started by Irori, hasn't gone (card #575).
+    pub fn spawned_live(&self, key: &str) -> bool {
+        self.lock().spawned_live(key)
+    }
+    /// The live agents that count toward that limit, by key (card #575).
+    pub fn counted_live(&self) -> Vec<String> {
+        self.lock().counted_live()
+    }
+    /// This log's counted requests still starting, oldest first (card #575).
+    pub fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        self.lock().counted_pending()
     }
     /// This log's device id.
     pub fn device_id(&self) -> String {
@@ -1665,6 +1876,10 @@ impl Coord {
             return self.catch_up();
         }
         let mut f = self.lock();
+        // Core writes these itself, so this device's reach the fold here.
+        if ev.kind.starts_with("space.board.") || ev.kind.starts_with("board.member.") {
+            f.refresh_boards();
+        }
         // repo.seen is capture's row, never coord's own write, so this
         // device's ones are folded here (card #521: a GitHub repo an agent
         // works in has a desk by itself).
@@ -1823,6 +2038,14 @@ impl Coord {
         self.lock().refold_if_cut(vec)
     }
 
+    /// Rebuilds the fold from the store as a replay, quietly: for rows this
+    /// device wrote straight to the store (card #640's move), which the
+    /// fold otherwise never sees until a restart.
+    pub fn refold(&self) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        self.lock().refold()
+    }
+
     /// Whether a card's short ref moved at or after `since` (search
     /// re-reads those docs).
     pub fn short_moved_since(&self, id: &str, since: &GoTime) -> bool {
@@ -1881,7 +2104,12 @@ impl Coord {
         if !on_board {
             self.catch_up_own_seen(&st, &me, limit)?;
         }
-        self.lock().holder_duties();
+        let mut f = self.lock();
+        // A board row a page folded may be a delete (card #563); this
+        // device's own were read as Core wrote them, and a startup catch-up
+        // needs the list as much as a resync.
+        f.refresh_boards();
+        f.holder_duties();
         Ok(())
     }
 

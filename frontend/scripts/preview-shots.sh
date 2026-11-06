@@ -1,14 +1,29 @@
 #!/usr/bin/env sh
 # Screenshots of the browser preview (frontend/PREVIEW.md) with an installed
 # Chrome or Edge, headless, into frontend/preview-shots/ (gitignored).
-# Start `bun run preview:look` first. A throwaway profile keeps it off your
-# own browser session.
+# Start `bun run preview:look` first: it writes its URL to
+# frontend/.preview-url, which this reads (PREVIEW_URL overrides). A
+# throwaway profile keeps it off your own browser session.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 out="$here/preview-shots"
-base="${PREVIEW_URL:-http://127.0.0.1:9246/}"
+base="${PREVIEW_URL:-}"
+[ -n "$base" ] || [ ! -f "$here/.preview-url" ] || base=$(tr -d '\r\n' <"$here/.preview-url")
+[ -n "$base" ] || { echo "no preview running in this checkout: start \`bun run preview:look\` or set PREVIEW_URL" >&2; exit 1; }
+case "$base" in */) ;; *) base="$base/" ;; esac
+curl -sf -o /dev/null "$base" || { echo "nothing at $base: start \`bun run preview:look\` or set PREVIEW_URL" >&2; exit 1; }
+# Unless PREVIEW_URL was set by hand, it must be this checkout's preview: a
+# stale .preview-url can point at a port another worktree's preview took.
+if [ -z "${PREVIEW_URL:-}" ]; then
+  norm() { tr '\\' '/' | tr 'A-Z' 'a-z' | sed 's#/$##'; }
+  mine=$( (cygpath -m "$(cd "$here" && pwd -P)" 2>/dev/null || (cd "$here" && pwd -P)) | norm)
+  served=$(curl -sf "${base}__preview-root" | norm)
+  [ "$served" = "$mine" ] || { echo "$base is another checkout's preview (${served:-unknown}): start \`bun run preview:look\` in this one" >&2; exit 1; }
+fi
 browser="${BROWSER_EXE:-}"
-for c in "/c/Program Files/Google/Chrome/Application/chrome.exe" \
+for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+  "/c/Program Files/Google/Chrome/Application/chrome.exe" \
   "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
   "/c/Program Files/Microsoft/Edge/Application/msedge.exe"; do
   [ -z "$browser" ] && [ -x "$c" ] && browser="$c"
@@ -29,6 +44,9 @@ withmode() { # query -> query with ?mode=<mode> added
 }
 
 shot() { # name query [width height [reduce]]
+  # Headless Chrome won't lay out narrower than 500 px: a phone shot here
+  # would be a 500 px page cropped. Phone widths go through check:phone.
+  [ "${3:-1440}" -ge 500 ] || { echo "$1: ${3}px is under Chrome's 500 px minimum; use \`bun run check:phone\`" >&2; exit 1; }
   "$browser" --headless=new --disable-gpu --hide-scrollbars --no-first-run \
     ${5:+--force-prefers-reduced-motion} \
     --user-data-dir="$profile" --window-size="${3:-1440},${4:-900}" \

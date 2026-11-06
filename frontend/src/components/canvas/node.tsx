@@ -44,7 +44,10 @@ export function CardBody({ n, selected }: { n: CardNode; selected?: boolean }) {
       <div className="flex min-w-0 items-center gap-2">
         <StatePill card={n.card} />
         {n.where && (
-          <span className="min-w-0 truncate text-[10.5px] text-muted-foreground" title={n.where}>
+          <span
+            className="min-w-0 truncate text-[10.5px] text-muted-foreground"
+            title={n.where}
+          >
             {n.where}
           </span>
         )}
@@ -76,18 +79,33 @@ export function CardBody({ n, selected }: { n: CardNode; selected?: boolean }) {
 
 // markersOf is a card's at-a-glance flags (card #587), most urgent first:
 // it waits on you, nobody live is on it, nothing happened on it a while.
-export function markersOf(n: Pick<CardNode, "needs" | "nobody" | "stale" | "done">): {
+export function markersOf(
+  n: Pick<CardNode, "needs" | "nobody" | "stale" | "done">
+): {
   id: "needs" | "nobody" | "stale"
   text: string
   title: string
 }[] {
   if (n.done) return []
   const out: ReturnType<typeof markersOf> = []
-  if (n.needs) out.push({ id: "needs", text: "Waiting on you", title: "It needs your answer or your Done" })
+  if (n.needs)
+    out.push({
+      id: "needs",
+      text: "Waiting on you",
+      title: "It needs your answer or your Done",
+    })
   if (n.nobody)
-    out.push({ id: "nobody", text: "Nobody on it", title: "No agent that is running holds it" })
+    out.push({
+      id: "nobody",
+      text: "Nobody on it",
+      title: "No agent that is running holds it",
+    })
   if (n.stale)
-    out.push({ id: "stale", text: "Stale", title: "Nothing has happened on it for a while, and nobody is busy on it" })
+    out.push({
+      id: "stale",
+      text: "Stale",
+      title: "Nothing has happened on it for a while, and nobody is busy on it",
+    })
   return out
 }
 
@@ -184,7 +202,9 @@ export function AgentBody({ n }: { n: AgentNode }) {
         color: tint,
         ["--pulse" as string]: dot,
       }}
-      title={[n.person ? "you" : n.label, n.status, n.agent.where].filter(Boolean).join(" · ")}
+      title={[n.person ? "you" : n.label, n.status, n.agent.where]
+        .filter(Boolean)
+        .join(" · ")}
     >
       {n.person ? (
         <span

@@ -310,6 +310,56 @@ pub(crate) async fn fetch_over(
     Err(last)
 }
 
+/// Asks `conn` for all of `r`'s file and checks the bytes against its
+/// length and hash without keeping them (card #659): a file already here
+/// counts for a board only once a device that offered it there shows it
+/// holds it, so an offer naming a hash its writer never had lends nothing.
+pub(crate) async fn prove_over(conn: &dyn Conn, r: &FileRef) -> Result<(), FetchError> {
+    use sha2::Digest;
+    let mut idb = [0u8; 8];
+    let _ = getrandom::fill(&mut idb);
+    let id = hex::encode(idb);
+    let want = r.size.max(0) as u64;
+    let st = conn
+        .open_stream(&format!("{BLOB_LABEL_PREFIX}{id}"))
+        .await
+        .map_err(|e| FetchError::Other(e.to_string()))?;
+    let mut st: Stream = Box::new(tokio::io::join(st.recv, st.send));
+    let body = json::marshal(&BlobRequest {
+        id: &id,
+        sha256: &r.sha256,
+        offset: 0,
+        len: want as i64,
+    })
+    .unwrap_or_default();
+    let mut msg = (body.len() as u32).to_be_bytes().to_vec();
+    msg.extend_from_slice(&body);
+    st.write_all(&msg)
+        .await
+        .map_err(|e| FetchError::Other(e.to_string()))?;
+    let mut h = sha2::Sha256::new();
+    let mut buf = vec![0u8; BLOB_CHUNK];
+    let mut got: u64 = 0;
+    while got <= want {
+        let room = ((want + 1 - got) as usize).min(BLOB_CHUNK);
+        match st.read(&mut buf[..room]).await {
+            Ok(0) => break,
+            Ok(k) => {
+                h.update(&buf[..k]);
+                got += k as u64;
+            }
+            Err(e) => return Err(FetchError::Other(e.to_string())),
+        }
+    }
+    if got == 0 && want > 0 {
+        return Err(FetchError::NotServed);
+    }
+    if got != want || hex::encode(h.finalize()) != r.sha256 {
+        return Err(mismatch());
+    }
+    Ok(())
+}
+
 /// Go `fetchFrom`: asks `conn` for the rest of the file and moves it into
 /// place once it is whole.
 async fn fetch_from(conn: &dyn Conn, fs: &blob::Files, r: &FileRef) -> Result<(), FetchError> {

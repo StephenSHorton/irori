@@ -34,6 +34,7 @@ fn an_untrusted_repo_waits_on_the_person_then_starts() {
     let started: Arc<Mutex<Vec<SpawnReq>>> = Arc::default();
     let (s2, f2) = (started.clone(), file.clone());
     w.core.set_spawner(Some(Spawner {
+        ready: None,
         spawn: Arc::new(move |req: &SpawnReq| {
             s2.lock().unwrap().push(req.clone());
             Ok(SpawnStarted {
