@@ -4,13 +4,14 @@
 use std::collections::VecDeque;
 
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
-use rubato::{Fft, FixedSync, Resampler};
+use rubato::{Async, FixedAsync, PolynomialDegree, Resampler};
 
-/// Input frames per resampler pass.
-const CHUNK: usize = 480;
+/// Input frames per resampler pass (2 ms at 48 kHz): a cubic polynomial
+/// resampler adds about a pass of delay, where an FFT one adds tens of ms.
+const CHUNK: usize = 96;
 
 pub struct Resample {
-    rs: Option<Fft<f32>>,
+    rs: Option<Async<f32>>,
     inbuf: Vec<f32>,
     scratch: Vec<f32>,
     out: VecDeque<f32>,
@@ -22,8 +23,15 @@ impl Resample {
             None
         } else {
             Some(
-                Fft::<f32>::new(from as usize, to as usize, CHUNK, 1, FixedSync::Input)
-                    .map_err(|e| format!("resampler {from} -> {to} Hz: {e}"))?,
+                Async::<f32>::new_poly(
+                    to as f64 / from as f64,
+                    1.0,
+                    PolynomialDegree::Cubic,
+                    CHUNK,
+                    1,
+                    FixedAsync::Input,
+                )
+                .map_err(|e| format!("resampler {from} -> {to} Hz: {e}"))?,
             )
         };
         let scratch = vec![0.0; rs.as_ref().map_or(0, |r| r.output_frames_max())];

@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, VecDeque};
 use crate::wire::{self, FLAG_DTX, FLAG_MUTED, FLAG_PROBE, FRAME, Header};
 
 /// The least delay added for jitter, ms.
-pub const MIN_TARGET_MS: f64 = 30.0;
+pub const MIN_TARGET_MS: f64 = 20.0;
 /// The most, ms: past it a late frame is concealed instead.
 pub const MAX_TARGET_MS: f64 = 140.0;
 /// How long arrival delays are remembered for the estimate, ms.

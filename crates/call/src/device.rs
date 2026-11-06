@@ -141,14 +141,14 @@ fn open_default() -> Result<Devices, String> {
 fn pick(dev: &cpal::Device, input: bool) -> Result<cpal::StreamConfig, String> {
     use cpal::traits::DeviceTrait;
     let f32_48k = if input {
-        dev.supported_input_configs().ok().and_then(|mut it| {
-            it.find(|r| r.sample_format() == cpal::SampleFormat::F32)
-                .and_then(|r| r.try_with_sample_rate(48_000))
+        dev.supported_input_configs().ok().and_then(|it| {
+            it.filter(|r| r.sample_format() == cpal::SampleFormat::F32)
+                .find_map(|r| r.try_with_sample_rate(48_000))
         })
     } else {
-        dev.supported_output_configs().ok().and_then(|mut it| {
-            it.find(|r| r.sample_format() == cpal::SampleFormat::F32)
-                .and_then(|r| r.try_with_sample_rate(48_000))
+        dev.supported_output_configs().ok().and_then(|it| {
+            it.filter(|r| r.sample_format() == cpal::SampleFormat::F32)
+                .find_map(|r| r.try_with_sample_rate(48_000))
         })
     };
     let chosen = match f32_48k {

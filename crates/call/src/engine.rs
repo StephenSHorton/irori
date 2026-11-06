@@ -20,14 +20,14 @@ use ringbuf::traits::{Consumer, Observer, Producer};
 use crate::device::{Devices, Opener};
 use crate::dsp::{self, Dsp, DspConfig, EchoStats};
 use crate::jitter::{JitterBuffer, JitterStats, Played};
-use crate::probe::{Clicker, Onsets};
+use crate::probe::{Clicker, Onsets, Voice};
 use crate::resample::Resample;
 use crate::wire::{self, FLAG_DTX, FLAG_MUTED, FLAG_PROBE, FRAME, Header};
 
 const F: usize = FRAME as usize;
 /// Audio kept queued for the speaker, ms: enough to ride out the engine
 /// thread's scheduling, little enough not to add delay.
-const SPEAKER_QUEUE_MS: u32 = 30;
+const SPEAKER_QUEUE_MS: u32 = 20;
 /// A quiet sender repeats its silence frame this often (in frames), so the
 /// other side knows it is still there.
 const DTX_KEEPALIVE: u32 = 20;
@@ -52,6 +52,9 @@ pub struct Config {
     /// call-dev's mouth-to-ear probe: play a click every two seconds and
     /// time it at the mic.
     pub probe: bool,
+    /// call-dev's echo test: send a stand-in voice (probe::Voice) on top of
+    /// the mic.
+    pub say: bool,
     pub muted: bool,
 }
 
@@ -62,6 +65,7 @@ impl Default for Config {
             bitrate: 28_000,
             loss_percent: 10,
             probe: false,
+            say: false,
             muted: false,
         }
     }
@@ -76,6 +80,8 @@ pub struct PeerStats {
     pub speaking: bool,
     /// Datagrams the link refused.
     pub send_failed: u64,
+    /// How loud this peer plays here lately, dBFS.
+    pub level_dbfs: f32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +90,12 @@ pub struct Stats {
     /// This device's mic is above the speech gate (after cleaning).
     pub speaking: bool,
     pub muted: bool,
+    /// How loud what this device sends is lately, dBFS.
+    pub sent_level_dbfs: f32,
+    /// While the speaker plays, how much quieter the cleaned mic is than
+    /// the raw mic, dB: the echo (and noise) taken out. Over the last few
+    /// seconds of playing; None before any.
+    pub echo_reduction_db: Option<f32>,
     pub echo: EchoStats,
     pub sent: u64,
     /// Speaker callbacks that ran dry.
@@ -226,6 +238,7 @@ struct Peer {
     frame: [f32; F],
     pos: usize,
     last_loud: Option<Instant>,
+    level: f32,
     send_failed: u64,
 }
 
@@ -247,6 +260,14 @@ struct Core {
     sent: u64,
     loud_until: Option<Instant>,
     clicker: Option<Clicker>,
+    voice: Option<Voice>,
+    sent_level: f32,
+    /// The speaker played something above the speech gate until then (plus
+    /// the time for it to reach the mic).
+    playing_until: Option<Instant>,
+    /// Decaying energy of the raw and the cleaned mic while playing.
+    echo_raw: f64,
+    echo_out: f64,
     onsets: Onsets,
     /// A click starts in the frame being built (probe).
     probe_in_frame: bool,
@@ -283,6 +304,11 @@ impl Core {
             sent: 0,
             loud_until: None,
             clicker: cfg.probe.then(Clicker::new),
+            voice: cfg.say.then(Voice::new),
+            sent_level: 0.0,
+            playing_until: None,
+            echo_raw: 0.0,
+            echo_out: 0.0,
             onsets: Onsets::new(),
             probe_in_frame: false,
             m2e: Vec::new(),
@@ -334,6 +360,7 @@ impl Core {
                         frame: [0.0; F],
                         pos: F,
                         last_loud: None,
+                        level: 0.0,
                         send_failed: 0,
                     },
                 );
@@ -369,6 +396,7 @@ impl Core {
                 if p.pos >= F {
                     let played = p.jb.pull(&mut p.frame, now);
                     p.pos = 0;
+                    p.level = 0.9 * p.level + 0.1 * rms(&p.frame);
                     if matches!(played, Played::Normal | Played::Fec) && rms(&p.frame) > SPEECH_RMS
                     {
                         p.last_loud = Some(Instant::now());
@@ -386,6 +414,9 @@ impl Core {
             // outside it, so the canceller can't remove it from the mic and
             // it reaches the far end like a voice would.
             self.dsp.render(&mix);
+            if rms(&mix) > SPEECH_RMS {
+                self.playing_until = Some(Instant::now() + Duration::from_millis(300));
+            }
             if let Some(c) = self.clicker.as_mut()
                 && c.add(&mut mix, Instant::now())
             {
@@ -424,7 +455,23 @@ impl Core {
                 + self.dev.latency.input_us.load(Ordering::Relaxed) as f64 / 1000.0
                 + self.speaker_queued_ms()
                 + self.mic_in.ready() as f64 / 48.0;
+            let raw = rms(&x) as f64;
             self.dsp.capture(&mut x, delay as i32);
+            if self.playing_until.is_some_and(|t| Instant::now() < t) {
+                // About a 5 s memory at 100 chunks a second.
+                self.echo_raw = 0.998 * self.echo_raw + raw * raw;
+                let out = rms(&x) as f64;
+                self.echo_out = 0.998 * self.echo_out + out * out;
+            }
+            // Muting silences the mic only (call-dev's stand-in voice still
+            // goes out).
+            if self.shared.muted.load(Ordering::Relaxed) {
+                x.fill(0.0);
+            }
+            if let Some(v) = self.voice.as_mut() {
+                v.add(&mut x);
+            }
+            self.sent_level = 0.95 * self.sent_level + 0.05 * rms(&x);
             if rms(&x) > SPEECH_RMS {
                 self.loud_until = Some(Instant::now() + Duration::from_millis(500));
             }
@@ -439,9 +486,6 @@ impl Core {
 
     fn send_frame(&mut self) {
         let muted = self.shared.muted.load(Ordering::Relaxed);
-        if muted {
-            self.acc.fill(0.0);
-        }
         let mut buf = [0u8; 1275];
         let n = match self.enc.encode_float(&self.acc, &mut buf) {
             Ok(n) => n,
@@ -501,6 +545,7 @@ impl Core {
                     jitter: p.jb.stats().clone(),
                     speaking: p.last_loud.is_some_and(|t| now.duration_since(t) < half),
                     send_failed: p.send_failed,
+                    level_dbfs: dbfs(p.level),
                 }
             })
             .collect();
@@ -509,6 +554,9 @@ impl Core {
             peers,
             speaking: !muted && self.loud_until.is_some_and(|t| now < t),
             muted,
+            sent_level_dbfs: dbfs(self.sent_level),
+            echo_reduction_db: (self.echo_raw > 0.0)
+                .then(|| (10.0 * (self.echo_raw / self.echo_out.max(1e-12)).log10()) as f32),
             echo: self.dsp.echo(),
             sent: self.sent,
             underruns: self.dev.latency.underruns.load(Ordering::Relaxed),
@@ -524,6 +572,10 @@ impl Core {
 
 /// Above this RMS a 10 ms chunk counts as speech (about -36 dBFS).
 const SPEECH_RMS: f32 = 0.016;
+
+fn dbfs(x: f32) -> f32 {
+    20.0 * x.max(1e-5).log10()
+}
 
 pub(crate) fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len().max(1) as f32).sqrt()
