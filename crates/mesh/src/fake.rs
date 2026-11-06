@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use irori_meshseam::StreamHandler;
+use irori_meshseam::{BoardRoom, BoardTransport, StreamHandler};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio::runtime::Handle;
@@ -218,6 +218,18 @@ impl Transport for FakeNet {
             rt.spawn(async move { f() });
             Ok(r as Arc<dyn Room>)
         })
+    }
+}
+
+/// A board room is a room of its own topic here. The default `board_gossip`
+/// says no gossip runs: the connections' vector frames still move rows.
+impl BoardTransport for FakeNet {
+    fn join_board(
+        &self,
+        room: BoardRoom,
+        cfg: RoomConfig,
+    ) -> BoxFut<'_, Result<Arc<dyn Room>, TransportError>> {
+        self.join(room.secret, cfg)
     }
 }
 

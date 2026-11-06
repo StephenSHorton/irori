@@ -19,6 +19,7 @@ mod desk_wake;
 mod deskmap;
 mod deskmap_live;
 mod deskwatch;
+mod dm_people;
 mod expiry;
 mod five_cores;
 mod helpertree;

@@ -95,7 +95,7 @@ impl Services {
     /// agents for this person's own cards on boards whose switch is on,
     /// under this device's cap.
     pub(crate) fn sweep_board_spawns(&self, sp: &Spawner, cap: i64, running: &mut i64) {
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             self.bind_board_spawns(&b);
             let co = b.coord().clone();
             if !co.spawning() {

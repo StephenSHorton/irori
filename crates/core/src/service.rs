@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod dm_spaces;
 mod liveness;
 mod mirror;
 pub mod notes;
@@ -290,6 +291,10 @@ struct Services {
     mesh: Arc<crate::meshnode::Mesh>,
     /// The shared boards (Go `c.boards`).
     boards: Arc<Boards>,
+    /// The hidden DM spaces' markers (card #538).
+    dm_spaces: Arc<boards_own::DmSpaces>,
+    /// The DM hand-offs' work (card #538).
+    dms: dm_spaces::Dms,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -474,10 +479,12 @@ impl tools::TaskRouter for ToolsView {
         self.0.request_release(by, resource, why)
     }
     fn comment_coord(&self, id: &str) -> Option<Arc<Coord>> {
+        // Not a hidden DM space's (card #538): no agent works there.
         self.0
             .boards
             .list()
             .into_iter()
+            .filter(|b| !self.0.is_dm_space(&b.id))
             .map(|b| b.coord().clone())
             .find(|co| co.get_comment(id).is_some())
     }
@@ -1196,6 +1203,11 @@ impl Core {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
         }));
+        // Before Talk folds a row and before any space opens (card #538).
+        let dm_spaces = Arc::new(boards_own::DmSpaces::default());
+        if let Err(e) = dm_spaces.load(&st) {
+            logf(format_args!("dm spaces: load: {e}"));
+        }
         if let Err(e) = talk.load() {
             logf(format_args!("talk: load: {e}"));
         }
@@ -1385,6 +1397,8 @@ impl Core {
             revoke: Some(opts.revoke.clone().unwrap_or_else(|| mesh.revoke_fn())),
             mesh,
             boards: board_set,
+            dm_spaces,
+            dms: dm_spaces::Dms::default(),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1419,6 +1433,14 @@ impl Core {
         s.mesh
             .node
             .set_own_boards(Some(Arc::new(invites::OwnBoardSecrets(Arc::downgrade(&s)))));
+        // Before any space opens: every mesh carries the DM hooks (card #538).
+        {
+            let w = Arc::downgrade(&s);
+            s.mesh.set_dms(
+                Arc::new(dm_spaces::DmBridge(w.clone())),
+                Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
+            );
+        }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
             s.pairing
@@ -1614,6 +1636,19 @@ impl Core {
             });
         }
 
+        // The DM hand-offs (card #538): the mesh's hooks only queue work.
+        {
+            let s = s.clone();
+            let reg = self.stop.on_cancel({
+                let s = s.clone();
+                move || s.dms.close()
+            });
+            self.spawn("dms", move || {
+                let _reg = reg;
+                s.run_dm_jobs();
+            });
+        }
+
         // The mesh Node, its Servers fold and the address book, on the
         // net runtime; it joins nothing until there is a second device.
         {
@@ -1747,6 +1782,11 @@ impl Core {
                         s.settle_notifications();
                         s.hub.publish(CoreEvent::Devices);
                         s.hub.publish(CoreEvent::Notifications);
+                        // Card #538: this thread doesn't wait for the
+                        // reconcile, which reads the markers too.
+                        if let Err(e) = s.dm_spaces.load(&s.store) {
+                            logf(format_args!("dm spaces: load: {e}"));
+                        }
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
@@ -3189,7 +3229,7 @@ impl Services {
     /// the last few minutes, becomes a notification here (card #395,
     /// design §8); a plain channel post only bumps the unread count. A
     /// tap opens the conversation.
-    fn talk_note(&self, ev: &Event) {
+    pub(crate) fn talk_note(&self, ev: &Event) {
         const FRESH: Duration = Duration::from_secs(10 * 60);
         let Ok(r) = serde_json::from_slice::<coord::talk::PostRow>(&ev.payload) else {
             return;
@@ -3298,6 +3338,7 @@ impl Services {
             self.boards
                 .list()
                 .iter()
+                .filter(|b| !self.is_dm_space(&b.id))
                 .find_map(|b| b.coord().comment_attachment(sha))
         })
     }
@@ -3465,7 +3506,7 @@ impl Services {
             ..coord::TaskFilter::default()
         };
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
         let mut tasks = Vec::new();
         let mut home = std::collections::HashMap::new();
         for co in coords {
@@ -3721,7 +3762,7 @@ impl Services {
             .map(|c| c.key)
             .collect();
         let mut coords = vec![self.coord.clone()];
-        coords.extend(self.shown_boards().iter().map(|b| b.coord().clone()));
+        coords.extend(self.visible_boards().iter().map(|b| b.coord().clone()));
         let due = self
             .pr_watch
             .due(&coords, &local, &|k| self.private_key(k), now);
@@ -4070,7 +4111,7 @@ impl Services {
             return;
         }
         let mut tasks = self.coord.list_tasks(&coord::TaskFilter::default());
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             tasks.extend(b.coord().list_tasks(&coord::TaskFilter::default()));
         }
         let trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id);

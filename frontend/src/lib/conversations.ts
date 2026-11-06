@@ -12,6 +12,7 @@ import {
   TalkPost,
   type TalkMember,
   type TalkMemberRef,
+  type TalkPerson,
 } from "./models"
 import { inWails } from "./irori"
 import { useLatest } from "./talk"
@@ -21,6 +22,7 @@ export type Conversation = TalkConversation
 export type Post = TalkPost
 export type Member = TalkMember
 export type MemberRef = TalkMemberRef
+export type Person = TalkPerson
 
 // EventTalkChanged fires on every talk.* row the Core folds.
 export const EventTalkChanged = "talk:changed"
@@ -49,6 +51,34 @@ export function listed(convs: readonly Conversation[]): {
     .filter((c) => c.kind === "dm")
     .sort((a, b) => (a.lastAt < b.lastAt ? 1 : a.lastAt > b.lastAt ? -1 : 0))
   return { channels, dms }
+}
+
+// isOtherPerson is whether `m` is another person (card #538): their key is
+// `person:<id>`, where the person's own is `user` or `user:<device>`. A
+// shared board's sender, `board:<id>/person:<id>`, isn't one: no DM with
+// it is a DM between two people.
+export function isOtherPerson(m: { kind: string; key: string }): boolean {
+  return m.kind === "person" && m.key.startsWith("person:")
+}
+
+// dmPerson is the other person in a DM between two people (card #538), or
+// undefined for a DM with an agent.
+export function dmPerson(c: {
+  kind: string
+  members: readonly Member[]
+}): Member | undefined {
+  if (c.kind !== "dm") return undefined
+  if (c.members.some((m) => m.kind !== "person")) return undefined
+  return c.members.find(isOtherPerson)
+}
+
+// waitingText is what a DM with another person waits on (card #538): its
+// posts haven't reached their Irori yet, or their Irori is too old to take
+// them. "" when it isn't waiting.
+export function waitingText(c: { waiting?: string }, who: string): string {
+  if (c.waiting === "them") return `Waiting for ${who}'s Irori`
+  if (c.waiting === "update") return `${who}'s Irori needs updating`
+  return ""
 }
 
 // dmWith is the DM's other side (an agent DM has one), or the two agents of
@@ -158,6 +188,16 @@ export const talkApi = {
       : Promise.resolve(sampleChannel(name, topic, spaceId)),
   dm: (member: MemberRef): Promise<string> =>
     inWails() ? TalkService.Dm(member) : Promise.resolve(sampleDm(member)),
+  // dmPeople is everyone the person can DM: whoever shares a space with
+  // them (card #538).
+  dmPeople: (): Promise<Person[]> =>
+    inWails() ? TalkService.DmPeople() : Promise.resolve(samplePeople),
+  // dmLeave leaves a DM with another person: what's in it goes from all
+  // the person's devices, and a later DM starts a new one (card #538).
+  dmLeave: (convId: string): Promise<void> =>
+    inWails()
+      ? TalkService.DmLeave(convId)
+      : Promise.resolve(sampleDmLeave(convId)),
   join: (convId: string, member: MemberRef): Promise<void> =>
     inWails()
       ? TalkService.Join(convId, member)
@@ -218,7 +258,7 @@ export function usePosts(convId: string): {
 
 // ---------- the browser preview's sample ----------
 
-const me = "person:sample-person"
+const me = "user"
 const heron = "sample-device/sample02-synthetic-session"
 const otter = "sample-device/sample01-synthetic-session"
 const badger = "sample-device/sample03-synthetic-session"
@@ -740,14 +780,34 @@ function sampleDm(member: MemberRef): string {
     ...TalkConversation({
       convId: id,
       kind: "dm",
-      name: member.key,
-      members: [{ kind: "person", key: me, name: "you" }, { ...member }],
+      name: samplePeople.find((p) => p.key === member.key)?.name ?? member.key,
+      members: [
+        { kind: "person", key: me, name: "you" },
+        {
+          ...member,
+          name: samplePeople.find((p) => p.key === member.key)?.name ?? "",
+        },
+      ],
+      ...(member.kind === "person" ? { waiting: "them" } : {}),
     }),
     posts: [],
     readUpTo: "",
   })
   sampleChanged()
   return id
+}
+
+// The people the sample can DM: one from its shared space.
+const samplePeople: Person[] = [
+  { key: "person:sample-sam", name: "Sam", color: "", avatar: "" },
+]
+
+function sampleDmLeave(convId: string) {
+  const all = sampleState()
+  const i = all.findIndex((c) => c.convId === convId)
+  if (i < 0) return
+  all.splice(i, 1)
+  sampleChanged()
 }
 
 function sampleJoin(convId: string, member: MemberRef) {

@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Mutex;
 
+use crate::keyproof::{self, KeyProof};
 use crate::kinds;
 use crate::objects::{
     Cert, DeviceAdded, DeviceRevoked, KeyRotated, Profile, Revoke, decode, ed25519_verify,
@@ -44,8 +45,8 @@ struct RevokeRow {
 #[derive(Clone, Debug)]
 struct RotationRow {
     pos: RowPos,
-    /// The key it announces.
-    pub_hex: String,
+    /// The whole row: a key proof needs its prevSig (card #538).
+    rot: KeyRotated,
 }
 
 #[derive(Clone, Debug)]
@@ -201,8 +202,8 @@ impl State {
             ever = self.certify(&signed, None);
             let mut grew = false;
             for r in &self.rotations {
-                if ever.contains_key(&r.pos.writer) && !keys.contains(&r.pub_hex) {
-                    keys.insert(r.pub_hex.clone());
+                if ever.contains_key(&r.pos.writer) && !keys.contains(&r.rot.person_pub) {
+                    keys.insert(r.rot.person_pub.clone());
                     grew = true;
                 }
             }
@@ -367,10 +368,7 @@ impl Chain {
                     st.bad += 1;
                     return;
                 }
-                st.rotations.push(RotationRow {
-                    pos,
-                    pub_hex: p.person_pub,
-                });
+                st.rotations.push(RotationRow { pos, rot: p });
             }
             kinds::PERSON_PROFILE => {
                 let Some(p) = decode::<Profile>(ev.payload) else {
@@ -483,6 +481,27 @@ impl Chain {
             _ => return false,
         }
         self.cut(id).is_none()
+    }
+
+    /// The proof that `pub_hex` is this person's key at `epoch` (card #538),
+    /// from every device's rotations, not just this one's. Pass a pin's
+    /// epoch and key so the two agree across a rotation. `None` when a
+    /// rotation on the way is from before v0.5 or isn't held yet. The first
+    /// key comes from the certs: `forget` and pairing drop it from
+    /// person.json, but the root's self-cert is always signed by it.
+    pub fn key_proof(&self, epoch: i64, pub_hex: &str) -> Option<KeyProof> {
+        let (person_id, first, rots) = {
+            let st = self.lock();
+            let first = st
+                .adds
+                .iter()
+                .find(|a| first_key_of(&st.person_id, &a.pub_hex))?
+                .pub_hex
+                .clone();
+            let rots: Vec<KeyRotated> = st.rotations.iter().map(|r| r.rot.clone()).collect();
+            (st.person_id.clone(), first, rots)
+        };
+        keyproof::prove_key(&person_id, &first, &rots, epoch, pub_hex)
     }
 
     /// Whether this person's person.profile is held.
