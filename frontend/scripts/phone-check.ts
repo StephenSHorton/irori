@@ -42,7 +42,6 @@ const out =
 const PAGES: Array<[name: string, query: string]> = [
   ["home", ""],
   ["home-spawn", "?spawn=states"],
-  ["home-red", "?red=1"],
   ["card-1", "?open=board:task:sample-card-1"],
   ["card-2", "?open=board:task:sample-card-2"],
   ["card-4", "?open=board:task:sample-card-4"],
