@@ -241,6 +241,81 @@ fn another_open_item_does_not_hold_the_agent_back() {
     t.wait_started(3);
 }
 
+/// Card #575: an agent's start crashed twice, so the card counted toward
+/// the person's limit. "Start another agent" is their own say: it starts
+/// with the limit off and full, and the new agent doesn't count.
+#[test]
+fn start_another_agent_is_not_held_by_the_agents_limit() {
+    let t = rig();
+    let core = &t.w().core;
+    let repo = "remote:github.com/example/counted";
+    core.capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: repo.into(),
+                root: t.r._dirs[0].path().display().to_string(),
+                at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+            },
+        )
+        .unwrap();
+    core.set_spawn_cap(0).unwrap();
+    let c = core
+        .coord()
+        .create_task(
+            &format!("user:{}", core.device_id()),
+            NewTask {
+                title: "An agent asked for this".into(),
+                repo_key: repo.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let agent_start = || {
+        let key = format!("{}/asker", core.device_id());
+        let caller = tools::Caller {
+            sender: inbox::Sender::new(&key, "alpha", "claude"),
+            path: inbox::path::MOD.into(),
+        };
+        let args = serde_json::json!({ "task_id": c.id }).to_string();
+        core.tools()
+            .call(&caller, "agent_start", args.as_bytes())
+            .unwrap()
+    };
+    let out = agent_start();
+    assert!(!out.starts_with("Error: "), "{out}");
+    core.set_spawn_cap(5).unwrap();
+    for n in 1..=MAX_SPAWN_CRASHES as usize {
+        t.wait_started(n);
+        assert!(
+            t.get(&c.id).spawn_request().is_some_and(|s| s.counted),
+            "agent {n} counts: {:?}",
+            t.get(&c.id).spawn_request()
+        );
+        t.crash(&c.id, n, None);
+    }
+    let got = t.get(&c.id);
+    let q = got
+        .blockers
+        .iter()
+        .find(|b| b.open() && is_crash_question(b))
+        .expect("the person is asked")
+        .clone();
+    // The crash stop is the person's: an agent can't get past it.
+    let out = agent_start();
+    assert!(out.contains("crashed twice"), "{out}");
+
+    core.set_agent_starts(false, 0).unwrap();
+    t.w().answer(&c.id, &q.id, 0, "", true, &[]).unwrap();
+    t.wait_started(3);
+    assert!(
+        t.get(&c.id).spawn_request().is_some_and(|s| !s.counted),
+        "{:?}",
+        t.get(&c.id).spawn_request()
+    );
+}
+
 /// A card split into subtasks gets no agent of its own: none is promised.
 #[test]
 fn a_card_with_subtasks_promises_no_agent() {

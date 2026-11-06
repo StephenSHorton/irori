@@ -930,6 +930,9 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
     });
     let q = question(&given.id).unwrap();
     assert_eq!(fs.started(), 0);
+    // His yes is his own Start: the limit on his agents' starts doesn't
+    // hold it, off and full, and its agent doesn't count (card #575).
+    s.core.set_agent_starts(false, 0).unwrap();
     sco.answer(
         &s.person_actor(),
         &given.id,
@@ -961,6 +964,13 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
             && bco.spawned(&key).is_some_and(|m| m.task_id == given.id)
     });
     kick();
+    assert!(
+        sco.get_task(&given.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|r| !r.counted),
+        "the person's yes doesn't count"
+    );
+    assert_eq!(s.core.agent_starts().used, 0);
     let reqs = fs.started.lock().unwrap().clone();
     assert_eq!(reqs.len(), 1, "one agent: {reqs:?}");
     let req = &reqs[0];
