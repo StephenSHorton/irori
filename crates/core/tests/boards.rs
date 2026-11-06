@@ -778,7 +778,13 @@ fn create_board_rows() {
             ..Default::default()
         })
         .unwrap();
-    let ks: Vec<&str> = evs.iter().map(|e| e.kind.as_str()).collect();
+    // Every device writes its board.server row once the board's mesh runs
+    // (card #577), whenever that lands.
+    let ks: Vec<&str> = evs
+        .iter()
+        .map(|e| e.kind.as_str())
+        .filter(|k| *k != mesh::boardmesh::KIND_BOARD_SERVER)
+        .collect();
     assert!(
         ks.len() >= 2
             && ks[0] == kinds::MEMBER_DEVICE_ADDED
