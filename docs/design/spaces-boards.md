@@ -2,8 +2,6 @@
 
 *2026-11-05. Stephen's model: a space is a group of people (many boards, devices and people; Talk and threads are shared across it). A board is a list of tasks. This page says how the build does it. It amends [spaces.md](spaces.md).*
 
-The raw mapping (every string, every file:line) is in `spaces-boards-map/` while the card is open. That folder goes before landing.
-
 ## 1. Settled
 
 - **Personal is a space with its own boards** (b1): private, no invites. It stays the private log. `space.board.*` rows go in that log, which already stores them, and older devices ignore them without stalling. Its default board is implicit, so every private card stays on it. Own id "" dies at `spaces.rs:57`, so Personal needs a sentinel id in the fold.
@@ -24,11 +22,9 @@ Numbers are claimed in `task.created.num`, so existing rows don't change.
 - A card's tag comes from its board's row, which can land after the card. `space.board.*` is folded for that alone: it stamps the board's cards again, so devices agree with no restart.
 - Personal's rule: a bare `#N` means the default board first, deleted cards included, so a stale `#3` is refused rather than passed to `home#3`. Comment mentions and thread hearers read refs by the same rule (`short_hits`).
 
-## 3. Held: moves and board deletes
+## 3. Moves and board deletes: card #563
 
-Stephen held these until a server is designed (b3; #562, and the held card that waits on it). This card adds **no new row kinds and no protocol bump**. Rename uses `space.board.renamed`, and numbering uses `task.created.num`, both of which every `spaces: 1` device already accepts.
-
-For whoever picks them up: `task.board` and `space.board.deleted` are new kinds, so a `spaces: 1` peer stalls on them. `SPACES_PROTOCOL` would go to 2, with `not_ready_for_spaces(min)` taking the level so Talk, add, rename and notes stay at 1. Keep "waiting on" in the refusal (pinned by `spaces.rs:553`, `five_cores.rs:1335`). `heard` is memory only, so one sleeping device after a restart would refuse a move. The private log needs no gate. Cards on a deleted board land on the default board, taking numbers there derived in the fold.
+Stephen first held these for a server design (b3). Decision 48 dropped the server: a move is `board.ask.edited` and a delete is `space.board.renamed {deleted: true}`, rows every current device reads. [no-server.md](no-server.md) §3 is the design and #563 builds it on this card's numbering. This card adds **no new row kinds and no protocol bump**.
 
 ## 4. Names
 
@@ -37,10 +33,8 @@ For whoever picks them up: `task.board` and `space.board.deleted` are new kinds,
 - Agreed with Stephen (b4): any active member renames a board, matching add, and a first board keeps the space's name until someone renames it. A name-only rename skips tag validation and the holder check.
 - `tools_board` feeds both `boards()` and `board_of()` (`bridge.rs:546, :749`): change both.
 
-## 5. Bugs found on the way (fix in this card)
+## 5. Bugs found on the way, all fixed on this card
 
-Window: inner tag and board never reach `CardSummary` (`cards.rs:2113, :2201`); no way to make a card on an inner board (`new_card.rs:131`); `summary_row` misses `space.board.*` (`boards.rs:431`); subtasks fall on the first board (`subtasks.rs:393`); `create_board` misses inner tags (`boards.rs:991`); `SpaceBoardRow` fields need `serde(default)`.
-
-Talk: a thread from a space channel lands in the private log (`window/src/talk.rs:231`); agent Talk tools read only the private coord (`tools/src/talk.rs:508, :583`); All spaces hides space threads (`spaces.ts:91`).
-
-`SINCE_GO` is a sized array (`store/tests/golden.rs:77`): bump it with the new kinds.
+- Window: an inner board's tag and board reach `CardSummary` (`card_place`), New card can go on any board, subtasks stay on their parent's board, and `summary_row` follows `space.board.*`.
+- Talk: a thread from a space channel lands in the space's log, agent Talk tools reach space threads, All spaces lists them, and `talk_post` on a space's card goes through the shared-space fence like `board_comment`.
+- Agents: `board_share` and `board_create` onto an inner board land on that board, and labels name a card's own board.
