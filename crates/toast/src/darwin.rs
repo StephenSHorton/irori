@@ -21,6 +21,14 @@
 //! Geometry is in points, so the engine's scale is always 1: AppKit draws
 //! at the screen's backing scale by itself. The engine's coordinates are
 //! top-down from the primary screen's top-left; AppKit's are bottom-up.
+//!
+//! The look follows the app (card #527): each panel's content view is an
+//! `NSVisualEffectView` (behind-window blur, rounded with a cap-inset mask
+//! image) with the drawn `ToastView` over it, which paints the theme's
+//! tint at the glass opacity on top of the blur. Solid cards (no glass, or
+//! "Reduce transparency" on) hide the blur and paint the opaque background.
+//! The panel's appearance is Aqua or Dark Aqua to match the card, and with
+//! the "system" scheme the OS's light/dark flip restyles cards on screen.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -34,20 +42,24 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplicationDidChangeScreenParametersNotification, NSBackingStoreType, NSBezierPath,
-    NSBitmapFormat, NSBitmapImageRep, NSColor, NSCompositingOperation, NSCursor,
-    NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSFont, NSFontAttributeName,
-    NSFontWeightRegular, NSFontWeightSemibold, NSForegroundColorAttributeName, NSGraphicsContext,
-    NSImage, NSImageInterpolation, NSImageSymbolConfiguration, NSLineBreakMode,
-    NSMutableParagraphStyle, NSPanel, NSParagraphStyleAttributeName, NSRectFill,
-    NSRectFillUsingOperation, NSResponder, NSScreen, NSSound, NSStatusWindowLevel, NSStringDrawing,
-    NSStringDrawingOptions, NSStringNSExtendedStringDrawing, NSTextAlignment, NSTrackingArea,
-    NSTrackingAreaOptions, NSView, NSWindowAnimationBehavior, NSWindowCollectionBehavior,
-    NSWindowSharingType, NSWindowStyleMask, NSWorkspace,
+    NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+    NSApplicationDidChangeScreenParametersNotification, NSAutoresizingMaskOptions,
+    NSBackingStoreType, NSBezierPath, NSBitmapFormat, NSBitmapImageRep, NSColor,
+    NSCompositingOperation, NSCursor, NSDeviceRGBColorSpace, NSEvent, NSEventModifierFlags, NSFont,
+    NSFontAttributeName, NSFontWeightRegular, NSFontWeightSemibold, NSForegroundColorAttributeName,
+    NSGraphicsContext, NSImage, NSImageInterpolation, NSImageResizingMode,
+    NSImageSymbolConfiguration, NSLineBreakMode, NSMutableParagraphStyle, NSPanel,
+    NSParagraphStyleAttributeName, NSRectFill, NSRectFillUsingOperation, NSResponder, NSScreen,
+    NSSound, NSStatusWindowLevel, NSStringDrawing, NSStringDrawingOptions,
+    NSStringNSExtendedStringDrawing, NSTextAlignment, NSTrackingArea, NSTrackingAreaOptions,
+    NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+    NSVisualEffectView, NSWindowAnimationBehavior, NSWindowCollectionBehavior, NSWindowSharingType,
+    NSWindowStyleMask, NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,
 };
 use objc2_foundation::{
-    NSData, NSDictionary, NSNotificationCenter, NSOperationQueue, NSPoint, NSRect, NSRunLoop,
-    NSRunLoopCommonModes, NSSize, NSString, NSTimer,
+    NSData, NSDictionary, NSDistributedNotificationCenter, NSEdgeInsets, NSNotificationCenter,
+    NSOperationQueue, NSPoint, NSRect, NSRunLoop, NSRunLoopCommonModes, NSSize, NSString, NSTimer,
+    NSUserDefaults,
 };
 
 use crate::ENGINE;
@@ -56,7 +68,7 @@ use crate::config::{Color, Config, Kind};
 use crate::engine::{Look, Mouse, Surface, TICK_MS};
 use crate::layout::{
     BODY_GAP_DIP, BODY_SIZE_DIP, BUTTON_SIZE_DIP, ICON_LEFT_DIP, ICON_SIZE_DIP, PAD_TOP_DIP, Part,
-    Rect, STRIPE_DIP, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP, TITLE_SIZE_DIP,
+    Rect, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP, TITLE_SIZE_DIP, stripe_rect,
 };
 use crate::note::Image;
 
@@ -108,7 +120,7 @@ pub fn play(b: Arc<[u8]>) {
 }
 
 thread_local! {
-    static PANELS: RefCell<HashMap<u64, Retained<ToastPanel>>> = RefCell::new(HashMap::new());
+    static PANELS: RefCell<HashMap<u64, Card>> = RefCell::new(HashMap::new());
     static TICKER: RefCell<Option<Retained<NSTimer>>> = const { RefCell::new(None) };
     static SETUP: Cell<bool> = const { Cell::new(false) };
     static PLAYING: RefCell<Vec<Retained<NSSound>>> = const { RefCell::new(Vec::new()) };
@@ -123,23 +135,107 @@ fn sync() {
     ENGINE.sync(&mut MacSurface { mtm }, Instant::now());
 }
 
-/// Once: watch for screen changes (re-place the stack).
+/// Once: watch for screen changes (re-place the stack), the OS's
+/// light/dark flips (restyle cards that follow it) and "Reduce
+/// transparency" (glass or solid).
 fn setup() {
     if SETUP.with(|s| s.replace(true)) {
         return;
     }
-    let block = RcBlock::new(|_n: std::ptr::NonNull<objc2_foundation::NSNotification>| {
-        ENGINE.rehome();
-        sync();
-    });
+    observe(
+        &NSNotificationCenter::defaultCenter(),
+        unsafe { NSApplicationDidChangeScreenParametersNotification },
+        || {
+            ENGINE.rehome();
+            sync();
+        },
+    );
+    // Posted (distributed, to every app) after the defaults key changed.
+    // AppKit holds distributed notifications back while the app isn't
+    // active, which is when cards are usually up, so this one asks for
+    // immediate delivery (only the selector form can).
+    if let Some(mtm) = MainThreadMarker::new() {
+        let obs = ThemeObserver::new(mtm);
+        unsafe {
+            NSDistributedNotificationCenter::defaultCenter()
+                .addObserver_selector_name_object_suspensionBehavior(
+                    &obs,
+                    objc2::sel!(themeChanged:),
+                    Some(&NSString::from_str(
+                        "AppleInterfaceThemeChangedNotification",
+                    )),
+                    None,
+                    objc2_foundation::NSNotificationSuspensionBehavior::DeliverImmediately,
+                );
+        }
+        // The center doesn't retain observers; this one lives as long as
+        // the process.
+        std::mem::forget(obs);
+    }
+    observe(
+        &NSWorkspace::sharedWorkspace().notificationCenter(),
+        unsafe { NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification },
+        restyle_all,
+    );
+}
+
+/// The OS switched light/dark. The engine asks os_dark on every sync
+/// while the scheme is "system" and restyles when the answer changes; the
+/// later syncs catch a defaults cache that is a beat behind the
+/// notification.
+fn theme_changed() {
+    wake();
+    for ms in [250, 1000] {
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(ms))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = DispatchQueue::main().after(when, wake);
+    }
+}
+
+define_class!(
+    /// Hears AppleInterfaceThemeChangedNotification (see setup).
+    #[unsafe(super(objc2_foundation::NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "IroriToastThemeObserver"]
+    struct ThemeObserver;
+
+    impl ThemeObserver {
+        #[unsafe(method(themeChanged:))]
+        fn theme_changed_(&self, _n: Option<&objc2_foundation::NSNotification>) {
+            theme_changed();
+        }
+    }
+);
+
+impl ThemeObserver {
+    fn new(mtm: MainThreadMarker) -> Retained<ThemeObserver> {
+        unsafe { msg_send![ThemeObserver::alloc(mtm), init] }
+    }
+}
+
+/// Runs f on the main queue on each `name` from `center`, for the life of
+/// the process.
+fn observe(center: &NSNotificationCenter, name: &NSString, f: impl Fn() + 'static) {
+    let block = RcBlock::new(move |_n: std::ptr::NonNull<objc2_foundation::NSNotification>| f());
     unsafe {
-        let obs = NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
-            Some(NSApplicationDidChangeScreenParametersNotification),
+        let obs = center.addObserverForName_object_queue_usingBlock(
+            Some(name),
             None,
             Some(&NSOperationQueue::mainQueue()),
             &block,
         );
-        std::mem::forget(obs); // for the life of the process
+        std::mem::forget(obs);
+    }
+}
+
+/// Re-applies every card's look (the glass/solid choice changed).
+fn restyle_all() {
+    let cards: Vec<Card> = PANELS.with(|m| m.borrow().values().cloned().collect());
+    for c in cards {
+        let look = c.view.ivars().look.borrow().clone();
+        if let Some(l) = look {
+            style(&c, &l);
+        }
     }
 }
 
@@ -163,12 +259,16 @@ fn top_down(mtm: MainThreadMarker, r: NSRect) -> Rect {
 }
 
 fn rgb(c: Color) -> Retained<NSColor> {
+    rgba(c, 1.0)
+}
+
+fn rgba(c: Color, a: f64) -> Retained<NSColor> {
     let (r, g, b) = c.rgb();
     NSColor::colorWithSRGBRed_green_blue_alpha(
         r as f64 / 255.0,
         g as f64 / 255.0,
         b as f64 / 255.0,
-        1.0,
+        a,
     )
 }
 
@@ -210,8 +310,81 @@ struct MacSurface {
     mtm: MainThreadMarker,
 }
 
-fn panel(key: u64) -> Option<Retained<ToastPanel>> {
+/// A card's window: a plain content view holding the blur and, over it,
+/// the drawn card (a hidden effect view would hide its subviews, so the
+/// blur is a sibling, not the parent).
+#[derive(Clone)]
+struct Card {
+    panel: Retained<ToastPanel>,
+    blur: Retained<NSVisualEffectView>,
+    view: Retained<ToastView>,
+}
+
+fn card(key: u64) -> Option<Card> {
     PANELS.with(|p| p.borrow().get(&key).cloned())
+}
+
+fn panel(key: u64) -> Option<Retained<ToastPanel>> {
+    card(key).map(|c| c.panel)
+}
+
+/// A black rounded rect of radius r, stretched from its middle pixel: the
+/// blur's mask (Apple's way to round a behind-window NSVisualEffectView;
+/// a layer corner radius doesn't reliably clip the blur).
+fn mask_image(r: f64) -> Retained<NSImage> {
+    let d = (r * 2.0 + 1.0).ceil();
+    let handler = RcBlock::new(move |rect: NSRect| {
+        NSColor::blackColor().setFill();
+        NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, r, r).fill();
+        Bool::YES
+    });
+    let img = NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(d, d), false, &handler);
+    img.setCapInsets(NSEdgeInsets {
+        top: r,
+        left: r,
+        bottom: r,
+        right: r,
+    });
+    img.setResizingMode(NSImageResizingMode::Stretch);
+    img
+}
+
+/// Gives the card its look, and when the style (radius, glass, darkness)
+/// changed, restyles the window: on create and again for a card on screen
+/// when the person changes the theme or the OS flips light/dark.
+fn style(c: &Card, look: &Look) {
+    let solid = NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency();
+    let glass = if solid { None } else { look.glass };
+    *c.view.ivars().look.borrow_mut() = Some(look.clone());
+    c.view.ivars().glass.set(glass);
+    let key = (look.radius, glass.map(f64::to_bits), look.dark);
+    if c.view.ivars().styled.replace(Some(key)) == Some(key) {
+        c.view.setNeedsDisplay(true);
+        return;
+    }
+    let r = look.radius.max(0) as f64;
+    c.blur.setHidden(glass.is_none());
+    c.blur
+        .setMaskImage((r > 0.0).then(|| mask_image(r)).as_deref());
+    if let Some(layer) = c.view.layer() {
+        layer.setCornerRadius(r);
+        layer.setMasksToBounds(r > 0.0);
+    }
+    // The blur's material follows the window's appearance: match the
+    // card, not the app (which may be in the other mode).
+    let name = unsafe {
+        if look.dark {
+            NSAppearanceNameDarkAqua
+        } else {
+            NSAppearanceNameAqua
+        }
+    };
+    c.panel
+        .setAppearance(NSAppearance::appearanceNamed(name).as_deref());
+    c.view.setNeedsDisplay(true);
+    // Draw now so the shadow is worked out from the new rounded shape.
+    c.panel.display();
+    c.panel.invalidateShadow();
 }
 
 impl Surface for MacSurface {
@@ -315,23 +488,44 @@ impl Surface for MacSurface {
         if cfg.capture_exclude {
             p.setSharingType(NSWindowSharingType::None);
         }
+        let fill = NSAutoresizingMaskOptions::ViewWidthSizable
+            | NSAutoresizingMaskOptions::ViewHeightSizable;
+        let root = NSView::initWithFrame(NSView::alloc(mtm), rect);
+        root.setWantsLayer(true);
+        // The blur: behind the window (the desktop and apps under the
+        // card), always active (the panel is never key, and
+        // FollowsWindowActiveState would draw it flat). Popover is the
+        // lightest, most see-through of the frosted materials in both
+        // appearances, close to the window's glass; HUDWindow is dark
+        // even in Aqua and Menu is near opaque.
+        let blur = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), rect);
+        blur.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        blur.setState(NSVisualEffectState::Active);
+        blur.setMaterial(NSVisualEffectMaterial::Popover);
+        blur.setAutoresizingMask(fill);
+        blur.setHidden(true); // until the first draw says it is glass
+        root.addSubview(&blur);
         let v = ToastView::new(mtm, key, rect);
         v.setWantsLayer(true);
-        p.setContentView(Some(&v));
-        PANELS.with(|m| m.borrow_mut().insert(key, p));
+        v.setAutoresizingMask(fill);
+        root.addSubview(&v); // on top: it takes the mouse
+        p.setContentView(Some(&root));
+        PANELS.with(|m| {
+            m.borrow_mut().insert(
+                key,
+                Card {
+                    panel: p,
+                    blur,
+                    view: v,
+                },
+            )
+        });
         true
     }
 
     fn draw(&mut self, look: &Look) {
-        let Some(p) = panel(look.key) else { return };
-        let Some(v) = p.contentView() else { return };
-        let v: &ToastView = unsafe { &*(Retained::as_ptr(&v) as *const ToastView) };
-        *v.ivars().look.borrow_mut() = Some(look.clone());
-        if let Some(layer) = v.layer() {
-            layer.setCornerRadius(look.radius as f64);
-            layer.setMasksToBounds(look.radius > 0);
-        }
-        v.setNeedsDisplay(true);
+        let Some(c) = card(look.key) else { return };
+        style(&c, look);
         if look.hovered {
             let c = if look.hand_cursor() {
                 NSCursor::pointingHandCursor()
@@ -377,8 +571,8 @@ impl Surface for MacSurface {
     fn destroy(&mut self, key: u64) {
         // orderOut, not close: an app that quits after its last window
         // closes mustn't count a card.
-        if let Some(p) = PANELS.with(|m| m.borrow_mut().remove(&key)) {
-            p.orderOut(None);
+        if let Some(c) = PANELS.with(|m| m.borrow_mut().remove(&key)) {
+            c.panel.orderOut(None);
         }
     }
 
@@ -412,6 +606,16 @@ impl Surface for MacSurface {
             return;
         }
         throw_confetti(self.mtm, card);
+    }
+
+    /// The OS's own mode from the defaults ("Dark" while dark, unset while
+    /// light, also under Auto), not NSApp's effective appearance: the
+    /// window (Tauri) may pin the app's appearance to the person's theme
+    /// mode, which would hide the OS's.
+    fn os_dark(&mut self) -> bool {
+        NSUserDefaults::standardUserDefaults()
+            .stringForKey(&NSString::from_str("AppleInterfaceStyle"))
+            .is_some_and(|s| s.to_string().eq_ignore_ascii_case("dark"))
     }
 }
 
@@ -450,6 +654,11 @@ struct ViewIvars {
     /// Control-click is the Mac's right click.
     ctrl_down: Cell<bool>,
     tracking: RefCell<Option<Retained<NSTrackingArea>>>,
+    /// The style the window was last set up for (radius, glass bits, dark).
+    styled: Cell<Option<(i32, Option<u64>, bool)>>,
+    /// The glass in effect: the look's, or none under "Reduce
+    /// transparency" (kept apart so the look stays the engine's).
+    glass: Cell<Option<f64>>,
 }
 
 define_class!(
@@ -547,7 +756,7 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
             if let Some(l) = self.ivars().look.borrow().as_ref() {
-                draw_card(self.bounds(), l);
+                draw_card(self.bounds(), l, self.ivars().glass.get());
             }
         }
     }
@@ -560,6 +769,8 @@ impl ToastView {
             look: RefCell::new(None),
             ctrl_down: Cell::new(false),
             tracking: RefCell::new(None),
+            styled: Cell::new(None),
+            glass: Cell::new(None),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -700,21 +911,40 @@ fn draw_thumb(img: &Image, r: NSRect, border: &NSColor, radius: f64) {
     fill_box(r, None, Some(border), radius);
 }
 
-fn draw_card(all: NSRect, l: &Look) {
+/// The card, as glass (the tint at that opacity) or solid.
+fn draw_card(all: NSRect, l: &Look, glass: Option<f64>) {
     let k = l.palette;
     let (w, h) = (all.size.width, all.size.height);
     let accent = rgb(k.accent.for_kind(l.kind));
     let radius = l.radius as f64;
 
-    // The layer's corner mask rounds the card; the stripe sits under the
-    // rounded border so the curve stays clean.
-    rgb(k.background).setFill();
-    NSRectFill(all);
+    // Glass: the theme's tint, translucent over the blur behind it. Solid:
+    // the opaque background. The layer's corner mask rounds the card too;
+    // the stripe is clipped to the rounded card and sits under the border
+    // so the curve stays clean.
+    let shape = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(all, radius, radius);
+    match glass {
+        Some(a) => rgba(k.tint, a).setFill(),
+        None => rgb(k.background).setFill(),
+    }
+    shape.fill();
+    let ctx = NSGraphicsContext::currentContext();
+    if let Some(c) = &ctx {
+        c.saveGraphicsState();
+    }
+    shape.addClip();
     accent.setFill();
-    NSRectFill(NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(STRIPE_DIP, h),
-    ));
+    // A rounded card's stripe is an inset pill (layout::stripe_rect).
+    let (sr, sradius) = stripe_rect(h as i32, l.radius, 1.0);
+    NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+        ns_rect(sr),
+        sradius as f64,
+        sradius as f64,
+    )
+    .fill();
+    if let Some(c) = &ctx {
+        c.restoreGraphicsState();
+    }
     fill_box(all, None, Some(&rgb(k.border)), radius);
 
     let top = PAD_TOP_DIP;

@@ -47,6 +47,11 @@ pub const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start anot
 /// The person's way on from it (their own words go into the next brief).
 pub const CRASHED_START: &str = "Start another agent";
 
+/// Whether b is Irori's crash question.
+pub fn is_crash_question(b: &Blocker) -> bool {
+    b.raised_by == SWEEPER && b.question == CRASHED_QUESTION
+}
+
 /// The permission modes a spawn may pass (§7). One is always passed.
 pub const PERMISSION_MODES: [&str; 4] = ["bypassPermissions", "acceptEdits", "default", "plan"];
 
@@ -353,7 +358,8 @@ impl Fold {
             return Ok(None);
         }
         let card = a.step.is_empty() && a.subtask.is_empty();
-        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) {
+        if card && !super::offers::needs_agent(t) && !self.ask_needs_agent(t) && !self.needs_lead(t)
+        {
             return Ok(None);
         }
         let generation = mine.map(|s| s.generation).unwrap_or(0) + 1;
@@ -598,7 +604,9 @@ impl Fold {
         let mut v: Vec<(Task, Spawn)> = self
             .tasks
             .values()
-            .filter(|t| super::offers::needs_agent(t) || self.ask_needs_agent(t))
+            .filter(|t| {
+                super::offers::needs_agent(t) || self.ask_needs_agent(t) || self.needs_lead(t)
+            })
             .filter_map(|t| {
                 let s = t.spawn_request()?;
                 (s.pending() && s.device == self.dev && self.mine_to_start(t, s))
@@ -635,7 +643,8 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| {
-                (super::offers::needs_agent(t) && self.hands_out(t)) || self.ask_needs_agent(t)
+                ((super::offers::needs_agent(t) || self.needs_lead(t)) && self.hands_out(t))
+                    || self.ask_needs_agent(t)
             })
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.

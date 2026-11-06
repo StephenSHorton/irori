@@ -89,6 +89,10 @@ pub fn options(
         clear_builds: Some(irori_core::buildclean::IDLE),
         ..Options::default()
     };
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        // Card #542: a phone has no gh, so it never asks about PRs.
+        opts.pr_checker = None;
+    }
     if offline() {
         // A rehearsal on a copy (tools/rehearse): the copy holds this
         // device's real key, so its Core must never reach the network.

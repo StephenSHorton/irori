@@ -246,6 +246,8 @@ export const commands = {
 	settingsGetNotifications: () => __TAURI_INVOKE<NotifyOptions>("settings_get_notifications"),
 	settingsSetNotifications: (o: NotifyOptions) => __TAURI_INVOKE<NotifyOptions>("settings_set_notifications", { o }),
 	settingsTestNotification: () => __TAURI_INVOKE<null>("settings_test_notification"),
+	/**  The desktop cards follow the window's appearance (card #527). */
+	settingsSetCardLook: (look: CardLook) => __TAURI_INVOKE<null>("settings_set_card_look", { look }),
 	settingsGetLaunchAtLogin: () => __TAURI_INVOKE<boolean>("settings_get_launch_at_login"),
 	settingsSetLaunchAtLogin: (enabled: boolean) => __TAURI_INVOKE<null>("settings_set_launch_at_login", { enabled }),
 	/**  The person's name (card #183). */
@@ -817,6 +819,26 @@ export type CardBoard = {
 	canTransfer: boolean,
 };
 
+/**  One mode's card colours (card #527): `#rrggbb`, already opaque. */
+export type CardColors = {
+	/**  The solid card, and the fallback where there is no glass. */
+	background?: string,
+	/**  The glass's colour, drawn at `alpha` over the blurred desktop. */
+	tint?: string,
+	foreground?: string,
+	muted?: string,
+	border?: string,
+	hover?: string,
+	/**  The secondary button. */
+	button?: string,
+	primary?: string,
+	onPrimary?: string,
+	info?: string,
+	success?: string,
+	warn?: string,
+	error?: string,
+};
+
 /**  One card opened beside the grid. */
 export type CardDetail = {
 	goal: string,
@@ -854,6 +876,25 @@ export type CardLeftOff = {
 	text: string,
 	by: AgentRef,
 	at: string,
+};
+
+/**
+ *  The desktop cards' look (card #527): the person's appearance as the
+ *  window resolves it (frontend/src/lib/card-look.ts).
+ */
+export type CardLook = {
+	/**  The theme's id, for reference. */
+	theme?: string,
+	/**  "light", "dark" or "system". */
+	mode?: string,
+	/**  The glass style's id, for reference. */
+	glass?: string,
+	/**  The glass tint's opacity, 0..1; 0 or 1 is solid. */
+	alpha?: number,
+	/**  Corner radius in dip. */
+	radius?: number,
+	light?: CardColors,
+	dark?: CardColors,
 };
 
 /**
@@ -1022,8 +1063,15 @@ export type CardSummary = {
 	 */
 	waitOn?: string,
 	/**
+	 *  The first wait in full where wait_on is the short form (card #553):
+	 *  "Irori 0.12.4 on Mac and PC" for wait_on's "Irori 0.12.4". The
+	 *  state pill's tooltip says it.
+	 */
+	waitFull?: string,
+	/**
 	 *  What kind of thing the first wait is on (card #487): "task",
-	 *  "lease", "agent" or "external", so Home can name a lease plainly.
+	 *  "lease", "agent", "version" or "external", so Home can name a lease
+	 *  plainly.
 	 */
 	waitKind?: string,
 	/**

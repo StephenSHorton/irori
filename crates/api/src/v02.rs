@@ -61,10 +61,18 @@ pub(crate) fn route(h: &Handler) -> Option<Resp> {
     })
 }
 
-pub(crate) fn forbidden() -> Resp {
+pub(crate) fn forbidden(h: &Handler) -> Resp {
+    // An attach secret that is sent but dead: a current mod reattaches on
+    // this answer and never shows it, so only a mod too old to do that says
+    // it (GitHub #57). A mod knows this answer by the header's name in it.
+    let hint = if h.r.has_header(HEADER_ATTACH) && !h.r.has_header(HEADER_MEMBER) {
+        ". If this keeps happening, this session's Irori mod is too old to reattach by itself: run `claude plugin update irori`, then restart the session"
+    } else {
+        ""
+    };
     http::error(
         403,
-        &format!("this route needs a current {HEADER_ATTACH} or {HEADER_MEMBER} secret"),
+        &format!("this route needs a current {HEADER_ATTACH} or {HEADER_MEMBER} secret{hint}"),
     )
 }
 
@@ -93,7 +101,7 @@ fn control(h: &Handler, ib: &inbox::Inbox, what: &str) -> Resp {
     }
     let c = match h.caller() {
         Some(c) if c.attach => c,
-        _ => return forbidden(),
+        _ => return forbidden(h),
     };
     let d = match body::read(&h.r.body, h.r.body_too_large, &body::CONTROL) {
         Ok(d) => d,
@@ -135,7 +143,7 @@ struct ToolResult {
 
 fn tool(h: &Handler, name: &str) -> Resp {
     let Some(c) = h.caller() else {
-        return forbidden();
+        return forbidden(h);
     };
     let Some(ts) = h.s.tools() else {
         return http::error(503, "tools are not running");
@@ -195,7 +203,7 @@ fn set_policy(h: &Handler, ib: &inbox::Inbox) -> Resp {
 
 fn inbox_list(h: &Handler, ib: &inbox::Inbox) -> Resp {
     let Some(c) = h.caller() else {
-        return forbidden();
+        return forbidden(h);
     };
     let q = &h.r.query;
     let all = matches!(q.get("all").as_str(), "1" | "true");
