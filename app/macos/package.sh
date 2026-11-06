@@ -38,7 +38,13 @@
 #                  --test-home, or the relaunched app runs on ~/.irori);
 #                  check-bundle.sh is skipped with --test-id.
 # A test bundle is always signed ad hoc and never notarized; --zip and
-# --dmg are optional.
+# --dmg are optional (--dmg with --zip).
+# IRORI_DEV_OFFLINE keeps the Core off the mesh, but the updater doesn't
+# read it: a binary with a real IRORI_VERSION checks the real release feed
+# and, on quit, installs a stock Irori.app (no LSEnvironment) over the test
+# bundle, which then relaunches on ~/.irori. For a rehearsal build the
+# binary with IRORI_UPDATE_API pointed at a fake feed; otherwise use a
+# dev-version build (no IRORI_VERSION), whose updater never runs.
 set -euo pipefail
 
 BINARY="" VERSION="" OUT="" ZIP="" DMG=""
@@ -62,6 +68,7 @@ done
 REQUIRED=(BINARY VERSION OUT ZIP DMG)
 if [[ -n "$TEST_HOME" ]]; then
   REQUIRED=(BINARY VERSION OUT)
+  if [[ -n "$DMG" && -z "$ZIP" ]]; then echo "error: a test bundle's --dmg needs --zip too" >&2; exit 2; fi
 elif [[ -n "$TEST_ID$TEST_CLAUDE" || ${#TEST_ENV[@]} -gt 0 || $TEST_ONLINE == 1 ]]; then
   echo "error: --test-id, --test-claude, --test-env and --test-online need --test-home" >&2; exit 2
 fi

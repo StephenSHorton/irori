@@ -6,11 +6,12 @@
 #                                [--offset N] [--online] [--env K=V]...
 #   scripts/scratch-mac.sh stop <scratch dir> [--rm]
 #
-# start copies the live data dir (default ~/.irori) into a new scratch dir:
-# every .db with sqlite3 .backup (they are WAL; a cp can tear them), plus
-# device.key, device.json, person.json, settings.json, names.json,
-# agent-names.json and spaces/. It never copies irori.json (the live app's
-# lockfile) or irori.log. --fresh starts on an empty data dir instead.
+# start copies the live data dir (default ~/.irori) into a new scratch dir
+# (or --dir <empty dir>): every .db by a read-only sqlite3 VACUUM INTO
+# (they are WAL; a cp can tear them), plus device.key, device.json,
+# person.json, settings.json, names.json, agent-names.json, spaces/, blobs/
+# and files/. It never copies irori.json (the live app's lockfile) or
+# irori.log. --fresh starts on an empty data dir instead.
 # The exe (default: the main checkout's target/debug/irori; build it with
 # `cargo build -p irori-app`) runs with
 #   IRORI_HOME=<scratch>/home  CLAUDE_CONFIG_DIR=<scratch>/claude (empty)
@@ -42,15 +43,28 @@ repo_root() {
 lines() { if [[ -f "$1" ]]; then wc -l <"$1" | tr -d ' '; else echo 0; fi; }
 
 backup_db() {
-  sqlite3 "$1" ".timeout 10000" ".backup '$2'" || die "sqlite3 .backup $1 failed"
+  # Read-only, so the copy never checkpoints or removes the live WAL (a
+  # read-write sqlite3 that closes last would), and VACUUM INTO, one read
+  # transaction, so the live app's writes can't restart it as they restart
+  # .backup's step loop.
+  local dst="${2//\'/\'\'}"
+  sqlite3 -readonly "$1" ".timeout 10000" "VACUUM INTO '$dst'" || die "sqlite3 VACUUM INTO from $1 failed"
+}
+
+# Content-addressed dirs the live app only adds to: an APFS clone (cp -c)
+# is instant; a plain copy where cloning can't.
+copy_tree() {
+  [[ -d "$1" ]] || return 0
+  cp -Rpc "$1" "$2" 2>/dev/null || cp -Rp "$1" "$2" || die "copy $1 failed"
 }
 
 cmd_start() {
-  local exe="" from="$HOME/.irori" fresh=0 offset="" online=0
+  local exe="" from="$HOME/.irori" fresh=0 offset="" online=0 dir=""
   local -a extra=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --exe) exe="$2"; shift 2 ;;
+      --dir) dir="$2"; shift 2 ;;
       --from) from="$2"; shift 2 ;;
       --fresh) fresh=1; shift ;;
       --offset) offset="$2"; shift 2 ;;
@@ -69,9 +83,14 @@ cmd_start() {
   [[ "$offset" =~ ^[0-9]+$ ]] || die "--offset must be a number"
   from="$(cd "$from" 2>/dev/null && pwd -P)" || die "no data dir to copy at $from"
 
-  local base="${TMPDIR:-/tmp}"
-  local dir
-  dir="$(mktemp -d "${base%/}/irori-scratch.XXXXXX")"
+  if [[ -n "$dir" ]]; then
+    # A caller that must clean up even if start is interrupted makes the
+    # dir first (window-shot.sh): it must be empty.
+    [[ -d "$dir" && -z "$(ls -A "$dir")" ]] || die "--dir $dir must be an empty dir"
+  else
+    local base="${TMPDIR:-/tmp}"
+    dir="$(mktemp -d "${base%/}/irori-scratch.XXXXXX")"
+  fi
   dir="$(cd "$dir" && pwd -P)"
   local home="$dir/home" claude="$dir/claude"
   mkdir -p "$home" "$claude"
@@ -101,6 +120,9 @@ cmd_start() {
         esac
       done < <(find "$from/spaces" -type f -print0)
     fi
+    # The blob store and attachments the copied dbs point at.
+    copy_tree "$from/blobs" "$home/blobs"
+    copy_tree "$from/files" "$home/files"
   fi
 
   local live_log="$from/irori.log"
@@ -153,6 +175,8 @@ cmd_stop() {
   local dir="${1:-}" rm=0
   [[ "${2:-}" != "--rm" ]] || rm=1
   [[ -n "$dir" && -f "$dir/pid" && -f "$dir/scratch.env" ]] || die "usage: $0 stop <scratch dir> (the scratch= line start printed)"
+  # The app logs the canonical path (/private/var/..., no trailing /).
+  dir="$(cd "$dir" && pwd -P)"
   local pid exe live_log live_lines
   pid="$(cat "$dir/pid")"
   exe="$(sed -n 's/^exe=//p' "$dir/scratch.env")"
@@ -186,6 +210,8 @@ cmd_stop() {
     if kill -0 "$pid" 2>/dev/null; then
       echo "scratch-mac: $pid still running after 10s; SIGKILL"
       kill -KILL "$pid" 2>/dev/null || true
+      n=0
+      while kill -0 "$pid" 2>/dev/null && [[ $n -lt 25 ]]; do sleep 0.2; n=$((n + 1)); done
     fi
   fi
   if kill -0 "$pid" 2>/dev/null; then echo "exited=false"; else echo "exited=true"; fi

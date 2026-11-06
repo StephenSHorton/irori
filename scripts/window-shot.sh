@@ -47,15 +47,22 @@ start_args+=(--env "IRORI_DEV_WINDOW_SHOTS=$shots" --env "IRORI_DEV_WINDOW_SHOT_
   --env "IRORI_DEV_WINDOW_SHOT_COUNT=$count")
 [[ -z "$query" ]] || start_args+=(--env "IRORI_DEV_WINDOW_QUERY=$query")
 
-started="$("$here/scratch-mac.sh" start "${start_args[@]}")" || { echo "$started" >&2; die "scratch start failed"; }
+# Make the scratch dir and set the trap before start, so an interrupted
+# start (the copy and first log line take a while) still stops its pid.
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/irori-scratch.XXXXXX")"
+scratch="$(cd "$scratch" && pwd -P)"
+stop() {
+  if [[ -f "$scratch/pid" ]]; then "$here/scratch-mac.sh" stop "$scratch" --rm || true; else rm -rf "$scratch"; fi
+  rm -rf "$shots"
+}
+trap stop EXIT
+trap 'exit 130' INT TERM
+
+started="$("$here/scratch-mac.sh" start --dir "$scratch" "${start_args[@]}")" || { echo "${started:-}" >&2; die "scratch start failed"; }
 echo "$started"
-scratch="$(sed -n 's/^scratch=//p' <<<"$started")"
 pid="$(sed -n 's/^pid=//p' <<<"$started")"
 home="$(sed -n 's/^home=//p' <<<"$started")"
-[[ -n "$scratch" && -n "$pid" ]] || die "scratch start printed no scratch=/pid= line"
-
-stop() { "$here/scratch-mac.sh" stop "$scratch" --rm || true; }
-trap stop EXIT
+[[ -n "$pid" ]] || die "scratch start printed no pid= line"
 
 # Pictures are written 1.5 s apart; wait for the last, or the deadline.
 last="$shots/window-$count.png"
@@ -75,4 +82,3 @@ if [[ $count -gt 1 ]]; then
 fi
 grep -h "shot: saved" "$home/irori.log" 2>/dev/null | tail -n "$count" || true
 echo "saved=$out"
-rm -rf "$shots"
