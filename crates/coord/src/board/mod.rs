@@ -1928,8 +1928,8 @@ impl Coord {
 
     /// Tells the fold which repos are the person's (card #625): those they
     /// or a member of their spaces open PRs in, judged over every desk the
-    /// fold has now. A desk on any other repo is stray: off, never polled,
-    /// listed or leased. Kept in memory only; the Core says it again as it
+    /// fold has now. A desk on any other repo is stray: off, never polled
+    /// or listed. Kept in memory only; the Core says it again as it
     /// learns more. Whether the set changed.
     pub fn set_desk_repos<I: IntoIterator<Item = String>>(&self, repos: I) -> bool {
         let judged: Vec<String> = self.lock().desks.keys().cloned().collect();

@@ -1007,19 +1007,18 @@ fn merge_desk_settings() {
         ..DeskSettings::default()
     })
     .unwrap();
-    // Read back through coord: whether the desk page lists it is card
-    // #625's (only the person's repos).
     let d = r.w.core.coord().desk(repo).expect("the desk");
+    assert!(d.settings.by.starts_with("user:"));
+    // The desk page lists it once the Core counts the repo as the
+    // person's (card #625).
+    r.w.core.coord().set_desk_repos([repo.to_string()]);
+    let d = r.w.desks();
+    assert_eq!(d.len(), 1);
+    let d = &d[0];
     assert_eq!(d.settings.poll_device, here);
     assert_eq!(d.settings.trusted, vec!["you".to_string()]);
-    assert!(d.settings.by.starts_with("user:"));
-    let v = serde_json::to_value(irori_window::desk::DeskView::default()).unwrap();
-    for gone in ["holds", "paused", "run"] {
-        assert!(v.get(gone).is_none(), "{gone}: {v}");
-    }
-    for gone in ["holder", "checks", "mergeMethod"] {
-        assert!(v["settings"].get(gone).is_none(), "{gone}: {v}");
-    }
+    assert!(d.poll.here, "this device polls it");
+    assert!(d.prs.is_none(), "no poll in a rig without gh");
 }
 
 /// Card #625: the desk page lists only the person's repos' desks, each

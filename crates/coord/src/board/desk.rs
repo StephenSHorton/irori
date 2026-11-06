@@ -145,7 +145,7 @@ pub struct Desk {
     pub oks: BTreeMap<i64, DeskOkRow>,
     /// Not one of the person's repos (card #625): nobody in their spaces
     /// opens PRs there (a cloned upstream repo). A stray desk is off
-    /// whatever its settings say: never polled, listed or leased. Set on
+    /// whatever its settings say: never polled or listed. Set on
     /// read from what the Core told [`Fold::desk_repos`]; no row says it.
     #[serde(skip)]
     pub stray: bool,

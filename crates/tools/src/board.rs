@@ -2648,6 +2648,12 @@ const LEASE_ARGS: &[(&str, Ty)] = &[
     ("resource", Ty::Str),
     ("ttl_minutes", Ty::OptInt),
     ("steal", Ty::Bool),
+    // Accepted and ignored (card #418): the old merge desk run passed them
+    // with a desk/<owner>/<name> lease. Kept so such a call reaches coord's
+    // refusal, which says to ask "Can I merge PR #N?" instead; not in the spec.
+    ("pr", Ty::OptInt),
+    ("head_sha", Ty::Str),
+    ("base_sha", Ty::Str),
 ];
 
 pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {

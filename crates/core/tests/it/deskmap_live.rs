@@ -100,7 +100,7 @@ fn a_poll_maps_each_pr_to_its_author_card() {
     let two = linked(&r, 2);
     assert_eq!(two.len(), 1, "{two:?}");
     assert_eq!(two[0].title, "PR #2 \"PR 2 title\"");
-    assert!(!two[0].watchers.contains(&r.key_b), "{:?}", two[0].watchers);
+    assert!(two[0].watchers.is_empty(), "{:?}", two[0].watchers);
     assert!(matches!(&v[&2], Verdict::Card(m) if m.task_id == two[0].id));
     // 3: rule 3 found the branch card, and Irori linked it.
     assert_eq!(
