@@ -7,6 +7,7 @@ mod boards;
 mod cards;
 mod common;
 mod crash_answer;
+mod gone_lead;
 mod long_text;
 mod mentions;
 mod mesh;

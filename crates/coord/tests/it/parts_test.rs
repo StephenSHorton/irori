@@ -566,3 +566,185 @@ fn the_spawn_queue_puts_the_persons_cards_then_helpers_then_the_rest() {
     let l = ids(&e.c.cards_to_spawn());
     assert_eq!(&l[..2], [mine.id.clone(), later_agents.id.clone()]);
 }
+
+fn choice(answer: &str) -> BlockerOption {
+    BlockerOption {
+        answer: answer.into(),
+        ..BlockerOption::default()
+    }
+}
+
+/// Card #557's run: every part is in, the lead asks "Can I merge?" on the
+/// card and is gone before the person answers.
+fn merge_asked_lead_gone() -> (Env, Task, Blocker) {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true), sub("b", true)]);
+    for (k, h) in made.iter().zip(HELPERS) {
+        e.c.set_task_state(h, &k.id, COMPLETED, "on my branch")
+            .unwrap();
+        e.c.set_task_state(LEAD, &k.id, COMPLETED, "merged")
+            .unwrap();
+    }
+    let (_, b) =
+        e.c.raise(
+            LEAD,
+            &p.id,
+            NewBlocker {
+                question: "Can I merge PR #7 (covers #1)?".into(),
+                options: vec![
+                    BlockerOption {
+                        recommended: true,
+                        ..choice("Merge it")
+                    },
+                    choice("Not yet"),
+                ],
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    (e, p, b)
+}
+
+fn open_ids(c: &Coord) -> Vec<String> {
+    c.list_tasks(&TaskFilter {
+        open: true,
+        ..TaskFilter::default()
+    })
+    .into_iter()
+    .map(|t| t.id)
+    .collect()
+}
+
+#[test]
+fn a_parent_asking_to_merge_reads_blocked_not_done() {
+    let (e, p, _) = merge_asked_lead_gone();
+    let t = e.c.get_task(&p.id).unwrap();
+    assert_eq!(effective_state(&t), BLOCKED, "its own question comes first");
+    assert!(open_ids(&e.c).contains(&p.id), "listed open, where a lead binds");
+    assert!(
+        !e.c.board(&BoardFilter::default())
+            .done
+            .iter()
+            .any(|c| c.task.id == p.id)
+    );
+    assert!(
+        !spawn_ids(&e.c).contains(&p.id),
+        "unanswered: a lead would be ended at once"
+    );
+}
+
+#[test]
+fn merge_it_on_a_parent_whose_lead_went_brings_a_fresh_lead() {
+    let (e, p, b) = merge_asked_lead_gone();
+    e.c.answer(
+        USER,
+        &p.id,
+        &b.id,
+        BlockerAnswer {
+            pick: 1,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert!(spawn_ids(&e.c).contains(&p.id), "the answer brings a lead");
+    let next = "dev-a/fresh-lead";
+    let g =
+        e.c.request_spawn(
+            "irori",
+            SpawnAsk {
+                task_id: p.id.clone(),
+                device: "dev-a".into(),
+                folder: "/repo".into(),
+                permission_mode: "bypassPermissions".into(),
+                name: "lead".into(),
+                ..SpawnAsk::default()
+            },
+        )
+        .unwrap()
+        .expect("a lead may be asked for");
+    e.ros.set(next, "busy");
+    assert!(e.c.bind_spawn(&p.id, g, next).unwrap());
+    e.c.claim_task(next, &p.id).unwrap();
+    assert!(!spawn_ids(&e.c).contains(&p.id), "it has its lead");
+    // The fresh lead acts on it: resolves the answer, merges, lands.
+    e.c.answer(
+        next,
+        &p.id,
+        &b.id,
+        BlockerAnswer {
+            text: "merging PR #7 now".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got =
+        e.c.set_task_state(next, &p.id, COMPLETED, "PR #7 merged, main green")
+            .unwrap();
+    assert_eq!(got.state, BLOCKED, "the person's done check");
+    assert_eq!(done_checks(&e.c, &p.id), 1);
+    assert!(!spawn_ids(&e.c).contains(&p.id));
+}
+
+#[test]
+fn a_parents_answer_brings_no_lead_off_a_spawning_board() {
+    let e = env();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.set_task_state(LEAD, &made[0].id, COMPLETED, "merged")
+        .unwrap();
+    let (_, b) =
+        e.c.raise(
+            LEAD,
+            &p.id,
+            NewBlocker {
+                question: "Can I merge?".into(),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    e.c.answer(
+        USER,
+        &p.id,
+        &b.id,
+        BlockerAnswer {
+            text: "yes".into(),
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    assert!(spawn_ids(&e.c).is_empty());
+}
+
+#[test]
+fn a_part_waits_on_its_lead_now_and_the_parent_names_no_call_for_it() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true), sub("b", true)]);
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    assert_eq!(e.c.part_lead(&made[0].id), Some(vec![LEAD.to_string()]));
+    let r = e.c.get_task(&p.id).unwrap().rollup.unwrap();
+    assert!(
+        r.blocked.is_empty(),
+        "waiting on the lead isn't a call for the person: {r:?}"
+    );
+    e.c.leave(LEAD, &p.id, LEAD).unwrap();
+    assert_eq!(e.c.part_lead(&made[0].id), Some(vec![]), "one is coming");
+    assert_eq!(e.c.part_lead(&p.id), None, "the parent isn't a part");
+    // A part's own question for the person is still the parent's call.
+    e.c.raise(
+        HELPERS[1],
+        &made[1].id,
+        NewBlocker {
+            question: "Which db?".into(),
+            ..NewBlocker::default()
+        },
+    )
+    .unwrap();
+    let r = e.c.get_task(&p.id).unwrap().rollup.unwrap();
+    assert_eq!(
+        (r.blocked.as_str(), r.blocked_question.as_str()),
+        (made[1].id.as_str(), "Which db?")
+    );
+}

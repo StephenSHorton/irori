@@ -640,12 +640,16 @@ impl Window {
             });
         }
         // A card someone holds is theirs: the sweep leaves it alone. A card
-        // with subtasks gets no agent of its own.
-        let irori_acts = irori_core::spawn_stop::irori_acts_on(bl)
-            && t.subtasks.is_empty()
-            && t.holders.is_empty()
-            && t.co_holders.is_empty()
-            && t.assigned.is_empty();
+        // with subtasks gets no agent of its own, except the lead Irori
+        // starts for a split card whose lead went (card #557): the answer
+        // stays open for that lead to act on.
+        let brings_lead = co.answer_brings_lead(task_id);
+        let irori_acts = brings_lead
+            || (irori_core::spawn_stop::irori_acts_on(bl)
+                && t.subtasks.is_empty()
+                && t.holders.is_empty()
+                && t.co_holders.is_empty()
+                && t.assigned.is_empty());
         let files: Vec<coord::FileRef> = self
             .store_uploads(files)?
             .iter()
@@ -661,6 +665,7 @@ impl Window {
             // its thread and the card back on the Board, so the agent Irori
             // starts for it reads it in its brief and answers it there.
             resolve: !bl.done_check
+                && !brings_lead
                 && self.nobody_can_act(&t, &bl.raised_by)
                 && !co.stranded(task_id).iter().any(|s| s.blocker_id == bl.id),
             mentions: plan.log.clone(),

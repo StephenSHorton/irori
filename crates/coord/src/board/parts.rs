@@ -95,6 +95,20 @@ impl Fold {
         self.lead_coming(t).then(Vec::new)
     }
 
+    /// Whether the person's answer on led card t brings it a fresh lead
+    /// (card #557): t has parts and nobody on it or handed it, and Irori
+    /// would start a lead. The window then leaves their answer open, for
+    /// that lead to read and act on, instead of closing it with nobody to
+    /// act; the lead starts once every open item is answered.
+    pub(crate) fn answer_brings_lead(&self, t: &Task) -> bool {
+        !t.subtasks.is_empty()
+            && self.lead_due(t)
+            && t.co_holders.is_empty()
+            && t.assigned.is_empty()
+            && !t.withdrawn
+            && t.open_ask().is_none()
+    }
+
     /// Whether Irori would start a lead for parent p once there is work for
     /// one: p is open, nobody holds it, it is private, the board spawns and
     /// its agents haven't crashed past the limit.
@@ -136,8 +150,7 @@ impl Fold {
         // lead on it nobody else would act on it: back_on_board leaves a
         // parent's state to its subtasks, and needs_agent refuses one.
         let answered = || {
-            self.lead_due(t)
-                && t.co_holders.is_empty()
+            self.answer_brings_lead(t)
                 && t.blockers
                     .iter()
                     .any(|b| b.open() && b.status == BLOCKER_ANSWERED)
