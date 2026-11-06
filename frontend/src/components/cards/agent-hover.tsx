@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { setAgentOffer } from "@/lib/agents"
-import { agentStatus } from "@/lib/agent-status"
+import { agentStatus, throughLine } from "@/lib/agent-status"
 import { plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
 import { errorText, talk } from "@/lib/talk"
@@ -173,7 +173,10 @@ function AgentSummary({
                 style={tint ? { background: tint } : undefined}
                 aria-hidden
               />
-              <span className="truncate">{plainLine(device)}</span>
+              <span className="truncate">
+                {plainLine(device)}
+                {who.deviceVia ? ` · ${throughLine(who.deviceVia)}` : ""}
+              </span>
             </div>
           )}
           {who.where && who.device && who.where !== who.device && (

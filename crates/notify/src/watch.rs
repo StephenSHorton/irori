@@ -14,8 +14,14 @@
 //! Held messages, messages to the person and waiting asks already there at
 //! start get their cards then; the Board seeds quietly. Both change streams
 //! drop changes for a slow reader, so neither is taken as complete: the
-//! Board is reconciled on every coord change and the inbox against a fresh
-//! snapshot of its open deliveries whenever its queue has drained.
+//! Board is reconciled after every coord change and the inbox against a
+//! fresh snapshot of its open deliveries whenever its queue has drained.
+//! A Board reconcile reads the whole Board under coord's lock, so a burst
+//! of changes shares them: a lone change reconciles at once, the rest at
+//! most once per [`BOARD_EVERY`], and always once more after the last
+//! change (card #554). A change to a card in the Needs you lane never
+//! waits: answered and asked back inside one interval, it would look as if
+//! it never left, and the new question would get no card.
 //!
 //! The Go select loop runs on its own thread over a current-thread tokio
 //! runtime that awaits the three subscriber queues and the cards' presses.
@@ -31,10 +37,11 @@ use std::thread::JoinHandle;
 use coord::approvals::{Ask as Approval, Book};
 use coord::notifications::{self as history, PostedRow};
 use coord::{BoardFilter, BoardView, Card, Coord, Task};
-use gocompat::sub::Queue;
+use gocompat::sub::{Queue, TryRecv};
 use gocompat::time::GoTime;
 use inbox::watch::{CardAct, InboxSource, NameFn, OwnerFn, Sink, Watcher};
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 pub use inbox::watch::{hold_reason, preview, upper};
@@ -43,6 +50,10 @@ use crate::{
     Action, Level, Note, Notifier, TAB_BOARD, Target, ask_id, needs_id, parse_level, returned_id,
     unclaimed_id,
 };
+
+/// The least time between two Board reconciles, from the end of one to the
+/// start of the next: the pace of the window's own Board pump.
+pub const BOARD_EVERY: Duration = Duration::from_millis(250);
 
 /// The inbox Watch follows and acts through.
 pub trait InboxFeed: InboxSource + Send + Sync {
@@ -212,7 +223,10 @@ pub fn watch(n: &Notifier, s: Sources) -> Option<WatchHandle> {
     let thread = std::thread::Builder::new()
         .name("notify-watch".into())
         .spawn(move || {
-            let rt = match tokio::runtime::Builder::new_current_thread().build() {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+            {
                 Ok(rt) => rt,
                 Err(e) => {
                     eprintln!("irori: notifications: watch: {e}");
@@ -275,11 +289,17 @@ async fn run(
         w.board(false); // seed: what is already waiting stays quiet
     }
 
+    // When the last reconcile ended, and when the next is due: a change
+    // inside BOARD_EVERY of the last one waits for `due`.
+    let mut last = Instant::now();
+    let mut due: Option<Instant> = None;
+
     let _ = ready.send(());
     while ich.is_some() || cch.is_some() || ach.is_some() {
         enum Ev {
             Inbox(Option<inbox::Change>),
             Board(Option<coord::Change>),
+            BoardDue,
             Ask(Option<String>),
             Press(CardAct),
             Stop,
@@ -294,12 +314,19 @@ async fn run(
                 _ = cancel.cancelled() => Ev::Stop,
                 c = recv(iq.as_deref()), if iq.is_some() => Ev::Inbox(c),
                 c = recv(cq.as_deref()), if cq.is_some() => Ev::Board(c),
+                _ = tokio::time::sleep_until(due.unwrap_or(last)), if due.is_some() => Ev::BoardDue,
                 c = recv(aq.as_deref()), if aq.is_some() => Ev::Ask(c),
                 Some(p) = prx.recv() => Ev::Press(p),
             }
         };
         match ev {
-            Ev::Stop => return,
+            Ev::Stop => {
+                // The next start seeds quietly: what waits gets its card now.
+                if due.is_some() || cch.as_ref().is_some_and(|q| !q.is_empty()) {
+                    w.board(true);
+                }
+                return;
+            }
             Ev::Ask(None) => ach = None,
             Ev::Ask(Some(id)) => w.ask(&id),
             Ev::Inbox(None) => ich = None,
@@ -310,8 +337,26 @@ async fn run(
                         .on_change(&c, drained, ib.as_ref(), &mut sink(&w.n, &w.presses));
                 }
             }
-            Ev::Board(None) => cch = None,
-            Ev::Board(Some(_)) => w.board(true),
+            Ev::Board(None) => {
+                cch = None;
+                if due.take().is_some() {
+                    w.board(true); // the changes that were waiting for it
+                }
+            }
+            Ev::Board(Some(c)) if due.is_some() && !w.in_lane(&c.task_id) => {} // it reads this too
+            Ev::Board(Some(c)) if last.elapsed() < BOARD_EVERY && !w.in_lane(&c.task_id) => {
+                due = Some(last + BOARD_EVERY);
+            }
+            Ev::Board(Some(_)) | Ev::BoardDue => {
+                due = None;
+                // The view is read after this, so what is queued now needs
+                // no turn of its own; a later change queues and comes back.
+                if let Some(q) = &cch {
+                    while let TryRecv::Item(_) = q.try_recv() {}
+                }
+                w.board(true);
+                last = Instant::now();
+            }
             Ev::Press(act) => {
                 if let Some(ib) = w.s.inbox.clone() {
                     let target = w
@@ -524,6 +569,11 @@ impl State {
             room: &self.s.room,
             file: &self.s.file,
         }
+    }
+
+    /// Whether card `id` was in the Needs you lane at the last reconcile.
+    fn in_lane(&self, id: &str) -> bool {
+        self.needs.iter().any(|k| k.split('#').next() == Some(id))
     }
 
     fn board(&mut self, post: bool) {

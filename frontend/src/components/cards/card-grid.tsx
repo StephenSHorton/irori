@@ -47,8 +47,8 @@ import {
   ShortRef,
   Spinner,
   StatePill,
-  waitLabel,
   cardRef,
+  waitTip,
 } from "./bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { ClearDone } from "./clear-done"
@@ -612,10 +612,7 @@ function CardTile({
       {!blocked && !!card.waitingOn && (
         <span className="flex gap-1.5 text-xs text-muted-foreground">
           <span aria-hidden>●</span>
-          <span className="line-clamp-2">
-            {waitLabel(card)}
-            {card.waitQuestion ? `: ${plainLine(card.waitQuestion)}` : ""}
-          </span>
+          <span className="line-clamp-2">{waitTip(card)}</span>
         </span>
       )}
       {!blocked && card.subtaskBlocked && (
@@ -1039,8 +1036,7 @@ function SubtaskDetailRow({
       )}
       {!blocked && !!card.waitingOn && (
         <span className="line-clamp-2 pl-4 text-[11px] text-muted-foreground">
-          {waitLabel(card)}
-          {card.waitQuestion ? `: ${plainLine(card.waitQuestion)}` : ""}
+          {waitTip(card)}
         </span>
       )}
     </button>

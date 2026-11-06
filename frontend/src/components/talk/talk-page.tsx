@@ -973,11 +973,13 @@ function Conversation({
     <section
       aria-label={plainLine(t.title)}
       className={cn(
-        "grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto",
+        // Fills the pane: only the thread's messages scroll (card #564).
+        // The column scrolls only when its fixed lines alone outgrow it.
+        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
-      <header className="flex min-w-0 items-center gap-2">
+      <header className="flex min-w-0 shrink-0 items-center gap-2">
         {narrow && (
           <Button
             size="icon-xs"

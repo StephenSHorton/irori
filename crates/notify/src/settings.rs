@@ -20,12 +20,16 @@ use std::sync::Mutex;
 use gocompat::json::{Out, RawJson, Schema};
 
 use crate::Options;
+use crate::look::CardLook;
 
 /// Irori's app settings file in its data folder.
 pub const SETTINGS_FILE: &str = "settings.json";
 
 /// The notifications object's key.
 const SETTINGS_KEY: &str = "notifications";
+
+/// The cards' look's key (card #527).
+const LOOK_KEY: &str = "cards";
 
 /// Serializes read-modify-write of the file in this process.
 static FILE_MU: Mutex<()> = Mutex::new(());
@@ -84,10 +88,33 @@ pub fn load(dir: &Path) -> Options {
 /// Writes o under `notifications`, keeping the file's other keys. A broken
 /// file is replaced.
 pub fn save(dir: &Path, o: &Options) -> Result<(), String> {
+    let raw = gocompat::json::marshal(o).map_err(|e| e.to_string())?;
+    save_raw(dir, SETTINGS_KEY, raw)
+}
+
+/// The saved look of the cards, if the window has sent one (card #527).
+pub fn load_look(dir: &Path) -> Option<CardLook> {
+    let _g = FILE_MU.lock().unwrap_or_else(|e| e.into_inner());
+    let raw = read_all(dir).ok()?.remove(LOOK_KEY)?;
+    match serde_json::from_slice::<Option<CardLook>>(&raw) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("irori: notifications: {SETTINGS_FILE}: {LOOK_KEY}: {e}");
+            None
+        }
+    }
+}
+
+/// Writes the cards' look under `cards`, keeping the file's other keys.
+pub fn save_look(dir: &Path, l: &CardLook) -> Result<(), String> {
+    let raw = gocompat::json::marshal(l).map_err(|e| e.to_string())?;
+    save_raw(dir, LOOK_KEY, raw)
+}
+
+fn save_raw(dir: &Path, key: &str, raw: Vec<u8>) -> Result<(), String> {
     let _g = FILE_MU.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = read_all(dir).unwrap_or_default();
-    let raw = gocompat::json::marshal(o).map_err(|e| e.to_string())?;
-    all.insert(SETTINGS_KEY.into(), raw);
+    all.insert(key.into(), raw);
     let map: BTreeMap<String, RawJson> = all.into_iter().map(|(k, v)| (k, RawJson(v))).collect();
     let mut out = gocompat::json::marshal_indent(&map, "", "  ").map_err(|e| e.to_string())?;
     out.push(b'\n');

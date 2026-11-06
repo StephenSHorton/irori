@@ -1117,6 +1117,49 @@ fn with_nobody_dedicated_a_free_agent_of_another_person_reviews() {
 
 // ---- a card's PR state on a board (#208, #210) ------------------------------
 
+/// Card #542: rows come device by device, so a device back online can hear
+/// the merge before the card. Nobody writes a settled PR's row again, so
+/// it has to wait for the card, not go.
+#[test]
+fn a_merge_heard_before_its_card_waits_for_it() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let c = side_with("dev-a2", P1, &owners, false);
+    pull(&a, &c);
+    pull(&b, &c);
+
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    sync(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_MERGED.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+
+    // dev-b's rows first, then dev-a's card.
+    let ahead: Vec<_> =
+        b.st.missing(&c.st.vector().unwrap(), 1000)
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.device_id == "dev-b")
+            .collect();
+    assert!(ahead.iter().any(|r| r.kind == kinds::PR_STATE));
+    let (_, r) = c.st.insert_batch(&ahead);
+    r.unwrap();
+    c.c.fold_live(&ahead);
+    assert!(c.c.pr_state(&t.id, PR).is_none());
+
+    pull(&a, &c);
+    assert_eq!(c.c.pr_state(&t.id, PR).unwrap().state, PR_MERGED);
+}
+
 /// Card #210: the PR poller's pr.state row (actor irori) folds on a board
 /// when a device of the holder's person writes it, so a merge wakes the
 /// holder once, not at every poll. Any other device's row counts nowhere.
@@ -2079,6 +2122,58 @@ fn a_version_wait_on_a_board_is_refused() {
         .unwrap_err();
     assert!(err.is(ErrorKind::Invalid), "{err}");
     assert!(err.to_string().contains("a private card"), "{err}");
+}
+
+/// Card #540: on a board too the person's answer to the crash question,
+/// sent as a resolve, goes on its thread under their board key, where the
+/// next agent's brief reads it, and clears the run.
+#[test]
+fn a_board_cards_crash_answer_goes_on_its_thread() {
+    let ra = TestRoster::new(&[CARD1]);
+    let (a, _b, _) = two_people_with(Some(ra.clone()), None);
+    let t = a.c.create_task(P1, nt("kills its agent", REPO_A)).unwrap();
+    for _ in 0..MAX_SPAWN_CRASHES {
+        ra.set(CARD1, "idle");
+        a.c.sweep_notices().unwrap();
+        let g =
+            a.c.request_spawn("irori", spawn_ask(&t.id, "dev-a"))
+                .unwrap()
+                .unwrap();
+        assert!(a.c.bind_spawn(&t.id, g, CARD1).unwrap());
+        a.c.claim_task(CARD1, &t.id).unwrap();
+        ra.set(CARD1, "");
+        a.c.sweep_notices().unwrap();
+        a.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+        a.c.sweep_notices().unwrap();
+    }
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.spawn_crashes, MAX_SPAWN_CRASHES, "{got:?}");
+    let q = got
+        .blockers
+        .iter()
+        .find(|b| b.open() && is_crash_question(b))
+        .expect("the person is asked")
+        .clone();
+    a.c.answer(
+        P1,
+        &t.id,
+        &q.id,
+        BlockerAnswer {
+            text: "try the smaller fixture".into(),
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let got = a.c.get_task(&t.id).unwrap();
+    assert_eq!(got.state, SUBMITTED, "{got:?}");
+    assert_eq!(got.spawn_crashes, 0);
+    let cs = a.c.comments(&t.id).unwrap();
+    assert!(
+        cs.iter()
+            .any(|c| c.by == P1 && c.text == "try the smaller fixture"),
+        "{cs:?}"
+    );
 }
 
 /// Card #512: a thread in a board's own log gets its own agent at once,

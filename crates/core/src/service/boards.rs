@@ -770,6 +770,7 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
                         a.device_id = l.device_id.clone();
                         a.device_state = l.device_state.clone();
                         a.device_seen = l.device_seen;
+                        a.device_via = l.device_via.clone();
                         placed = true;
                     }
                     _ => {}
@@ -794,6 +795,7 @@ pub(super) fn roster_of(s: &Services, b: &BoardLog) -> Vec<AgentCard> {
             a.device_id = dev;
             a.device_state = p.state;
             a.device_seen = p.seen;
+            a.device_via = p.via;
         }
         out
     }

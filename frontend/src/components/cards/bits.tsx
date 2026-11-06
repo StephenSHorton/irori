@@ -150,11 +150,7 @@ export function StatePill({ card }: { card: CardSummary }) {
       <Badge
         variant="slate"
         className="max-w-full min-w-0 shrink justify-start rounded-full"
-        title={
-          card.waitQuestion
-            ? `${label}: ${plainLine(card.waitQuestion)}`
-            : label
-        }
+        title={waitTip(card)}
       >
         <span className="truncate">{label}</span>
       </Badge>
@@ -508,6 +504,22 @@ export function waitLabel(card: {
   const n = card.waitingOn ?? 0
   const on = card.waitOn ? waitLine(card) : "Waiting"
   return n > 1 ? `${on} +${n - 1}` : on
+}
+
+// waitTip: the state pill's tooltip, the wait in full (card #553: a version
+// wait's devices, which the pill leaves out) and the question it was raised
+// with.
+export function waitTip(card: {
+  waitingOn?: number
+  waitOn?: string
+  waitFull?: string
+  waitKind?: string
+  waitQuestion?: string
+}): string {
+  const label = waitLabel({ ...card, waitOn: card.waitFull || card.waitOn })
+  return card.waitQuestion
+    ? `${label}: ${plainLine(card.waitQuestion)}`
+    : label
 }
 
 // Asker names who asks a blocker's question, above it (card #491): the

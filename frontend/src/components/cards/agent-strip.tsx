@@ -1,7 +1,7 @@
 import { cardRef } from "@/components/cards/bits"
 import { faceColor, Identicon } from "@/components/cards/faces"
 import { AgentRef } from "@/gen/models"
-import { agentStatus } from "@/lib/agent-status"
+import { agentStatus, throughLine } from "@/lib/agent-status"
 import { deviceVar } from "@/lib/cards"
 import { useDevices } from "@/lib/devices"
 import type { OnCard } from "@/lib/roster-groups"
@@ -15,6 +15,7 @@ export type RosterAgent = {
   status: string
   deviceId: string
   deviceState?: string | null
+  deviceVia?: string | null
   // When its status began (card #489).
   statusSince?: string
 }
@@ -42,7 +43,12 @@ export function AgentStrip({ agents }: { agents: RosterAgent[] }) {
         return (
           <span
             key={a.key}
-            title={`${a.name}: ${agentStatus(a, a.statusSince).text}`}
+            title={[
+              `${a.name}: ${agentStatus(a, a.statusSince).text}`,
+              a.deviceVia && throughLine(a.deviceVia),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           >
             <span
               className="block size-7"

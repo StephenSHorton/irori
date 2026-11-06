@@ -151,6 +151,7 @@ export function App() {
             // device's state, for "device offline" (card #489).
             statusSince: a.statusSince,
             deviceState: a.deviceState,
+            deviceVia: a.deviceVia,
             lastTool: a.lastTool,
             offersCards: a.offersCards,
             spawned: a.spawned,

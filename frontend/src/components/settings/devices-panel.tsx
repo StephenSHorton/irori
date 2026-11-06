@@ -1,3 +1,4 @@
+import { throughLine } from "@/lib/agent-status"
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
@@ -130,6 +131,7 @@ function DeviceRow({
           <small className="text-xs text-muted-foreground">
             {d.role === "node" ? "node · " : ""}
             {state}
+            {d.via ? ` · ${throughLine(d.via)}` : ""}
             {d.sides?.length ? ` · runs ${d.sides.join(", ")}` : ""}
           </small>
         </span>

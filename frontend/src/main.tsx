@@ -6,7 +6,8 @@ import App from "./App.tsx"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { commands } from "./gen/bindings"
 import { inHost } from "./lib/irori"
-import { applyAppearance, clean, loadAppearance } from "./lib/appearance"
+import { applyAppearance, clean, loadAppearance, onAppearanceApplied } from "./lib/appearance"
+import { sendCardLook } from "./lib/card-look"
 import { previewFlag } from "./lib/preview"
 import { followInsets } from "./lib/insets"
 
@@ -43,6 +44,9 @@ async function mount() {
   // paint; apply it again from this build's code (a custom theme's CSS is
   // made afresh). The browser preview can try one without saving it:
   // ?theme=<id>, ?mode=light|dark|system, ?glass=<style>.
+  // Card #527: the notification cards follow the look; every apply (this
+  // one, and each change in Settings > Appearance) sends it to the host.
+  onAppearanceApplied((a) => void sendCardLook(a))
   const saved = loadAppearance()
   applyAppearance(
     clean({

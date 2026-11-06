@@ -350,6 +350,98 @@ async fn catch_up_through_the_node_with_the_mac_gone() {
     );
 }
 
+// Card #544: the PC and the Mac can't reach each other, and the PC's rows
+// come through the node.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rows_through_another_device_show_their_writer_reachable() {
+    let net = FakeNet::new();
+    let (pc, mac, nd) = trio(&net).await;
+    net.partition(&pc.id(), &mac.id());
+    eventually("the link is down", || !net.connected(&pc.id(), &mac.id())).await;
+    let ev = pc.append(
+        store::kinds::AGENT_SEEN,
+        json!({"key": format!("{}/s", pc.id())}),
+    );
+    eventually("the row reaches the Mac through the node", || mac.has(&ev)).await;
+    assert!(!net.connected(&pc.id(), &mac.id()));
+
+    let r = mac.node().device_read(&pc.id());
+    assert_eq!(r.state, "recent");
+    assert_eq!(r.via, nd.id());
+    assert!(
+        r.seen.is_some(),
+        "a device whose rows arrive was heard from"
+    );
+    // Every reader agrees: the roster's, Settings' and /v1/devices'.
+    assert_eq!(mac.node().liveness(&pc.id()), "recent");
+    let row = mac
+        .node()
+        .devices(false)
+        .into_iter()
+        .find(|d| d.device_id == pc.id())
+        .unwrap();
+    assert_eq!(
+        (row.state.as_str(), row.via.as_str()),
+        ("recent", nd.id().as_str())
+    );
+    assert!(row.last_seen.is_some());
+
+    // The link back: the device needs no relay any more.
+    net.heal_all();
+    eventually("the link is back", || {
+        mac.node().liveness(&pc.id()) == "connected"
+    })
+    .await;
+    assert_eq!(mac.node().device_read(&pc.id()).via, "");
+}
+
+// Card #544: an hour-old row brought now says the PC was there an hour ago.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_late_catch_up_through_another_device_does_not_read_fresh() {
+    let net = FakeNet::new();
+    let (pc, mac, nd) = trio(&net).await;
+    net.partition(&pc.id(), &mac.id());
+    net.partition(&nd.id(), &mac.id());
+    eventually("the Mac is alone", || {
+        !net.connected(&pc.id(), &mac.id()) && !net.connected(&nd.id(), &mac.id())
+    })
+    .await;
+    let ev = pc.append(
+        store::kinds::AGENT_SEEN,
+        json!({"key": format!("{}/s", pc.id())}),
+    );
+    eventually("the node has the row", || nd.has(&ev)).await;
+    mac.clk.set(Duration::from_secs(3600));
+    net.heal(&nd.id(), &mac.id());
+    eventually("the row reaches the Mac", || mac.has(&ev)).await;
+
+    let r = mac.node().device_read(&pc.id());
+    assert_eq!((r.state, r.via.as_str()), ("offline", ""));
+    assert!(r.seen.is_some());
+}
+
+// Card #544: a restart keeps what the log knows, with no session at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restart_alone_does_not_forget_a_device_it_synced() {
+    let net = FakeNet::new();
+    let (mut a, mut b) = (Dev::new(&net, "pc"), Dev::new(&net, "mac"));
+    b.join(&a).await;
+    a.start();
+    b.start();
+    let ev = a.append(
+        store::kinds::AGENT_SEEN,
+        json!({"key": format!("{}/s", a.id())}),
+    );
+    eventually("the row lands", || b.has(&ev)).await;
+    a.stop().await;
+    b.reopen().await;
+
+    let r = b.node().device_read(&a.id());
+    assert!(r.seen.is_some(), "never heard, after syncing: {r:?}");
+    assert_eq!(r.state, "recent");
+    assert_eq!(r.via, "", "the log doesn't say how it came");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn backfill_in_batches() {
     let net = FakeNet::new();
