@@ -215,7 +215,8 @@ impl Fold {
             wake: self.idle(&to),
             ..Notice::default()
         };
-        if !self.is_owner(&to) && to != by {
+        // A person isn't a mailbox: their Irori asks them (card #573).
+        if !self.is_owner(&to) && to != by && !to.starts_with(kinds::PERSON_ACTOR_PREFIX) {
             n.to = vec![to.clone()];
         }
         let mut b = format!(
@@ -389,6 +390,11 @@ impl Fold {
                 if !keys.contains(a) {
                     keys.push(a.clone());
                 }
+            }
+            // A card given to them comes back though nobody of theirs holds
+            // it now (card #573).
+            if let Some(g) = t.given.as_ref().filter(|g| !keys.contains(&g.key)) {
+                keys.push(g.key.clone());
             }
             for who in keys.into_iter().filter(|k| kp(k) == person_id) {
                 let at = self.stamp();

@@ -395,6 +395,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub at_cap: String,
+    /// The card was given to this person and they said Not now: its page
+    /// offers Start an agent (card #573).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub given_no: bool,
     /// Its place in that device's spawn queue, from 1 (card #450): "queued:
     /// 1st for the PC". 0 when it isn't queued.
     #[serde(skip_serializing_if = "is_zero")]
@@ -1543,11 +1547,7 @@ pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String
             w => w.to_string(),
         },
     };
-    if t.repo_key.is_empty() {
-        format!("this card names no repo, and {dev} has no folder for it")
-    } else {
-        format!("no copy of {} on {dev}", coord::repo_name(&t.repo_key))
-    }
+    irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
@@ -2328,6 +2328,7 @@ impl Window {
                 let mut cs = card_summary(&pt, p);
                 let private = |k: &str| self.core.private_key(k);
                 // Comments are read only when nothing cheaper already said so.
+                cs.given_no = co.mine_to_serve(&t) && t.given_said.as_ref().is_some_and(|y| !y.yes);
                 cs.ours = ours(&t, [], private)
                     || (t.comments > 0
                         && ours(
@@ -2419,6 +2420,9 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        d.summary.given_no = raw
+            .as_ref()
+            .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
         if let Some(raw) = &raw
             && !d.summary.board.is_empty()
         {
@@ -2446,7 +2450,20 @@ impl Window {
             });
         }
         let refr = |id: &str| co.get_task(id).map(|x| x.short_ref()).unwrap_or_default();
-        if !co.is_board() {
+        // A wait on a shared card is in the waiter's own log (card #574).
+        if co.is_board() {
+            for w in self.core.coord().waits("") {
+                if w.task_id != t.id {
+                    continue;
+                }
+                d.waits.push(CardWait {
+                    id: w.id.clone(),
+                    who: p.ref_(&w.by),
+                    text: format!("until {}", coord::until_text(&w.until)),
+                    on_this: true,
+                });
+            }
+        } else {
             for w in co.waits("") {
                 let on_this = w.task_id == t.id;
                 if !on_this && (!t.holders.contains(&w.by) || coord::is_terminal(&t.state)) {
@@ -2455,7 +2472,9 @@ impl Window {
                 let text = if on_this {
                     format!("until {}", coord::until_text(&w.until))
                 } else {
-                    coord::wait_line(&w, &refr(&w.task_id))
+                    // A shared card's wait kept its refs: no such card here.
+                    let r = refr(&w.task_id);
+                    coord::wait_line(&w, if r.is_empty() { &w.card } else { &r })
                 };
                 d.waits.push(CardWait {
                     id: w.id.clone(),

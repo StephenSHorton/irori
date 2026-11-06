@@ -608,6 +608,9 @@ crate::go_struct! {
         pub note: String = "note" "omit",
         pub at: GoTime = "at",
         pub expires: GoTime = "expires",
+        pub board: String = "board" "omit",
+        pub card: String = "card" "omit",
+        pub title: String = "title" "omit",
     }
 }
 
@@ -688,6 +691,9 @@ crate::go_struct! {
         /// The person's words for the agent's brief, carried to the
         /// device that starts it (card #455).
         pub note: String = "note" "omit",
+        /// It counts toward "My agents may start agents" (card #575): an
+        /// agent asked for it, or an agent that counts went on to cause it.
+        pub counted: bool = "counted" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -707,6 +713,8 @@ crate::go_struct! {
         /// The shared board whose card it is, on the person's own mark for
         /// a board card's agent (card #455); empty for this log's card.
         pub board: String = "board" "omit",
+        /// It counts toward "My agents may start agents" (card #575).
+        pub counted: bool = "counted" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

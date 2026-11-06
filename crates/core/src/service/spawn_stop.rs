@@ -53,6 +53,16 @@ pub fn no_folder_reason(reason: &str) -> bool {
         || reason.starts_with("this card names no repo")
 }
 
+/// A missing checkout in the card line's words (card #480): the repo's short
+/// name, or that the card names none, and the device's name.
+pub fn no_folder_words(repo_key: &str, device: &str) -> String {
+    if repo_key.is_empty() {
+        format!("this card names no repo, and {device} has no folder for it")
+    } else {
+        format!("no copy of {} on {device}", coord::repo_name(repo_key))
+    }
+}
+
 /// Whether b is one of Irori's "no copy" blockers.
 pub fn is_no_copy(b: &Blocker) -> bool {
     b.raised_by == SWEEPER && b.question.contains(CHOOSE_FOLDER)

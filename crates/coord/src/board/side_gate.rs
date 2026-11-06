@@ -69,7 +69,11 @@ impl Fold {
     /// across the line: that agent waits for the person too. Handing it to
     /// the person is always fine.
     pub(crate) fn check_side_assign(&self, by: &str, t: &Task, to: &str) -> Result<()> {
-        if self.free_of_sides(by) || self.free_of_sides(to) {
+        // A person runs no side: another member's `person:` key neither.
+        if self.free_of_sides(by)
+            || self.free_of_sides(to)
+            || to.starts_with(store::kinds::PERSON_ACTOR_PREFIX)
+        {
             return Ok(());
         }
         let dev = owner::device_of(to);

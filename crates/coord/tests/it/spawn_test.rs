@@ -723,6 +723,172 @@ fn a_request_naming_another_device_or_superseded_or_stale_starts_nothing_here() 
     assert!(e.c.spawns_here().is_empty(), "moved on to dev-c");
 }
 
+/// Card #574: what a card says about getting an agent, reason by reason.
+#[test]
+fn spawn_hold_names_what_the_card_itself_is_waiting_on() {
+    let e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    let c = spawning(&e, &on);
+
+    let free = c.create_task(USER, nt("Free")).unwrap();
+    assert_eq!(c.spawn_hold(&free.id), SpawnHold::Clear);
+    assert_eq!(c.spawn_hold("nope"), SpawnHold::NoNeed, "no such card");
+
+    let held = c.create_task(ALICE, nt("Held")).unwrap();
+    c.claim_task(ALICE, &held.id).unwrap();
+    assert_eq!(c.spawn_hold(&held.id), SpawnHold::NoNeed);
+
+    let join = c
+        .create_task(
+            USER,
+            NewTask {
+                shared: true,
+                ..nt("Join it")
+            },
+        )
+        .unwrap();
+    assert_eq!(c.spawn_hold(&join.id), SpawnHold::Joinable);
+
+    let first = c.create_task(BOB, nt("First")).unwrap();
+    c.claim_task(BOB, &first.id).unwrap();
+    let after = c.create_task(USER, nt("After")).unwrap();
+    c.raise(
+        USER,
+        &after.id,
+        NewBlocker {
+            question: "waits".into(),
+            blocked_by: Some(BlockedBy {
+                kind: BLOCKED_ON_TASK.into(),
+                reference: first.id.clone(),
+            }),
+            ..NewBlocker::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(c.spawn_hold(&after.id), SpawnHold::Blocked);
+
+    let done = c.create_task(CAROL, nt("Done")).unwrap();
+    c.claim_task(CAROL, &done.id).unwrap();
+    c.set_task_state(CAROL, &done.id, CANCELED, "").unwrap();
+    assert_eq!(c.spawn_hold(&done.id), SpawnHold::NoNeed);
+    assert_eq!(
+        c.card_origin(&free.id),
+        "dev-a",
+        "a person's card, from its key"
+    );
+    assert_eq!(c.card_origin(&held.id), "dev-a");
+}
+
+/// Card #574: a board wait in this log fires as a card's would, on what the
+/// core reads from the board; a lost card ends it and says so.
+#[test]
+fn a_board_wait_fires_on_the_state_the_core_reads() {
+    let e = Env::new();
+    let c = &e.c;
+    let spec = |until: &[&str], state: &str| WaitSpec {
+        task_id: "01BOARDCARD".into(),
+        until: until.iter().map(|u| u.to_string()).collect(),
+        on_board: Some(BoardCard {
+            board: "b1".into(),
+            card: "mlg#7, task:01BOARDCARD".into(),
+            title: "Theirs".into(),
+            state: state.into(),
+            own: false,
+        }),
+        ..WaitSpec::default()
+    };
+    let w = c
+        .create_wait(ALICE, spec(&["done", "unblocked"], BLOCKED))
+        .unwrap();
+    assert_eq!(w.from_state, BLOCKED);
+    assert_eq!(c.board_waits().len(), 1);
+    assert_eq!(c.board_wait_moved(&w.id, BLOCKED), None, "still blocked");
+    assert_eq!(
+        c.board_wait_moved(&w.id, WORKING).as_deref(),
+        Some(BLOCKED),
+        "unblocked"
+    );
+    c.fire_wait(&w.id, "mlg#7 is now working");
+    let (ns, r) = c.sweep_notices_partial();
+    r.unwrap();
+    let n = ns
+        .iter()
+        .find(|n| n.to.contains(&ALICE.to_string()))
+        .expect("a wake");
+    assert!(n.wake);
+    assert_eq!(n.title, "Theirs");
+    assert!(
+        n.text
+            .contains("mlg#7, task:01BOARDCARD until done or unblocked"),
+        "{}",
+        n.text
+    );
+    assert!(c.board_waits().is_empty(), "it fires once");
+
+    // The sweep leaves a board wait alone: its card is in no log here.
+    let w = c.create_wait(ALICE, spec(&["done"], WORKING)).unwrap();
+    c.sweep_notices_partial().1.unwrap();
+    assert_eq!(c.board_waits().len(), 1, "not ended as card_gone");
+    c.board_wait_lost(&w.id);
+    let (ns, r) = c.sweep_notices_partial();
+    r.unwrap();
+    assert!(c.board_waits().is_empty());
+    let n = ns.iter().find(|n| n.kind == NOTICE_WAIT).expect("a notice");
+    assert!(!n.wake, "nothing happened: said at its next turn");
+    assert!(n.text.contains("ended without firing"), "{}", n.text);
+
+    let own = BoardCard {
+        own: true,
+        ..spec(&[], WORKING).on_board.unwrap()
+    };
+    let e2 = c
+        .create_wait(
+            ALICE,
+            WaitSpec {
+                on_board: Some(own),
+                ..spec(&[], WORKING)
+            },
+        )
+        .unwrap_err();
+    assert!(e2.to_string().contains("your own card"), "{e2}");
+}
+
+/// A wait's waiter on another device is that device's: this one reads
+/// nothing for it.
+#[test]
+fn a_board_wait_is_read_on_its_waiters_device() {
+    let e = Env::new();
+    let c = &e.c;
+    c.create_wait(
+        "dev-b/agent",
+        WaitSpec {
+            task_id: "01BOARDCARD".into(),
+            on_board: Some(BoardCard {
+                board: "b1".into(),
+                state: WORKING.into(),
+                ..BoardCard::default()
+            }),
+            ..WaitSpec::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(c.waits("").len(), 1);
+    assert!(c.board_waits().is_empty());
+}
+
+/// Card #574: the crash question blocks the card, and the line still says
+/// it crashed, not just that it's blocked.
+#[test]
+fn a_card_that_crashed_twice_says_so() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let t = e.c.create_task(USER, nt("Kills its agent")).unwrap();
+    spawn_and_crash(&e, &t.id, "dev-a/first");
+    spawn_and_crash(&e, &t.id, "dev-a/second");
+    assert_eq!(e.c.spawn_hold(&t.id), SpawnHold::Crashed);
+}
+
 /// Card #541: two computers (dev-a and dev-b) both took one card's
 /// generation 1, and dev-b started, bound and then failed its own. Every
 /// device, whatever order the rows reach it in, ends with dev-a's request
@@ -999,4 +1165,44 @@ fn a_crash_limit_lowered_under_a_card_asks_the_person() {
 #[test]
 fn the_crash_question_at_the_default_is_unchanged() {
     assert_eq!(coord::crash_question(MAX_SPAWN_CRASHES), CRASHED_QUESTION);
+}
+
+/// Card #575: a start an agent asked for counts toward the person's limit
+/// and never goes first, even on their own card, until they say so.
+#[test]
+fn an_agents_counted_start_queues_behind_the_persons_cards() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    e.c = spawning(&e, &on);
+    let older =
+        e.c.create_task(USER, nt("An agent asked for this"))
+            .unwrap();
+    e.clk.add(std::time::Duration::from_secs(1));
+    let newer = e.c.create_task(USER, nt("Mine")).unwrap();
+    let g =
+        e.c.request_spawn(
+            SWEEPER_KEY,
+            SpawnAsk {
+                counted: true,
+                ..ask(&older.id)
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(e.c.bind_spawn(&older.id, g, "dev-a/first").unwrap());
+    e.c.claim_task("dev-a/first", &older.id).unwrap();
+    e.ros.set("dev-a/first", "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [newer.id.clone(), older.id.clone()]
+    );
+    // The person's Start puts it first again.
+    e.c.spawn_now(&older.id);
+    assert_eq!(
+        ids(&e.c.cards_to_spawn()),
+        [older.id.clone(), newer.id.clone()]
+    );
 }

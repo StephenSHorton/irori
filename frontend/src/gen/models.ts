@@ -8,6 +8,7 @@ export type AddressKind = B.AddressKind
 export type AgentCard = B.AgentCard
 export type AgentPermissions = B.AgentPermissions
 export type AgentRef = B.AgentRef
+export type AgentStartsView = B.AgentStartsView
 export type AgentsChange = B.AgentsChange
 export type AgentsLimits = B.AgentsLimits
 export type AgentsSettings = B.AgentsSettings
@@ -187,6 +188,11 @@ export function AgentsLimits(p: Partial<B.AgentsLimits> = {}): B.AgentsLimits {
 /** AgentsSettings with Go's zero values for every field left out. */
 export function AgentsSettings(p: Partial<B.AgentsSettings> = {}): B.AgentsSettings {
   return { "boardId": "", "on": false, "chosen": false, "model": "", "effort": "", "models": [], "efforts": [], "defaultModel": "", "defaultEffort": "", "idleMins": 0, "idleChoices": [], "crashLimit": 0, "startTries": 0, "defaultCrashLimit": 0, "defaultStartTries": 0, ...p } as B.AgentsSettings
+}
+
+/** AgentStartsView with Go's zero values for every field left out. */
+export function AgentStartsView(p: Partial<B.AgentStartsView> = {}): B.AgentStartsView {
+  return { "on": false, "max": 0, "used": 0, "ceiling": 0, ...p } as B.AgentStartsView
 }
 
 /** AnswerResult with Go's zero values for every field left out. */

@@ -129,6 +129,10 @@ pub struct StartRequest {
     pub generation: i64,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// An agent asked, not the person (card #575): the Core wrote the row
+    /// after its own checks, and the start counts toward their limit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
     pub by: String,
     #[serde(default)]
     pub at_device: String,
@@ -168,6 +172,9 @@ pub(crate) struct RemoteState {
     /// Requests started on this device, by (card, generation): the name it
     /// was started with. Dropped once bound, or ended when superseded.
     started: Mutex<HashMap<(String, i64), String>>,
+    /// Board requests this device started, for a given card whose yes went
+    /// before its agent showed (card #573).
+    pub(super) board_started: Mutex<std::collections::HashSet<(String, i64)>>,
     /// Request rows (end, start, trust) already acted on, by (device, seq).
     seen: Mutex<HashSet<(String, i64)>>,
     /// Cards another device asked this one to trust the repo of, and which
@@ -558,6 +565,7 @@ impl Services {
             model: setting.model().into(),
             effort: setting.effort().into(),
             note,
+            counted: self.start_counts(&self.coord, t),
             ..SpawnAsk::default()
         };
         let out = self
@@ -565,6 +573,7 @@ impl Services {
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
         if let Some(g) = out {
+            self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
                 .answers
@@ -944,15 +953,28 @@ impl Services {
     /// The person asks for card `id`'s agent now from a device that
     /// doesn't hand it out: the card's own device acts on it.
     pub(crate) fn request_start(&self, id: &str, note: &str) -> Result<(), String> {
+        self.write_start_request(id, note, false)
+    }
+
+    /// An agent's ask, passed to the device that hands the card out, after
+    /// [`Services::agent_start`]'s checks (card #575).
+    pub(crate) fn request_agent_start(&self, id: &str) -> Result<(), String> {
+        self.write_start_request(id, "", true)
+    }
+
+    fn write_start_request(&self, id: &str, note: &str, agent: bool) -> Result<(), String> {
+        // The card's own log: it may be a shared board's (card #575).
         let generation = self
-            .coord
-            .get_task(id)
+            .route(id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(id))
             .and_then(|t| t.spawn_request().map(|s| s.generation))
             .unwrap_or(0);
         let row = StartRequest {
             task_id: id.into(),
             generation,
             note: note.trim().to_string(),
+            agent,
             by: format!("user:{}", self.device.id),
             at_device: self.device.id.clone(),
             at: (self.now)(),
@@ -970,13 +992,18 @@ impl Services {
                 self.mark_seen(&ev);
                 continue;
             };
-            let Some(t) = self.coord.get_task(&r.task_id) else {
+            let Some((co, t)) = self
+                .route(&r.task_id)
+                .ok()
+                .and_then(|(_, co)| co.get_task(&r.task_id).map(|t| (co, t)))
+            else {
                 // The card hasn't reached this device yet: next sweep.
                 continue;
             };
             self.mark_seen(&ev);
-            if ev.device_id == self.device.id
-                || !self.coord.hands_out_here(&t.id)
+            // An agent's ask is read here too, for its count after a restart.
+            if (ev.device_id == self.device.id && !r.agent)
+                || !co.hands_out_here(&t.id)
                 || !self.by_person(&ev, &r.by)
             {
                 continue;
@@ -990,8 +1017,13 @@ impl Services {
             if !r.note.is_empty() {
                 self.set_brief_answer(&t.id, &r.note);
             }
-            self.coord.spawn_now(&t.id);
-            self.release_usage_hold();
+            if r.agent {
+                self.note_agent_ask(&t);
+            } else {
+                self.note_person_ask(&t.id);
+                co.spawn_now(&t.id);
+                self.release_usage_hold();
+            }
             self.asks_kick.kick();
         }
     }

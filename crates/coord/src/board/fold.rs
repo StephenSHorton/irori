@@ -333,6 +333,8 @@ pub struct Fold {
     /// The state each open task wait last saw, so the sweep catches a
     /// move that came by another path than task.status (or while off).
     pub(crate) wait_seen: HashMap<String, String>,
+    /// Board waits whose card the core found gone (card #574).
+    pub(crate) waits_lost: HashSet<String>,
 
     pub(crate) claims: Vec<ShortClaim>,
     pub(crate) claimed: HashSet<String>,
@@ -385,6 +387,9 @@ pub struct Fold {
     pub(crate) notes: BTreeMap<String, (super::notes::Note, RowPos)>,
     /// Cards the person deleted (card #57): never folded again.
     pub(crate) deleted: HashSet<String>,
+    /// Cards that have been given to someone on a shared board (card
+    /// #573), even if they were taken back since.
+    pub(crate) given_ever: HashSet<String>,
     /// Cards that were in_review when they were blocked (card #191): an
     /// unblock restores in_review, not working. Not part of the Task's
     /// Go shape.
@@ -501,6 +506,7 @@ impl Fold {
             waitq: Vec::new(),
             waits_done: HashSet::new(),
             wait_seen: HashMap::new(),
+            waits_lost: HashSet::new(),
             claims: Vec::new(),
             claimed: HashSet::new(),
             short_groups: BTreeMap::new(),
@@ -528,6 +534,7 @@ impl Fold {
             reviewers: BTreeMap::new(),
             notes: BTreeMap::new(),
             deleted: HashSet::new(),
+            given_ever: HashSet::new(),
             review_before_block: HashSet::new(),
             pr_states: Default::default(),
             pr_ahead: Vec::new(),
@@ -769,9 +776,30 @@ impl Fold {
                 if p.to.is_empty() {
                     return;
                 }
+                let gave = self.gave_to_person(ev, &p);
+                let back = self.takes_back(ev, &p);
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
+                if let Some(person) = gave {
+                    self.given_ever.insert(p.task_id.clone());
+                    // A say and a question were about the last give.
+                    super::cards::close_given_question(&mut t, at(p.at));
+                    t.given = Some(Given {
+                        key: p.to.clone(),
+                        person,
+                        by: p.by.clone(),
+                        asker: String::new(),
+                        question: String::new(),
+                    });
+                    t.given_said = None;
+                } else if back {
+                    // Its author takes it back: the way out when the person
+                    // it went to is away for good.
+                    super::cards::close_given_question(&mut t, at(p.at));
+                    t.given = None;
+                    t.given_said = None;
+                }
                 let engaged = is_holder(&t, &p.to) && !contains(&t.assigned, &p.to);
                 add_holder(&mut t, &p.to);
                 if !engaged && !contains(&t.assigned, &p.to) {
@@ -835,6 +863,17 @@ impl Fold {
                     t.holders = remove_str(&t.holders, &p.who);
                     if !contains(&t.left, &p.who) {
                         t.left.push(p.who.clone());
+                    }
+                    // They came off it: the card is its author's again.
+                    let kp = self.key_person.clone();
+                    if t.given.as_ref().is_some_and(|g| {
+                        g.key == p.who
+                            || (p.reason == LEFT_REMOVED
+                                && kp.as_ref().is_some_and(|f| f(&p.who) == g.person))
+                    }) {
+                        super::cards::close_given_question(&mut t, at(p.at));
+                        t.given = None;
+                        t.given_said = None;
                     }
                     if t.holders.is_empty() {
                         t.let_go = Some((p.who.clone(), at(p.at)));
@@ -1002,6 +1041,8 @@ impl Fold {
                 let Some(p) = row::<TaskWhereRow>(&ev.payload) else {
                     return;
                 };
+                // Where goes in the brief: someone else's asks again (#573).
+                let edited = self.edited_by_another(ev, &p.task_id, &p.who);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -1019,6 +1060,10 @@ impl Fold {
                     .is_none_or(|o| !crate::gotime::after(&o.at, &w.at))
                 {
                     t.where_ = Some(w);
+                    if edited {
+                        super::cards::close_given_question(t, at(p.at));
+                        t.given_said = None;
+                    }
                     let holder = t.holder.clone();
                     self.note(Change {
                         kind: TASK_CHANGED.into(),
@@ -1326,10 +1371,16 @@ impl Fold {
         // The person's say on the card (an answer putting it back, a
         // reopen) clears a run of crashed spawns (card #447).
         if self.person_row(ev, &p.by) {
-            t.spawn_crashes = 0;
+            t.person_cleared_crashes();
         }
-        t.state = p.state.clone();
-        t.note = p.note.clone();
+        // The question raised by two of the person's devices at once is one
+        // question: the second row leaves the card as the first left it,
+        // which may already be answered, and the lowest device acts on it.
+        let again = self.given_raised(&mut t, &p, ev);
+        if !again {
+            t.state = p.state.clone();
+            t.note = p.note.clone();
+        }
         t.assigned = remove_str(&t.assigned, &p.by);
         sync_holder(&mut t);
         let mut what = String::new();
@@ -2030,6 +2081,22 @@ impl Fold {
         ev.actor == "user" && self.is_owner(by)
     }
 
+    /// See [`super::Coord::written_as`].
+    pub(crate) fn written_as(&self, by: &str, dev: &str) -> Option<String> {
+        let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
+            return None;
+        };
+        let p = dp(dev);
+        // Irori's lines are its own only from this person's devices: from
+        // another member's they are that member's.
+        let mismatch = if by == SWEEPER {
+            p != kp(&self.person)
+        } else {
+            kp(by) != p
+        };
+        (!p.is_empty() && mismatch).then(|| format!("{}{p}", kinds::PERSON_ACTOR_PREFIX))
+    }
+
     /// The owner rule for an owner-only row.
     pub(crate) fn may_write(&self, owner_key: &str, writer: &str) -> bool {
         match (self.on_board, &self.key_person, &self.dev_person) {
@@ -2123,6 +2190,11 @@ impl Fold {
         let Some(p) = row::<TaskIdRow>(&ev.payload) else {
             return false;
         };
+        // A row that waits beside the one that lets it in is checked when
+        // it folds from there, not dropped now (card #573).
+        if self.ahead_of_give(ev) || self.behind_held(ev, &self.aside) {
+            return true;
+        }
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
             // The take lock: its fold counts only the asking device's.
@@ -2165,7 +2237,7 @@ impl Fold {
                     .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
             }),
             // A spawned agent's request and mark (card #455): from a device
-            // of the card's author, which spawn_writer_ok checks itself.
+            // of the person it serves, which spawn_writer_ok checks itself.
             kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
             // Irori's line on a card about its spawned agent (ended on a
             // usage limit, no hand-off, a kept worktree; card #576): from a
@@ -2180,27 +2252,58 @@ impl Fold {
                 })
             }
             // Binding a spawned agent assigns the card to it: from a device
-            // of the card's author, and only to the agent marked as started
+            // of the person it serves (the card's author, or who it was
+            // given to, card #573), and only to the agent marked as started
             // for this card in this log.
             kinds::TASK_ASSIGNED => {
                 let Some(a) = row::<TaskAssignedRow>(&ev.payload) else {
                     return false;
                 };
-                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                let Some(dp) = &self.dev_person else {
                     return false;
                 };
                 self.tasks.get(&p.task_id).is_some_and(|t| {
-                    let author = kp(&t.created_by);
-                    !author.is_empty()
-                        && author == dp(&ev.device_id)
+                    let serves = self.serving_person(t);
+                    !serves.is_empty()
+                        && serves == dp(&ev.device_id)
                         && self.spawned.get(&a.to).is_some_and(|s| s.task_id == t.id)
                 })
             }
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,
-                Some(t) => self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev))),
+                // Or a given card's person's device putting it back when
+                // their agent left it (card #573): a state that isn't an
+                // end, or closing a blocker they or their agent raised.
+                // Never the giver's card's end or the giver's questions.
+                Some(t) => {
+                    self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev)))
+                        || self.given_puts_back(t, ev)
+                }
             },
+            _ => false,
+        }
+    }
+
+    /// Whether ev, Irori's row from a device of the person card t was
+    /// given to, is one that puts the card back after their agent left.
+    fn given_puts_back(&self, t: &Task, ev: &Event) -> bool {
+        let (Some(g), Some(kp), Some(dp)) = (&t.given, &self.key_person, &self.dev_person) else {
+            return false;
+        };
+        if dp(&ev.device_id) != g.person {
+            return false;
+        }
+        match ev.kind.as_str() {
+            kinds::TASK_STATUS => {
+                row::<TaskStateRow>(&ev.payload).is_some_and(|p| !is_terminal(&p.state))
+            }
+            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload).is_some_and(|p| {
+                p.closed
+                    && t.blockers
+                        .iter()
+                        .any(|b| b.id == p.blocker_id && kp(&b.raised_by) == g.person)
+            }),
             _ => false,
         }
     }
@@ -2241,14 +2344,18 @@ impl Fold {
         format!("user:{}", self.dev)
     }
 
-    fn unresolved(&self, ev: &Event) -> bool {
+    /// Whether ev can't fold yet; `earlier` are the rows already waiting
+    /// that came before it.
+    fn unresolved(&self, ev: &Event, earlier: &[Event]) -> bool {
         self.st.as_ref().is_some_and(|s| s.unresolved(ev).is_err())
+            || self.ahead_of_give(ev)
+            || self.behind_held(ev, earlier)
     }
 
     /// Sets ev aside when it names something the board log doesn't hold
     /// yet; true means fold it now.
     pub(crate) fn aside_gate(&mut self, ev: &Event) -> bool {
-        if !self.on_board || !self.unresolved(ev) {
+        if !self.on_board || !self.unresolved(ev, &self.aside) {
             return true;
         }
         if self.aside.len() >= MAX_ASIDE {
@@ -2263,10 +2370,23 @@ impl Fold {
     pub(crate) fn retry_aside(&mut self) {
         while !self.aside.is_empty() {
             let rows = std::mem::take(&mut self.aside);
+            // Which rows waited for a give as this pass began: a give that
+            // folds mid-pass mustn't let a device's later row past its
+            // earlier ones, so those wait for the next pass (card #573).
+            let held: Vec<bool> = rows.iter().map(|ev| self.ahead_of_give(ev)).collect();
+            let mut behind: Vec<(String, String)> = Vec::new();
             let mut keep = Vec::new();
             let mut folded = false;
-            for ev in rows {
-                if self.unresolved(&ev) {
+            for (ev, held) in rows.into_iter().zip(held) {
+                let card = row::<TaskIdRow>(&ev.payload)
+                    .map(|p| (ev.device_id.clone(), p.task_id))
+                    .filter(|(_, id)| !id.is_empty());
+                let after = ev.kind != kinds::TASK_CREATED
+                    && card.as_ref().is_some_and(|c| behind.contains(c));
+                if after || self.unresolved(&ev, &keep) {
+                    if held && let Some(c) = card {
+                        behind.push(c);
+                    }
                     keep.push(ev);
                     continue;
                 }
