@@ -106,6 +106,18 @@ export const commands = {
 	 */
 	boardPause: (id: string, paused: boolean, note: string) => __TAURI_INVOKE<string[]>("board_pause", { id, paused, note }),
 	/**
+	 *  Not yet on a card (card #570): the person holds it back from the
+	 *  agents until `until` says: a card ("#83", "mlg#4"), a day ("1 Dec",
+	 *  "2026-12-01": the start of that day here), a version on this device
+	 *  ("v0.13.0"), or empty for until they say. `why` may be empty.
+	 */
+	boardNotYet: (id: string, until: string, why: string) => __TAURI_INVOKE<null>("board_not_yet", { id, until, why }),
+	/**
+	 *  Start now on a held card (card #570): it comes back and goes out as
+	 *  if just posted.
+	 */
+	boardStartNow: (id: string) => __TAURI_INVOKE<null>("board_start_now", { id }),
+	/**
 	 *  Stop on an agent (card #207): cuts its running turn; `text` (empty: a
 	 *  plain "stop and wait") is its next prompt.
 	 */
@@ -971,6 +983,22 @@ export type CardHolder = {
 	others: number,
 };
 
+/**  A held card's Not yet (card #570). */
+export type CardLater = {
+	/**  Why it was held, as it was given. */
+	why: string,
+	back: LaterBack,
+	/**
+	 *  What brings it back, plainly: "when #12 is done", "on 1 Dec",
+	 *  "when this Mac runs v0.13.0", "when you say".
+	 */
+	line: string,
+	/**  Who held it, by name. */
+	by: string,
+	/**  The card it waits on, for a card hold. */
+	card?: string,
+};
+
 /**  A holder's one line on what's done and what's next (card #137). */
 export type CardLeftOff = {
 	text: string,
@@ -1024,6 +1052,16 @@ export type CardOption = {
 	at: string,
 	recommended: boolean,
 	link?: Link | null,
+};
+
+/**  The run of cards a card is in (card #570): each after the one before. */
+export type CardOrder = {
+	/**  First to last; the card itself among them. */
+	steps: OrderStep[],
+	/**  The card it comes after, if any. */
+	previous?: OrderStep | null,
+	/**  The card that comes after it, if any. */
+	next?: OrderStep | null,
 };
 
 /**  A pull request linked from the card. */
@@ -1314,6 +1352,13 @@ export type CardSummary = {
 	 *  board can't say.
 	 */
 	owner?: string,
+	/**
+	 *  The card is held back as Not yet (card #570): why, and what brings
+	 *  it back.
+	 */
+	later?: CardLater | null,
+	/**  The run of cards it is in, each after the one before (card #570). */
+	order?: CardOrder | null,
 };
 
 /**  One entry of a card's thread. */
@@ -1808,6 +1853,17 @@ export type InviteStatus = {
 	error?: string,
 };
 
+/**  What brings a held card back. */
+export type LaterBack = 
+/**  Another card finishing. */
+"card" | 
+/**  A day coming. */
+"date" | 
+/**  A device running an Irori version. */
+"version" | 
+/**  The person's word. */
+"word";
+
 /**  coord.Link. */
 export type Link = {
 	kind: LinkKind,
@@ -2051,6 +2107,23 @@ export type NotifyOptions = {
 	corner: string,
 	/**  A confetti burst from each success card ("Confetti on good news"). */
 	confetti?: boolean,
+};
+
+/**  Where a step of an order stands. */
+export type OrderState = "done" | "working" | "waiting" | "later";
+
+/**  One card of an order. */
+export type OrderStep = {
+	id: string,
+	/**  Its number on its board, as the card's own `short`: "12". */
+	short: string,
+	/**
+	 *  Its board's tag (card #558): one log holds several boards, each
+	 *  numbered from 1, and an order may cross them. "": Personal's own.
+	 */
+	tag: string,
+	title: string,
+	state: OrderState,
 };
 
 /**  coord.Outcome: how an ask ended. */

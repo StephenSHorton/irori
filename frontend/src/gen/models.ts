@@ -34,11 +34,13 @@ export type CardBoard = B.CardBoard
 export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
 export type CardHolder = B.CardHolder
+export type CardLater = B.CardLater
 export type CardLeftOff = B.CardLeftOff
 export type CardLook = B.CardLook
 export type CardMention = B.CardMention
 export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
+export type CardOrder = B.CardOrder
 export type CardPR = B.CardPR
 export type CardProgress = B.CardProgress
 export type CardRead = B.CardRead
@@ -83,6 +85,7 @@ export type Identity = B.Identity
 export type IdleReport = B.IdleReport
 export type InboxCounts = B.InboxCounts
 export type InviteStatus = B.InviteStatus
+export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
@@ -101,6 +104,8 @@ export type Notification = B.Notification
 export type NotificationAsk = B.NotificationAsk
 export type NotificationCard = B.NotificationCard
 export type NotifyOptions = B.NotifyOptions
+export type OrderState = B.OrderState
+export type OrderStep = B.OrderStep
 export type Outcome = B.Outcome
 export type PairJoiner = B.PairJoiner
 export type PairStatus = B.PairStatus
@@ -295,6 +300,11 @@ export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
   return { "who": AgentRef(), "state": "", "others": 0, ...p } as B.CardHolder
 }
 
+/** CardLater with Go's zero values for every field left out. */
+export function CardLater(p: Partial<B.CardLater> = {}): B.CardLater {
+  return { "why": "", "back": "", "line": "", "by": "", ...p } as B.CardLater
+}
+
 /** CardLeftOff with Go's zero values for every field left out. */
 export function CardLeftOff(p: Partial<B.CardLeftOff> = {}): B.CardLeftOff {
   return { "text": "", "by": AgentRef(), "at": "", ...p } as B.CardLeftOff
@@ -318,6 +328,11 @@ export function CardMessage(p: Partial<B.CardMessage> = {}): B.CardMessage {
 /** CardOption with Go's zero values for every field left out. */
 export function CardOption(p: Partial<B.CardOption> = {}): B.CardOption {
   return { "answer": "", "why": "", "by": AgentRef(), "at": "", "recommended": false, ...p } as B.CardOption
+}
+
+/** CardOrder with Go's zero values for every field left out. */
+export function CardOrder(p: Partial<B.CardOrder> = {}): B.CardOrder {
+  return { "steps": [], ...p } as B.CardOrder
 }
 
 /** CardPR with Go's zero values for every field left out. */
@@ -593,6 +608,11 @@ export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.Notific
 /** NotifyOptions with Go's zero values for every field left out. */
 export function NotifyOptions(p: Partial<B.NotifyOptions> = {}): B.NotifyOptions {
   return { "enabled": false, "sound": false, "volume": 0, "corner": "", ...p } as B.NotifyOptions
+}
+
+/** OrderStep with Go's zero values for every field left out. */
+export function OrderStep(p: Partial<B.OrderStep> = {}): B.OrderStep {
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.OrderStep
 }
 
 /** Outcome with Go's zero values for every field left out. */

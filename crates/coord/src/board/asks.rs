@@ -1857,6 +1857,19 @@ impl Fold {
             if !person && let Some(pt) = self.tasks.get(&pid).cloned() {
                 self.check_side_take(&by, &pt)?;
             }
+            // A held parent holds the card, so one its taker keeps can't
+            // go there (finding 21); and it checks circles (finding 3).
+            let keeps = !a.thread && !a.taker.is_empty() && !self.is_owner(&a.taker);
+            if keeps && self.tasks.get(&pid).is_some_and(|p| p.parked().is_some()) {
+                return Err(bad_state(format!(
+                    "{} is Not yet, and {} stays with {}: close it without a parent, or bring {} back first",
+                    self.ref_of(&pid),
+                    t.short_ref(),
+                    a.taker,
+                    self.ref_of(&pid)
+                )));
+            }
+            self.check_ask_adopt(&pid, id)?;
             parent = pid;
         }
         let opt = |s: &str| (!s.is_empty()).then(|| s.to_string());
@@ -1937,11 +1950,12 @@ impl Fold {
                         kinds::TASK_PARENT,
                         &TaskParentRow {
                             task_id: id.into(),
-                            parent,
+                            parent: parent.clone(),
                             by: by.clone(),
                             at,
                         },
                     )?;
+                    self.inherit_park(&by, &parent, id)?;
                 }
             }
             OUTCOME_EDIT => {

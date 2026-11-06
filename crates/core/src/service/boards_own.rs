@@ -1065,6 +1065,17 @@ impl Services {
                 format_args!("{} was shared already", t.short_ref()),
             ));
         }
+        // Card #570: a hold stays private, as every blocker does, so the
+        // shared copy would go out to the board's agents at once.
+        if t.parked().is_some() {
+            return Err(Error::coord(
+                CK::BadState,
+                format_args!(
+                    "{} is held back as Not yet, and the hold stays on this device: on the board it would start at once. Start it now, then share it",
+                    t.short_ref()
+                ),
+            ));
+        }
         Ok(t)
     }
 
@@ -1087,6 +1098,16 @@ impl Services {
                     CK::Invalid,
                     format_args!(
                         "{} can't go: its subtask {} is an ask, and an ask isn't shared",
+                        t.short_ref(),
+                        k.short_ref()
+                    ),
+                ));
+            }
+            if k.parked().is_some() {
+                return Err(Error::coord(
+                    CK::BadState,
+                    format_args!(
+                        "{} can't go: its subtask {} is held back as Not yet, and the hold stays on this device, so on the board it would start at once. Start it now, then share",
                         t.short_ref(),
                         k.short_ref()
                     ),
@@ -1567,6 +1588,8 @@ impl Services {
                 &mut v.blocked,
                 &mut v.working,
                 &mut v.open,
+                // Card #570: Not yet cards, or they'd carry the board's keys.
+                &mut v.later,
                 &mut v.done,
             ] {
                 let kept: Vec<Card> = std::mem::take(lane)

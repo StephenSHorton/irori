@@ -254,6 +254,10 @@ export const BoardService = {
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
+  // Not yet and Start now (card #570).
+  NotYet: (id: string, until: string, why: string) =>
+    done(commands.boardNotYet(id, until, why)),
+  StartNow: (id: string) => done(commands.boardStartNow(id)),
   MovePin: (id: string, before: string) =>
     done(commands.boardMovePin(id, before)),
   Place: (id: string, x: number, y: number) =>
