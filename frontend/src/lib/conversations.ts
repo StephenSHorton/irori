@@ -467,7 +467,7 @@ function sampleState(): SampleConv[] {
   const lastWords = [
     "On main as 4c1e9a2. The phone build passed too; ending my session.",
     "Done check raised with screenshots. Nothing else from me.",
-    "Rebased onto main and pushed; the merge desk has it.",
+    "Rebased onto main and pushed; it's on the merge desk for review.",
     "The flaky capture test was a timeout on one thread. Fixed, on main.",
     "Settings › Agents now shows the model picker. Proof is on the card.",
     "Closed as a duplicate of #452; I linked the two.",

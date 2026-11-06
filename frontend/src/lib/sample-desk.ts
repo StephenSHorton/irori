@@ -1,5 +1,5 @@
 // The merge desks the browser preview shows (card #417): ww's stand-in
-// game-repo with every live state (desk-2), an app repo with no open PRs
+// game-repo with every state (desk-2), an app repo with no open PRs
 // of ours (so it isn't listed, card #625), and a repo that takes no PRs. ?desk=unreachable makes the game-repo's
 // poll fail and ?desk=truncated cuts its list short.
 
@@ -44,7 +44,9 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
     pr(215, "Enemy camp: second patrol", "irori-agents", 400, {
       mergeStateStatus: "BEHIND",
     }),
-    pr(216, "Save slots: keep the last 3", "irori-agents", 350),
+    pr(216, "Save slots: keep the last 3", "irori-agents", 350, {
+      checks: "failure",
+    }),
     pr(217, "Night fog tweak", "irori-agents", 320),
     pr(221, "New title screen", "irori-agents", 60, { isDraft: true }),
   ]
@@ -54,19 +56,8 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       repoKey: GAME,
       enabled: true,
       takesPrs: true,
-      holder: "kowhai",
       pollDevice: "pc",
       trusted: ["you", "blake-dev"],
-      checks: [
-        { command: "cargo test --workspace && bun run typecheck" },
-        {
-          command: "./scripts/check-mac.sh",
-          paths: ["app/macos/**", "crates/metal/**"],
-          runner: "nutmeg",
-          device: "mac",
-        },
-      ],
-      mergeMethod: "squash",
       perPrOk: false,
     },
     prs: {
@@ -74,23 +65,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       at: ago(now, unreachable ? 9 : 2),
       truncated: flag === "truncated",
       prs,
-    },
-    holds: {
-      217: {
-        repoKey: GAME,
-        pr: 217,
-        note: "after the playtest",
-        by: "user:you",
-        at: ago(now, 7),
-      },
-    },
-    run: {
-      repoKey: GAME,
-      pr: 212,
-      headSha: prs[0].headRefOid!,
-      baseSha: "e81b0c4",
-      by: "kowhai",
-      at: ago(now, 1),
     },
     poll: unreachable
       ? { at: ago(now, 1), unreachableSince: ago(now, 6), device: "pc" }
@@ -105,14 +79,6 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       217: { card: "c45", cardRef: "#45", agent: "kestrel", name: "kestrel" },
       221: { card: "c50", cardRef: "#50", agent: "nutmeg", name: "nutmeg" },
     },
-    checks: [
-      {
-        pr: 216,
-        headSha: prs[5].headRefOid!,
-        state: "failed",
-        note: "cargo test: 2 failed · output on #47",
-      },
-    ],
     merged: [
       {
         pr: 210,
@@ -127,15 +93,11 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       repoKey: APP,
       enabled: true,
       takesPrs: true,
-      holder: "primrose",
       pollDevice: "pc",
       trusted: ["you"],
-      checks: [{ command: "bun test" }],
-      mergeMethod: "squash",
       perPrOk: false,
     },
     prs: { repoKey: APP, at: ago(now, 40), truncated: false, prs: [] },
-    holds: {},
     poll: { at: ago(now, 2), device: "pc" },
   }
   const irori: Desk = {
@@ -145,11 +107,8 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       takesPrs: false,
       pollDevice: "",
       trusted: [],
-      checks: [],
-      mergeMethod: "squash",
       perPrOk: false,
     },
-    holds: {},
   }
   return [game, app, irori]
 }

@@ -391,10 +391,6 @@ export const commands = {
 	deskList: () => __TAURI_INVOKE<DeskView[]>("desk_list"),
 	/**  The person sets up or changes a repo's merge desk. */
 	deskSet: (settings: DeskSettings) => __TAURI_INVOKE<null>("desk_set", { settings }),
-	/**  The person holds a desk's PR, or with `cleared` lifts the hold. */
-	deskHold: (repoKey: string, pr: number, note: string, cleared: boolean) => __TAURI_INVOKE<null>("desk_hold", { repoKey, pr, note, cleared }),
-	/**  The person pauses or resumes a desk. */
-	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
 };
 
 /* Types */
@@ -1539,26 +1535,6 @@ export type DeskAuthorView = {
 	agent: string,
 };
 
-/**  One check line (§7). */
-export type DeskCheckLine = {
-	command: string,
-	paths?: string[],
-	/**  An agent key; "" the holder. */
-	runner?: string,
-	/**  `mac`, `windows`, `linux`; "" any. */
-	device?: string,
-};
-
-/**  A hold, a pause or the holder's run: one PR (0 for a pause). */
-export type DeskMark = {
-	pr: number,
-	/**  A hold's note; a run's base sha. */
-	note: string,
-	headSha: string,
-	by: string,
-	at: string,
-};
-
 /**  How polling stands, on the device that polls. */
 export type DeskPollView = {
 	/**  Whether this device is the desk's poll device. */
@@ -1592,12 +1568,8 @@ export type DeskSettings = {
 	repoKey: string,
 	enabled: boolean,
 	takesPrs: boolean,
-	/**  The holder's agent key; "" unheld. */
-	holder?: string,
 	pollDevice?: string,
 	trusted?: string[],
-	checks?: DeskCheckLine[],
-	mergeMethod?: string,
 	perPrOk?: boolean,
 	by?: string,
 	at?: string,
@@ -1634,9 +1606,6 @@ export type DeskView = {
 	 */
 	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
-	holds: DeskMark[],
-	paused?: DeskMark | null,
-	run?: DeskMark | null,
 	poll: DeskPollView,
 	/**
 	 *  Each PR in the snapshot: its author card. The snapshot holds only

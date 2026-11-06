@@ -543,8 +543,4 @@ export const TermService = {
 export const DeskService = {
   List: () => call(commands.deskList()),
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
-  Hold: (repoKey: string, pr: number, note: string, cleared: boolean) =>
-    done(commands.deskHold(repoKey, pr, note, cleared)),
-  Pause: (repoKey: string, paused: boolean) =>
-    done(commands.deskPause(repoKey, paused)),
 }
