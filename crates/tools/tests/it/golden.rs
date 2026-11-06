@@ -251,21 +251,26 @@ fn specs_and_instructions_match_go() {
     let h = new_harness();
     const CLIENTS: [&str; 4] = ["", "claude", "grok", "other"];
     if bless() {
-        // Go wrote this file with HTML escaping off.
-        let s = |t: &str| gocompat::json::Value::string_with(t, false);
+        // Only where the text differs, so a value in other escapes keeps
+        // its bytes. Go wrote this file with HTML escaping off.
+        let set = |v: &mut gocompat::json::Value, t: &str| {
+            if v.as_str() != Some(t) {
+                *v = gocompat::json::Value::string_with(t, false);
+            }
+        };
         let p = manifest_dir().join("../../testdata/golden/tools/specs.json");
         gocompat::json::rewrite_indented(&p, |v| {
             let specs = v.get_mut("specs").expect("specs");
             for client in CLIENTS {
                 let got = String::from_utf8(h.set.specs_json(client)).unwrap();
-                *specs.get_mut(client).expect("client") = s(&got);
+                set(specs.get_mut(client).expect("client"), &got);
             }
             for (k, text) in [
                 ("instructions", tools::INSTRUCTIONS),
                 ("boardInstructions", tools::BOARD_INSTRUCTIONS),
                 ("askInstructions", tools::ASK_INSTRUCTIONS),
             ] {
-                *v.get_mut(k).expect(k) = s(text);
+                set(v.get_mut(k).expect(k), text);
             }
         })
         .unwrap();

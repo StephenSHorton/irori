@@ -74,14 +74,24 @@ fn our_fallback() -> String {
 }
 
 /// Writes `fixes` (per run) and this build's fallback list and instructions
-/// into wire.json.
+/// into wire.json, each only where its content differs, so a value written
+/// in other escapes but saying the same keeps its bytes.
 fn bless_wire(fixes: &[(usize, Fix)]) {
     use gocompat::json::Value as G;
     let p = manifest_dir().join("../../testdata/golden/mcp/wire.json");
-    let fallback = gocompat::json::parse(our_fallback().as_bytes()).unwrap();
+    let ours = our_fallback();
+    let fallback = gocompat::json::parse(ours.as_bytes()).unwrap();
+    let instructions = mcp::instructions();
     let changed = gocompat::json::rewrite_indented(&p, |v| {
-        *v.get_mut("fallback").expect("fallback") = fallback;
-        *v.get_mut("instructions").expect("instructions") = G::string(&mcp::instructions());
+        let fb = v.get_mut("fallback").expect("fallback");
+        let old = String::from_utf8(gocompat::json::write_compact(fb)).unwrap();
+        if canon(&old) != canon(&ours) {
+            *fb = fallback;
+        }
+        let ins = v.get_mut("instructions").expect("instructions");
+        if ins.as_str() != Some(instructions.as_str()) {
+            *ins = G::string(&instructions);
+        }
         let Some(G::Array(runs)) = v.get_mut("runs") else {
             panic!("wire.json: no runs")
         };
