@@ -15,7 +15,7 @@
 #
 # The asset names and SHA256SUMS are a contract with crates/update (and the
 # Go v0.5.x updater, which installs the first Rust release):
-# crates/update/tests/release_names.rs reads the names below.
+# crates/update/tests/it/release_names.rs reads the names below.
 #
 # Needs bun, cargo, NSIS (makensis), and gh for -Publish/-Finalize.
 param(

@@ -17,7 +17,7 @@
 # 2. Runs the Rust side of that contract against the real API server
 #    (`irori_api::Server`, the one `irori serve` hosts): the real `irori
 #    attach` binary spawned with the mod's exact argv on a scratch
-#    IRORI_HOME (app/tests/attach_exe.rs), the ported Go attach and member
+#    IRORI_HOME (app/tests/it/attach_exe.rs), the ported Go attach and member
 #    tests and the Go-exported event goldens (crates/attach/tests).
 #
 # Nothing here runs the mod against Rust. That is the live check in
@@ -37,5 +37,5 @@ for f in .claude-plugin hooks types tests unit bunfig.toml tsconfig.json; do
 done
 (cd "$dst" && claude plugin test .)
 (cd "$dst" && bun test)
-(cd "$root" && cargo test -p irori-attach && cargo test -p irori-app --test attach_exe)
+(cd "$root" && cargo test -p irori-attach && cargo test -p irori-app --test it attach_exe::)
 echo "mod-suite: the mod's suites and the Rust attach side passed"

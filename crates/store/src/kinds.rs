@@ -4,7 +4,7 @@
 //! Every kind the tree writes is a constant here, and the [`kinds!`] table
 //! that defines the constants is also the registry, so a kind can't exist
 //! without a Side and (when it replicates) a Board verdict. Go's two maps
-//! (`kindSides`, `kindBoards`) are one table here; `tests/kinds.rs` checks it
+//! (`kindSides`, `kindBoards`) are one table here; `tests/it/kinds.rs` checks it
 //! against the Go-exported table and the consistency rules Go's
 //! `TestEveryKindIsClassified` checks.
 //!
