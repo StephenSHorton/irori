@@ -2,7 +2,7 @@
 //! agents inside the limit the person sets in the app, can't raise it or
 //! chain past it, and get less than the person's own Start.
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};

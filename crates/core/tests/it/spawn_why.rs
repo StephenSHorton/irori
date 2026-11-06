@@ -3,7 +3,7 @@
 //! works on shared-board cards. Real Cores: one for the private board's
 //! reasons, then two people on loopback iroh for a shared board's.
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -359,7 +359,8 @@ fn a_step_mark_on_a_held_card_says_to_split_it() {
 /// Stephen's side is Bob's to start; Stephen's own card waits on his switch;
 /// an agent of Stephen's waiting on Bob's card is woken when it's done, and
 /// the wait never reaches Bob's device. Once Bob is away and Stephen has
-/// restarted, the board can't take a start until Bob has been heard.
+/// restarted, the board remembers what Bob's device reads (card #577), so
+/// the line moves on to what is in the way here, not an older member.
 #[test]
 fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     let mut st = person("stephen", 1);
@@ -438,11 +439,8 @@ fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     std::thread::sleep(Duration::from_millis(500));
     let s = restart(s);
     s.core.set_spawner(Some(idle_spawner()));
-    wait_for(60, "the board reads as not ready", || {
-        matches!(
-            s.core.why_no_agent(&mine_id, true),
-            Some(Why::OlderMember { .. })
-        )
+    wait_for(60, "the line says what is in the way here", || {
+        matches!(s.core.why_no_agent(&mine_id, true), Some(Why::NoFolder(_)))
     });
 }
 
