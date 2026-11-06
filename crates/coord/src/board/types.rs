@@ -376,6 +376,11 @@ pub struct Ask {
     /// #454): its `ch_` id. Its newest lines go in a spawned agent's brief.
     #[serde(skip_serializing_if = "omit")]
     pub channel: String,
+    /// The agent that opened this thread itself (card #631); empty for the
+    /// person's own. It holds the thread from the start, and no agent is
+    /// handed or started for it until its person writes in it.
+    #[serde(skip_serializing_if = "omit")]
+    pub opener: String,
 }
 
 impl Ask {

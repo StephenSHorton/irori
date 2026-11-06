@@ -1393,6 +1393,13 @@ impl Coord {
     ) -> Result<(Task, Notice)> {
         self.lock().post_ask(by, input, agents)
     }
+
+    /// An agent opens a thread it holds itself (card #631): never handed
+    /// out, and no agent is started for it until its person writes in it.
+    /// The notice is for the agents it names, if any.
+    pub fn post_agent_thread(&self, by: &str, input: NewAsk) -> Result<(Task, Option<Notice>)> {
+        self.lock().post_agent_thread(by, input)
+    }
     /// Asks for an ask's take and waits up to `wait` for the owner's answer.
     pub fn ask_claim(&self, by: &str, id: &str, wait: Duration) -> Result<ClaimResult> {
         let by = util::caller(by)?;

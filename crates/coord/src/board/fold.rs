@@ -2087,6 +2087,26 @@ impl Fold {
         ev.actor == "user" && self.is_owner(by)
     }
 
+    /// A row an agent wrote as itself from its own device (card #631): on
+    /// a board, a member's agent from a device of that member; privately,
+    /// an agent on the device that wrote it. Never a person or Irori.
+    pub(crate) fn agent_own_row(&self, ev: &Event, by: &str) -> bool {
+        if by.is_empty()
+            || by == SWEEPER
+            || self.is_person(by)
+            || super::threads::names_person(by)
+            || by.starts_with("api:")
+        {
+            return false;
+        }
+        if self.on_board {
+            return ev.actor == by && self.may_write(by, &ev.device_id);
+        }
+        ev.actor == format!("agent:{by}")
+            && owner::may_write(by, &ev.device_id)
+            && !owner::device_of(by).is_empty()
+    }
+
     /// See [`super::Coord::written_as`].
     pub(crate) fn written_as(&self, by: &str, dev: &str) -> Option<String> {
         let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {

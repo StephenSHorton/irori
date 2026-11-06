@@ -63,6 +63,122 @@ impl Fold {
         self.is_owner(key) || (self.on_board && key.starts_with(store::kinds::PERSON_ACTOR_PREFIX))
     }
 
+    /// Whether `by` is the person an agent-opened thread is for (card
+    /// #631): this device's person on the private log; on a board, the
+    /// member whose agent opened it.
+    pub(crate) fn openers_person(&self, a: &Ask, by: &str) -> bool {
+        if a.opener.is_empty() || !self.is_person(by) {
+            return false;
+        }
+        if !self.on_board {
+            return true;
+        }
+        let Some(kp) = &self.key_person else {
+            return false;
+        };
+        let p = kp(by);
+        !p.is_empty() && p == kp(&a.opener)
+    }
+
+    /// Whether person `by` started thread t: it's their row, or their
+    /// agent opened it (card #631).
+    pub(crate) fn started_by(&self, t: &Task, a: &Ask, by: &str) -> bool {
+        t.created_by == by || self.openers_person(a, by)
+    }
+
+    /// Whether thread t is one an agent opened that its person hasn't
+    /// written in yet (card #631). It rests: Irori never hands it out or
+    /// starts an agent for it, even once its opener goes, because another
+    /// agent's words never start one (spawned-agents.md §7). The person's
+    /// first post makes it a thread like their own.
+    pub(crate) fn agent_thread_rests(&self, t: &Task) -> bool {
+        let Some(a) = t.ask.as_ref().filter(|a| a.thread && !a.opener.is_empty()) else {
+            return false;
+        };
+        !self
+            .comments
+            .values()
+            .any(|c| c.task_id == t.id && self.openers_person(a, &c.by))
+    }
+
+    /// The sweep's turn on an agent-opened thread (card #631), before
+    /// [`Self::thread_sweep`]; true when the hand-out should skip it now.
+    /// While it rests its opener holds it; once that one goes or gives it
+    /// back, it is parked as answered with nobody holding it, which the
+    /// hand-out, the spawn pass and other devices all leave alone. When
+    /// the person has the last word and no agent that answered is live,
+    /// it goes out again as their own thread would: this covers a post
+    /// from a device that doesn't own it (the phone), which can't.
+    pub(crate) fn agent_thread_sweep(
+        &mut self,
+        id: &str,
+        gone: &dyn Fn(&Fold, &str) -> bool,
+    ) -> super::error::Result<Option<super::asks::AskAgain>> {
+        let t = &self.tasks[id];
+        let Some(a) = t
+            .open_ask()
+            .filter(|a| a.thread && !a.opener.is_empty())
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        if self.agent_thread_rests(t) {
+            let left = if a.taker.is_empty() {
+                a.reason != TAKE_ANSWERED
+            } else {
+                gone(self, &a.taker)
+            };
+            if left {
+                self.write_take(
+                    id,
+                    TakeStateRow {
+                        reason: TAKE_ANSWERED.into(),
+                        was: a.taker.clone(),
+                        told: a.told,
+                        heard: a.heard.clone(),
+                        ..TakeStateRow::default()
+                    },
+                )?;
+            }
+            return Ok(None);
+        }
+        if !a.taker.is_empty() || a.reason != TAKE_ANSWERED || !a.wake {
+            return Ok(None);
+        }
+        let last = |of: &dyn Fn(&str) -> bool| {
+            self.comments
+                .values()
+                .filter(|c| c.task_id == id && c.msg_id.is_empty() && c.by != SWEEPER && of(&c.by))
+                .map(|c| c.at)
+                .max_by(gotime::cmp)
+        };
+        let said = last(&|by| self.openers_person(&a, by));
+        let agents = last(&|by| !self.is_person(by));
+        let Some(said) = said else {
+            return Ok(None);
+        };
+        if agents.is_some_and(|at| !gotime::before(&at, &said))
+            || self.thread_repliers(id).iter().any(|k| !gone(self, k))
+        {
+            return Ok(None);
+        }
+        self.write_take(
+            id,
+            TakeStateRow {
+                reason: super::asks::TAKE_REOPENED.into(),
+                told: a.told,
+                heard: Vec::new(),
+                since: self.stamp(),
+                ..TakeStateRow::default()
+            },
+        )?;
+        Ok(Some(super::asks::AskAgain {
+            skip: String::new(),
+            why: "the person wrote in it".into(),
+            reason: super::asks::TAKE_REOPENED.into(),
+        }))
+    }
+
     /// Who hears a person's follow-up in thread `t` now: the agents that
     /// answered, or before any answer, the ones it went to (and its taker).
     pub(crate) fn thread_to(&self, t: &Task) -> Vec<String> {
@@ -228,8 +344,13 @@ impl Fold {
             )?;
             return Ok(Vec::new());
         }
+        let whose = if a.opener.is_empty() {
+            "their thread".to_string()
+        } else {
+            format!("the thread agent {} started", a.opener)
+        };
         let mut b = format!(
-            "The person replied in their thread {} ({}):\n{}\n",
+            "The person replied in {whose} {} ({}):\n{}\n",
             gocompat::quote::quote(&t.title),
             t.refs(),
             cut(text, MAX_THREAD_NOTICE)
@@ -318,14 +439,16 @@ impl Fold {
                 .iter()
                 .map(|c| (c.by.as_str(), c.text.as_str()))
                 .collect();
-            let lines: Vec<(&str, &str)> = if from == 0 && !cs.iter().any(|c| c.by == k) {
-                // Never posted there: the question counts as unread too.
-                std::iter::once((t.created_by.as_str(), t.objective.as_str()))
-                    .chain(unread)
-                    .collect()
-            } else {
-                unread
-            };
+            // Its opener wrote the question (card #631).
+            let lines: Vec<(&str, &str)> =
+                if from == 0 && !cs.iter().any(|c| c.by == k) && k != t.created_by {
+                    // Never posted there: the question counts as unread too.
+                    std::iter::once((t.created_by.as_str(), t.objective.as_str()))
+                        .chain(unread)
+                        .collect()
+                } else {
+                    unread
+                };
             if lines.is_empty() {
                 continue;
             }
@@ -391,8 +514,9 @@ impl Fold {
                 t.short_ref()
             )));
         };
-        // On a board, the member who started it (card #134).
-        if !self.is_owner(by) || (self.on_board && t.created_by != by) {
+        // On a board, the member who started it (card #134), or whose
+        // agent did (card #631).
+        if !self.is_owner(by) || (self.on_board && !self.started_by(&t, &a, by)) {
             return Err(super::error::not_allowed(
                 "only the person who started a thread reopens it",
             ));
@@ -492,7 +616,10 @@ impl Fold {
         if by.is_empty() || by == SWEEPER || self.is_person(by) || !self.open_thread(id) {
             return Ok(());
         }
-        if self.thread_repliers(id).iter().any(|k| k == by) {
+        // Its opener said its piece when it opened it (card #631).
+        if self.thread_repliers(id).iter().any(|k| k == by)
+            || self.tasks[id].ask.as_ref().is_some_and(|a| a.opener == by)
+        {
             return Ok(());
         }
         let r = self.tasks[id].short_ref();
@@ -547,8 +674,9 @@ the thread shows your answer and the card, so the person can resolve it."
                 t.short_ref()
             )));
         }
-        // On a board, the member who started it.
-        if !self.is_owner(by) || (self.on_board && t.created_by != by) {
+        // On a board, the member who started it, or whose agent did.
+        let a = t.ask.clone().unwrap_or_default();
+        if !self.is_owner(by) || (self.on_board && !self.started_by(t, &a, by)) {
             return Err(super::error::not_allowed(
                 "only the person who started a thread resolves it",
             ));
@@ -608,7 +736,8 @@ the thread shows your answer and the card, so the person can resolve it."
 /// What the agents a new thread names hear.
 pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
     let mut b = format!(
-        "The person started a thread ({}). It's a question or a conversation, not a card:\n{}\n",
+        "{} started a thread ({}). It's a question or a conversation, not a card:\n{}\n",
+        starter(t),
         t.refs(),
         cut(&t.objective, MAX_THREAD_NOTICE)
     );
@@ -626,7 +755,7 @@ pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
         to: to.to_vec(),
         wake: true,
         text: b,
-        person: true,
+        person: by_person(t),
         ..Notice::default()
     }
 }
@@ -635,7 +764,8 @@ pub(crate) fn thread_notice(t: &Task, to: &[String]) -> Notice {
 /// is off (card #391): at their next turn, a reply optional.
 pub(crate) fn thread_quiet_notice(t: &Task, to: &[String]) -> Notice {
     let mut b = format!(
-        "The person started a thread ({}). It's a conversation, not a card:\n{}\n",
+        "{} started a thread ({}). It's a conversation, not a card:\n{}\n",
+        starter(t),
         t.refs(),
         cut(&t.objective, MAX_THREAD_NOTICE)
     );
@@ -654,7 +784,8 @@ pub(crate) fn thread_quiet_notice(t: &Task, to: &[String]) -> Notice {
 /// What the idle agent a thread is handed to hears.
 pub(crate) fn thread_hand_notice(t: &Task, to: &str, told: &[String]) -> Notice {
     let mut b = format!(
-        "The person started a thread ({}), and Irori handed it to you. It's a question or a conversation, not a card:\n{}\n",
+        "{} started a thread ({}), and Irori handed it to you. It's a question or a conversation, not a card:\n{}\n",
+        starter(t),
         t.refs(),
         cut(&t.objective, MAX_THREAD_NOTICE)
     );
@@ -687,7 +818,22 @@ pub(crate) fn thread_hand_notice(t: &Task, to: &str, told: &[String]) -> Notice 
         to: vec![to.into()],
         wake: true,
         text: b,
-        person: true,
+        person: by_person(t),
         ..Notice::default()
     }
+}
+
+/// Who a thread's notices say started it: the person, or the agent that
+/// opened it (card #631).
+fn starter(t: &Task) -> String {
+    match t.ask.as_ref().filter(|a| !a.opener.is_empty()) {
+        Some(a) => format!("Agent {}", a.opener),
+        None => "The person".into(),
+    }
+}
+
+/// Whether a thread's opening words are the person's: an agent's own
+/// thread is routed as Irori's, never as the person speaking (card #631).
+fn by_person(t: &Task) -> bool {
+    t.ask.as_ref().is_none_or(|a| a.opener.is_empty())
 }
