@@ -480,6 +480,7 @@ fn an_agent_cant_change_a_limit() {
         &SpawnCap {
             device: me,
             cap: 50,
+            on: None,
             by: agent.clone(),
             at: GoTime::unix(1_790_000_000, 0),
         },

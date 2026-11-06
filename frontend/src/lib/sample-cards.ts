@@ -515,6 +515,57 @@ export function sampleCards(now: Date): CardDetail[] {
             ],
             updatedAt: at(2),
           }),
+          // #71 was given by Spencer: nothing starts without the yes.
+          card({
+            id: "sample-card-given",
+            short: "71",
+            title: "Add a retry to the upload step",
+            goal: "Uploads over 50 MB retry twice before failing.",
+            scope: "board",
+            scopeLabel: "MLG",
+            board: "sample-board-mlg",
+            ours: true,
+            working: [],
+            blockers: [
+              CardBlocker({
+                id: "b-given",
+                question: "OK to start an agent on this?",
+                context:
+                  "Spencer gave you this card. It asks: Uploads over 50 MB retry twice before failing.\n\nIrori stopped here because someone else wrote it. An agent would run on this computer, under your own settings and cap, and treat the card as Spencer's request.",
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
+                at: at(3),
+                options: [
+                  CardOption({
+                    answer: "Start an agent",
+                    why: "It starts under your own settings and cap.",
+                    by: AgentRef({
+                      key: "irori",
+                      name: "Irori",
+                      status: "person",
+                    }),
+                    at: at(3),
+                  }),
+                  CardOption({
+                    answer: "Not now",
+                    why: "The card stays yours, with no agent.",
+                    by: AgentRef({
+                      key: "irori",
+                      name: "Irori",
+                      status: "person",
+                    }),
+                    at: at(3),
+                  }),
+                ],
+                resolved: null,
+                state: "open",
+              }),
+            ],
+            updatedAt: at(3),
+          }),
           card({
             id: "sample-card-spawn-crash",
             short: "62",

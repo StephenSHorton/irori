@@ -53,6 +53,48 @@ fn no_agent_facing_crate_depends_on_the_window() {
     }
 }
 
+/// The limit on agents starting agents (card #575) has the same shape: only
+/// the window's Settings command calls the Core's setter, and the tools
+/// crate holds no way to it.
+#[test]
+fn only_the_window_sets_the_limit_on_agents_starting_agents() {
+    let mut files = Vec::new();
+    rust_files(&root().join("crates"), &mut files);
+    rust_files(&root().join("app"), &mut files);
+    let mut callers = Vec::new();
+    for f in files {
+        let text = std::fs::read_to_string(&f).unwrap_or_default();
+        if text.contains(".set_agent_starts(") {
+            callers.push(f);
+        }
+    }
+    let rel = |p: &PathBuf| {
+        p.strip_prefix(root())
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    for f in &callers {
+        let f = rel(f);
+        assert!(
+            f == "crates/window/src/agents.rs"
+                || f == "crates/core/src/service.rs"
+                || f.starts_with("crates/window/tests/")
+                || f.starts_with("crates/core/tests/"),
+            "{f} sets the limit: only the app's Settings may"
+        );
+    }
+    assert!(callers.len() >= 2, "{callers:?}");
+    // The Core's one pass-through, for the window.
+    let core = std::fs::read_to_string(root().join("crates/core/src/service.rs")).unwrap();
+    assert_eq!(core.matches(".set_agent_starts(").count(), 1);
+    let tools = std::fs::read_to_string(root().join("crates/tools/src/lib.rs")).unwrap();
+    assert!(
+        !tools.contains("fn set_agent"),
+        "the tools' Backend can't set it"
+    );
+}
+
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();

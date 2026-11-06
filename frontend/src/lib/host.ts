@@ -340,6 +340,9 @@ export const NotesService = {
 export const AgentsService = {
   Settings: (boardId: string) => call(commands.agentsSettings(boardId)),
   Set: (change: B.AgentsChange) => call(commands.agentsSet(change)),
+  Starts: () => call(commands.agentsStarts()),
+  SetStarts: (on: boolean, max: number) =>
+    call(commands.agentsStartsSet(on, max)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) =>
     done(commands.agentsOfferSet(key, on)),

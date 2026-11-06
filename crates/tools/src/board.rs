@@ -67,6 +67,15 @@ impl Inner {
         }
     }
 
+    /// "  no agent yet: why\n" for card `id`, or "" (card #574).
+    pub(crate) fn no_agent_line(&self, id: &str, asked: bool) -> String {
+        let why = self.b.spawn_wait(id, asked);
+        if why.is_empty() {
+            return String::new();
+        }
+        format!("  no agent yet: {}\n", one_line(&why, MAX_FIELD_RUNES))
+    }
+
     /// The card `id` names, in whichever log holds it.
     pub(crate) fn task(&self, id: &str) -> Option<Task> {
         let (co, _) = self.on(id, &[]).ok()?;
@@ -256,6 +265,19 @@ impl Inner {
                 .filter(|w| w.task_id == t.id)
                 .map(|w| format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until)))
                 .collect();
+            // A wait on a shared card is in the waiter's own log (card #574).
+            let kept = if Arc::ptr_eq(&co, self.b.coord()) {
+                Vec::new()
+            } else {
+                self.b.coord().waits("")
+            };
+            let on_it: Vec<String> =
+                on_it
+                    .into_iter()
+                    .chain(kept.iter().filter(|w| w.task_id == t.id).map(|w| {
+                        format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until))
+                    }))
+                    .collect();
             if !on_it.is_empty() {
                 b += &format!("; waited on by {}", on_it.join(", "));
             }
@@ -278,6 +300,7 @@ impl Inner {
             }
         }
         b += &format!("; updated {}\n", ago(now, &t.updated_at));
+        b += &self.no_agent_line(&t.id, false);
         if let Some(r) = &t.rollup {
             let mut ks = vec![];
             if let Ok((co, _)) = self.on(&t.id, &[]) {
@@ -443,6 +466,23 @@ impl Inner {
             );
         }
         b
+    }
+
+    /// The `person:` key of board `board_id`'s other member `want` names
+    /// (their profile name, or their key), to give them a card (card #573).
+    pub(crate) fn member_key(&self, board_id: &str, want: &str) -> Option<String> {
+        let sb = self.b.shared_boards()?;
+        let lower = gocompat::text::to_lower_str;
+        let want = lower(trim(want));
+        let mut found: Vec<String> = sb
+            .board_mentionables(board_id)
+            .into_iter()
+            .filter(|c| c.key.starts_with(store::kinds::PERSON_ACTOR_PREFIX))
+            .filter(|c| lower(&c.key) == want || lower(trim(&c.name)) == want)
+            .map(|c| c.key)
+            .collect();
+        // Two members with that name: only a key says which.
+        (found.len() == 1).then(|| found.remove(0))
     }
 
     /// An agent name or key (live or gone, the caller too), or a person's
@@ -839,9 +879,13 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut to = String::new();
     let v = trim(a.str("assign_to"));
     if !v.is_empty() {
-        match s.assignee(v) {
-            Ok(k) => to = k,
-            Err(e) => return map_err(e),
+        let board = s.find_board(trim(a.str("board"))).ok();
+        match board.and_then(|b| s.member_key(&b.board_id, v)) {
+            Some(k) => to = k,
+            None => match s.assignee(v) {
+                Ok(k) => to = k,
+                Err(e) => return map_err(e),
+            },
         }
     }
     let waits = match waits_on(s, a.str("waits_on")) {
@@ -1924,6 +1968,9 @@ pub(crate) fn board_steps(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     {
         b.push_str(SPAWN_REFUSED_TOOL);
     }
+    if !asked.is_empty() {
+        b.push_str(&s.no_agent_line(&id, true));
+    }
     for st in &t.steps {
         let mark = if st.done {
             "[x]"
@@ -2191,9 +2238,18 @@ pub(crate) fn board_assign(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if want.is_empty() {
         return err_text("give to: the agent's name or key (see the agents tool).");
     }
-    let to = match s.assignee(want) {
-        Ok(k) => k,
-        Err(e) => return map_err(e),
+    // On a shared card `to` may be another member: the card is given to
+    // them, and their Irori asks them before it starts anything (card #573).
+    let member =
+        s.b.shared_boards()
+            .and_then(|sb| sb.board_of(&id))
+            .and_then(|b| s.member_key(&b.board_id, want));
+    let to = match member {
+        Some(k) => k,
+        None => match s.assignee(want) {
+            Ok(k) => k,
+            Err(e) => return map_err(e),
+        },
     };
     let (co, as_) = match s.on(&id, &[c.sender.key.clone(), to.clone()]) {
         Ok(v) => v,
@@ -2715,6 +2771,10 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     );
     if made.iter().zip(&asked).any(|(k, a)| *a && !k.spawn) {
         b += &format!("\n{}", SPAWN_REFUSED_TOOL.trim_end());
+        let why = s.no_agent_line(&id, true);
+        if !why.is_empty() {
+            b += &format!("\n{}", why.trim_end());
+        }
     }
     for (i, k) in made.iter().enumerate() {
         b += &format!(
@@ -2724,6 +2784,10 @@ pub(crate) fn board_split(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             if k.spawn { " (spawn)" } else { "" }
         );
         if to.get(i).is_none_or(|t| t.is_empty()) {
+            let why = s.no_agent_line(&k.id, true);
+            if k.spawn && !why.is_empty() {
+                b += &format!("\n{}", why.trim_end());
+            }
             continue;
         }
         match co.assign(&as_[0], &k.id, &as_[1 + i]) {

@@ -14,6 +14,7 @@ use common::mesh::{Dev, person, restart};
 use common::{wait_for, write_session};
 use coord::{NewTask, Task};
 use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
+use irori_core::spawn_why::Why;
 
 const REPO: &str = "remote:github.com/stephen/api";
 const SESS: &str = "bbbbbbbb-5555-4555-8555-00000000000b";
@@ -258,6 +259,15 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
     let line = r.phone.core.no_agent().remove(&t.id).unwrap();
     assert!(!line.contains('?') && !line.contains("repo"), "{line}");
     assert!(line.contains("starts by itself"), "{line}");
+    // Card #574's why-line, for board and show, says the same (#541's join).
+    assert_eq!(
+        r.phone.core.why_no_agent(&t.id, true),
+        Some(Why::NoComputer(
+            line.trim_start_matches("No agent can start: ")
+                .trim_end_matches('.')
+                .to_string()
+        ))
+    );
     // After NO_AGENT_AFTER, on real clocks: a phone clock run ahead would
     // have the Mac refuse its rows.
     wait_for(WAIT, "it reaches the person's notifications", || {
@@ -308,6 +318,10 @@ fn a_computer_without_claude_starts_nothing_until_it_is_installed() {
             .is_some_and(|l| l.contains("Claude Code isn't installed"))
     });
     assert_eq!(r.fake.started(), 0, "nothing is tried without claude");
+    match r.phone.core.why_no_agent(&t.id, true) {
+        Some(Why::NoComputer(l)) if l.contains("Claude Code isn't installed") => {}
+        other => panic!("card #574's line says why: {other:?}"),
+    }
     r.fake.missing.store(false, Ordering::SeqCst);
     r.mac.core.set_spawn_cap(r.mac.core.spawn_cap()).unwrap();
     wait_for(WAIT, "it starts once Claude Code is there", || {

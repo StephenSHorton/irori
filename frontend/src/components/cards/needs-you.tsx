@@ -23,6 +23,7 @@ import {
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
 import {
+  GIVEN_QUESTION,
   goneTitle,
   loopLine,
   mergeLine,
@@ -138,6 +139,9 @@ const kinds = {
   // a card whose agents crashed twice.
   permission: { label: "Permission", variant: "warning" },
   crashed: { label: "Crashed", variant: "destructive" },
+  // Card #573: another person gave them the card; nothing starts without
+  // their yes.
+  given: { label: "Given to you", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
   // Card #481: waits nothing will end.
@@ -716,7 +720,8 @@ export function BlockerAnswer({
     <div className="grid min-w-0 gap-1.5">
       {!b.doneCheck && (
         <div className="grid gap-0.5">
-          <Asker who={b.raisedBy} />
+          {/* Irori asks this one in the person's own name (card #573). */}
+          {b.question !== GIVEN_QUESTION && <Asker who={b.raisedBy} />}
           <p className="text-sm break-words">{question}</p>
         </div>
       )}
@@ -769,14 +774,17 @@ export function BlockerAnswer({
                 )}
               </Button>
             ))}
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={act.busy}
-            onClick={() => setOwn(true)}
-          >
-            {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
-          </Button>
+          {/* The given question is its two answers: words aren't a yes. */}
+          {b.question !== GIVEN_QUESTION && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={act.busy}
+              onClick={() => setOwn(true)}
+            >
+              {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onOpen}>
             Open card
           </Button>

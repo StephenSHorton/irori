@@ -498,7 +498,7 @@
         },
         "assign_to": {
           "type": "string",
-          "description": "Optional: hand it to this agent (name or key); they hear at their next turn."
+          "description": "Optional: hand it to this agent (name or key); they hear at their next turn. On a shared board, also another member (their name or person: key): the card is given to them, and their Irori asks them before it starts an agent."
         },
         "parent": {
           "type": "string",
@@ -1016,7 +1016,7 @@
   },
   {
     "name": "wait",
-    "description": "Be woken once when something you depend on happens, instead of polling: a card on your Board reaching a state (task_id, until), or a git branch moving (branch, repo). The wake says what happened. A wait ends when it fires, after a day, or when your session ends; not on your own card. For a shared space's card use board_watch. Branch waits read this device's refs (local and origin), so a push elsewhere shows once fetched. waits lists yours; wait_cancel drops one.",
+    "description": "Be woken once when something you depend on happens, instead of polling: a card on your Board or in a shared space reaching a state (task_id, until), or a git branch moving (branch, repo). The wake says what happened. A wait ends when it fires, after a day, or when your session ends; not on your own card. Branch waits read this device's refs (local and origin), so a push elsewhere shows once fetched. waits lists yours; wait_cancel drops one.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1093,6 +1093,68 @@
       },
       "required": [
         "id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "agent_start",
+    "description": "Ask Irori to start an agent on a card: the agent-side twin of the app's Start agent, for your person's own cards. It follows the same rules as their Start (the board's switch, device cap, trust), inside the limit they set in the app. Everything your started agents go on to start counts toward it too. Returns the reason if it can't start. A card given to your person by someone else starts only on their own yes in Needs you.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "The card: its short ref as the board tool shows it (#12), or its task:<id> (the task: prefix is optional)."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "agents_started",
+    "description": "List the agents Irori started that are running now, on any of your person's devices: card, state and when each was last active, and how much of your person's limit on agents starting agents is in use. Only your person can change that limit, in the app.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "agent_end",
+    "description": "End an agent Irori started, or reassign its card. It writes its hand-off first, as with the app's End. With give_to, the card goes to that agent; without it, an open card gets a fresh agent from Left off. Agents your person started themselves can't be ended here, and neither can you.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "The agent to end: its name or key from agents_started."
+        },
+        "give_to": {
+          "type": "string",
+          "description": "Optional: the agent to give its card to (name or key)."
+        }
+      },
+      "required": [
+        "agent"
       ],
       "additionalProperties": false
     },
@@ -1215,7 +1277,7 @@
         },
         "to": {
           "type": "string",
-          "description": "The agent's name or key from the agents tool."
+          "description": "The agent's name or key from the agents tool. On a shared card, also another member by name or person: key: their Irori asks them before it starts an agent."
         },
         "note": {
           "type": "string",

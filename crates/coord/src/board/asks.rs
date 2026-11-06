@@ -487,6 +487,7 @@ impl Fold {
                     .tasks
                     .get(&p.from)
                     .is_some_and(|f| f.ask.as_ref().is_some_and(|a| a.thread));
+                let another = self.edited_by_another(ev, &p.task_id, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -523,6 +524,12 @@ impl Fold {
                         changed.push(format!("set its repo to {}", ledger::repo_name(&r)));
                         t.repo_key = r;
                     }
+                }
+                // A yes is for the words they read: someone else changing
+                // them asks again (card #573).
+                if !changed.is_empty() && another {
+                    super::cards::close_given_question(t, at(p.at));
+                    t.given_said = None;
                 }
                 // A thread's "Agents answer now" (card #391); edit_gate let
                 // only a person's row carry it.

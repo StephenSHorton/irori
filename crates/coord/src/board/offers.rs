@@ -78,6 +78,9 @@ pub(crate) fn needs_agent(t: &Task) -> bool {
         && t.open_ask().is_none()
         && t.subtasks.is_empty()
         && !waits_on_work(t)
+        // A given card is its person's: their yes starts its agent, and
+        // nobody else's hand-out reaches it (card #573).
+        && t.given.is_none()
 }
 
 impl Fold {
@@ -117,7 +120,7 @@ impl Fold {
 /// blocked). A task or lease blocker closes by itself when the work is
 /// done, the others when someone resolves them, and the card then goes out
 /// once, as if just posted.
-fn waits_on_work(t: &Task) -> bool {
+pub(crate) fn waits_on_work(t: &Task) -> bool {
     t.blockers
         .iter()
         .any(|b| b.open() && b.on.as_ref().is_some_and(|on| on_work(&on.kind)))

@@ -23,6 +23,7 @@ import {
   needsYou,
   prChip,
   rowState,
+  GIVEN_QUESTION,
   spawnNeed,
   stuckLine,
   toPerson,
@@ -725,6 +726,7 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
       spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))
     ).toBe("permission")
     expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
+    expect(spawnNeed(q(GIVEN_QUESTION))).toBe("given")
     // At another crash limit (card #576).
     expect(spawnNeed(q("Its agent crashed: start another?"))).toBe("crashed")
     expect(
