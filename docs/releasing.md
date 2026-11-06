@@ -22,7 +22,8 @@ compiler. When they are not on PATH, point the build at them:
 - PC: `python -m pip install --user cmake libclang`, then
   `export CMAKE="$HOME/AppData/Roaming/Python/Python312/Scripts/cmake.exe"` and
   `export LIBCLANG_PATH="$(python -c "import clang,os;print(os.path.join(os.path.dirname(clang.__file__),'native'))")"`
-  before `scripts/check.sh` or a release build. `.cargo/config.toml` sets
+  before `scripts/check.sh` or a release build (check.sh stops at the
+  start, with these commands, when either is missing). `.cargo/config.toml` sets
   the portable AVX2 CPU flags and `CL=/O2` (cmake-rs drops /O2 under MSVC;
   without it Whisper is ~40x slower).
 - Mac: `brew install cmake` (Xcode's clang provides libclang).
