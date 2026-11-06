@@ -29,6 +29,7 @@ use store::{Filter, kinds};
 
 const REPO: &str = "remote:github.com/stephen/api";
 const SESS_A: &str = "aaaaaaaa-5555-4555-8555-00000000000a";
+const SESS_B_KEY: &str = "eeeeeeee-5555-4555-8555-00000000000e";
 const SESS_B: &str = "bbbbbbbb-5555-4555-8555-00000000000b";
 const WAIT: u64 = 90;
 
@@ -980,4 +981,134 @@ fn a_card_given_by_another_person_asks_first_and_starts_only_on_the_yes() {
     );
     s.core.close().unwrap();
     b.core.close().unwrap();
+}
+
+/// Card #575: a counted agent posting on a shared board stays in the chain
+/// though it has another key in that board's log, and another member's
+/// counted request isn't this person's to count.
+#[test]
+fn the_chain_follows_an_agent_onto_a_shared_board() {
+    let mut st = person("stephen", 1);
+    let mut bo = person("bob", 1);
+    let (s, b) = (st.remove(0), bo.remove(0));
+    let board = invited(&s, &b);
+    let s_dev = s.core.device_id().to_string();
+    let checkout = tempfile::tempdir().unwrap();
+    s.core
+        .capture()
+        .emit_row(
+            "irori",
+            capture::KIND_REPO_SEEN,
+            &capture::RepoSeen {
+                repo_key: REPO.into(),
+                root: checkout.path().to_string_lossy().into_owned(),
+                at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+            },
+        )
+        .unwrap();
+    let fs = Arc::new(Fake::default());
+    s.core.set_spawn_cap(0).unwrap();
+    s.core
+        .set_spawner(Some(spawner(&fs, s.claude.join("sessions"), SESS_A)));
+    for id in [String::new(), board.clone()] {
+        s.core
+            .set_spawn_setting(SpawnSetting {
+                board_id: id,
+                on: true,
+                ..SpawnSetting::default()
+            })
+            .unwrap();
+    }
+    s.core.set_agent_starts(true, 1).unwrap();
+    let person_key = format!("user:{s_dev}");
+    let parent = s
+        .core
+        .coord()
+        .create_task(
+            &person_key,
+            NewTask {
+                title: "Parent".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let call = |key: &str, name: &str, args: serde_json::Value| {
+        let c = tools::Caller {
+            sender: inbox::Sender::new(key, "alpha", "claude"),
+            path: inbox::path::MOD.into(),
+        };
+        s.core
+            .tools()
+            .call(&c, name, args.to_string().as_bytes())
+            .unwrap()
+    };
+    let out = call(
+        &format!("{s_dev}/{SESS_B_KEY}"),
+        "agent_start",
+        serde_json::json!({ "task_id": parent.id }),
+    );
+    assert!(!out.starts_with("Error: "), "{out}");
+    s.core.set_spawn_cap(5).unwrap();
+    let child = format!("{s_dev}/{SESS_A}");
+    wait_for(WAIT, "the started agent is bound", || {
+        s.core.coord().is_spawned(&child)
+    });
+
+    let out = call(
+        &child,
+        "board_create",
+        serde_json::json!({ "title": "Posted on the board", "board": "mlg" }),
+    );
+    assert!(!out.starts_with("Error: "), "{out}");
+    let sco = s.core.board_coord(&board).unwrap();
+    let posted = sco
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.title == "Posted on the board")
+        .expect("the card is on the board");
+    assert!(
+        matches!(
+            s.core.why_no_agent(&posted.id, true),
+            Some(irori_core::spawn_why::Why::AgentStartsFull { used: 1, max: 1 })
+        ),
+        "{:?}",
+        s.core.why_no_agent(&posted.id, true)
+    );
+    assert_eq!(
+        fs.started.lock().unwrap().len(),
+        1,
+        "nothing past the limit"
+    );
+
+    // Bob's counted request is Bob's limit's.
+    let bco = b.core.board_coord(&board).unwrap();
+    let theirs = bco
+        .create_task(
+            &b.person_actor(),
+            NewTask {
+                title: "Bob's card".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    bco.request_spawn(
+        &b.person_actor(),
+        coord::SpawnAsk {
+            task_id: theirs.id.clone(),
+            device: b.core.device_id().to_string(),
+            repo_key: REPO.into(),
+            permission_mode: "acceptEdits".into(),
+            name: "heron".into(),
+            counted: true,
+            ..coord::SpawnAsk::default()
+        },
+    )
+    .unwrap();
+    wait_for(WAIT, "Stephen's device has Bob's request", || {
+        sco.get_task(&theirs.id)
+            .is_some_and(|t| t.spawn_request().is_some_and(|r| r.counted))
+    });
+    assert_eq!(s.core.agent_starts().used, 1);
 }

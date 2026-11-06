@@ -818,7 +818,7 @@ impl Fold {
                 // Their say on the crash question clears the run on a card
                 // no answer can put back on the Board too (card #540).
                 if person && super::spawn::is_crash_question(&t.blockers[i]) {
-                    t.spawn_crashes = 0;
+                    t.person_cleared_crashes();
                 }
                 let when = at(p.at);
                 let mut opt = p.option;
@@ -829,7 +829,7 @@ impl Fold {
                 // A parent's state can't be set, so closing this is the
                 // person's say that clears its run of crashes (#451).
                 if person && q == super::spawn::CRASHED_QUESTION {
-                    t.spawn_crashes = 0;
+                    t.person_cleared_crashes();
                 }
                 t.blockers[i].resolved = Some(Resolution {
                     answer: p.answer.clone(),

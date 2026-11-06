@@ -1266,7 +1266,7 @@ impl Fold {
         // The person's say on the card (an answer putting it back, a
         // reopen) clears a run of crashed spawns (card #447).
         if self.person_row(ev, &p.by) {
-            t.spawn_crashes = 0;
+            t.person_cleared_crashes();
         }
         t.state = p.state.clone();
         t.note = p.note.clone();

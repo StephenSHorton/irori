@@ -808,9 +808,11 @@ impl Services {
     }
 
     fn write_start_request(&self, id: &str, note: &str, agent: bool) -> Result<(), String> {
+        // The card's own log: it may be a shared board's (card #575).
         let generation = self
-            .coord
-            .get_task(id)
+            .route(id)
+            .ok()
+            .and_then(|(_, co)| co.get_task(id))
             .and_then(|t| t.spawn_request().map(|s| s.generation))
             .unwrap_or(0);
         let row = StartRequest {
@@ -835,13 +837,18 @@ impl Services {
                 self.mark_seen(&ev);
                 continue;
             };
-            let Some(t) = self.coord.get_task(&r.task_id) else {
+            let Some((co, t)) = self
+                .route(&r.task_id)
+                .ok()
+                .and_then(|(_, co)| co.get_task(&r.task_id).map(|t| (co, t)))
+            else {
                 // The card hasn't reached this device yet: next sweep.
                 continue;
             };
             self.mark_seen(&ev);
-            if ev.device_id == self.device.id
-                || !self.coord.hands_out_here(&t.id)
+            // An agent's ask is read here too, for its count after a restart.
+            if (ev.device_id == self.device.id && !r.agent)
+                || !co.hands_out_here(&t.id)
                 || !self.by_person(&ev, &r.by)
             {
                 continue;
@@ -859,8 +866,8 @@ impl Services {
                 self.note_agent_ask(&t);
             } else {
                 self.note_person_ask(&t.id);
+                co.spawn_now(&t.id);
             }
-            self.coord.spawn_now(&t.id);
             self.asks_kick.kick();
         }
     }

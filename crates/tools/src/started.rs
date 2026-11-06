@@ -98,7 +98,19 @@ pub(crate) fn agent_end(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Ok(k) => k,
         Err(e) => return map_err(e),
     };
+    // Checked first: the end can't be taken back.
     let to = trim(a.str("give_to"));
+    if !to.is_empty() {
+        match s.assignee(to) {
+            Ok(k) if s.b.coord().is_spawned(&k) => {
+                return err_text(
+                    "that agent was started for its own card and can't take another; give it to an agent the person started, or leave give_to out for a fresh agent.",
+                );
+            }
+            Ok(_) => {}
+            Err(e) => return map_err(e),
+        }
+    }
     let card = match s.b.agent_end(&c.sender.key, &key) {
         Ok(id) => id,
         Err(why) => return err_text(&why),

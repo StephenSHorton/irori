@@ -624,20 +624,23 @@ impl Fold {
     /// started by an agent can't get past the limit by posting a card, or
     /// by splitting one for helpers.
     pub(crate) fn in_chain(&self, t: &Task) -> bool {
-        t.spawn_request().is_some_and(|s| s.counted)
-            || self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
+        match t.spawn_request() {
+            // A request that didn't count was the person's Start, which
+            // holds through a retry; a crash they answered is theirs too.
+            Some(s) => s.counted && t.person_restart != s.generation,
+            None => self.spawned.get(&t.created_by).is_some_and(|m| m.counted),
+        }
     }
 
     /// The agents that count toward the limit and haven't gone, by key:
     /// on any of the person's devices, since marks replicate. An agent on
     /// a device that's off still counts, so the count never reads low.
     pub(crate) fn counted_live(&self) -> Vec<String> {
+        let rs = self.roster_status();
         let mut v: Vec<String> = self
             .spawned
             .iter()
-            .filter(|(k, m)| {
-                m.counted && !self.gone_rows.contains_key(*k) && !self.ended_by_irori.contains(*k)
-            })
+            .filter(|(k, m)| m.counted && !self.key_gone_in(k, &rs))
             .map(|(k, _)| k.clone())
             .collect();
         v.sort();
@@ -646,20 +649,20 @@ impl Fold {
 
     /// Whether agent `key`, marked as started by Irori, hasn't gone.
     pub(crate) fn spawned_live(&self, key: &str) -> bool {
-        self.spawned.contains_key(key)
-            && !self.gone_rows.contains_key(key)
-            && !self.ended_by_irori.contains(key)
+        self.spawned.contains_key(key) && !self.key_gone(key)
     }
 
-    /// The counted requests of this log still waiting for their agent,
-    /// oldest first: (when, card id).
+    /// This person's counted requests of this log still waiting for their
+    /// agent, oldest first: (when, card id). Another member's on a shared
+    /// board are their limit's, and one past its grace holds no slot.
     pub(crate) fn counted_pending(&self) -> Vec<(GoTime, String)> {
+        let now = self.stamp();
         let mut v: Vec<(GoTime, String)> = self
             .tasks
             .values()
             .filter(|t| !is_terminal(&t.state))
             .flat_map(|t| t.spawns.iter().map(move |s| (t, s)))
-            .filter(|(_, s)| s.counted && s.pending())
+            .filter(|(t, s)| s.counted && s.pending() && !s.stale(&now) && self.mine_to_start(t, s))
             .map(|(t, s)| (s.at, t.id.clone()))
             .collect();
         v.sort_by(|a, b| gotime::cmp(&a.0, &b.0).then_with(|| a.1.cmp(&b.1)));

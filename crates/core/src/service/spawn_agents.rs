@@ -14,7 +14,8 @@
 //!
 //! An agent's start has less than the person's Start: it never moves a card
 //! that waits on someone, never overrides the crash stop, and never gives
-//! the yes a card given to the person needs.
+//! the yes a card given to the person needs. It leaves `spawn_now`, which
+//! crosses side pins and skips the retry wait, to the person.
 //!
 //! Two computers asking in the same instant can each see the last slot.
 //! Every request is checked again in order where it starts, so once the
@@ -127,12 +128,17 @@ impl Services {
         v
     }
 
-    /// Agents counted now, with `asks` held, leaving card `except` out.
+    /// Agents counted now, with `asks` held, ahead of card `except`: an ask
+    /// waits only on older asks, so a lowered maximum can't leave asks all
+    /// waiting on each other with nothing running.
     fn used_with(&self, asks: &HashMap<String, AgentAsk>, except: &str) -> i64 {
         let starting = self.counted_starting();
+        let order = |id: &str, a: &AgentAsk| (a.at.unix_milli_value(), id.to_string());
+        let mine = asks.get(except).map(|a| order(except, a));
         let waiting = asks
-            .keys()
-            .filter(|id| id.as_str() != except && !starting.iter().any(|(_, c)| c == *id))
+            .iter()
+            .filter(|(id, _)| id.as_str() != except && !starting.iter().any(|(_, c)| c == *id))
+            .filter(|(id, a)| mine.as_ref().is_none_or(|m| order(id, a) < *m))
             .count();
         let starting = starting.iter().filter(|(_, c)| c != except).count();
         (self.coord.counted_live().len() + starting + waiting) as i64
@@ -164,15 +170,25 @@ impl Services {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains(&t.id);
-        if person {
+        // A card given to the person starts only on their own yes.
+        if person || co.given_to_me(t) {
             return false;
         }
-        self.spawn
+        let asked = self
+            .spawn
             .agent_asks
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .contains_key(&t.id)
+            .contains_key(&t.id);
+        // An agent has another key in each shared board's log, so its mark
+        // is read from the person's own log, which holds every agent's.
+        asked
             || co.in_chain(t)
+            || (t.spawn_request().is_none()
+                && self
+                    .coord
+                    .spawned(&self.private_key(&t.created_by))
+                    .is_some_and(|m| m.counted))
     }
 
     /// What the limit says about card t's agent, if it holds it back.
@@ -223,14 +239,16 @@ impl Services {
         }
     }
 
-    /// Another of the person's devices passed an agent's ask to this one.
+    /// An agent's ask read from its row: another device's, or this one's
+    /// after a restart. One already held keeps its place.
     pub(crate) fn note_agent_ask(&self, t: &Task) {
         let ask = self.ask_for(t);
         self.spawn
             .agent_asks
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(t.id.clone(), ask);
+            .entry(t.id.clone())
+            .or_insert(ask);
     }
 
     /// Lets go of asks nothing will come of: the card has an agent, closed
@@ -254,6 +272,18 @@ impl Services {
                 && (co.hands_out_here(id)
                     || now.unix_milli_value() - a.at.unix_milli_value() < REMOTE_ASK_HOLD_MS)
         });
+        drop(asks);
+        // A person's ask served some other way must not excuse a later
+        // agent's start.
+        self.spawn
+            .person_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|id| {
+                self.route(id).is_ok_and(|(_, co)| {
+                    co.hands_out_here(id) && co.spawn_hold(id) == SpawnHold::Clear
+                })
+            });
     }
 
     /// Checked again where a counted request starts: it goes only if it
@@ -342,7 +372,13 @@ impl Services {
             .agent_asks
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if asks.contains_key(id) {
+        let person = self
+            .spawn
+            .person_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(id);
+        if person || asks.contains_key(id) {
             return Ok(format!("{r} is already asked for."));
         }
         let used = self.used_with(&asks, "");
@@ -351,10 +387,9 @@ impl Services {
         }
         asks.insert(id.to_string(), self.ask_for(&t));
         drop(asks);
-        co.spawn_now(id);
-        if !co.hands_out_here(id)
-            && let Err(e) = self.request_agent_start(id)
-        {
+        // Written even when this device serves it, so a restart keeps the
+        // ask and its count. No spawn_now: that is the person's override.
+        if let Err(e) = self.request_agent_start(id) {
             self.settle_ask(id);
             return Err(e);
         }

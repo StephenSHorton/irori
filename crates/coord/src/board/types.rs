@@ -134,6 +134,16 @@ crate::go_struct! {
     }
 }
 
+impl Task {
+    /// The person's say clears a run of crashes (cards #447, #540, #575).
+    pub(crate) fn person_cleared_crashes(&mut self) {
+        if self.spawn_crashes > 0 {
+            self.person_restart = self.spawn_request().map_or(0, |s| s.generation);
+        }
+        self.spawn_crashes = 0;
+    }
+}
+
 /// A person's last say on "OK to start an agent on this?" (card #573).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct GivenSaid {
@@ -484,6 +494,10 @@ pub struct Task {
     /// person says to start another; a person's state row clears it.
     #[serde(skip)]
     pub spawn_crashes: u32,
+    /// The request whose crashes the person answered (card #575): the next
+    /// agent is theirs, so it doesn't count toward their agents' limit.
+    #[serde(skip)]
+    pub person_restart: i64,
     /// Where the holder's work is (card #137), kept after it stops so
     /// whoever takes the card over can find it.
     #[serde(rename = "where", skip_serializing_if = "omit")]

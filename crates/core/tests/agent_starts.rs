@@ -310,6 +310,16 @@ fn only_agents_irori_started_are_ended_and_not_yourself() {
         serde_json::json!({ "agent": child }),
     );
     assert!(out.contains("that's you"), "{out}");
+    // A card can't go to an agent started for another card, and the refusal
+    // comes before anything is ended.
+    let out = tool(
+        &r,
+        &r.key_a,
+        "agent_end",
+        serde_json::json!({ "agent": child, "give_to": child }),
+    );
+    assert!(out.contains("can't take another"), "{out}");
+    assert!(co.spawned_live(&child));
     // Switched off, an agent ends nothing.
     r.core.set_agent_starts(false, 100).unwrap();
     let out = tool(
@@ -338,4 +348,50 @@ fn only_agents_irori_started_are_ended_and_not_yourself() {
     wait_for(30, "it was ended", || {
         started.lock().unwrap().iter().any(|s| s == "ended")
     });
+}
+
+#[test]
+fn a_counted_agent_that_goes_frees_its_slot() {
+    let (r, _dir, _) = rig();
+    r.core.set_agent_starts(true, 1).unwrap();
+    let parent = card(&r, "Parent");
+    assert!(!start(&r, &parent).starts_with("Error: "));
+    r.core.set_spawn_cap(5).unwrap();
+    let child = format!("{}/{CHILD}", r.core.device_id());
+    let co = r.core.coord();
+    wait_for(10, "bound", || co.is_spawned(&child));
+    wait_for(10, "counted", || r.core.agent_starts().used == 1);
+    // It exits by itself: nobody calls End, and no restart happens.
+    r.core.set_spawn_cap(0).unwrap();
+    std::fs::remove_file(r.claude.join("sessions/900004.json")).unwrap();
+    wait_for(20, "its slot frees", || r.core.agent_starts().used == 0);
+}
+
+#[test]
+fn an_agents_ask_is_written_and_lowering_the_maximum_keeps_the_order() {
+    let (r, _dir, started) = rig();
+    r.core.set_agent_starts(true, 2).unwrap();
+    let (a, b) = (card(&r, "One"), card(&r, "Two"));
+    assert!(!start(&r, &a).starts_with("Error: "));
+    std::thread::sleep(Duration::from_millis(5));
+    assert!(!start(&r, &b).starts_with("Error: "));
+    // On a row, so a restart keeps the ask and its count.
+    let rows = r
+        .core
+        .store()
+        .list(&store::Filter {
+            kinds: vec![kinds::SPAWN_START_REQUESTED.into()],
+            ..store::Filter::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(String::from_utf8_lossy(&rows[0].payload).contains("\"agent\":true"));
+    // Lowered under the asks waiting: the older still goes, not neither.
+    r.core.set_agent_starts(true, 1).unwrap();
+    r.core.set_spawn_cap(5).unwrap();
+    wait_for(10, "the older ask starts", || {
+        started.lock().unwrap().first() == Some(&a.id)
+    });
+    sweep(&r);
+    assert_eq!(started.lock().unwrap().len(), 1, "the newer waits");
 }
