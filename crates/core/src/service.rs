@@ -147,6 +147,11 @@ pub struct Options {
     /// passes [`crate::buildclean::IDLE`]; `None` (tests, rehearsals)
     /// never deletes a build.
     pub clear_builds: Option<Duration>,
+    /// Card #580: fetch every file up to this many bytes another device
+    /// offers, so this device holds it too ([`crate::prefetch`]). The
+    /// desktop app passes [`crate::prefetch::SMALL_FILE`]; `None` (phones,
+    /// tests) fetches only what is asked for.
+    pub prefetch_files: Option<u64>,
 }
 
 /// Go `core.ErrNoHomeServer`'s text.
@@ -1613,6 +1618,26 @@ impl Core {
                     t.elapsed().as_millis()
                 ));
                 s.follow_own_boards(&sub);
+            });
+        }
+
+        // Card #580: small files other devices offer, fetched unasked.
+        if let Some(cap) = opts.prefetch_files {
+            let sub = Arc::new(s.store.subscribe());
+            let reg = self.on_stop(&sub, |s| s.cancel());
+            let p = crate::prefetch::Prefetch {
+                mesh: s.mesh.clone(),
+                store: s.store.clone(),
+                files: s.files.clone(),
+                now: s.now.clone(),
+                me: s.device.id.clone(),
+                cap,
+            };
+            let ct = self.stop_async.clone();
+            let rt = s.pairing.handle.clone();
+            self.spawn_async("prefetch", Some(&rt), async move {
+                let _reg = reg;
+                p.run(sub, ct).await
             });
         }
 
