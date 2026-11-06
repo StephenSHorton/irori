@@ -67,8 +67,6 @@ pub const REASON_STOLEN: &str = "stolen";
 pub const REASON_HOLDER_GONE: &str = "holder_gone";
 pub const REASON_EXPIRED: &str = "expired";
 pub const REASON_CONFLICT: &str = "conflict";
-/// A desk lease released because the person named another desk holder.
-pub const REASON_DESK_HOLDER_CHANGED: &str = "desk_holder_changed";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";
@@ -1231,13 +1229,11 @@ impl Fold {
             | kinds::NOTE_EDITED
             | kinds::NOTE_REMOVED => self.fold_note(ev, &at),
             kinds::PR_STATE => self.fold_pr_state(ev),
-            kinds::REPO_DESK
-            | kinds::DESK_PRS
-            | kinds::DESK_HOLD
-            | kinds::DESK_PAUSE
-            | kinds::DESK_OK
-            | kinds::DESK_RUN
-            | kinds::REPO_SEEN => self.fold_desk(ev),
+            kinds::REPO_DESK | kinds::DESK_PRS | kinds::DESK_OK | kinds::REPO_SEEN => {
+                self.fold_desk(ev)
+            }
+            // Old merge desk rows (card #418: the desk never merges):
+            // desk.hold, desk.pause and desk.run are stored and folded past.
             kinds::LEASE_RELEASED => {
                 let Some(p) = row::<LeaseReleasedRow>(&ev.payload) else {
                     return;

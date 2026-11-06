@@ -1561,20 +1561,6 @@ pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
     w.desk_set(settings)
 }
 
-/// The person holds a desk's PR, or with `cleared` lifts the hold.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_hold(w: W<'_>, repo_key: String, pr: i64, note: String, cleared: bool) -> R<()> {
-    w.desk_hold(&repo_key, pr, &note, cleared)
-}
-
-/// The person pauses or resumes a desk.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_pause(w: W<'_>, repo_key: String, paused: bool) -> R<()> {
-    w.desk_pause(&repo_key, paused)
-}
-
 // ---- talk (card #389) -----------------------------------------------------
 
 /// Talk's list: channels, DMs and open threads, with unread counts.
@@ -1931,8 +1917,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_running,
             desk_list,
             desk_set,
-            desk_hold,
-            desk_pause,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()

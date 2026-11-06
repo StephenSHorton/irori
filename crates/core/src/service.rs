@@ -3791,20 +3791,9 @@ impl Services {
                     match self.coord.create_task("irori", nt) {
                         Ok(t) => {
                             let to = &m.author;
-                            let r = if !to.is_empty() {
-                                self.coord.assign_task("irori", &t.id, to).map(|_| ())
-                            } else if !desk.settings.holder.is_empty() {
-                                self.coord
-                                    .watch_for(
-                                        "irori",
-                                        &t.id,
-                                        std::slice::from_ref(&desk.settings.holder),
-                                    )
-                                    .map(|_| ())
-                            } else {
-                                Ok(())
-                            };
-                            if let Err(e) = r {
+                            if !to.is_empty()
+                                && let Err(e) = self.coord.assign_task("irori", &t.id, to)
+                            {
                                 logf(format_args!("desk: PR #{} card {}: {e}", p.number, t.id));
                             }
                             Some(t.id)
@@ -3831,50 +3820,6 @@ impl Services {
             out.push((p.number, v));
         }
         out
-    }
-
-    /// Wakes the desk holder with the run's steps (merge-desk.md §5, card
-    /// #418) when a trusted PR is Waiting on desk and no run is on: once
-    /// per PR and head. A PR that isn't ours never wakes it.
-    fn wake_desk_holder(&self, repo_key: &str, verdicts: &[(i64, crate::deskmap::Verdict)]) {
-        let Some(desk) = self.coord.desk(repo_key) else {
-            return;
-        };
-        let Some(repo) = coord::github_repo(repo_key) else {
-            return;
-        };
-        let Some((p, card)) = crate::deskmap::waiting_pr(&desk, verdicts) else {
-            return;
-        };
-        if !self
-            .desk_watch
-            .first_wake(repo_key, p.number, &p.head_ref_oid)
-        {
-            return;
-        }
-        let (owner, name) = repo.split_once('/').unwrap_or((repo.as_str(), ""));
-        let w = coord::DeskWake {
-            owner: owner.into(),
-            name: name.into(),
-            number: p.number as u64,
-            head_sha: p.head_ref_oid.clone(),
-            title: p.title.clone(),
-            card: if card.is_empty() {
-                String::new()
-            } else {
-                format!("task:{card}")
-            },
-            merge_method: desk.settings.merge_method.clone(),
-        };
-        let n = coord::desk_notice(
-            &desk.settings.holder,
-            &w,
-            &crate::deskmap::check_lines(&desk),
-        );
-        let from = inbox::system_sender();
-        if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
-            logf(format_args!("desk: wake holder for PR #{}: {e}", p.number));
-        }
     }
 
     /// Links a PR an agent on this device just opened to the one card it
@@ -4044,7 +3989,10 @@ impl Services {
     /// What says which repos are the person's (card #625). `lister` also
     /// searches GitHub for each login's PRs, at most every
     /// [`crate::deskwatch::AUTHORED_EVERY`].
-    fn desk_evidence(&self, lister: Option<&dyn crate::deskwatch::PrLister>) -> crate::deskmap::RepoEvidence {
+    fn desk_evidence(
+        &self,
+        lister: Option<&dyn crate::deskwatch::PrLister>,
+    ) -> crate::deskmap::RepoEvidence {
         let logins = self.people_logins();
         let mut pr_repos: Vec<String> = Vec::new();
         // The ledger: PRs the person's agents opened (gh pr create).
@@ -4167,8 +4115,7 @@ impl Services {
                 // Every good poll, not only a changed one: a card, a ledger
                 // row or an OK may have changed what a PR maps to.
                 if wrote.is_ok() {
-                    let v = self.map_desk(repo_key);
-                    self.wake_desk_holder(repo_key, &v);
+                    self.map_desk(repo_key);
                 }
                 wrote
             }

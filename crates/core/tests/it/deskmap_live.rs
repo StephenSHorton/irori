@@ -55,7 +55,6 @@ fn a_poll_maps_each_pr_to_its_author_card() {
     let me = format!("user:{}", r.core.device_id());
     let mut d = new_desk(REPO, r.core.device_id());
     d.trusted = vec!["StephenSHorton".into()];
-    d.holder = r.key_b.clone();
     co.set_desk(&me, d).unwrap();
 
     // 1: a card already linking PR 1. 3: a card on PR 3's branch.
@@ -91,12 +90,12 @@ fn a_poll_maps_each_pr_to_its_author_card() {
 
     // 1: linked by the agent, held by the person's agent: trusted.
     assert!(matches!(&v[&1], Verdict::Card(m) if m.task_id == c1.id));
-    // 2: a trusted login with no card: a "PR #2" card, linked, the desk
-    // holder watching it.
+    // 2: a trusted login with no card: a "PR #2" card, linked. No agent
+    // watches it: the desk has no holder (card #418).
     let two = linked(&r, 2);
     assert_eq!(two.len(), 1, "{two:?}");
     assert_eq!(two[0].title, "PR #2 \"PR 2 title\"");
-    assert!(two[0].watchers.contains(&r.key_b), "{:?}", two[0].watchers);
+    assert!(!two[0].watchers.contains(&r.key_b), "{:?}", two[0].watchers);
     assert!(matches!(&v[&2], Verdict::Card(m) if m.task_id == two[0].id));
     // 3: rule 3 found the branch card, and Irori linked it.
     assert_eq!(

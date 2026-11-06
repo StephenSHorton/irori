@@ -4,8 +4,7 @@
 //! GitHub for the repo's open PRs (`gh pr list`, the person's own gh) every
 //! [`DESK_EVERY`] and hands the list to coord, which writes a `desk.prs`
 //! snapshot only when it changed. Exactly one device polls a desk, so two
-//! never write competing snapshots, and the queue never goes blind when the
-//! holder changes.
+//! never write competing snapshots.
 //!
 //! A failed poll keeps the previous snapshot: the queue is empty only when
 //! GitHub's list was. Failures back off (3, 6, 12, then 15 minutes) and the
@@ -183,8 +182,7 @@ pub fn parse_pr_list(v: &serde_json::Value) -> Result<Vec<DeskPr>, String> {
 
 /// Sums up GitHub's statusCheckRollup: "failure" when any check failed,
 /// else "pending" when any is still running, else "success"; "" when the
-/// repo has no checks on GitHub (the desk's own check line is what counts
-/// there, slice 4).
+/// repo has no checks on GitHub.
 pub fn checks_of(rollup: &serde_json::Value) -> String {
     let Some(items) = rollup.as_array().filter(|a| !a.is_empty()) else {
         return String::new();
@@ -245,9 +243,6 @@ struct Slot {
 #[derive(Default)]
 pub(crate) struct DeskWatch {
     slots: Mutex<HashMap<String, Slot>>,
-    /// The (PR, head) each desk's holder was last woken for (card #418),
-    /// so a poll that finds the same PR still waiting doesn't wake it again.
-    woke: Mutex<HashMap<String, (i64, String)>>,
     /// The login this device's gh is signed in as, once learned (card
     /// #521); asked again after a failure, never after a success.
     viewer: Mutex<Option<String>>,
@@ -309,18 +304,6 @@ impl DeskWatch {
             }
             _ => String::new(),
         }
-    }
-
-    /// Whether the holder of `repo_key`'s desk should be woken for `pr` at
-    /// `head`: true once per (PR, head), recording it.
-    pub(crate) fn first_wake(&self, repo_key: &str, pr: i64, head: &str) -> bool {
-        let mut w = self.woke.lock().unwrap_or_else(|e| e.into_inner());
-        let k = (pr, head.to_string());
-        if w.get(&coord::canonical_repo_key(repo_key)) == Some(&k) {
-            return false;
-        }
-        w.insert(coord::canonical_repo_key(repo_key), k);
-        true
     }
 
     /// Whether `repo_key` is due at `now` (always, before its first poll).
