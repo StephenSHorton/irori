@@ -36,6 +36,7 @@ import {
   dmPerson,
   dmWith,
   listed,
+  memberOf,
   readAll,
   talkApi,
   waitingText,
@@ -815,7 +816,7 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const at = parseTime(c.lastAt)
   const when = at ? relativeTime(at, now) : ""
   if (!text) return { line: "", when }
-  const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
+  const by = c.lastBy ? memberOf(c.members, c.lastBy) : undefined
   const who =
     c.readOnly && by
       ? `${memberName(by)}: `
@@ -851,7 +852,7 @@ function BroadcastItem({
   onToggle: () => void
   onOpen: (id: string) => void
 }) {
-  const from = b.convs[0].members.find((m) => m.key === b.by)
+  const from = memberOf(b.convs[0].members, b.by)
   const to = broadcastTo(b)
   const when = parseTime(b.lastAt)
   const Chevron = unfolded ? ChevronDownIcon : ChevronRightIcon
