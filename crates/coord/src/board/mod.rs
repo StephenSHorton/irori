@@ -111,7 +111,7 @@ pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
     NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrState,
+    PrNews, PrState,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -281,7 +281,9 @@ pub struct Options {
     pub board_owner: Option<OwnerAtFn>,
     /// On a board, the hop an agent's row carries (v0.5 §7.1): its running
     /// turn's hop plus one, by the actor as the board knows it. The rows
-    /// in [`HOP_KINDS`] get it as `hop` when it is above zero.
+    /// in [`HOP_KINDS`] get it as `hop` when it is above zero. Called under
+    /// this coord's lock and takes the inbox's, so what runs under the
+    /// inbox lock must never wait on this coord ([`with_inbox_lock_held`]).
     pub hop_of: Option<HopFn>,
     /// On a board, whether this device holds an attachment (by sha256).
     /// A board row naming a file this device holds is preceded by this
@@ -342,6 +344,31 @@ pub fn row_hop(payload: &[u8]) -> i64 {
         .and_then(|v| v.get("hop").and_then(serde_json::Value::as_i64))
         .unwrap_or(0)
         .max(0)
+}
+
+thread_local! {
+    static UNDER_INBOX_LOCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether this thread is in [`with_inbox_lock_held`].
+pub fn under_inbox_lock() -> bool {
+    UNDER_INBOX_LOCK.get()
+}
+
+/// Runs an inbox hook that the inbox calls under its lock, and marks the
+/// thread for that long (card #561). A board coord's write takes the inbox
+/// lock under its own ([`Options::hop_of`]), so nothing there may wait on a
+/// board coord: in a debug build that wait panics in [`Coord`]'s lock, so
+/// any test reaching it fails rather than hanging one time in a thousand.
+pub fn with_inbox_lock_held<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            UNDER_INBOX_LOCK.set(self.0);
+        }
+    }
+    let _restore = Restore(UNDER_INBOX_LOCK.replace(true));
+    f()
 }
 
 /// The lock on the fold; changes go out when it drops (Go's `unlock`).
@@ -434,6 +461,10 @@ impl Coord {
     }
 
     fn lock(&self) -> Locked<'_> {
+        debug_assert!(
+            !self.board || !under_inbox_lock(),
+            "waiting on a board coord under the inbox lock: a board write holds its coord and takes the inbox's (hop_of)"
+        );
         Locked(self.f.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -447,17 +478,56 @@ impl Coord {
         f.busy_with(key, "").map(Fold::busy_text)
     }
 
+    /// A read under the raw guard that never waits: `None` while another
+    /// thread holds the lock.
+    fn try_read<R>(&self, read: impl FnOnce(&Fold) -> R) -> Option<R> {
+        match self.f.try_lock() {
+            Ok(f) => Some(read(&f)),
+            Err(std::sync::TryLockError::Poisoned(e)) => Some(read(&e.into_inner())),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// [`Coord::busy_card`] without waiting: `None` while another thread
     /// holds the lock, so a hook reading a coord that may be waiting on
     /// its own can't deadlock (the agent then counts as free here, as it
     /// did before card #422).
     pub fn try_busy_card(&self, key: &str) -> Option<String> {
-        let f = match self.f.try_lock() {
-            Ok(f) => f,
-            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
-        };
-        f.busy_with(key, "").map(Fold::busy_text)
+        self.try_read(|f| f.busy_with(key, "").map(Fold::busy_text))
+            .flatten()
+    }
+
+    /// [`Coord::get_task`] that never waits, for a caller under the inbox
+    /// lock (card #561): the outer `None` means the log is busy.
+    pub fn try_get_task(&self, id: &str) -> Option<Option<Task>> {
+        self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
+    }
+
+    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
+    /// lock (card #561): `None` when the log is busy. With the matches, the
+    /// keys among their writers and accepters that are this log's person
+    /// ([`Coord::is_person`]), so telling them apart needs no second read.
+    pub fn try_notes_for(
+        &self,
+        cx: &NoteContext,
+    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
+        self.try_read(|f| {
+            let notes = f.notes_for(cx);
+            let people = notes
+                .iter()
+                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
+                .filter(|k| f.is_owner(k))
+                .cloned()
+                .collect();
+            (notes, people)
+        })
+    }
+
+    /// Holds this log's lock until the guard drops, so a test can show a
+    /// reader doesn't wait on it.
+    #[doc(hidden)]
+    pub fn hold_lock(&self) -> impl Sized + '_ {
+        self.f.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // ---- sides (card #494) ----
@@ -1015,12 +1085,7 @@ impl Coord {
         refs: &[String],
         working: bool,
     ) -> Option<Option<(String, Vec<Said>)>> {
-        let f = match self.f.try_lock() {
-            Ok(f) => f,
-            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return None,
-        };
-        Some(f.said_for(key, refs, working))
+        self.try_read(|f| f.said_for(key, refs, working))
     }
     pub fn comments(&self, id: &str) -> Option<Vec<Comment>> {
         self.lock().list_comments(id)
@@ -1690,6 +1755,22 @@ impl Coord {
             .get(id)
             .map(|t| f.merge_waits(t))
             .unwrap_or_default()
+    }
+
+    /// The PRs of [`Coord::merge_waits`] the poller still asks about, a
+    /// closed one too (card #548).
+    pub fn polled_waits(&self, id: &str) -> Vec<String> {
+        let f = self.lock();
+        f.tasks
+            .get(id)
+            .map(|t| f.polled_waits(t))
+            .unwrap_or_default()
+    }
+
+    /// What this board's PR rows say, for each device to pass to the
+    /// agents it hosts (card #548), told already or not.
+    pub fn pr_news(&self) -> Vec<PrNews> {
+        self.lock().pr_news()
     }
 
     pub fn tick(&self) {
