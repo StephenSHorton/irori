@@ -76,16 +76,19 @@ export function idleLabel(m: number, def = 30): string {
 
 // "My agents may start agents on my cards" (card #575): the person's own
 // limit, on all their devices. Only this pane changes it; no agent's tool can.
-const sampleStarts: AgentStartsView = {
-  on: previewFlag("agentstarts") !== "off",
-  max: 100,
-  used: previewFlag("agentstarts") === "full" ? 100 : 3,
-  ceiling: 1000,
+// The preview's sample, read when used: tests load this file outside a page.
+function sampleStarts(): AgentStartsView {
+  return {
+    on: previewFlag("agentstarts") !== "off",
+    max: 100,
+    used: previewFlag("agentstarts") === "full" ? 100 : 3,
+    ceiling: 1000,
+  }
 }
 
 export function useAgentStarts(open: boolean) {
   const [s, setS] = useState<AgentStartsView | null>(
-    inWails() ? null : sampleStarts
+    inWails() ? null : sampleStarts()
   )
   const [error, setError] = useState("")
   useEffect(() => {
