@@ -127,7 +127,7 @@ impl Core {
     /// sleep or a phone going to the background. It returns at once when
     /// every row has left already, or no device that could take one is
     /// connected, so an offline or lone device costs nothing. It polls
-    /// with a plain sleep and never enters the runtime, so it can run on
+    /// with a plain sleep and never blocks on the runtime, so it can run on
     /// the main thread (macOS quits inside `terminate:`).
     pub fn sync_out(&self, deadline: Duration) -> SyncOutReport {
         let start = Instant::now();
