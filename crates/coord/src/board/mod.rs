@@ -766,7 +766,7 @@ impl Coord {
     /// The `person:` key of whoever wrote a row from device `dev`, when
     /// it isn't the `by` the row claims (card #573): on a shared board a
     /// row names whoever its writer likes. None when they agree, for
-    /// Irori's own rows, or off a board.
+    /// Irori's rows from this person's devices, or off a board.
     pub fn written_as(&self, by: &str, dev: &str) -> Option<String> {
         self.lock().written_as(by, dev)
     }

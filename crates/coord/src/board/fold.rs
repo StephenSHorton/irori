@@ -2043,8 +2043,14 @@ impl Fold {
             return None;
         };
         let p = dp(dev);
-        (!p.is_empty() && by != SWEEPER && kp(by) != p)
-            .then(|| format!("{}{p}", kinds::PERSON_ACTOR_PREFIX))
+        // Irori's lines are its own only from this person's devices: from
+        // another member's they are that member's.
+        let mismatch = if by == SWEEPER {
+            p != kp(&self.person)
+        } else {
+            kp(by) != p
+        };
+        (!p.is_empty() && mismatch).then(|| format!("{}{p}", kinds::PERSON_ACTOR_PREFIX))
     }
 
     /// The owner rule for an owner-only row.

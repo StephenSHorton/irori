@@ -4083,7 +4083,10 @@ fn a_left_off_that_names_me_is_kept_as_its_writers() {
     assert_eq!(lo.by, P2, "p2's device wrote it");
     assert_eq!(a.c.written_as(P1, "dev-b").as_deref(), Some(P2));
     assert_eq!(a.c.written_as(P1, "dev-a"), None);
-    assert_eq!(a.c.written_as("irori", "dev-b"), None);
+    // Irori's lines are Irori's only from this person's own devices.
+    assert_eq!(a.c.written_as("irori", "dev-a"), None);
+    assert_eq!(a.c.written_as("irori", "dev-b").as_deref(), Some(P2));
+    assert_eq!(b.c.written_as("irori", "dev-b"), None);
 }
 
 #[test]
