@@ -73,6 +73,12 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
+import {
+  callChannel,
+  callMock,
+  HuddleLine,
+  otherHuddleChannel,
+} from "./call-mock"
 import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
@@ -749,6 +755,14 @@ export function ConvItem({
       (!!person && !waiting) ||
       (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
+  // The voice-call mock-up (card #571): a channel with a huddle on.
+  const mock = callMock()
+  const huddle =
+    (mock === "start" && c.convId === otherHuddleChannel && "Spencer, Aiko") ||
+    ((mock === "live" || mock === "share") &&
+      c.convId === callChannel &&
+      "You, Spencer, Aiko") ||
+    ""
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -785,10 +799,14 @@ export function ConvItem({
           </span>
           {when && <When text={when} />}
         </span>
-        {sub && (
-          <span className="truncate text-[11px] text-muted-foreground">
-            {sub}
-          </span>
+        {huddle ? (
+          <HuddleLine names={huddle} />
+        ) : (
+          sub && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              {sub}
+            </span>
+          )
         )}
       </span>
       {c.mentions > 0 ? (
