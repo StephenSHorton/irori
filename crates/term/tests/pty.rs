@@ -13,7 +13,8 @@ fn wait_for(what: &str, mut f: impl FnMut() -> bool) {
     let t = Instant::now();
     while !f() {
         assert!(
-            t.elapsed() < Duration::from_secs(20),
+            // A shell can take over 20s to answer on a busy PC.
+            t.elapsed() < Duration::from_secs(60),
             "timed out waiting for {what}"
         );
         std::thread::sleep(Duration::from_millis(50));
@@ -30,18 +31,41 @@ fn card(id: &str, cwd: &std::path::Path) -> OpenSpec {
     }
 }
 
-/// A killed shell may stay in its folder for a moment, and Windows can't
-/// delete a folder in use. TempDir's own drop would give up at once.
-fn remove_when_free(dir: tempfile::TempDir) {
-    wait_for("the shell to leave its folder", || {
-        std::fs::remove_dir_all(dir.path()).is_ok()
-    });
+/// A test's terminals and their folder. On drop, even when the test
+/// fails, it closes every shell and waits for them to leave the folder:
+/// Windows can't delete a folder in use, and TempDir's own drop would give
+/// up at once and leave it in %TEMP% (card #556).
+struct Scratch {
+    terms: Terms,
+    dir: tempfile::TempDir,
+}
+
+impl Scratch {
+    fn new() -> Scratch {
+        Scratch {
+            terms: Terms::new(),
+            dir: tempfile::tempdir().unwrap(),
+        }
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        self.terms.close_all();
+        // No assert: a panic here, during a failed test's unwind, aborts.
+        let t = Instant::now();
+        while std::fs::remove_dir_all(self.dir.path()).is_err()
+            && t.elapsed() < Duration::from_secs(20)
+        {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 #[test]
 fn a_card_terminal_runs_a_shell_and_outlives_its_view() {
-    let dir = tempfile::tempdir().unwrap();
-    let terms = Terms::new();
+    let s = Scratch::new();
+    let (terms, dir) = (&s.terms, &s.dir);
     let info = terms.open(card("t1", dir.path())).unwrap();
     assert!(info.running);
     assert_eq!(info.cwd, dir.path().to_string_lossy());
@@ -126,13 +150,12 @@ fn a_card_terminal_runs_a_shell_and_outlives_its_view() {
     assert!(!terms.in_scope(&Scope::Card("t1".into()))[0].running);
     terms.close(info.id).unwrap();
     assert!(terms.list().is_empty());
-    remove_when_free(dir);
 }
 
 #[test]
 fn a_closed_view_is_forgotten() {
-    let dir = tempfile::tempdir().unwrap();
-    let terms = Terms::new();
+    let s = Scratch::new();
+    let (terms, dir) = (&s.terms, &s.dir);
     let info = terms.open(card("t2", dir.path())).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
@@ -158,5 +181,4 @@ fn a_closed_view_is_forgotten() {
     );
     terms.close_all();
     assert!(terms.list().is_empty());
-    remove_when_free(dir);
 }
