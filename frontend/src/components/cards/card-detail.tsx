@@ -106,6 +106,13 @@ import { AttachmentList } from "@/components/attachments"
 import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
 import { useDraft, useMentionsDraft } from "@/lib/drafts"
+import {
+  answerKey,
+  answerPatch,
+  closeKey,
+  closePatch,
+  instant,
+} from "@/lib/optimistic"
 import { composing, MentionBoard, useMissed } from "@/lib/mentions"
 import { useBoards, usePersonalBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
@@ -691,9 +698,24 @@ function AskStatus({
 // check at the top has Done, so only Cancel stays here (card #140).
 function CloseBar({ detail, ready }: { detail: CardDetail; ready?: boolean }) {
   const [note, setNote] = useDraft(`${detail.id}/close`)
+  // The card closes on the screen at once and saves in the background
+  // (card #644); a refusal (an open subtask, say) reopens it, puts the
+  // note back and says why in a toast.
+  // async only for ConfirmButton: it resolves at once, so the dialog
+  // closes without waiting on the save.
   const close = (state: TaskState) => async () => {
-    await cards.close(detail.id, state, note)
-    setNote("")
+    const kept = note
+    const started = instant({
+      key: closeKey(detail.id),
+      patch: closePatch(detail.id, state),
+      send: () => cards.close(detail.id, state, kept),
+      failed:
+        state === TaskState.Canceled
+          ? "The card wasn't canceled"
+          : "The card wasn't marked done",
+      onFailed: () => setNote(kept),
+    })
+    if (started) setNote("")
   }
   const kids = (detail.subtaskList?.length ?? 0) > 0
   return (
@@ -1717,28 +1739,27 @@ function BlockerItem({
   const showForm =
     answerable(state) && (state !== BlockerState.Answered || adding || aside)
 
-  // run sends an answer (own is its words, "" for a pick), or with own
-  // null marks the item resolved.
+  // heard shows what a saved answer's reply says: who heard it, and
+  // whether it closed the item. own is its words, "" for a pick, null for
+  // Mark resolved (the check says it all).
+  const heard = (res: AnswerResult, own: string | null) => {
+    if (b.id === NoteItem && own !== null) onNoteAnswered(own.trim(), res.told)
+    setTold(
+      own === null
+        ? null
+        : { told: res.told, resolved: res.resolved, irori: !!res.iroriActs }
+    )
+    setMissed(res.mentioned)
+  }
+
+  // run sends an answer and waits for it: one with files (an upload can
+  // fail on its own), the card's question, or Mark resolved (own null).
   const run = async (act: () => Promise<AnswerResult>, own: string | null) => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
-      const res = await act()
-      if (b.id === NoteItem && own !== null)
-        onNoteAnswered(own.trim(), res.told)
-      // Marked resolved: the check says it all.
-      const after = res.card.blockers.find((x) => x.id === b.id)
-      setTold(
-        own === null
-          ? null
-          : {
-              told: res.told,
-              resolved: !!after?.resolved,
-              irori: !!res.iroriActs,
-            }
-      )
-      setMissed(res.mentioned)
+      heard(await act(), own)
       setText("")
       setMentions([])
       attach.clear()
@@ -1761,10 +1782,40 @@ function BlockerItem({
     // A picked option carries no text, so no mentions.
     const ms = option < 0 ? mentions : []
     const files = attach.files
-    void run(
-      () => cards.answer(cardId, b.id, option, own, true, ms, files),
-      own
-    )
+    if (files.length || b.id === NoteItem) {
+      void run(
+        () => cards.answer(cardId, b.id, option, own, true, ms, files),
+        own
+      )
+      return
+    }
+    // Anything else shows at once and saves in the background (card
+    // #644); a refusal takes it back, puts the words back in the box and
+    // says why in a toast.
+    const kept = { text, mentions }
+    const started = instant({
+      key: answerKey(cardId, b.id),
+      patch: answerPatch(cardId, b, option),
+      send: () => cards.answer(cardId, b.id, option, own, true, ms),
+      failed: b.doneCheck
+        ? "Your answer to the done check wasn't saved"
+        : "Your answer wasn't saved",
+      onSaved: (res) => heard(res, own),
+      onFailed: () => {
+        if (option >= 0) return
+        setText(kept.text)
+        setMentions(kept.mentions)
+        setAdding(true)
+      },
+    })
+    if (!started) return
+    setError(null)
+    setTold(null)
+    if (option < 0) {
+      setText("")
+      setMentions([])
+      setAdding(false)
+    }
   }
 
   const submit = (e: FormEvent) => {

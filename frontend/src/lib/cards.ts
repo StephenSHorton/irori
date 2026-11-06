@@ -1440,7 +1440,10 @@ function sampleAnswer(
     c.ready = undefined
     c.updatedAt = now
     sampleChanged()
-    return AnswerResult({ card: c, told: Told({ to: [], mode: "next_turn" }) })
+    return AnswerResult({
+      resolved: true,
+      told: Told({ to: [], mode: "next_turn" }),
+    })
   }
   b.thread = [
     ...b.thread,
@@ -1475,7 +1478,7 @@ function sampleAnswer(
   c.updatedAt = now
   sampleChanged()
   return AnswerResult({
-    card: c,
+    resolved: !!b.resolved,
     told: Told({
       to: [b.raisedBy.key, ...c.working.map((w) => w.key)].filter(
         (k, i, all) => all.indexOf(k) === i
@@ -1511,7 +1514,7 @@ function sampleResolveBlocker(
   c.updatedAt = now
   sampleChanged()
   return AnswerResult({
-    card: c,
+    resolved: true,
     told: Told({ to: c.working.map((w) => w.key), mode: "next_turn" }),
     mentioned: sampleOutcomes(sampleMentions(mentions)),
   })
@@ -1655,7 +1658,7 @@ function sampleAnswerNote(
   c.thread = sampleThreadLine(c, now, `You answered: ${text.trim()}`)
   sampleChanged()
   return AnswerResult({
-    card: c,
+    resolved: false,
     told: Told({
       to: c.working.map((w) => w.key),
       mode: wake ? "wake" : "next_turn",

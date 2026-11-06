@@ -5,8 +5,13 @@
 // nothing. Answers with files are not sent this way; they wait, as an
 // upload can fail on its own.
 
-import type { CardDetail, CardSummary, Notification } from "./models"
-import { TaskState } from "./models"
+import type {
+  CardBlocker,
+  CardDetail,
+  CardSummary,
+  Notification,
+} from "./models"
+import { AgentRef, TaskState } from "./models"
 import { pending as thePending, type Patch, type Pending } from "./pending"
 
 // What a failed action shows: a title and the host's reason.
@@ -73,6 +78,14 @@ export function createInstant(pending: Pending, toast: () => Toast) {
 // instant is the window's runner, on the window's pending changes.
 export const instant = createInstant(thePending, () => toastSink)
 
+// The keys actions go by: one per thing acted on, the same wherever it is
+// answered (Needs you, Notifications, the card page), so a second click
+// on it anywhere waits for the first.
+export const answerKey = (cardId: string, blockerId: string) =>
+  `answer:${cardId}/${blockerId}`
+export const closeKey = (cardId: string) => `close:${cardId}`
+export const askKey = (askId: string) => `ask:${askId}`
+
 // ---- patches ------------------------------------------------------------------
 
 // The note item: an input_required card's question (sample-cards.ts).
@@ -112,12 +125,26 @@ function openBelow() {
   }
 }
 
+// The coord's Done answer: the done check's option that closes the card.
+const DoneAnswer = "Done"
+
+// isDone: option is Done on a done check, the pick the host closes the
+// card on (coord DONE_ANSWER); any other option goes back to the agent.
+export function isDone(
+  b: Pick<CardBlocker, "doneCheck" | "options">,
+  option: number
+): boolean {
+  return (
+    !!b.doneCheck && option >= 0 && b.options[option]?.answer === DoneAnswer
+  )
+}
+
 // answerPatch is an answer to one of a card's items: option is the
 // picked one's index, -1 for own words. Done on a done check closes the
 // card; anything else leaves the item with the agent.
 export function answerPatch(
   cardId: string,
-  b: { id: string; doneCheck?: boolean },
+  b: Pick<CardBlocker, "id" | "doneCheck" | "options">,
   option: number
 ): Omit<Patch, "key"> {
   if (b.id === NoteItem) {
@@ -138,9 +165,10 @@ export function answerPatch(
       summaryAgrees: (c) => c.state !== TaskState.InputRequired,
     }
   }
-  if (b.doneCheck && option >= 0) {
+  if (isDone(b, option)) {
     const done = <T extends CardSummary>(c: T): T =>
       isOver(c) ? c : { ...c, state: TaskState.Completed, ready: undefined }
+    const at = new Date().toISOString()
     return {
       cardId,
       detail: (d) => {
@@ -149,7 +177,19 @@ export function answerPatch(
           ...out,
           blockers: out.blockers.map((x) =>
             x.id === b.id && !x.resolved && x.state !== Resolved
-              ? { ...x, state: Resolved }
+              ? {
+                  ...x,
+                  state: Resolved,
+                  // "Marked done by you" until the real one comes.
+                  resolved: {
+                    answer: DoneAnswer,
+                    option,
+                    by: AgentRef({ name: "You" }),
+                    at,
+                    closed: false,
+                    note: "",
+                  },
+                }
               : x
           ),
         }

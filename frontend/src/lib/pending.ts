@@ -175,10 +175,7 @@ export function createPending(
       for (const [key, e] of [...entries]) {
         if (!e.notification) continue
         const n = byKey.get(e.patch.noteKey!)
-        if (
-          n &&
-          !(e.patch.notificationAgrees && e.patch.notificationAgrees(n))
-        )
+        if (n && !(e.patch.notificationAgrees && e.patch.notificationAgrees(n)))
           continue
         e.notification = false
         any = true
