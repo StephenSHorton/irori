@@ -81,6 +81,30 @@ export function waitingText(c: { waiting?: string }, who: string): string {
   return ""
 }
 
+// isYou is whether key is the person on any of their devices: "user", as
+// an agent that opens a DM adds them, or "user:<device>", as their posts
+// and the DMs they open carry it (card #642).
+export function isYou(key: string): boolean {
+  return key === "user" || key.startsWith("user:")
+}
+
+// memberOf is the member key names in a conversation: its own row, else
+// the person's whichever of their keys the row has (card #642: a DM an
+// agent opened lists them as "user", their posts say "user:<device>"),
+// else the person as "you" when nothing lists them.
+export function memberOf(
+  members: Iterable<Member>,
+  key: string
+): Member | undefined {
+  let you: Member | undefined
+  for (const m of members) {
+    if (m.key === key) return m
+    if (m.kind === "person" && isYou(m.key)) you = m
+  }
+  if (!isYou(key)) return undefined
+  return you ?? { kind: "person", key, name: "you" }
+}
+
 // dmWith is the DM's other side (an agent DM has one), or the two agents of
 // a read-only agent↔agent DM.
 export function dmWith(c: Conversation): Member[] {
@@ -414,11 +438,13 @@ function sampleState(): SampleConv[] {
         name: "sample-heron",
         members: [you, a(heron, "sample-heron")],
       }),
+      // The agent opened it, so it lists the person as "user", while
+      // their posts carry their device (card #642).
       posts: [
         post(
           "sample-dm-heron",
           1,
-          me,
+          `${me}:sample-device`,
           200,
           "How would you feel about dropping the workspace panel altogether?"
         ),
@@ -671,7 +697,7 @@ function sampleState(): SampleConv[] {
 
 function counted(c: SampleConv): Conversation {
   const at = c.posts.findIndex((p) => p.postId === c.readUpTo)
-  const fresh = c.posts.slice(at + 1).filter((p) => p.by !== me)
+  const fresh = c.posts.slice(at + 1).filter((p) => !isYou(p.by))
   const { posts, readUpTo, ...conv } = c
   void readUpTo
   return {

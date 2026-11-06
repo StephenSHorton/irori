@@ -45,6 +45,7 @@ import {
   dmPerson,
   dmWith,
   fromPost,
+  memberOf,
   talkApi,
   usePosts,
   waitingText,
@@ -381,7 +382,7 @@ export function ConversationView({
                         {newDay && at && <DayLine label={dayLabel(at, now)} />}
                         <PostRow
                           post={p}
-                          who={names.get(p.by)}
+                          who={memberOf(names.values(), p.by)}
                           names={names}
                           live={live}
                           onMakeCard={
@@ -469,11 +470,10 @@ export function PostRow({
   const mentions = post.mentions.map((key) => {
     // "user" is the person on any of their devices (an agent's mention
     // "person", card #395).
-    const m: Member =
-      names.get(key) ??
-      (key === "user" || key.startsWith("user:")
-        ? { kind: "person", key, name: "you" }
-        : { kind: key.startsWith("person:") ? "person" : "agent", key })
+    const m: Member = memberOf(names.values(), key) ?? {
+      kind: key.startsWith("person:") ? "person" : "agent",
+      key,
+    }
     const ref = refOf(m, live)
     return {
       name: m.kind === "person" && m.name === "you" ? "you" : memberName(m),
