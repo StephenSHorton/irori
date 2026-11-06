@@ -30,6 +30,8 @@ const SETTINGS_KEY: &str = "notifications";
 
 /// The cards' look's key (card #527).
 const LOOK_KEY: &str = "cards";
+/// Keep this device up to date (card #578); missing until the person sets it.
+const KEEP_KEY: &str = "keepUpToDate";
 
 /// Serializes read-modify-write of the file in this process.
 static FILE_MU: Mutex<()> = Mutex::new(());
@@ -109,6 +111,26 @@ pub fn load_look(dir: &Path) -> Option<CardLook> {
 pub fn save_look(dir: &Path, l: &CardLook) -> Result<(), String> {
     let raw = gocompat::json::marshal(l).map_err(|e| e.to_string())?;
     save_raw(dir, LOOK_KEY, raw)
+}
+
+/// Keep this device up to date (card #578), once the person has set it.
+/// `None` means they never have: the device follows its home server switch.
+pub fn load_keep_up_to_date(dir: &Path) -> Option<bool> {
+    let _g = FILE_MU.lock().unwrap_or_else(|e| e.into_inner());
+    let raw = read_all(dir).ok()?.remove(KEEP_KEY)?;
+    match serde_json::from_slice::<Option<bool>>(&raw) {
+        Ok(on) => on,
+        Err(e) => {
+            eprintln!("irori: notifications: {SETTINGS_FILE}: {KEEP_KEY}: {e}");
+            None
+        }
+    }
+}
+
+/// Writes the person's choice under `keepUpToDate`, keeping the other keys.
+pub fn save_keep_up_to_date(dir: &Path, on: bool) -> Result<(), String> {
+    let raw = gocompat::json::marshal(&on).map_err(|e| e.to_string())?;
+    save_raw(dir, KEEP_KEY, raw)
 }
 
 fn save_raw(dir: &Path, key: &str, raw: Vec<u8>) -> Result<(), String> {

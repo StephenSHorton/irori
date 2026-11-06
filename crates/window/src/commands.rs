@@ -30,7 +30,7 @@ use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
 use crate::talk::{TalkConversation, TalkMemberRef, TalkPost};
 use crate::ts::{self, Typed};
-use crate::update::UpdateStatus;
+use crate::update::{KeepUpToDate, UpdateStatus};
 use crate::voice::{VoiceDownload, VoiceEvent, VoiceStatus};
 
 type W<'a> = State<'a, Arc<Window>>;
@@ -1296,6 +1296,18 @@ pub async fn update_restart_to_update(w: W<'_>) -> R<()> {
     w.update_restart()
 }
 
+#[tauri::command]
+#[specta::specta]
+pub async fn update_keep_up_to_date(w: W<'_>) -> R<KeepUpToDate> {
+    Ok(w.update_keep_up_to_date())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_set_keep_up_to_date(w: W<'_>, on: bool) -> R<()> {
+    w.update_set_keep_up_to_date(on)
+}
+
 /// Card #232: waits until the Core has started (the window opens first and
 /// shows the opening screen); an error says why it couldn't start.
 #[tauri::command]
@@ -1700,6 +1712,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             update_get_version,
             update_supported,
             update_check_and_download,
+            update_keep_up_to_date,
+            update_set_keep_up_to_date,
             update_restart_to_update,
             voice_status,
             voice_download_model,

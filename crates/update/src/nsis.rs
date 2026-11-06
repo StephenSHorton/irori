@@ -4,6 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::Relaunch;
+
 /// Go `waitPIDArg`: the installer waits for this process (the GUI) to exit
 /// before it swaps the exe, not for the file lock, which `irori mcp`
 /// children can hold for as long as their sessions run.
@@ -11,12 +13,15 @@ pub fn wait_pid_arg() -> String {
     format!("/WAITPID={}", std::process::id())
 }
 
-/// The installer's arguments: `/S [/NORELAUNCH] /WAITPID=<pid>` (Go
-/// nsis.go:16-21).
-pub fn install_args(relaunch: bool) -> Vec<String> {
+/// The installer's arguments: `/S [/NORELAUNCH | /STARTUP] /WAITPID=<pid>`
+/// (Go nsis.go:16-21). `/STARTUP` relaunches Irori as login does, in the
+/// tray; an installer from before card #578 ignores it and opens the window.
+pub fn install_args(relaunch: Relaunch) -> Vec<String> {
     let mut args = vec!["/S".to_string()];
-    if !relaunch {
-        args.push("/NORELAUNCH".to_string());
+    match relaunch {
+        Relaunch::No => args.push("/NORELAUNCH".to_string()),
+        Relaunch::Hidden => args.push("/STARTUP".to_string()),
+        Relaunch::Show => {}
     }
     args.push(wait_pid_arg());
     args
@@ -70,9 +75,16 @@ mod tests {
     #[test]
     fn wait_pid_is_this_process() {
         assert_eq!(wait_pid_arg(), format!("/WAITPID={}", std::process::id()));
-        assert_eq!(install_args(true), vec!["/S".to_string(), wait_pid_arg()]);
         assert_eq!(
-            install_args(false),
+            install_args(Relaunch::Show),
+            vec!["/S".to_string(), wait_pid_arg()]
+        );
+        assert_eq!(
+            install_args(Relaunch::Hidden),
+            vec!["/S".to_string(), "/STARTUP".to_string(), wait_pid_arg()]
+        );
+        assert_eq!(
+            install_args(Relaunch::No),
             vec!["/S".to_string(), "/NORELAUNCH".to_string(), wait_pid_arg()]
         );
     }

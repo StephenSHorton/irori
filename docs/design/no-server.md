@@ -84,7 +84,7 @@ While devices are mixed, an older device shows the old state until it updates:
 
 All of it comes right when the device updates, because the rows are stored and replayed at each start. Nobody's access changes, since a space is one log with one secret.
 
-Phones run no agents, and they lag longest, so a phone is where someone would see a card in its old place. Desktops download an update at launch but install it only when someone presses Install or quits, and a PC left running doesn't look again. So until §4.3's update setting ships, the window for agents can be weeks, on the machine most likely to run them.
+Phones run no agents, and they lag longest, so a phone is where someone would see a card in its old place. Without §4.3's update setting, a desktop downloads an update at launch but installs it only when someone presses Install or quits, and a PC left running doesn't look again, so the window for agents can be weeks, on the machine most likely to run them.
 
 ### 3.5 Making this the last time: a tolerant reader
 
@@ -127,7 +127,7 @@ With a machine off you lose freshness, not data. Rows wait on whichever devices 
 
 ### 4.3 Making it solid
 
-**Keep machines up to date.** Today Irori looks for updates only at start or from Settings, so a machine up for weeks falls behind a phone, and an older machine is the worst forwarder (§2).
+**Keep machines up to date.** Without this setting Irori looks for updates only at start or from Settings, so a machine up for weeks falls behind a phone, and an older machine is the worst forwarder (§2).
 
 - A new per-device setting, **Keep this device up to date**, makes it check every few hours and download. It's on by default where the home server is on, and any desktop can turn it on. The home switch alone isn't enough, since decision 43 lets an always-on PC run with it off.
 - Agreed (b4): a device with this setting restarts by itself when no agent turn is running, and shows the Install card if that hasn't happened within a day. `architecture.md:433` and `releasing.md:7` change with it. The start-only check on #533 described the code; it wasn't a decision.

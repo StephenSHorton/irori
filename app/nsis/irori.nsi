@@ -131,12 +131,20 @@ Var FreshInstall
 
 # Starts $INSTDIR\irori.exe unless the command line has /NORELAUNCH. Used after
 # a silent update and on the silent gave-up path (then it starts the old exe).
+# /STARTUP starts it as login does, in the tray: Irori restarted by itself
+# (card #578), so no window should open over what the person is doing.
 Function IroriRelaunchUnlessNoRelaunch
     ${GetParameters} $R0
     ClearErrors
     ${GetOptions} $R0 "/NORELAUNCH" $R1
     ${If} ${Errors}
-        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+        ClearErrors
+        ${GetOptions} $R0 "/STARTUP" $R1
+        ${If} ${Errors}
+            Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+        ${Else}
+            Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}" --startup'
+        ${EndIf}
     ${EndIf}
 FunctionEnd
 

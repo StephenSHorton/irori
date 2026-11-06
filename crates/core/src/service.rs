@@ -147,6 +147,11 @@ pub struct Options {
     pub clear_builds: Option<Duration>,
 }
 
+/// A session's status for [`Core::restart_blockers`]' log line.
+fn status_word(status: &str) -> &str {
+    if status.is_empty() { "unknown" } else { status }
+}
+
 /// Go `core.ErrNoHomeServer`'s text.
 pub const NO_HOME_SERVER: &str = "this device can't run a home server";
 
@@ -2264,6 +2269,42 @@ impl Core {
     /// [`inbox::REATTACH_GRACE`] ago.
     pub fn local_agents(&self) -> Vec<presence::AgentCard> {
         self.s.local_agents()
+    }
+
+    /// What stops this device restarting itself now (card #578), one line
+    /// each; empty means nothing does. Every status but idle counts, so one
+    /// Claude Code adds later waits for the Install card rather than being
+    /// cut off. A person's own turn shows here too: status comes from
+    /// Claude Code, not from wakes.
+    pub fn restart_blockers(&self) -> Vec<String> {
+        self.presence().rescan();
+        let mut why = Vec::new();
+        for a in self.local_agents() {
+            if a.status == "gone" {
+                continue;
+            }
+            if a.status != "idle" {
+                why.push(format!("{} is {}", a.name, status_word(&a.status)));
+            } else if self.s.inbox.wake_coming(&a.key) {
+                why.push(format!("{} is about to be woken", a.name));
+            }
+        }
+        let starting = self.s.spawning_here();
+        if starting > 0 {
+            why.push(format!("{starting} spawned agent(s) starting"));
+        }
+        // Quitting closes these, and whatever runs in them.
+        let terms = self.terms.list().iter().filter(|t| t.2).count();
+        if terms > 0 {
+            why.push(format!("{terms} terminal(s) open"));
+        }
+        why
+    }
+
+    /// Holds wakes and spawns back while the app makes its last check
+    /// before restarting itself ([`Inbox::hold_wakes`]).
+    pub fn hold_wakes(&self, on: bool) {
+        self.s.inbox.hold_wakes(on);
     }
 
     // ---- attachments (core/attachments.go, crate::attachments) -----------

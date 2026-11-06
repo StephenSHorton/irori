@@ -5,7 +5,11 @@ and published as one GitHub release of `StephenSHorton/irori`. Installed
 copies, the Go v0.5.x ones included, find it at their next start through
 `/releases/latest`, download their asset, check it against `SHA256SUMS`,
 and ask before they restart (crates/update; Go `internal/update`, whose
-rules it keeps). The first Rust release is `v0.6.0` (architecture.md D11):
+rules it keeps). A desktop with Keep this device up to date on finds it
+within 6 hours and restarts by itself once no agent is working, so a
+published release reaches always-on machines with nobody at them
+(architecture.md 7.3): publish only what you'd have them run, because
+there is no rollback. The first Rust release is `v0.6.0` (architecture.md D11):
 the Go updater takes it because `0.6.0` is newer than `0.5.x`.
 
 ## Build tools

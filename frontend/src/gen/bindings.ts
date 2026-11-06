@@ -262,6 +262,8 @@ export const commands = {
 	updateGetVersion: () => __TAURI_INVOKE<string>("update_get_version"),
 	updateSupported: () => __TAURI_INVOKE<boolean>("update_supported"),
 	updateCheckAndDownload: () => __TAURI_INVOKE<UpdateStatus>("update_check_and_download"),
+	updateKeepUpToDate: () => __TAURI_INVOKE<KeepUpToDate>("update_keep_up_to_date"),
+	updateSetKeepUpToDate: (on: boolean) => __TAURI_INVOKE<null>("update_set_keep_up_to_date", { on }),
 	updateRestartToUpdate: () => __TAURI_INVOKE<null>("update_restart_to_update"),
 	voiceStatus: () => __TAURI_INVOKE<VoiceStatus>("voice_status"),
 	voiceDownloadModel: () => __TAURI_INVOKE<null>("voice_download_model"),
@@ -1663,6 +1665,18 @@ export type InviteStatus = {
 	/**  Wrong words typed so far (two end the invite). */
 	misses: number,
 	error?: string,
+};
+
+/**  Keep this device up to date (card #578) as Settings shows it. */
+export type KeepUpToDate = {
+	/**  This device can do it: a desktop that updates itself. */
+	available: boolean,
+	on: boolean,
+	/**
+	 *  On only because this device is the home server: the person never
+	 *  set it, so it follows that switch.
+	 */
+	followsHome: boolean,
 };
 
 /**  coord.Link. */

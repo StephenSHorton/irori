@@ -452,6 +452,8 @@ export const UpdateService = {
   Supported: () => call(commands.updateSupported()),
   CheckAndDownload: () => call(commands.updateCheckAndDownload()),
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
+  KeepUpToDate: () => call(commands.updateKeepUpToDate()),
+  SetKeepUpToDate: (on: boolean) => done(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as

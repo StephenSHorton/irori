@@ -685,6 +685,9 @@ pub(crate) struct Inner {
     pub replaying: bool,
     pub changes: Vec<Change>,
     pub touched: BTreeSet<String>,
+    /// No wake or append goes out (card #578): the app is about to restart
+    /// itself. In memory only, so a crash can't leave wakes held.
+    pub wakes_held: bool,
 }
 
 /// The messaging core. Safe for concurrent use.
@@ -818,6 +821,7 @@ impl Inbox {
             replaying: false,
             changes: vec![],
             touched: BTreeSet::new(),
+            wakes_held: false,
         };
         b.replay()?;
         Ok(Inbox {

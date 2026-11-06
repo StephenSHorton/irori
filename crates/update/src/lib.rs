@@ -6,8 +6,9 @@
 //! release's `SHA256SUMS`, and parks in `ready`. The person then restarts
 //! ([`Updater::restart_to_update`]: install, quit, Irori comes back) or keeps
 //! working, and the install runs on quit ([`Updater::install_on_exit`], no
-//! relaunch). Nothing installs or quits behind the person's back, and `dev`
-//! builds never touch the network.
+//! relaunch). Only a device with Keep this device up to date on restarts by
+//! itself, when no agent is working ([`keep`], [`Updater::restart_hidden`]).
+//! `dev` builds never touch the network.
 //!
 //! The feed and the asset names are Go's, so the Go v0.5.x updater installs
 //! the first Rust release (v0.6.0) and this one installs later ones:
@@ -35,13 +36,14 @@
 //!   `set_on_change` rebuilds the tray (`Tray::set_update`) and posts the
 //!   update card (`update:<v>`, "Irori v<v> is ready", Install / Later).
 //! - At GUI start, spawn [`Updater::auto_update`]; in the exit path call
-//!   [`Updater::install_on_exit`].
+//!   [`Updater::install_on_exit`]. On a desktop, run the timer of [`keep`].
 //! - `with_logger(irori_core::log)`: the updater's lines (check, download,
 //!   verify and launch failures) go to `irori.log` like Go's `log.Printf`;
 //!   unset, they go to stderr, which a GUI-subsystem exe has none of.
 //! - The async methods need a Tokio runtime; the window seam's sync
 //!   `check_and_download` waits for them off the async workers.
 
+pub mod keep;
 pub mod login;
 #[cfg(target_os = "macos")]
 pub mod mac;
@@ -82,6 +84,18 @@ pub const PHASE_ERROR: &str = "error";
 /// Go `supported`: Windows and macOS update themselves; Android through
 /// its own install screen (card #270).
 pub const SUPPORTED: bool = cfg!(any(windows, target_os = "macos", target_os = "android"));
+
+/// What comes back after an install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Relaunch {
+    /// Nothing (the install on quit).
+    No,
+    /// Irori with its window: the person pressed Install.
+    Show,
+    /// Irori in the tray, as at login: it restarted by itself, and no window
+    /// should open over whatever the person is doing.
+    Hidden,
+}
 
 /// Go `Status`, as the window and tray see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -678,7 +692,7 @@ impl Updater {
     }
 
     /// Starts installing `staged`; the caller then quits.
-    fn install(&self, staged: &Path, relaunch: bool) -> Result<(), String> {
+    fn install(&self, staged: &Path, relaunch: Relaunch) -> Result<(), String> {
         match self.plat {
             Platform::Nsis => {
                 (self.launch)(staged, &nsis::install_args(relaunch)).map_err(|e| e.to_string())
@@ -698,6 +712,16 @@ impl Updater {
     /// flips to installing before quitting so [`Updater::install_on_exit`]
     /// sees it; a launch failure goes back to ready.
     pub fn restart_to_update(&self) -> Result<(), String> {
+        self.restart(Relaunch::Show)
+    }
+
+    /// [`Self::restart_to_update`] with nobody asking (card #578): Irori
+    /// comes back in the tray.
+    pub fn restart_hidden(&self) -> Result<(), String> {
+        self.restart(Relaunch::Hidden)
+    }
+
+    fn restart(&self, relaunch: Relaunch) -> Result<(), String> {
         if self.plat == Platform::Android {
             return Err("on Android, Install opens the install screen (install_apk)".into());
         }
@@ -712,7 +736,7 @@ impl Updater {
             g.status.phase = PHASE_INSTALLING.into();
             (g.status.installer_path.clone(), g.quit.clone())
         };
-        if let Err(e) = self.install(&path, true) {
+        if let Err(e) = self.install(&path, relaunch) {
             self.set_status(|s| s.phase = PHASE_READY.into());
             return Err(format!("launch installer: {e}"));
         }
@@ -741,7 +765,7 @@ impl Updater {
             g.status.phase = PHASE_INSTALLING.into();
             g.status.installer_path.clone()
         };
-        if let Err(e) = self.install(&path, false) {
+        if let Err(e) = self.install(&path, Relaunch::No) {
             self.logf(&format!("irori: install on exit: launch installer: {e}"));
             return;
         }

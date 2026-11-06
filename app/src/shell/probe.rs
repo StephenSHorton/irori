@@ -5,7 +5,8 @@
 //! per shell event to that file (`ready`, `second-instance`, `show`,
 //! `page-load <scheme>://<host>`, `api-port <port>`, `exiting`, `closed`), never puts the
 //! window on screen, installs no tray icon, skips the real launch-at-login
-//! cutover and the auto-update, and quits once `<file>.quit` exists.
+//! cutover and the auto-update (unless the build has a fake release feed,
+//! `IRORI_UPDATE_API`), and quits once `<file>.quit` exists.
 //!
 //! On macOS it also drives what the shell's exit depends on (card #535):
 //! `<file>.terminate` quits through AppKit, as an Apple Event or the app

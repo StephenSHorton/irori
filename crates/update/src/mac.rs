@@ -186,7 +186,7 @@ pub fn install_command(
     live: &Path,
     dir: &Path,
     next: &Path,
-    relaunch: bool,
+    relaunch: crate::Relaunch,
     pid: u32,
 ) -> Result<(PathBuf, Vec<String>), String> {
     if std::fs::metadata(next.join("Contents").join("Info.plist")).is_err() {

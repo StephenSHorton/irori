@@ -5,8 +5,9 @@ import { isAndroid, NEEDS_INSTALL_PERMISSION, updateErrorLine } from "./android"
 import { useUpdater, type UpdaterState } from "./useUpdater"
 
 // UpdateBanner is the in-window notice that a new Irori is ready. Mount it at
-// the top of the main view. The backend never installs on its own, so this is
-// where the user decides: "Restart now" launches the installer and quits;
+// the top of the main view. Unless Keep this device up to date is on, the
+// backend never installs on its own, so this is where the user decides (and
+// with it on, a window in use holds the restart back): "Restart now" launches the installer and quits;
 // "Later" hides the bar for this version (the tray keeps a Restart item), and
 // the update installs when Irori quits anyway.
 //

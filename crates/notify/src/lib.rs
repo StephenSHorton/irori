@@ -48,7 +48,10 @@ pub use inbox::watch::{
     held_id, message_id, needs_id, parse_level, returned_id, talk_conv, talk_id, unclaimed_id,
 };
 pub use look::{CardColors, CardLook};
-pub use settings::{SEEN_FILE, SETTINGS_FILE, SeenFile, load, load_look, save, save_look};
+pub use settings::{
+    SEEN_FILE, SETTINGS_FILE, SeenFile, load, load_keep_up_to_date, load_look, save,
+    save_keep_up_to_date, save_look,
+};
 pub use thumb::{attachment_thumbnail, thumbnail};
 pub use watch::{
     AskSource, BoardSource, FileFn, InboxFeed, RoomSource, Sources, WatchHandle, hold_reason,

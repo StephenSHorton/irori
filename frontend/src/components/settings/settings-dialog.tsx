@@ -1,4 +1,7 @@
-import { useId, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
+import { UpdateService } from "@/lib/host"
+import type { KeepUpToDate } from "@/lib/models"
+import { inWails } from "@/lib/irori"
 import { useReducedMotion } from "@/lib/motion"
 import {
   BellIcon,
@@ -338,6 +341,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
+        <KeepUpToDateToggle open={open} />
       </div>
       {version && (
         <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
@@ -349,6 +353,45 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
           </span>
         </div>
       )}
+    </div>
+  )
+}
+
+// Keep this device up to date (card #578): desktops only. The switch writes
+// only when the person flips it: a device that was never set follows its
+// home server switch, and writing what it shows would end that.
+function KeepUpToDateToggle({ open }: { open: boolean }) {
+  const [keep, setKeep] = useState<KeepUpToDate | null>(null)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    UpdateService.KeepUpToDate()
+      .then(setKeep)
+      .catch(() => {})
+  }, [open])
+  if (!keep?.available) return null
+  const change = async (on: boolean) => {
+    setKeep({ ...keep, on, followsHome: false })
+    try {
+      await UpdateService.SetKeepUpToDate(on)
+      setError("")
+    } catch (e) {
+      setError(String(e))
+      setKeep(await UpdateService.KeepUpToDate().catch(() => keep))
+    }
+  }
+  return (
+    <div className="mt-2 grid gap-1">
+      <Toggle
+        label="Keep this device up to date"
+        hint={
+          "Checks every few hours and downloads. Irori restarts by itself when no agent is working, and asks if that hasn't happened in a day." +
+          (keep.followsHome ? " On because this device is a home server." : "")
+        }
+        checked={keep.on}
+        onChange={(v) => void change(v)}
+      />
+      {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>
   )
 }

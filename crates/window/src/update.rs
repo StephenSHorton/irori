@@ -29,6 +29,18 @@ impl Default for UpdateStatus {
     }
 }
 
+/// Keep this device up to date (card #578) as Settings shows it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+pub struct KeepUpToDate {
+    /// This device can do it: a desktop that updates itself.
+    pub available: bool,
+    pub on: bool,
+    /// On only because this device is the home server: the person never
+    /// set it, so it follows that switch.
+    #[serde(rename = "followsHome")]
+    pub follows_home: bool,
+}
+
 /// The update:status event.
 pub const EVENT_UPDATE_STATUS: &str = "update:status";
 
@@ -62,5 +74,11 @@ impl Window {
     }
     pub fn update_restart(&self) -> Result<(), String> {
         self.seams.updater.restart_to_update()
+    }
+    pub fn update_keep_up_to_date(&self) -> KeepUpToDate {
+        self.seams.updater.keep_up_to_date()
+    }
+    pub fn update_set_keep_up_to_date(&self, on: bool) -> Result<(), String> {
+        self.seams.updater.set_keep_up_to_date(on)
     }
 }

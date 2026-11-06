@@ -10,6 +10,7 @@ use crate::state::{
     APPEND_TOKEN_PREFIX, Drec, Inner, REMINDER_TOKEN_PREFIX, TurnRow, WAKE_TOKEN_PREFIX, WakeRec,
     WakeRow, trim,
 };
+use crate::ChangeKind;
 use crate::{Delivery, Error, ErrorKind, Inbox, MAX_NOTE, Result, Wake, kinds, mode, path, st};
 
 /// Orders deliveries by message, then delivery id (oldest first).
@@ -35,7 +36,7 @@ impl Inner {
 
     fn next_wake(&mut self, agent: &str, p: &str) -> Result<Option<Wake>> {
         // Wakes reach only sessions this device hosts (v0.4 §6.3).
-        if !self.local(agent) {
+        if !self.local(agent) || self.wakes_held {
             return Ok(None);
         }
         self.drop_stale(agent)?;
@@ -124,6 +125,9 @@ impl Inner {
     }
 
     fn next_append(&mut self, agent: &str) -> Result<Option<Wake>> {
+        if self.wakes_held {
+            return Ok(None);
+        }
         if !self.local(agent) || self.pending_append(agent).is_some() {
             return Ok(None);
         }
@@ -453,6 +457,62 @@ impl Inner {
 }
 
 impl Inbox {
+    /// Holds every wake and append back, or lets them go again (card #578):
+    /// while the app checks one last time that it may restart, none can
+    /// start a turn. Deliveries stay queued. Stops wait too, for the few
+    /// seconds this lasts. In memory only, unlike Pause all, which is the
+    /// person's and a log row.
+    pub fn hold_wakes(&self, on: bool) {
+        self.mutate(|b| {
+            b.wakes_held = on;
+            if on {
+                return;
+            }
+            // Whoever was told a wake is ready got nothing while held.
+            let agents: Vec<String> = b.reach.keys().cloned().collect();
+            for agent in agents {
+                if b.has_submit(&agent) {
+                    b.note(ChangeKind::WakeReady, &agent, "");
+                }
+                if b.has_append(&agent) {
+                    b.note(ChangeKind::AppendReady, &agent, "");
+                }
+            }
+        })
+    }
+
+    /// Whether [`Self::hold_wakes`] is on.
+    pub fn wakes_held(&self) -> bool {
+        self.read(|b| b.wakes_held)
+    }
+
+    /// Whether a wake is on its way to agent, so a turn may start any moment
+    /// (card #578): one is out and not yet engaged, or a delivery that
+    /// should wake it is queued. A queued delivery counts only while agent
+    /// can be reached and for [`crate::NOT_ANSWERING_AFTER`], so a session
+    /// that stopped listening can't hold this true for good.
+    pub fn wake_coming(&self, agent: &str) -> bool {
+        self.read(|b| {
+            if b.outstanding(agent).is_some() {
+                return true;
+            }
+            let now = b.now();
+            if !b.reachable(agent, &now) {
+                return false;
+            }
+            b.open_recs().any(|d| {
+                d.d.to == agent
+                    && d.d.state == st::QUEUED
+                    && d.d.wake_id.is_empty()
+                    && !d.next_turn()
+                    && !d.untaken()
+                    && (!b.pol.paused || d.stop() || b.wind_down(d))
+                    && crate::tm::sub(&now, &d.waiting_since)
+                        < crate::tm::d(crate::NOT_ANSWERING_AFTER)
+            })
+        })
+    }
+
     /// The wake to submit to agent now, or `None` (nothing queued, or a
     /// previous wake still gates it). The deliveries are recorded as handed
     /// to it.

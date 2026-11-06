@@ -9,13 +9,18 @@
 //!   update card.
 //! - The shell spawns `update::Updater::auto_update` at start and
 //!   calls `update::Updater::install_on_exit` on the way out.
+//! - [`Keeper`] is Keep this device up to date (card #578): on a desktop,
+//!   [`Keeper::run`] is the timer, on rules from `update::keep`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use ::update as upd;
-use irori_window::update::UpdateStatus;
-use tauri::{AppHandle, Emitter as _};
+use irori_core::Core;
+use irori_window::update::{KeepUpToDate, UpdateStatus};
+use tauri::{AppHandle, Emitter as _, Manager as _};
+use upd::keep::{Act, Attempt, Facts, Keep, Timing};
 
 use super::tray::Tray;
 
@@ -35,6 +40,220 @@ pub fn new(data: &Path) -> Arc<upd::Updater> {
     Arc::new(u)
 }
 
+/// Seconds from a build-time knob (test builds only, as `IRORI_UPDATE_API`:
+/// a release build can't be sped up from outside).
+fn knob(v: Option<&str>, default: Duration) -> Duration {
+    v.and_then(|s| s.parse().ok())
+        .map_or(default, Duration::from_secs)
+}
+
+fn timing() -> Timing {
+    let d = Timing::default();
+    Timing {
+        tick: knob(option_env!("IRORI_UPDATE_TICK"), d.tick),
+        check_every: knob(option_env!("IRORI_UPDATE_EVERY"), d.check_every),
+        card_after: knob(option_env!("IRORI_UPDATE_CARD_AFTER"), d.card_after),
+    }
+}
+
+/// Whether this is a test build pointed at a fake release feed: the probe
+/// then still updates, for the rehearsal (tools/rehearse/keep.ps1).
+pub fn test_feed() -> bool {
+    option_env!("IRORI_UPDATE_API").is_some_and(|b| !b.is_empty())
+}
+
+/// The window counts as in use for this long after it last had the focus: a
+/// restart closes it, with whatever is typed in it.
+const WINDOW_IN_USE: Duration = Duration::from_secs(15 * 60);
+
+/// How long wakes stay held before the last check, so one already on its way
+/// shows up in it.
+const SETTLE: Duration = Duration::from_secs(3);
+
+/// Keep this device up to date: the setting and its timer.
+pub struct Keeper {
+    data: PathBuf,
+    core: Arc<Core>,
+    u: Arc<upd::Updater>,
+    keep: Mutex<Keep>,
+    attempt: Attempt,
+    last_focus: Mutex<Option<SystemTime>>,
+    probe: super::probe::Probe,
+}
+
+impl Keeper {
+    pub fn new(
+        data: &Path,
+        core: Arc<Core>,
+        u: Arc<upd::Updater>,
+        probe: super::probe::Probe,
+    ) -> Arc<Keeper> {
+        let attempt = Attempt::new(data);
+        let gave_up = attempt.settle(u.version());
+        if let Some(v) = &gave_up {
+            irori_core::log(&format!(
+                "irori: the restart to v{v} didn't bring it up; the Install card asks instead"
+            ));
+        }
+        Arc::new(Keeper {
+            data: data.to_path_buf(),
+            core,
+            u,
+            keep: Mutex::new(Keep::new(timing(), SystemTime::now(), gave_up)),
+            attempt,
+            last_focus: Mutex::default(),
+            probe,
+        })
+    }
+
+    /// Whether this device can do it at all.
+    fn available(&self) -> bool {
+        cfg!(desktop) && self.u.supported()
+    }
+
+    fn explicit(&self) -> Option<bool> {
+        notify::load_keep_up_to_date(&self.data)
+    }
+
+    fn on(&self) -> bool {
+        self.available()
+            && upd::keep::resolve(self.explicit(), self.core.home_server().on)
+    }
+
+    fn view(&self) -> KeepUpToDate {
+        let explicit = self.explicit();
+        KeepUpToDate {
+            available: self.available(),
+            on: self.on(),
+            follows_home: explicit.is_none() && self.core.home_server().on,
+        }
+    }
+
+    fn holds_card(&self, version: &str) -> bool {
+        let on = self.on();
+        lock(&self.keep).holds_card(on, version, SystemTime::now())
+    }
+
+    /// What stops a restart now: the Core's list, and the window.
+    fn blockers(&self, app: &AppHandle) -> Vec<String> {
+        let mut why = self.core.restart_blockers();
+        let now = SystemTime::now();
+        let mut last = lock(&self.last_focus);
+        if app
+            .get_webview_window(super::MAIN)
+            .is_some_and(|w| w.is_focused().unwrap_or(false))
+        {
+            *last = Some(now);
+        }
+        let in_use = last.is_some_and(|t| {
+            now.duration_since(t)
+                .map_or(true, |d| d < WINDOW_IN_USE)
+        });
+        if in_use {
+            why.push("the window is in use".into());
+        }
+        why
+    }
+
+    /// The timer, until `stop`. One tick at a time, on its own thread: a
+    /// check can take a whole download.
+    pub fn run(
+        self: Arc<Self>,
+        app: AppHandle,
+        card: Arc<Card>,
+        stop: sys::cancel::Cancel,
+    ) {
+        let tick = timing().tick;
+        let mut said = Vec::new();
+        while !stop.sleep(tick) {
+            let st = self.u.status();
+            // Only a ready update needs the list; it rereads every session.
+            let why = if st.phase == upd::PHASE_READY {
+                self.blockers(&app)
+            } else {
+                Vec::new()
+            };
+            let on = self.on();
+            if on && st.phase == upd::PHASE_READY && why != said {
+                irori_core::log(&format!(
+                    "irori: update v{} waits: {}",
+                    st.version,
+                    if why.is_empty() {
+                        "nothing now".to_string()
+                    } else {
+                        why.join("; ")
+                    }
+                ));
+            }
+            said.clone_from(&why);
+            let act = lock(&self.keep).tick(&Facts {
+                on,
+                phase: &st.phase,
+                version: &st.version,
+                blocked: !why.is_empty(),
+                now: SystemTime::now(),
+            });
+            match act {
+                Act::Nothing => {}
+                Act::Check => {
+                    self.probe.note("update-check");
+                    let u = self.u.clone();
+                    match wait(async move { u.check_and_download().await }) {
+                        Ok(Err(e)) => {
+                            irori_core::log(&format!("irori: timed update check failed: {e}"))
+                        }
+                        Err(_) => irori_core::log("irori: timed update check stopped"),
+                        Ok(Ok(_)) => {}
+                    }
+                }
+                Act::Restart => {
+                    if self.restart(&app, &st.version, &stop) {
+                        return;
+                    }
+                }
+            }
+            // The day may just be up, or the setting just turned off.
+            card.on_status(&self.u.status());
+        }
+    }
+
+    /// Holds wakes back, checks one last time, and restarts. True when
+    /// Irori is on its way out.
+    fn restart(&self, app: &AppHandle, version: &str, stop: &sys::cancel::Cancel) -> bool {
+        self.core.hold_wakes(true);
+        let stopped = stop.sleep(SETTLE);
+        let why = self.blockers(app);
+        if stopped || !why.is_empty() {
+            self.core.hold_wakes(false);
+            lock(&self.keep).restart_stopped();
+            return stopped;
+        }
+        if let Err(e) = self.attempt.record(version) {
+            irori_core::log(&format!("irori: can't restart to update: {e}"));
+            self.core.hold_wakes(false);
+            lock(&self.keep).give_up(version);
+            return false;
+        }
+        irori_core::log(&format!(
+            "irori: no agent is working: restarting to v{version}"
+        ));
+        self.probe.note("update-restart");
+        match self.u.restart_hidden() {
+            Ok(()) => true,
+            Err(e) => {
+                irori_core::log(&format!("irori: restart to update: {e}"));
+                self.core.hold_wakes(false);
+                lock(&self.keep).give_up(version);
+                false
+            }
+        }
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn to_window(st: upd::Status) -> UpdateStatus {
     UpdateStatus {
         phase: st.phase,
@@ -45,7 +264,7 @@ fn to_window(st: upd::Status) -> UpdateStatus {
 }
 
 /// The window's updater seam (Go's bound `UpdateService`).
-pub struct WindowUpdater(pub Arc<upd::Updater>);
+pub struct WindowUpdater(pub Arc<upd::Updater>, pub Arc<Keeper>);
 
 impl irori_window::seams::Updater for WindowUpdater {
     fn status(&self) -> UpdateStatus {
@@ -82,6 +301,12 @@ impl irori_window::seams::Updater for WindowUpdater {
         }
         self.0.restart_to_update()
     }
+    fn keep_up_to_date(&self) -> KeepUpToDate {
+        self.1.view()
+    }
+    fn set_keep_up_to_date(&self, on: bool) -> Result<(), String> {
+        notify::save_keep_up_to_date(&self.1.data, on)
+    }
 }
 
 /// Runs `f` as its own task on the shared runtime and waits for it. The
@@ -114,16 +339,19 @@ fn card_id(v: &str) -> String {
 /// Go `updateCard`: the sticky "Irori v<v> is ready" card with Install
 /// (restart to update now) and Later (close; it installs on quit). Once
 /// per version per run; it comes down when the install starts or another
-/// version replaces it.
-struct Card {
+/// version replaces it. With Keep this device up to date on, it waits a day
+/// for Irori to restart by itself (`holds`, card #578).
+pub struct Card {
     n: notify::Notifier,
     /// Restart to update (Go `install`).
     install: Install,
     open: notify::Callback,
+    holds: Holds,
     st: Mutex<CardState>,
 }
 
 type Install = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+type Holds = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 #[derive(Default)]
 struct CardState {
@@ -132,7 +360,7 @@ struct CardState {
 }
 
 impl Card {
-    fn on_status(self: &Arc<Self>, st: &upd::Status) {
+    pub fn on_status(self: &Arc<Self>, st: &upd::Status) {
         let (drop, post) = {
             let mut g = self.st.lock().unwrap_or_else(|e| e.into_inner());
             let mut drop = String::new();
@@ -146,7 +374,7 @@ impl Card {
         if !drop.is_empty() {
             self.n.clear(&card_id(&drop));
         }
-        if post {
+        if post && !(self.holds)(&st.version) {
             self.post(&st.version, "", false);
         }
     }
@@ -208,7 +436,13 @@ impl Card {
 
 /// Go `setupUpdater` minus the start and shutdown calls, which the shell
 /// makes: hooks to the app, the tray item (when there is a tray), the card.
-pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: &notify::Notifier) {
+pub fn wire(
+    app: &AppHandle,
+    u: &Arc<upd::Updater>,
+    keeper: &Arc<Keeper>,
+    tray: Option<Arc<Tray>>,
+    n: &notify::Notifier,
+) -> Arc<Card> {
     let h = app.clone();
     let hq = app.clone();
     u.set_hooks(
@@ -219,13 +453,16 @@ pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: 
     );
     let h = app.clone();
     let ui = u.clone();
+    let k = keeper.clone();
     let card = Arc::new(Card {
         n: n.clone(),
         install: Arc::new(move || ui.restart_to_update()),
         open: Arc::new(move || super::show(&h)),
+        holds: Arc::new(move |v| k.holds_card(v)),
         st: Mutex::default(),
     });
     let uu = u.clone();
+    let on_change = card.clone();
     u.set_on_change(Arc::new(move |st| {
         if let Some(t) = &tray {
             let ready = (st.phase == upd::PHASE_READY).then(|| {
@@ -238,9 +475,10 @@ pub fn wire(app: &AppHandle, u: &Arc<upd::Updater>, tray: Option<Arc<Tray>>, n: 
         // A phone shows the window's banner only: the desktop card's
         // "Install restarts Irori" isn't how Android updates (card #270).
         if !cfg!(target_os = "android") {
-            card.on_status(st);
+            on_change.on_status(st);
         }
     }));
+    card
 }
 
 /// Go's update_card_test.go: the card on a fake card system.
@@ -313,6 +551,7 @@ mod tests {
             n: n.clone(),
             install,
             open: Arc::new(|| {}),
+            holds: Arc::new(|_| false),
             st: Mutex::default(),
         });
         (c, fake, n)
@@ -433,6 +672,32 @@ mod tests {
         n.set_options(o).1.unwrap();
         c.on_status(&ready("0.4.0"));
         assert!(f.live("update:0.4.0").is_some(), "no card after back on");
+    }
+
+    #[test]
+    fn holds_until_let_go() {
+        use std::sync::atomic::AtomicBool;
+        let fake = Arc::new(Fake::default());
+        let n = notify::Notifier::new(notify::Config {
+            toaster: Some(fake.clone()),
+            ..notify::Config::default()
+        });
+        let hold = Arc::new(AtomicBool::new(true));
+        let h = hold.clone();
+        let c = Arc::new(Card {
+            n,
+            install: no_install(),
+            open: Arc::new(|| {}),
+            holds: Arc::new(move |_| h.load(Ordering::SeqCst)),
+            st: Mutex::default(),
+        });
+        c.on_status(&ready("0.4.0"));
+        assert_eq!(fake.post_count(), 0, "the card went up inside the day");
+        hold.store(false, Ordering::SeqCst);
+        c.on_status(&ready("0.4.0"));
+        assert!(fake.live("update:0.4.0").is_some(), "no card after the day");
+        c.on_status(&ready("0.4.0"));
+        assert_eq!(fake.post_count(), 1, "posted more than once");
     }
 
     #[test]

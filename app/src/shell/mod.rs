@@ -371,7 +371,8 @@ fn start_core(
     let mut seams = Window::default_seams(&core);
     seams.login = Arc::new(ShellLogin(app.clone()));
     seams.notifier = Arc::new(irori_window::settings::NotifierSeam(s.notifier.clone()));
-    seams.updater = Arc::new(update::WindowUpdater(s.updater.clone()));
+    let keeper = update::Keeper::new(&data, core.clone(), s.updater.clone(), s.probe.clone());
+    seams.updater = Arc::new(update::WindowUpdater(s.updater.clone(), keeper.clone()));
     let claude_dir = match host::claude_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -407,7 +408,7 @@ fn start_core(
     app.manage(window.clone());
     wire_window(app, &window);
     wire_opener(app, &s.notifier);
-    irori_window::events::start(window.clone(), s.pumps_stop);
+    irori_window::events::start(window.clone(), s.pumps_stop.clone());
 
     // The tray, the launch-at-login cutover and the updater belong on the
     // main thread.
@@ -447,16 +448,27 @@ fn start_core(
                     Err(e) => irori_core::log(&format!("irori: tray: {e}")),
                 }
             }
-            update::wire(&app, &updater, tray_for_update, &s.notifier);
+            let card = update::wire(&app, &updater, &keeper, tray_for_update, &s.notifier);
+            if !probe.on() || update::test_feed() {
+                // Go: AutoUpdate on ApplicationStarted (dev builds and
+                // unsupported platforms return at once).
+                let u = updater.clone();
+                tauri::async_runtime::spawn(async move { u.auto_update().await });
+                // Keep this device up to date (card #578); it reads the
+                // setting on each tick.
+                #[cfg(desktop)]
+                {
+                    let (k, a, stop) = (keeper.clone(), app.clone(), s.pumps_stop.clone());
+                    let _ = std::thread::Builder::new()
+                        .name("keep-up-to-date".into())
+                        .spawn(move || k.run(a, card, stop));
+                }
+            }
             if !probe.on() {
                 // The launch-at-login cutover (surface.md 7.4).
                 if let Err(e) = login::LoginItem::system().cutover() {
                     irori_core::log(&format!("irori: launch at login cutover: {e}"));
                 }
-                // Go: AutoUpdate on ApplicationStarted (dev builds and
-                // unsupported platforms return at once).
-                let u = updater.clone();
-                tauri::async_runtime::spawn(async move { u.auto_update().await });
             }
             // The rehearsal's launch-at-login switch-over against a
             // scratch Run key (tools/rehearse; probe only).

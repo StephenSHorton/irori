@@ -80,6 +80,7 @@ export type Identity = B.Identity
 export type IdleReport = B.IdleReport
 export type InboxCounts = B.InboxCounts
 export type InviteStatus = B.InviteStatus
+export type KeepUpToDate = B.KeepUpToDate
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type Mention = B.Mention
@@ -493,6 +494,11 @@ export function InboxCounts(p: Partial<B.InboxCounts> = {}): B.InboxCounts {
 /** InviteStatus with Go's zero values for every field left out. */
 export function InviteStatus(p: Partial<B.InviteStatus> = {}): B.InviteStatus {
   return { "role": "", "state": "", "boardId": "", "boardName": "", "peerName": "", "peerFingerprint": "", "myFingerprint": "", "misses": 0, ...p } as B.InviteStatus
+}
+
+/** KeepUpToDate with Go's zero values for every field left out. */
+export function KeepUpToDate(p: Partial<B.KeepUpToDate> = {}): B.KeepUpToDate {
+  return { "available": false, "on": false, "followsHome": false, ...p } as B.KeepUpToDate
 }
 
 /** Link with Go's zero values for every field left out. */

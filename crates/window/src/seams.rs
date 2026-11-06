@@ -10,7 +10,7 @@ use blob::FileRef;
 use crate::devices::{DeviceView, HomeServerView, PairStatus};
 use crate::invites::InviteStatus;
 use crate::settings::NotifyOptions;
-use crate::update::UpdateStatus;
+use crate::update::{KeepUpToDate, UpdateStatus};
 
 /// The mesh (M5): the device rows with their live state, the home server,
 /// and files held by other devices.
@@ -97,6 +97,13 @@ pub trait Updater: Send + Sync {
     fn supported(&self) -> bool;
     fn check_and_download(&self) -> UpdateStatus;
     fn restart_to_update(&self) -> Result<(), String>;
+    /// Keep this device up to date (card #578).
+    fn keep_up_to_date(&self) -> KeepUpToDate {
+        KeepUpToDate::default()
+    }
+    fn set_keep_up_to_date(&self, _on: bool) -> Result<(), String> {
+        Err("this build can't keep itself up to date".into())
+    }
 }
 
 /// Every seam, with this build's defaults.

@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::Relaunch;
+
 /// Go `macBundleID`: Irori.app's `CFBundleIdentifier` (app/macos/Info.plist).
 /// An update whose bundle says otherwise is refused.
 pub const BUNDLE_ID: &str = "com.stephenshorton.irori";
@@ -75,13 +77,22 @@ if /bin/mv "$live" "$old"; then
 else
 	echo "update: could not move $live aside; kept the old Irori"
 fi
+if [ "$relaunch" = hidden ]; then
+	exec /usr/bin/open -g "$live" --args --startup
+fi
 if [ "$relaunch" = 1 ]; then
 	exec /usr/bin/open "$live"
 fi
 "#;
 
 /// The swap helper's argv after `/bin/sh` (Go mac_darwin.go:283-300).
-pub fn swap_args(pid: u32, live: &Path, next: &Path, relaunch: bool, log: &Path) -> Vec<String> {
+pub fn swap_args(
+    pid: u32,
+    live: &Path,
+    next: &Path,
+    relaunch: Relaunch,
+    log: &Path,
+) -> Vec<String> {
     vec![
         "-c".into(),
         SWAP_SCRIPT.into(),
@@ -89,7 +100,12 @@ pub fn swap_args(pid: u32, live: &Path, next: &Path, relaunch: bool, log: &Path)
         pid.to_string(),
         live.to_string_lossy().into_owned(),
         next.to_string_lossy().into_owned(),
-        if relaunch { "1" } else { "0" }.into(),
+        match relaunch {
+            Relaunch::No => "0",
+            Relaunch::Show => "1",
+            Relaunch::Hidden => "hidden",
+        }
+        .into(),
         log.to_string_lossy().into_owned(),
     ]
 }
@@ -138,7 +154,7 @@ mod tests {
             42,
             Path::new("/Applications/Irori.app"),
             Path::new("/Applications/.Irori.app.new"),
-            true,
+            Relaunch::Show,
             Path::new("/u/.irori/updates/update.log"),
         );
         assert_eq!(a[0], "-c");

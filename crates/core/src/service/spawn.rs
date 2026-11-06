@@ -1212,6 +1212,10 @@ impl Services {
     /// The private board's spawning pass: bind started agents, end the
     /// ones whose work is done, start agents for the cards that need one.
     pub(crate) fn sweep_spawns(&self) {
+        // The app is about to restart itself (card #578): start nothing.
+        if self.inbox.wakes_held() {
+            return;
+        }
         let _one = self
             .spawn
             .sweeping
@@ -1305,13 +1309,19 @@ impl Services {
 
     /// Spawned agents live on this device, and requests starting here.
     pub(crate) fn spawned_here(&self) -> i64 {
-        let me = self.device.id.as_str();
         let live = self
             .presence
             .snapshot()
             .into_iter()
             .filter(|a| a.status != "gone" && self.coord.is_spawned(&a.key))
             .count() as i64;
+        live + self.spawning_here()
+    }
+
+    /// Spawn requests starting on this device, on the private board and
+    /// shared boards.
+    pub(crate) fn spawning_here(&self) -> i64 {
+        let me = self.device.id.as_str();
         let starting = self
             .open_cards()
             .iter()
@@ -1338,7 +1348,7 @@ impl Services {
                     .count() as i64
             })
             .sum();
-        live + starting + on_boards
+        starting + on_boards
     }
 
     fn open_cards(&self) -> Vec<Task> {
