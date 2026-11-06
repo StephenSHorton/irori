@@ -468,6 +468,10 @@ export const UpdateService = {
   Supported: () => call(commands.updateSupported()),
   CheckAndDownload: () => call(commands.updateCheckAndDownload()),
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
+  // Keep this device up to date (card #578): null where it doesn't apply.
+  GetKeepUpToDate: () => call(commands.updateGetKeepUpToDate()),
+  SetKeepUpToDate: (on: boolean) =>
+    call(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as

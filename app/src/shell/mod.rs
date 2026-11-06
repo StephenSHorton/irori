@@ -19,6 +19,7 @@ mod apk;
 #[cfg(test)]
 mod golden;
 pub mod instance;
+mod keep;
 pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
@@ -71,6 +72,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     unsafe { sys::shellpath::fix_gui_path() };
     let startup = login::started_at_login(args);
     let data = datadir::process_data_dir()?;
+    // Card #578: the restart Keep this device up to date made while the
+    // window was hidden comes back hidden too.
+    let restarted_hidden = keep::after_start(&data, version(), keep::unix_now());
     let rt = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -115,6 +119,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // The updater (M8), GUI role only; a dev build never checks.
     let updater = update::new(&data);
+    // Keep this device up to date (card #578): the setting, and the wake
+    // its switch sends the loop.
+    let (every, hold, tick) = keep::timings();
+    let keeper = Arc::new(keep::Keeper::new(data.clone(), hold));
+    let (keep_tx, keep_rx) = std::sync::mpsc::channel::<()>();
 
     // Card #232: the window opens first, with the opening screen, and the
     // Core starts on its own thread (a fully synced log takes seconds, most
@@ -223,6 +232,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let probe = probe.clone();
             let pumps_stop = pumps_stop.clone();
             let updater = updater.clone();
+            let keeper = keeper.clone();
             let ready = ready.clone();
             let hosted = hosted.clone();
             let starting = starting.clone();
@@ -230,7 +240,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
             move |app| {
                 builder.mount_events(app);
                 // The probe never puts a window on screen.
-                main_window(app.handle(), startup || probe.on())?;
+                main_window(app.handle(), startup || restarted_hidden || probe.on())?;
+                if restarted_hidden {
+                    irori_core::log(
+                        "start: restarted by Keep this device up to date; the window stays hidden",
+                    );
+                }
                 shot::start(app.handle());
                 irori_core::log(&format!(
                     "start: window open {} ms after launch",
@@ -247,6 +262,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             Started {
                                 notifier,
                                 updater,
+                                keep: Keep {
+                                    keeper,
+                                    tx: keep_tx,
+                                    rx: keep_rx,
+                                    every,
+                                    tick,
+                                },
                                 probe,
                                 pumps_stop,
                                 launched,
@@ -371,9 +393,19 @@ type Running = (host::Hosted, Arc<Window>);
 struct Started {
     notifier: notify::Notifier,
     updater: Arc<::update::Updater>,
+    keep: Keep,
     probe: probe::Probe,
     pumps_stop: sys::cancel::Cancel,
     launched: std::time::Instant,
+}
+
+/// Keep this device up to date (card #578): what its loop and switch need.
+struct Keep {
+    keeper: Arc<keep::Keeper>,
+    tx: std::sync::mpsc::Sender<()>,
+    rx: std::sync::mpsc::Receiver<()>,
+    every: std::time::Duration,
+    tick: std::time::Duration,
 }
 
 /// Card #232: starts the Core and its API (off the main thread), builds the
@@ -403,7 +435,11 @@ fn start_core(
     let mut seams = Window::default_seams(&core);
     seams.login = Arc::new(ShellLogin(app.clone()));
     seams.notifier = Arc::new(irori_window::settings::NotifierSeam(s.notifier.clone()));
-    seams.updater = Arc::new(update::WindowUpdater(s.updater.clone()));
+    seams.updater = Arc::new(update::WindowUpdater(
+        s.updater.clone(),
+        s.keep.keeper.clone(),
+        Mutex::new(s.keep.tx.clone()),
+    ));
     let claude_dir = match host::claude_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -443,6 +479,7 @@ fn start_core(
     app.manage(window.clone());
     wire_window(app, &window);
     wire_opener(app, &s.notifier);
+    let keep_stop = s.pumps_stop.clone();
     irori_window::events::start(window.clone(), s.pumps_stop);
 
     // The tray, the launch-at-login cutover and the updater belong on the
@@ -452,6 +489,8 @@ fn start_core(
         let window = window.clone();
         let probe = s.probe.clone();
         let updater = s.updater.clone();
+        let keep = s.keep;
+        let pumps_stop = keep_stop;
         let launched = s.launched;
         move || {
             irori_core::log(&format!(
@@ -483,7 +522,8 @@ fn start_core(
                     Err(e) => irori_core::log(&format!("irori: tray: {e}")),
                 }
             }
-            update::wire(&app, &updater, tray_for_update, &s.notifier);
+            let recheck_card =
+                update::wire(&app, &updater, tray_for_update, &s.notifier, &keep.keeper);
             if !probe.on() {
                 // The launch-at-login cutover (surface.md 7.4).
                 if let Err(e) = login::LoginItem::system().cutover() {
@@ -493,6 +533,22 @@ fn start_core(
                 // unsupported platforms return at once).
                 let u = updater.clone();
                 tauri::async_runtime::spawn(async move { u.auto_update().await });
+                // Card #578: Keep this device up to date's loop (desktops;
+                // a phone's update waits for the person's tap).
+                if updater.supported() && !cfg!(target_os = "android") {
+                    let hooks = keep_hooks(&app, &core, recheck_card);
+                    if let Err(e) = keep::spawn(
+                        keep.keeper.clone(),
+                        updater.clone(),
+                        hooks,
+                        keep.rx,
+                        pumps_stop.clone(),
+                        keep.every,
+                        keep.tick,
+                    ) {
+                        irori_core::log(&format!("irori: keep up to date: {e}"));
+                    }
+                }
             }
             // The rehearsal's launch-at-login switch-over against a
             // scratch Run key (tools/rehearse; probe only).
@@ -521,6 +577,37 @@ fn start_core(
         s.launched.elapsed().as_millis()
     ));
     Ok((hosted, window))
+}
+
+/// What Keep this device up to date's loop asks the app (card #578).
+/// "No agent working" reads presence again first, so a turn that just
+/// started counts; a window the person is using also waits.
+fn keep_hooks(
+    app: &AppHandle,
+    core: &Arc<irori_core::Core>,
+    recheck_card: Box<dyn Fn(&::update::Status) + Send>,
+) -> keep::Hooks {
+    let (a, c) = (app.clone(), core.clone());
+    let av = app.clone();
+    keep::Hooks {
+        idle: Box::new(move || {
+            let focused = a.get_webview_window(MAIN).is_some_and(|w| {
+                w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false)
+            });
+            if focused {
+                return false;
+            }
+            c.presence().rescan();
+            let cards = c.presence().snapshot();
+            let open = c.terms().list().iter().filter(|t| t.2).count();
+            keep::idle_now(&cards, open, keep::unix_now(), keep::SETTLE)
+        }),
+        visible: Box::new(move || {
+            av.get_webview_window(MAIN)
+                .is_some_and(|w| w.is_visible().unwrap_or(false))
+        }),
+        recheck_card,
+    }
 }
 
 /// Go `handOff`: a bare app with the same single-instance id, so the

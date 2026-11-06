@@ -1296,6 +1296,20 @@ pub async fn update_restart_to_update(w: W<'_>) -> R<()> {
     w.update_restart()
 }
 
+/// Keep this device up to date (card #578): null where the device doesn't
+/// update itself.
+#[tauri::command]
+#[specta::specta]
+pub async fn update_get_keep_up_to_date(w: W<'_>) -> R<Option<bool>> {
+    blocking(&w, |w| Ok(w.update_keep_up_to_date())).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn update_set_keep_up_to_date(w: W<'_>, on: bool) -> R<Option<bool>> {
+    blocking(&w, move |w| w.update_set_keep_up_to_date(on)).await
+}
+
 /// Card #232: waits until the Core has started (the window opens first and
 /// shows the opening screen); an error says why it couldn't start.
 #[tauri::command]
@@ -1777,6 +1791,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             update_supported,
             update_check_and_download,
             update_restart_to_update,
+            update_get_keep_up_to_date,
+            update_set_keep_up_to_date,
             voice_status,
             voice_download_model,
             voice_start,
