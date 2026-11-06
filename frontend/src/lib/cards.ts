@@ -750,6 +750,7 @@ function summary(c: CardDetail): CardSummary {
     board: c.board,
     ours: c.ours,
     tag: c.tag,
+    spaceBoard: c.spaceBoard,
     progress: c.progress,
     openBlockers: c.openBlockers,
     blockerQuestion: c.blockerQuestion,
