@@ -18,6 +18,7 @@ mod pr;
 mod replay;
 mod stop;
 mod sweep;
+mod talk_wakes;
 mod untaken;
 mod wake;
 mod wind_down;

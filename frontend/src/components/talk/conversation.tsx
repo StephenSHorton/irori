@@ -33,6 +33,7 @@ import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { Button } from "@/components/ui/button"
 import { useBoards } from "@/lib/boards"
 import { PostRowsShape } from "@/components/common/loading-shapes"
+import { ReplyingRow } from "@/components/talk/replying-row"
 import { Loading } from "@/components/ui/loading"
 import {
   ContextMenu,
@@ -45,8 +46,10 @@ import {
   dmPerson,
   dmWith,
   fromPost,
+  replyingLine,
   talkApi,
   usePosts,
+  useReplying,
   waitingText,
   type Conversation,
   type Member,
@@ -182,10 +185,26 @@ export function ConversationView({
       void talkApi.read(conv.convId, last).catch(() => {})
   }, [conv.convId, conv.unread, last])
 
+  // Agents a post here woke, until they answer (card #645).
+  const replyingAgents = useReplying(conv.convId)
+  const replying = conv.readOnly
+    ? null
+    : replyingLine(replyingAgents, now.getTime())
+  const replyingText = replying?.text ?? ""
+
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" })
   }, [last])
+  // The replying row is followed only by a reader already at the bottom:
+  // one reading older posts stays where they are.
+  useEffect(() => {
+    const b = bottom.current
+    const box = b?.parentElement
+    if (!b || !box || !replyingText) return
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 80)
+      b.scrollIntoView({ block: "end" })
+  }, [replyingText])
 
   const other = conv.kind === "dm" ? dmWith(conv) : []
   // A DM with another person (card #538): their name, what it waits on,
@@ -395,6 +414,7 @@ export function ConversationView({
                 </div>
               )}
             </Loading>
+            {replying && !firstLoad && <ReplyingRow line={replying} />}
             <div ref={bottom} />
           </div>
         )}

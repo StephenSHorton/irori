@@ -80,6 +80,7 @@ pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_why;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
+pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
 pub use crate::service::trees;
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,

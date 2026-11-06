@@ -82,6 +82,7 @@ pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod talk_replying;
 pub mod trees;
 
 use boards::Boards;

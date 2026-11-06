@@ -7,6 +7,7 @@ import {
   fromPost,
   listed,
   readAll,
+  replyingLine,
   talkApi,
   talkWaiting,
   waitingText,
@@ -206,5 +207,48 @@ describe("a DM with another person (card #538)", () => {
       members: [m("person", "user", "you"), m("person", "person:bob", "Bob")],
     })
     expect(dmGone(bob, new Map())).toBe(false)
+  })
+})
+
+describe("replyingLine (card #645)", () => {
+  const now = Date.parse("2026-11-06T12:00:00Z")
+  const ago = (s: number) => new Date(now - s * 1000).toISOString()
+  const a = (name: string, s = 5, key = `k-${name}`) => ({
+    key,
+    name,
+    since: ago(s),
+  })
+
+  test("nobody: no row", () => {
+    expect(replyingLine([], now)).toBeNull()
+  })
+
+  test("one agent is replying", () => {
+    expect(replyingLine([a("jasmine")], now)?.text).toBe("jasmine is replying…")
+  })
+
+  test("several share one row", () => {
+    expect(replyingLine([a("jasmine"), a("kestrel")], now)).toEqual({
+      who: "jasmine and kestrel",
+      verb: "are",
+      text: "jasmine and kestrel are replying…",
+    })
+    expect(replyingLine([a("a"), a("b"), a("c")], now)?.who).toBe("a, b and c")
+  })
+
+  test("past 30 minutes an agent drops off", () => {
+    expect(
+      replyingLine([a("jasmine", 31 * 60), a("kestrel", 60)], now)?.text
+    ).toBe("kestrel is replying…")
+    expect(replyingLine([a("jasmine", 31 * 60)], now)).toBeNull()
+  })
+
+  test("never a key, never twice", () => {
+    const key =
+      "3dc30c94c6a74af3c59d39f4ca02d6f1/7ff86a62-6cc4-4916-be2d-602034fc281a"
+    expect(replyingLine([a(key), a(" ")], now)).toBeNull()
+    expect(
+      replyingLine([a("oak", 5, "k1"), a("oak", 5, "k1")], now)?.text
+    ).toBe("oak is replying…")
   })
 })
