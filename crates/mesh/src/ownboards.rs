@@ -7,11 +7,13 @@
 //!   newest secret goes as `board.secret {boardId, epoch, maker, from,
 //!   sealed}`: `sealed` is [`seal_board_secret`] under the mesh key of the
 //!   connection's epoch `from`, to the peer's device id. Once per
-//!   connection per (epoch, maker).
+//!   connection per (epoch, maker). A hidden DM space's secret goes the same
+//!   way as `dm.secret`, and never as `board.secret` (card #538): an older
+//!   build ignores the name, so an old own device never opens that log.
 //! - **Take.** Opened under the mesh key of `from` and added to the board's
 //!   `BoardSecrets` (its lower-maker rule settles two rotations to one
-//!   epoch). The frame can come before the private log's `board.joined`
-//!   opens the board here: it waits (one per board, the newest epoch, at
+//!   epoch). The frame can come before the private log's `board.joined` or
+//!   `dm.space.joined` opens the board here: it waits (one per board, the newest epoch, at
 //!   most [`MAX_PENDING_BOARDS`]) until the board opens.
 
 use std::sync::Arc;
@@ -20,7 +22,7 @@ use identity::BoardSecrets;
 use zeroize::Zeroizing;
 
 use crate::boardmesh::{open_board_secret, seal_board_secret};
-use crate::frames::{FRAME_BOARD_SECRET, Frame};
+use crate::frames::{FRAME_BOARD_SECRET, FRAME_DM_SECRET, Frame};
 use crate::node::Node;
 use crate::secret::mesh_secret;
 use crate::session::Session;
@@ -37,9 +39,14 @@ pub trait OwnBoards: Send + Sync {
     /// device's word is what makes it count. Called before the secret is
     /// added.
     fn vouched(&self, _board_id: &str, _maker: &str) {}
+    /// Whether open board `board_id` is a hidden DM space: its secret goes
+    /// as `dm.secret`.
+    fn is_dm(&self, _board_id: &str) -> bool {
+        false
+    }
 }
 
-/// A `board.secret` opened before its board.
+/// A `board.secret` or `dm.secret` opened before its board.
 pub struct PendingBoardSecret {
     epoch: i64,
     maker: String,
@@ -62,6 +69,15 @@ impl Node {
         if let Some(b) = b {
             b.vouched(board_id, maker);
         }
+    }
+
+    fn is_dm(&self, board_id: &str) -> bool {
+        let b = self
+            .own_boards
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        b.is_some_and(|b| b.is_dm(board_id))
     }
 
     fn open_boards(&self) -> Vec<(String, Arc<BoardSecrets>)> {
@@ -119,6 +135,11 @@ impl Node {
             if !s.mark_board_secret(board, &format!("{epoch}/{maker}")) {
                 continue;
             }
+            let typ = if self.is_dm(board) {
+                FRAME_DM_SECRET
+            } else {
+                FRAME_BOARD_SECRET
+            };
             match seal_board_secret(&key, board, epoch, &secret, &peer) {
                 Ok(sealed) => s.control(Frame {
                     board_id: board.clone(),
@@ -126,14 +147,15 @@ impl Node {
                     maker,
                     from: s.epoch,
                     sealed,
-                    ..Frame::of_type(FRAME_BOARD_SECRET)
+                    ..Frame::of_type(typ)
                 }),
                 Err(e) => self.log(&format!("mesh: seal board secret: {e}")),
             }
         }
     }
 
-    /// Opens a `board.secret` frame from a certified device of the person.
+    /// Opens a `board.secret` or `dm.secret` frame from a certified device
+    /// of the person.
     pub(crate) fn take_board_secret(&self, f: &Frame) {
         if f.board_id.is_empty() || f.maker.is_empty() || f.epoch < 1 {
             return;
@@ -146,7 +168,7 @@ impl Node {
         let secret = match open_board_secret(&key, &f.board_id, f.epoch, &f.sealed, &self.self_id) {
             Ok(s) => Zeroizing::new(s),
             Err(e) => {
-                self.log(&format!("mesh: board.secret for {}: {e}", f.board_id));
+                self.log(&format!("mesh: {} for {}: {e}", f.typ, f.board_id));
                 return;
             }
         };
@@ -154,7 +176,7 @@ impl Node {
         if let Some((_, secrets)) = open.iter().find(|(id, _)| id == &f.board_id) {
             self.vouch(&f.board_id, &f.maker);
             if let Err(e) = secrets.add(f.epoch, &f.maker, &secret) {
-                self.log(&format!("mesh: board.secret for {}: {e}", f.board_id));
+                self.log(&format!("mesh: {} for {}: {e}", f.typ, f.board_id));
             }
             return;
         }

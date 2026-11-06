@@ -68,9 +68,25 @@ export function cardInSpace(c: CardSummary, space: string): boolean {
 // convInSpace is whether a channel or DM shows in the picked space (card
 // #461): Personal's are your own channels and every DM, a shared space's
 // its own channels (DMs are you and your agents, so they stay Personal's,
-// as private cards do).
-export function convInSpace(c: { spaceId?: string }, space: string): boolean {
+// as private cards do). A DM with another person shows under every pick
+// (card #538): it lives in no space the switcher lists.
+export function convInSpace(
+  c: {
+    spaceId?: string
+    kind?: string
+    members?: readonly { kind: string; key: string }[]
+  },
+  space: string
+): boolean {
   if (space === AllSpaces) return true
+  // As dmPerson (lib/conversations) tells one: people only, one of them
+  // another person by `person:<id>`.
+  if (
+    c.kind === "dm" &&
+    c.members?.every((m) => m.kind === "person") &&
+    c.members.some((m) => m.key.startsWith("person:"))
+  )
+    return true
   if (space === Personal) return !c.spaceId
   return c.spaceId === space
 }

@@ -210,6 +210,30 @@ html[data-ds="irori"]
   box-shadow: var(--glass-shadow);
 }
 
+/* Over a dialog the glass goes solid (card #597): a dialog opened inside
+   another (Base UI marks it data-nested), and a picker or popover opened
+   while a dialog is open. Glass there shows the busy dialog behind it, and
+   where the webview skips the blur (seen on Windows) its text bleeds
+   through. --popover is overridden too: it is computed on html, so
+   changing --glass-bg alone would not reach a bg-popover child. */
+html[data-ds="irori"]
+  :is(
+    [data-slot="dialog-content"],
+    [data-slot="alert-dialog-content"]
+  )[data-nested],
+html[data-ds="irori"]
+  body:has([data-slot$="dialog-content"][data-open])
+  :is(
+    [data-slot="popover-content"],
+    [data-slot="select-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="combobox-content"]
+  ) {
+  --glass-bg: var(--glass-tint);
+  --popover: var(--glass-tint);
+}
+
 /* The dot grid (card #325, from agility-platform's glass theme): 1px dots
    on a 22px grid over the theme's glows, under the glass. The dots take the
    text colour, so they follow light and dark; --dot-alpha sets how strong. */

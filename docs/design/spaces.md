@@ -60,10 +60,10 @@ The per-board override is dropped (decision 46, which amends #24).
 
 Talk 1 (#389) adds `talk.channel.created {…, spaceId}`, where an empty `spaceId` means Personal (the private log). A channel in a space goes in the space's log through the same gate (s5):
 
-- **Where rows go.** `talk.channel.created`, and the channel's `talk.member` and `talk.post` rows, go in the log its `spaceId` names. DMs and read cursors (`talk.read`) stay in the private log; board logs refuse `talk.read`.
+- **Where rows go.** `talk.channel.created`, and the channel's `talk.member` and `talk.post` rows, go in the log its `spaceId` names. DMs with an agent and read cursors (`talk.read`) stay in the private log; board logs refuse `talk.read`. A DM between two people has its own hidden space ([talk-dms.md](talk-dms.md)).
 - **One fold.** Talk folds the private log and every space's log into one view (`coord::talk::SpaceLogs`, which the Core implements). A start, or a resync of either log, folds both again.
 - **Keys.** A space's rows name people and agents as the space does (`person:<id>`, `agent:<cardId>`), so the other member can tell them apart. Talk on this device reads its own person back as `user:<deviceId>` and its own agents by their session keys. Another person shows as a person, named by their member profile.
-- **The gate.** The same `spaces >= 1` as `space.board.*`, checked on every space talk row (create, join, leave and post), with the same refusal naming the devices. No new number: the hello's `spaces` came after Talk 1 marked `talk.*` as accepted on board logs, so any Irori that says it reads spaces stores them. Personal channels and DMs are never gated.
+- **The gate.** The same `spaces >= 1` as `space.board.*`, checked on every space talk row (create, join, leave and post), with the same refusal naming the devices. No new number: the hello's `spaces` came after Talk 1 marked `talk.*` as accepted on board logs, so any Irori that says it reads spaces stores them. Personal channels and DMs with an agent are never gated.
 - **The window.** `talk_channel_create(name, topic?, spaceId?)`; no `spaceId` is Personal.
 
 ## 7. Checks

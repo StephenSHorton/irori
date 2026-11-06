@@ -23,6 +23,8 @@ pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
 mod probe;
+#[cfg(target_os = "macos")]
+mod quit_mac;
 mod shot;
 // No tray on a phone (card #226): the same API with nothing behind it.
 #[cfg_attr(mobile, path = "tray_mobile.rs")]
@@ -272,6 +274,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // too late on macOS (card #535): an Apple Event or the app menu's Quit
     // goes through -[NSApplication terminate:], which calls exit() itself
     // and never returns from the loop, so there it runs on RunEvent::Exit.
+    // There the main thread no longer serves its run loop, which the
+    // page's IPC answers wait on (card #588), so on macOS every quit runs
+    // it first on its own thread with the loop still going (quit_mac) and
+    // RunEvent::Exit finds it done.
     let shut_down = {
         let done: Arc<OnceLock<Result<(), String>>> = Arc::default();
         let probe = probe.clone();
@@ -308,6 +314,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     #[cfg(target_os = "macos")]
     let on_exit = shut_down.clone();
+    // The tao app delegate exists once the app is built.
+    #[cfg(target_os = "macos")]
+    if app.is_ok() {
+        let s = shut_down.clone();
+        if let Err(e) = quit_mac::install(move || {
+            let _ = s();
+        }) {
+            irori_core::log(&format!("irori: {e}"));
+        }
+    }
     let res = app.map(|app| {
         app.run_return(move |_app, ev| {
             // The tray keeps Irori running with no window open: only Quit
@@ -316,6 +332,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 RunEvent::ExitRequested {
                     code: None, api, ..
                 } => api.prevent_exit(),
+                // Quit (an explicit exit code) shuts down with the loop
+                // still running, then asks again (quit_mac).
+                #[cfg(target_os = "macos")]
+                RunEvent::ExitRequested {
+                    code: Some(code),
+                    api,
+                    ..
+                } => {
+                    let app = _app.clone();
+                    match quit_mac::begin(move || app.exit(code)) {
+                        quit_mac::Begin::Started | quit_mac::Begin::Running => api.prevent_exit(),
+                        quit_mac::Begin::Done => {}
+                    }
+                }
                 // A Dock click on the running app (check this against the
                 // Go build on the Mac).
                 #[cfg(target_os = "macos")]

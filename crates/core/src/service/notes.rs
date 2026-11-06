@@ -31,7 +31,7 @@ impl Services {
     /// note.* row would stall this device's whole stream on any member
     /// device that predates notes (nutmeg, #392). The note kinds landed
     /// before the board hello's `spaces` field (0f6544ab, then 9d5a72dc),
-    /// so a device heard to read space rows reads note rows too: the
+    /// so a device that reads space rows reads note rows too: the
     /// space gate ([`Services::space_not_ready`]) is the notes gate. Mine
     /// notes never wait.
     pub(crate) fn board_notes_ready(
@@ -70,7 +70,7 @@ impl Services {
                 keys.to_vec(),
             ));
         }
-        let boards = self.shown_boards();
+        let boards = self.visible_boards();
         let hits: Vec<_> = boards
             .iter()
             .filter(|b| b.id == scope || b.verifier.membership().tag.eq_ignore_ascii_case(scope))
@@ -124,7 +124,7 @@ impl Services {
             scope: SCOPE_MINE.into(),
             coord: self.coord.clone(),
         }];
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             out.push(NoteLog {
                 board_id: b.id.clone(),
                 scope: b.verifier.membership().tag.clone(),
@@ -396,7 +396,7 @@ impl Services {
                 break;
             }
             if let Some((t, b)) = self
-                .shown_boards()
+                .visible_boards()
                 .into_iter()
                 .find_map(|b| b.coord().try_get_task(id).flatten().map(|t| (t, b)))
             {

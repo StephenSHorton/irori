@@ -46,13 +46,13 @@ if [ "$before" != "$after" ]; then
 fi
 (cd "$root" &&
   IRORI_DIFF_DB="$(native "$work/rust/irori.db")" IRORI_DIFF_GO="$(native "$work/go-hashes.tsv")" \
-    cargo test -q -p irori-store --test live -- --ignored --nocapture --exact live_row_hashes_match_go)
+    cargo test -q -p irori-store --test it -- --ignored --nocapture --exact live::live_row_hashes_match_go)
 
 # The other way: Rust appends and inserts on its copy, then Go opens that
 # copy, checks every RowHash against Rust's list, and appends.
 (cd "$root" &&
   IRORI_DIFF_DB="$(native "$work/rust/irori.db")" IRORI_DIFF_MANIFEST="$(native "$work/rust-hashes.tsv")" \
-    cargo test -q -p irori-store --test live -- --ignored --nocapture --exact live_rust_writes_for_go)
+    cargo test -q -p irori-store --test it -- --ignored --nocapture --exact live::live_rust_writes_for_go)
 (cd "$goirori" &&
   IRORI_RUST_DB="$(native "$work/rust/irori.db")" IRORI_RUST_DEVICE=irori-rust-diff \
   IRORI_RUST_MANIFEST="$(native "$work/rust-hashes.tsv")" \
