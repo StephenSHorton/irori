@@ -898,6 +898,25 @@ mod held_parents {
             a.restart();
             b.restart();
         }
+        let ia = a.c.get_task(id).unwrap().parked().unwrap().id.clone();
+        let ib = b.c.get_task(id).unwrap().parked().unwrap().id.clone();
+        assert_eq!(ia, ib, "both devices name one item");
+
+        // Bringing the parent back frees the subtask on both.
+        a.c.bring_back(P1, &p.id, "go").unwrap();
+        sync(&a, &b);
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                let k = s.c.get_task(id).unwrap();
+                assert!(k.parked().is_none(), "{name} {round}: {:?}", k.blockers);
+                assert_eq!(k.state, SUBMITTED, "{name} {round}");
+                assert_eq!(s.c.ignored_rows(), 0, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+        a.c.park(P1, &p.id, "not now", Back::Word).unwrap();
+        sync(&a, &b);
 
         // With no owner, dev-a (not the author's person) writes nothing.
         owners.lock().unwrap().clear();
