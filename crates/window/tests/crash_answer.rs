@@ -307,6 +307,15 @@ fn start_another_agent_is_not_held_by_the_agents_limit() {
     assert!(out.contains("crashed twice"), "{out}");
 
     core.set_agent_starts(false, 0).unwrap();
+    // The crash stop comes first: turning the limit on wouldn't start it.
+    assert!(
+        matches!(
+            core.why_no_agent(&c.id, true),
+            Some(irori_core::spawn_why::Why::Crashed)
+        ),
+        "{:?}",
+        core.why_no_agent(&c.id, true)
+    );
     t.w().answer(&c.id, &q.id, 0, "", true, &[]).unwrap();
     t.wait_started(3);
     assert!(

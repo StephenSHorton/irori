@@ -270,6 +270,20 @@ fn the_chain_counts_and_a_started_agent_cant_post_past_the_limit() {
 }
 
 #[test]
+fn a_card_the_person_holds_is_refused_as_theirs() {
+    let (r, _dir, started) = rig();
+    let t = card(&r, "Mine to do");
+    let me = format!("user:{}", r.core.device_id());
+    r.core.coord().claim_task(&me, &t.id).unwrap();
+    let out = start(&r, &t);
+    assert!(out.contains("held by a person"), "{out}");
+    r.core.set_spawn_cap(5).unwrap();
+    sweep(&r);
+    assert!(started.lock().unwrap().is_empty());
+    assert_eq!(r.core.agent_starts().used, 0);
+}
+
+#[test]
 fn a_card_an_ordinary_agent_posts_is_handed_out_as_before() {
     let (r, _dir, started) = rig();
     r.core.set_agent_starts(false, 0).unwrap();

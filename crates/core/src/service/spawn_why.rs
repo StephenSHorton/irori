@@ -451,9 +451,6 @@ impl Services {
         {
             return asked.then_some(Why::OthersCard { person });
         }
-        if let Some(w) = self.limit_holds(&co, &t) {
-            return Some(w);
-        }
         let fixed = match &hold {
             SpawnHold::Crashed => Some(Why::Crashed),
             SpawnHold::Resting => Some(Why::Resting),
@@ -463,6 +460,10 @@ impl Services {
         };
         if let Some(why) = fixed {
             return (asked || co.spawning()).then_some(why);
+        }
+        // The person's limit is a setting: after what none can change.
+        if let Some(w) = self.limit_holds(&co, &t) {
+            return Some(w);
         }
         if !co.spawning() {
             return asked.then_some(Why::SwitchOff);

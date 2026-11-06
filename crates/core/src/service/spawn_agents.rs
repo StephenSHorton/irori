@@ -351,6 +351,15 @@ impl Services {
         let why = self.why_no_agent(id, true);
         match &why {
             None if t.holders.is_empty() => return Err(format!("{r} doesn't want an agent now")),
+            // Given to another member: theirs to start, on their own yes.
+            None if t.given.is_some() => {
+                return Err(format!(
+                    "{r} was given to another member, so it starts only on their own yes"
+                ));
+            }
+            None if t.holders.iter().all(|h| co.is_any_person(h)) => {
+                return Err(format!("{r} is held by a person, not waiting for an agent"));
+            }
             None => return Err(format!("{r} has an agent on it")),
             Some(Why::Starting { device }) => {
                 return Ok(format!("{r} already has an agent starting on {device}."));
