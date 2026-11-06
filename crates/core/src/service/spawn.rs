@@ -1665,11 +1665,9 @@ impl Services {
         // can't run agents, and it's said before anything about trust.
         if !sp.is_ready() {
             log.co
-                .end_spawn(
-                    SWEEPER,
+                .fail_own_spawn(
                     &t.id,
                     g,
-                    SPAWN_FAILED,
                     &SpawnRefusal::CantRun {
                         device: self.this_device_name(),
                     }
@@ -1758,7 +1756,7 @@ impl Services {
         let perms = spawn_permissions(&setting, about, &repo_key, &brief);
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
             log.co
-                .end_spawn(SWEEPER, &t.id, g, SPAWN_FAILED, &r.to_string())
+                .fail_own_spawn(&t.id, g, &r.to_string())
                 .map_err(|e| e.to_string())?;
             Ok(false)
         };
@@ -1814,11 +1812,9 @@ impl Services {
         let started_name = req.name.clone();
         match (sp.spawn)(&req) {
             Ok(_) => {
-                // Only the private board's: a board card keeps one agent
-                // by its own log's generation and binding.
-                if private {
-                    self.note_started_as(&t.id, g, &started_name);
-                }
+                // Watched until its request is settled: another computer
+                // may have taken the same generation (card #541).
+                self.note_started_as(&t.id, g, &started_name, &log.board_id);
                 self.spawn
                     .answers
                     .lock()

@@ -1479,6 +1479,11 @@ impl Coord {
         self.lock()
             .end_spawn(by, id, ("", ""), generation, op, reason)
     }
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it; Ok(false) when it is another computer's now.
+    pub fn fail_own_spawn(&self, id: &str, generation: i64, reason: &str) -> Result<bool> {
+        self.lock().fail_own_spawn(id, generation, reason)
+    }
     /// Binds agent `key` to request `generation` of card `id`: the mark, and the
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {

@@ -240,24 +240,28 @@ impl Fold {
             key: String::new(),
         };
         match t.spawns.iter_mut().find(|o| o.part() == s.part()) {
-            // Only a newer generation moves a request on; its own generation may end it.
-            Some(o)
-                if s.generation > o.generation
-                    || (s.generation == o.generation && s.op != SPAWN_REQUESTED) =>
-            {
-                let key = if s.generation == o.generation {
-                    o.key.clone()
-                } else {
-                    String::new()
-                };
-                *o = Spawn { key, ..s };
-            }
-            // Two computers took one card at once (card #541): the lowest
-            // device id keeps it, whatever order the rows arrive in. The
-            // other one's session ends as superseded.
+            // Only a newer generation moves a request on.
+            Some(o) if s.generation > o.generation => *o = s,
+            // Its own generation's rows from the same device may end it.
             Some(o)
                 if s.generation == o.generation
-                    && o.op == SPAWN_REQUESTED
+                    && s.op != SPAWN_REQUESTED
+                    && same_device(&s.device, &o.device) =>
+            {
+                *o = Spawn {
+                    key: o.key.clone(),
+                    ..s
+                };
+            }
+            // Two computers took one card at once (card #541): the lowest
+            // device id's request wins over anything of the other's in
+            // that generation, so every device ends with the same request
+            // whatever order the rows arrive in. The other one's session
+            // ends as superseded.
+            Some(o)
+                if s.generation == o.generation
+                    && s.op == SPAWN_REQUESTED
+                    && !same_device(&s.device, &o.device)
                     && s.device < o.device =>
             {
                 *o = s;
@@ -328,11 +332,14 @@ impl Fold {
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             return;
         };
-        if let Some(s) = t
-            .spawns
-            .iter_mut()
-            .find(|s| s.generation == p.generation && s.step == p.step && s.subtask == p.subtask)
-        {
+        // Only on the request of the device that started it: the losing
+        // computer's agent never binds the winner's (card #541).
+        if let Some(s) = t.spawns.iter_mut().find(|s| {
+            s.generation == p.generation
+                && s.step == p.step
+                && s.subtask == p.subtask
+                && same_device(&s.device, &p.device)
+        }) {
             s.key = p.key.clone();
         }
         let holder = t.holder.clone();
@@ -402,6 +409,28 @@ impl Fold {
             },
         )?;
         Ok(Some(generation))
+    }
+
+    /// Ends request `generation` of card `id` as failed because this device
+    /// couldn't start it (card #541): Ok(false), writing nothing, when the
+    /// request is now another computer's, which this failure isn't about.
+    pub(crate) fn fail_own_spawn(
+        &mut self,
+        id: &str,
+        generation: i64,
+        reason: &str,
+    ) -> Result<bool> {
+        let theirs = self.tasks.get(id).is_some_and(|t| {
+            t.spawns.iter().any(|s| {
+                s.part() == ("", "")
+                    && s.generation == generation
+                    && !same_device(&s.device, &self.dev)
+            })
+        });
+        if theirs {
+            return Ok(false);
+        }
+        self.end_spawn(SWEEPER, id, ("", ""), generation, SPAWN_FAILED, reason)
     }
 
     /// Ends request `generation` for card `id`'s part as failed or canceled, with
@@ -475,6 +504,10 @@ impl Fold {
         };
         if s.op != SPAWN_REQUESTED || !s.key.is_empty() {
             return Ok(s.key == key);
+        }
+        // Another computer's request won this generation (card #541).
+        if !same_device(&s.device, &self.dev) {
+            return Ok(false);
         }
         let now = self.stamp();
         self.write_as(
@@ -727,4 +760,10 @@ impl Fold {
         v.sort_by(|a, b| gotime::cmp(&a.created_at, &b.created_at).then_with(|| a.id.cmp(&b.id)));
         self.within_limits(v)
     }
+}
+
+/// Whether two spawn rows' devices are the same one; a row from before
+/// devices were named matches any.
+fn same_device(a: &str, b: &str) -> bool {
+    a.is_empty() || b.is_empty() || a == b
 }
