@@ -327,6 +327,11 @@ export const commands = {
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
 	/**  Everyone the person can DM (card #538). */
 	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**
+	 *  Who is replying in each channel and DM (card #645); `talk:replying`
+	 *  carries the same list when it changes.
+	 */
+	talkReplying: () => __TAURI_INVOKE<TalkReplying[]>("talk_replying"),
 	/**  Leaves a DM with another person (card #538). */
 	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
@@ -2480,6 +2485,26 @@ export type TalkPost = {
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
 	at: string,
+};
+
+/**  One agent replying. */
+export type TalkReplier = {
+	key: string,
+	/**  Its name, never its key. */
+	name: string,
+	/**  When the post that woke it was sent: the row drops it 30 minutes on. */
+	since: string,
+};
+
+/**
+ *  The agents replying in one channel or DM (card #645): woken by a post
+ *  there and not answered yet. The row reads "jasmine and kestrel are
+ *  replying…".
+ */
+export type TalkReplying = {
+	convId: string,
+	/**  The earliest woken first. */
+	agents: TalkReplier[],
 };
 
 /**
