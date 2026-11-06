@@ -674,7 +674,49 @@ export function sampleCards(now: Date): CardDetail[] {
       ]
     : []
 
+  // Card #586: ?refs puts agility#1234 among Home's Working rows, and the
+  // ref column widens to fit it whole; ?refs=long adds a very long tag,
+  // cut at 10rem with its full ref on hover. The titles stay lined up.
+  const refs = new URLSearchParams(window.location.search).get("refs")
+  const longRefs = [
+    ...(refs !== null
+      ? [
+          card({
+            id: "sample-card-ref-agility",
+            short: "1234",
+            title: "Retry the ad sync on a timeout",
+            goal: "A card on another board, with a long ref.",
+            scope: "board",
+            scopeLabel: "Agility",
+            tag: "agility",
+            board: "sample-board-agility",
+            ours: true,
+            working: [AgentRef({ ...heron, status: "busy" })],
+            updatedAt: at(2),
+          }),
+        ]
+      : []),
+    ...(refs === "long"
+      ? [
+          card({
+            id: "sample-card-ref-long",
+            short: "98765",
+            title: "Move the reporting jobs to the new queue",
+            goal: "A card on a board with a very long tag.",
+            scope: "board",
+            scopeLabel: "Platform",
+            tag: "platform-infrastructure",
+            board: "sample-board-platform",
+            ours: true,
+            working: [AgentRef({ ...heron, status: "busy" })],
+            updatedAt: at(2),
+          }),
+        ]
+      : []),
+  ]
+
   return [
+    ...longRefs,
     ...spawn,
     ...red,
     ...loop,

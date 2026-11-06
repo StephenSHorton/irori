@@ -376,7 +376,7 @@ export function AppSidebar({
 
         <nav
           aria-label="Sections"
-          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3"
+          className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-x-hidden overflow-y-auto px-2 pb-3 mac:overscroll-none"
         >
           <NavItem
             icon={HomeIcon}

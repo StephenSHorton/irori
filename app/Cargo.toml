@@ -69,7 +69,7 @@ irori-toast = { workspace = true }
 irori-capture = { workspace = true }
 irori-coord = { workspace = true }
 irori-presence = { workspace = true }
-# tests/attach_exe.rs: the real binary against a Core behind the API server.
+# tests/it/attach_exe.rs: the real binary against a Core behind the API server.
 irori-core = { workspace = true }
 irori-identity = { workspace = true }
 irori-inbox = { workspace = true }

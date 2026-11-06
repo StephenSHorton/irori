@@ -39,7 +39,7 @@ rusqlite = { version = "0.41.1", features = ["bundled"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
-# The mesh Node on IrohNet (tests/node_iroh.rs) and its FakeNet harness.
+# The mesh Node on IrohNet (tests/it/node_iroh.rs) and its FakeNet harness.
 irori-mesh.workspace = true
 irori-blob.workspace = true
 hex.workspace = true
@@ -48,7 +48,7 @@ tokio-util.workspace = true
 iroh = { version = "1.4.1", features = ["unstable-net-report"] }
 tempfile = "3.27"
 getrandom = "0.4"
-# The identity test harness (crates/identity/tests/support), shared by path.
+# The identity test harness (crates/identity/tests/it/support), shared by path.
 irori-store.workspace = true
 irori-gocompat.workspace = true
 ed25519-dalek.workspace = true
