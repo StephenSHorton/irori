@@ -2,28 +2,22 @@
 
 use crate::common;
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use common::*;
-use irori_core::buildclean::{CLEARING, Cleared, clear, settled_worktrees};
+use irori_core::buildclean::{CLEARING, Cleared, NO_TARGET, clear, settled_worktrees};
 
 const HOUR: Duration = Duration::from_secs(3600);
 
-/// A linked worktree (`.git` is a file) with a cargo `target/`.
+/// A worktree Irori made, in a fresh repo under `root`, with a cargo
+/// `target/`.
 fn worktree(root: &Path, name: &str) -> PathBuf {
-    let w = root.join(name);
-    fs::create_dir_all(w.join("target/debug/deps")).unwrap();
-    fs::write(w.join(".git"), "gitdir: /repo/.git/worktrees/x\n").unwrap();
-    fs::write(
-        w.join("target/CACHEDIR.TAG"),
-        "Signature: 8a477f597d28d172789f06886806bc55\n",
-    )
-    .unwrap();
-    fs::write(w.join("target/debug/.cargo-lock"), "").unwrap();
-    fs::write(w.join("target/debug/deps/libx.rlib"), vec![0u8; 4096]).unwrap();
-    fs::write(w.join("src.rs"), "fn main() {}\n").unwrap();
+    let main = git_repo(&root.join(name));
+    let w = git_tree(&main, name);
+    git_target(&w);
     w
 }
 
@@ -38,7 +32,7 @@ fn an_idle_worktrees_target_goes_and_its_source_stays() {
     assert_eq!(clear(&w, HOUR, later()).unwrap(), Cleared::Gone);
     assert!(!w.join("target").exists());
     assert!(!w.join(CLEARING).exists());
-    assert!(w.join("src.rs").is_file() && w.join(".git").is_file());
+    assert!(w.join("src.txt").is_file() && w.join(".git").is_file());
 }
 
 #[test]
@@ -67,20 +61,30 @@ fn a_recent_build_a_held_lock_or_a_main_checkout_keeps_it() {
     drop(f);
     assert_eq!(clear(&w, HOUR, later()).unwrap(), Cleared::Gone);
     // A main checkout: .git is a directory.
-    let w = worktree(d.path(), "main");
-    fs::remove_file(w.join(".git")).unwrap();
-    fs::create_dir(w.join(".git")).unwrap();
+    let w = git_repo(&d.path().join("main"));
+    git_target(&w);
     assert_eq!(
         clear(&w, HOUR, later()).unwrap(),
-        Cleared::Kept("not a linked worktree")
+        Cleared::Kept("not a tree Irori made")
     );
+    assert!(w.join("target/CACHEDIR.TAG").is_file());
+    // A linked worktree the person made: not under .claude/worktrees.
+    let main = git_repo(&d.path().join("mine"));
+    let w = d.path().join("irori-release");
+    git(
+        &main,
+        &["worktree", "add", "-q", "-b", "rel", &w.to_string_lossy()],
+    );
+    git_target(&w);
+    assert_eq!(
+        clear(&w, HOUR, later()).unwrap(),
+        Cleared::Kept("not a tree Irori made")
+    );
+    assert!(w.join("target/CACHEDIR.TAG").is_file());
     // A target/ that isn't cargo's.
     let w = worktree(d.path(), "other");
     fs::remove_file(w.join("target/CACHEDIR.TAG")).unwrap();
-    assert_eq!(
-        clear(&w, HOUR, later()).unwrap(),
-        Cleared::Kept("no cargo target")
-    );
+    assert_eq!(clear(&w, HOUR, later()).unwrap(), Cleared::Kept(NO_TARGET));
     assert!(w.join("target/debug/deps/libx.rlib").is_file());
 }
 
@@ -90,10 +94,7 @@ fn a_leftover_from_a_stop_midway_is_deleted() {
     let w = worktree(d.path(), "w");
     fs::create_dir_all(w.join(CLEARING).join("debug")).unwrap();
     fs::remove_dir_all(w.join("target")).unwrap();
-    assert_eq!(
-        clear(&w, HOUR, later()).unwrap(),
-        Cleared::Kept("no cargo target")
-    );
+    assert_eq!(clear(&w, HOUR, later()).unwrap(), Cleared::Kept(NO_TARGET));
     assert!(!w.join(CLEARING).exists());
 }
 
@@ -128,10 +129,11 @@ fn only_settled_cards_here_whose_worktree_no_open_card_uses() {
         card(coord::WORKING, "dev/s3", "/w/reused"),
         card(coord::WORKING, "dev/s3", "/w/open"),
     ];
-    assert_eq!(
-        settled_worktrees(&tasks, "dev"),
-        vec!["/w/canceled", "/w/done", "/w/failed"]
-    );
+    let trees: Vec<String> = settled_worktrees(&tasks, "dev", &BTreeMap::new())
+        .into_iter()
+        .map(|t| t.worktree)
+        .collect();
+    assert_eq!(trees, vec!["/w/canceled", "/w/done", "/w/failed"]);
 }
 
 #[test]
@@ -170,5 +172,5 @@ fn the_core_clears_a_canceled_cards_build() {
     wait_for(45, "the canceled card's target/ to go", || {
         !w.join("target").exists()
     });
-    assert!(w.join("src.rs").is_file());
+    assert!(w.join("src.txt").is_file());
 }

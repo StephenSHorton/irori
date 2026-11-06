@@ -841,10 +841,10 @@ fn spawner() -> irori_core::spawn::Spawner {
                 permission_mode: r.permission_mode.clone(),
                 model: opt(&r.model),
                 effort: opt(&r.effort),
-                worktree: r.worktree.clone(),
                 settings: r.settings_file.clone(),
                 brief_file: Some(r.brief_path.clone()),
                 prompt: Some(r.prompt.clone()),
+                env: r.env.clone(),
                 ..Default::default()
             })?;
             Ok(SpawnStarted {
@@ -860,6 +860,7 @@ fn spawner() -> irori_core::spawn::Spawner {
                     .map(|a| irori_core::spawn::ClaudeAgent {
                         session_id: a.session_id,
                         live: a.live,
+                        cwd: a.cwd,
                     })
                     .collect()
             })

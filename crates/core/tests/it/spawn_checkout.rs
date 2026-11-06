@@ -414,7 +414,7 @@ fn a_card_with_no_repo_starts_where_agents_work_and_finds_its_repo() {
         !t.fake.started.lock().unwrap().is_empty()
     });
     let req = t.fake.started.lock().unwrap()[0].clone();
-    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), dir);
+    in_a_card_tree(&req.folder, &dir);
     assert!(t.no_copy_blockers(&c.id).is_empty());
     let brief = std::fs::read_to_string(&req.brief_path).unwrap();
     let short = t.get(&c.id).short_ref();
@@ -451,11 +451,15 @@ fn a_card_with_no_repo_and_no_agent_starts_in_a_checkout_seen_here() {
         !t.fake.started.lock().unwrap().is_empty()
     });
     let req = t.fake.started.lock().unwrap()[0].clone();
-    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), dir);
+    in_a_card_tree(&req.folder, &dir);
     assert!(t.no_copy_blockers(&c.id).is_empty());
     let brief = std::fs::read_to_string(&req.brief_path).unwrap();
+    // The path's spelling differs by OS (`\\?\`, slashes); its folder doesn't.
+    let leaf = dir.file_name().unwrap().to_string_lossy().into_owned();
     assert!(
-        brief.contains(&format!("- irori: {LOWER} at {}", dir.display())),
+        brief
+            .lines()
+            .any(|l| l.starts_with(&format!("- irori: {LOWER} at ")) && l.ends_with(&leaf)),
         "{brief}"
     );
     assert!(brief.contains("a checkout of irori"), "{brief}");
@@ -485,7 +489,7 @@ fn a_where_in_another_repo_is_not_the_cards_folder() {
         !t.fake.started.lock().unwrap().is_empty()
     });
     let req = t.fake.started.lock().unwrap()[0].clone();
-    assert_eq!(Path::new(&req.folder).canonicalize().unwrap(), mine);
+    in_a_card_tree(&req.folder, &mine);
 }
 
 /// Card #600: a Where left in another repo when the card's repo has no
@@ -680,4 +684,17 @@ fn a_copy_turning_up_starts_with_no_retry_wait() {
         t.fake.started.lock().unwrap().len() == 1
     });
     assert!(!t.r.core.coord().spawn_asked_now(&waits.id));
+}
+
+/// A fresh card in a checkout starts in a tree Irori made in it (card
+/// #565), never in the checkout itself.
+fn in_a_card_tree(folder: &str, dir: &Path) {
+    let folder = Path::new(folder).canonicalize().unwrap();
+    assert_eq!(
+        folder.parent().unwrap(),
+        dir.join(".claude").join("worktrees")
+    );
+    let leaf = folder.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(leaf.starts_with("card-"), "{leaf}");
+    assert!(folder.join(".git").is_file(), "a worktree");
 }

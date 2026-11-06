@@ -82,6 +82,7 @@ pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod trees;
 
 use boards::Boards;
 
@@ -261,8 +262,11 @@ struct Services {
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
-    builds_looked: Mutex<crate::buildclean::Looked>,
+    builds_looked: Arc<Mutex<crate::buildclean::Looked>>,
     builds_busy: Arc<std::sync::atomic::AtomicBool>,
+    /// These Services, once built (card #565: a sweep's thread asks them
+    /// again just before a tree goes).
+    this: Arc<OnceLock<Weak<Services>>>,
     members: Arc<Members>,
     names_kick: Arc<Kick>,
     /// This device's agents that stopped answering their wakes (#110).
@@ -1421,6 +1425,7 @@ impl Core {
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
+            this: services_cell.clone(),
             members,
             names_kick: Kick::new(),
             answering,
@@ -4286,10 +4291,11 @@ impl Services {
 }
 
 impl Services {
-    /// Card #427: when a card settles, and every [`crate::buildclean::EVERY`],
-    /// clears the `target/` of each settled card's worktree here that
-    /// nothing uses, on a thread of its own (a build folder takes a while
-    /// to delete).
+    /// Cards #427 and #565: when a card settles, and every
+    /// [`crate::buildclean::EVERY`], removes each settled card's worktree
+    /// here that nothing uses and holds no work, and clears the `target/`
+    /// of one that holds work, on a thread of its own (a build folder
+    /// takes a while to delete).
     fn sweep_builds(&self) {
         let Some(idle) = self.clear_builds else {
             return;
@@ -4301,18 +4307,20 @@ impl Services {
         if self.builds_busy.swap(true, Ordering::SeqCst) {
             return;
         }
-        let mut tasks = self.coord.list_tasks(&coord::TaskFilter::default());
-        for b in self.visible_boards() {
-            tasks.extend(b.coord().list_tasks(&coord::TaskFilter::default()));
-        }
-        let trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id);
+        self.note_held_trees();
+        let (tasks, homes) = self.all_tasks();
+        self.restore_probed(&tasks);
+        let book = self.booked_trees();
+        let mut trees = crate::buildclean::settled_worktrees(&tasks, &self.device.id, &book);
+        self.forget_gone_trees(&trees);
+        let names: Vec<String> = trees.iter().map(|t| t.worktree.clone()).collect();
         {
             // At once when a card has just settled, else every EVERY (a
             // build kept as recent may since have gone idle).
             let mut l = self.builds_looked.lock().unwrap();
             let now = Instant::now();
             l.listed = Some(now);
-            if l.seen == trees
+            if l.seen == names
                 && l.cleared
                     .is_some_and(|t| t.elapsed() < crate::buildclean::EVERY)
             {
@@ -4320,21 +4328,40 @@ impl Services {
                 return;
             }
             l.cleared = Some(now);
-            l.seen.clone_from(&trees);
+            l.seen = names;
+            // A tree kept for its work rests; one that isn't a worktree
+            // any more isn't looked at again.
+            trees.retain(|t| match l.rest.get(&t.worktree) {
+                Some(Some(until)) => *until <= now,
+                Some(None) => false,
+                None => true,
+            });
         }
+        let pass = trees::Pass {
+            trees,
+            homes,
+            live: self.session_dirs(),
+            list: self
+                .spawn
+                .spawner
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .and_then(|s| s.list.clone()),
+            idle,
+            looked: self.builds_looked.clone(),
+            recheck: self.this.get().cloned().map(|w| -> trees::Recheck {
+                Arc::new(move |tree: &str| match w.upgrade() {
+                    Some(s) => s.tree_recheck(tree),
+                    None => Err("Irori is stopping".into()),
+                })
+            }),
+        };
         let busy = self.builds_busy.clone();
         let spawned = std::thread::Builder::new()
             .name("clear-builds".into())
             .spawn(move || {
-                for w in trees {
-                    match crate::buildclean::clear(Path::new(&w), idle, SystemTime::now()) {
-                        Ok(crate::buildclean::Cleared::Gone) => {
-                            logf(format_args!("cleared {w}/target: its card is settled"));
-                        }
-                        Ok(crate::buildclean::Cleared::Kept(_)) => {}
-                        Err(e) => logf(format_args!("clear build {w}: {e}")),
-                    }
-                }
+                pass.run();
                 busy.store(false, Ordering::SeqCst);
             });
         if let Err(e) = spawned {

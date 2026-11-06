@@ -6,7 +6,8 @@
 //! its holder worked in, when nothing still uses it:
 //!
 //! - the worktree is this device's (the card's `where` is a local session's)
-//!   and a linked git worktree (`.git` is a file): never a main checkout;
+//!   and one Irori made ([`crate::treeclean::ours`], card #565): never a main
+//!   checkout, and never a linked worktree the person made;
 //! - `target/` is cargo's (it holds `CACHEDIR.TAG`);
 //! - no card that isn't settled says it works there (a completed card
 //!   still waiting on the person's Done keeps its build: it may come back);
@@ -14,14 +15,17 @@
 //!
 //! `target/` is renamed aside first (one step, so a build never sees it
 //! half gone), then deleted; a leftover from a stop midway is deleted on
-//! the next pass.
+//! the next pass. Most trees go whole now ([`crate::treeclean`]); this is
+//! what is left for a tree kept for its work.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use coord::{Task, is_terminal};
+
+use crate::treeclean::{key, tree_of};
 
 /// How often the sweep looks for a card that has just settled.
 pub const LOOK: Duration = Duration::from_secs(30);
@@ -31,14 +35,26 @@ pub const EVERY: Duration = Duration::from_secs(10 * 60);
 pub const IDLE: Duration = Duration::from_secs(60 * 60);
 /// The name a `target/` is moved to while it is deleted.
 pub const CLEARING: &str = "target.irori-clearing";
+/// Why [`clear`] left a worktree with no cargo `target/`.
+pub const NO_TARGET: &str = "no cargo target";
+/// Why [`clear`] left a `target` that is a link.
+pub const TARGET_LINK: &str = "target is a link";
 
-/// When the sweep last listed the cards, when it last cleared, and the
-/// worktrees it cleared then.
+/// Why a `target/` holding a repo, a worktree or a link out of the tree is
+/// kept: that is work, not build output.
+pub const HOLDS_REPO: &str = "target holds a repo, a worktree or a link";
+
+/// When the sweep last listed the cards, when it last cleared, the
+/// worktrees it cleared then, and when it may look again at each tree it
+/// kept (card #565; `None` is never, for one that isn't a worktree now).
 #[derive(Debug, Default)]
 pub struct Looked {
     pub listed: Option<std::time::Instant>,
     pub cleared: Option<std::time::Instant>,
     pub seen: Vec<String>,
+    pub rest: HashMap<String, Option<std::time::Instant>>,
+    /// How many looks in a row found each tree in use (card #565).
+    pub busy: HashMap<String, u32>,
 }
 
 /// Whether a card is settled: closed, and not waiting on the person's Done.
@@ -46,27 +62,63 @@ pub fn settled(t: &Task) -> bool {
     is_terminal(&t.state) && !t.blockers.iter().any(|b| b.open() && b.done_check)
 }
 
-/// The worktrees on `device` whose builds may go: those settled cards'
-/// holders worked in, less any a card that isn't settled works in.
+/// A tree whose every card is settled, and those cards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettledTree {
+    pub worktree: String,
+    pub cards: Vec<String>,
+}
+
+/// The worktrees on `device` that may go: those settled cards' holders
+/// worked in, and those `book` (tree to card ids) ties to cards that are all
+/// settled, less any a card that isn't settled works in. A card in the book
+/// that isn't in `tasks` can't be judged, so its tree stays.
 pub fn settled_worktrees<'a>(
     tasks: impl IntoIterator<Item = &'a Task>,
     device: &str,
-) -> Vec<String> {
+    book: &BTreeMap<String, BTreeSet<String>>,
+) -> Vec<SettledTree> {
     let mine = format!("{device}/");
-    let (mut done, mut busy) = (BTreeSet::new(), BTreeSet::new());
+    let mut done: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut busy = BTreeSet::new();
+    let mut shut = BTreeSet::new();
     for t in tasks {
-        let Some(w) = t.where_.as_ref().filter(|w| !w.worktree.is_empty()) else {
+        let over = settled(t);
+        if over {
+            shut.insert(t.id.as_str());
+        }
+        let Some(w) = t.where_.as_ref() else {
             continue;
         };
-        if settled(t) {
-            if w.who.starts_with(&mine) {
-                done.insert(w.worktree.clone());
+        if over {
+            if !w.worktree.is_empty() && w.who.starts_with(&mine) {
+                done.entry(key(&w.worktree))
+                    .or_default()
+                    .insert(t.id.clone());
             }
         } else {
-            busy.insert(w.worktree.clone());
+            if !w.worktree.is_empty() {
+                busy.insert(key(&w.worktree));
+            }
+            busy.extend(tree_of(&w.cwd));
         }
     }
-    done.difference(&busy).cloned().collect()
+    for (tree, ids) in book {
+        if ids.iter().all(|id| shut.contains(id.as_str())) {
+            done.entry(tree.clone())
+                .or_default()
+                .extend(ids.iter().cloned());
+        } else {
+            busy.insert(tree.clone());
+        }
+    }
+    done.into_iter()
+        .filter(|(tree, _)| !busy.contains(tree))
+        .map(|(worktree, cards)| SettledTree {
+            worktree,
+            cards: cards.into_iter().collect(),
+        })
+        .collect()
 }
 
 /// What [`clear`] did with one worktree.
@@ -80,18 +132,31 @@ pub enum Cleared {
 
 /// Clears `worktree`'s `target/` if every rule in the module doc holds.
 pub fn clear(worktree: &Path, idle: Duration, now: SystemTime) -> Result<Cleared, String> {
+    if crate::treeclean::ours(worktree).is_none() {
+        return Ok(Cleared::Kept("not a tree Irori made"));
+    }
     let aside = worktree.join(CLEARING);
     if aside.exists() {
+        if crate::treeclean::scan_build(worktree, &aside).is_some() {
+            return Ok(Cleared::Kept(HOLDS_REPO));
+        }
         fs::remove_dir_all(&aside).map_err(|e| format!("{}: {e}", aside.display()))?;
     }
-    if !worktree.join(".git").is_file() {
-        return Ok(Cleared::Kept("not a linked worktree"));
-    }
     let target = worktree.join("target");
-    if !target.join("CACHEDIR.TAG").is_file() {
-        return Ok(Cleared::Kept("no cargo target"));
+    // A `target` that is a link (a junction to a shared build folder) is
+    // never deleted through (card #565).
+    if fs::symlink_metadata(&target).is_ok_and(|m| crate::treeclean::is_link(&m)) {
+        return Ok(Cleared::Kept(TARGET_LINK));
     }
-    if newest(&target, 3).is_some_and(|m| now.duration_since(m).unwrap_or_default() < idle) {
+    if !target.join("CACHEDIR.TAG").is_file() {
+        return Ok(Cleared::Kept(NO_TARGET));
+    }
+    // Never delete a clone or worktree an agent made inside the build
+    // output, or follow a link out of the tree (card #565).
+    if crate::treeclean::scan_build(worktree, &target).is_some() {
+        return Ok(Cleared::Kept(HOLDS_REPO));
+    }
+    if recent(&target, idle, now) {
         return Ok(Cleared::Kept("built recently"));
     }
     // Hold every cargo lock in it while it moves, so no build starts midway.
@@ -121,6 +186,11 @@ pub fn clear(worktree: &Path, idle: Duration, now: SystemTime) -> Result<Cleared
     drop(locks);
     fs::remove_dir_all(&aside).map_err(|e| format!("{}: {e}", aside.display()))?;
     Ok(Cleared::Gone)
+}
+
+/// Whether anything in `target` changed within `idle` of `now`.
+pub(crate) fn recent(target: &Path, idle: Duration, now: SystemTime) -> bool {
+    newest(target, 3).is_some_and(|m| now.duration_since(m).unwrap_or_default() < idle)
 }
 
 /// The latest change under `dir` (itself and its directories, `depth`
