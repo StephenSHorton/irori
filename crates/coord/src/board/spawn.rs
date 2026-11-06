@@ -819,11 +819,13 @@ impl Fold {
     }
 
     /// Whether an assignment to `to`, already on card t, is someone else
-    /// giving it again: after a Not now, or a yes its device never acted
-    /// on. It starts over, and a device that can start it asks.
+    /// giving it again once it has been asked about: after a Not now, or
+    /// when the device that asked is gone. It starts over, and a device
+    /// that can start it asks.
     pub(crate) fn gives_again(&self, t: &Task, by: &str, to: &str) -> bool {
-        t.given.as_ref().is_some_and(|g| g.key == to)
-            && t.given_said.is_some()
+        t.given
+            .as_ref()
+            .is_some_and(|g| g.key == to && (t.given_said.is_some() || !g.asker.is_empty()))
             && self.person_of(by) != self.person_of(to)
     }
 
@@ -925,10 +927,12 @@ impl Fold {
         let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
             return false;
         };
-        let Some(t) = row::<TaskIdRow>(&ev.payload).and_then(|p| self.tasks.get(&p.task_id)) else {
+        let Some(id) = row::<TaskIdRow>(&ev.payload) else {
             return false;
         };
-        if t.given.is_some() || kp(&t.created_by) == dp(&ev.device_id) {
+        // The card itself can be behind them: it came from the giver's device.
+        let t = self.tasks.get(&id.task_id);
+        if t.is_some_and(|t| t.given.is_some() || kp(&t.created_by) == dp(&ev.device_id)) {
             return false;
         }
         match ev.kind.as_str() {
@@ -936,8 +940,9 @@ impl Fold {
             kinds::TASK_ASSIGNED => ev.actor == SWEEPER,
             kinds::TASK_STATUS => row::<TaskStateRow>(&ev.payload)
                 .is_some_and(|p| p.blocker.is_some_and(|b| b.question == GIVEN_QUESTION)),
-            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload)
-                .is_some_and(|p| !t.blockers.iter().any(|b| b.id == p.blocker_id)),
+            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload).is_some_and(|p| {
+                t.is_none_or(|t| !t.blockers.iter().any(|b| b.id == p.blocker_id))
+            }),
             _ => false,
         }
     }
