@@ -72,7 +72,10 @@ import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
-import { PersonalHeaderBar, PersonalList } from "@/components/boards/space-boards"
+import {
+  PersonalHeaderBar,
+  PersonalList,
+} from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
 import { useNotesWaiting } from "@/lib/notes"
@@ -242,7 +245,11 @@ export function App() {
   // Closed pages each page's own cards (card #161): Home's, or the board's.
   // Personal's lists are your own cards, closed ones too (card #558).
   const onPersonal = section.kind === "board" && section.id === Personal
-  const doneScope = onPersonal ? ScopeOwn : section.kind === "board" ? section.id : homeScope
+  const doneScope = onPersonal
+    ? ScopeOwn
+    : section.kind === "board"
+      ? section.id
+      : homeScope
   const done = useDoneCards(
     section.kind === "board" ? boardFilter === "done" : filter === "done",
     doneScope
@@ -823,7 +830,11 @@ export function App() {
                     section.id === Personal ? (
                       <PersonalHeaderBar list={section.board ?? Personal} />
                     ) : (
-                      <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
+                      <BoardHeaderBar
+                        key={section.id}
+                        boardId={section.id}
+                        list={section.board}
+                      />
                     )
                   ) : undefined
                 }

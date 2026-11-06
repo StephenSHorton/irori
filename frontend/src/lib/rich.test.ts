@@ -15,24 +15,41 @@ function linksOf(s: string): string[] {
 
 describe("links", () => {
   test("http(s) URLs are found, with the sentence's punctuation left out", () => {
-    expect(kinds("open https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click Request access.")).toEqual([
+    expect(
+      kinds(
+        "open https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click Request access."
+      )
+    ).toEqual([
       ["text", "open "],
-      ["link", "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m"],
+      [
+        "link",
+        "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m",
+      ],
       ["text", " and click Request access."],
     ])
-    expect(linksOf("see http://localhost.dev:8080/x?a=1&b=2, then")).toEqual(["http://localhost.dev:8080/x?a=1&b=2"])
-    expect(linksOf("(https://example.com/a_(b)) and https://example.com/c).")).toEqual([
-      "https://example.com/a_(b)",
-      "https://example.com/c",
+    expect(linksOf("see http://localhost.dev:8080/x?a=1&b=2, then")).toEqual([
+      "http://localhost.dev:8080/x?a=1&b=2",
     ])
-    expect(linksOf("HTTPS://GitHub.com/acme/app/pull/57!")).toEqual(["https://github.com/acme/app/pull/57"])
+    expect(
+      linksOf("(https://example.com/a_(b)) and https://example.com/c).")
+    ).toEqual(["https://example.com/a_(b)", "https://example.com/c"])
+    expect(linksOf("HTTPS://GitHub.com/acme/app/pull/57!")).toEqual([
+      "https://github.com/acme/app/pull/57",
+    ])
   })
 
   test("bare links need a host with a dot and a known TLD", () => {
-    expect(linksOf("open huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click")).toEqual([
+    expect(
+      linksOf(
+        "open huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click"
+      )
+    ).toEqual([
       "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m",
     ])
-    expect(linksOf("on github.com, or www.notion.com/x.")).toEqual(["https://github.com/", "https://www.notion.com/x"])
+    expect(linksOf("on github.com, or www.notion.com/x.")).toEqual([
+      "https://github.com/",
+      "https://www.notion.com/x",
+    ])
     // A capitalized host is fine; it's the TLD that must be lowercase.
     expect(linksOf("see GitHub.com/acme")).toEqual(["https://github.com/acme"])
     // File names, versions and abbreviations stay text.
@@ -55,12 +72,21 @@ describe("links", () => {
   })
 
   test("the host stands out in what the agent wrote", () => {
-    const [l] = richInline("https://evil.com/github.com/acme").filter((p) => p.kind === "link")
-    expect(l).toMatchObject({ pre: "https://", host: "evil.com", rest: "/github.com/acme", shownHost: "" })
+    const [l] = richInline("https://evil.com/github.com/acme").filter(
+      (p) => p.kind === "link"
+    )
+    expect(l).toMatchObject({
+      pre: "https://",
+      host: "evil.com",
+      rest: "/github.com/acme",
+      shownHost: "",
+    })
     const [b] = richInline("huggingface.co/x").filter((p) => p.kind === "link")
     expect(b).toMatchObject({ pre: "", host: "huggingface.co", rest: "/x" })
     // An IDN host can't be found in the text: its punycode is named.
-    const [i] = richInline("https://exämple.com/x").filter((p) => p.kind === "link")
+    const [i] = richInline("https://exämple.com/x").filter(
+      (p) => p.kind === "link"
+    )
     expect(i).toMatchObject({ host: "", shownHost: "xn--exmple-cua.com" })
   })
 
@@ -85,7 +111,9 @@ describe("links", () => {
   })
 
   test("control and bidi characters are made plain first", () => {
-    expect(linksOf("https://example.com/‮gnp.exe")).toEqual(["https://example.com/"])
+    expect(linksOf("https://example.com/‮gnp.exe")).toEqual([
+      "https://example.com/",
+    ])
   })
 })
 
@@ -96,7 +124,9 @@ describe("code", () => {
       ["code", "! hf auth login"],
       ["text", " in the Mac session"],
     ])
-    expect(kinds("run `curl https://example.com/x` then open example.com")).toEqual([
+    expect(
+      kinds("run `curl https://example.com/x` then open example.com")
+    ).toEqual([
       ["text", "run "],
       ["code", "curl https://example.com/x"],
       ["text", " then open "],
@@ -118,7 +148,9 @@ describe("blocks", () => {
   })
 
   test("list lines keep the marker the agent wrote", () => {
-    const b = richBlocks("Two steps:\n1) open huggingface.co/x\n2) type `hf auth login`\n- and a dash\nafter")
+    const b = richBlocks(
+      "Two steps:\n1) open huggingface.co/x\n2) type `hf auth login`\n- and a dash\nafter"
+    )
     expect(b.map((x) => x.kind)).toEqual(["para", "list", "para"])
     const list = b[1]
     if (list.kind !== "list") throw new Error("no list")
@@ -128,12 +160,18 @@ describe("blocks", () => {
   })
 
   test("a line counting 1) 2) inline is shown as that list", () => {
-    const b = richBlocks("Two things: 1) open huggingface.co/x and click Request access 2) type `! hf auth login` in the Mac session")
+    const b = richBlocks(
+      "Two things: 1) open huggingface.co/x and click Request access 2) type `! hf auth login` in the Mac session"
+    )
     expect(b.map((x) => x.kind)).toEqual(["para", "list"])
     const list = b[1]
     if (list.kind !== "list") throw new Error("no list")
     expect(list.items.map((i) => i.marker)).toEqual(["1)", "2)"])
-    expect(list.items[1].inline.map((p) => p.kind)).toEqual(["text", "code", "text"])
+    expect(list.items[1].inline.map((p) => p.kind)).toEqual([
+      "text",
+      "code",
+      "text",
+    ])
     // One "1)" alone, numbers out of order, or a "(1)" are not a list.
     for (const s of ["only 1) here", "see 2) and 3) there", "a (1) b (2) c"])
       expect(richBlocks(s).map((x) => x.kind)).toEqual(["para"])

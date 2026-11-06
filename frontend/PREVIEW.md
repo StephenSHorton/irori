@@ -7,11 +7,37 @@ installed app.
 ```sh
 cd frontend
 bun install --frozen-lockfile   # once
-bun run preview:look            # http://127.0.0.1:9246/
+bun run preview:look            # prints its URL, e.g. http://127.0.0.1:9246/
 ```
 
-It binds 127.0.0.1 only (no firewall prompt) and uses port 9246, so it never
-collides with `wails3 dev` on 9245. Stop it with Ctrl+C.
+It binds 127.0.0.1 only (no firewall prompt) on the first free port from 9246
+up, so it never collides with `wails3 dev` on 9245 or with another worktree's
+preview (card #610). It writes the URL to `frontend/.preview-url`
+(gitignored); `check:phone`, `loading-shots.ts` and `preview-shots.sh` read it,
+so each worktree shoots its own preview. They don't fall back to 9246: with no
+`.preview-url` they stop and say to start the preview. Stop it with Ctrl+C,
+which removes the file. A preview killed harder leaves it behind, and another
+worktree's preview may later take that port; so the dev server answers
+`/__preview-root` with the folder it serves (`vite.config.ts`), and the shot
+scripts refuse a preview that isn't this checkout's. The next `preview:look`
+rewrites the file. A `PREVIEW_URL` you set yourself skips that check.
+
+Vite runs as `node node_modules/vite/bin/vite.js --strictPort`
+(`scripts/preview-look.ts`), not `bunx vite`, which can exit silently in a
+worktree.
+
+## Which browser
+
+Look at the preview with a headless Chrome or Edge on this machine
+(`--headless --dump-dom` or `--screenshot`, or the scripts below), not
+through the Claude in Chrome extension: the extension may be connected to a
+browser on another device, where this machine's 127.0.0.1 is connection
+refused even though `curl` reaches it. If you do use the extension, check
+which browser it is connected to first.
+
+The preview only proves Chromium. The Mac app draws in WebKit: to check a
+layout there, load the preview in a small Swift program with a `WKWebView`
+and save its `takeSnapshot`. It needs no screen-recording permission.
 
 ## How it works
 
@@ -113,7 +139,7 @@ as a 390 x 844 phone (touch, no hover) in a headless Chrome. It fails when the
 page or anything on it reaches past the right edge, warns about text cut short
 or ending in "…", and saves a PNG of each page to `frontend/preview-shots/phone/`
 (card #479). `bun run check:phone home card-1` checks only those; `PREVIEW_URL`
-points it at another port, `PHONE_HEIGHT=2600` shows more of a long page.
+points it at another preview, `PHONE_HEIGHT=2600` shows more of a long page.
 
 Don't shoot a phone width with `--window-size=390,…` (as `preview-shots.sh`
 does for desktop sizes): Chrome won't make a headless window narrower than
@@ -128,10 +154,15 @@ With the preview running, `bun scripts/loading-shots.ts` saves each loading
 skeleton (card #598) in dark and light, with and without Reduce Motion, to
 `frontend/preview-shots/loading/`; `SHOT_LOADED=1` shoots the loaded pages
 to compare, `SHOT_FRAMES=25` adds frames for a GIF of the shimmer.
+`SHOT_WIDTH=390 SHOT_HEIGHT=844` shoots them as a phone, at 390 through
+device emulation (any `SHOT_WIDTH` under 768 is a phone; `SHOT_MOBILE=0`
+turns that off).
 
 
 With the preview running, `sh scripts/preview-shots.sh` (Git Bash) saves
 PNGs of every row above to `frontend/preview-shots/` (gitignored) using the
-installed Chrome or Edge, headless, with a throwaway profile. On macOS set
-`BROWSER_EXE` to Chrome's binary; `PREVIEW_MODE=light` shoots the light
-palette and `PREVIEW_URL` points it at another port.
+installed Chrome or Edge, headless, with a throwaway profile (on macOS it
+finds Chrome or Edge in /Applications; `BROWSER_EXE` picks another);
+`PREVIEW_MODE=light` shoots the light palette and `PREVIEW_URL` points it at
+another preview. It shoots desktop widths only and refuses one under 500 px:
+use `check:phone` for a phone.

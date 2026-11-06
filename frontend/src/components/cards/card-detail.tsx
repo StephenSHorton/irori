@@ -108,7 +108,12 @@ import { composing, MentionBoard, useMissed } from "@/lib/mentions"
 import { useBoards, usePersonalBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
 import { StartPastLimit } from "./start-past-limit"
-import { MoveBoardButton, ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
+import {
+  MoveBoardButton,
+  ShareButton,
+  TransferButton,
+  WithdrawButton,
+} from "./share-dialog"
 import { boardsOf, Personal } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
@@ -839,19 +844,22 @@ function BoardActions({
             initialOpen={previewFlag("transfer") === detail.id}
           />
         )}
-        {shared && !detail.parent && !openAsk(detail) && boardsOf(shared).length > 1 && (
-          <MoveBoardButton
-            id={detail.id}
-            boards={boardsOf(shared)}
-            current={
-              !detail.spaceBoard || detail.spaceBoard === shared.boardId
-                ? boardsOf(shared)[0].boardId
-                : detail.spaceBoard
-            }
-            family={(detail.subtasks ?? 0) > 0}
-            initialOpen={previewFlag("move") === detail.id}
-          />
-        )}
+        {shared &&
+          !detail.parent &&
+          !openAsk(detail) &&
+          boardsOf(shared).length > 1 && (
+            <MoveBoardButton
+              id={detail.id}
+              boards={boardsOf(shared)}
+              current={
+                !detail.spaceBoard || detail.spaceBoard === shared.boardId
+                  ? boardsOf(shared)[0].boardId
+                  : detail.spaceBoard
+              }
+              family={(detail.subtasks ?? 0) > 0}
+              initialOpen={previewFlag("move") === detail.id}
+            />
+          )}
         {/* The private card the work carries on in, else back to the grid:
             a withdrawn card is hidden and can't be reopened. */}
         {detail.onBoard.canWithdraw && !detail.parent && (

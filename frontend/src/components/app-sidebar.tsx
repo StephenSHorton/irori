@@ -497,8 +497,7 @@ export function AppSidebar({
                 `${n.working} working${n.running ? ` (${n.running} running a job)` : ""}`,
                 blockedNow > 0 &&
                   `${blockedNow} blocked: on a permission prompt, or on a card waiting for you`,
-                n.free + n.ownWork > 0 &&
-                  `${n.free + n.ownWork} idle`,
+                n.free + n.ownWork > 0 && `${n.free + n.ownWork} idle`,
                 n.silent && `${n.silent} idle but not answering`,
                 n.offline && `${n.offline} on an offline device`,
               ]

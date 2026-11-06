@@ -886,8 +886,12 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (id: string) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(fn: (id: string) => { boardId: string; tag: string } | undefined) {
+let samplePersonalOf: (
+  id: string
+) => { boardId: string; tag: string } | undefined = () => undefined
+export function setSamplePersonal(
+  fn: (id: string) => { boardId: string; tag: string } | undefined
+) {
   samplePersonalOf = fn
 }
 
@@ -909,7 +913,9 @@ function sampleCreate(input: NewCardInput): TaskResult {
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
-    ...cs.filter((c) => (c.tag ?? "") === tag).map((c) => parseInt(c.short, 10) || 0)
+    ...cs
+      .filter((c) => (c.tag ?? "") === tag)
+      .map((c) => parseInt(c.short, 10) || 0)
   )
   const to = input.assignTo || (board ? "" : "sample-heron")
   const onBoard = board
@@ -1107,7 +1113,9 @@ function sampleDelete(id: string) {
 function sampleMoveBoard(id: string, board: string) {
   const c = sampleCard(id)
   const space = c.board ? sampleBoardOf(c.board) : undefined
-  const list = space ? space.boards?.find((x) => x.boardId === board) : samplePersonalOf(board)
+  const list = space
+    ? space.boards?.find((x) => x.boardId === board)
+    : samplePersonalOf(board)
   c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()

@@ -23,6 +23,16 @@ import { previewFlag } from "@/lib/preview"
 // read `label` instead. Keep `sample` free of side effects: it is rendered
 // for real (hooks run), just never seen or clickable.
 //
+// Using it:
+// - Draw `sample` from the hook-free *Shape markup in
+//   components/common/loading-shapes.tsx, not from real rows fed sample
+//   data: it is rendered for real, so their hooks would run unseen.
+// - Show it on the first load only, never on a refresh of data already shown.
+// - Mark a stand-in for a control with the `skullet-block=""` attribute; a
+//   class does nothing.
+// - `className` lands on an outer div, so put grid or gap classes on a div
+//   inside it.
+//
 // In the browser preview, ?slow keeps every Loading on its skeleton
 // (frontend/PREVIEW.md), to see them all without waiting on a read.
 

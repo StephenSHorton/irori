@@ -12,7 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { boards as actions, type BoardSummary, type SharePreview, type SpaceBoard } from "@/lib/boards"
+import {
+  boards as actions,
+  type BoardSummary,
+  type SharePreview,
+  type SpaceBoard,
+} from "@/lib/boards"
 import { cards } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import type { Owner, OwnerMember } from "@/lib/owners"
@@ -38,7 +43,11 @@ export function ShareButton({
   const [board, setBoard] = useState(ready[0]?.boardId ?? "")
   // The preview and its error are kept with the board they are for, so a
   // new pick shows nothing stale while its own preview loads.
-  const [got, setGot] = useState<{ board: string; preview?: SharePreview; error?: string } | null>(null)
+  const [got, setGot] = useState<{
+    board: string
+    preview?: SharePreview
+    error?: string
+  } | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // again bumps after a refused share, so the preview is made afresh and
@@ -93,9 +102,10 @@ export function ShareButton({
           <DialogHeader>
             <DialogTitle>Share to a space</DialogTitle>
             <DialogDescription>
-              This is exactly what goes to the space. The card's comments,
-              notes and blockers stay private, and this private card
-              {preview?.subtasks.length ? " and its subtasks close" : " closes"}.
+              This is exactly what goes to the space. The card's comments, notes
+              and blockers stay private, and this private card
+              {preview?.subtasks.length ? " and its subtasks close" : " closes"}
+              .
             </DialogDescription>
           </DialogHeader>
           {ready.length > 1 && (
@@ -105,19 +115,39 @@ export function ShareButton({
               size="sm"
               value={pick}
               onValueChange={setBoard}
-              choices={ready.map((b) => ({ value: b.boardId, label: plainLine(b.name) }))}
+              choices={ready.map((b) => ({
+                value: b.boardId,
+                label: plainLine(b.name),
+              }))}
             />
           )}
-          {preview ? <Preview p={preview} /> : !error && (
-            <p className="text-xs text-muted-foreground">Preparing the preview…</p>
+          {preview ? (
+            <Preview p={preview} />
+          ) : (
+            !error && (
+              <p className="text-xs text-muted-foreground">
+                Preparing the preview…
+              </p>
+            )
           )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           <DialogFooter>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </Button>
-            <Button size="sm" disabled={busy || !preview} onClick={() => void share()}>
-              {busy ? "Sharing…" : `Share to ${plainLine(preview?.boardName ?? "")}`}
+            <Button
+              size="sm"
+              disabled={busy || !preview}
+              onClick={() => void share()}
+            >
+              {busy
+                ? "Sharing…"
+                : `Share to ${plainLine(preview?.boardName ?? "")}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -134,7 +164,8 @@ function Preview({ p }: { p: SharePreview }) {
       {p.goal && <p className="whitespace-pre-wrap text-ink-2">{p.goal}</p>}
       {p.doneWhen && (
         <p className="text-xs text-muted-foreground">
-          <span className="font-medium text-ink-2">Done when:</span> {plainLine(p.doneWhen)}
+          <span className="font-medium text-ink-2">Done when:</span>{" "}
+          {plainLine(p.doneWhen)}
         </p>
       )}
       {p.steps.length > 0 && (
@@ -145,25 +176,39 @@ function Preview({ p }: { p: SharePreview }) {
         </ol>
       )}
       {p.links.length > 0 && (
-        <p className="truncate font-mono text-xs text-muted-foreground" title={p.links.join("\n")}>
-          {p.links.length === 1 ? plainLine(p.links[0]) : `${p.links.length} links`}
+        <p
+          className="truncate font-mono text-xs text-muted-foreground"
+          title={p.links.join("\n")}
+        >
+          {p.links.length === 1
+            ? plainLine(p.links[0])
+            : `${p.links.length} links`}
         </p>
       )}
       {p.subtasks.length > 0 && (
         <div className="grid gap-1 border-t border-border pt-2">
           <p className="text-xs font-medium text-ink-2">
-            {p.subtasks.length === 1 ? "Its subtask goes with it" : `Its ${p.subtasks.length} subtasks go with it`}
+            {p.subtasks.length === 1
+              ? "Its subtask goes with it"
+              : `Its ${p.subtasks.length} subtasks go with it`}
           </p>
           <ul className="grid gap-1 pl-3" aria-label="Subtasks that go with it">
             {p.subtasks.map((s) => (
-              <li key={s.taskId} className="grid gap-0.5 border-l-2 border-border pl-2">
+              <li
+                key={s.taskId}
+                className="grid gap-0.5 border-l-2 border-border pl-2"
+              >
                 <span className="text-ink">
-                  <span className="mr-1.5 font-mono text-xs text-muted-foreground">{plainLine(s.ref)}</span>
+                  <span className="mr-1.5 font-mono text-xs text-muted-foreground">
+                    {plainLine(s.ref)}
+                  </span>
                   {plainLine(s.title)}
                 </span>
                 {s.steps.length > 0 && (
                   <span className="text-xs text-muted-foreground">
-                    {s.steps.length === 1 ? "1 step" : `${s.steps.length} steps`}
+                    {s.steps.length === 1
+                      ? "1 step"
+                      : `${s.steps.length} steps`}
                   </span>
                 )}
               </li>
@@ -178,7 +223,8 @@ function Preview({ p }: { p: SharePreview }) {
         </p>
       )}
       <p className="border-t border-border pt-2 text-xs text-ink-2">
-        <span className="font-medium">Visible to:</span> {p.visibleTo.map(plainLine).join(", ")}
+        <span className="font-medium">Visible to:</span>{" "}
+        {p.visibleTo.map(plainLine).join(", ")}
       </p>
       {p.dropped.length > 0 && (
         <p className="text-xs text-warning">
@@ -248,7 +294,9 @@ export function TransferButton({
   if (!owner || !others.length) return null
   const offering = owner.me
   const pick = to || others[0]?.personId || ""
-  const pickName = plainLine(others.find((m) => m.personId === pick)?.name ?? "")
+  const pickName = plainLine(
+    others.find((m) => m.personId === pick)?.name ?? ""
+  )
   const ownerName = plainLine(owner.name)
   const send = async () => {
     setBusy(true)
@@ -282,7 +330,9 @@ export function TransferButton({
       <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
         <DialogContent className="gap-3 sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{offering ? "Transfer ownership" : "Ask to own this card"}</DialogTitle>
+            <DialogTitle>
+              {offering ? "Transfer ownership" : "Ask to own this card"}
+            </DialogTitle>
             <DialogDescription>
               {offering
                 ? "The card's owner decides Done and answers the questions its agents raise. They get the question, and the card is theirs only once they accept."
@@ -296,16 +346,32 @@ export function TransferButton({
               size="sm"
               value={pick}
               onValueChange={setTo}
-              choices={others.map((m) => ({ value: m.personId, label: plainLine(m.name) }))}
+              choices={others.map((m) => ({
+                value: m.personId,
+                label: plainLine(m.name),
+              }))}
             />
           )}
           {failed && <p className="text-xs text-destructive">{failed}</p>}
           <DialogFooter>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setOpen(false)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
               Cancel
             </Button>
-            <Button size="sm" disabled={busy || (offering && !pick)} onClick={() => void send()}>
-              {busy ? "Asking…" : offering ? `Offer it to ${pickName}` : `Ask ${ownerName}`}
+            <Button
+              size="sm"
+              disabled={busy || (offering && !pick)}
+              onClick={() => void send()}
+            >
+              {busy
+                ? "Asking…"
+                : offering
+                  ? `Offer it to ${pickName}`
+                  : `Ask ${ownerName}`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -377,7 +443,10 @@ export function MoveBoardButton({
             size="sm"
             value={to}
             onValueChange={setTo}
-            choices={others.map((b) => ({ value: b.boardId, label: plainLine(b.name) }))}
+            choices={others.map((b) => ({
+              value: b.boardId,
+              label: plainLine(b.name),
+            }))}
           />
           {error && (
             <p className="text-xs text-destructive" role="alert">
@@ -388,7 +457,11 @@ export function MoveBoardButton({
             <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button size="sm" disabled={busy || !to} onClick={() => void move()}>
+            <Button
+              size="sm"
+              disabled={busy || !to}
+              onClick={() => void move()}
+            >
               Move
             </Button>
           </DialogFooter>

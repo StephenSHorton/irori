@@ -44,7 +44,11 @@ export function queryParts(query: string): string[] {
 // score is how well every word of query matches title, with others (ref,
 // keywords, names) as fallbacks at a lower weight and only as whole
 // substrings, or 0 when one word matches nothing.
-export function score(query: string, title: string, others: string[] = []): number {
+export function score(
+  query: string,
+  title: string,
+  others: string[] = []
+): number {
   const words = queryParts(query)
   if (!words.length) return 1
   const t = title.toLowerCase()
