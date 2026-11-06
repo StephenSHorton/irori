@@ -178,6 +178,17 @@ impl Rig {
     }
 }
 
+/// Whether `feed` has had the change saying which computers can run agents
+/// moved, reading what it holds.
+fn agents_changed(feed: &irori_core::Feed) -> bool {
+    let mut seen = false;
+    while let Some(ev) = feed.try_recv() {
+        seen |= matches!(ev, irori_core::CoreEvent::Board(ref c)
+            if c.kind == irori_core::spawn_capable::AGENTS_CHANGED);
+    }
+    seen
+}
+
 /// Every spawn request any device wrote for card `id` named `dev`.
 fn asked_only(d: &Dev, id: &str, dev: &str) {
     let t = d.core.coord().get_task(id).unwrap();
@@ -247,14 +258,24 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
     r.mac_spawner();
     r.phone_sees_mac();
     let label = r.phone.core.device_label(&r.mac_id());
+    let feed = r.phone.core.feed(&[irori_core::Topic::Board]);
     r.mac.core.close().unwrap();
     let t = r.thread("Is the build green?");
+    // No row changes when the Mac goes: an open window still hears to read
+    // the words again (on the phone it kept the old line). Read the feed
+    // while waiting so it never fills.
+    let mut heard = false;
     wait_for(WAIT, "the phone says why", || {
+        heard |= agents_changed(&feed);
         r.phone
             .core
             .no_agent()
             .get(&t.id)
             .is_some_and(|l| l.contains(&label) && l.contains("offline"))
+    });
+    wait_for(WAIT, "the window hears the Mac went", || {
+        heard |= agents_changed(&feed);
+        heard
     });
     let line = r.phone.core.no_agent().remove(&t.id).unwrap();
     assert!(!line.contains('?') && !line.contains("repo"), "{line}");
@@ -282,12 +303,22 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
         _checkout,
         ..
     } = r;
+    agents_changed(&feed);
     let mac = restart(mac);
     mac.core
         .set_spawner(Some(spawner(&fake, mac.claude.join("sessions"))));
-    wait_for(WAIT, "the agent starts on the Mac", || fake.started() == 1);
+    let mut heard = false;
+    wait_for(WAIT, "the agent starts on the Mac", || {
+        heard |= agents_changed(&feed);
+        fake.started() == 1
+    });
     wait_for(WAIT, "the phone stops saying it", || {
+        heard |= agents_changed(&feed);
         phone.core.no_agent().is_empty()
+    });
+    wait_for(WAIT, "the window hears the Mac is back", || {
+        heard |= agents_changed(&feed);
+        heard
     });
     phone.core.close().unwrap();
     mac.core.close().unwrap();
