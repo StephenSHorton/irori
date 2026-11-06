@@ -213,22 +213,40 @@ async fn standby_says_so_again_after_an_outage() {
     let r = Rig::new().await;
     let holder = start_runner(&r.data, SESS_B);
     holder.out.wait("hello", 1).await;
-    // Slower to retry than the holder, so the holder gets back first (were
-    // the standby copy first, the holder would supersede it, which is told).
-    let standby = start_runner_with(&r.data, SESS_B, |o| {
+    // The standby copy finds the Core through its own copy of the lockfile,
+    // renewed only once the holder is back. After the restart the session is
+    // free, and a standby copy that got there first would take it (and then
+    // be superseded by the holder, as it should): racing on backoff made
+    // this test fail about one run in eight (card #581).
+    let lockfile = |dir: &Path| dir.join("irori.json");
+    let standby_dir = tempfile::tempdir().unwrap();
+    std::fs::copy(lockfile(&r.data), lockfile(standby_dir.path())).unwrap();
+    let standby = start_runner_with(standby_dir.path(), SESS_B, |o| {
         o.standby = true;
         o.standby_poll = Duration::from_millis(50);
-        o.min_backoff = Duration::from_secs(1);
-        o.max_backoff = Duration::from_secs(1);
     });
     standby.out.wait("standby", 1).await;
     let r = r.restart().await;
     holder.out.wait("hello", 2).await;
-    standby.out.wait("standby", 2).await;
-    let evs = standby.out.events();
+    // Its copy still names the old Core: an outage.
+    let down = standby.out.wait("error", 1).await;
     assert_eq!(
-        evs.last().unwrap()["type"],
-        "standby",
+        down["message"],
+        runner::NOT_RUNNING,
+        "{}",
+        standby.out.text()
+    );
+    std::fs::copy(lockfile(&r.data), lockfile(standby_dir.path())).unwrap();
+    standby.out.wait("standby", 2).await;
+    let types: Vec<Value> = standby
+        .out
+        .events()
+        .into_iter()
+        .map(|e| e["type"].clone())
+        .collect();
+    assert_eq!(
+        types,
+        vec!["standby", "error", "standby"],
         "{}",
         standby.out.text()
     );
