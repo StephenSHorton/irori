@@ -184,7 +184,7 @@ Rules:
 ### 3.1 Pieces
 
 ```
-                        PC (home server, always on)
+                        PC (home server, when one runs it)
  ┌────────────────────────────────────────────────────────────────────┐
  │ iroh Endpoint  (SecretKey = device ed25519 seed → EndpointId = devicePub)
  │   ALPNs: irori/mesh/1, irori/pair/1  (stage 2: irori/board/1, gossip)
