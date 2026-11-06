@@ -1668,8 +1668,9 @@ impl Coord {
 
     /// After a store resync signal: refold if cut, then page each other
     /// device's rows past what was folded. Readers and writers get in between
-    /// pages, so a catch-up of thousands of rows never holds the lock for
-    /// more than one (card #567). When it returns, every followed row
+    /// pages, so a catch-up of thousands of rows holds the lock for one page
+    /// at a time (card #567); only a refold, which rebuilds the fold after a
+    /// cut, holds it throughout. When it returns, every followed row
     /// committed before the call is folded.
     pub fn catch_up(&self) -> Result<()> {
         self.catch_up_by(store::MAX_LIST_LIMIT)
