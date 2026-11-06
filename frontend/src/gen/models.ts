@@ -130,6 +130,7 @@ export type State = B.State
 export type Step = B.Step
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
+export type TalkCall = B.TalkCall
 export type TalkConversation = B.TalkConversation
 export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
@@ -722,6 +723,11 @@ export function SubtaskPreview(p: Partial<B.SubtaskPreview> = {}): B.SubtaskPrev
 /** SummaryMember with Go's zero values for every field left out. */
 export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember {
   return { "personId": "", "name": "", "me": false, "presence": "", "working": 0, "free": 0, ...p } as B.SummaryMember
+}
+
+/** TalkCall with Go's zero values for every field left out. */
+export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
+  return { "callId": "", "op": "", "durationMs": 0, "people": [], ...p } as B.TalkCall
 }
 
 /** TalkConversation with Go's zero values for every field left out. */

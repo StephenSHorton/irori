@@ -394,7 +394,7 @@ impl Services {
     /// pending log. A log `other` left isn't one, nor one that broke §4's
     /// rules: a later DM offers a new space, which is how that person hears
     /// from this one again.
-    fn dm_writer(&self, other: &str) -> Option<String> {
+    pub(crate) fn dm_writer(&self, other: &str) -> Option<String> {
         let (me, dev) = (self.person_id(), self.device.id.clone());
         let can: Vec<(Arc<BoardLog>, DmSpace)> = self
             .dm_live(other)

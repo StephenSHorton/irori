@@ -108,8 +108,25 @@ pub struct TalkPost {
     /// The card made from it (always null in Talk 1).
     #[specta(optional)]
     pub card: Option<String>,
+    /// A huddle's start or end (#654); null on any other post.
+    #[specta(optional)]
+    pub call: Option<TalkCall>,
     #[specta(type = ts::Time)]
     pub at: gocompat::time::GoTime,
+}
+
+/// What a huddle's start or end post says about it (#654).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkCall {
+    pub call_id: String,
+    /// `start` or `end`.
+    pub op: String,
+    /// How long it ran, on an end; 0 on a start.
+    pub duration_ms: i64,
+    /// Who took part, by name ("you" for the person), never a key. Empty
+    /// on a start.
+    pub people: Vec<String>,
 }
 
 /// The most posts one page returns, and the default.
@@ -176,6 +193,22 @@ impl Window {
         let ps = self
             .core
             .talk_posts(&self.me(), conv, before, limit as usize)?;
+        // A huddle's people by name (#654), every key on the page at once.
+        let mut keys: Vec<String> = Vec::new();
+        for k in ps
+            .iter()
+            .filter_map(|p| p.call.as_ref())
+            .flat_map(|c| &c.people)
+        {
+            if !keys.contains(k) {
+                keys.push(k.clone());
+            }
+        }
+        let names: std::collections::HashMap<String, String> = keys
+            .iter()
+            .cloned()
+            .zip(self.core.talk_names(&keys))
+            .collect();
         Ok(ps
             .into_iter()
             .map(|p| TalkPost {
@@ -187,6 +220,16 @@ impl Window {
                 agents_now: p.agents_now,
                 thread_from: p.thread_from,
                 card: p.card,
+                call: p.call.map(|c| TalkCall {
+                    call_id: c.call_id,
+                    op: c.op,
+                    duration_ms: c.duration_ms,
+                    people: c
+                        .people
+                        .iter()
+                        .filter_map(|k| names.get(k).cloned())
+                        .collect(),
+                }),
                 at: p.at,
             })
             .collect())

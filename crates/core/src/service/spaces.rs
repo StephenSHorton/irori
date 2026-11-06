@@ -680,8 +680,8 @@ const SPACE_TALK_KINDS: [&str; 5] = [
 ];
 
 /// Rewrites the keys a talk.* payload names (`by`, `member.key`, each of
-/// `mentions`) with `f`; a key `f` turns into None is dropped from
-/// `mentions` and refuses the row anywhere else.
+/// `mentions` and of `call.people`) with `f`; a key `f` turns into None is
+/// dropped from those lists and refuses the row anywhere else.
 fn map_talk_keys(
     v: &mut serde_json::Value,
     mut f: impl FnMut(&str) -> Option<String>,
@@ -702,6 +702,19 @@ fn map_talk_keys(
             .map(serde_json::Value::String)
             .collect();
         *ms = keep;
+    }
+    // A huddle's people (#654) are mapped as mentions are. Only people:
+    // `board_key` would mint a card for an agent's key.
+    if let Some(serde_json::Value::Array(ps)) = o.get_mut("call").and_then(|c| c.get_mut("people"))
+    {
+        let keep: Vec<serde_json::Value> = ps
+            .iter()
+            .filter_map(|p| p.as_str())
+            .filter(|p| coord::talk::is_person_key(p) || coord::talk::is_other_person_key(p))
+            .filter_map(&mut f)
+            .map(serde_json::Value::String)
+            .collect();
+        *ps = keep;
     }
     Ok(())
 }
