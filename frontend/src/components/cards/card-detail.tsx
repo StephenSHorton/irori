@@ -1,3 +1,5 @@
+import { NotYetButton, WhenLine } from "@/components/cards/order"
+import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
@@ -291,6 +293,7 @@ export function CardPage({
                 onOpen={onOpen}
                 onBack={onBack}
               />
+              <NotYetButton card={detail} />
               {!detail.onBoard && <PauseButton card={detail} />}
               {!detail.onBoard && (
                 <DeleteButton detail={detail} onDeleted={onBack} />
@@ -367,7 +370,7 @@ export function CardPage({
                       )}
                     </Section>
                   )}
-                  {hasBlockers && (
+                  {hasBlockers && !laterOf(detail) && (
                     <Section title="Blockers" last>
                       {legacy && (
                         <div className="grid gap-1.5 rounded-lg border border-destructive/50 bg-destructive/10 p-3">
@@ -938,6 +941,7 @@ function PageHeader({
           </button>
         </p>
       )}
+      <WhenLine card={card} onOpen={onOpen} />
       {card.fromThread && (
         <p className="text-sm text-muted-foreground">
           From the thread{" "}
@@ -1112,7 +1116,7 @@ function ProgressLine({ detail }: { detail: CardDetail }) {
         {detail.openBlockers} waiting on a decision
       </span>
     )
-  if (detail.waitingOn)
+  if (detail.waitingOn && !laterOf(detail))
     parts.push(
       <span key="o">{waitLabel(detail).replace(/^Waiting/, "waiting")}</span>
     )

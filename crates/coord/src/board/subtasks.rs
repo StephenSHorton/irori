@@ -150,6 +150,8 @@ impl Fold {
                     failed += 1;
                     ended += 1;
                 }
+                // Held as Not yet, it needs no call (card #570).
+                BLOCKED if super::later::only_held(k) => {}
                 BLOCKED => {
                     blocked = true;
                     if r.blocked.is_empty() {
@@ -167,7 +169,7 @@ impl Fold {
             } else if !is_terminal(&k.state) {
                 not_reviewing += 1;
             }
-            if k.state != SUBMITTED {
+            if k.state != SUBMITTED && !super::later::only_held(k) {
                 started = true;
             }
             r.total += 1;
@@ -382,6 +384,7 @@ impl Fold {
         for a in &adopt {
             let k = self.task_ref_locked(a)?;
             self.check_parent(id, &k)?;
+            self.check_adopt(id, &k)?;
             // Adopting moves a card to its parent's side: an agent does it
             // only to a card it may take (card #496).
             if let Some(kt) = self.tasks.get(&k).cloned() {
@@ -401,12 +404,13 @@ impl Fold {
                 &by,
                 kinds::TASK_PARENT,
                 &TaskParentRow {
-                    task_id: k,
+                    task_id: k.clone(),
                     parent: id.into(),
                     by: by.clone(),
                     at,
                 },
             )?;
+            self.inherit_park(&by, id, &k)?;
         }
         if !placed.is_empty() {
             let keep: Vec<Step> = t.steps.iter().filter(|s| s.done).cloned().collect();

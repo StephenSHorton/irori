@@ -24,6 +24,7 @@ import {
   CardMessage,
   CardResolution,
   CardSummary,
+  CardLater,
   CardThreadItem,
   CommentResult,
   DonePage,
@@ -88,6 +89,7 @@ export type {
   GoneWait,
   CardSubtask,
   CardSummary,
+  CardLater,
   CardThreadItem,
   CardWait,
   CommentResult,
@@ -869,12 +871,62 @@ function summary(c: CardDetail): CardSummary {
     pinRank: c.pinRank,
     pos: c.pos,
     owner: c.owner,
+    later: c.later,
+    order: c.order,
     // As crates/window's search_text (card #171), less the creator.
     searchText: [c.goal, c.doneWhen, ...c.steps.map((s) => s.text)]
       .map((w) => w.trim())
       .filter(Boolean)
       .join("\n"),
   })
+}
+
+// sampleNotYet is Not yet on the sample (card #570): it reads until the
+// way the host does, roughly, so the popover can be tried.
+function sampleNotYet(id: string, until: string, why: string) {
+  const c = sampleCard(id)
+  const u = until.trim()
+  const by = "You"
+  const reason = why.trim() || "You held it back"
+  let later: CardLater
+  if (!u)
+    later = CardLater({ why: reason, back: "word", line: "when you say", by })
+  else if (/#|^\d+$/.test(u)) {
+    // Numbers are per board (card #558): a bare one means the card's own.
+    const ref = u.includes("#") ? u : `${c.tag ?? ""}#${u}`
+    const hit =
+      sampleCardRef(ref.startsWith("#") ? `${c.tag ?? ""}${ref}` : ref) ??
+      sampleCardRef(ref)
+    const k = hit && sampleCard(hit.id)
+    if (!k) throw new Error(`coord: not found: no card ${u}`)
+    if (k.id === c.id)
+      throw new Error("coord: invalid input: a card can't wait on itself")
+    later = CardLater({
+      why: reason,
+      back: "card",
+      line: `when ${k.tag ?? ""}#${k.short} is done`,
+      by,
+      card: k.id,
+    })
+  } else if (/^v?\d+\.\d/.test(u))
+    later = CardLater({
+      why: reason,
+      back: "version",
+      line: `when this Mac runs v${u.replace(/^v/, "")}`,
+      by,
+    })
+  else if (
+    /^(\d{4}-\d\d-\d\d|\d{1,2}\s+[a-z]{3,}|[a-z]{3,}\s+\d{1,2})$/i.test(u)
+  )
+    later = CardLater({ why: reason, back: "date", line: `on ${u}`, by })
+  else
+    throw new Error(
+      "Hold it until a card (#83), a day (1 Dec) or a version (v0.13.0); left empty, it waits for you"
+    )
+  c.later = later
+  c.state = TaskState.Blocked
+  c.working = []
+  sampleChanged()
 }
 
 // sampleBoardOf finds a sample board by id; lib/boards.ts sets it (it
@@ -1843,6 +1895,34 @@ export const cards = {
     c.paused = paused
     sampleChanged()
     return []
+  },
+
+  // notYet holds card id back from the agents (card #570) until what
+  // until says: a card ("#83"), a day ("1 Dec") or a version ("v0.13.0");
+  // empty, until the person says.
+  async notYet(id: string, until: string, why = ""): Promise<void> {
+    if (inWails()) {
+      await BoardService.NotYet(id, until, why)
+      return
+    }
+    sampleNotYet(id, until, why)
+  },
+
+  // startNow brings held card id back (card #570): it goes out as if
+  // just posted.
+  async startNow(id: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.StartNow(id)
+      return
+    }
+    const c = sampleCard(id)
+    if (!c.later) throw new Error(`coord: bad state: #${c.short} isn't held`)
+    c.later = null
+    c.state = TaskState.Submitted
+    c.openBlockers = 0
+    c.waitingOn = 0
+    c.blockers = c.blockers.filter((b) => b.state !== "open")
+    sampleChanged()
   },
 
   // movePin puts pinned card id in front of pinned card before ("": last).

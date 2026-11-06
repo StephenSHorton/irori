@@ -350,6 +350,53 @@ impl Fold {
         Err(Error::bare(ErrorKind::NotFound))
     }
 
+    /// [`Self::task_ref_locked`] that also names a deleted card, for taking
+    /// a wait on it off (card #570).
+    pub(crate) fn removal_ref(&self, r: &str) -> Result<String> {
+        // Only a card not found may be a deleted one: an ambiguous ref
+        // stays ambiguous.
+        let e = match self.task_ref_locked(r) {
+            Ok(id) => return Ok(id),
+            Err(e) if e.kind() != ErrorKind::NotFound => return Err(e),
+            Err(e) => e,
+        };
+        let mut v = trim_space(r).to_string();
+        if let Some((k, id)) = v.split_once(':')
+            && gocompat::text::equal_fold(trim_space(k), "task")
+        {
+            v = trim_space(id).to_string();
+        }
+        let Some((tag, short)) = parse_ref(&v) else {
+            return Err(e);
+        };
+        let base = short_num(&short);
+        let Ok(n) = base.parse::<i64>() else {
+            return Err(e);
+        };
+        // A claim outlives its card, so it still names a deleted one. More
+        // than one deleted card with that ref names none of them.
+        let mut ids: Vec<&str> = Vec::new();
+        for ((b, num), g) in &self.short_groups {
+            if *num != n || !(tag.is_empty() || self.tag_of(b) == tag) {
+                continue;
+            }
+            for (i, cl) in g.iter().enumerate() {
+                let named = if g.len() > 1 {
+                    short == format!("{base}{}", short_suffix(i as i64))
+                } else {
+                    short == base
+                };
+                if named && self.deleted.contains(&cl.id) {
+                    ids.push(&cl.id);
+                }
+            }
+        }
+        match ids.as_slice() {
+            [id] => Ok(id.to_string()),
+            _ => Err(e),
+        }
+    }
+
     /// Whether id's short ref changed at or after `since`.
     pub(crate) fn moved_since(&self, id: &str, since: &GoTime) -> bool {
         self.short_moved

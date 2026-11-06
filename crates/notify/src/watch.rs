@@ -749,6 +749,10 @@ impl Ctx<'_> {
         self.returned_cards(v, post, returned);
     }
 
+    /// The open lanes these cards watch. Not yet cards (card #570, the
+    /// later lane) are left out on purpose: one put aside isn't the
+    /// person's to hand to an agent ("returned"), and an ask is never
+    /// held. A card that comes back lands in these lanes again.
     fn lanes(v: &BoardView) -> impl Iterator<Item = &Card> {
         v.needs_you
             .iter()

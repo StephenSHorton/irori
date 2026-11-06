@@ -72,6 +72,9 @@ pub const REASON_DESK_HOLDER_CHANGED: &str = "desk_holder_changed";
 
 /// A task.left reason: Irori took a holder that went away off the card.
 pub const LEFT_GONE: &str = "gone";
+/// A task.left reason: the card went to Not yet with the holder on it
+/// (card #570).
+pub const LEFT_PARKED: &str = "parked";
 /// A task.left reason: an owner removed the holder's person from the board
 /// (v0.5 §4.3).
 pub const LEFT_REMOVED: &str = "member_removed";

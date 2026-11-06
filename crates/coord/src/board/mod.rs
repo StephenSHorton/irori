@@ -24,6 +24,8 @@ mod desk_run;
 mod error;
 mod fold;
 mod idle;
+mod later;
+pub use later::{Back, OrderLoops};
 mod links;
 mod main_red;
 pub use main_red::{
@@ -95,9 +97,9 @@ pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::{
-    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_REMOVED, MADE_KIND, REASON_CONFLICT,
-    REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
-    SUB_BUFFER, followed,
+    FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
+    REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
+    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
@@ -776,6 +778,34 @@ impl Coord {
     }
     pub fn unblock(&self, by: &str, id: &str, note: &str) -> Result<(Task, Notice)> {
         self.lock().unblock(by, id, note)
+    }
+    /// Holds card `id` as Not yet until `back` (card #570), or changes the
+    /// hold on a card already held. The notices tell the agents taken off.
+    pub fn park(&self, by: &str, id: &str, why: &str, back: Back) -> Result<(Task, Vec<Notice>)> {
+        self.lock().park(by, id, why, back)
+    }
+    /// Ends card `id`'s hold now (card #570): one on the person's word only
+    /// a person ends.
+    pub fn bring_back(&self, by: &str, id: &str, note: &str) -> Result<(Task, Vec<Notice>)> {
+        self.lock().bring_back(by, id, note)
+    }
+    /// Puts card `id` after `cards` (card #570): one wait on each.
+    pub fn add_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().add_after(by, id, cards)
+    }
+    /// Takes card `id` off its waits on `cards` (card #570).
+    pub fn remove_after(&self, by: &str, id: &str, cards: &[String]) -> Result<Task> {
+        self.lock().remove_after(by, id, cards)
+    }
+    /// Whether card `from` can't finish until card `to` has (card #570).
+    pub fn order_reaches(&self, from: &str, to: &str) -> bool {
+        self.lock().order_reaches(from, to)
+    }
+    /// Every loop of cards that can't finish before each other (card
+    /// #570): waits on cards and parents on their open subtasks, the
+    /// write check's edges, found in one pass.
+    pub fn order_loops(&self) -> OrderLoops {
+        self.lock().order_loops()
     }
     /// Takes a card back off a shared board.
     pub fn withdraw(&self, by: &str, id: &str, note: &str) -> Result<Task> {
