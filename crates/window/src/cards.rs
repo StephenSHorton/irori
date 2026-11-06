@@ -1505,6 +1505,27 @@ fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitO
     w
 }
 
+/// Who a helper part's "Part done" waits on (card #557): the lead on its
+/// card now, or "its next lead" while Irori starts one, not the agent that
+/// led when it was asked. None when no lead is on it or coming: the wait
+/// then names what it was raised on.
+fn part_lead_name(
+    co: &coord::Coord,
+    p: &People,
+    t: &Task,
+    question: &str,
+    on: &coord::BlockedBy,
+) -> Option<String> {
+    if on.kind != coord::BLOCKED_ON_AGENT || question != coord::PART_QUESTION {
+        return None;
+    }
+    let lead = co.part_lead(&t.id)?;
+    Some(match lead.first() {
+        Some(k) => p.ref_(k).name,
+        None => NEXT_LEAD.into(),
+    })
+}
+
 /// A version wait in words: "Irori 0.11.0" for the pill, and with its
 /// devices for the wait row and the tooltip, "Irori 0.11.0 on
 /// Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN" (card #485). A device
@@ -2573,7 +2594,14 @@ impl Window {
                             && bl.options.is_empty()
                             && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
                     })
-                    .map(|on| wait_on_of(&co, &p, on)),
+                    .map(|on| {
+                        let mut w = wait_on_of(&co, &p, on);
+                        if let Some(lead) = part_lead_name(&co, &p, &t, &bl.question, on) {
+                            w.gone = false;
+                            w.label = lead;
+                        }
+                        w
+                    }),
                 gone_agent: stranded
                     .iter()
                     .find(|s| s.blocker_id == bl.id)
@@ -3226,15 +3254,15 @@ fn family_of(
     // A helper's "Part done" waits on its card's lead, not on the agent
     // that led when it was asked (card #557): a gone lead's part waits on
     // the one on the card now, or the next one Irori starts.
-    if s.wait_kind == coord::BLOCKED_ON_AGENT
-        && s.wait_question == coord::PART_QUESTION
-        && let Some(lead) = co.part_lead(&t.id)
-    {
+    let first_wait = t
+        .blockers
+        .iter()
+        .find(|b| b.open() && b.question == s.wait_question)
+        .and_then(|b| b.on.as_ref())
+        .filter(|on| on.kind == s.wait_kind);
+    if let Some(lead) = first_wait.and_then(|on| part_lead_name(co, p, t, &s.wait_question, on)) {
         s.wait_gone = false;
-        s.wait_on = match lead.first() {
-            Some(k) => p.ref_(k).name,
-            None => NEXT_LEAD.into(),
-        };
+        s.wait_on = lead;
     }
     let card = |id: &str| {
         co.get_task(id).map(|k| CardRef {

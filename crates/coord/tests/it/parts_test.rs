@@ -651,6 +651,16 @@ fn merge_it_on_a_parent_whose_lead_went_brings_a_fresh_lead() {
     )
     .unwrap();
     assert!(spawn_ids(&e.c).contains(&p.id), "the answer brings a lead");
+    // Irori's sweep runs while the lead starts: the answer stays for it,
+    // not closed as "the agent it went to left".
+    e.c.sweep_notices().unwrap();
+    let kept = e.c.get_task(&p.id).unwrap();
+    assert!(
+        kept.blockers.iter().any(|x| x.id == b.id && x.open()),
+        "{kept:?}"
+    );
+    assert_eq!(effective_state(&kept), BLOCKED);
+    assert!(spawn_ids(&e.c).contains(&p.id));
     let next = "dev-a/fresh-lead";
     let g =
         e.c.request_spawn(
@@ -750,4 +760,57 @@ fn a_part_waits_on_its_lead_now_and_the_parent_names_no_call_for_it() {
         (r.blocked.as_str(), r.blocked_question.as_str()),
         (made[1].id.as_str(), "Which db?")
     );
+}
+
+/// The lead was ended but its grace hasn't taken it off the card yet when
+/// the person answers: the answer still waits for the next lead.
+#[test]
+fn an_answer_in_the_ended_leads_grace_still_brings_the_next_lead() {
+    let e = spawning();
+    let (p, made) = led(&e, vec![sub("a", true)]);
+    e.c.set_task_state(HELPERS[0], &made[0].id, COMPLETED, "on my branch")
+        .unwrap();
+    e.c.set_task_state(LEAD, &made[0].id, COMPLETED, "merged")
+        .unwrap();
+    let (_, b) =
+        e.c.raise(
+            LEAD,
+            &p.id,
+            NewBlocker {
+                question: "Can I merge?".into(),
+                options: vec![choice("Merge it"), choice("Not yet")],
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    e.ros.set(LEAD, "busy");
+    assert!(!e.c.answer_brings_lead(&p.id), "its lead is on it");
+    e.c.mark_ended(LEAD, e.clk.now());
+    assert!(
+        e.c.get_task(&p.id)
+            .unwrap()
+            .holders
+            .contains(&LEAD.to_string())
+    );
+    assert!(e.c.answer_brings_lead(&p.id), "a gone lead counts as gone");
+    assert!(!spawn_ids(&e.c).contains(&p.id), "not while it is listed");
+    e.c.answer(
+        USER,
+        &p.id,
+        &b.id,
+        BlockerAnswer {
+            pick: 1,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    // Its session goes off the roster; the sweep takes it off the card.
+    e.ros.set(LEAD, "");
+    e.c.sweep_notices().unwrap();
+    e.clk.add(HOLDER_GRACE + std::time::Duration::from_secs(1));
+    e.c.sweep_notices().unwrap();
+    let t = e.c.get_task(&p.id).unwrap();
+    assert!(t.holders.is_empty(), "{t:?}");
+    assert!(t.blockers.iter().any(|x| x.id == b.id && x.open()), "{t:?}");
+    assert!(spawn_ids(&e.c).contains(&p.id));
 }

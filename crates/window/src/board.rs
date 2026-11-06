@@ -657,7 +657,10 @@ impl Window {
         // with subtasks gets no agent of its own, except the lead Irori
         // starts for a split card whose lead went (card #557): the answer
         // stays open for that lead to act on.
-        let brings_lead = co.answer_brings_lead(task_id);
+        // Irori's own asks (a start that failed, a crash) close as before:
+        // the sweep reads their answer.
+        let brings_lead =
+            !irori_core::spawn_stop::irori_acts_on(bl) && co.answer_brings_lead(task_id);
         let irori_acts = brings_lead
             || (irori_core::spawn_stop::irori_acts_on(bl)
                 && t.subtasks.is_empty()

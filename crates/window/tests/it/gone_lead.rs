@@ -181,6 +181,14 @@ fn a_finished_part_waits_on_the_next_lead_not_the_gone_one() {
     let part = at(&made[0].id);
     assert!(!part.wait_gone, "a lead is coming: {part:?}");
     assert_eq!(part.wait_on, "its next lead");
+    // The part's own page says the same.
+    let d = t.w().card(&made[0].id).unwrap();
+    let w = d
+        .blockers
+        .iter()
+        .find_map(|b| b.waits_on.as_ref())
+        .expect("a wait row");
+    assert!(!w.gone && w.label == "its next lead", "{w:?}");
     let parent = at(&p.id);
     assert!(
         parent.subtask_blocked.is_empty(),

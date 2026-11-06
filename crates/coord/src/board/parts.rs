@@ -102,23 +102,31 @@ impl Fold {
     /// (card #557): t has parts and nobody on it or handed it, and Irori
     /// would start a lead. The window then leaves their answer open, for
     /// that lead to read and act on, instead of closing it with nobody to
-    /// act; the lead starts once every open item is answered.
+    /// act; the lead starts once every open item is answered. A lead that
+    /// is gone but not yet off the card (its grace) counts as gone: it
+    /// comes off by itself, and the next lead comes then.
     pub(crate) fn answer_brings_lead(&self, t: &Task) -> bool {
         !t.subtasks.is_empty()
-            && self.lead_due(t)
+            && self.lead_could_come(t)
+            && t.holders.iter().all(|h| self.key_gone(h))
             && t.co_holders.is_empty()
             && t.assigned.is_empty()
             && !t.withdrawn
             && t.open_ask().is_none()
+            && t.parked().is_none()
     }
 
     /// Whether Irori would start a lead for parent p once there is work for
     /// one: p is open, nobody holds it, it is private, the board spawns and
     /// its agents haven't crashed past the limit.
     fn lead_due(&self, p: &Task) -> bool {
+        self.lead_could_come(p) && p.holders.is_empty()
+    }
+
+    /// [`Self::lead_due`] whoever holds p.
+    fn lead_could_come(&self, p: &Task) -> bool {
         self.spawning_on()
             && !is_terminal(&p.state)
-            && p.holders.is_empty()
             && !p.shared
             && p.spawn_crashes < self.crash_limit()
     }
@@ -153,7 +161,8 @@ impl Fold {
         // lead on it nobody else would act on it: back_on_board leaves a
         // parent's state to its subtasks, and needs_agent refuses one.
         let answered = || {
-            self.answer_brings_lead(t)
+            self.lead_due(t)
+                && self.answer_brings_lead(t)
                 && t.blockers
                     .iter()
                     .any(|b| b.open() && b.status == BLOCKER_ANSWERED)
