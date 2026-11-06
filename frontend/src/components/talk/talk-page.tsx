@@ -820,8 +820,7 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const by = c.lastBy ? memberOf(c.members, c.lastBy) : undefined
   // "You: " only for the person themselves: in a DM with another person
   // (card #538) their post is theirs, not yours.
-  const mine =
-    by?.kind === "person" && (isYou(by.key) || by.name === "you")
+  const mine = by?.kind === "person" && (isYou(by.key) || by.name === "you")
   const who = c.readOnly && by ? `${memberName(by)}: ` : mine ? "You: " : ""
   return { line: `${who}${text}`, when }
 }

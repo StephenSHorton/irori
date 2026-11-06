@@ -81,8 +81,6 @@ export function waitingText(c: { waiting?: string }, who: string): string {
   return ""
 }
 
-// dmWith is the DM's other side (an agent DM has one), or the two agents of
-// a read-only agent↔agent DM.
 // isYou is whether key is the person on any of their devices: "user", as
 // an agent that opens a DM adds them, or "user:<device>", as their posts
 // and the DMs they open carry it (card #642).
@@ -107,6 +105,8 @@ export function memberOf(
   return you ?? { kind: "person", key, name: "you" }
 }
 
+// dmWith is the DM's other side (an agent DM has one), or the two agents of
+// a read-only agent↔agent DM.
 export function dmWith(c: Conversation): Member[] {
   return c.members.filter((m) => m.kind !== "person")
 }
@@ -697,7 +697,7 @@ function sampleState(): SampleConv[] {
 
 function counted(c: SampleConv): Conversation {
   const at = c.posts.findIndex((p) => p.postId === c.readUpTo)
-  const fresh = c.posts.slice(at + 1).filter((p) => p.by !== me)
+  const fresh = c.posts.slice(at + 1).filter((p) => !isYou(p.by))
   const { posts, readUpTo, ...conv } = c
   void readUpTo
   return {
