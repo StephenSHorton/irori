@@ -26,6 +26,19 @@ Vite runs as `node node_modules/vite/bin/vite.js --strictPort`
 (`scripts/preview-look.ts`), not `bunx vite`, which can exit silently in a
 worktree.
 
+## Which browser
+
+Look at the preview with a headless Chrome or Edge on this machine
+(`--headless --dump-dom` or `--screenshot`, or the scripts below), not
+through the Claude in Chrome extension: the extension may be connected to a
+browser on another device, where this machine's 127.0.0.1 is connection
+refused even though `curl` reaches it. If you do use the extension, check
+which browser it is connected to first.
+
+The preview only proves Chromium. The Mac app draws in WebKit: to check a
+layout there, load the preview in a small Swift program with a `WKWebView`
+and save its `takeSnapshot`. It needs no screen-recording permission.
+
 ## How it works
 
 Components reach the Go side only through `src/lib/*.ts`. Outside a Wails
