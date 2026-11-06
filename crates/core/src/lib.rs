@@ -58,6 +58,7 @@ mod publicrelays;
 pub mod reset;
 mod service;
 pub mod timers;
+pub mod treeclean;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
@@ -75,6 +76,7 @@ pub use crate::service::spawn_limits;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
+pub use crate::service::trees;
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,
 };

@@ -25,6 +25,65 @@ pub struct Rig {
     _dirs: Vec<tempfile::TempDir>,
 }
 
+/// Runs git in `dir` and gives its output; a failure fails the test.
+pub fn git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.com")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.com")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// A main checkout at `dir` with one commit pushed to a bare origin beside
+/// it, ignoring `/target` as a Rust repo does.
+pub fn git_repo(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let origin = dir.with_extension("origin.git");
+    std::fs::create_dir_all(&origin).unwrap();
+    git(&origin, &["init", "-q", "--bare", "-b", "main"]);
+    git(dir, &["init", "-q", "-b", "main"]);
+    git(dir, &["remote", "add", "origin", &origin.to_string_lossy()]);
+    std::fs::write(dir.join(".gitignore"), "/target\n/target.irori-clearing\n").unwrap();
+    std::fs::write(dir.join("src.txt"), "one\n").unwrap();
+    git(dir, &["add", "."]);
+    git(dir, &["commit", "-q", "-m", "one"]);
+    git(dir, &["push", "-q", "origin", "main"]);
+    dir.to_path_buf()
+}
+
+/// A tree Irori made in `main`: `.claude/worktrees/<name>` on its own branch.
+pub fn git_tree(main: &Path, name: &str) -> PathBuf {
+    let w = main.join(".claude/worktrees").join(name);
+    git(
+        main,
+        &["worktree", "add", "-q", "-b", name, &w.to_string_lossy()],
+    );
+    w
+}
+
+/// Gives worktree `w` a cargo `target/`, its lock file included.
+pub fn git_target(w: &Path) {
+    std::fs::create_dir_all(w.join("target/debug/deps")).unwrap();
+    std::fs::write(
+        w.join("target/CACHEDIR.TAG"),
+        "Signature: 8a477f597d28d172789f06886806bc55\n",
+    )
+    .unwrap();
+    std::fs::write(w.join("target/debug/.cargo-lock"), "").unwrap();
+    std::fs::write(w.join("target/debug/deps/libx.rlib"), vec![0u8; 4096]).unwrap();
+}
+
 /// This process's start as Claude Code writes `procStart` (Windows only).
 fn proc_start_field() -> Option<String> {
     if !cfg!(windows) {

@@ -164,10 +164,16 @@ impl Services {
         if repo_key.is_empty() {
             return None;
         }
-        self.capture
-            .repo_roots(repo_key)
-            .into_iter()
-            .find(|r| Path::new(r).is_dir())
+        // Never a job's temp clone (card #565): with only one, there is no
+        // checkout here, and the card asks for one as for any other.
+        let roots = self.capture.repo_roots(repo_key);
+        let root = crate::treeclean::pick_root(&roots);
+        if root.is_none()
+            && let Some(tmp) = crate::treeclean::only_temp(&roots)
+        {
+            self.say_temp_root(repo_key, &tmp);
+        }
+        root
     }
 
     /// What the person said on blockers `on` of t, newest first: their

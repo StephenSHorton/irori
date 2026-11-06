@@ -5,7 +5,7 @@
 //!
 //! What Claude Code 2.1.318 does, measured on the Mac (#445):
 //! - a git repo needs its own trust entry; a trusted parent doesn't cover it;
-//! - a git worktree (`-w`, or `git worktree add` anywhere) follows its main
+//! - a git worktree (`git worktree add` anywhere) follows its main
 //!   repo's entry;
 //! - a folder outside any git repo is covered by a trusted parent.
 //!
@@ -38,8 +38,9 @@ pub const PERMISSION_MODES: &[&str] = &[
 /// One agent to start.
 #[derive(Debug, Clone, Default)]
 pub struct SpawnSpec {
-    /// The folder it runs in: a repo, a worktree, or (with `worktree`) the
-    /// repo `claude -w` makes the worktree in.
+    /// The folder it runs in: a repo or a worktree. Never `claude -w`
+    /// (card #565): a worktree `claude` makes is one `claude rm` deletes
+    /// without Irori's checks, so the Core makes a card's tree itself.
     pub cwd: PathBuf,
     /// Its session name, shown on the roster and in `claude agents`.
     pub name: String,
@@ -49,8 +50,6 @@ pub struct SpawnSpec {
     pub permission_mode: String,
     pub model: Option<String>,
     pub effort: Option<String>,
-    /// `claude -w <name>`: a fresh worktree under `.claude/worktrees/`.
-    pub worktree: Option<String>,
     /// A `--settings` file (the board's allow and deny rules, slice 5).
     pub settings: Option<PathBuf>,
     /// Where the brief file goes.
@@ -61,6 +60,8 @@ pub struct SpawnSpec {
     /// The first prompt; default [`prompt_for`] the brief file. It must name
     /// no shell metacharacter, as it reaches `claude.cmd` on Windows.
     pub prompt: Option<String>,
+    /// Set on the `claude` process (card #565).
+    pub env: Vec<(String, String)>,
 }
 
 /// Characters that never go on a spawn's command line: `cmd.exe` would act
@@ -130,6 +131,7 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
     cmd.args(&args)
         .arg(prompt)
         .current_dir(&spec.cwd)
+        .envs(spec.env.iter().map(|(k, v)| (k, v)))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -150,11 +152,21 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
 }
 
 /// Ends a spawned session (card #446's `EndFn`): `claude stop`, then
-/// `claude rm`, which removes its worktree (`-w`, or one it entered) only
-/// when nothing in it is unpushed, and otherwise keeps it and says why.
-/// Right after `stop` the worktree's lock can still name the exiting
-/// process, so `rm` is retried for a few seconds. `Ok` carries what `rm`
-/// printed ("kept …" when it kept the worktree).
+/// `claude rm`, which deletes the session's job and its worktree (one it
+/// was started in with `-w`, or one it entered) only when nothing in it is
+/// unpushed, and otherwise keeps it and says why. Right after `stop` the
+/// worktree's lock can still name the exiting process, so `rm` is retried
+/// for a few seconds. `Ok` carries what `rm` printed ("kept …" when it
+/// kept the worktree).
+///
+/// Card #565: `rm` deletes a worktree without Irori's checks (ignored
+/// files, reflog-only commits, its own refs, locks), so it is never run
+/// while the job's folder ([`ListedAgent::cwd`]) or the worktree its job
+/// record names (`worktreePath` in `<claude home>/jobs/<job>/state.json`)
+/// is a tree still on disk, nor when either can't be known. Only `stop`
+/// runs then, and the report starts with
+/// [`irori_core::spawn::STOPPED_ONLY`]; the Core's reap asks again once
+/// Irori's own cleanup has removed the tree.
 ///
 /// `id` is the session id Irori knows the agent by, but `stop` and `rm`
 /// take the job's short id (card #474: given the session id they said "No
@@ -163,15 +175,106 @@ pub(crate) fn spawn_in(bin: &Path, spec: &SpawnSpec, t: &TrustSet) -> Result<Spa
 /// longer has was removed already: that is an end, not a failure.
 pub fn end(id: &str) -> Result<String, String> {
     let bin = find_claude()?;
-    let job = match list_agents_with(&bin) {
+    let listed = list_agents_with(&bin);
+    end_in(
+        &bin,
+        id,
+        listed,
+        jobs_dir().as_deref(),
+        Duration::from_secs(8),
+    )
+}
+
+/// Claude Code's job records: `<CLAUDE_CONFIG_DIR or ~/.claude>/jobs`.
+fn jobs_dir() -> Option<PathBuf> {
+    match std::env::var_os("CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty()) {
+        Some(d) => Some(PathBuf::from(d).join("jobs")),
+        None => std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+            .map(|h| PathBuf::from(h).join(".claude").join("jobs")),
+    }
+}
+
+/// [`end`] with `bin`, the agent list as it came, and the job records in
+/// `jobs` (tests pass fakes).
+pub(crate) fn end_in(
+    bin: &Path,
+    id: &str,
+    listed: Result<Vec<ListedAgent>, String>,
+    jobs: Option<&Path>,
+    patience: Duration,
+) -> Result<String, String> {
+    session_arg(id)?;
+    let (job, cwd) = match listed {
         Ok(list) => match list.iter().find(|a| a.session_id == id.trim()) {
-            Some(a) if !a.job_id.is_empty() => a.job_id.clone(),
-            Some(_) => job_id(id),
+            Some(a) if !a.job_id.is_empty() => (a.job_id.clone(), Some(a.cwd.clone())),
+            Some(a) => (job_id(id), Some(a.cwd.clone())),
             None => return Ok(format!("{GONE_JOB} {}", id.trim())),
         },
-        Err(_) => job_id(id),
+        Err(_) => (job_id(id), None),
     };
-    end_with(&bin, &job, Duration::from_secs(8))
+    let job = session_arg(&job)?.to_string();
+    if let Some(why) = holds_tree(cwd.as_deref(), jobs, &job) {
+        return stop_only(bin, &job, &why);
+    }
+    end_with(bin, &job, patience)
+}
+
+/// Why `rm` mustn't run for `job` in `cwd` now (card #565): its folder, or
+/// the worktree its job record names, is a tree still on disk, or one of
+/// them can't be known. `None` when `rm` can delete nothing of Irori's.
+fn holds_tree(cwd: Option<&str>, jobs: Option<&Path>, job: &str) -> Option<String> {
+    let Some(cwd) = cwd else {
+        return Some("Claude Code's agent list couldn't be read, so its folder isn't known".into());
+    };
+    if irori_core::treeclean::tree_on_disk(cwd) {
+        return Some(format!(
+            "its folder {cwd} is a worktree Irori removes itself"
+        ));
+    }
+    let Some(jobs) = jobs else {
+        return Some("Claude Code's job folder isn't known".into());
+    };
+    let state = jobs.join(job).join("state.json");
+    let text = match std::fs::read_to_string(&state) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => return Some(format!("{}: {e}", state.display())),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => return Some(format!("{}: {e}", state.display())),
+    };
+    match v.get("worktreePath") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(w)) => {
+            let p = Path::new(w);
+            (p.exists() || irori_core::treeclean::tree_on_disk(w))
+                .then(|| format!("its worktree {w} is still there"))
+        }
+        Some(_) => Some(format!(
+            "{}: a worktreePath that isn't text",
+            state.display()
+        )),
+    }
+}
+
+/// `claude stop` alone, for a job `rm` must wait on ([`holds_tree`]).
+fn stop_only(bin: &Path, job: &str, why: &str) -> Result<String, String> {
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["stop", job])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    hide_console(&mut cmd);
+    let (_, stopped) = run(cmd)?;
+    if no_job(&stopped) {
+        return Ok(format!("{GONE_JOB} {job}"));
+    }
+    Ok(format!(
+        "{} {why} (stop said: {})",
+        irori_core::spawn::STOPPED_ONLY,
+        stopped.trim()
+    ))
 }
 
 /// How [`end`] starts its report for a job Claude Code no longer has.
@@ -303,19 +406,68 @@ pub struct ListedAgent {
     pub job_id: String,
     /// Whether it still runs.
     pub live: bool,
+    /// The folder it runs in.
+    pub cwd: String,
 }
 
+/// How long `claude agents` gets before it counts as hung (card #565
+/// finding 12): a sweep waits on it, and a removal needs its answer.
+pub const LIST_PATIENCE: Duration = Duration::from_secs(30);
+
 fn list_agents_with(bin: &Path) -> Result<Vec<ListedAgent>, String> {
+    list_agents_within(bin, &["agents", "--json", "--all"], LIST_PATIENCE)
+}
+
+/// [`list_agents_with`] running `bin args`: ended, and an `Err`, once
+/// `patience` is up.
+pub(crate) fn list_agents_within(
+    bin: &Path,
+    args: &[&str],
+    patience: Duration,
+) -> Result<Vec<ListedAgent>, String> {
+    use std::io::Read;
     let mut cmd = std::process::Command::new(bin);
-    cmd.args(["agents", "--json", "--all"])
+    cmd.args(args)
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     hide_console(&mut cmd);
-    let out = cmd.output().map_err(|e| format!("claude agents: {e}"))?;
-    if !out.status.success() {
-        return Err(format!("claude agents exited with {}", out.status));
+    let mut child = cmd.spawn().map_err(|e| format!("claude agents: {e}"))?;
+    let mut stdout = child.stdout.take().ok_or("claude agents: no stdout")?;
+    // Read on a thread, so a full pipe can't stall the wait; on a hang it
+    // is left behind with the pipe (a grandchild the kill missed holds it).
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let r = stdout.read_to_end(&mut buf).map(|_| buf);
+        let _ = tx.send(r);
+    });
+    let deadline = Instant::now() + patience;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "claude agents gave no answer in {}s",
+                    patience.as_secs()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => return Err(format!("claude agents: {e}")),
+        }
+    };
+    if !status.success() {
+        return Err(format!("claude agents exited with {status}"));
     }
-    parse_agents(&String::from_utf8_lossy(&out.stdout))
+    let left = deadline.saturating_duration_since(Instant::now()) + Duration::from_secs(1);
+    let out = match rx.recv_timeout(left) {
+        Ok(Ok(b)) => b,
+        Ok(Err(e)) => return Err(format!("claude agents: {e}")),
+        Err(_) => return Err("claude agents: its output never ended".into()),
+    };
+    parse_agents(&String::from_utf8_lossy(&out))
 }
 
 /// Parses `claude agents --json --all`: an array of agents, each with a
@@ -323,35 +475,47 @@ fn list_agents_with(bin: &Path) -> Result<Vec<ListedAgent>, String> {
 /// `pid`. A `state` of done with a `pid` is a session still running, idle
 /// after its turn (card #474: card-396-2 sat like that holding its card),
 /// so only the `pid` says whether it runs.
+///
+/// Card #565 made it a safety gate (no tree goes while an agent is in it),
+/// so it fails closed (finding 11): a shape it doesn't know is an `Err`,
+/// not an empty list, and so is an entry that isn't an object, or a live
+/// one with no `sessionId` or a `cwd` that isn't text. A finished entry
+/// with no `sessionId` is skipped, as before.
 pub fn parse_agents(json: &str) -> Result<Vec<ListedAgent>, String> {
     let v: serde_json::Value =
         serde_json::from_str(json.trim()).map_err(|e| format!("claude agents: {e}"))?;
     let list = match &v {
-        serde_json::Value::Array(a) => a.clone(),
+        serde_json::Value::Array(a) => a,
         serde_json::Value::Object(o) => o
             .get("agents")
             .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default(),
-        _ => Vec::new(),
+            .ok_or("claude agents: an object with no agents list")?,
+        _ => return Err("claude agents: not a list".into()),
     };
-    Ok(list
-        .iter()
-        .filter_map(|a| {
-            let session_id = a.get("sessionId")?.as_str()?.to_string();
-            let live = a.get("pid").is_some_and(|p| !p.is_null());
-            let job_id = a
-                .get("id")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            Some(ListedAgent {
-                session_id,
-                job_id,
-                live,
-            })
-        })
-        .collect())
+    let mut out = Vec::new();
+    for a in list {
+        let o = a
+            .as_object()
+            .ok_or("claude agents: an entry that isn't an object")?;
+        let live = o.get("pid").is_some_and(|p| !p.is_null());
+        let text = |k: &str| o.get(k).and_then(|s| s.as_str()).map(str::to_string);
+        let Some(session_id) = text("sessionId") else {
+            if live {
+                return Err("claude agents: a running agent with no sessionId".into());
+            }
+            continue;
+        };
+        if live && o.get("cwd").is_some_and(|c| !c.is_string() && !c.is_null()) {
+            return Err("claude agents: a running agent whose cwd isn't text".into());
+        }
+        out.push(ListedAgent {
+            session_id,
+            job_id: text("id").unwrap_or_default(),
+            live,
+            cwd: text("cwd").unwrap_or_default(),
+        });
+    }
+    Ok(out)
 }
 
 /// The fixed first prompt: it names the brief file and nothing else.
@@ -392,13 +556,6 @@ fn check(spec: &SpawnSpec) -> Result<Vec<String>, String> {
             a.push(flag.into());
             a.push(v.clone());
         }
-    }
-    if let Some(w) = &spec.worktree {
-        if !plain_word(w, 64) {
-            return Err(format!("a worktree name is a plain word, not {w:?}"));
-        }
-        a.push("-w".into());
-        a.push(w.clone());
     }
     if let Some(s) = &spec.settings {
         let t = s.to_string_lossy();
@@ -616,6 +773,8 @@ mod tests {
 ]"#,
         )
         .unwrap();
+        assert_eq!(got[0].cwd, "/r");
+        assert_eq!(got[2].cwd, "", "none listed");
         let got: Vec<(&str, &str, bool)> = got
             .iter()
             .map(|a| (a.session_id.as_str(), a.job_id.as_str(), a.live))
@@ -634,6 +793,59 @@ mod tests {
         assert_eq!(job_id("6fa86d9b-cbdd-4fd2-9cc1-3252d7f87606"), "6fa86d9b");
         assert_eq!(job_id("0a1b2c3d"), "0a1b2c3d");
         assert!(parse_agents("not json").is_err());
+    }
+
+    /// Card #565 finding 11: what it can't read is an error, never "nobody
+    /// is running".
+    #[test]
+    fn claude_agents_json_it_cant_read_is_an_error_not_an_empty_list() {
+        for bad in [
+            r#"{"jobs":[]}"#,
+            r#"{"agents":{}}"#,
+            r#""none""#,
+            "42",
+            "null",
+            "[1]",
+            r#"[{"pid":5,"cwd":"/x"}]"#,
+            r#"[{"pid":5,"sessionId":"a","cwd":7}]"#,
+        ] {
+            assert!(parse_agents(bad).is_err(), "{bad}");
+        }
+        let ok = parse_agents(r#"{"agents":[{"sessionId":"a","pid":1,"cwd":"/w"}]}"#).unwrap();
+        assert_eq!(ok[0].cwd, "/w");
+        assert!(ok[0].live);
+        assert!(parse_agents("[]").unwrap().is_empty());
+    }
+
+    /// Card #565 finding 12: a `claude agents` that hangs is ended and is
+    /// an error, so one hang doesn't stop every sweep after it.
+    #[test]
+    fn claude_agents_that_hangs_is_ended_and_an_error() {
+        let (bin, args): (&str, &[&str]) = if cfg!(windows) {
+            ("ping", &["-n", "60", "127.0.0.1"])
+        } else {
+            ("sleep", &["60"])
+        };
+        let t0 = Instant::now();
+        let r = list_agents_within(Path::new(bin), args, Duration::from_secs(1));
+        assert!(r.as_ref().is_err_and(|e| e.contains("no answer")), "{r:?}");
+        assert!(t0.elapsed() < Duration::from_secs(10), "{:?}", t0.elapsed());
+    }
+
+    #[test]
+    fn claude_agents_that_answers_in_time_is_read() {
+        let d = tempfile::tempdir().unwrap();
+        let f = d.path().join("agents.json");
+        std::fs::write(&f, r#"[{"sessionId":"a","pid":1,"cwd":"/w"}]"#).unwrap();
+        let f = f.to_string_lossy().into_owned();
+        let (bin, args): (&str, Vec<&str>) = if cfg!(windows) {
+            ("cmd", vec!["/c", "type", &f])
+        } else {
+            ("cat", vec![&f])
+        };
+        let got = list_agents_within(Path::new(bin), &args, Duration::from_secs(20)).unwrap();
+        assert_eq!(got[0].session_id, "a");
+        assert_eq!(got[0].cwd, "/w");
     }
     use super::*;
 
@@ -884,6 +1096,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&got.brief_file).unwrap(), brief);
         let raw = std::fs::read_to_string(base.join("argv.txt")).unwrap();
         let lines = args_of(&raw);
+        assert!(
+            !lines.iter().any(|l| l == "-w" || l == "--worktree"),
+            "never claude -w (card #565): {lines:?}"
+        );
         let argv = lines.join("\n");
         for bad in ["&", "|", "%", "\"", "quoted", "ampersand"] {
             assert!(!argv.contains(bad), "{bad:?} reached argv: {argv}");
@@ -927,7 +1143,7 @@ mod tests {
 
     /// Live, by hand: `IRORI_LIVE_SPAWN_REPO=<a trusted repo> cargo test -p
     /// irori-window --lib live_spawn -- --ignored --nocapture`. Starts a real
-    /// agent in a fresh `-w` worktree that only replies; stop and rm it after
+    /// agent in the repo's own folder that only replies; stop and rm it after
     /// with the printed id.
     #[test]
     #[ignore]
@@ -943,7 +1159,6 @@ mod tests {
             permission_mode: "default".into(),
             model: Some("sonnet".into()),
             effort: Some("low".into()),
-            worktree: Some("irori-live-spawn-probe".into()),
             brief_dir: briefs.keep(),
             ..Default::default()
         })
@@ -1038,6 +1253,132 @@ mod tests {
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         let out = end_with(&bin, "6fa86d9b", Duration::from_secs(5)).unwrap();
         assert!(out.starts_with(GONE_JOB), "{out}");
+    }
+
+    /// A fake `claude` that appends `<verb> <id>` to `calls.txt` and says
+    /// "removed" to `rm`, on any platform.
+    fn verb_logger(base: &Path) -> (PathBuf, PathBuf) {
+        let log = base.join("calls.txt");
+        #[cfg(windows)]
+        let bin = {
+            let bin = base.join("claude.cmd");
+            std::fs::write(
+                &bin,
+                format!(
+                    "@echo off\r\n>> \"{}\" echo %1 %2\r\nif \"%1\"==\"rm\" echo removed x\r\nexit /b 0\r\n",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            bin
+        };
+        #[cfg(unix)]
+        let bin = {
+            use std::os::unix::fs::PermissionsExt;
+            let bin = base.join("claude");
+            std::fs::write(
+                &bin,
+                format!(
+                    "#!/bin/sh\necho \"$1 $2\" >> '{}'\nif [ \"$1\" = rm ]; then echo 'removed x'; fi\nexit 0\n",
+                    log.display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            bin
+        };
+        (bin, log)
+    }
+
+    fn calls(log: &Path) -> Vec<String> {
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log);
+        let text = std::fs::read_to_string(log).unwrap();
+        let out = text.lines().map(|l| l.trim().to_string()).collect();
+        std::fs::write(log, "").unwrap();
+        out
+    }
+
+    /// Card #565 finding A: `claude rm` deletes a job's worktree without
+    /// Irori's checks, so it never runs while the job's folder, or the
+    /// worktree its job record names, is a tree on disk, nor when the
+    /// folder can't be known. Only `stop` runs, the tree stays, and once
+    /// the tree is gone `rm` drops the job.
+    #[test]
+    fn end_never_runs_rm_while_the_jobs_tree_is_on_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let (bin, log) = verb_logger(&base);
+        let jobs = base.join("jobs");
+        let main = base.join("repo");
+        let tree = main.join(".claude/worktrees/card-7-1");
+        std::fs::create_dir_all(tree.join("src")).unwrap();
+        std::fs::write(tree.join(".env"), "SECRET=1\n").unwrap();
+        let sid = "0a1b2c3d-1111-4111-8111-000000000001";
+        let agent = |cwd: &Path| {
+            Ok(vec![ListedAgent {
+                session_id: sid.into(),
+                job_id: "0a1b2c3d".into(),
+                live: false,
+                cwd: cwd.to_string_lossy().into_owned(),
+            }])
+        };
+        let patience = Duration::from_secs(2);
+
+        // In the tree, or below it: stop only.
+        for cwd in [tree.clone(), tree.join("src")] {
+            let out = end_in(&bin, sid, agent(&cwd), Some(&jobs), patience).unwrap();
+            assert!(out.starts_with(irori_core::spawn::STOPPED_ONLY), "{out}");
+            assert!(!out.contains("kept"), "{out}");
+            assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+        }
+        assert!(tree.join(".env").is_file(), "the tree stays");
+
+        // The list couldn't be read: the folder isn't known, so stop only.
+        let out = end_in(&bin, sid, Err("hung".into()), Some(&jobs), patience).unwrap();
+        assert!(out.starts_with(irori_core::spawn::STOPPED_ONLY), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+
+        // Started in the main checkout, but its job record names a
+        // worktree it entered that is still there: stop only.
+        std::fs::create_dir_all(jobs.join("0a1b2c3d")).unwrap();
+        let state = jobs.join("0a1b2c3d/state.json");
+        std::fs::write(
+            &state,
+            serde_json::json!({"cwd": main, "worktreePath": tree}).to_string(),
+        )
+        .unwrap();
+        let out = end_in(&bin, sid, agent(&main), Some(&jobs), patience).unwrap();
+        assert!(out.starts_with(irori_core::spawn::STOPPED_ONLY), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+        // A record Irori can't read: stop only.
+        std::fs::write(&state, "{not json").unwrap();
+        let out = end_in(&bin, sid, agent(&main), Some(&jobs), patience).unwrap();
+        assert!(out.starts_with(irori_core::spawn::STOPPED_ONLY), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+        // Aside for its removal still counts as there.
+        std::fs::remove_file(&state).unwrap();
+        let aside = irori_core::treeclean::aside_path(&tree);
+        std::fs::rename(&tree, &aside).unwrap();
+        let out = end_in(&bin, sid, agent(&tree), Some(&jobs), patience).unwrap();
+        assert!(out.starts_with(irori_core::spawn::STOPPED_ONLY), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d"]);
+
+        // Once the tree is gone, `rm` drops the job.
+        std::fs::remove_dir_all(&aside).unwrap();
+        let out = end_in(&bin, sid, agent(&tree), Some(&jobs), patience).unwrap();
+        assert!(out.contains("removed"), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d", "rm 0a1b2c3d"]);
+        // So it does for a job in a main checkout with no worktree.
+        let out = end_in(&bin, sid, agent(&main), Some(&jobs), patience).unwrap();
+        assert!(out.contains("removed"), "{out}");
+        assert_eq!(calls(&log), ["stop 0a1b2c3d", "rm 0a1b2c3d"]);
+        // A job the list no longer has is gone: nothing runs.
+        let out = end_in(&bin, sid, Ok(Vec::new()), Some(&jobs), patience).unwrap();
+        assert!(out.starts_with(GONE_JOB), "{out}");
+        assert!(calls(&log).is_empty());
     }
 
     #[test]

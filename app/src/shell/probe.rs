@@ -96,7 +96,7 @@ impl Probe {
     /// Spawned agents part 1 (card #445): with `IRORI_DEV_SPAWN_REPO=<a
     /// trusted repo>`, starts one `claude --bg` agent from the GUI process
     /// (a release build has no console, so this is the "first spawn from the
-    /// GUI opens no window" check) in a fresh `-w` worktree, with a brief that
+    /// GUI opens no window" check) in the repo's own folder, with a brief that
     /// only replies. Notes `spawn <short id> <name>` or `spawn error: …`.
     /// The agent is left for the tester to `claude stop` and `claude rm`.
     pub fn spawn_from_gui(&self) {
@@ -118,7 +118,6 @@ impl Probe {
                 permission_mode: "default".into(),
                 model: Some("sonnet".into()),
                 effort: Some("low".into()),
-                worktree: Some("irori-gui-spawn-probe".into()),
                 brief_dir: briefs,
                 ..Default::default()
             };

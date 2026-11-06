@@ -109,3 +109,24 @@ fn the_card_branch_from_origin_or_a_reason() {
     let h = make(&c, "toffee/451-card", "s1").unwrap();
     assert!(h.path.join("plan.md").exists());
 }
+
+/// Card #565: a settled helper's tree moved aside for its last checks is
+/// never handed to a new helper.
+#[test]
+fn a_helper_never_starts_in_a_tree_being_removed() {
+    let (_d, r) = repo();
+    let h = make(&r, "toffee/451-card", "s3").unwrap();
+    let aside = irori_core::treeclean::aside_path(&h.path);
+    git(
+        &r,
+        &[
+            "worktree",
+            "move",
+            h.path.to_str().unwrap(),
+            aside.to_str().unwrap(),
+        ],
+    );
+    let e = make(&r, "toffee/451-card", "s3").unwrap_err();
+    assert!(e.contains("being removed"), "{e}");
+    assert!(!h.path.exists());
+}
