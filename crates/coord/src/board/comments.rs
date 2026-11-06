@@ -555,6 +555,12 @@ impl Fold {
                 at: now,
             },
         )?;
+        Ok(self.unblocked_notice(&t, by, note, restored))
+    }
+
+    /// The notice for a card whose blockers `by` closed: t as it was.
+    fn unblocked_notice(&self, t: &Task, by: &str, note: &str, restored: &str) -> Notice {
+        let id = t.id.as_str();
         let nt = self.tasks[id].clone();
         let who = if by == SWEEPER {
             "Irori".to_string()
@@ -570,7 +576,7 @@ impl Fold {
             cut(&t.reason, MAX_NOTICE_FIELD)
         ));
         b.push_str(&deeper(id));
-        Ok(Notice {
+        Notice {
             kind: NOTICE_UNBLOCKED.into(),
             task_id: id.into(),
             reference: format!("task:{id}"),
@@ -579,7 +585,7 @@ impl Fold {
             to: self.recipients(&nt, by),
             text: b,
             ..Notice::default()
-        })
+        }
     }
 
     /// Who hears about t: its agent holders other than by; with none, its
@@ -1276,7 +1282,7 @@ impl Fold {
             // anything else that isn't a date or a version waits for the
             // person, whatever its `on` says.
             if let Some(back) = b.back() {
-                if !self.may_close_later(t, b) {
+                if !self.may_sweep_close(t, b) {
                     continue;
                 }
                 match back {
@@ -1583,7 +1589,22 @@ impl Fold {
             .collect();
         for id in todo {
             let t = self.tasks[&id].clone();
-            let (ids, why) = self.gone_away(&t, &now);
+            // Only items this device's close would count for (section 5
+            // bug 1): any other row is dead, and written every sweep.
+            let (ids, why): (Vec<String>, Vec<String>) = {
+                let (ids, why) = self.gone_away(&t, &now);
+                ids.into_iter()
+                    .zip(why)
+                    .filter(|(bid, _)| {
+                        t.blockers
+                            .iter()
+                            .any(|b| &b.id == bid && self.may_sweep_close(&t, b))
+                    })
+                    .unzip()
+            };
+            if ids.is_empty() {
+                continue;
+            }
             // An answered item keeps the person's answer, so it goes one
             // by one, never through the close of the whole card.
             let left: Vec<bool> = ids
@@ -1595,20 +1616,9 @@ impl Fold {
                         .is_some_and(|b| self.answered_left(&t, b))
                 })
                 .collect();
-            // A Not yet goes by itself too (card #570): blocker.closed names
-            // no item, so a late one could end a newer hold.
-            let later: Vec<bool> = ids
-                .iter()
-                .map(|bid| {
-                    t.blockers
-                        .iter()
-                        .any(|b| &b.id == bid && !b.later.is_empty())
-                })
-                .collect();
-            if ids.len() == count_open(&t) && !left.contains(&true) && !later.contains(&true) {
-                out.push(self.close_blocker(SWEEPER, &id, &why[0], now)?);
-                continue;
-            }
+            // Never blocker.closed (card #570): it names no item, so on a
+            // device with a hold this one hasn't seen it ends the hold.
+            let whole = ids.len() == count_open(&t) && !left.contains(&true);
             // An agent that left the card (card #481) isn't told.
             let raisers: Vec<String> = t
                 .blockers
@@ -1626,7 +1636,7 @@ impl Fold {
                     None => (why[i].clone(), -1, String::new()),
                 };
                 let cur = &self.tasks[&id];
-                let restored = if later[i] && count_open(cur) == 1 {
+                let restored = if count_open(cur) == 1 {
                     self.restore_for(cur).to_string()
                 } else {
                     String::new()
@@ -1646,6 +1656,12 @@ impl Fold {
                         at: now,
                     },
                 )?;
+            }
+            // All of it closed: told as an unblock, as before.
+            if whole {
+                let now_in = self.tasks[&id].state.clone();
+                out.push(self.unblocked_notice(&t, SWEEPER, &why[0], &now_in));
+                continue;
             }
             // Nobody holds it (its spawned agent went while it waited on
             // other work, card #474) and what is still open the person

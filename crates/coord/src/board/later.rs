@@ -856,11 +856,11 @@ impl Fold {
         }
     }
 
-    /// Whether this device's close of held item b would count: a sweeper's
+    /// Whether this device's close of item b would count: a sweeper's
     /// row on a board folds only from a device of the raiser's person, the
     /// creator's person or an owner. Any other device would write a dead
     /// row every sweep.
-    pub(crate) fn may_close_later(&self, t: &Task, b: &Blocker) -> bool {
+    pub(crate) fn may_sweep_close(&self, t: &Task, b: &Blocker) -> bool {
         !self.on_board
             || self.may_write(&b.raised_by, &self.dev)
             || self.may_cancel(t, &self.dev, None)

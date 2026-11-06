@@ -1607,16 +1607,14 @@ fn test_sweep_notices_closes_resolved_blockers() {
     let by = |id: &str| ns.iter().find(|n| n.task_id == id).unwrap();
     assert!(by(&on_lease.id).to == [ALICE] && by(&on_lease.id).text.contains("lease released"));
     assert!(by(&on_task.id).to == [CAROL] && by(&on_task.id).text.contains("task completed"));
+    // Closed item by item (card #570), so why is on the item.
     let got = e.c.get_task(&on_lease.id).unwrap();
-    assert_eq!(
-        (got.state.as_str(), got.note.as_str()),
-        (WORKING, "lease released")
-    );
+    assert_eq!(got.state, WORKING);
+    let r = got.blockers[0].resolved.as_ref().unwrap();
+    assert!(r.closed && r.answer == "lease released", "{r:?}");
     assert_eq!(e.c.get_task(&on_task.id).unwrap().state, SUBMITTED);
     assert_eq!(e.c.get_task(&other.id).unwrap().state, BLOCKED);
-    for ev in e.rows(kinds::BLOCKER_CLOSED) {
-        assert_eq!(ev.actor, "irori");
-    }
+    assert!(e.rows(kinds::BLOCKER_CLOSED).is_empty());
     assert!(e.c.sweep_notices().unwrap().is_empty());
 }
 

@@ -52,11 +52,7 @@ VERIFIED by running probes a1, a2 and a3 (all probes are in /tmp/rv570/crates/co
 
 ## 11. A block or raise with the hold's own words rewrites its `on` — fixed: raise_locked (block too) refuses when the same-question item is a hold.
 
-## 12. A sweep that hasn't seen the hold writes blocker.closed and ends a word hold on the device that has it (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/comments.rs:1614`
-
-VERIFIED by running probe j2 through the real sweep on two_people, with no hand-built row. Card T has an after-wait on F, raised by p2. Offline from each other, p1 parks T on Back::Word on dev-a, while on dev-b p2 completes F and sweeps. dev-b sees only the wait, so ids == count_open with no later item, and it writes blocker.closed at :1614. After sync, dev-a shows state=submitted parked=false: the person's word hold is gone. dev-b shows state=blocked parked=true, so the devices disagree. Doc section 2 forbids blocker.closed for this reason, but only the park's own return was moved to per-item rows. Any plain wait beside a hold still goes through close_blocker, on new builds too. Probe j1 shows the same effect on a private log using a hand-built row. Fix at write time: sweep_rest always closes per item with blocker.resolved. Old cores stay under known limit 1.
+## 12. A sweep that hasn't seen the hold writes blocker.closed and ends a word hold on the device that has it — fixed: sweep_rest closes every item per item with blocker.resolved, never blocker.closed.
 
 ## 13. On a board, another person's park can't end a pending spawn, so an agent binds onto the held card (medium)
 
@@ -132,15 +128,7 @@ answered_left is in v0.12.3 (comments.rs:1200) and absent at v0.10.2 and v0.11.0
 
 Section 3's 'answered_left skips later items' holds only on new builds, and known limit 1 names older agents and Stop waiting, not an old sweep. A new-side mitigation at write time: don't mark a later item ANSWERED in answer() (keep the reply as a plain comment), since that status is what arms the old sweep. At minimum, add it to section 4.
 
-## 26. A non-raiser's sweep writes a dead blocker.resolved every pass for plain after items (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/comments.rs:1641`
-
-Pre-existing: this is the per-item side of section 5 bug 1, which the brief left alone. may_close_later (later.rs:809) guards only items with later, so the new after waits take the unguarded path, and add_after makes several waits per card common on boards.
-
-Ran on a temp copy of HEAD. Board with owners cleared. P1's card, with add_after(CARD1, [x, y]) raised by p1's agent, x completed, synced. Four sweeps on p2's device (not raiser, creator or owner) wrote 4 rows; ignored_rows went 0 to 4; both items stayed open. sweeper_ok refuses each row on every tag, because raiser_closes and may_cancel are both false.
-
-The sweep runs every 5s, so that is about 17,000 dead rows a day per such device in the shared log, until y closes and the raiser's device acts. Applying the same writer check before the per-item write and before close_blocker would stop it without touching the fold.
+## 26. A non-raiser's sweep writes a dead blocker.resolved every pass for plain after items — fixed: sweep_rest runs may_sweep_close (raiser's, creator's person or owner) before every item it closes, plain ones included.
 
 ## 27. A subtask made on an old device under a held parent is not held, and an old origin hands it out (low)
 

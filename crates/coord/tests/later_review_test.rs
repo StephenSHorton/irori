@@ -396,3 +396,88 @@ mod hold_ids {
         on_both(&mut a, &mut b, &t.id, held_on_word);
     }
 }
+
+// ---- findings 12, 26 and section 5 bug 1: the sweep's closes ----
+
+mod sweep_closes {
+    use super::*;
+    use crate::common::two_people::*;
+
+    /// Finding 12: p2's after wait ends on dev-b while p1 parks the card
+    /// on the person's word on dev-a. The word hold stands on both.
+    #[test]
+    fn a_sweep_that_hasnt_seen_the_hold_leaves_it() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        let f = b.c.create_task(P2, nt("first")).unwrap();
+        sync(&a, &b);
+        b.c.add_after(P2, &t.id, std::slice::from_ref(&f.id))
+            .unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", Back::Word).unwrap();
+        b.c.set_task_state(P2, &f.id, COMPLETED, "done").unwrap();
+        b.c.sweep_notices().unwrap();
+        sync(&a, &b);
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                let got = s.c.get_task(&t.id).unwrap();
+                assert_eq!(got.state, BLOCKED, "{name} {round}: {:?}", got.blockers);
+                let p = got
+                    .parked()
+                    .unwrap_or_else(|| panic!("{name} {round}: not held"));
+                assert_eq!(p.back(), Some(Back::Word), "{name} {round}");
+                assert!(task_waits(&got).is_empty(), "{name} {round}");
+                assert_eq!(s.c.ignored_rows(), 0, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+    }
+
+    /// Finding 26 and section 5 bug 1: p2's device may not close p1's
+    /// agent's waits, so its sweeps write nothing, whether one item or
+    /// every item has ended. p1's device then closes them.
+    #[test]
+    fn a_non_raisers_sweep_writes_nothing() {
+        for both in [false, true] {
+            let (a, b, owners) = two_people();
+            owners.lock().unwrap().clear();
+            let t = a.c.create_task(P1, nt("card")).unwrap();
+            let x = a.c.create_task(P1, nt("x")).unwrap();
+            let y = a.c.create_task(P1, nt("y")).unwrap();
+            a.c.add_after(CARD1, &t.id, &[x.id.clone(), y.id.clone()])
+                .unwrap();
+            a.c.set_task_state(P1, &x.id, COMPLETED, "done").unwrap();
+            if both {
+                a.c.set_task_state(P1, &y.id, COMPLETED, "done").unwrap();
+            }
+            pull(&a, &b);
+            let before = b.st.vector().unwrap();
+            for _ in 0..4 {
+                b.c.sweep_notices().unwrap();
+            }
+            assert_eq!(b.c.ignored_rows(), 0, "both={both}");
+            assert_eq!(b.st.vector().unwrap(), before, "both={both}: dev-b wrote");
+            let open =
+                b.c.get_task(&t.id)
+                    .unwrap()
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open())
+                    .count();
+            assert_eq!(open, 2, "both={both}");
+
+            a.c.sweep_notices().unwrap();
+            sync(&a, &b);
+            for s in [&a, &b] {
+                let got = s.c.get_task(&t.id).unwrap();
+                assert_eq!(
+                    task_waits(&got),
+                    if both { vec![] } else { vec![y.id.clone()] }
+                );
+                assert_eq!(got.state == BLOCKED, !both, "both={both}");
+                assert_eq!(s.c.ignored_rows(), 0, "both={both}");
+            }
+        }
+    }
+}

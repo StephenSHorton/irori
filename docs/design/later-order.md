@@ -151,7 +151,9 @@ devices.
 
 - `gone_away` gets one arm for `date` and `version`. `card` needs nothing new,
   and `word` has no arm.
-- `sweep_rest` closes a `later` item per item and sets `restored`.
+- `sweep_rest` closes every item per item with `blocker.resolved`, never
+  `blocker.closed`, which names no item and would end a hold the sweeping
+  device hasn't seen. The last close sets `restored`.
 - A returned card is `SUBMITTED` and unheld, and goes out as if just posted.
   `agent` and `task` are in `on_work`, so offer freshness already works.
 - A card parked on an old origin still returns: a new device writes the close,
@@ -188,7 +190,8 @@ devices.
 
 - A sweeper close counts only from the raiser's person's device, or the
   creator's person's or a board owner's. Widening that would diverge from old
-  folds.
+  folds. The sweep checks this before every item it closes, so no other
+  device writes a dead row each pass.
 - A task wait must name a card on the same log, which the store enforces. Order
   works across a space's boards, not across spaces or Personal. Order per board
   is grouping by `spaceBoard` at read time, with nothing stored per board.
@@ -231,8 +234,8 @@ devices.
 
 From reading only, none run. Not part of #570:
 
-- `sweep_rest` has no writer check before `close_blocker`, so a non-raiser's
-  device on a board looks set to write a dead `blocker.closed` every 5s.
+- Fixed in #570: `sweep_rest` had no writer check before `close_blocker`, so
+  a non-raiser's device on a board wrote a dead `blocker.closed` every 5s.
 - `work_done` reads raw state, so a wait on a parent whose finish lives only in
   its rollup may never close.
 - A wait on a deleted card never closes: `gone_away` acts only on `Some(o)`.
