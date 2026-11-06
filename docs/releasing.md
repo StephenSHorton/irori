@@ -57,9 +57,14 @@ compiler. When they are not on PATH, point the build at them:
    zips the bare exe, writes `SHA256SUMS`, and creates a **draft** release
    with the three files. `-SkipChecks` skips step 1's checks;
    without `-Publish` it is a dry run that stops at `dist/release/v0.6.0`.
-4. Mac:
+4. Mac. Build from a detached copy of the tag, so the clean-tree check
+   passes whatever your own checkout has on it, and run steps 4 and 5 in
+   turn from there:
 
    ```sh
+   git fetch origin --tags
+   git worktree add --detach ../irori-rel-0.6.0 v0.6.0
+   cd ../irori-rel-0.6.0
    scripts/release-mac.sh 0.6.0 --publish
    ```
 
@@ -85,9 +90,19 @@ compiler. When they are not on PATH, point the build at them:
    version and alignment, then uploads `irori-<v>-android-arm64.apk` to the
    draft and adds its line to `SHA256SUMS`. Toolchain: docs/android.md. See
    "Android" below for the key.
+
+   Run it after step 4 has finished, in the same copy. If the two do run
+   at once they wait for each other rather than clash
+   (`scripts/release-lock.sh`): both rebuild `frontend/dist`, which the
+   build embeds, so a copy builds one at a time; and both download, extend
+   and re-upload the draft's `SHA256SUMS`, so that span is one at a time
+   across every copy of the clone, or a line would be lost. A script
+   waiting prints who holds the lock; one left by a killed run is taken
+   over once its pid is gone.
 6. Publish the draft: `scripts/release.ps1 -Version 0.6.0 -Finalize` (or
    `scripts/release-mac.sh 0.6.0 --finalize`). It refuses unless the draft
-   has all six assets and a `SHA256SUMS` line for each of the five.
+   has all six assets and a `SHA256SUMS` line for each of the five. Then
+   `git worktree remove ../irori-rel-0.6.0`.
 
 With `-Publish` / `--publish` both scripts refuse to build unless HEAD is
 the tag's commit and the tree has no uncommitted changes (a dry run only
@@ -99,7 +114,25 @@ when its Authenticode signature is valid and Microsoft's.
 A version with a `-` (`0.6.0-rc.1`) becomes a prerelease, which
 `/releases/latest` never returns, so it is for hand testing only. Drafts are
 never returned either, which is why nothing installed sees a release before
-step 5.
+step 6.
+
+## Landing a batch
+
+When several branches are ready for one release, land them together so the
+checks run once, not once per branch (each run is 15–20 minutes on a busy
+Mac):
+
+1. Make one branch from main, `release-0.6.0`, and merge every ready branch
+   into it, resolving conflicts there.
+2. Run `sh scripts/check.sh` once on that branch (and step 1's other
+   checks when the release needs them).
+3. Merge it to main and push. A release branch reaches main directly,
+   without a PR, and the branches' own PRs are closed as replaced.
+4. Tag main and go on from step 2 of "Cut a release".
+
+So a "PR closed without merging" notice may mean the branch landed in a
+batch: before reopening it or asking again to merge it, check with
+`git merge-base --is-ancestor <branch tip> origin/main`.
 
 ## The contract with installed copies
 
