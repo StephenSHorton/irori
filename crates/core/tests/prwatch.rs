@@ -164,8 +164,8 @@ fn gh_failing_on_an_open_pr_shows_and_slows_down() {
         .check_prs_at(start + OPEN_EVERY + ERROR_EVERY + tick * 2);
     assert_eq!(calls(), 3);
     assert!(
-        co.pr_state(&t.id, PR).unwrap().error.is_empty(),
-        "said once: the two devices don't rewrite each other"
+        co.pr_state(&t.id, PR).unwrap().error.contains("HTTP 401"),
+        "said again at the slow pace: this gh is still broken"
     );
 
     *gh.state.lock().unwrap() = PR_OPEN.into();

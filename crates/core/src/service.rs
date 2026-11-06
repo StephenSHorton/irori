@@ -3693,10 +3693,13 @@ impl Services {
     /// Asks GitHub about the PRs that are due (card #208) and routes what
     /// coord says changed.
     fn check_prs(self: &Arc<Self>, now: std::time::Instant) {
+        // First, while another person's row is still theirs alone: a poll
+        // here hearing the same would count as this person's word for it.
+        self.tell_pr_news();
         if let Some(checker) = self.pr_checker.clone().filter(|c| c.ready()) {
             self.ask_github(checker.as_ref(), now);
         }
-        // After asking: what this device heard itself, it has just told.
+        // And what folded while gh answered.
         self.tell_pr_news();
     }
 
@@ -3717,15 +3720,18 @@ impl Services {
             .pr_watch
             .due(&coords, &local, &|k| self.private_key(k), now);
         for d in due {
-            let state = |co: &coord::Coord| co.pr_state(&d.task_id, &d.url).map(|p| p.state);
-            let before = state(&d.co);
+            let known = |co: &coord::Coord| {
+                co.pr_state(&d.task_id, &d.url)
+                    .filter(|p| !p.state.is_empty())
+                    .map(|p| (p.state, p.review))
+            };
+            let before = known(&d.co);
             let c = checker.check(&d.url);
-            let again = self
-                .pr_watch
+            self.pr_watch
                 .answered(&d.task_id, &d.url, c.error.is_empty());
-            // Said already, or overtaken while gh answered (card #548): an
-            // OPEN from before a closing that just folded is no reopen.
-            if again || state(&d.co) != before {
+            // Overtaken while gh answered (card #548): an OPEN from before
+            // a closing that just folded is no reopen. The next poll asks.
+            if known(&d.co) != before {
                 continue;
             }
             match d.co.record_pr_state(&d.task_id, c) {

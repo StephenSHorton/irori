@@ -78,7 +78,10 @@ pub struct PrState {
     pub error: String,
     /// When it was heard.
     pub at: GoTime,
-    /// When `error` was written, beside a known state (card #548).
+    /// The newest error row and when it was written (card #548). `error`
+    /// shows it while nothing newer was heard and the PR isn't settled.
+    #[serde(skip)]
+    pub last_error: String,
     #[serde(skip)]
     pub error_at: GoTime,
     /// Everything GitHub was heard to say of it, oldest first, whatever
@@ -110,7 +113,8 @@ impl PrState {
     /// a name for it and the devices that heard it. Read from the sorted
     /// rows, so it comes out the same in any arrival order and after a
     /// replay. Rows in a run that say the same are one piece of news,
-    /// numbered by its run: a row that comes late to a run changes nothing.
+    /// named by how many times that change has happened: a late row in a
+    /// run, or one that adds no such change before it, moves nothing.
     fn news(&self) -> Option<(PrChange, String, Vec<String>)> {
         let devices = |rows: &mut dyn Iterator<Item = &PrHeard>| {
             let mut v: Vec<String> = rows.map(|h| h.device.clone()).collect();
@@ -128,24 +132,34 @@ impl PrState {
             (h.state.clone(), review.to_string())
         };
         let runs: Vec<&[PrHeard]> = self.heard.chunk_by(|a, b| says(a) == says(b)).collect();
-        let now = *runs.last()?;
-        let was = runs.len().checked_sub(2).and_then(|i| runs[i].last());
-        let (state, review) = says(&now[0]);
-        let change = if state == PR_CLOSED {
-            PrChange::Closed
-        } else if state != PR_OPEN {
-            return None;
-        } else if review == PR_CHANGES_REQUESTED
-            && !was.is_some_and(|w| w.review == PR_CHANGES_REQUESTED)
-        {
-            PrChange::ChangesRequested
-        } else if was.is_some_and(|w| w.state == PR_CLOSED) {
-            PrChange::Reopened
-        } else {
-            return None;
+        let change_at = |i: usize| {
+            let (state, review) = says(&runs[i][0]);
+            let was = i.checked_sub(1).and_then(|j| runs[j].last());
+            if state == PR_CLOSED {
+                Some(PrChange::Closed)
+            } else if state != PR_OPEN {
+                None
+            } else if review == PR_CHANGES_REQUESTED
+                && !was.is_some_and(|w| w.review == PR_CHANGES_REQUESTED)
+            {
+                Some(PrChange::ChangesRequested)
+            } else if was.is_some_and(|w| w.state == PR_CLOSED) {
+                Some(PrChange::Reopened)
+            } else {
+                None
+            }
         };
-        let name = format!("{state}/{review}#{}", runs.len());
-        Some((change, name, devices(&mut now.iter())))
+        let last = runs.len().checked_sub(1)?;
+        let at = (0..=last).rev().find(|&i| change_at(i).is_some())?;
+        let change = change_at(at)?;
+        // Only a reopen outlasts what came after it: a review on the PR
+        // since doesn't close it again. Changes since answered are over.
+        if at != last && change != PrChange::Reopened {
+            return None;
+        }
+        let nth = (0..=at).filter(|&i| change_at(i) == Some(change)).count();
+        let name = format!("{change:?}#{nth}");
+        Some((change, name, devices(&mut runs[at].iter())))
     }
 }
 
@@ -207,69 +221,46 @@ impl Fold {
             return;
         }
         let by_pr = self.pr_states.entry(p.task_id.clone()).or_default();
-        // An error is nothing GitHub said.
-        let heard = (p.error.is_empty() && !p.state.is_empty()).then(|| PrHeard {
-            at: p.at,
-            device: ev.device_id.clone(),
-            state: p.state.clone(),
-            review: p.review.clone(),
+        let st = by_pr.entry(p.pr.clone()).or_insert_with(|| PrState {
+            pr: p.pr.clone(),
+            ..PrState::default()
         });
-        let mut next = PrState::default();
-        if let Some(old) = by_pr.get_mut(&p.pr) {
-            if let Some(h) = heard.clone() {
-                old.note_heard(h);
-            } else if old.state == PR_OPEN {
-                // Card #548: gh failing on a PR known open shows beside it,
-                // unless GitHub has been heard since.
-                if crate::gotime::before(&p.at, &old.at)
-                    || crate::gotime::before(&p.at, &old.error_at)
-                {
-                    return;
-                }
-                old.error = p.error;
-                old.error_at = p.at;
-                self.note(Change {
-                    kind: TASK_CHANGED.into(),
-                    task_id: p.task_id,
-                    ..Change::default()
-                });
-                return;
-            }
+        let shown = (st.state.clone(), st.review.clone(), st.error.clone(), st.at);
+        if p.error.is_empty() && !p.state.is_empty() {
+            st.note_heard(PrHeard {
+                at: p.at,
+                device: ev.device_id.clone(),
+                state: p.state.clone(),
+                review: p.review.clone(),
+            });
             // Card #542: the stronger row wins whatever their times, so every
             // device ends on the same one in whatever order they arrive.
-            let (new, known) = (certainty(&p.state), certainty(&old.state));
-            if new < known || new == known && crate::gotime::before(&p.at, &old.at) {
-                return;
+            let (new, known) = (certainty(&p.state), certainty(&st.state));
+            if new > known || new == known && !crate::gotime::before(&p.at, &st.at) {
+                st.state = p.state;
+                st.review = p.review;
+                st.merged_at = p.merged_at;
+                st.at = p.at;
             }
-            next.heard = std::mem::take(&mut old.heard);
-            // A good row older than the error doesn't answer it.
-            if p.state == PR_OPEN
-                && old.state == PR_OPEN
-                && crate::gotime::before(&p.at, &old.error_at)
-            {
-                next.error_at = old.error_at;
-                next.error = old.error.clone();
+        } else if !crate::gotime::before(&p.at, &st.error_at) {
+            // An error says nothing of the PR, so it changes nothing known.
+            st.last_error = p.error;
+            st.error_at = p.at;
+            if st.state.is_empty() {
+                st.at = p.at;
             }
-        } else if let Some(h) = heard {
-            next.note_heard(h);
         }
-        by_pr.insert(
-            p.pr.clone(),
-            PrState {
-                pr: p.pr,
-                state: p.state,
-                review: p.review,
-                merged_at: p.merged_at,
-                error: if next.error.is_empty() {
-                    p.error
-                } else {
-                    next.error
-                },
-                at: p.at,
-                error_at: next.error_at,
-                heard: next.heard,
-            },
-        );
+        // Card #548: worked out from the two, so any arrival order agrees.
+        st.error = if st.state.is_empty()
+            || st.state == PR_OPEN && crate::gotime::before(&st.at, &st.error_at)
+        {
+            st.last_error.clone()
+        } else {
+            String::new()
+        };
+        if shown == (st.state.clone(), st.review.clone(), st.error.clone(), st.at) {
+            return;
+        }
         // A phone hears a merge only through this row: Needs you must redraw.
         self.note(Change {
             kind: TASK_CHANGED.into(),
@@ -598,10 +589,13 @@ impl Fold {
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
             return;
         };
+        // An error supersedes only an error: it says nothing of the PR.
+        let error = p.state.is_empty();
         self.pr_ahead.retain(|o| {
             o.device_id != ev.device_id
-                || !row::<PrStateRow>(&o.payload)
-                    .is_some_and(|r| r.task_id == p.task_id && r.pr == p.pr)
+                || !row::<PrStateRow>(&o.payload).is_some_and(|r| {
+                    r.task_id == p.task_id && r.pr == p.pr && (!error || r.state.is_empty())
+                })
         });
         if self.pr_ahead.len() >= MAX_PR_AHEAD {
             self.pr_ahead.remove(0);

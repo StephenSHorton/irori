@@ -153,9 +153,9 @@ pub(crate) fn run_gh(gh: &PathBuf, args: &[&str], fail: &str) -> Result<serde_js
 #[derive(Default)]
 pub(crate) struct PrWatch {
     asked: Mutex<HashMap<String, Instant>>,
-    /// The PRs gh last failed on here, by the same key. Another device's
-    /// good row clears the error in the fold, but this gh is still broken
-    /// (card #548): it asks every [`ERROR_EVERY`] and doesn't write it back.
+    /// The PRs gh last failed on here, by the same key: they keep to
+    /// [`ERROR_EVERY`] even when another device's good row clears the
+    /// error in the fold, as this gh is still broken (card #548).
     failed: Mutex<HashSet<String>>,
 }
 
@@ -171,15 +171,13 @@ fn pr_key(task_id: &str, url: &str) -> String {
 }
 
 impl PrWatch {
-    /// Notes how asking about `url` went on this device. True when it
-    /// failed here again: said once, whatever another device wrote since.
-    pub(crate) fn answered(&self, task_id: &str, url: &str, ok: bool) -> bool {
+    /// Notes how asking about `url` went on this device.
+    pub(crate) fn answered(&self, task_id: &str, url: &str, ok: bool) {
         let mut failed = self.failed.lock().unwrap_or_else(|e| e.into_inner());
         if ok {
             failed.remove(&pr_key(task_id, url));
-            false
         } else {
-            !failed.insert(pr_key(task_id, url))
+            failed.insert(pr_key(task_id, url));
         }
     }
 

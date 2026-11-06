@@ -1472,6 +1472,170 @@ fn a_late_row_of_the_same_news_keeps_its_mark() {
     assert_eq!(after[0].writers, vec!["dev-b", "dev-b2"]);
 }
 
+/// Takes only `dev`'s rows from `from` to `to`.
+fn pull_dev(from: &Side, to: &Side, dev: &str) {
+    let rows: Vec<_> = from
+        .st
+        .missing(&to.st.vector().unwrap(), 1000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.device_id == dev)
+        .collect();
+    let (_, r) = to.st.insert_batch(&rows);
+    r.unwrap();
+    to.c.fold_live(&rows);
+}
+
+/// Four sides on one card held by p2's agent, every row of it everywhere.
+fn four_sides(pr: &str) -> (Side, Side, Side, Side, Task) {
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let a2 = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, pr).unwrap();
+    for s in [&a, &b2, &a2] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    (a, b, b2, a2, t)
+}
+
+fn pr_check(pr: &str, state: &str, review: &str) -> PrCheck {
+    PrCheck {
+        pr: pr.into(),
+        state: state.into(),
+        review: review.into(),
+        ..PrCheck::default()
+    }
+}
+
+/// Card #548, second review: a late row from before a closing adds a run
+/// ahead of it, but no closing, so the mark stays and nobody is told twice.
+#[test]
+fn a_late_row_from_before_the_news_keeps_its_mark() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, _, t) = four_sides(PR);
+    b.clk.add(Duration::from_secs(60));
+    b2.clk.add(Duration::from_secs(90));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_CLOSED, ""))
+        .unwrap();
+    pull_dev(&b2, &a, "dev-b2");
+    let first = a.c.pr_news();
+    pull_dev(&b, &a, "dev-b");
+    assert_eq!(a.c.pr_news()[0].mark, first[0].mark);
+}
+
+/// Card #548, second review: a reopen and a review after it in one sync is
+/// still a reopen.
+#[test]
+fn a_review_after_a_reopen_doesnt_hide_it() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, _, _, t) = four_sides(PR);
+    for (state, review) in [(PR_CLOSED, ""), (PR_OPEN, ""), (PR_OPEN, "APPROVED")] {
+        b.clk.add(Duration::from_secs(60));
+        b.c.record_pr_state(&t.id, pr_check(PR, state, review))
+            .unwrap();
+    }
+    pull(&b, &a);
+    let news = a.c.pr_news();
+    assert_eq!(news.len(), 1);
+    assert!(news[0].notice.text.contains("was reopened"));
+
+    // Changes requested and answered since: over.
+    for review in [PR_CHANGES_REQUESTED, "APPROVED"] {
+        b.clk.add(Duration::from_secs(60));
+        b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, review))
+            .unwrap();
+    }
+    pull(&b, &a);
+    assert!(a.c.pr_news().is_empty());
+}
+
+/// Card #548, second review: gh's error shows beside OPEN on every device,
+/// whichever of the two rows came first.
+#[test]
+fn an_error_beside_open_shows_in_any_arrival_order() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, b2, a2, t) = four_sides(PR);
+    b.clk.add(Duration::from_secs(60));
+    b.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(120));
+    b2.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            error: "gh broke".into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    // `a` takes the OPEN first, `a2` the error first.
+    pull_dev(&b, &a, "dev-b");
+    pull_dev(&b2, &a, "dev-b2");
+    pull_dev(&b2, &a2, "dev-b2");
+    pull_dev(&b, &a2, "dev-b");
+    for s in [&a, &a2] {
+        let st = s.c.pr_state(&t.id, PR).unwrap();
+        assert_eq!(
+            (st.state.as_str(), st.error.as_str()),
+            (PR_OPEN, "gh broke")
+        );
+    }
+}
+
+/// Card #548, second review: a device's error row kept beside its OPEN row
+/// doesn't push the OPEN out while both wait on the card's holder.
+#[test]
+fn a_held_error_row_keeps_the_held_open_row() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let (a, b, owners) = two_people();
+    let b2 = side_with("dev-b2", P2, &owners, false);
+    let far = side_with("dev-a2", P1, &owners, false);
+    for s in [&b2, &far] {
+        pull(&a, s);
+        pull(&b, s);
+    }
+    let t = a.c.create_task(P1, nt("ship it", "")).unwrap();
+    pull(&a, &far);
+    pull(&a, &b);
+    b.c.claim_task(CARD2, &t.id).unwrap();
+    b.c.add_link(CARD2, &t.id, PR).unwrap();
+    pull(&a, &b2);
+    pull(&b, &b2);
+    b2.clk.add(Duration::from_secs(60));
+    b2.c.record_pr_state(&t.id, pr_check(PR, PR_OPEN, ""))
+        .unwrap();
+    b2.clk.add(Duration::from_secs(60));
+    b2.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            error: "gh broke".into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+
+    pull_dev(&b2, &far, "dev-b2");
+    assert!(far.c.pr_state(&t.id, PR).is_none());
+    pull(&b, &far);
+    let st = far.c.pr_state(&t.id, PR).unwrap();
+    assert_eq!(
+        (st.state.as_str(), st.error.as_str()),
+        (PR_OPEN, "gh broke")
+    );
+}
+
 /// Card #548, from the review: a closed PR's review changing says nothing
 /// new, a PR reopened with its old review is a reopen, not a new request,
 /// and a PR the card let go of, or a card waiting on Done, is nobody's news.
