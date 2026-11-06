@@ -554,7 +554,9 @@ export function sampleCards(now: Date): CardDetail[] {
   // Card #485: ?gone=1 shows items whose agent is gone on cards nobody
   // holds: #73 waits on kestrel (gone), an amber line with Hand to an
   // agent; #74's done check was raised by piranha (gone), and its Not
-  // done goes to the agent the card goes to next (PREVIEW.md).
+  // done goes to the agent the card goes to next (PREVIEW.md). Card #520:
+  // #73 and #75 (an outside wait piranha raised) are Gone rows in Home's
+  // Needs you; #74 is a done check there already.
   const kestrel = agent("sample-kestrel-session", "kestrel", "gone")
   const piranha = agent("sample-piranha-session", "piranha", "gone")
   const gone = new URLSearchParams(window.location.search).has("gone")
@@ -580,7 +582,49 @@ export function sampleCards(now: Date): CardDetail[] {
               goneAgent: kestrel,
             }),
           ],
+          waitingOn: 1,
+          waitKind: "agent",
+          waitOn: "kestrel",
+          waitGone: true,
+          waitQuestion: "Waiting on kestrel's no-daemon GUI spawn on the PC",
+          goneWait: {
+            blockerId: "b6",
+            agent: kestrel,
+            waitedOn: true,
+            question: "Waiting on kestrel's no-daemon GUI spawn on the PC",
+          },
           updatedAt: at(600),
+        }),
+        card({
+          id: "sample-card-gone-75",
+          short: "75",
+          title: "Release 0.13 to the testers",
+          goal: "The 0.13 build reaches the testers' devices.",
+          state: TaskState.Blocked,
+          working: [],
+          blockers: [
+            CardBlocker({
+              id: "b1",
+              question: "Waiting on the notarization of the 0.13 build",
+              raisedBy: piranha,
+              at: at(400),
+              resolved: null,
+              state: "open",
+              waitsOn: { kind: "external", label: "Apple notarization" },
+              goneAgent: piranha,
+            }),
+          ],
+          waitingOn: 1,
+          waitKind: "external",
+          waitOn: "Apple notarization",
+          waitQuestion: "Waiting on the notarization of the 0.13 build",
+          goneWait: {
+            blockerId: "b1",
+            agent: piranha,
+            on: "Apple notarization",
+            question: "Waiting on the notarization of the 0.13 build",
+          },
+          updatedAt: at(400),
         }),
         card({
           id: "sample-card-gone-74",

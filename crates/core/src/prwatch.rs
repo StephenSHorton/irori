@@ -6,7 +6,8 @@
 //! person's own `gh`; the rows it writes reach the other devices like any
 //! other. An open PR is asked about again every [`OPEN_EVERY`]; one that
 //! couldn't be asked about every [`ERROR_EVERY`]; a merged or closed one
-//! never again.
+//! never again. A device that can't ask (no gh, card #542) asks about
+//! nothing and writes nothing.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -29,12 +30,23 @@ const GH_TIMEOUT: Duration = Duration::from_secs(30);
 /// state when it couldn't be asked.
 pub trait PrChecker: Send + Sync {
     fn check(&self, url: &str) -> PrCheck;
+
+    /// Whether this device can ask at all. While it can't, no PR is due
+    /// and no row is written (card #542).
+    fn ready(&self) -> bool {
+        true
+    }
 }
 
 /// The person's own `gh`: `gh pr view <url> --json state,mergedAt,reviewDecision`.
 pub struct GhChecker;
 
 impl PrChecker for GhChecker {
+    /// Looked up each tick, so a gh installed later is picked up.
+    fn ready(&self) -> bool {
+        gh_path().is_some()
+    }
+
     fn check(&self, url: &str) -> PrCheck {
         let mut c = PrCheck {
             pr: url.into(),

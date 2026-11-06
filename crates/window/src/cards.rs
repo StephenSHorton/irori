@@ -88,6 +88,10 @@ pub struct AgentRef {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[specta(optional)]
     pub offline: bool,
+    /// The device its rows come through (card #544).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub device_via: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub conflict: String,
@@ -246,8 +250,15 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_on: String,
+    /// The first wait in full where wait_on is the short form (card #553):
+    /// "Irori 0.12.4 on Mac and PC" for wait_on's "Irori 0.12.4". The
+    /// state pill's tooltip says it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub wait_full: String,
     /// What kind of thing the first wait is on (card #487): "task",
-    /// "lease", "agent" or "external", so Home can name a lease plainly.
+    /// "lease", "agent", "version" or "external", so Home can name a lease
+    /// plainly.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_kind: String,
@@ -298,6 +309,13 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub merge_pr: Option<WaitPr>,
+    /// A wait no agent will end (card #520): on a card nobody holds, an
+    /// item waits on an agent that is gone, or an outside wait (not a PR's
+    /// merge) was raised by one. A Needs you row with Hand to an agent,
+    /// until it is handed on, the card is stopped or someone takes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub gone_wait: Option<GoneWait>,
     pub working: Vec<AgentRef>,
     pub watching: Vec<AgentRef>,
     pub holder: CardHolder,
@@ -387,6 +405,35 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub owner: String,
+}
+
+/// A card's first wait whose agent is gone, on a card nobody holds (card
+/// #520): "#73 waits on kestrel (gone)".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct GoneWait {
+    /// The item's id on the card.
+    pub blocker_id: String,
+    /// The agent that is gone: the one waited on, else the raiser.
+    pub agent: AgentRef,
+    /// The item waits on that agent; else it raised an outside wait.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub waited_on: bool,
+    /// What an outside wait is on, as raised ("CI on the release").
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub on: String,
+    pub question: String,
+    /// More such items on the card, beyond this one.
+    #[serde(skip_serializing_if = "is_zero")]
+    #[specta(optional)]
+    pub more: i64,
+    /// Why Hand to an agent can't move the card (a shared board's card,
+    /// an open ask, subtasks): the row says it and offers only Open.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub no_hand_on: String,
 }
 
 /// The open PR an in-review card waits on (card #471).
@@ -1266,6 +1313,7 @@ impl People {
             r.status = a.status.clone();
             r.live = a.status != "gone";
             r.offline = a.device_state == "offline";
+            r.device_via = a.device_via.clone();
             if a.status == "idle" {
                 r.idle_since = a.last_activity;
             }
@@ -1358,26 +1406,34 @@ fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitO
             w.gone = r.status == "gone";
             w.label = r.name;
         }
-        // "0.11.0 on Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN"
-        // (card #485).
-        coord::BLOCKED_ON_VERSION => {
-            let (min, devs) = coord::parse_version_wait(&on.reference);
-            let names: Vec<String> = devs
-                .iter()
-                .map(|d| match p.names.get(d) {
-                    Some(n) if !n.is_empty() => n.clone(),
-                    _ => d.chars().take(8).collect(),
-                })
-                .collect();
-            w.label = match names.as_slice() {
-                [] => format!("Irori {min}"),
-                [one] => format!("Irori {min} on {one}"),
-                [rest @ .., last] => format!("Irori {min} on {} and {last}", rest.join(", ")),
-            };
-        }
+        coord::BLOCKED_ON_VERSION => w.label = version_wait_names(p, &on.reference).1,
         _ => {}
     }
     w
+}
+
+/// A version wait in words: "Irori 0.11.0" for the pill, and with its
+/// devices for the wait row and the tooltip, "Irori 0.11.0 on
+/// Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN" (card #485). A device
+/// this one has no name for is "another device", never its id (card #553).
+fn version_wait_names(p: &People, reference: &str) -> (String, String) {
+    let (min, devs) = coord::parse_version_wait(reference);
+    let mut names: Vec<String> = devs
+        .iter()
+        .filter_map(|d| p.names.get(d).filter(|n| !n.trim().is_empty()).cloned())
+        .collect();
+    match devs.len() - names.len() {
+        0 => {}
+        1 => names.push("another device".into()),
+        n => names.push(format!("{n} other devices")),
+    }
+    let short = format!("Irori {min}");
+    let full = match names.as_slice() {
+        [] => short.clone(),
+        [one] => format!("{short} on {one}"),
+        [rest @ .., last] => format!("{short} on {} and {last}", rest.join(", ")),
+    };
+    (short, full)
 }
 
 /// A person blocker for another member of a shared board (card #264). The
@@ -1512,6 +1568,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
                             let r = p.ref_(&on.reference);
                             s.wait_gone = r.status == "gone";
                             s.wait_on = r.name;
+                        }
+                        coord::BLOCKED_ON_VERSION => {
+                            (s.wait_on, s.wait_full) = version_wait_names(p, &on.reference);
                         }
                         _ => s.wait_on = on.reference.clone(),
                     }
@@ -1842,7 +1901,7 @@ impl Window {
             }
             s.stale = s.subtasks == 0 && stale(&s, &last, now);
             s.talking = talking(&co.comments(&t.id).unwrap_or_default(), &p, now);
-            family_of(co, t, &mut s);
+            family_of(co, &p, t, &mut s);
             out.push(s);
         }
         // Every board's: "All" includes them (v0.5 §8).
@@ -2088,21 +2147,26 @@ impl Window {
     pub fn decide_count(&self) -> usize {
         let p = People::default();
         let co = self.core.coord();
-        // Card #509: a wait on a PR's merge is the person's too.
+        // Card #509: a wait on a PR's merge is the person's too, and card
+        // #520: a wait on an agent that is gone.
         let private = co
             .list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
             })
             .iter()
-            .filter(|t| card_summary(t, &p).open_blockers > 0 || merge_pr(co, t).is_some())
+            .filter(|t| {
+                card_summary(t, &p).open_blockers > 0
+                    || merge_pr(co, t).is_some()
+                    || !co.gone_waits(&t.id).is_empty()
+            })
             .count();
         private
             + self
                 .board_cards(&p, self.now_ms(), None)
                 .0
                 .iter()
-                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some())
+                .filter(|s| s.open_blockers > 0 || s.merge_pr.is_some() || s.gone_wait.is_some())
                 .count()
     }
 
@@ -2176,7 +2240,7 @@ impl Window {
                     cs.pinned = true;
                     cs.pin_rank = *r;
                 }
-                family_of(&co, &t, &mut cs);
+                family_of(&co, p, &t, &mut cs);
                 out.push(cs);
                 tasks.push(t);
             }
@@ -2239,7 +2303,7 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        family_of(&co, &t, &mut d.summary);
+        family_of(&co, &p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -2906,6 +2970,30 @@ fn merge_pr(co: &coord::Coord, t: &Task) -> Option<WaitPr> {
     })
 }
 
+/// A card's first wait no agent will end (card #520), as coord's Needs
+/// you counts it: on a gone agent, or an outside wait a gone agent raised,
+/// while nobody holds the card. Waits on a PR's merge are #509's row.
+fn gone_wait(co: &coord::Coord, p: &People, t: &Task) -> Option<GoneWait> {
+    let gw = co.gone_waits(&t.id);
+    let first = gw.first()?;
+    let b = t.blockers.iter().find(|b| b.id == first.blocker_id)?;
+    Some(GoneWait {
+        blocker_id: b.id.clone(),
+        agent: p.ref_(&first.agent),
+        waited_on: first.waited_on,
+        on: if first.waited_on {
+            String::new()
+        } else {
+            b.on.as_ref()
+                .map(|on| on.reference.clone())
+                .unwrap_or_default()
+        },
+        question: b.question.clone(),
+        more: (gw.len() - 1) as i64,
+        no_hand_on: co.hand_on_refusal(&t.id),
+    })
+}
+
 /// How many cards a wait chain follows before it stops looking.
 const CHAIN_DEPTH: usize = 8;
 
@@ -2949,9 +3037,10 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// A card summary's family fields (its parent, the subtask a decision
 /// waits on), from the log the card lives in (card #161: a board's for a
 /// board card).
-fn family_of(co: &coord::Coord, t: &Task, s: &mut CardSummary) {
+fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
     s.wait_pr = wait_pr(co, t);
     s.merge_pr = merge_pr(co, t);
+    s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
     if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let card = |id: &str| {
@@ -3328,6 +3417,59 @@ mod tests {
         let agent = card_summary(&on(coord::BLOCKED_ON_AGENT, "dev/kestrel"), &p);
         assert_eq!(agent.wait_kind, "agent");
         assert!(agent.wait_gone, "{agent:?}");
+    }
+
+    // Card #553: a version wait's pill names the version, its tooltip and
+    // wait row the devices, and no device id shows, named or not.
+    #[test]
+    fn a_version_wait_names_the_version_and_never_a_device_id() {
+        let mut p = People::default();
+        p.names.insert("05f1844a00".into(), "Desktop".into());
+        p.names.insert("3dc30c9400".into(), "Macbook".into());
+        p.names.insert("blank00000".into(), " ".into());
+        let card = |reference: &str| Task {
+            state: coord::BLOCKED.into(),
+            blockers: vec![{
+                let mut b = coord::Blocker::default();
+                b.id = "b1".into();
+                b.question = "After the update".into();
+                b.on = Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_VERSION.into(),
+                    reference: reference.into(),
+                });
+                b
+            }],
+            ..Task::default()
+        };
+
+        let both = card_summary(&card("0.12.4 05f1844a00 3dc30c9400"), &p);
+        assert_eq!(both.wait_kind, "version");
+        assert_eq!(both.wait_on, "Irori 0.12.4");
+        assert_eq!(both.wait_full, "Irori 0.12.4 on Desktop and Macbook");
+        assert_eq!(both.waiting_on, 1);
+
+        for (reference, full) in [
+            ("0.12.4", "Irori 0.12.4"),
+            ("0.12.4 3dc30c9400", "Irori 0.12.4 on Macbook"),
+            ("0.12.4 feedface00", "Irori 0.12.4 on another device"),
+            ("0.12.4 blank00000", "Irori 0.12.4 on another device"),
+            (
+                "0.12.4 05f1844a00 feedface00",
+                "Irori 0.12.4 on Desktop and another device",
+            ),
+            (
+                "0.12.4 feedface00 deadbeef00",
+                "Irori 0.12.4 on 2 other devices",
+            ),
+            (
+                "0.12.4 05f1844a00 3dc30c9400 feedface00 deadbeef00",
+                "Irori 0.12.4 on Desktop, Macbook and 2 other devices",
+            ),
+        ] {
+            let s = card_summary(&card(reference), &p);
+            assert_eq!(s.wait_on, "Irori 0.12.4", "{reference}");
+            assert_eq!(s.wait_full, full, "{reference}");
+        }
     }
 
     // Card #264: on a shared board a question counts under Needs a decision

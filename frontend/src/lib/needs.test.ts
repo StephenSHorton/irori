@@ -12,6 +12,8 @@ import { readFileSync } from "node:fs"
 import {
   asksPerson,
   CRASHED_QUESTION,
+  goneLine,
+  goneTitle,
   groupRows,
   HELD_QUIET,
   IDLE_LINE,
@@ -455,6 +457,93 @@ describe("what waits on the person (cards #347, #471)", () => {
     ).toContain("another member's agents approve it")
     expect(prChip(card({ state: TaskState.InReview }))).toBeNull()
     expect(prChip(card({ state: TaskState.Completed, waitPr: pr }))).toBeNull()
+  })
+})
+
+describe("a wait no agent will end is the person's (card #520)", () => {
+  const kestrel = {
+    key: "dev/kestrel",
+    name: "kestrel",
+    status: "gone",
+  } as AgentRef
+  const piranha = {
+    key: "dev/piranha",
+    name: "piranha",
+    status: "gone",
+  } as AgentRef
+  const onAgent = card({
+    id: "73",
+    short: "73",
+    state: TaskState.Blocked,
+    waitingOn: 1,
+    waitKind: "agent",
+    waitGone: true,
+    goneWait: {
+      blockerId: "b6",
+      agent: kestrel,
+      waitedOn: true,
+      question: "Waiting on kestrel's GUI spawn",
+    },
+    updatedAt: "2026-11-05T06:23:00Z",
+  })
+  const outside = card({
+    id: "75",
+    short: "75",
+    state: TaskState.Blocked,
+    waitingOn: 1,
+    waitKind: "external",
+    goneWait: {
+      blockerId: "b1",
+      agent: piranha,
+      on: "Apple notarization",
+      question: "Waiting on notarization",
+    },
+    updatedAt: "2026-11-05T05:00:00Z",
+  })
+  test("its row needs the person and names the gone agent", () => {
+    expect(rowState(onAgent)).toEqual({
+      state: "needs",
+      line: "Waits on kestrel (gone)",
+    })
+    expect(goneLine(outside.goneWait!)).toBe(
+      "Waits on Apple notarization; piranha (gone) raised it"
+    )
+    expect(goneTitle(onAgent, onAgent.goneWait!)).toBe(
+      "#73 waits on kestrel (gone)"
+    )
+    expect(goneTitle(outside, outside.goneWait!)).toBe(
+      "#75 waits on piranha (gone)"
+    )
+  })
+  test("one gone row per card in Needs you", () => {
+    const ns = needsOf([onAgent, outside], [])
+    expect(ns.map((n) => `${n.kind}:${n.id}`)).toEqual(["gone:73", "gone:75"])
+    expect(ns[0].kind === "gone" && ns[0].wait.agent.name).toBe("kestrel")
+  })
+  test("nothing shows twice: a merge, a decision or a finished card", () => {
+    const pr = {
+      repo: "sample/app",
+      number: 41,
+      url: "https://github.com/sample/app/pull/41",
+    }
+    expect(
+      needsOf([{ ...onAgent, mergePr: pr }], []).map((n) => n.kind)
+    ).toEqual(["merge"])
+    expect(
+      needsOf([{ ...onAgent, openBlockers: 1 }], []).map((n) => n.kind)
+    ).toEqual(["decision"])
+    expect(
+      needsOf([{ ...onAgent, state: TaskState.Canceled }], []).map(
+        (n) => n.kind
+      )
+    ).toEqual([])
+    // Handed on, the card has no gone wait any more: no row.
+    expect(
+      needsOf(
+        [{ ...onAgent, goneWait: undefined, state: TaskState.Submitted }],
+        []
+      )
+    ).toEqual([])
   })
 })
 

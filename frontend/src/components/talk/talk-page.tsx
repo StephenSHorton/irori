@@ -11,6 +11,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   EyeIcon,
+  GitMergeIcon,
   HashIcon,
   MessageSquareTextIcon,
   PlusIcon,
@@ -31,6 +32,7 @@ import {
   talkApi,
   type Conversation as Conv,
 } from "@/lib/conversations"
+import { talkDesks, type Desk, type TalkDesk } from "@/lib/desk"
 import { AgentRef } from "@/lib/models"
 import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
@@ -102,8 +104,14 @@ export function TalkPage({
   why = "",
   board = "",
   space = AllSpaces,
+  desks = [],
+  onOpenDesk,
 }: {
   threads: ThreadSummary[]
+  // Merge desks, listed in Channels (card #521); opening one opens its
+  // queue on the desk page until it is a Talk channel (slice 8).
+  desks?: Desk[]
+  onOpenDesk?: (repoKey: string) => void
   // Channels and DMs (Talk 1, #389).
   conversations: Conv[]
   // The live agents a new DM can go to.
@@ -173,14 +181,15 @@ export function TalkPage({
     items: Conv[],
     empty: string,
     extra?: ReactNode,
-    add?: { onAdd: () => void; label: string }
+    add?: { onAdd: () => void; label: string },
+    lead: TalkDesk[] = []
   ) => {
     const { rows, hidden } = convRows(k, items)
     const { unread, markAll } = sectionHeader(k, folded(k), items)
     return (
       <Group
         label={label}
-        count={items.length}
+        count={items.length + lead.length}
         unread={unread}
         folded={folded(k)}
         onToggle={searching ? undefined : () => toggleFold(k)}
@@ -196,7 +205,15 @@ export function TalkPage({
         }
       >
         {extra}
-        {items.length === 0 && !extra && !folded(k) && (
+        {!folded(k) &&
+          lead.map((d) => (
+            <DeskItem
+              key={d.repoKey}
+              d={d}
+              onClick={() => onOpenDesk?.(d.repoKey)}
+            />
+          ))}
+        {items.length === 0 && lead.length === 0 && !extra && !folded(k) && (
           <p className="px-2 py-1 text-[12px] text-muted-foreground">{empty}</p>
         )}
         {rows.map((c) => (
@@ -356,7 +373,8 @@ export function TalkPage({
         {
           onAdd: () => setAdding(adding === "channel" ? "" : "channel"),
           label: "New channel",
-        }
+        },
+        talkDesks(desks, space, query)
       )}
       {convSection(
         "dms",
@@ -562,6 +580,39 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
+// DeskItem is a merge desk's row in Channels (card #521): the repo's
+// owner/name, its open PRs underneath, and how many Outside PRs wait on
+// the person.
+export function DeskItem({ d, onClick }: { d: TalkDesk; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-desk={d.repoKey}
+      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-ink-2 hover:bg-secondary/60"
+    >
+      <GitMergeIcon
+        className="size-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+      <span className="grid min-w-0 flex-1">
+        <span className="min-w-0 truncate">{d.name}</span>
+        <span className="truncate text-[11px] text-muted-foreground">
+          {d.sub}
+        </span>
+      </span>
+      {d.needYou > 0 && (
+        <span
+          className="shrink-0 rounded-full bg-primary px-1.5 text-[10.5px] font-semibold text-primary-foreground tabular-nums"
+          title={`${d.needYou} Outside PR${d.needYou === 1 ? "" : "s"} waiting for your OK`}
+        >
+          {d.needYou}
+        </span>
+      )}
+    </button>
+  )
+}
+
 export function ConvItem({
   c,
   current,
@@ -918,11 +969,13 @@ function Conversation({
     <section
       aria-label={plainLine(t.title)}
       className={cn(
-        "grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto",
+        // Fills the pane: only the thread's messages scroll (card #564).
+        // The column scrolls only when its fixed lines alone outgrow it.
+        "flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
-      <header className="flex min-w-0 items-center gap-2">
+      <header className="flex min-w-0 shrink-0 items-center gap-2">
         {narrow && (
           <Button
             size="icon-xs"

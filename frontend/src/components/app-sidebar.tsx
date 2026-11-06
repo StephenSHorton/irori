@@ -36,7 +36,7 @@ import { SettingsMenu } from "@/components/settings/settings-menu"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
-import { agentStatus } from "@/lib/agent-status"
+import { agentStatus, throughLine } from "@/lib/agent-status"
 import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
@@ -245,6 +245,7 @@ export function AppSidebar({
       key: string
       status: string
       deviceState?: string | null
+      deviceVia?: string | null
       statusSince?: string
     }
   ) => {
@@ -253,7 +254,8 @@ export function AppSidebar({
       ?.working.find((r) => r.key === a.key)
     // The same words as everywhere else (card #489).
     const doing = agentStatus(a, a.statusSince).text
-    return [w?.where, doing].filter(Boolean).join(" · ")
+    const via = a.deviceVia && throughLine(a.deviceVia)
+    return [w?.where, doing, via].filter(Boolean).join(" · ")
   }
   const pinnedBoards = boardsInSpace(boards, space)
     .filter((b) => b.pinned)

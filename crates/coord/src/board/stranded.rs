@@ -87,10 +87,20 @@ impl Fold {
             let kind = b.on.as_ref().map(|on| on.kind.as_str()).unwrap_or("");
             if kind == BLOCKED_ON_AGENT {
                 let k = &b.on.as_ref().unwrap().reference;
-                if self.key_gone_in(k, rs) {
+                // A part waiting on a gone lead goes to the next lead.
+                // One waiting on Irori when none is coming (the switch went
+                // off, or its agents crashed) has nobody, and says so.
+                let part = b.question == super::parts::PART_QUESTION;
+                let led = part && (self.lead_coming(t) || !self.lead_of(t).is_empty());
+                let no_lead = part && k == SWEEPER;
+                if !led && (no_lead || self.key_gone_in(k, rs)) {
                     out.push(Stranded {
                         blocker_id: b.id.clone(),
-                        agent: k.clone(),
+                        agent: if no_lead {
+                            super::parts::NO_LEAD.into()
+                        } else {
+                            k.clone()
+                        },
                         waited_on: true,
                     });
                 }
@@ -124,6 +134,45 @@ impl Fold {
         self.stranded_in(t, &self.roster_status())
     }
 
+    /// The stranded waits of `t` that only Needs you can show (card #520):
+    /// a wait on a gone agent, or an outside wait whose gone agent raised
+    /// it, on a card nobody holds. A question or done check already counts
+    /// as a decision, and a wait on a PR's merge as #509's merge row, so
+    /// those are left out and nothing shows twice. On a shared board only
+    /// the person's own agents' waits.
+    pub(crate) fn gone_waits_in(&self, t: &Task, rs: &RosterStatus) -> Vec<Stranded> {
+        let st = self.stranded_in(t, rs);
+        if st.is_empty() {
+            return st;
+        }
+        let merges = self.merge_waits(t);
+        st.into_iter()
+            .filter(|s| {
+                let Some(b) = t.blockers.iter().find(|b| b.id == s.blocker_id) else {
+                    return false;
+                };
+                if self.on_board && !self.own_on_board(b) {
+                    return false;
+                }
+                match b.on.as_ref().map(|on| on.kind.as_str()) {
+                    Some(BLOCKED_ON_AGENT) => true,
+                    Some(BLOCKED_ON_EXTERNAL) => {
+                        !b.merge_wait().is_some_and(|pr| merges.contains(&pr))
+                    }
+                    _ => false,
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn gone_waits(&self, t: &Task) -> Vec<Stranded> {
+        // A held or finished card has none: skip the roster for it.
+        if is_terminal(&t.state) || !t.holders.is_empty() || !t.co_holders.is_empty() {
+            return Vec::new();
+        }
+        self.gone_waits_in(t, &self.roster_status())
+    }
+
     /// Takes the gone agents a card was handed to off it (task.left
     /// "gone"), so it can go out again.
     pub(crate) fn drop_gone_assigned(&mut self, by: &str, id: &str) -> Result<()> {
@@ -155,6 +204,23 @@ impl Fold {
         Ok(())
     }
 
+    /// Why "Hand to an agent" can't move card `t` (what back_on_board
+    /// would refuse), said before anything is written; "" when it can.
+    /// Home's Needs you row (card #520) says it instead of offering it.
+    pub(crate) fn hand_on_refusal(&self, t: &Task) -> &'static str {
+        if t.shared || self.on_board {
+            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
+        } else if t.open_ask().is_some() {
+            "it has an open ask"
+        } else if !t.subtasks.is_empty() {
+            "it has subtasks; hand those on instead"
+        } else if t.state == SUBMITTED || t.state == WORKING {
+            "it is already on the Board"
+        } else {
+            ""
+        }
+    }
+
     /// "Hand to an agent" (card #485): the person moves a card whose items
     /// wait on gone agents back on the Board, so Irori starts an agent for
     /// it (or hands it to a free one). Its open items close as it goes, as
@@ -178,18 +244,7 @@ impl Fold {
                 t.short_ref()
             )));
         }
-        // What back_on_board would refuse, said before anything is written.
-        let why = if t.shared || self.on_board {
-            "a card on a shared board isn't handed out; take it with an agent of yours (board_join)"
-        } else if t.open_ask().is_some() {
-            "it has an open ask"
-        } else if !t.subtasks.is_empty() {
-            "it has subtasks; hand those on instead"
-        } else if t.state == SUBMITTED || t.state == WORKING {
-            "it is already on the Board"
-        } else {
-            ""
-        };
+        let why = self.hand_on_refusal(&t);
         if !why.is_empty() {
             return Err(bad_state(format!("{}: {why}", t.short_ref())));
         }

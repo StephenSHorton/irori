@@ -459,6 +459,35 @@ fn settings_survive_a_restart() {
     assert!(r.w.set_launch_at_login(true).is_err());
 }
 
+// Card #527: the window's appearance reaches the notifier, which keeps it
+// in settings.json for the next start. The JSON is what card-look.ts sends.
+#[test]
+fn card_look_reaches_the_notifier() {
+    let r = Rig::new();
+    let look: irori_window::settings::CardLook = serde_json::from_str(
+        r##"{"theme":"sakura","mode":"system","glass":"frost","alpha":0.62,"radius":14,
+            "light":{"background":"#fbf7f8","tint":"#fdfbfc","onPrimary":"#fdfafb"},
+            "dark":{"background":"#1d1519","primary":"#f496bb"}}"##,
+    )
+    .unwrap();
+    assert_eq!(look.light.on_primary, "#fdfafb", "camelCase from the page");
+    r.w.set_card_look(look).unwrap();
+    let saved = notify::load_look(&r.data).expect("saved");
+    assert_eq!(
+        (
+            saved.theme.as_str(),
+            saved.mode.as_str(),
+            saved.alpha,
+            saved.radius
+        ),
+        ("sakura", "system", 0.62, 14.0)
+    );
+    assert_eq!(saved.light.on_primary, "#fdfafb");
+    assert_eq!(saved.dark.primary, "#f496bb");
+    // The notifications next to it are untouched.
+    assert_eq!(notify::load(&r.data), notify::Options::default());
+}
+
 // ---- shapes ---------------------------------------------------------------------
 
 /// The fields of `name` in the generated bindings: (field, required).

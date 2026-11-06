@@ -463,6 +463,11 @@ impl Fold {
             let l = l.clone();
             return self.ask_lead(&by, &t, &l, &note, files);
         }
+        // Its lead went away (#451): the part waits for the next one, who
+        // merges it, rather than asking the person.
+        if s == COMPLETED && self.is_agent_key(&by) && lead.is_empty() && self.lead_coming(&t) {
+            return self.ask_lead(&by, &t, "", &note, files);
+        }
         if s == COMPLETED && self.done_check && self.is_agent_key(&by) && lead.is_empty() {
             return self.ask_done(&by, &t, &note, files, need_proof);
         }
@@ -995,10 +1000,14 @@ impl Fold {
         self.asks = super::asks::AskBook::default();
         self.reset_stale();
         self.links.clear();
+        self.pr_states.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).
         self.sides = crate::sides::Sides::new();
+        // And merge desks: the repo.seen rows that set a desk's poll
+        // device, and its settings, may be among them (card #521).
+        self.desks.clear();
         self.replay_store()?;
         for (id, was) in shorts {
             if was.is_empty() {
@@ -1053,7 +1062,36 @@ impl Fold {
                 }
             }
         }
+        self.catch_up_own_seen(&st)?;
         self.holder_duties();
         Ok(())
+    }
+
+    /// This device's repo.seen rows are capture's, not coord's own writes,
+    /// so they reach the fold only live ([`super::Coord::handle`]); one a
+    /// full subscription dropped, or one written between the startup replay
+    /// and Follow subscribing, is read here. There is one per worktree root,
+    /// and folding one twice changes nothing (card #521).
+    fn catch_up_own_seen(&mut self, st: &store::Store) -> Result<()> {
+        if self.on_board {
+            return Ok(());
+        }
+        let mut after = 0;
+        loop {
+            let evs = st.list(&store::Filter {
+                device_id: self.dev.clone(),
+                after_seq: after,
+                kinds: vec![kinds::REPO_SEEN.to_string()],
+                limit: store::MAX_LIST_LIMIT,
+                ..store::Filter::default()
+            })?;
+            for ev in &evs {
+                self.fold_desk(ev);
+            }
+            match evs.last() {
+                Some(l) if (evs.len() as i64) == store::MAX_LIST_LIMIT => after = l.seq,
+                _ => return Ok(()),
+            }
+        }
     }
 }

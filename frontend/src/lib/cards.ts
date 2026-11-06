@@ -45,6 +45,7 @@ import {
   type CardReview,
   type CardRef,
   type WaitPr,
+  type GoneWait,
   type CardSubtask,
   type CardWait,
   LinkKind,
@@ -84,6 +85,7 @@ export type {
   CardReview,
   CardRef,
   WaitPr,
+  GoneWait,
   CardSubtask,
   CardSummary,
   CardThreadItem,
@@ -738,6 +740,7 @@ function summary(c: CardDetail): CardSummary {
     waiting: c.waiting,
     waitingOn: c.waitingOn,
     waitOn: c.waitOn,
+    waitFull: c.waitFull,
     waitQuestion: c.waitQuestion,
     waitYou: c.waitYou,
     waitTask: c.waitTask,
@@ -749,6 +752,7 @@ function summary(c: CardDetail): CardSummary {
     atCap: c.atCap,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
+    goneWait: c.goneWait,
     working: c.working,
     watching: c.watching,
     holder: c.holder,
@@ -1375,6 +1379,9 @@ function sampleRecount(c: CardDetail) {
   }
   c.blockerQuestion = needs[0]?.question ?? ""
   c.ready = needs.some((x) => x.doneCheck) || undefined
+  // Card #520: a gone wait leaves once its item closes (Stop waiting).
+  if (c.goneWait && !open.some((x) => x.id === c.goneWait?.blockerId))
+    c.goneWait = undefined
 }
 
 // sampleMessage is BoardService.Message on the sample: a held message's
@@ -1622,6 +1629,12 @@ export const cards = {
   async handOn(id: string): Promise<string> {
     if (inWails()) return BoardService.HandOn(id)
     const c = sampleCard(id)
+    // Its open items close as it goes (card #520: its Needs you row too).
+    const at = new Date().toISOString()
+    for (const b of c.blockers.filter((x) => !x.resolved)) {
+      b.goneAgent = undefined
+      sampleResolve(c, b, "Handed to a new agent", -1, "", at)
+    }
     c.state = TaskState.Submitted
     sampleChanged()
     return "It is back on the Board: Irori starts an agent for it."

@@ -59,9 +59,9 @@ A note is a short fact that an agent should know before it acts. It has these pa
   - every note tagged `everywhere`
 
   Each wake carries a few notes, about 8 at most, ranked by how specific the match is.
+- **The person's words ride along:** the same hook adds what the person said lately on the cards around the agent's, in a section of its own (card #555, `docs/design/spawned-agents.md` §2).
 - **More by search:** an agent can search notes for anything else, within the scopes it can read: Mine for the person's own agents, and the boards it is on.
 - **How notes are framed:** notes reach agents as data with who wrote and who accepted them, never as instructions. This matches how messages from other agents are framed today. On a shared board a note is something a teammate wrote, not the person's own word.
-- **Visible on the card:** the card page can show which notes its agent got on wake and why, so the person can see how an agent knew something.
 
 ## 7. Staleness
 
@@ -125,7 +125,7 @@ A wake takes the accepted notes of every log the agent reads: Mine for the perso
 
 **Agent tools** (built, #412; `crates/tools/src/notes.rs`): `notes_propose {scope?, kind, text, tags, source?}` for a new note, or `{note, kind?, text?, tags?, why}` / `{note, remove: true, why}` for an agent's proposed edit or removal. `notes_search {q}` searches accepted notes only, in the logs the agent reads. A proposal reaches no agent. The wake gets a short **Notes** section in the same untrusted-data framing as other agents' messages: each note's kind, text, `note:<id>`, author and accepter, and the tag that matched. Only full wakes carry notes (not reminders, appends or stops), and a note goes to one agent once: a later wake to the same agent leaves out the notes an earlier one gave it. The wake's card is the first `task:` ref among its messages, else the card the agent is working; its repo (else the agent's), its repo-path links and the agent's cwd under the repo root give the context, and the device's name the machine (the inbox's `Options::notes` hook, `Services::wake_notes`). Writes go through `Services::propose_note` and its siblings, which the window's `Core` calls too, so a board write gate there covers both. The gate (`Services::write_gate`, #411) sits in those bodies.
 
-**Notes a wake carried** (built, #412): the private log's `wake.issued` row carries `notesTask` (`task:<id>`) and `notes: [{id, why, kind, text, by, acceptedBy}]`, names rendered (board logs refuse the kind). A replayed inbox rebuilds the prompt from them. `Core::card_wake_notes(task)` gives the card page `[{noteId, text, kind, tag, agent, at}]`: each agent's latest wake that carried notes for that card, newest first (the window command is Notes 4's).
+**Notes a wake carried** (built, #412): the private log's `wake.issued` row carries `notesTask` (`task:<id>`) and `notes: [{id, why, kind, text, by, acceptedBy}]`, names rendered (board logs refuse the kind). A replayed inbox rebuilds the prompt from them, and a later wake reads them to leave out what the agent already got. The card page doesn't list them (#547).
 
 **Still true?** (v1): `NoteView.stale` says "its source card is gone", or "<path> is gone from <repo>" when a `path:` tag's path is missing from every checkout of that repo this device has seen. Repos with no checkout here are not checked.
 

@@ -59,6 +59,7 @@ pub struct CommentResult {
 
 /// Answer's reply: the card after the answer, and who heard.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct AnswerResult {
     pub card: CardDetail,
     pub told: Told,
@@ -66,6 +67,13 @@ pub struct AnswerResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[specta(optional)]
     pub mentioned: Vec<MentionOutcome>,
+    /// Irori itself acts on this answer (card #531): its "no copy" and
+    /// "couldn't start" asks on a card nobody holds resolve like any item
+    /// nobody runs for, but the sweep reads the answer, so the window
+    /// doesn't say nobody will.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub irori_acts: bool,
 }
 
 /// One choice on the ask box's repo chip.
@@ -628,8 +636,16 @@ impl Window {
                 card: self.card(task_id)?,
                 told,
                 mentioned,
+                irori_acts: false,
             });
         }
+        // A card someone holds is theirs: the sweep leaves it alone. A card
+        // with subtasks gets no agent of its own.
+        let irori_acts = irori_core::spawn_stop::irori_acts_on(bl)
+            && t.subtasks.is_empty()
+            && t.holders.is_empty()
+            && t.co_holders.is_empty()
+            && t.assigned.is_empty();
         let files: Vec<coord::FileRef> = self
             .store_uploads(files)?
             .iter()
@@ -655,38 +671,55 @@ impl Window {
         } else {
             bl.status.as_str()
         };
+        let mut closed = None;
         if a.resolve && ((a.pick == 0 && status != coord::BLOCKER_OPEN) || !files.is_empty()) {
             // The answer goes on the thread first, with its mentions and
             // files; its notices are dropped, as the resolve below tells
-            // everyone (the mentioned once, woken).
-            co.answer(
-                &me,
-                task_id,
-                blocker_id,
-                BlockerAnswer {
-                    pick: a.pick,
-                    text: text.into(),
-                    wake,
-                    mentions: a.mentions.clone(),
-                    files: files.clone(),
-                    ..BlockerAnswer::default()
-                },
-            )
-            .map_err(|e| e.to_string())?;
-            a.text = String::new();
-            a.pick = 0;
+            // everyone (the mentioned once, woken). On a card nobody holds
+            // that answer puts it back on the Board, which closes the item
+            // (card #531): nothing is left to resolve, and its notices stand.
+            let first = co
+                .answer(
+                    &me,
+                    task_id,
+                    blocker_id,
+                    BlockerAnswer {
+                        pick: a.pick,
+                        text: text.into(),
+                        wake,
+                        mentions: a.mentions.clone(),
+                        files: files.clone(),
+                        ..BlockerAnswer::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            if first
+                .0
+                .blockers
+                .iter()
+                .any(|b| b.id == blocker_id && b.open())
+            {
+                a.text = String::new();
+                a.pick = 0;
+            } else {
+                closed = Some(first);
+            }
         } else if !a.resolve {
             a.files = files;
         }
-        let (t, ns) = co
-            .answer(&me, task_id, blocker_id, a)
-            .map_err(|e| e.to_string())?;
+        let (t, ns) = match closed {
+            Some(first) => first,
+            None => co
+                .answer(&me, task_id, blocker_id, a)
+                .map_err(|e| e.to_string())?,
+        };
         let (ns, mentioned) = self.route_mentioned(ns, &plan);
         let told = self.tell(&ns[0], Tell::NextTurn);
         Ok(AnswerResult {
             card: self.card(&t.id)?,
             told,
             mentioned,
+            irori_acts,
         })
     }
 
@@ -752,6 +785,7 @@ impl Window {
             card: self.card(&t.id)?,
             told,
             mentioned,
+            irori_acts: false,
         })
     }
 
@@ -804,6 +838,7 @@ impl Window {
             card: self.card(id)?,
             told,
             mentioned,
+            irori_acts: false,
         })
     }
 

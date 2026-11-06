@@ -29,9 +29,11 @@ export type CardActivity = B.CardActivity
 export type CardAsk = B.CardAsk
 export type CardBlocker = B.CardBlocker
 export type CardBoard = B.CardBoard
+export type CardColors = B.CardColors
 export type CardDetail = B.CardDetail
 export type CardHolder = B.CardHolder
 export type CardLeftOff = B.CardLeftOff
+export type CardLook = B.CardLook
 export type CardMention = B.CardMention
 export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
@@ -70,6 +72,7 @@ export type Event = B.Event
 export type FileRef = B.FileRef
 export type Folder = B.Folder
 export type GoneSession = B.GoneSession
+export type GoneWait = B.GoneWait
 export type HoldReason = B.HoldReason
 export type Holding = B.Holding
 export type HomeServerView = B.HomeServerView
@@ -144,7 +147,6 @@ export type VoiceDownload = B.VoiceDownload
 export type VoiceEvent = B.VoiceEvent
 export type VoiceStatus = B.VoiceStatus
 export type WaitPr = B.WaitPr
-export type WakeNoteView = B.WakeNoteView
 export type WindDownRow = B.WindDownRow
 export type WindDownStatus = B.WindDownStatus
 
@@ -263,6 +265,11 @@ export function CardBoard(p: Partial<B.CardBoard> = {}): B.CardBoard {
   return { "id": "", "name": "", "tag": "", "visibleTo": [], "canWithdraw": false, "canTransfer": false, ...p } as B.CardBoard
 }
 
+/** CardColors with Go's zero values for every field left out. */
+export function CardColors(p: Partial<B.CardColors> = {}): B.CardColors {
+  return { ...p } as B.CardColors
+}
+
 /** CardDetail with Go's zero values for every field left out. */
 export function CardDetail(p: Partial<B.CardDetail> = {}): B.CardDetail {
   return { ...CardSummary(), "goal": "", "doneWhen": "", "note": "", "steps": [], "blockers": [], "reviews": [], "prs": [], "links": [], "recent": [], "comments": [], "thread": [], "threadEarlier": 0, "historyTrimmed": false, "subtaskList": [], "waits": [], ...p } as B.CardDetail
@@ -276,6 +283,11 @@ export function CardHolder(p: Partial<B.CardHolder> = {}): B.CardHolder {
 /** CardLeftOff with Go's zero values for every field left out. */
 export function CardLeftOff(p: Partial<B.CardLeftOff> = {}): B.CardLeftOff {
   return { "text": "", "by": AgentRef(), "at": "", ...p } as B.CardLeftOff
+}
+
+/** CardLook with Go's zero values for every field left out. */
+export function CardLook(p: Partial<B.CardLook> = {}): B.CardLook {
+  return { ...p } as B.CardLook
 }
 
 /** CardMention with Go's zero values for every field left out. */
@@ -415,12 +427,12 @@ export function DeskSettings(p: Partial<B.DeskSettings> = {}): B.DeskSettings {
 
 /** DeskSnapshotView with Go's zero values for every field left out. */
 export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSnapshotView {
-  return { "truncated": false, "prs": [], "at": "", ...p } as B.DeskSnapshotView
+  return { "truncated": false, "prs": [], "viewer": "", "at": "", ...p } as B.DeskSnapshotView
 }
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
 /** DeviceView with Go's zero values for every field left out. */
@@ -451,6 +463,11 @@ export function Folder(p: Partial<B.Folder> = {}): B.Folder {
 /** GoneSession with Go's zero values for every field left out. */
 export function GoneSession(p: Partial<B.GoneSession> = {}): B.GoneSession {
   return { "key": "", "sessionId": "", "name": "", "title": "", "cwd": "", "repoKey": "", "goneAt": "", "reason": "", "transcript": false, "trusted": false, ...p } as B.GoneSession
+}
+
+/** GoneWait with Go's zero values for every field left out. */
+export function GoneWait(p: Partial<B.GoneWait> = {}): B.GoneWait {
+  return { "blockerId": "", "agent": AgentRef(), "question": "", ...p } as B.GoneWait
 }
 
 /** HomeServerView with Go's zero values for every field left out. */
@@ -771,11 +788,6 @@ export function VoiceStatus(p: Partial<B.VoiceStatus> = {}): B.VoiceStatus {
 /** WaitPr with Go's zero values for every field left out. */
 export function WaitPr(p: Partial<B.WaitPr> = {}): B.WaitPr {
   return { "repo": "", "number": 0, "url": "", ...p } as B.WaitPr
-}
-
-/** WakeNoteView with Go's zero values for every field left out. */
-export function WakeNoteView(p: Partial<B.WakeNoteView> = {}): B.WakeNoteView {
-  return { "noteId": "", "kind": "", "text": "", "tag": "", "agent": "", "at": "", ...p } as B.WakeNoteView
 }
 
 /** WindDownRow with Go's zero values for every field left out. */

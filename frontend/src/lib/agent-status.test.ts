@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { agentStatus } from "./agent-status"
+import { agentStatus, throughLine } from "./agent-status"
 
 // Card #489: every status reads the same words wherever it shows.
 describe("agentStatus", () => {
@@ -51,5 +51,19 @@ describe("agentStatus", () => {
     expect(agentStatus({ status: "busy" }, now - 12 * 60_000, now).text).toBe(
       "working"
     )
+  })
+})
+
+// Card #544: rows coming through another device aren't a link of its own.
+describe("throughLine", () => {
+  test("names the device, on one plain line", () => {
+    expect(throughLine("Phone")).toBe("through Phone")
+    expect(throughLine("Pho\nne")).not.toContain("\n")
+  })
+
+  test("a relayed device doesn't read offline", () => {
+    expect(
+      agentStatus({ status: "busy", deviceState: "recent" }).text
+    ).toBe("working")
   })
 })
