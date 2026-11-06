@@ -78,19 +78,6 @@ fn rig() -> (Rig, Arc<FakeGh>) {
     (r, gh)
 }
 
-/// [`OTHER`], an agent on another device, as this device knows it: by
-/// the agent.seen row its device replicates.
-fn seen_elsewhere(r: &Rig) {
-    r.core
-        .store()
-        .append(
-            "irori",
-            store::kinds::AGENT_SEEN,
-            &serde_json::json!({"key": OTHER, "deviceId": "otherdevice", "sessionId": "sess", "name": "mac-agent"}),
-        )
-        .unwrap();
-}
-
 fn merged(gh: &FakeGh, sha: &str) {
     *gh.view.lock().unwrap() = (PR_MERGED.into(), sha.into());
 }
@@ -141,12 +128,25 @@ fn an_unheld_pr_card_hears_its_merge_says_the_sha_and_completes() {
 
 #[test]
 fn a_card_held_on_another_device_hears_its_merge_from_the_desk() {
-    let (r, gh) = rig();
-    seen_elsewhere(&r);
-    let co = r.core.coord();
-    let t = co
+    // A polls the desk; B's agent holds the author card. B asks GitHub
+    // about nothing (no gh), as a device that is off or busy.
+    let gh = Arc::new(FakeGh::default());
+    let (l, c) = (gh.clone(), gh.clone());
+    let (a, b) = common::pair::paired_with(move |o| {
+        o.desk_lister = Some(l);
+        o.pr_checker = Some(c);
+    });
+    a.core
+        .coord()
+        .set_desk(
+            &format!("user:{}", a.core.device_id()),
+            new_desk(REPO, a.core.device_id()),
+        )
+        .unwrap();
+    let cb = b.core.coord();
+    let t = cb
         .create_task(
-            OTHER,
+            &b.agent,
             NewTask {
                 title: "land the fix".into(),
                 repo_key: REPO.into(),
@@ -154,27 +154,49 @@ fn a_card_held_on_another_device_hears_its_merge_from_the_desk() {
             },
         )
         .unwrap();
-    co.claim_task(OTHER, &t.id).unwrap();
-    co.add_link(OTHER, &t.id, &url(9)).unwrap();
+    cb.claim_task(&b.agent, &t.id).unwrap();
+    cb.add_link(&b.agent, &t.id, &url(9)).unwrap();
+    let ca = a.core.coord();
+    wait_for(45, "A sees B's card with its PR", || {
+        ca.get_task(&t.id)
+            .is_some_and(|t| t.links.iter().any(|l| l.reference == url(9)))
+    });
     *gh.open.lock().unwrap() = vec![pr(9)];
-    r.core.poll_desk(REPO).unwrap();
-    // This device's own PR poller never asks: no agent here holds it.
-    r.core.check_prs();
+    a.core.poll_desk(REPO).unwrap();
+    // A's own PR poller never asks: no agent on A holds it.
+    a.core.check_prs();
     assert!(gh.viewed.lock().unwrap().is_empty());
 
     gh.open.lock().unwrap().clear();
     merged(&gh, SHA);
-    r.core.poll_desk(REPO).unwrap();
-    let st = co.pr_state(&t.id, &url(9)).unwrap();
-    assert_eq!((st.state.as_str(), st.merge_sha.as_str()), (PR_MERGED, SHA));
-    assert_eq!(sha_comments(&r, &t.id, SHA), 1);
-    // Its holder is told to complete it; the card isn't completed for it.
-    wait_for(10, "the holder on the other device told", || {
-        r.notices_to(OTHER)
-            .iter()
-            .any(|d| d.message.text.contains("was merged"))
+    a.core.poll_desk(REPO).unwrap();
+    assert_eq!(*gh.viewed.lock().unwrap(), vec![url(9)]);
+    // B's card hears it, with the sha said once as Irori.
+    wait_for(45, "the merge and its sha reach B", || {
+        cb.pr_state(&t.id, &url(9))
+            .is_some_and(|st| st.state == PR_MERGED && st.merge_sha == SHA)
+            && cb
+                .comments(&t.id)
+                .unwrap_or_default()
+                .iter()
+                .any(|c| c.by == "irori" && c.text.contains(SHA))
     });
-    assert_eq!(co.get_task(&t.id).unwrap().state, coord::WORKING);
+    // Its holder on B is told to complete it; the card isn't completed for it.
+    wait_for(45, "the holder on B told", || {
+        b.core
+            .inbox()
+            .for_agent(&b.agent, true, 0)
+            .iter()
+            .any(|d| d.message.notice && d.message.text.contains("was merged"))
+    });
+    assert_eq!(cb.get_task(&t.id).unwrap().state, coord::WORKING);
+    let said = cb
+        .comments(&t.id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| c.by == "irori" && c.text.contains(SHA))
+        .count();
+    assert_eq!(said, 1);
 }
 
 #[test]
