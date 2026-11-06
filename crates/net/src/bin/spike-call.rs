@@ -354,15 +354,19 @@ fn pct(v: &mut [f64], p: f64) -> f64 {
     v[i]
 }
 
-/// The selected path's loss and congestion counters.
+/// Lost packets over the whole connection (every path, closed ones too),
+/// congestion events summed over the open paths, and the selected path's cwnd.
 fn path_counters(conn: &Connection) -> (u64, u64, u64) {
+    let lost = conn.stats().lost_packets;
+    let (mut cong, mut cwnd) = (0, 0);
     for p in conn.paths().iter() {
+        let s = p.stats();
+        cong += s.congestion_events;
         if p.is_selected() {
-            let s = p.stats();
-            return (s.lost_packets, s.congestion_events, s.cwnd);
+            cwnd = s.cwnd;
         }
     }
-    (0, 0, 0)
+    (lost, cong, cwnd)
 }
 
 /// Voice datagram bookkeeping, shared by both modes.
@@ -671,6 +675,40 @@ async fn share(o: &Opts, conn: &Connection, mode: &str, connect_ms: f64) -> Resu
     let mut first_direct: Option<f64> = None;
     let mut need_key = false;
     let hard_stop = start + Duration::from_secs(o.secs) + Duration::from_secs(15);
+    let (mut prev_lost, mut prev_cong) = (0u64, 0u64);
+    // One finished frame into the totals. A failed frame counts as late by its age.
+    let mut record = |f: &FrameDone| match f.ms {
+        None => {
+            f_failed += 1;
+            let age = f.sent.elapsed().as_secs_f64() * 1000.0;
+            if age > 500.0 {
+                late500 += 1;
+            }
+            if age > 1000.0 {
+                late1000 += 1;
+            }
+        }
+        Some(ms) => {
+            f_acked += 1;
+            acked_bytes += f.size as u64;
+            if ms > 500.0 {
+                late500 += 1;
+            }
+            if ms > 1000.0 {
+                late1000 += 1;
+            }
+            if f.key {
+                key_ms.push(ms)
+            } else {
+                delta_ms.push(ms)
+            }
+            let now = f.sent + Duration::from_secs_f64(ms / 1000.0);
+            // The wait before the first ack counts as a gap too.
+            let prev = last_ack.unwrap_or(start);
+            max_gap = max_gap.max(now.saturating_duration_since(prev).as_secs_f64() * 1000.0);
+            last_ack = Some(last_ack.map_or(now, |p| p.max(now)));
+        }
+    };
 
     loop {
         tokio::select! {
@@ -684,11 +722,13 @@ async fn share(o: &Opts, conn: &Connection, mode: &str, connect_ms: f64) -> Resu
             }
             _ = ftick.tick(), if fseq < frames => {
                 // A real encoder sends a keyframe after it had to skip one.
-                let key = fseq.is_multiple_of(gop) || need_key;
+                let scheduled = fseq.is_multiple_of(gop);
+                let key = scheduled || need_key;
                 fseq += 1;
                 if inflight.load(Ordering::Relaxed) >= max_inflight {
                     f_skipped += 1;
-                    if key { keys_skipped += 1; }
+                    // Keyframes the GOP called for, not each retry of an owed one.
+                    if scheduled { keys_skipped += 1; }
                     need_key = need_key || key;
                     continue;
                 }
@@ -705,23 +745,9 @@ async fn share(o: &Opts, conn: &Connection, mode: &str, connect_ms: f64) -> Resu
                 });
             }
             Some(f) = rx.recv() => {
-                match f.ms {
-                    None => f_failed += 1,
-                    Some(ms) => {
-                        f_acked += 1;
-                        acked_bytes += f.size as u64;
-                        sec_bytes += f.size as u64;
-                        sec_ms.push(ms);
-                        if ms > 500.0 { late500 += 1; }
-                        if ms > 1000.0 { late1000 += 1; }
-                        if f.key { key_ms.push(ms) } else { delta_ms.push(ms) }
-                        let now = f.sent + Duration::from_secs_f64(ms / 1000.0);
-                        if let Some(prev) = last_ack {
-                            max_gap = max_gap.max(now.saturating_duration_since(prev).as_secs_f64() * 1000.0);
-                        }
-                        last_ack = Some(last_ack.map_or(now, |p| p.max(now)));
-                    }
-                }
+                if f.ms.is_some() { sec_bytes += f.size as u64; }
+                if let Some(ms) = f.ms { sec_ms.push(ms); }
+                record(&f);
             }
             _ = sec.tick() => {
                 let (k, r) = kind_of(conn);
@@ -730,15 +756,17 @@ async fn share(o: &Opts, conn: &Connection, mode: &str, connect_ms: f64) -> Resu
                     first_direct = Some(start.elapsed().as_secs_f64());
                 }
                 if let Some(rtt) = r.rtt { path_rtts.push(rtt.as_secs_f64() * 1000.0); }
-                let (vp50, vp95, _, _) = v.second();
+                let (vp50, vp95, _, vloss) = v.second();
                 let mut m = std::mem::take(&mut sec_ms);
                 let (lost, cong, cwnd) = path_counters(conn);
                 println!(
-                    "t={:>3}s path={:<6} share {:>5.2} Mbps frames={:>2} p50={:>6.1} max={:>6.1}ms inflight={:>2} skipped={} | voice p50={:>6.1} p95={:>6.1}ms | lost_pkts={lost} cong={cong} cwnd={}KB via={}",
+                    "t={:>3}s path={:<6} share {:>5.2} Mbps frames={:>2} p50={:>6.1} max={:>6.1}ms inflight={:>2} skipped_total={} | voice p50={:>6.1} p95={:>6.1}ms loss={:>5.1}% | lost_pkts/s={} cong/s={} cwnd={}KB via={}",
                     start.elapsed().as_secs(), kind_now, sec_bytes as f64 * 8.0 / 1e6, m.len(),
                     pct(&mut m, 0.5), m.last().copied().unwrap_or(f64::NAN),
-                    inflight.load(Ordering::Relaxed), f_skipped, vp50, vp95, cwnd / 1000, r.remote,
+                    inflight.load(Ordering::Relaxed), f_skipped, vp50, vp95, vloss,
+                    lost.saturating_sub(prev_lost), cong.saturating_sub(prev_cong), cwnd / 1000, r.remote,
                 );
+                (prev_lost, prev_cong) = (lost, cong);
                 sec_bytes = 0;
                 let done_sending = fseq >= frames && vseq >= vtotal;
                 if (done_sending && inflight.load(Ordering::Relaxed) == 0
@@ -750,9 +778,27 @@ async fn share(o: &Opts, conn: &Connection, mode: &str, connect_ms: f64) -> Resu
             }
         }
     }
+    // Frames that finished after the last tick, then frames still stuck at a
+    // hard stop: those waited at least 13 s, so they count as late.
+    while let Ok(f) = rx.try_recv() {
+        record(&f);
+    }
+    let stuck = inflight.load(Ordering::Relaxed) as u64;
+    late500 += stuck;
+    late1000 += stuck;
+    // Measure to the end of sending at least, so a stall at the end shows in
+    // goodput and max_gap instead of vanishing after the last ack.
+    let send_end = start + Duration::from_secs(o.secs);
+    max_gap = max_gap.max(
+        send_end
+            .saturating_duration_since(last_ack.unwrap_or(start))
+            .as_secs_f64()
+            * 1000.0,
+    );
     let span = last_ack
-        .map(|l| l.duration_since(start).as_secs_f64())
-        .unwrap_or(f64::NAN);
+        .map_or(send_end, |l| l.max(send_end))
+        .duration_since(start)
+        .as_secs_f64();
     let (lost, cong, _) = path_counters(conn);
     println!(
         "SUMMARY label={:?} mode={mode}/share connect={connect_ms:.0}ms first_direct={} target={}kbps fps={} key={}KB/{}s frames sent={f_sent} acked={f_acked} failed={f_failed} skipped={f_skipped} (keys {keys_skipped}) still_in_flight={} goodput={:.2}Mbps frame ms delta p50={:.0} p95={:.0} p99={:.0} max={:.0} key p50={:.0} p95={:.0} max={:.0} late>500ms={late500} late>1s={late1000} max_gap={:.0}ms path_rtt p50={:.0}ms lost_pkts={lost} cong_events={cong} | voice {}",
