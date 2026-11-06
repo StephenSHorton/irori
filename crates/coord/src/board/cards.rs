@@ -1284,14 +1284,7 @@ impl Fold {
         let edge = opts.is_empty() || same_q.is_some_and(|i| t.blockers[i].options.is_empty());
         let mut nb = self.check_wait(bb.as_ref(), &t.id, edge)?;
         self.decider_default(by, t, &mut nb);
-        if let Some(i) = same_q
-            && t.state == BLOCKED
-            && (nb.is_none() && !reason_only || t.blockers[i].on == nb)
-            && !brings_new(&t.blockers[i], &links, &files)
-        {
-            return Ok((t.clone(), t.blockers[i].clone()));
-        }
-        // That row would rewrite the hold's `on` (card #570).
+        // Same words as the hold: a row would rewrite the hold's `on` (card #570).
         if let Some(i) = same_q
             && !t.blockers[i].later.is_empty()
         {
@@ -1300,6 +1293,13 @@ impl Fold {
                 t.short_ref(),
                 t.blockers[i].id
             )));
+        }
+        if let Some(i) = same_q
+            && t.state == BLOCKED
+            && (nb.is_none() && !reason_only || t.blockers[i].on == nb)
+            && !brings_new(&t.blockers[i], &links, &files)
+        {
+            return Ok((t.clone(), t.blockers[i].clone()));
         }
         if let Some(i) = same_q {
             let b = &t.blockers[i];
