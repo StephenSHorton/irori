@@ -18,7 +18,7 @@
 //! |---|---|
 //! | [`ticket`] | the link |
 //! | [`code`] | the invite room, the info, proofs, person proofs, words |
-//! | [`bundle`] | the Core's boards as the invite needs them, the bundle, admit and join |
+//! | [`bundle`] | the Core's boards as the invite needs them, the bundle, admit, rebuild, check_offer and join |
 //! | [`flow`] | the conversation, [`Host`] and [`Guest`] |
 //!
 //! Inviting is window-only, as adding a device is: the loopback API should

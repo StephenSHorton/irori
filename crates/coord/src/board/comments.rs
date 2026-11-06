@@ -1832,29 +1832,39 @@ impl Fold {
 }
 
 impl Fold {
-    /// On a card whose spawned agents crashed [`MAX_SPAWN_CRASHES`] times
-    /// in a row, stops its spawning by asking the person (§2 "Crash", card
+    /// On a card whose spawned agents crashed as many times in a row as
+    /// the crash limit allows, stops its spawning by asking the person (§2 "Crash", card
     /// #447): a card that kills its agent doesn't loop. Their answer puts
     /// it back on the Board (back_on_board) and clears the run, even one
-    /// sent as a resolve, as the window does (card #540).
+    /// sent as a resolve, as the window does (card #540). Only on the
+    /// device that hands the card out: the limit is each device's own
+    /// (#492) and the count is shared, so its number governs the card
+    /// wherever the agent ran, and the Core's sweep asks there (card #576).
     pub(crate) fn stop_crashed_spawns(&mut self, id: &str, now: &GoTime) -> Result<()> {
         let Some(t) = self.tasks.get(id).cloned() else {
             return Ok(());
         };
-        if t.spawn_crashes < super::spawn::MAX_SPAWN_CRASHES
+        let limit = self.crash_limit();
+        if t.spawn_crashes < limit
             || is_terminal(&t.state)
+            || !self.hands_out(&t)
             || t.blockers
                 .iter()
-                .any(|b| b.open() && b.question == super::spawn::CRASHED_QUESTION)
+                .any(|b| b.open() && super::spawn::is_crash_text(&b.question))
         {
             return Ok(());
         }
+        let last = match limit {
+            1 => "The last agent".to_string(),
+            2 => "The last two agents".to_string(),
+            n => format!("The last {n} agents"),
+        };
         self.raise_locked(
             SWEEPER,
             &t,
             "",
-            super::spawn::CRASHED_QUESTION,
-            "The last two agents started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief.",
+            &super::spawn::crash_question(limit),
+            &format!("{last} started for this card went away before finishing. Irori won't start another until you say so: start one, or say in your own words what to try, and it goes in the next agent's brief."),
             vec![BlockerOption {
                 answer: super::spawn::CRASHED_START.into(),
                 why: "A fresh agent picks it up from Where and Left off.".into(),

@@ -726,6 +726,11 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
       spawnNeed(q("Waiting for your permission: thyme is stopped on a prompt"))
     ).toBe("permission")
     expect(spawnNeed(q(CRASHED_QUESTION))).toBe("crashed")
+    // At another crash limit (card #576).
+    expect(spawnNeed(q("Its agent crashed: start another?"))).toBe("crashed")
+    expect(
+      spawnNeed(q("Its agent crashed 5 times in a row: start another?"))
+    ).toBe("crashed")
     expect(spawnNeed(q(GIVEN_QUESTION))).toBe("given")
     expect(spawnNeed(q("Ship today?"))).toBeNull()
   })

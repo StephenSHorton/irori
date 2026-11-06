@@ -48,6 +48,14 @@ impl BoardInfo {
     }
 }
 
+/// Someone this person can DM (card #538).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonInfo {
+    /// `person:<personId>`.
+    pub key: String,
+    pub name: String,
+}
+
 /// The shared boards this device holds (Go `core.Core`'s boards); the Core
 /// provides it.
 pub trait SharedBoards: Send + Sync {
@@ -74,6 +82,18 @@ pub trait SharedBoards: Send + Sync {
     /// own agents are in the roster already. The default is nobody.
     fn board_mentionables(&self, _board_id: &str) -> Vec<coord::roster::AgentCard> {
         Vec::new()
+    }
+    /// The people this person can DM (card #538): everyone active in a
+    /// space they're active in, hidden DM spaces aside. The default is
+    /// nobody.
+    fn dm_people(&self) -> Vec<PersonInfo> {
+        Vec::new()
+    }
+    /// What the DM with `other` (`person:<id>`) is waiting on:
+    /// [`crate::talk::WAITING_FOR_THEM`], [`crate::talk::WAITING_FOR_UPDATE`],
+    /// or "" when nothing is on its way to them.
+    fn dm_waiting(&self, _other: &str) -> &'static str {
+        ""
     }
 }
 

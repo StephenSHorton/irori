@@ -139,7 +139,7 @@ impl Invites {
 }
 
 /// The Core's boards as the invite needs them.
-struct CoreBoards(Weak<Services>);
+pub(super) struct CoreBoards(pub(super) Weak<Services>);
 
 impl CoreBoards {
     fn s(&self) -> Option<Arc<Services>> {
@@ -201,6 +201,12 @@ impl mesh::ownboards::OwnBoards for OwnBoardSecrets {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert((board_id.to_string(), maker.to_string()));
         }
+    }
+
+    /// A hidden DM space's secret goes as `dm.secret`, so an older device
+    /// of this person never opens its log (card #538).
+    fn is_dm(&self, board_id: &str) -> bool {
+        self.0.upgrade().is_some_and(|s| s.is_dm_space(board_id))
     }
 }
 

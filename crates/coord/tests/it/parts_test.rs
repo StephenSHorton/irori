@@ -471,15 +471,13 @@ fn an_unmarked_subtask_of_a_led_card_is_not_spawned() {
     assert!(ids(&e.c.cards_to_spawn()).contains(&made[0].id));
 }
 
-/// A led card split into `n` marked parts on a spawning board, with the
-/// card's own Up to N and the board's Agents per card.
-fn limited(agents: i64, board: Option<i64>, n: usize) -> (Env, Task, Vec<Task>) {
+/// A led card split into `n` marked parts on a spawning board.
+fn split_into(n: usize) -> (Env, Task, Vec<Task>) {
     use std::sync::Arc;
     let mut e = env();
     e.c = e.reopen_with(Options {
         done_check: true,
         spawning: Some(Arc::new(|| true)),
-        agents_per_card: board.map(|b| Arc::new(move || b) as Arc<dyn Fn() -> i64 + Send + Sync>),
         ..e.opts()
     });
     let p =
@@ -487,7 +485,6 @@ fn limited(agents: i64, board: Option<i64>, n: usize) -> (Env, Task, Vec<Task>) 
             USER,
             NewTask {
                 title: "big card".into(),
-                agents,
                 ..NewTask::default()
             },
         )
@@ -506,45 +503,66 @@ fn listed(e: &Env, made: &[Task]) -> usize {
     l.len()
 }
 
+/// A card has no limit of its own on its agents (card #576): every part
+/// waits for an agent, and the device's cap decides how many start.
 #[test]
-fn helpers_stay_within_the_cards_agent_limit() {
-    // The default 4: the lead and three helpers.
-    let (e, _, made) = limited(0, None, 5);
-    assert_eq!(listed(&e, &made), 3);
-    // Up to 2 on the card: one helper.
-    let (e, _, made) = limited(2, None, 3);
-    assert_eq!(listed(&e, &made), 1);
-    // 1: the lead works alone.
-    let (e, _, _) = limited(1, None, 2);
-    assert!(e.c.cards_to_spawn().is_empty());
-    // The board's Agents per card, unless the card says.
-    let (e, _, made) = limited(0, Some(3), 3);
-    assert_eq!(listed(&e, &made), 2);
-    let (e, p, made) = limited(3, Some(2), 3);
-    assert_eq!(listed(&e, &made), 2);
-    // A helper on a part takes a slot; the rest wait.
+fn a_cards_helpers_have_no_limit_of_their_own() {
+    let (e, _, made) = split_into(20);
+    assert_eq!(listed(&e, &made), 20);
+    // A part with a helper on it isn't listed; the rest still are.
     e.c.claim_task(HELPERS[0], &made[0].id).unwrap();
-    assert_eq!(listed(&e, &made), 1);
+    assert_eq!(listed(&e, &made), 19);
     assert!(!ids(&e.c.cards_to_spawn()).contains(&made[0].id));
-    // Its part done and accepted, the slot is free again.
-    e.c.claim_task(HELPERS[1], &made[1].id).unwrap();
-    assert!(e.c.cards_to_spawn().is_empty());
-    e.c.set_task_state(LEAD, &made[0].id, COMPLETED, "merged")
-        .unwrap();
-    assert_eq!(ids(&e.c.cards_to_spawn()), [made[2].id.clone()]);
-    assert_eq!(e.c.get_task(&p.id).unwrap().agents, 3);
 }
 
+/// The spawn queue's order (card #450, §6): what the person made or asked
+/// for, then a lead's helper parts, then agents' cards, each oldest first,
+/// whatever their age across the groups.
 #[test]
-fn up_to_n_is_checked() {
-    let e = env();
-    let r = e.c.create_task(
-        USER,
-        NewTask {
-            title: "x".into(),
-            agents: MAX_AGENTS_PER_CARD + 1,
-            ..NewTask::default()
-        },
-    );
-    want_err(r, ErrorKind::Invalid);
+fn the_spawn_queue_puts_the_persons_cards_then_helpers_then_the_rest() {
+    let (e, _, made) = split_into(2);
+    let at = |i: u64| {
+        e.clk.add(std::time::Duration::from_secs(i));
+    };
+    at(1);
+    let agents_card =
+        e.c.create_task(
+            "dev-a/some-agent",
+            NewTask {
+                title: "an agent's card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    at(1);
+    let mine =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "my card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    at(1);
+    let later_agents =
+        e.c.create_task(
+            "dev-a/some-agent",
+            NewTask {
+                title: "a later agent card".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    let mut want = vec![mine.id.clone()];
+    let mut parts: Vec<String> = made.iter().map(|k| k.id.clone()).collect();
+    parts.sort();
+    want.extend(parts);
+    want.push(agents_card.id.clone());
+    want.push(later_agents.id.clone());
+    assert_eq!(ids(&e.c.cards_to_spawn()), want);
+    // His "Start an agent" on an agent's card moves it to the front group.
+    e.c.spawn_now(&later_agents.id);
+    let l = ids(&e.c.cards_to_spawn());
+    assert_eq!(&l[..2], [mine.id.clone(), later_agents.id.clone()]);
 }

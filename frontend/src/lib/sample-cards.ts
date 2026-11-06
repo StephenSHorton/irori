@@ -461,6 +461,19 @@ export function sampleCards(now: Date): CardDetail[] {
             state: TaskState.Submitted,
             working: [],
             atCap: "Macbook Pro (this one)",
+            queuePlace: 1,
+            updatedAt: at(1),
+          }),
+          // Card #450: 2nd in the queue.
+          card({
+            id: "sample-card-spawn-queued",
+            short: "68",
+            title: "Tidy the settings copy",
+            goal: "Second in the queue.",
+            state: TaskState.Submitted,
+            working: [],
+            atCap: "Macbook Pro (this one)",
+            queuePlace: 2,
             updatedAt: at(1),
           }),
           // Card #456 (sa-7): Irori's own decisions on spawned cards.

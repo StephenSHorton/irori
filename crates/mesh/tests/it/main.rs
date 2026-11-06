@@ -5,6 +5,7 @@
 
 mod board_servers;
 mod common;
+mod dms;
 mod files;
 mod golden;
 mod servers;

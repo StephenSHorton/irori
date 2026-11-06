@@ -313,7 +313,8 @@ export function waitsOnTrust(c: CardSummary): boolean {
 // #456, sa-7). They must match the Rust constants word for word:
 // WAITING_PERMISSION in crates/core/src/service/spawn_waiting.rs (the
 // blocker reads "Waiting for your permission: <name> is stopped on a
-// prompt"), and CRASHED_QUESTION and GIVEN_QUESTION in
+// prompt"), and CRASHED_QUESTION (whose number follows the crash limit in
+// Settings › Agents, card #576) and GIVEN_QUESTION in
 // crates/coord/src/board/spawn.rs.
 export const WAITING_PERMISSION = "Waiting for your permission"
 export const CRASHED_QUESTION =
@@ -321,13 +322,14 @@ export const CRASHED_QUESTION =
 export const GIVEN_QUESTION = "OK to start an agent on this?"
 
 // spawnNeed says a card's decision is one of those: its agent stopped on
-// a permission prompt nobody is there to answer, or two agents in a row
-// went away before finishing, so Irori stopped starting them, or another
-// person gave them the card and Irori stopped to ask (card #573).
+// a permission prompt nobody is there to answer, or its agents kept going
+// away before finishing, so Irori stopped starting them, or another person
+// gave them the card and Irori stopped to ask (card #573).
 export function spawnNeed(c: CardSummary): "permission" | "crashed" | "given" | null {
   const q = c.blockerQuestion ?? ""
   if (q.startsWith(WAITING_PERMISSION)) return "permission"
-  if (q === CRASHED_QUESTION) return "crashed"
+  if (q.startsWith("Its agent crashed") && q.endsWith(": start another?"))
+    return "crashed"
   if (q === GIVEN_QUESTION) return "given"
   return null
 }

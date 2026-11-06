@@ -855,7 +855,7 @@ impl Fold {
                 let q = t.blockers[i].question.clone();
                 // A parent's state can't be set, so closing this is the
                 // person's say that clears its run of crashes (#451).
-                if person && q == super::spawn::CRASHED_QUESTION {
+                if person && super::spawn::is_crash_text(&q) {
                     t.spawn_crashes = 0;
                 }
                 t.blockers[i].resolved = Some(Resolution {
@@ -1581,7 +1581,7 @@ impl Fold {
         let Some(b) = t
             .blockers
             .iter()
-            .find(|b| b.open() && b.question == super::spawn::CRASHED_QUESTION)
+            .find(|b| b.open() && super::spawn::is_crash_text(&b.question))
             .filter(|_| self.is_owner(by))
         else {
             return Ok(false);

@@ -656,6 +656,7 @@ impl Fold {
     /// Ends t's ask once a task.status with an outcome (or the person's
     /// terminal state) folds at `at`.
     pub(crate) fn close_ask_fold(&mut self, t: &mut Task, o: Outcome, at: RowPos) {
+        self.links_moved = true;
         if let Some(a) = t.ask.as_mut() {
             a.outcome = Some(o);
             a.waiting.clear();

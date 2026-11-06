@@ -294,8 +294,15 @@ export const commands = {
 	 *  space, where its members see it (card #392); none is Personal.
 	 */
 	talkChannelCreate: (name: string, topic: string | null, spaceId: string | null) => __TAURI_INVOKE<string>("talk_channel_create", { name, topic, spaceId }),
-	/**  The person's DM with an agent, opened if new; returns its conv id. */
+	/**
+	 *  The person's DM with an agent or another person (card #538), opened if
+	 *  new; returns its conv id.
+	 */
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
+	/**  Everyone the person can DM (card #538). */
+	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**  Leaves a DM with another person (card #538). */
+	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
 	talkLeave: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_leave", { convId, member }),
 	termOpen: (scope: Scope, cols: number, rows: number, cwd: string | null) => __TAURI_INVOKE<TermInfo>("term_open", { scope, cols, rows, cwd }),
@@ -319,6 +326,18 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**
+	 *  Settings › Agents' caps per device, today's count and cost, and any
+	 *  usage-limit hold (card #450).
+	 */
+	agentsLimits: () => __TAURI_INVOKE<AgentsLimits>("agents_limits"),
+	/**  The person sets a device's cap: the app only, never a tool. */
+	agentsCapSet: (device: string, cap: number) => __TAURI_INVOKE<AgentsLimits>("agents_cap_set", { device, cap }),
+	/**
+	 *  The person ends this device's usage hold (card #576): the app only,
+	 *  never a tool.
+	 */
+	agentsUsageRelease: () => __TAURI_INVOKE<AgentsLimits>("agents_usage_release"),
 	/**
 	 *  The person's "Offer it cards" on one of their terminal agents (card
 	 *  #453): the app only, never a tool. Spawned agents are refused.
@@ -483,6 +502,31 @@ export type AgentsChange = {
 	model?: string | null,
 	effort?: string | null,
 	idleMins?: number | null,
+	crashLimit?: number | null,
+	startTries?: number | null,
+};
+
+/**
+ *  Settings › Agents' limits (card #450, sa-6): caps per device, today's
+ *  count and cost, and a usage-limit hold.
+ */
+export type AgentsLimits = {
+	devices: DeviceCap[],
+	/**  The highest cap offered. */
+	maxCap: number,
+	/**  Agents Irori started today for the private board, every device's. */
+	today: number,
+	/**  Of those, the ones on this device, which are costed. */
+	todayHere: number,
+	/**
+	 *  What today's agents here used, in dollars at API prices (on a Claude
+	 *  plan that is plan usage, not a bill).
+	 */
+	costUsd: number | null,
+	/**  While a Claude usage limit holds new spawns here: until when, in ms. */
+	heldUntil?: number | null,
+	/**  Cards queued here for a slot. */
+	queued: number,
 };
 
 /**  What Settings › Agents shows for one board. */
@@ -512,6 +556,16 @@ export type AgentsSettings = {
 	idleMins: number,
 	/**  The idle limits Settings › Agents offers, in minutes. */
 	idleChoices: number[],
+	/**
+	 *  How many of a card's agents may crash in a row before Irori stops
+	 *  and asks (card #576).
+	 */
+	crashLimit: number,
+	/**  How many failed starts in a row before Irori stops and asks. */
+	startTries: number,
+	/**  Their defaults, for the choices' labels. */
+	defaultCrashLimit: number,
+	defaultStartTries: number,
 };
 
 /**  Answer's reply: the card after the answer, and who heard. */
@@ -1179,6 +1233,16 @@ export type CardSummary = {
 	 *  offers Start an agent (card #573).
 	 */
 	givenNo?: boolean,
+	/**
+	 *  Its place in that device's spawn queue, from 1 (card #450): "queued:
+	 *  1st for the PC". 0 when it isn't queued.
+	 */
+	queuePlace?: number,
+	/**
+	 *  While a Claude usage limit holds spawns, when they start again
+	 *  (card #450): "queued: usage limit".
+	 */
+	usageLimit?: string | null,
 	/**  Where the card sits on the Board's canvas (card #93), once placed. */
 	pos?: CanvasPos | null,
 	/**
@@ -1486,6 +1550,23 @@ export type DeskView = {
 	poll: DeskPollView,
 	/**  Each PR in the snapshot: its author card and whether it is Outside. */
 	authors: DeskAuthorView[],
+};
+
+/**  One device's cap in Settings › Agents (card #450, sa-6). */
+export type DeviceCap = {
+	device: string,
+	/**  "<its own name> (this one)" or the other device's name. */
+	name: string,
+	here: boolean,
+	/**
+	 *  The cap: his pick, else its default (6 on a Windows PC, 12 on a
+	 *  Mac). 0 is his: that device starts none.
+	 */
+	cap: number,
+	/**  He picked it. */
+	chosen: boolean,
+	/**  Agents Irori started that run there now, and those starting. */
+	running: number,
 };
 
 /**  One device in the dialog. */
@@ -2217,6 +2298,12 @@ export type TalkConversation = {
 	 *  DMs and threads. Matches the switcher's space id (its first board's).
 	 */
 	spaceId?: string,
+	/**
+	 *  A DM with another person that hasn't reached them yet (card #538):
+	 *  `them` ("Waiting for Bob's Irori") or `update` ("Bob's Irori needs
+	 *  updating"). Absent otherwise. `name` is who they are.
+	 */
+	waiting?: string,
 };
 
 /**  One side of a conversation. */
@@ -2244,6 +2331,17 @@ export type TalkMemberRef = {
 	/**  `person` or `agent`. */
 	kind: string,
 	key: string,
+};
+
+/**  Someone the person can DM (card #538): the new-DM picker's people. */
+export type TalkPerson = {
+	/**  `person:<id>`, as talk_dm takes it with kind `person`. */
+	key: string,
+	name: string,
+	/**  Their own colour pick, "" for none. */
+	color: string,
+	/**  Their avatar, "" for none. */
+	avatar: string,
 };
 
 /**  One post. */
@@ -2401,6 +2499,14 @@ export type ThreadSummary = {
 	starting?: string,
 	/**  Why one couldn't start (the failed request's reason). */
 	cantStart?: string,
+	/**
+	 *  The device whose cap it waits on, with its place in that device's
+	 *  spawn queue (card #450): "queued: 2nd for the PC".
+	 */
+	atCap?: string,
+	queuePlace?: number,
+	/**  While a Claude usage limit holds spawns, when they start again. */
+	usageLimit?: string | null,
 };
 
 /**  Who an action's notice went to. */
