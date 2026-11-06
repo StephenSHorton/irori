@@ -8,16 +8,14 @@
 //! to the cards, while the why-line, asked from the test's thread, reads
 //! what the sweep would do.
 
-mod common;
-
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::thread::ThreadId;
 use std::time::Duration;
 
-use common::mesh::{Dev, Edit, person, person_with};
-use common::{Rig, wait_for};
+use crate::common::mesh::{Dev, Edit, person, person_with};
+use crate::common::{Rig, wait_for};
 use coord::{NewTask, Task};
 use irori_core::Options;
 use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};

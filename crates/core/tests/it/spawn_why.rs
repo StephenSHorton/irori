@@ -3,17 +3,16 @@
 //! works on shared-board cards. Real Cores: one for the private board's
 //! reasons, then two people on loopback iroh for a shared board's.
 
-mod common;
-
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::mesh::{invited, person, restart};
-use common::{Rig, wait_for};
+use crate::common::mesh::{invited, person, restart};
+use crate::common::{Rig, wait_for};
 use coord::{NewTask, SPAWN_FAILED, SpawnAsk, Task};
 use irori_core::spawn::{SpawnReq, SpawnSetting, SpawnStarted, Spawner};
 use irori_core::spawn_why::Why;
+use mesh::boardmesh::{KIND_BOARD_HELLO, SavedHello};
 
 const REPO: &str = "remote:github.com/stephen/api";
 
@@ -358,8 +357,8 @@ fn a_step_mark_on_a_held_card_says_to_split_it() {
 /// Stephen and Bob on one board, on real Cores. Bob's card asked about from
 /// Stephen's side is Bob's to start; Stephen's own card waits on his switch;
 /// an agent of Stephen's waiting on Bob's card is woken when it's done, and
-/// the wait never reaches Bob's device. Once Bob is away and Stephen has
-/// restarted, the board can't take a start until Bob has been heard.
+/// the wait never reaches Bob's device, nor the waiting agent his board.
+/// Once Bob's device is known to read no agent starts, the line names him.
 #[test]
 fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
     let mut st = person("stephen", 1);
@@ -443,19 +442,42 @@ fn a_shared_board_says_whose_card_and_wakes_a_waiter() {
             ..SpawnSetting::default()
         })
         .unwrap();
-    let mine_id = mine.id.clone();
+    let bob_device = b.core.device_id().to_string();
+    let (bob_person, bob_name) = (b.core.person().id, b.core.person().name);
     drop(sco);
     drop(bco);
     drop(b);
     std::thread::sleep(Duration::from_millis(500));
+    // What Stephen heard live from Bob wins over what was saved, so a
+    // restart, then Bob's device saved as reading no agent starts (an
+    // older Irori, as card #577 remembers it): the line names Bob.
     let s = restart(s);
     s.core.set_spawner(Some(idle_spawner()));
+    s.core
+        .board_store(&board)
+        .unwrap()
+        .append_local(
+            "irori",
+            KIND_BOARD_HELLO,
+            &SavedHello {
+                device_id: bob_device,
+                person_id: bob_person,
+                core_version: "0.10.2".into(),
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
     wait_for(60, "the board reads as not ready", || {
         matches!(
-            s.core.why_no_agent(&mine_id, true),
+            s.core.why_no_agent(&mine.id, true),
             Some(Why::OlderMember { .. })
         )
     });
+    match s.core.why_no_agent(&mine.id, true) {
+        Some(Why::OlderMember { people }) => assert_eq!(people, vec![bob_name]),
+        other => panic!("{other:?}"),
+    }
 }
 
 /// A card another of the person's devices made is that device's to start.
