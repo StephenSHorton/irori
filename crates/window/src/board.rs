@@ -419,6 +419,20 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person moves a card to another board in its space (card #563),
+    /// its subtasks along with it: it takes the next number there, and its
+    /// old ref still finds it. `board` is a board's id, the space's own or
+    /// [`irori_core::PERSONAL_BOARD`] for the default board.
+    pub fn move_card(&self, id: &str, board: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.move_task(&keys[0], id, trim(board))
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).

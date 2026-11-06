@@ -551,6 +551,12 @@ pub async fn board_delete(w: W<'_>, id: String) -> R<()> {
 
 #[tauri::command]
 #[specta::specta]
+pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.move_card(&id, &board).map(Typed::new)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn board_pin(w: W<'_>, id: String, pinned: bool) -> R<()> {
     w.pin(&id, pinned)
 }
@@ -800,6 +806,22 @@ pub async fn boards_rename_in_space(
     name: String,
 ) -> R<BoardSummary> {
     w.boards_rename_in_space(&space_id, &board_id, &name)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_delete_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+) -> R<BoardSummary> {
+    w.boards_delete_in_space(&space_id, &board_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_delete_in_personal(w: W<'_>, board_id: String) -> R<Vec<SpaceBoard>> {
+    w.boards_delete_in_personal(&board_id)
 }
 
 #[tauri::command]
@@ -1758,6 +1780,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_close_ask,
             board_close,
             board_delete,
+            board_move,
             board_pin,
             board_pause,
             board_not_yet,
@@ -1793,6 +1816,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_personal,
             boards_add_to_personal,
             boards_rename_in_personal,
+            boards_delete_in_space,
+            boards_delete_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,

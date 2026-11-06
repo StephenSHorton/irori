@@ -11,6 +11,7 @@ mod ask_spawn_test;
 mod ask_test;
 mod back_on_board_test;
 mod blocker_test;
+mod board_moves_test;
 mod board_numbers_test;
 mod board_test;
 mod boardlog_test;
