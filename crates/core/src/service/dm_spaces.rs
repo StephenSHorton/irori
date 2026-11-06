@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use gocompat::sub::Queue;
-use irori_identity::membership::{Membership, valid_pin};
+use irori_identity::membership::{MEMBER_LEFT, Membership, valid_pin};
 use irori_identity::objects::{ROLE_DESKTOP, verify_person};
 use irori_identity::{KeyProof, MemberDeviceAdded, MemberPin, verify_key_proof};
 use irori_invite::bundle::{self, Bundle, OfferFold};
@@ -79,6 +79,8 @@ pub(crate) struct Dms {
     tries: Mutex<HashSet<(String, String)>>,
     /// Two posts at once must not found two logs.
     found: Mutex<()>,
+    /// Offers sent, for tests: an offer carries the space's secret.
+    offers: std::sync::atomic::AtomicUsize,
 }
 
 impl Default for Dms {
@@ -87,6 +89,7 @@ impl Default for Dms {
             jobs: Arc::new(Queue::new(MAX_JOBS)),
             tries: Mutex::new(HashSet::new()),
             found: Mutex::new(()),
+            offers: Default::default(),
         }
     }
 }
@@ -616,9 +619,10 @@ impl Services {
     }
 
     /// Runs the hand-off of every space pending with `peer` (§2). Any
-    /// device of the founder that holds the secret may. Before the add it
-    /// asks; after it, the retry goes only to the pin's root and builds the
-    /// offer without writing.
+    /// device of the founder that holds the secret may. It asks; after the
+    /// add it asks only the pin's root, and the offer waits for that device
+    /// to prove its key again (`dm_on_pin`): a device id is only a claim,
+    /// and another space's owner can certify a device of theirs under it.
     fn dm_try(self: &Arc<Self>, via: &str, peer: &LivePeer) {
         if peer.dms < DMS_PROTOCOL || self.dm_via(via, &peer.person_id).is_err() {
             return;
@@ -637,11 +641,7 @@ impl Services {
             match m.person(&d.with) {
                 None => self.dm_send(via, &peer.device_id, &b.id, ASK, json!({})),
                 Some(p) if m.active(&d.with) && p.pin.root_device_id == peer.device_id => {
-                    let boards = CoreBoards(Arc::downgrade(self));
-                    match bundle::rebuild(&boards, &self.ident, &b.id, &d.with) {
-                        Ok(offer) => self.dm_send_offer(via, peer, &d, offer),
-                        Err(e) => logf(format_args!("board {}: dm offer: {e}", b.id)),
-                    }
+                    self.dm_send(via, &peer.device_id, &b.id, ASK, json!({}))
                 }
                 // On another device's pin, or gone from it: nothing to do.
                 Some(_) => {}
@@ -657,6 +657,9 @@ impl Services {
             return;
         };
         let body = json!({"bundle": offer, "proof": proof});
+        self.dms
+            .offers
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.dm_send(via, &peer.device_id, &id, OFFER, body);
     }
 
@@ -696,7 +699,18 @@ impl Services {
             None if live => return Err("that id is a space that isn't a DM".into()),
             _ => {}
         }
-        if !live && self.dm_live(other).len() >= MAX_DM_SPACES {
+        // A space `other` left doesn't count: it stays here with what's in
+        // it, but they can't write to it, and counting it would shut out a
+        // person who left four times.
+        let open = self
+            .dm_live(other)
+            .iter()
+            .filter(|(b, _)| {
+                let m = b.verifier.membership();
+                !m.person(other).is_some_and(|p| p.state == MEMBER_LEFT)
+            })
+            .count();
+        if !live && open >= MAX_DM_SPACES {
             return Err(format!(
                 "already {MAX_DM_SPACES} DM spaces with this person"
             ));
@@ -739,7 +753,10 @@ impl Services {
     }
 
     /// The founder, told a pin: checks it, writes `board.member.added` and
-    /// sends the offer. A second device's pin after the add changes nothing.
+    /// sends the offer. After the add, only a pin the added pin's own root
+    /// proves again, under the same key, gets the offer, rebuilt without
+    /// writing; a device id alone proves nothing. Any other pin changes
+    /// nothing.
     fn dm_on_pin(
         self: &Arc<Self>,
         s: &BoardLog,
@@ -752,7 +769,9 @@ impl Services {
             return Err("this DM space isn't with this person".into());
         }
         let b = self.board(id).map_err(|e| e.to_string())?;
-        if b.verifier.membership().person(&d.with).is_some() {
+        let m = b.verifier.membership();
+        let added = m.person(&d.with).map(|p| p.pin.clone());
+        if added.is_some() && (!m.active(&d.with) || Self::dm_counted(&b, &d.with)) {
             return Ok(());
         }
         let bad = "a pin frame that doesn't read";
@@ -768,6 +787,18 @@ impl Services {
             s.verifier.epoch(&d.with),
         )?;
         let boards = CoreBoards(Arc::downgrade(self));
+        if let Some(was) = added {
+            // The retry: the very pin the add wrote, proven again.
+            if was.root_device_id != pin.root_device_id
+                || was.person_epoch != pin.person_epoch
+                || was.person_pub != pin.person_pub
+            {
+                return Ok(());
+            }
+            let offer = bundle::rebuild(&boards, &self.ident, id, &d.with)?;
+            self.dm_send_offer(&s.id, peer, &d, offer);
+            return Ok(());
+        }
         let offer = bundle::admit(&boards, &self.ident, id, &pin, &Self::dm_name(s, &d.with))?;
         self.dm_send_offer(&s.id, peer, &d, offer);
         Ok(())
@@ -956,6 +987,13 @@ impl super::Core {
     #[doc(hidden)]
     pub fn dm_take_frame(&self, via: &str, peer: &LivePeer, frame: DmFrame) {
         self.s.dm_frame(via, peer, frame);
+    }
+
+    /// How many DM offers this device has sent (tests: each carries a
+    /// space's secret).
+    #[doc(hidden)]
+    pub fn dm_offers_sent(&self) -> usize {
+        self.s.dms.offers.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The rows of kind `kind` in space `id` (tests).

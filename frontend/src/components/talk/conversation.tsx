@@ -340,7 +340,9 @@ export function ConversationView({
                   ? "Nothing here yet. Agents wake only when you @-mention them; the rest read it at their next turn."
                   : conv.readOnly
                     ? "Nothing between them yet."
-                    : "Nothing yet. Every message here wakes the agent."}
+                    : person
+                      ? `Nothing yet. Only you and ${personName} can read this.`
+                      : "Nothing yet. Every message here wakes the agent."}
               </p>
             )}
             {posts.map((p, i) => {

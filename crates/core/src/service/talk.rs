@@ -78,7 +78,11 @@ impl Core {
     /// `me`'s DM with `key`, an agent or another person, opened if it's new
     /// ([`tools::talk::open_dm`]): the window's way in, with its refusals.
     pub fn talk_dm(&self, me: &str, key: &str) -> Result<String, String> {
-        tools::talk::open_dm(&self.talk_view(), me, key)
+        let id = tools::talk::open_dm(&self.talk_view(), me, key)?;
+        // A DM with another person opens as a draft, which writes no row:
+        // tell the window, so its list has it (card #538).
+        self.s.hub.publish(crate::events::CoreEvent::Talk);
+        Ok(id)
     }
 
     /// Everyone the person can DM (card #538), by name. Their keys are

@@ -79,12 +79,12 @@ export function convInSpace(
   space: string
 ): boolean {
   if (space === AllSpaces) return true
+  // As dmPerson (lib/conversations) tells one: people only, one of them
+  // another person by `person:<id>`.
   if (
     c.kind === "dm" &&
-    c.members?.some(
-      (m) =>
-        m.kind === "person" && m.key !== "user" && !m.key.startsWith("user:")
-    )
+    c.members?.every((m) => m.kind === "person") &&
+    c.members.some((m) => m.key.startsWith("person:"))
   )
     return true
   if (space === Personal) return !c.spaceId

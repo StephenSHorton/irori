@@ -2288,7 +2288,31 @@ fn a_hostile_owner_cant_read_or_forge_a_dm() {
         "cert": cert_by(b1, b1),
     });
     a1.core
+        .dm_take_frame(&board, &live(b1, &bob_id), frame(&id, "pin", good.clone()));
+    assert_eq!(a1.core.board_rows(&id, kinds::BOARD_MEMBER_ADDED).len(), 1);
+    let sent = a1.core.dm_offers_sent();
+    assert!(sent >= 1, "bob's pin got no offer");
+
+    // After the add, before Bob's `done`: her device claims Bob's own
+    // device id. A device id is only a claim, so the retry wants the key
+    // proven again, and nothing she can send proves it.
+    let mut at_bobs_id = live(m1, &bob_id);
+    at_bobs_id.device_id = b1.core.device_id().to_string();
+    let bobs_pin = b1.core.identity().board_pin();
+    for (proof, cert) in [
+        (proof_of(b1), cert_by(b1, b1)),
+        (proof_of(m1), cert_by(m1, m1)),
+        (proof_of(b1), cert_by(m1, m1)),
+    ] {
+        let body = serde_json::json!({"pin": bobs_pin, "proof": proof, "cert": cert});
+        a1.core
+            .dm_take_frame(&board, &at_bobs_id, frame(&id, "pin", body));
+    }
+    assert_eq!(a1.core.dm_offers_sent(), sent, "an impostor got the offer");
+    // Bob's own device, proving it again, gets the offer rebuilt.
+    a1.core
         .dm_take_frame(&board, &live(b1, &bob_id), frame(&id, "pin", good));
+    assert_eq!(a1.core.dm_offers_sent(), sent + 1, "the retry sent nothing");
     assert_eq!(a1.core.board_rows(&id, kinds::BOARD_MEMBER_ADDED).len(), 1);
 
     // A space M founded, Bob on it, offered with S saying M's device is

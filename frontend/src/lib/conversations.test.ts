@@ -178,6 +178,15 @@ describe("a DM with another person (card #538)", () => {
       members: [m("person", "user", "you"), m("agent", "api:a1", "A1")],
     })
     expect(dmPerson(agent)).toBeUndefined()
+    // A shared board's sender isn't a person DM's other side.
+    const sender = conv({
+      kind: "dm",
+      members: [
+        m("person", "user", "you"),
+        m("person", "board:b1/person:sam", "Sam"),
+      ],
+    })
+    expect(dmPerson(sender)).toBeUndefined()
     expect(
       dmPerson(conv({ kind: "channel", members: bob.members }))
     ).toBeUndefined()

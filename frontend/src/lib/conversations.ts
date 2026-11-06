@@ -54,9 +54,11 @@ export function listed(convs: readonly Conversation[]): {
 }
 
 // isOtherPerson is whether `m` is another person (card #538): their key is
-// `person:<id>`, where the person's own is `user` or `user:<device>`.
+// `person:<id>`, where the person's own is `user` or `user:<device>`. A
+// shared board's sender, `board:<id>/person:<id>`, isn't one: no DM with
+// it is a DM between two people.
 export function isOtherPerson(m: { kind: string; key: string }): boolean {
-  return m.kind === "person" && m.key !== "user" && !m.key.startsWith("user:")
+  return m.kind === "person" && m.key.startsWith("person:")
 }
 
 // dmPerson is the other person in a DM between two people (card #538), or
