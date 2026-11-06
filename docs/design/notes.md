@@ -59,6 +59,7 @@ A note is a short fact that an agent should know before it acts. It has these pa
   - every note tagged `everywhere`
 
   Each wake carries a few notes, about 8 at most, ranked by how specific the match is.
+- **The person's words ride along:** the same hook adds what the person said lately on the cards around the agent's, in a section of its own (card #555, `docs/design/spawned-agents.md` §2).
 - **More by search:** an agent can search notes for anything else, within the scopes it can read: Mine for the person's own agents, and the boards it is on.
 - **How notes are framed:** notes reach agents as data with who wrote and who accepted them, never as instructions. This matches how messages from other agents are framed today. On a shared board a note is something a teammate wrote, not the person's own word.
 

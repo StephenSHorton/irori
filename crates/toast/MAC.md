@@ -1,7 +1,8 @@
 # toast on macOS: what the Mac must compile and check
 
 `src/darwin.rs` (the AppKit cards) was written on the PC against the objc2
-sources in the cargo registry and has never been compiled. Everything else
+sources in the cargo registry; it now builds and passes clippy on the Mac
+(card #527). Everything else
 in the crate (model, layout, sounds, the shared `Engine` the Win32 side
 also drives) is platform-neutral and tested on the PC.
 
@@ -62,6 +63,34 @@ shows the settings' test card. With it up, check what go-toast's
   (`NSWindowSharingNone`);
 - a screen unplugged or a resolution change under a sticky card moves the
   stack (`NSApplicationDidChangeScreenParametersNotification`).
+
+## 2b. The look (card #527)
+
+Each panel's content view is a plain layer-backed view holding an
+`NSVisualEffectView` (BehindWindow, state Active since the panel is never
+key, material Popover) and, over it, the drawn `ToastView` (which takes the
+mouse). The blur is rounded with a cap-inset stretchable mask image, the
+`ToastView` layer with its corner radius. Glass paints the palette's tint at
+the look's opacity over the blur; solid (no glass, or "Reduce transparency")
+hides the blur and paints the opaque background. The panel's appearance is
+Aqua or Dark Aqua per the card. A restyle (theme, mode, radius, glass) on a
+card already up redoes all of it and invalidates the shadow.
+
+With the "system" scheme, `os_dark` reads the `AppleInterfaceStyle`
+default (not NSApp's appearance, which Tauri may pin to the app's mode);
+`AppleInterfaceThemeChangedNotification` (distributed, observed with
+DeliverImmediately: AppKit otherwise holds it while the app is inactive,
+which is when cards are up) queues syncs so cards flip at once.
+
+Check it: `IRORI_CARD_LOOK=<look.json>` applies a `notify::CardLook`;
+`IRORI_CARD_LOOK_DIR=<dir> test_card 20 cycle` restyles a sticky card
+through every `*.json` there every 2.5 s (`bun scripts/card-looks.ts <dir>`
+in `frontend/` writes one per theme and mode). `IRORI_CARD_SHOTS=<dir>`
+saves the screen's top-right corner after each look, captured from inside
+the process: its own windows need no Screen Recording grant, so this works
+where `screencapture` is refused (other apps' windows show as the desktop,
+which is what the glass blurs). Flip System Settings > Appearance while a
+`system` card is up: it follows within a second (checked on macOS 26.6).
 
 ## 3. Port the darwin smoke test
 

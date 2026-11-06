@@ -93,17 +93,44 @@ export function hexToOklch(hex: string): Oklch {
 
 // oklchToHex is the nearest sRGB "#rrggbb" (for the colour pickers).
 export function oklchToHex(x: Oklch): string {
+  return linearToHex(toLinear(x))
+}
+
+const encode = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)
+
+function linearToHex(rgb: Rgb): string {
+  return encodedToHex(rgb.map(encode) as Rgb)
+}
+
+function encodedToHex(rgb: Rgb): string {
   return (
     "#" +
-    toLinear(x)
-      .map((v) => {
-        const s = v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055
-        return Math.round(Math.min(1, Math.max(0, s)) * 255)
+    rgb
+      .map((s) =>
+        Math.round(Math.min(1, Math.max(0, s)) * 255)
           .toString(16)
           .padStart(2, "0")
-      })
+      )
       .join("")
   )
+}
+
+// mixHex flattens layers, bottom first, into one opaque "#rrggbb": each is
+// composited by its alpha over those below it; the first counts as opaque.
+// The notification cards (card #527) need plain colours: a native window
+// can't stack CSS layers. It blends in encoded sRGB, as the browser does
+// when it paints a translucent layer, so the result matches the window
+// (blending in linear light would make white 12% over a dark card read
+// about twice as bright as the app shows it).
+export function mixHex(...layers: [Oklch, ...Oklch[]]): string {
+  const enc = (x: Oklch) => toLinear(x).map(encode) as Rgb
+  let rgb = enc(layers[0])
+  for (const x of layers.slice(1)) {
+    const fg = enc(x)
+    const a = x.a ?? 1
+    rgb = rgb.map((b, i) => fg[i] * a + b * (1 - a)) as Rgb
+  }
+  return encodedToHex(rgb)
 }
 
 // ---- themes -------------------------------------------------------------
@@ -500,6 +527,17 @@ export function resolvedMode(m: ModeChoice): Mode {
 // preview's flags may have changed from the saved choice.
 let shown: Appearance | null = null
 
+// Told after every applyAppearance (card #527: main.tsx passes the look on
+// to the notification cards, so this file needn't know the host).
+const appliedListeners = new Set<(a: Appearance) => void>()
+
+// onAppearanceApplied calls fn after each applyAppearance; it returns the
+// unsubscribe.
+export function onAppearanceApplied(fn: (a: Appearance) => void): () => void {
+  appliedListeners.add(fn)
+  return () => appliedListeners.delete(fn)
+}
+
 // applyAppearance sets the page as index.html's script does.
 export function applyAppearance(a: Appearance) {
   shown = a
@@ -521,6 +559,7 @@ export function applyAppearance(a: Appearance) {
   } else {
     style?.remove()
   }
+  for (const fn of appliedListeners) fn(a)
 }
 
 // useAppearance is the saved choice and its setter; it follows the
