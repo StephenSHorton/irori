@@ -26,19 +26,6 @@ Vite runs as `node node_modules/vite/bin/vite.js --strictPort`
 (`scripts/preview-look.ts`), not `bunx vite`, which can exit silently in a
 worktree.
 
-## Several agents at once
-
-Port 9246 is often already held by another worktree's preview, and then your
-checks would look at someone else's code. Run your own on a free port from
-your worktree's `frontend/`, and leave 9246 alone:
-
-```sh
-node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 9247 --strictPort
-```
-
-(`bunx vite` can exit without a word, so call vite's own script.) Point the
-scripts below at it with `PREVIEW_URL=http://127.0.0.1:9247/`.
-
 ## Which browser
 
 Look at the preview with a headless Chrome or Edge on this machine

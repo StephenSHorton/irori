@@ -27,10 +27,10 @@ that has the details; read that rather than guessing.
 
 ## Browser preview
 
-- `bun run preview:look`'s port 9246 is often held by another worktree's
-  vite, so you'd be checking someone else's code. Run your own on a free port
-  and don't kill 9246. How, and how to check layout at phone width and in
-  WebKit: [frontend/PREVIEW.md](frontend/PREVIEW.md).
+- Run your own preview from your worktree (`bun run preview:look` takes the
+  first free port and the shot scripts shoot your checkout's), and never stop
+  another worktree's. Phone width, which browser, and WebKit:
+  [frontend/PREVIEW.md](frontend/PREVIEW.md).
 
 ## Scratch builds never touch the live app
 
