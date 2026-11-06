@@ -4039,6 +4039,7 @@ impl Services {
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
                     self.wake_desk_holder(repo_key, &v);
+                    self.post_desk(repo_key, &v);
                 }
                 wrote
             }
@@ -4049,6 +4050,175 @@ impl Services {
                 Err(e)
             }
         }
+    }
+
+    /// Irori's posts on each mapped PR's author card after a desk poll
+    /// (merge desk slice 6, card #420; [`crate::deskpost`]). What was
+    /// already said is read from the card's own Irori comments. A PR with
+    /// no card of ours yet (not ours, or a "PR #n" card made this pass)
+    /// waits for the next poll.
+    fn post_desk(&self, repo_key: &str, verdicts: &[(i64, crate::deskmap::Verdict)]) {
+        use crate::deskpost::{self, IRORI, Post};
+        let Some(desk) = self.coord.desk(repo_key) else {
+            return;
+        };
+        let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
+            return;
+        };
+        let (_, home) = self.desk_cards(false);
+        for (n, v) in verdicts {
+            let crate::deskmap::Verdict::Card(m) = v else {
+                continue;
+            };
+            let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
+                continue;
+            };
+            let co = home
+                .get(&m.task_id)
+                .cloned()
+                .unwrap_or_else(|| self.coord.clone());
+            let said: Vec<String> = co
+                .comments(&m.task_id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| c.by == IRORI)
+                .map(|c| c.text)
+                .collect();
+            let said: Vec<&str> = said.iter().map(String::as_str).collect();
+            for post in deskpost::due(p, &said) {
+                let (text, files) = if post == Post::ChecksFailed {
+                    let checks = match self.desk_lister.as_ref() {
+                        Some(l) => l.failed_checks(&repo, p.number).unwrap_or_else(|e| {
+                            logf(format_args!("desk: PR #{} checks: {e}", p.number));
+                            Vec::new()
+                        }),
+                        None => Vec::new(),
+                    };
+                    let files = self.desk_logs(p, &checks);
+                    (deskpost::failed_text(p, &checks, !files.is_empty()), files)
+                } else {
+                    (deskpost::text(post, p), Vec::new())
+                };
+                self.desk_post(&co, &m.task_id, p.number, &text, post.wakes(), files);
+            }
+        }
+    }
+
+    /// Puts one of Irori's posts on card `id` in `co`, and wakes its
+    /// holders when `wake`. When the card's board refuses Irori's comment,
+    /// its holders get the same text as an inbox notice instead, so the
+    /// author still hears it.
+    fn desk_post(
+        &self,
+        co: &Arc<Coord>,
+        id: &str,
+        pr: i64,
+        text: &str,
+        wake: bool,
+        files: Vec<coord::FileRef>,
+    ) {
+        let from = inbox::system_sender();
+        match co.add_comment_with(crate::deskpost::IRORI, id, text, wake, files) {
+            Ok((_, n)) => {
+                // Opened and pushed are the thread's record: nobody is told.
+                if wake && let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                }
+            }
+            Err(e) => {
+                logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                let Some(t) = co.get_task(id) else {
+                    return;
+                };
+                let to: Vec<String> = t
+                    .holders
+                    .iter()
+                    .chain(&t.co_holders)
+                    .filter(|h| !h.starts_with("user:") && *h != crate::deskpost::IRORI)
+                    .cloned()
+                    .collect();
+                if to.is_empty() {
+                    return;
+                }
+                let n = Notice {
+                    kind: coord::NOTICE_COMMENT.into(),
+                    task_id: id.into(),
+                    reference: format!("task:{id}"),
+                    title: t.title.clone(),
+                    to,
+                    by: crate::deskpost::IRORI.into(),
+                    text: format!(
+                        "Irori, about PR #{pr} on {} ({}); its board didn't take this as a comment:\n{text}",
+                        gocompat::quote::quote(&t.title),
+                        t.short_ref()
+                    ),
+                    wake,
+                    ..Notice::default()
+                };
+                if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} notice for {id}: {e}"));
+                }
+            }
+        }
+    }
+
+    /// The failing checks' full logs as files for the post, best effort:
+    /// a log that can't be stored is only left out.
+    fn desk_logs(
+        &self,
+        p: &coord::DeskPr,
+        checks: &[crate::deskpost::FailedCheck],
+    ) -> Vec<coord::FileRef> {
+        /// The most of one log kept: its end, where the failure is.
+        const MAX_LOG: usize = 1 << 20;
+        let head = crate::deskpost::short(&p.head_ref_oid);
+        let mut out = Vec::new();
+        for (i, c) in checks.iter().enumerate() {
+            if c.log.trim().is_empty() {
+                continue;
+            }
+            let log = c.log.as_bytes();
+            let log = &log[log.len().saturating_sub(MAX_LOG)..];
+            let tmp = std::env::temp_dir().join(format!(
+                "irori-desk-{}-{}-{head}-{i}.log",
+                self.device.id, p.number
+            ));
+            let r = std::fs::write(&tmp, log)
+                .map_err(|e| e.to_string())
+                .and_then(|_| {
+                    self.files
+                        .put_file(&tmp.to_string_lossy())
+                        .map_err(|e| e.to_string())
+                });
+            let _ = std::fs::remove_file(&tmp);
+            let mut r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                    continue;
+                }
+            };
+            let name: String = c
+                .name
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .take(60)
+                .collect();
+            r.name = blob::safe_name(&format!("pr-{}-{head}-{name}.log", p.number), &r.sha256);
+            r.device = self.device.id.clone();
+            if let Err(e) = self.mesh.node.offer(&r) {
+                logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                continue;
+            }
+            out.push(coord::FileRef {
+                sha256: r.sha256,
+                name: r.name,
+                size: r.size,
+                mime: r.mime,
+                device: r.device,
+            });
+        }
+        out
     }
 
     /// Waits on shared boards' cards (card #574): the wait is in this log

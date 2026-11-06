@@ -21,7 +21,7 @@ use coord::{DESK_LIMIT, DeskPr};
 use gocompat::time::GoTime;
 use serde::Serialize;
 
-use crate::prwatch::{gh_path, run_gh};
+use crate::prwatch::{gh_path, run_gh, run_gh_raw};
 
 /// How often the Core looks for desks that are due.
 pub const DESK_TICK: Duration = Duration::from_secs(30);
@@ -41,6 +41,16 @@ pub trait PrLister: Send + Sync {
     /// the desk trusts beside their agents (card #521). "" when unknown.
     fn viewer(&self) -> Result<String, String> {
         Ok(String::new())
+    }
+
+    /// PR `number`'s failing GitHub checks, each Actions job's failed log
+    /// fetched for the first [`crate::deskpost::MAX_LOGS`] (card #420).
+    fn failed_checks(
+        &self,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<Vec<crate::deskpost::FailedCheck>, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -84,6 +94,40 @@ impl PrLister for GhLister {
             "gh couldn't say who it is signed in as",
         )?;
         Ok(v["login"].as_str().unwrap_or_default().to_string())
+    }
+
+    /// `gh pr view <n> --json statusCheckRollup`, then `gh run view --job
+    /// <id> --log-failed` for each failing Actions job. A log gh can't give
+    /// is left out; the check is still named and linked.
+    fn failed_checks(
+        &self,
+        repo: &str,
+        number: i64,
+    ) -> Result<Vec<crate::deskpost::FailedCheck>, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let n = number.to_string();
+        let v = run_gh(
+            &gh,
+            &["pr", "view", &n, "--repo", repo, "--json", "statusCheckRollup"],
+            "gh couldn't read this PR's checks",
+        )?;
+        let mut checks = crate::deskpost::failing_checks(&v["statusCheckRollup"]);
+        for c in checks.iter_mut().take(crate::deskpost::MAX_LOGS) {
+            let Some(job) = crate::deskpost::actions_job(&c.url).map(str::to_string) else {
+                continue;
+            };
+            match run_gh_raw(
+                &gh,
+                &["run", "view", "--job", &job, "--repo", repo, "--log-failed"],
+                "gh couldn't fetch the job's log",
+            ) {
+                Ok(out) => c.log = String::from_utf8_lossy(&out).into_owned(),
+                Err(e) => crate::logf(format_args!("desk: PR #{number} job {job} log: {e}")),
+            }
+        }
+        Ok(checks)
     }
 }
 
@@ -134,21 +178,26 @@ pub fn checks_of(rollup: &serde_json::Value) -> String {
     };
     let mut pending = false;
     for c in items {
-        let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
-        // A CheckRun has status and conclusion; a StatusContext has state.
-        let (status, conclusion, state) = (up("status"), up("conclusion"), up("state"));
-        let failed = matches!(
-            conclusion.as_str(),
-            "FAILURE" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED" | "STARTUP_FAILURE"
-        ) || matches!(state.as_str(), "FAILURE" | "ERROR");
-        if failed {
+        if check_failed(c) {
             return "failure".into();
         }
+        let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
+        let (status, state) = (up("status"), up("state"));
         let running = (!status.is_empty() && status != "COMPLETED")
             || matches!(state.as_str(), "PENDING" | "EXPECTED");
         pending |= running;
     }
     if pending { "pending" } else { "success" }.into()
+}
+
+/// Whether one statusCheckRollup item failed. A CheckRun has status and
+/// conclusion; a StatusContext has state.
+pub fn check_failed(c: &serde_json::Value) -> bool {
+    let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
+    matches!(
+        up("conclusion").as_str(),
+        "FAILURE" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED" | "STARTUP_FAILURE"
+    ) || matches!(up("state").as_str(), "FAILURE" | "ERROR")
 }
 
 /// The wait before the next poll after `failures` failures in a row.

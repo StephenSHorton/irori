@@ -93,6 +93,12 @@ pub(crate) fn gh_path() -> Option<PathBuf> {
 /// timeout) and parses its JSON answer; a failure is `fail: <gh's first
 /// error line>`.
 pub(crate) fn run_gh(gh: &PathBuf, args: &[&str], fail: &str) -> Result<serde_json::Value, String> {
+    let out = run_gh_raw(gh, args, fail)?;
+    serde_json::from_slice(&out).map_err(|e| format!("gh's answer isn't JSON: {e}"))
+}
+
+/// [`run_gh`]'s answer as gh printed it: a log rather than JSON.
+pub(crate) fn run_gh_raw(gh: &PathBuf, args: &[&str], fail: &str) -> Result<Vec<u8>, String> {
     let mut cmd = Command::new(gh);
     #[cfg(windows)]
     {
@@ -146,7 +152,7 @@ pub(crate) fn run_gh(gh: &PathBuf, args: &[&str], fail: &str) -> Result<serde_js
             .unwrap_or("gh failed");
         return Err(format!("{fail}: {}", line.trim()));
     }
-    serde_json::from_slice(&out_stdout).map_err(|e| format!("gh's answer isn't JSON: {e}"))
+    Ok(out_stdout)
 }
 
 /// When each PR was last asked about, by `taskId\x00url`.
