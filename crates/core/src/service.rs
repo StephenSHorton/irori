@@ -475,11 +475,11 @@ impl tools::TaskRouter for ToolsView {
     fn private_notice(&self, n: Notice) -> Notice {
         self.0.private_notice(n)
     }
-    fn private_key(&self, key: &str) -> String {
-        self.0.private_key(key)
-    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error> {
         self.0.task_ref(r)
+    }
+    fn private_key(&self, key: &str) -> String {
+        self.0.private_key(key)
     }
     fn mirror_acquire(
         &self,
@@ -1156,6 +1156,22 @@ impl Core {
                         let cell = svc_cell.clone();
                         Arc::new(move |agent: &str| {
                             cell.get()?.upgrade()?.busy_outside(agent, None)
+                        })
+                    }),
+                    // Personal's boards (card #558), read from this log as
+                    // a space's are from its own.
+                    board_tag: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move |board: &str| {
+                            let st = st.upgrade()?;
+                            spaces::board_tag_in(&st, board)
+                        })
+                    }),
+                    board_tags: Some({
+                        let st = Arc::downgrade(&st);
+                        Arc::new(move || {
+                            st.upgrade()
+                                .map_or_else(Vec::new, |st| spaces::board_tags_in(&st))
                         })
                     }),
                     ..Default::default()

@@ -146,11 +146,13 @@ impl Core {
     }
 
     /// Links post `post_id` to the card made from it (card #390); false
-    /// when it already was.
+    /// when it already was. A card in the post's space links there, for its
+    /// members to see (card #558).
     pub fn talk_link_card(&self, post_id: &str, task_id: &str, by: &str) -> Result<bool, String> {
+        let log = self.s.route(task_id).map(|(id, _)| id).unwrap_or_default();
         self.s
             .talk
-            .link_card(post_id, task_id, by)
+            .link_card_in(post_id, task_id, by, &log)
             .map_err(|e| e.to_string())
     }
 

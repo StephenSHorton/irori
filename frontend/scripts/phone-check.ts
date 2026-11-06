@@ -57,6 +57,8 @@ const PAGES: Array<[name: string, query: string]> = [
   ["thread", "?thread=sample-thread-1"],
   ["boards", "?boards"],
   ["board-mlg", "#board/sample-board-mlg"],
+  ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
+  ["personal", "?space=personal#boards"],
   ["new-card", "?newcard"],
   ["done", "?filter=done"],
 ]

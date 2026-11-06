@@ -133,8 +133,8 @@ export function NotesPage({
       </div>
       <p className="max-w-3xl text-[13px] text-muted-foreground">
         {board
-          ? `Notes on ${scopeLabel} reach every member's agents once anyone on the board accepts them. Any member can edit or remove one.`
-          : "Mine stays on your devices and only your agents read it, even when a note is about a shared board. Agents get the few that match their card on wake."}
+          ? `Notes on ${scopeLabel} reach every member's agents once anyone in the space accepts them. Any member can edit or remove one.`
+          : "Mine stays on your devices and only your agents read it, even when a note is about a shared space. Agents get the few that match their card on wake."}
       </p>
       {error && (
         <p className="text-xs text-destructive">

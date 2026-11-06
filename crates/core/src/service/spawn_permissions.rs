@@ -93,7 +93,7 @@ pub struct Spawn {
     pub lead: bool,
 }
 
-pub const SHARED_BOARD: &str = "bypass is never used on a shared board";
+pub const SHARED_BOARD: &str = "bypass is never used in a shared space";
 pub const OTHERS_TEXT: &str = "bypass is never used when the brief has another person's text";
 
 /// The permissions for `spawn` under the board's `p`.

@@ -94,7 +94,7 @@ pub(crate) fn wait(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Err(e) => return map_err(e),
         };
         // A wait stays in the waiter's own log (card #574): on a shared
-        // board's card it holds what that log can't read.
+        // space's card it holds what that log can't read.
         let on_board = if std::sync::Arc::ptr_eq(&co, s.b.coord()) {
             None
         } else {

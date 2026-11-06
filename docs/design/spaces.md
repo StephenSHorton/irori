@@ -33,11 +33,17 @@ A space is a group of people that holds many boards and channels. v0.5 already h
 - `space.board.created {boardId, name, tag, by, at}` adds a board, and `space.board.renamed` renames one. The space's own board is implicit: its id is the spaceId, and its name and tag come from `board.created` and `board.renamed`.
 - Any active member may add a board, as any member may add a card.
 - `task.created` gains an optional `board` (a `space.board.created` id; empty means the space's own board). A card shows its board's tag (`net#5`).
-- **One numbering run per space.** The space's cards share one count, so `wind#4` and `net#5` never clash and the short-ref fold is unchanged. (The design said "per board"; this is simpler and loses nothing.)
-- Agents see each board in a space by its tag. `board_create board=net` puts the card on `net`, in the space's log.
-- The window lists a space's boards in `BoardSummary.boards`, own board first. The board page shows them as chips that filter its cards, and + Board adds one (`boards_add_to_space`). The space switcher (#393) builds on that list.
+- **Each board numbers its cards from 1** (card #558, decision 49). This replaces the one run per space this page first had. Numbers are still claimed in `task.created.num`, so no row changed; [spaces-boards.md](spaces-boards.md) §2 has the fold rules and how old refs keep resolving.
+- **Names:** the space's name is `board.created` + `board.renamed` (owner only). A first board keeps the space's name until a member renames it with `space.board.renamed {boardId: spaceId}`, and renaming a board never renames the space. Any active member renames a board, as any member adds one.
+- **Personal is a space with boards of its own:** private, nobody can be invited. Its `space.board.*` rows go in the private log, and its default board is implicit, so every card from before #558 stays on it as `#N`.
+- Agents see each board in a space by its tag. `board_create board=net` puts the card on `net`, in the space's log. The board tool prints each space once, with its boards under it.
+- The window opens every space on its boards. New card can go on any board of the space, a board opens as its own list, and its header renames it.
 
-**Edge, fixed by a restart:** if another member's card on a new board ever arrives before that board's `space.board.created` (two writers, different streams), it folds with the space's tag until the next refold. In practice the creating row arrives first: pulls go oldest first, and a writer on the new board already holds its row.
+**Late board rows:** if another member's card on a new board arrives before that board's `space.board.created`, it folds with the space's tag, and the board row stamps it again when it lands, so devices agree with no restart.
+
+**Hidden spaces** (#538's two-person DM spaces) show no boards and never get one: `is_hidden_space` is checked when listing a space's boards, adding one and making a card. It reads #538's private marker (`Services::is_dm_space`), never a tag or a name.
+
+Moving a card to another board and deleting a board are card #563 ([no-server.md](no-server.md) §3).
 
 ## 4. The version gate
 

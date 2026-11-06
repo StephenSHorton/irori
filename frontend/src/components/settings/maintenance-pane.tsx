@@ -9,7 +9,7 @@ export function MaintenancePane() {
       <section className="grid gap-2">
         <h3 className="text-sm font-medium text-ink">Clear done cards</h3>
         <p className="text-[12.5px] text-muted-foreground">
-          Cleared cards leave the app's lists, here and on your boards. They
+          Cleared cards leave the app's lists, here and in your spaces. They
           stay in Irori's log, so agents still find them with search and show.
           To clear or delete single cards, use Select on Closed.
         </p>

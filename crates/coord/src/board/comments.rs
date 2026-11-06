@@ -173,7 +173,7 @@ impl Fold {
                 // without a hook to the person's own, it could never close.
                 if self.on_board && self.device_version.is_none() {
                     return Err(invalid(
-                        "a version wait goes on a card on your own board; on a shared board, wait on external or the person",
+                        "a version wait goes on a private card; in a shared space, wait on external or the person",
                     ));
                 }
                 out.reference = self.check_version_wait(&out.reference)?;
@@ -371,7 +371,7 @@ impl Fold {
             return Err(not_allowed("only the person takes another member off"));
         }
         let Some(kp) = self.key_person.clone().filter(|_| self.on_board) else {
-            return Err(invalid("taking a member off is for a shared board"));
+            return Err(invalid("taking a member off is for a shared space"));
         };
         if person_id.is_empty() {
             return Ok(0);
@@ -422,7 +422,7 @@ impl Fold {
                         task_id: id.clone(),
                         state: SUBMITTED.into(),
                         note: format!(
-                            "{}: the person whose agent worked it left the board",
+                            "{}: the person whose agent worked it left the space",
                             super::fold::NOBODY_NOTE
                         ),
                         by: by.clone(),

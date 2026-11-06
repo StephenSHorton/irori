@@ -132,14 +132,14 @@ pub fn board_warnings(i: &BoardStatusInput) -> Vec<String> {
     let mut out = Vec::new();
     if i.my_state == MEMBER_REMOVED {
         out.push(
-            "You're no longer on this board: an owner removed you. What's here stays, and nothing you write counts."
+            "You're no longer in this space: an owner removed you. What's here stays, and nothing you write counts."
                 .into(),
         );
         return out;
     }
     if i.others && !i.connected && !i.home && i.settled {
         let tag = if i.tag.is_empty() {
-            "this board"
+            "this space"
         } else {
             &i.tag
         };
@@ -500,7 +500,7 @@ mod tests {
         i.heard = vec![heard("b1", "pBlake", "0.7.0", &[])];
         let w = board_warnings(&i);
         assert!(
-            w.len() == 1 && w[0].starts_with("You're no longer on this board"),
+            w.len() == 1 && w[0].starts_with("You're no longer in this space"),
             "{w:?}"
         );
     }

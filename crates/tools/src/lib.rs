@@ -134,13 +134,14 @@ pub trait TaskRouter: Send + Sync {
         keys: &[String],
     ) -> Result<(Arc<coord::Coord>, Vec<String>), coord::Error>;
     fn private_notice(&self, n: coord::Notice) -> coord::Notice;
-    /// A board key as this device knows it (the session key of one of the
-    /// person's cards), or `key` unchanged. Read only: unlike `task_coord`
-    /// with keys, it never puts an agent on a board (card #574).
-    fn private_key(&self, key: &str) -> String {
-        key.into()
-    }
     fn task_ref(&self, r: &str) -> Result<String, coord::Error>;
+    /// A key a shared log names as this device knows it (`agent:<cardId>`
+    /// of one of this person's agents, their `person:<id>`); any other key
+    /// as given. A read: it mints no card, unlike the keys
+    /// [`Self::task_coord`] gives.
+    fn private_key(&self, key: &str) -> String {
+        key.to_string()
+    }
     /// Mirrors an agent's lease into every shared board where it works a
     /// shared card in the resource's repo (v0.5 §5.4, `Coord::mirror_acquire`
     /// with its card there), before the private lease is taken. An error
@@ -174,7 +175,7 @@ pub trait TaskRouter: Send + Sync {
         let _ = (by, why);
         Err(coord::Error::new(
             coord::ErrorKind::NotFound,
-            format_args!("no shared board holds a lease on {resource}"),
+            format_args!("no shared space holds a lease on {resource}"),
         ))
     }
     /// The shared board's coord holding comment `id`, or `None` when no

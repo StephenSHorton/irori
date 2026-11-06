@@ -1089,7 +1089,8 @@ pub struct NewAsk {
     /// or handed it; the agents it names hear it at their next turn.
     pub quiet: bool,
     /// A thread started from a message in this Talk channel (its `ch_` id,
-    /// card #454); private log only.
+    /// card #454). On a space's log, one of that space's channels (card
+    /// #558).
     pub channel: String,
 }
 

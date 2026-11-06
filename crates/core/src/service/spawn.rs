@@ -1606,6 +1606,12 @@ impl Services {
             .as_ref()
             .filter(|a| !a.channel.is_empty())
             .and_then(|a| self.talk.channel(&a.channel))
+            // A space's row names only that space's channels (card #558): a
+            // member can't pull this person's other channels into a brief.
+            .filter(|c| {
+                self.route(&t.id)
+                    .is_ok_and(|(log, _)| log.is_empty() || log == c.space_id)
+            })
         {
             push(c, &mut out);
         }

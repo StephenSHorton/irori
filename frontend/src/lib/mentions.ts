@@ -537,7 +537,12 @@ export type RefHit = { kind: "card" | "thread"; id: string; title: string } | nu
 export function localRef(
   r: CardRef,
   cards: readonly { id: string; short: string; title: string; tag?: string }[],
-  threads: readonly { id: string; short: string; title: string }[]
+  threads: readonly {
+    id: string
+    short: string
+    title: string
+    spaceId?: string
+  }[]
 ): RefHit {
   const c = cards.filter(
     (x) => x.short === r.n && (r.tag === null || (x.tag ?? "") === r.tag)
@@ -545,7 +550,9 @@ export function localRef(
   if (c.length === 1 && (r.tag !== null || !c[0].tag))
     return { kind: "card", id: c[0].id, title: c[0].title }
   if (c.length > 0 || r.tag !== null) return null
-  const t = threads.filter((x) => x.short === r.n)
+  // A space's thread numbers in its own log, so a bare ref is the backend's
+  // to read across them (card #558).
+  const t = threads.filter((x) => x.short === r.n && !x.spaceId)
   if (t.length === 1) return { kind: "thread", id: t[0].id, title: t[0].title }
   return null
 }

@@ -369,7 +369,7 @@ impl tools::SharedBoards for TwoSpaces {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {
@@ -478,7 +478,7 @@ fn a_channel_name_resolves_in_its_space_only() {
         &a,
         "talk_read",
         json!({"conv": "#general", "space": "nope"}),
-        &["no shared board"],
+        &["in a shared space"],
     );
 
     // talk_list tells the three #generals apart.
@@ -494,7 +494,7 @@ fn a_channel_name_resolves_in_its_space_only() {
 
 /// Each channel in the list carries its space (card #461), so the window's
 /// switcher can filter Talk: empty for Personal, the space's id otherwise;
-/// a DM and a thread are always Personal's.
+/// a DM and a private log's thread are Personal's.
 #[test]
 fn conversations_carry_their_space() {
     let h = new_harness_setup(None, |b, _| {
@@ -566,7 +566,7 @@ impl tools::SharedBoards for OddSpaces {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {
@@ -666,7 +666,7 @@ impl tools::SharedBoards for BobsSpace {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {
@@ -712,7 +712,7 @@ fn a_space_channel_mention_names_the_other_persons_agent_by_board_key() {
         "talk_post",
         json!({"conv": mlg.id, "text": "@bobbot @Bob is rollback ready?"}),
     );
-    has(&out, &["bobbot (on the space)", "Bob (on the space)"]);
+    has(&out, &["bobbot (in the space)", "Bob (in the space)"]);
     has_not(&out, &["Not delivered"]);
     let ps = t.posts(&mlg.id);
     let last = ps.last().unwrap();
@@ -823,7 +823,7 @@ fn a_space_channel_name_tie_names_this_persons_own_agent() {
         "talk_post",
         json!({"conv": mlg.id, "text": "@beta over to you", "mention": ["agent:cBeta"]}),
     );
-    has(&out, &["(on the space)"]);
+    has(&out, &["(in the space)"]);
     let last = t.posts(&mlg.id).pop().unwrap();
     assert_eq!(last.mentions, vec!["agent:cBeta".to_string()], "{last:?}");
 }
@@ -1213,7 +1213,7 @@ impl tools::SharedBoards for Shared {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {

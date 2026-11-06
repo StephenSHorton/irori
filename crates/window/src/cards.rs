@@ -145,6 +145,9 @@ pub struct CardHolder {
 pub struct CardRef {
     pub id: String,
     pub short: String,
+    /// Its board's tag: numbers are per board (card #558), so `short` alone
+    /// doesn't name it. "": Personal's default board.
+    pub tag: String,
     pub title: String,
 }
 
@@ -216,9 +219,16 @@ pub struct CardSummary {
     pub repo_key: String,
     pub scope: String,
     pub scope_label: String,
+    /// The space it's in, by id (the space's first board has this id too).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub board: String,
+    /// The board in that space it's on (card #558): the space's id for the
+    /// first board, or a board this device hasn't heard of yet. Personal's
+    /// default is [`irori_core::PERSONAL_BOARD`], `board` staying empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub space_board: String,
     /// The work/personal side it's on (card #494); empty for any side.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
@@ -534,6 +544,8 @@ fn is_zero_f(n: &f64) -> bool {
 pub struct CardSubtask {
     pub id: String,
     pub short: String,
+    /// As [`CardRef::tag`].
+    pub tag: String,
     pub title: String,
     #[specta(type = ts::TaskState)]
     pub state: String,
@@ -832,9 +844,13 @@ pub struct CardMessage {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CardBoard {
+    /// The space's id.
     pub id: String,
     pub name: String,
+    /// The tag of the board it's on, which is the card's.
     pub tag: String,
+    /// The board in the space it's on (see [`CardSummary::space_board`]).
+    pub space_board: String,
     pub visible_to: Vec<String>,
     pub can_withdraw: bool,
     /// Card #432: Transfer ownership… is offered (the owner hands it to
@@ -1252,7 +1268,7 @@ impl People {
                     status: if person { "person" } else { "unknown" }.into(),
                     live: person,
                     where_: if person {
-                        "On the board".into()
+                        "In the space".into()
                     } else {
                         "Another person's agent".into()
                     },
@@ -1312,7 +1328,7 @@ impl People {
                 },
                 status: "person".into(),
                 live: true,
-                where_: "On the board".into(),
+                where_: "In the space".into(),
                 color: key
                     .strip_prefix(store::kinds::PERSON_ACTOR_PREFIX)
                     .and_then(|pid| self.others.get(pid))
@@ -1507,6 +1523,15 @@ fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String {
     irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
+/// Where card `t` of space `s` sits: its tag (a card folded with none has
+/// the space's) and the board in the space it's on (card #558).
+pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, String) {
+    let tag = if t.tag.is_empty() { &s.tag } else { &t.tag };
+    let known = s.boards.iter().any(|b| b.board_id == t.board);
+    let board = if known { &t.board } else { &s.board_id };
+    (tag.clone(), board.clone())
+}
+
 /// The spawn queue's words for card t (card #450): a usage-limit hold
 /// first, then its place.
 fn queue_line(s: &mut CardSummary, t: &Task, p: &People) {
@@ -1550,6 +1575,14 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         title: t.title.clone(),
         state: coord::effective_state(t).to_string(),
         repo_key: t.repo_key.clone(),
+        // Off a space, where `card_place` sets these again: no tag is
+        // Personal's default, or a board not heard of yet.
+        tag: t.tag.clone(),
+        space_board: if t.tag.is_empty() {
+            irori_core::PERSONAL_BOARD.into()
+        } else {
+            t.board.clone()
+        },
         side: t.side.clone(),
         side_wait: t.side_wait.clone(),
         scope: SCOPE_MINE.into(),
@@ -2192,7 +2225,7 @@ impl Window {
                     s.scope = crate::boards::SCOPE_BOARD.into();
                     s.scope_label = b.name.clone();
                     s.board = b.board_id.clone();
-                    s.tag = b.tag.clone();
+                    (s.tag, s.space_board) = card_place(&t, b);
                     self.board_owner(&b.board_id, &t, &mut s);
                     s
                 }
@@ -2281,7 +2314,7 @@ impl Window {
                 cs.scope = crate::boards::SCOPE_BOARD.into();
                 cs.scope_label = s.name.clone();
                 cs.board = s.board_id.clone();
-                cs.tag = s.tag.clone();
+                (cs.tag, cs.space_board) = card_place(&t, &s);
                 self.board_owner(&s.board_id, &t, &mut cs);
                 let mut last = t.updated_at;
                 if let Some(acts) = co.activity(&t.id)
@@ -2378,6 +2411,7 @@ impl Window {
             d.subtask_list.push(CardSubtask {
                 id: k.id.clone(),
                 short: k.short.clone(),
+                tag: k.tag.clone(),
                 title: k.title.clone(),
                 state: ks.state.clone(),
                 holder: ks.holder.clone(),
@@ -3125,6 +3159,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
             co.get_task(id).map(|k| CardRef {
                 id: k.id.clone(),
                 short: k.short.clone(),
+                tag: k.tag.clone(),
                 title: k.title.clone(),
             })
         };
@@ -3150,6 +3185,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
         s.parent = Some(CardRef {
             id: pt.id.clone(),
             short: pt.short.clone(),
+            tag: pt.tag.clone(),
             title: pt.title.clone(),
         });
     }
@@ -3159,6 +3195,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
         s.from_thread = Some(CardRef {
             id: th.id.clone(),
             short: th.short.clone(),
+            tag: th.tag.clone(),
             title: th.title.clone(),
         });
     }

@@ -82,9 +82,9 @@ export function AgentsPane({ open }: { open: boolean }) {
                   id={`${id}-hint`}
                   className="text-xs text-muted-foreground"
                 >
-                  On your own board, Irori starts a fresh agent for every card
-                  you post instead of waiting for a free one, and ends it when
-                  the card is done.
+                  In Personal, Irori starts a fresh agent for every card you
+                  post instead of waiting for a free one, and ends it when the
+                  card is done.
                 </span>
               </span>
               <Switch
@@ -598,8 +598,8 @@ function AgentsShape() {
         <span className="flex flex-col">
           <span className="text-ink">Start an agent for each card</span>
           <span className="text-xs text-muted-foreground">
-            On your own board, Irori starts a fresh agent for every card you
-            post instead of waiting for a free one, and ends it when the card is
+            In Personal, Irori starts a fresh agent for every card you post
+            instead of waiting for a free one, and ends it when the card is
             done.
           </span>
         </span>

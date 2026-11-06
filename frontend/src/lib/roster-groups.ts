@@ -12,6 +12,7 @@ type Agent = { key: string; status: string; deviceState?: string | null }
 type Card = {
   id: string
   short: string
+  tag?: string
   title: string
   working: { key: string; spawned?: boolean; status: string }[]
   starting?: string
@@ -28,6 +29,7 @@ type Card = {
 export type OnCard<A> = {
   cardId: string
   short: string
+  tag?: string
   title: string
   agents: A[]
 }
@@ -83,6 +85,7 @@ export function rosterGroups<A extends Agent>(
       onCards.push({
         cardId: c.id,
         short: c.short,
+        tag: c.tag,
         title: c.title,
         agents: here,
       })
