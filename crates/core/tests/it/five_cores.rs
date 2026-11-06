@@ -2346,7 +2346,27 @@ fn nothing_of_a_dm_space_shows_anywhere() {
 
     let co = b1.core.board_coord(&id).unwrap();
     let bob_key = b1.person_actor();
-    let card = co.create_task(&bob_key, new_task("HIDDEN card")).unwrap();
+    // A hidden space takes no card from this device (card #558), so the
+    // card comes as a raw row, as an older or hostile device would send it.
+    let now = gocompat::time::GoTime::from_system(std::time::SystemTime::now());
+    let card = coord::rows::TaskCreatedRow {
+        task_id: coord::new_id(&now),
+        num: 1,
+        title: "HIDDEN card".into(),
+        by: bob_key.clone(),
+        at: now,
+        ..Default::default()
+    };
+    assert!(co.create_task(&bob_key, new_task("refused")).is_err());
+    b1.core
+        .board_store(&id)
+        .unwrap()
+        .append(&bob_key, kinds::TASK_CREATED, &card)
+        .unwrap();
+    let card = coord::Task {
+        id: card.task_id,
+        ..Default::default()
+    };
     let (ask, _) = b1
         .core
         .board_ask(
@@ -2381,7 +2401,11 @@ fn nothing_of_a_dm_space_shows_anywhere() {
         card_on(a1, &id, &card.id).is_some()
             && card_on(a1, &id, &ask.id).is_some()
             && !a1.core.board_rows(&id, kinds::AGENT_CARD).is_empty()
-            && a1.core.space_boards(&id).is_ok_and(|bs| bs.len() == 2)
+            && !a1
+                .core
+                .board_rows(&id, kinds::SPACE_BOARD_CREATED)
+                .is_empty()
+            && a1.core.space_boards(&id).is_ok_and(|bs| bs.is_empty())
             && !a1.core.board_coord(&id).unwrap().notes(false).is_empty()
     });
 
