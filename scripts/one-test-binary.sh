@@ -23,5 +23,14 @@ for dir in crates/*/tests app/tests; do
       bad=1
     fi
   done
+  # A file main.rs doesn't name never compiles, so its tests never run.
+  for f in "$dir"/it/*.rs; do
+    [ -e "$f" ] || continue
+    m="$(basename "$f" .rs)"
+    [ "$m" = main ] || grep -qx "mod $m;" "$dir/it/main.rs" || {
+      echo "one-test-binary: add \`mod $m;\` to $dir/it/main.rs" >&2
+      bad=1
+    }
+  done
 done
 exit "$bad"
