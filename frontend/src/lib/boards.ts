@@ -4,12 +4,20 @@
 // here, never from src/gen. In a plain browser it runs on two sample
 // boards, and sharing moves a sample card onto one.
 
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
 import { BoardSettings, BoardSummary, InviteStatus, SharePreview, type SummaryMember } from "./models"
-import { sampleShare, sampleTransferOwner, sampleWithdraw, samplePreview, setSampleBoards } from "./cards"
+import {
+  sampleShare,
+  sampleTransferOwner,
+  sampleWithdraw,
+  samplePreview,
+  setSampleBoards,
+  setSamplePersonal,
+} from "./cards"
 import { inWails, relativeTime } from "./irori"
+import { Personal } from "./spaces"
 import { errorText } from "./talk"
 
 export { BoardSettings, BoardSummary, InviteStatus, SharePreview }
@@ -197,6 +205,14 @@ export function sampleBoard(id: string): BoardSummary | undefined {
 
 setSampleBoards(sampleBoard)
 
+// Personal's boards on the sample (card #558), its default first.
+let samplePersonal: SpaceBoard[] = [
+  { boardId: Personal, name: "Personal", tag: "" },
+  { boardId: "sample-personal-home", name: "House", tag: "home" },
+]
+
+setSamplePersonal((id) => samplePersonal.find((x) => x.boardId === id))
+
 const sampleSettings: Record<string, BoardSettings> = {}
 
 // The sample invite: Invite waits for a guest that never comes; Join with
@@ -255,6 +271,51 @@ export const boards = {
     b.pinned = pinned
     b.pinRank = pinned ? top + 1 : 0
     sampleMoved()
+  },
+
+  // renameInSpace renames one board of a space, its first too (card #558):
+  // any member may, and the space keeps its own name.
+  async renameInSpace(spaceId: string, boardId: string, name: string): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.RenameInSpace(spaceId, boardId, name)
+    const b = sampleFind(spaceId)
+    const n = name.trim()
+    if (!n || n.length > MaxBoardName)
+      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+    if (!b.boards.length) b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+    b.boards = b.boards.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+    sampleMoved()
+    return b
+  },
+
+  // personal is Personal's boards, its default first (card #558): the
+  // person's own log holds them, so no BoardSummary does.
+  async personal(): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.Personal()) ?? []
+    return samplePersonal.map((x) => ({ ...x }))
+  },
+
+  async addToPersonal(name: string, tag: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.AddToPersonal(name, tag)) ?? []
+    const t = tag.trim().toLowerCase()
+    if (!validTag(t))
+      throw new Error(
+        "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
+      )
+    if (samplePersonal.some((x) => x.tag === t) || boardsState().some((x) => x.tag === t))
+      throw new Error(`core: the tag "${t}" is already a board's`)
+    samplePersonal = [...samplePersonal, { boardId: `sample-personal-${t}`, name: name.trim(), tag: t }]
+    sampleMoved()
+    return boards.personal()
+  },
+
+  async renameInPersonal(boardId: string, name: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.RenameInPersonal(boardId, name)) ?? []
+    const n = name.trim()
+    if (!n || n.length > MaxBoardName)
+      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
+    samplePersonal = samplePersonal.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+    sampleMoved()
+    return boards.personal()
   },
 
   // addToSpace puts another board in space `spaceId` (card #392): one
@@ -560,6 +621,32 @@ export function useBoards(): {
 } {
   const { boards: value, error } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
   return { boards: value, error, reload: reloadBoards }
+}
+
+// usePersonalBoards reads Personal's boards, and again when they may have
+// moved: added here, or on another of the person's devices.
+export function usePersonalBoards(): {
+  boards: SpaceBoard[]
+  error: string | null
+  reload: () => Promise<void>
+} {
+  const [state, setState] = useState<{ boards: SpaceBoard[]; error: string | null }>({
+    boards: [],
+    error: null,
+  })
+  const reload = useCallback(async () => {
+    try {
+      const list = await boards.personal()
+      setState({ boards: list, error: null })
+    } catch (err) {
+      setState((s) => ({ ...s, error: errorText(err) }))
+    }
+  }, [])
+  useEffect(() => {
+    void reload()
+    return onBoardsMoved(() => void reload())
+  }, [reload])
+  return { ...state, reload }
 }
 
 // useInvite follows the open (or last) invite while active. An invite that

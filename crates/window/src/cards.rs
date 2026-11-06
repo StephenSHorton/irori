@@ -141,6 +141,9 @@ pub struct CardHolder {
 pub struct CardRef {
     pub id: String,
     pub short: String,
+    /// Its board's tag: numbers are per board (card #558), so `short` alone
+    /// doesn't name it. "": Personal's default board.
+    pub tag: String,
     pub title: String,
 }
 
@@ -516,6 +519,8 @@ fn is_zero_f(n: &f64) -> bool {
 pub struct CardSubtask {
     pub id: String,
     pub short: String,
+    /// As [`CardRef::tag`].
+    pub tag: String,
     pub title: String,
     #[specta(type = ts::TaskState)]
     pub state: String,
@@ -2320,6 +2325,7 @@ impl Window {
             d.subtask_list.push(CardSubtask {
                 id: k.id.clone(),
                 short: k.short.clone(),
+                tag: k.tag.clone(),
                 title: k.title.clone(),
                 state: ks.state.clone(),
                 holder: ks.holder.clone(),
@@ -3052,6 +3058,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
             co.get_task(id).map(|k| CardRef {
                 id: k.id.clone(),
                 short: k.short.clone(),
+                tag: k.tag.clone(),
                 title: k.title.clone(),
             })
         };
@@ -3077,6 +3084,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
         s.parent = Some(CardRef {
             id: pt.id.clone(),
             short: pt.short.clone(),
+            tag: pt.tag.clone(),
             title: pt.title.clone(),
         });
     }
@@ -3086,6 +3094,7 @@ fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
         s.from_thread = Some(CardRef {
             id: th.id.clone(),
             short: th.short.clone(),
+            tag: th.tag.clone(),
             title: th.title.clone(),
         });
     }

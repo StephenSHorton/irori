@@ -784,6 +784,12 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
   sampleBoardOf = fn
 }
 
+// samplePersonalOf finds one of Personal's sample boards, the same way.
+let samplePersonalOf: (id: string) => { boardId: string; tag: string } | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => { boardId: string; tag: string } | undefined) {
+  samplePersonalOf = fn
+}
+
 // sampleCreate is BoardService.Create on the sample: a new open card,
 // handed to the agent picked or to sample-heron (the free one).
 function sampleCreate(input: NewCardInput): TaskResult {
@@ -791,28 +797,38 @@ function sampleCreate(input: NewCardInput): TaskResult {
   if (!title) throw new Error("coord: invalid input: give the card a title")
   const now = new Date().toISOString()
   const cs = sampleState()
-  const top = Math.max(0, ...cs.map((c) => parseInt(c.short, 10) || 0))
   // From a board's page (card #126): on that board, unheld unless picked.
   const board = input.board ? sampleBoardOf(input.board) : undefined
+  // The list it was made from (card #558), each with its own numbers.
+  const list = board
+    ? board.boards?.find((x) => x.boardId === input.spaceBoard)
+    : input.spaceBoard
+      ? samplePersonalOf(input.spaceBoard)
+      : undefined
+  const tag = list?.tag ?? board?.tag ?? ""
+  const top = Math.max(
+    0,
+    ...cs.filter((c) => (c.tag ?? "") === tag).map((c) => parseInt(c.short, 10) || 0)
+  )
   const to = input.assignTo || (board ? "" : "sample-heron")
   const onBoard = board
     ? {
         scope: "board",
         scopeLabel: board.name,
         board: board.boardId,
-        tag: board.tag,
-        spaceBoard: board.boardId,
+        tag,
+        spaceBoard: list?.boardId ?? board.boardId,
         onBoard: {
           id: board.boardId,
           name: board.name,
-          tag: board.tag,
-          spaceBoard: board.boardId,
+          tag,
+          spaceBoard: list?.boardId ?? board.boardId,
           visibleTo: board.people,
           canWithdraw: true,
           canTransfer: true,
         },
       }
-    : {}
+    : { board: "", onBoard: null, tag, spaceBoard: list?.boardId ?? "" }
   const c = {
     ...cs[0],
     id: `sample-new-${Date.now()}`,
@@ -1000,6 +1016,7 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
+  boards?: { boardId: string; name: string; tag: string }[]
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and

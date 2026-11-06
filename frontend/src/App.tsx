@@ -56,7 +56,7 @@ import {
   useThreads,
   withLive,
 } from "@/lib/cards"
-import { useBoards } from "@/lib/boards"
+import { useBoards, usePersonalBoards } from "@/lib/boards"
 import { FocusComment, LiveRoster } from "@/lib/thread"
 import { useNow, useRoster } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
@@ -70,6 +70,7 @@ import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
+import { PersonalHeaderBar, PersonalList } from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
 import { useNotesWaiting } from "@/lib/notes"
@@ -78,6 +79,7 @@ import { useMe } from "@/lib/profile"
 import {
   AllSpaces,
   Personal,
+  boardsOf,
   cardInSpace,
   convInSpace,
   threadsSpace,
@@ -163,6 +165,7 @@ export function App() {
   // Home's idle line (card #341): a work shortage or a dispatch gap.
   const idle = useIdleReport(roster.agents)
   const { boards } = useBoards()
+  const { boards: personalBoards } = usePersonalBoards()
   // The space the sidebar's switcher picked (card #393): Home, Talk and
   // Boards show it. All spaces, the default, is everything.
   const [space, setSpace] = useSpace(boards)
@@ -224,7 +227,9 @@ export function App() {
       : "all"
   )
   // Closed pages each page's own cards (card #161): Home's, or the board's.
-  const doneScope = section.kind === "board" ? section.id : homeScope
+  // Personal's lists are your own cards, closed ones too (card #558).
+  const onPersonal = section.kind === "board" && section.id === Personal
+  const doneScope = onPersonal ? ScopeOwn : section.kind === "board" ? section.id : homeScope
   const done = useDoneCards(
     section.kind === "board" ? boardFilter === "done" : filter === "done",
     doneScope
@@ -583,6 +588,16 @@ export function App() {
     },
     [goTo]
   )
+  // The list New card goes on, when one is open (card #558).
+  const newCardList =
+    section.kind !== "board" || open
+      ? undefined
+      : section.id === Personal
+        ? personalBoards.find((x) => x.boardId === (section.board ?? Personal))
+        : boards
+            .filter((b) => b.boardId === section.id)
+            .flatMap(boardsOf)
+            .find((x) => x.boardId === section.board)
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
     {
@@ -788,7 +803,11 @@ export function App() {
                 }
                 bar={
                   !open && section.kind === "board" ? (
-                    <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
+                    section.id === Personal ? (
+                      <PersonalHeaderBar list={section.board ?? Personal} />
+                    ) : (
+                      <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
+                    )
                   ) : undefined
                 }
                 onNewCard={() => setNewCard(true)}
@@ -902,6 +921,22 @@ export function App() {
                     onOpenMessage={setMessage}
                   />
                 </Scroll>
+              ) : section.kind === "board" && section.id === Personal ? (
+                <PersonalList
+                  key={section.board ?? Personal}
+                  list={section.board ?? Personal}
+                  cards={cards}
+                  done={done}
+                  filter={boardFilter}
+                  onFilter={setBoardFilter}
+                  view={view}
+                  onView={setView}
+                  query={query}
+                  onQuery={setQuery}
+                  selected={last}
+                  onOpen={openCard}
+                  now={now}
+                />
               ) : section.kind === "board" ? (
                 <BoardPage
                   key={`${section.id}/${section.board ?? ""}`}
@@ -995,6 +1030,7 @@ export function App() {
             onClose={() => setNewCard(false)}
             onMade={openCard}
             spawned={spawned}
+            list={newCardList}
             board={
               section.kind === "board" && !open
                 ? boards.find((b) => b.boardId === section.id)

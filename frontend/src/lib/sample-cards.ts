@@ -340,11 +340,12 @@ export function sampleCards(now: Date): CardDetail[] {
       waitsOn: { kind: "task", label: `#${short}`, taskId: id, title },
     })
   const ring = [
-    { id: "sample-card-loop-70", short: "70", title: "Talk 4: Spaces" },
-    { id: "sample-card-loop-72", short: "72", title: "Talk 8: release Talk" },
+    { id: "sample-card-loop-70", short: "70", tag: "", title: "Talk 4: Spaces" },
+    { id: "sample-card-loop-72", short: "72", tag: "", title: "Talk 8: release Talk" },
     {
       id: "sample-card-loop-71",
       short: "71",
+      tag: "",
       title: "Talk 6: person-to-person DMs",
     },
   ]

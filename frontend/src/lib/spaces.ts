@@ -67,6 +67,12 @@ export function known(id: string, boards: BoardSummary[]): string {
   return boards.some((b) => b.boardId === id && !b.leaving) ? id : AllSpaces
 }
 
+// cardsOnPersonal is Personal's cards on one of its boards (card #558). A
+// card with no inner board is on the default board.
+export function cardsOnPersonal(cards: CardSummary[], boardId: string): CardSummary[] {
+  return cards.filter((c) => !c.board && (c.spaceBoard || Personal) === boardId)
+}
+
 // cardInSpace is whether a card shows in the picked space: Personal's are
 // the private cards, a shared space's its own cards (on any of its boards).
 export function cardInSpace(c: CardSummary, space: string): boolean {

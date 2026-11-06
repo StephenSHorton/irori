@@ -24,7 +24,7 @@ import {
   useMentionCandidates,
   type AskRepo,
 } from "@/lib/cards"
-import type { BoardSummary } from "@/lib/boards"
+import type { BoardSummary, SpaceBoard } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
@@ -50,6 +50,7 @@ export function NewCardDialog({
   onClose,
   onMade,
   board,
+  list,
   from,
   spawned,
 }: {
@@ -58,6 +59,9 @@ export function NewCardDialog({
   onMade: (id: string) => void
   // The shared board whose page it was made from; left out: your own.
   board?: BoardSummary
+  // The board it goes on when made from one's list (card #558): one inside
+  // `board`, or one of Personal's with no `board`.
+  list?: SpaceBoard
   // A Talk message it's made from (card #390): the form starts filled.
   from?: { title: string; objective: string }
   // Agents Irori started for a card, left out of the picker.
@@ -117,7 +121,7 @@ export function NewCardDialog({
     setError(null)
     try {
       const res = await cards.create(
-        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId },
+        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId, spaceBoard: list?.boardId },
         attach.files
       )
       reset()
@@ -141,11 +145,11 @@ export function NewCardDialog({
         >
           <DialogHeader>
             <DialogTitle>
-              {board ? `New card on ${plainLine(board.name)}` : "New card"}
+              {list || board ? `New card on ${plainLine((list ?? board)!.name)}` : "New card"}
             </DialogTitle>
             <DialogDescription>
               {board
-                ? `Goes on ${plainLine(board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
+                ? `Goes on ${plainLine(list?.tag ?? board.tag)}#, visible to ${board.people.map(plainLine).join(", ")}. Nobody picked: it waits there for someone on the board to take it up.`
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}

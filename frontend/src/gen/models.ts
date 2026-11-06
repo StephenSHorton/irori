@@ -310,7 +310,7 @@ export function CardRead(p: Partial<B.CardRead> = {}): B.CardRead {
 
 /** CardRef with Go's zero values for every field left out. */
 export function CardRef(p: Partial<B.CardRef> = {}): B.CardRef {
-  return { "id": "", "short": "", "title": "", ...p } as B.CardRef
+  return { "id": "", "short": "", "tag": "", "title": "", ...p } as B.CardRef
 }
 
 /** CardResolution with Go's zero values for every field left out. */
@@ -330,7 +330,7 @@ export function CardRound(p: Partial<B.CardRound> = {}): B.CardRound {
 
 /** CardSubtask with Go's zero values for every field left out. */
 export function CardSubtask(p: Partial<B.CardSubtask> = {}): B.CardSubtask {
-  return { "id": "", "short": "", "title": "", "state": "", "holder": CardHolder(), "progress": CardProgress(), "blocked": false, ...p } as B.CardSubtask
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", "holder": CardHolder(), "progress": CardProgress(), "blocked": false, ...p } as B.CardSubtask
 }
 
 /** CardSummary with Go's zero values for every field left out. */
@@ -550,7 +550,7 @@ export function NotificationAsk(p: Partial<B.NotificationAsk> = {}): B.Notificat
 
 /** NotificationCard with Go's zero values for every field left out. */
 export function NotificationCard(p: Partial<B.NotificationCard> = {}): B.NotificationCard {
-  return { "id": "", "short": "", "title": "", ...p } as B.NotificationCard
+  return { "id": "", "short": "", "tag": "", "title": "", ...p } as B.NotificationCard
 }
 
 /** NotifyOptions with Go's zero values for every field left out. */

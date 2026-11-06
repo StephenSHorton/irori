@@ -48,6 +48,7 @@ import {
   Spinner,
   StatePill,
   waitLabel,
+  cardRef,
 } from "./bits"
 import { ConfirmButton } from "@/components/common/confirm-button"
 import { ClearDone } from "./clear-done"
@@ -441,7 +442,7 @@ export function CardGrid({
           ) : (
             <div
               role="group"
-              aria-label={`#${plainLine(f.head.short)} and its subtasks`}
+              aria-label={`${cardRef(f.head)} and its subtasks`}
               className="grid"
             >
               {tile(f.head)}
@@ -943,13 +944,13 @@ export function EmptyCards() {
 }
 
 // PartOf is a subtask's "part of #12" chip, naming its parent card.
-function PartOf({ parent }: { parent: { short: string; title: string } }) {
+function PartOf({ parent }: { parent: { short: string; tag?: string; title: string } }) {
   return (
     <span
       className="font-mono text-[11px] text-muted-foreground"
-      title={`A subtask of #${plainLine(parent.short)} ${plainLine(parent.title)}`}
+      title={`A subtask of ${cardRef(parent)} ${plainLine(parent.title)}`}
     >
-      part of #{plainLine(parent.short)}
+      part of {cardRef(parent)}
     </span>
   )
 }

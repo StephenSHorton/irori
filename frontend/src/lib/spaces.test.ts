@@ -11,6 +11,7 @@ import {
   spacesOf,
   threadsSpace,
   withLine,
+  cardsOnPersonal,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -124,5 +125,19 @@ describe("avatars (card #393)", () => {
   test("initials", () => {
     expect(initials(" stephen")).toBe("S")
     expect(initials("")).toBe("?")
+  })
+})
+
+describe("cardsOnPersonal", () => {
+  const def = CardSummary({ id: "d", spaceBoard: Personal })
+  const old = CardSummary({ id: "o" })
+  const home = CardSummary({ id: "h", tag: "home", spaceBoard: "b-home" })
+  const shared = CardSummary({ id: "s", board: "b-mlg", tag: "mlg", spaceBoard: "b-mlg" })
+  const cards = [def, old, home, shared]
+  test("the default board has every card with no inner board", () => {
+    expect(cardsOnPersonal(cards, Personal).map((c) => c.id)).toEqual(["d", "o"])
+  })
+  test("an inner board has its own, and a space's card is on none", () => {
+    expect(cardsOnPersonal(cards, "b-home").map((c) => c.id)).toEqual(["h"])
   })
 })

@@ -930,6 +930,11 @@ export type CardRead = {
 export type CardRef = {
 	id: string,
 	short: string,
+	/**
+	 *  Its board's tag: numbers are per board (card #558), so `short` alone
+	 *  doesn't name it. "": Personal's default board.
+	 */
+	tag: string,
 	title: string,
 };
 
@@ -979,6 +984,8 @@ export type CardRound = {
 export type CardSubtask = {
 	id: string,
 	short: string,
+	/**  As [`CardRef::tag`]. */
+	tag: string,
 	title: string,
 	state: TaskState,
 	holder: CardHolder,
@@ -1832,6 +1839,8 @@ export type NotificationAsk = {
 export type NotificationCard = {
 	id: string,
 	short: string,
+	/**  Its board's tag: numbers are per board (card #558). */
+	tag: string,
 	title: string,
 };
 

@@ -91,6 +91,7 @@ import {
   StatePill,
   waitLabel,
   Asker,
+  cardRef,
 } from "./bits"
 import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
@@ -116,9 +117,10 @@ type Answered = { question: string; answer: string; told: Told; to: AgentRef }
 const GistChars = 200
 // startable says the person's comment on this card may "Start an agent
 // with this" (card #452, spawned-agents §4): their own board's card,
-// open, not an ask, and nobody on it.
-function startable(d: CardDetail): boolean {
-  if (d.tag || d.onBoard || d.ask) return false
+// open, not an ask, and nobody on it. A tag doesn't say shared: a Personal
+// board's card has one (card #558).
+export function startable(d: CardDetail): boolean {
+  if (d.onBoard || d.ask) return false
   if (
     d.state === TaskState.Completed ||
     d.state === TaskState.Canceled ||
@@ -852,7 +854,7 @@ function PageHeader({
             disabled={!onOpen}
             onClick={() => card.parent && onOpen?.(card.parent.id)}
           >
-            <span className="font-mono">#{plainLine(card.parent.short)}</span>{" "}
+            <span className="font-mono">{cardRef(card.parent)}</span>{" "}
             {plainLine(card.parent.title)}
           </button>
         </p>
@@ -866,9 +868,7 @@ function PageHeader({
             disabled={!onOpen}
             onClick={() => card.fromThread && onOpen?.(card.fromThread.id)}
           >
-            <span className="font-mono">
-              #{plainLine(card.fromThread.short)}
-            </span>{" "}
+            <span className="font-mono">{cardRef(card.fromThread)}</span>{" "}
             {plainLine(card.fromThread.title)}
           </button>
         </p>
@@ -978,7 +978,7 @@ function Subtasks({
               onClick={() => onOpen?.(k.id)}
             >
               <span className="font-mono text-xs text-muted-foreground">
-                #{plainLine(k.short)}
+                {cardRef(k)}
               </span>
               <span
                 className={cn(
