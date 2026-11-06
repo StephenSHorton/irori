@@ -482,7 +482,7 @@ fn fold_membership_rules() {
             cuts: &[],
             conflicts: &[
                 "board.created b: it comes before",
-                "board.created s: the board was already created",
+                "board.created s: the space was already created",
             ],
             board_name: "",
         },

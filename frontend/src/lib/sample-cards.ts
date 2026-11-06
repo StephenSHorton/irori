@@ -1854,10 +1854,12 @@ export function sampleCards(now: Date): CardDetail[] {
       scopeLabel: "MLG · Netcode",
       board: "sample-board-mlg",
       tag: "net",
+      spaceBoard: "sample-board-mlg-net",
       onBoard: CardBoard({
         id: "sample-board-mlg",
         name: "MLG",
-        tag: "mlg",
+        tag: "net",
+        spaceBoard: "sample-board-mlg-net",
         visibleTo: ["Stephen", "Blake"],
         canWithdraw: true,
         canTransfer: true,

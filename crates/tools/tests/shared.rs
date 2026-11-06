@@ -195,7 +195,7 @@ impl SharedBoards for Fake {
     ) -> Result<(Arc<Coord>, Vec<String>), coord::Error> {
         Ok((self.co.clone(), self.keys(keys)))
     }
-    fn share(&self, task_id: &str, board_id: &str, by: &str) -> Result<Task, String> {
+    fn share(&self, task_id: &str, board_id: &str, _: &str, by: &str) -> Result<Task, String> {
         let t = self.private.get_task(task_id).ok_or("no such card")?;
         let st = self
             .co
@@ -493,7 +493,7 @@ fn share_follows_the_autonomy_setting() {
         &call_a(),
         "board_share",
         json!({"task_id": q, "board": "mlg"}),
-        &["Ask me", "Share to board"],
+        &["Ask me", "Share to a space"],
     );
 
     // Autonomous: shared now, and the person gets Withdraw.

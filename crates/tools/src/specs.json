@@ -1114,7 +1114,7 @@
         },
         "board": {
           "type": "string",
-          "description": "The shared space, by tag or boardId (the board tool lists them)."
+          "description": "A space or one of its boards, by tag or boardId (the board tool lists them); the card goes on that board."
         }
       },
       "required": [

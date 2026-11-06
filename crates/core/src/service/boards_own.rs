@@ -1051,6 +1051,19 @@ impl Services {
         board_id: &str,
         confirmed: &str,
     ) -> Result<Task> {
+        self.share_to_space_board(task_id, board_id, "", confirmed)
+    }
+
+    /// share_to_board onto board `space_board` inside space `board_id`
+    /// (card #558), numbered there; empty is the space's first board. Its
+    /// subtasks follow it there.
+    pub(crate) fn share_to_space_board(
+        &self,
+        task_id: &str,
+        board_id: &str,
+        space_board: &str,
+        confirmed: &str,
+    ) -> Result<Task> {
         let p = self.preview_share(task_id, board_id)?;
         if confirmed.is_empty() || confirmed != p.hash {
             return Err(Error::PreviewStale(
@@ -1089,7 +1102,13 @@ impl Services {
             ..Default::default()
         };
         let actor = self.person_actor();
-        let shared = b.coord().create_task(&actor, new_card(&top, &priv_t, ""))?;
+        let shared = b.coord().create_task(
+            &actor,
+            coord::NewTask {
+                board: space_board.into(),
+                ..new_card(&top, &priv_t, "")
+            },
+        )?;
         self.boards
             .inner
             .lock()

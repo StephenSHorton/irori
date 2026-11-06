@@ -157,6 +157,19 @@ fn settle_bridged(c: &Core, agent: &str, n: usize) {
     assert_eq!(ds.len(), n, "{ds:?}");
 }
 
+/// Waits until `c`'s roster for `board` lists each of `keys` idle and not
+/// offline: the board's follower has folded the agent.card rows a sync
+/// copied in.
+fn wait_cards(c: &Core, board: &str, keys: &[&str]) {
+    wait_for(10, "the other person's cards", || {
+        let r = c.board_roster(board);
+        keys.iter().all(|k| {
+            r.iter()
+                .any(|a| a.key == *k && a.status == "idle" && a.device_state != "offline")
+        })
+    });
+}
+
 fn idle(key: &str) -> AgentCard {
     AgentCard {
         key: key.into(),
@@ -202,6 +215,10 @@ fn a_board_ask_reaches_the_other_persons_free_agents() {
         t.b().board_key(&t.board, &t.rb.key_b).unwrap(),
     );
     t.sync();
+    // Alice's Core hands asks out on its own too, from the cards its board
+    // has folded: until it folds Bob's, his agents look gone to it, and
+    // it would move the ask off alpha before the test does.
+    wait_cards(t.a(), &t.board, &[&b1, &b2]);
     let co = t.a().board_coord(&t.board).unwrap();
     let (ask, _) = co
         .post_ask(

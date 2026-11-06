@@ -369,7 +369,7 @@ impl tools::SharedBoards for TwoSpaces {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {
@@ -566,7 +566,7 @@ impl tools::SharedBoards for OddSpaces {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {
@@ -666,7 +666,7 @@ impl tools::SharedBoards for BobsSpace {
     ) -> Result<(std::sync::Arc<coord::Coord>, Vec<String>), coord::Error> {
         Err(coord::Error::raw(coord::ErrorKind::NotFound, "no board"))
     }
-    fn share(&self, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
+    fn share(&self, _: &str, _: &str, _: &str, _: &str) -> Result<coord::Task, String> {
         Err("no".into())
     }
     fn withdraw(&self, _: &str) -> Result<(), String> {

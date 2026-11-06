@@ -24,7 +24,8 @@ import {
   useMentionCandidates,
   type AskRepo,
 } from "@/lib/cards"
-import type { BoardSummary, SpaceBoard } from "@/lib/boards"
+import { usePersonalBoards, type BoardSummary, type SpaceBoard } from "@/lib/boards"
+import { boardTarget } from "@/lib/new-card"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
@@ -44,7 +45,9 @@ import { ZapIcon } from "lucide-react"
 // spawned agents §10, sa-5) nobody picked is "A fresh agent": Irori starts
 // one for the card with the board's model and effort; "Any free agent"
 // shows only when spawning is off. Agents Irori started for other cards
-// aren't offered: one never takes a second card.
+// aren't offered: one never takes a second card. Board picks which of the
+// space's boards it goes on (card #558): the open list's, else the first;
+// with no space, one of Personal's. A space with one board shows none.
 export function NewCardDialog({
   open,
   onClose,
@@ -67,8 +70,20 @@ export function NewCardDialog({
   // Agents Irori started for a card, left out of the picker.
   spawned?: Set<string>
 }) {
-  // The space, showing the board it goes on when one's list is open.
-  const board = space && list ? { ...space, name: list.name, tag: list.tag } : space
+  const { boards: personal } = usePersonalBoards()
+  const [picked, setPicked] = useState<string | null>(null)
+  // A pick lasts one opening: each time the dialog opens, or its space or
+  // list changes, it starts on the list you're on, else the first board.
+  const seenKey = `${open}|${space?.boardId ?? ""}|${list?.boardId ?? ""}`
+  const [seen, setSeen] = useState(seenKey)
+  if (seen !== seenKey) {
+    setSeen(seenKey)
+    setPicked(null)
+  }
+  const target = boardTarget(space, personal, list, picked)
+  const on = target.on
+  // The space, showing the board it goes on.
+  const board = space && on ? { ...space, name: on.name, tag: on.tag } : space
   const [title, setTitle] = useState("")
   const [objective, setObjective] = useState("")
   const [doneWhen, setDoneWhen] = useState("")
@@ -108,6 +123,7 @@ export function NewCardDialog({
     setDoneWhen("")
     setRepoKey("")
     setAssignTo("")
+    setPicked(null)
     setError(null)
     attach.clear()
   }
@@ -123,7 +139,15 @@ export function NewCardDialog({
     setError(null)
     try {
       const res = await cards.create(
-        { title, objective, doneWhen, repoKey, assignTo, board: board?.boardId, spaceBoard: list?.boardId },
+        {
+          title,
+          objective,
+          doneWhen,
+          repoKey,
+          assignTo,
+          board: target.board,
+          spaceBoard: target.spaceBoard,
+        },
         attach.files
       )
       reset()
@@ -155,7 +179,7 @@ export function NewCardDialog({
                 : fresh
                   ? "Work for an agent. Irori starts a fresh one for it, unless you give it to one of yours."
                   : "Work for an agent to pick up. Nobody picked: Irori hands it to an idle agent with Offer it cards on."}
-              {!board && list && ` Goes on ${plainLine(list.name)}.`}
+              {!board && on && (list || target.choices.length > 1) && ` Goes on ${plainLine(on.name)}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5">
@@ -189,6 +213,21 @@ export function NewCardDialog({
               onChange={(e) => setDoneWhen(e.target.value)}
             />
           </div>
+          {target.choices.length > 1 && on && (
+            <ChoiceSelect
+              label="Board"
+              showLabel
+              value={on.boardId}
+              onValueChange={setPicked}
+              className="w-full"
+              choices={target.choices.map((x) => ({
+                value: x.boardId,
+                label: x.tag
+                  ? `${plainLine(x.name) || "(unnamed)"} · ${plainLine(x.tag)}#`
+                  : plainLine(x.name) || "(unnamed)",
+              }))}
+            />
+          )}
           <div className="grid grid-cols-2 gap-3">
             <ChoiceSelect
               label="Repo"

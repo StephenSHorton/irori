@@ -262,7 +262,11 @@ export function BoardBar({
             aria-pressed={filter === id}
             variant={filter === id ? "secondary" : "ghost"}
             onClick={() => onFilter(filter === id ? "all" : id)}
-            title={`Cards in the space ${plainLine(b.name)} (${plainLine(b.tag)}#…)`}
+            title={
+              b.tag
+                ? `Cards in the space ${plainLine(b.name)} (${plainLine(b.tag)}#…)`
+                : `Cards in the space ${plainLine(b.name)}`
+            }
           >
             <LayersIcon aria-hidden className="size-3.5 opacity-70" />
             {plainLine(b.name)}

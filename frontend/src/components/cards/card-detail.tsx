@@ -685,7 +685,7 @@ function DeleteButton({
     <ConfirmButton
       label="Delete"
       variant="destructive"
-      question={`Delete ${detail.short || "this card"} for good? It disappears from the Board on all your devices and agents can no longer reach it. It can't be undone.${kids ? " Its subtasks stay, as cards of their own." : ""}`}
+      question={`Delete ${detail.short ? cardRef(detail) : "this card"} for good? It disappears from the Board on all your devices and agents can no longer reach it. It can't be undone.${kids ? " Its subtasks stay, as cards of their own." : ""}`}
       confirmLabel="Delete it"
       onConfirm={async () => {
         await cards.remove(detail.id)

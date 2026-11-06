@@ -259,3 +259,95 @@ fn a_subtask_stays_on_its_parents_board() {
     assert_eq!(parts[0].board, net);
     assert_eq!(parts[0].tag, "net");
 }
+
+/// board_create and board_share given an inner board's tag put the card on
+/// that board, numbered there, and say so (card #558).
+#[test]
+fn the_tools_put_a_card_on_the_inner_board_they_name() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    r.core
+        .inbox()
+        .set_autonomy(
+            inbox::AutonomySetting {
+                board_id: id.clone(),
+                preset: inbox::autonomy::AUTONOMOUS.into(),
+            },
+            &r.core.user_sender().key,
+        )
+        .unwrap();
+    let caller = tools::Caller {
+        sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
+        path: String::new(),
+    };
+    let call = |tool: &str, args: serde_json::Value| {
+        let args = serde_json::to_vec(&args).unwrap();
+        r.core.tools().call(&caller, tool, &args).unwrap()
+    };
+    let co = r.core.board_coord(&id).unwrap();
+
+    let out = call(
+        "board_create",
+        serde_json::json!({"title": "decomp", "board": "net"}),
+    );
+    assert!(out.contains("Created net#1"), "{out}");
+    let made = co.get_task(&co.task_ref("net#1").unwrap()).unwrap();
+    assert_eq!(
+        (made.board.as_str(), made.tag.as_str()),
+        (net.as_str(), "net")
+    );
+
+    let private = r
+        .core
+        .coord()
+        .create_task(&r.core.user_sender().key, new_task("rollback"))
+        .unwrap();
+    let out = call(
+        "board_share",
+        serde_json::json!({"task_id": private.id, "board": "net"}),
+    );
+    assert!(
+        out.contains("to Netcode (net) in Wind Waker Multiplayer as net#2"),
+        "{out}"
+    );
+    let shared = co.get_task(&co.task_ref("net#2").unwrap()).unwrap();
+    assert_eq!(shared.title, "rollback");
+    assert_eq!(
+        (shared.board.as_str(), shared.tag.as_str()),
+        (net.as_str(), "net")
+    );
+    // Nothing landed on the space's first board.
+    assert_eq!(co.task_ref("wind#1").unwrap_err().kind(), CK::NotFound);
+
+    // By the inner board's id too.
+    let private = r
+        .core
+        .coord()
+        .create_task(&r.core.user_sender().key, new_task("lag"))
+        .unwrap();
+    let out = call(
+        "board_share",
+        serde_json::json!({"task_id": private.id, "board": net}),
+    );
+    assert!(out.contains("as net#3"), "{out}");
+}
+
+/// A notes scope that names a board inside a space means that space:
+/// notes are kept per space (card #558).
+#[test]
+fn a_notes_scope_by_an_inner_board_means_its_space() {
+    let r = Rig::new();
+    let (id, net) = wind_and_net(&r.core);
+    let me = r.core.user_sender().key;
+    for scope in ["net", net.as_str()] {
+        let n = coord::NewNote {
+            kind: "rule".into(),
+            text: format!("rollback by {scope}"),
+            tags: vec!["topic:netcode".into()],
+            ..Default::default()
+        };
+        let got = r.core.propose_note(&me, scope, n).unwrap();
+        assert_eq!(got.board_id, id, "scope {scope}");
+        assert_eq!(got.scope, "wind", "scope {scope}");
+    }
+}

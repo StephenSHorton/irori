@@ -298,6 +298,79 @@ fn a_card_shows_the_board_it_is_on_inside_its_space() {
     assert!(e.contains("no board"), "{e}");
 }
 
+/// Card #558: a done card on a board inside a space keeps that board's tag
+/// and id in Closed, and a subtask of a card there shows the same tag.
+#[test]
+fn closed_and_subtasks_show_the_board_inside_the_space() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let net = w
+        .boards_add_to_space(&wind.board_id, "Netcode", "net")
+        .unwrap()
+        .boards[1]
+        .board_id
+        .clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: wind.board_id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let on_net = make("rollback", &net);
+    let on_first = make("sails", "");
+    w.close_card(&on_net.id, coord::COMPLETED, "").unwrap();
+    w.close_card(&on_first.id, coord::COMPLETED, "").unwrap();
+
+    let done = w.done_cards(0, "").unwrap().cards;
+    let card = |id: &str| {
+        done.iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("{id} not in Closed: {done:?}"))
+    };
+    let c = card(&on_net.id);
+    assert_eq!(
+        (
+            c.board.as_str(),
+            c.tag.as_str(),
+            c.space_board.as_str(),
+            c.scope.as_str()
+        ),
+        (wind.board_id.as_str(), "net", net.as_str(), SCOPE_BOARD)
+    );
+    let c = card(&on_first.id);
+    assert_eq!(
+        (c.board.as_str(), c.tag.as_str(), c.space_board.as_str()),
+        (wind.board_id.as_str(), "wind", wind.board_id.as_str())
+    );
+
+    // A subtask of a card on the inner board is on that board too.
+    let parent = make("lag", &net);
+    let co = w.core.board_coord(&wind.board_id).unwrap();
+    let me = w
+        .core
+        .board_key(&wind.board_id, &w.core.user_sender().key)
+        .unwrap();
+    co.split(
+        &me,
+        &parent.id,
+        vec![coord::NewSubtask {
+            title: "measure".into(),
+            ..Default::default()
+        }],
+        vec![],
+    )
+    .unwrap();
+    let d = w.card(&parent.id).unwrap();
+    assert_eq!(d.subtask_list.len(), 1, "{:?}", d.subtask_list);
+    assert_eq!(d.subtask_list[0].tag, "net");
+}
+
 /// Card #558: Rename in a space names one board, and leaves the space's
 /// name alone even when that board is the first.
 #[test]
@@ -526,7 +599,7 @@ fn member_actions_and_conflicts_in_the_window() {
     let s = w.boards_settings(&mlg.board_id).unwrap();
     assert_eq!(
         s.conflicts,
-        ["Your role change for someone didn't take: they are not on the board"],
+        ["Your role change for someone didn't take: they are not in the space"],
         "{s:?}"
     );
 

@@ -798,13 +798,19 @@ impl tools::SharedBoards for super::ToolsView {
         Ok((co, out))
     }
 
-    fn share(&self, task_id: &str, board_id: &str, _by: &str) -> Result<coord::Task, String> {
+    fn share(
+        &self,
+        task_id: &str,
+        board_id: &str,
+        space_board: &str,
+        _by: &str,
+    ) -> Result<coord::Task, String> {
         let p = self
             .0
             .preview_share(task_id, board_id)
             .map_err(|e| e.to_string())?;
         self.0
-            .share_to_board(task_id, board_id, &p.hash)
+            .share_to_space_board(task_id, board_id, space_board, &p.hash)
             .map_err(|e| e.to_string())
     }
 

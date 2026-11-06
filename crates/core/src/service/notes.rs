@@ -73,7 +73,16 @@ impl Services {
         let boards = self.shown_boards();
         let hits: Vec<_> = boards
             .iter()
-            .filter(|b| b.id == scope || b.verifier.membership().tag.eq_ignore_ascii_case(scope))
+            .filter(|b| {
+                // A board inside a space names that space: notes are kept
+                // per space (card #558).
+                b.id == scope
+                    || b.verifier.membership().tag.eq_ignore_ascii_case(scope)
+                    || self.space_boards(&b.id).is_ok_and(|bs| {
+                        bs.iter()
+                            .any(|x| x.board_id == scope || x.tag.eq_ignore_ascii_case(scope))
+                    })
+            })
             .cloned()
             .collect();
         let b = match hits.as_slice() {
@@ -81,7 +90,7 @@ impl Services {
             [] => {
                 return Err(Error::coord(
                     CK::NotFound,
-                    format_args!("no space {scope:?}: give mine, or a space's tag or id"),
+                    format_args!("no space {scope:?}: give mine, or the tag or id of a space or one of its boards"),
                 )
                 .into_coord());
             }

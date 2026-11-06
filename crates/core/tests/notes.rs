@@ -180,7 +180,7 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
         .unwrap_err()
         .to_string();
     assert!(
-        e.contains("no space \"xyz\": give mine, or a space's tag or id"),
+        e.contains("no space \"xyz\": give mine, or the tag or id of a space or one of its boards"),
         "{e}"
     );
 

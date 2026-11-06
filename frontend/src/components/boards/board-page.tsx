@@ -103,7 +103,7 @@ export function BoardPage({
   // The same board view as Home (card #161), over this board's cards,
   // with who is on it beside them.
   const open = list ? boardsOf(b).find((x) => x.boardId === list) : undefined
-  const shown = open ? cardsOnBoard(b, cards, open.tag) : []
+  const shown = open ? cardsOnBoard(b, cards, open.boardId) : []
   return (
     <>
       <BoardNotes board={b} />

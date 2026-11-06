@@ -58,6 +58,12 @@ export function BoardsPage({
           />
         </div>
       )}
+      {/* All spaces lists Personal's boards too (card #558), as each
+          shared space's. */}
+      {space === AllSpaces && <PersonalBoards cards={cards} now={now} titled />}
+      {space === AllSpaces && boards.length > 0 && (
+        <h2 className="px-1 text-base font-semibold">Spaces</h2>
+      )}
       {space === Personal ? (
         <PersonalBoards cards={cards} now={now} />
       ) : boards.length > 0 ? (

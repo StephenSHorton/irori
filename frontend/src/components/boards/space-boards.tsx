@@ -35,10 +35,13 @@ import { errorText } from "@/lib/talk"
 
 import { boardSegs, RecentCards, StateBar } from "./boards-page"
 
-// cardsOnBoard is the space's cards on board `tag`: the space's own board
-// also has the cards from before spaces, which carry its tag.
-export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], tag: string): CardSummary[] {
-  return cards.filter((c) => c.board === b.boardId && (c.tag || b.tag) === tag)
+// cardsOnBoard is the space's cards on one of its boards, by the board's
+// id: a card with no inner board (or the space's own id) is on the first
+// board, as are the cards from before spaces.
+export function cardsOnBoard(b: BoardSummary, cards: CardSummary[], boardId: string): CardSummary[] {
+  const first = boardsOf(b)[0].boardId
+  const on = (c: CardSummary) => (!c.spaceBoard || c.spaceBoard === b.boardId ? first : c.spaceBoard)
+  return cards.filter((c) => c.board === b.boardId && on(c) === boardId)
 }
 
 // recent is a board's newest few cards.
@@ -179,7 +182,7 @@ export function SpaceBoards({
             key={x.boardId}
             board={x}
             isDefault={i === 0}
-            cards={cardsOnBoard(b, cards, x.tag)}
+            cards={cardsOnBoard(b, cards, x.boardId)}
             onOpen={() => go({ kind: "board", id: b.boardId, board: x.boardId })}
           />
         ))}
@@ -189,16 +192,27 @@ export function SpaceBoards({
 }
 
 // PersonalBoards is Personal's page: its boards, private to you. Nobody can
-// be invited, so it has no people or settings of its own.
-export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
+// be invited, so it has no people or settings of its own. Under All spaces
+// (titled) it sits over the shared spaces, headed "Personal".
+export function PersonalBoards({
+  cards,
+  titled,
+}: {
+  cards: CardSummary[]
+  now: Date
+  titled?: boolean
+}) {
   const { boards: list, error, reload } = usePersonalBoards()
+  const intro = (
+    <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
+      Personal is you, your devices and your agents. Nobody else sees it.
+    </p>
+  )
   return (
     <section className="grid gap-2" aria-label="Boards in Personal">
-      <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
-        Personal is you, your devices and your agents. Nobody else sees it.
-      </p>
+      {!titled && intro}
       <div className="flex items-center gap-2">
-        <h2 className="px-1 text-base font-semibold">Boards</h2>
+        <h2 className="px-1 text-base font-semibold">{titled ? "Personal" : "Boards"}</h2>
         <AddBoard
           onAdd={async (name, tag) => {
             await actions.addToPersonal(name, tag)
@@ -206,6 +220,7 @@ export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
           }}
         />
       </div>
+      {titled && intro}
       {error && <p className="text-xs text-destructive">{plainLine(error)}</p>}
       <ul className={tiles}>
         {list.map((x, i) => (
