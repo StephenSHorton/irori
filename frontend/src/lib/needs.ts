@@ -108,7 +108,7 @@ function row(c: CardSummary, now: number): Row {
   if (over(c)) return { state: "done", line: overLabel(c) }
   // Card #570: parked, so nothing is asked of anyone until it comes back.
   const parked = laterOf(c)
-  if (parked) return { state: "later", line: parked.line }
+  if (parked) return { state: "later", line: `Back ${parked.line}` }
   if (needsYou(c)) {
     if (c.ready && c.openBlockers <= 1)
       return { state: "needs", line: "Says it's done: is it?" }

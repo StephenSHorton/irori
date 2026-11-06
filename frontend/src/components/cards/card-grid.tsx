@@ -612,7 +612,9 @@ function CardTile({
         </span>
       )}
       {parked && (
-        <span className="text-xs text-muted-foreground">{parked.line}</span>
+        <span className="text-xs text-muted-foreground">
+          Back {plainLine(parked.line)}
+        </span>
       )}
       {!quiet && !blocked && !!card.waitingOn && (
         <span className="flex gap-1.5 text-xs text-muted-foreground">

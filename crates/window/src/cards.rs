@@ -405,6 +405,15 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub owner: String,
+    /// The card is held back as Not yet (card #570): why, and what brings
+    /// it back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub later: Option<crate::later::CardLater>,
+    /// The run of cards it is in, each after the one before (card #570).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub order: Option<crate::later::CardOrder>,
 }
 
 /// A card's first wait whose agent is gone, on a card nobody holds (card
@@ -1191,6 +1200,24 @@ impl People {
         r
     }
 
+    /// Who `key` is, by name.
+    pub(crate) fn name_of(&self, key: &str) -> String {
+        self.ref_(key).name
+    }
+
+    /// This device's id.
+    pub(crate) fn self_id(&self) -> &str {
+        &self.self_id
+    }
+
+    /// Device `id`'s name, when this device knows one.
+    pub(crate) fn device_name(&self, id: &str) -> Option<&str> {
+        self.names
+            .get(id)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+    }
+
     fn ref_plain(&self, key: &str) -> AgentRef {
         // A message bridged from a shared board comes from
         // board:<boardId>/<cardId> or board:<boardId>/person:<personId>
@@ -1647,6 +1674,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     }
     s.ask = card_ask(t, p, None);
     s.search_text = search_text(t, p);
+    s.later = crate::later::later_of(t, p);
     if let Some(ret) = &t.returned
         && t.holders.is_empty()
     {
@@ -1889,6 +1917,7 @@ impl Window {
         let mut out = Vec::with_capacity(tasks.len());
         let placed = co.positions();
         let loops = co.order_loops();
+        let follows = crate::later::Followers::of(tasks.iter());
         // Threads (card #116) live in their own panel, not the grid.
         for t in tasks.iter().filter(|t| !crate::threads::is_thread(t)) {
             let mut s = card_summary(t, &p);
@@ -1902,7 +1931,7 @@ impl Window {
             }
             s.stale = s.subtasks == 0 && stale(&s, &last, now);
             s.talking = talking(&co.comments(&t.id).unwrap_or_default(), &p, now);
-            family_of(co, &loops, &p, t, &mut s);
+            family_of(co, (&loops, &follows), &p, t, &mut s);
             out.push(s);
         }
         // Every board's: "All" includes them (v0.5 §8).
@@ -2196,10 +2225,12 @@ impl Window {
             }
             let placed = co.positions();
             let loops = co.order_loops();
-            for t in co.list_tasks(&coord::TaskFilter {
+            let open = co.list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
-            }) {
+            });
+            let follows = crate::later::Followers::of(open.iter());
+            for t in open {
                 // A board's threads show in its Threads panel (card #134).
                 if t.withdrawn || crate::threads::is_thread(&t) {
                     continue;
@@ -2242,7 +2273,7 @@ impl Window {
                     cs.pinned = true;
                     cs.pin_rank = *r;
                 }
-                family_of(&co, &loops, p, &t, &mut cs);
+                family_of(&co, (&loops, &follows), p, &t, &mut cs);
                 out.push(cs);
                 tasks.push(t);
             }
@@ -2305,7 +2336,8 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        family_of(&co, &co.order_loops(), &p, &t, &mut d.summary);
+        let follows = crate::later::Followers::read(&co);
+        family_of(&co, (&co.order_loops(), &follows), &p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -3042,11 +3074,13 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 /// the whole list.
 fn family_of(
     co: &coord::Coord,
-    loops: &coord::OrderLoops,
+    (loops, follows): (&coord::OrderLoops, &crate::later::Followers),
     p: &People,
     t: &Task,
     s: &mut CardSummary,
 ) {
+    crate::later::fill_later_card(co, s);
+    s.order = crate::later::order_of(co, follows, loops, t);
     s.wait_pr = wait_pr(co, t);
     s.merge_pr = merge_pr(co, t);
     s.gone_wait = gone_wait(co, p, t);

@@ -233,6 +233,8 @@ export function BoardView({
       (c.parent && shown.some((p) => p.id === c.parent?.id && p.pinned))
   )
   const inPinned = new Set(pinnedGroup.map((c) => c.id))
+  // Card #570: held cards fold away at the end; a pinned one stays pinned.
+  const notYet = shown.filter((c) => !inPinned.has(c.id) && laterOf(c))
   const decide = mine.filter((c) => c.openBlockers > 0).length
   const review = mine.filter((c) => c.state === TaskState.InReview).length
 
@@ -494,11 +496,11 @@ export function BoardView({
                 selected={selected}
                 onSelect={onOpen}
               />
-              {shown.some((c) => laterOf(c)) && (
-                <NotYetFold count={shown.filter((c) => laterOf(c)).length}>
+              {notYet.length > 0 && (
+                <NotYetFold count={notYet.length}>
                   <CardGrid
                     label="Not yet"
-                    cards={shown.filter((c) => laterOf(c))}
+                    cards={notYet}
                     context={context}
                     selected={selected}
                     onSelect={onOpen}

@@ -57,7 +57,7 @@ export function ProgressRows({
   // shape is the order.
   const byId = new Map(all.map((x) => [x.c.id, x]))
   const under = (id: string) =>
-    followsOf({ id }).flatMap((s) => byId.get(s.id) ?? [])
+    followsOf(byId.get(id)?.c ?? { id }).flatMap((s) => byId.get(s.id) ?? [])
   const hung = new Set(all.flatMap((x) => under(x.c.id)).map((x) => x.c.id))
   const rows = all.filter((x) => !hung.has(x.c.id))
   const list = (name: string, rs: typeof rows, quiet = false) => (
