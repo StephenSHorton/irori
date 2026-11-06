@@ -278,7 +278,7 @@ export function BoardView({
   const column = fill ? fillColumn : boardColumn
   const withThreads = (main: ReactNode) =>
     narrow ? (
-      <div className="-mx-1 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto px-1 pb-10">
+      <div className="-mx-1 grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-4 overflow-y-auto px-1 pb-10 mac:overscroll-none">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-3.5">
           {main}
         </div>
@@ -299,7 +299,7 @@ export function BoardView({
     ) : aside ? (
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         <div className={column}>{main}</div>
-        <div className="-mr-1 grid min-h-0 shrink-0 content-start gap-3.5 overflow-y-auto pr-1 pb-4 lg:w-[360px]">
+        <div className="-mr-1 grid min-h-0 shrink-0 content-start gap-3.5 overflow-y-auto pr-1 pb-4 lg:w-[360px] mac:overscroll-none">
           {panel}
           {aside}
         </div>
@@ -307,7 +307,7 @@ export function BoardView({
     ) : showThreads && threads ? (
       <div className="flex min-h-0 flex-1 gap-4">
         <div className={column}>{main}</div>
-        <div className="-mr-1 min-h-0 w-[380px] shrink-0 overflow-y-auto pr-1 pb-4">
+        <div className="-mr-1 min-h-0 w-[380px] shrink-0 overflow-y-auto pr-1 pb-4 mac:overscroll-none">
           <ThreadsPanel
             threads={threads.list}
             open={threads.open}
@@ -442,7 +442,9 @@ export function BoardView({
               now={now}
             />
           ) : view === "canvas" ? (
-            <BoardCanvas cards={shown} onOpen={onOpen} fill={fill} />
+            // The canvas is the whole map (card #587): a card the lead
+            // lists (Needs you) stays on it, marked, not taken out.
+            <BoardCanvas cards={all} onOpen={onOpen} fill={fill} />
           ) : shown.length && rows ? (
             <>
               {pinnedGroup.length > 0 && (
@@ -517,7 +519,7 @@ export function BoardView({
 // glass panel with overflow hidden) to nothing once the column is full,
 // leaving it unscrollable (card #301).
 const boardColumn =
-  "-mx-1 grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-3.5 overflow-y-auto px-1 pb-10"
+  "-mx-1 grid min-h-0 min-w-0 flex-1 auto-rows-max content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none"
 
 // The column in Canvas (card #410): a flex column exactly the space left,
 // that never scrolls. Its rows keep their height (shrink-0); the canvas

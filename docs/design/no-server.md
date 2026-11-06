@@ -84,7 +84,7 @@ While devices are mixed, an older device shows the old state until it updates:
 
 All of it comes right when the device updates, because the rows are stored and replayed at each start. Nobody's access changes, since a space is one log with one secret.
 
-Phones run no agents, and they lag longest, so a phone is where someone would see a card in its old place. Desktops download an update at launch but install it only when someone presses Install or quits, and a PC left running doesn't look again. So until §4.3's update setting ships, the window for agents can be weeks, on the machine most likely to run them.
+Phones run no agents, and they lag longest, so a phone is where someone would see a card in its old place. Desktops download an update at launch but install it only when someone presses Install or quits. Without §4.3's update setting a PC left running doesn't look again, so the window for agents can be weeks, on the machine most likely to run them. With it (#578), the window is about a day.
 
 ### 3.5 Making this the last time: a tolerant reader
 
@@ -97,6 +97,8 @@ Carrying meaning in old rows suits these two changes, but it isn't a rule to kee
 - The hello gains a level that says so. Once a space's devices are past it, new `task.*` and `space.*` kinds need no gate, as long as the feature is harmless on a device that doesn't read it yet.
 
 It only helps from the release that ships it, so it can't serve moves and deletes on its own. It also stops new kinds starving other writers (§2).
+
+Built on #579: `kinds::board_tolerated`, `BoardRules::check_pulled`, and the hello's `tolerant`, level `TOLERANT_PROTOCOL`. `no_tolerated_family_kind_becomes_refused` pins the rule that a stored kind never becomes `Refuses`.
 
 ## 4. Peers, not a server
 
@@ -127,7 +129,7 @@ With a machine off you lose freshness, not data. Rows wait on whichever devices 
 
 ### 4.3 Making it solid
 
-**Keep machines up to date.** Today Irori looks for updates only at start or from Settings, so a machine up for weeks falls behind a phone, and an older machine is the worst forwarder (§2).
+**Keep machines up to date.** Before #578, Irori looked for updates only at start or from Settings, so a machine up for weeks fell behind a phone, and an older machine is the worst forwarder (§2). Built on #578 as below; architecture.md §7.3 has the details.
 
 - A new per-device setting, **Keep this device up to date**, makes it check every few hours and download. It's on by default where the home server is on, and any desktop can turn it on. The home switch alone isn't enough, since decision 43 lets an always-on PC run with it off.
 - Agreed (b4): a device with this setting restarts by itself when no agent turn is running, and shows the Install card if that hasn't happened within a day. `architecture.md:433` and `releasing.md:7` change with it. The start-only check on #533 described the code; it wasn't a decision.
@@ -141,6 +143,14 @@ With a machine off you lose freshness, not data. Rows wait on whichever devices 
 - Retries back off, instead of re-downloading up to 2000 rows on every pull.
 - A pull takes turns between writers, so one stall can't starve writers that sort after it (`db.rs:1508-1534`).
 - The tolerant reader (§3.5) stops new kinds stalling anyone at all.
+
+Built on #579:
+
+- `BoardMesh::stalled` feeds a line in the board's warnings, shown after `STALL_AFTER` like the line others see. It says to update when this build doesn't know the kind and the kind's name is well formed. It shows only while a connected peer's last vector holds the refused row, so a junk row past a stream's end, or one a revoke has since cut off, says nothing. That guards against a buggy row, not a lying peer: one that also claims the row in its vector still shows the line, as it can fake the line others see today.
+- A refused writer goes on hold per peer, waiting one vector tick and doubling up to an hour. Per peer, so a bad row from one peer can't hold up that writer's rows from another. Holds live in memory, so the restart that lands an update tries at once.
+- While on hold, the pull's vector names that writer at `i64::MAX`, so its rows aren't sent. Older peers read that the same way. Vector frames and hellos stay true, so others still see the stall. A peer's frame doesn't wake a pull for a writer held from it, so two stalled devices don't trade empty pulls.
+- `Store::missing_by_turns` serves board pulls. `missing` stays in byte order for the private mesh, which the goldens pin.
+- Not held: a run refused for no cert yet. It retries on every pull as before, because a cert can land by any path, and holding it could delay a new device's rows by an hour. Turns keep it from starving anyone.
 
 **Leave nothing stranded.**
 
@@ -169,6 +179,7 @@ The gate stays for adding or deleting a board, space Talk and notes. Three chang
 - `reads` absent means no word, not level 0, or every older home server would read as too old.
 - A phone's row has `public: null`. The only production reader skips those (`meshnode.rs:207`), so a phone isn't taken for a home server.
 - A live hello beats the row, which covers a downgrade.
+- A saved hello and a row go by which the device wrote later, on its own row counter: a saved hello keeps the device's own entry of the hello's vector, and a row its seq. No clock decides. The same hello heard again is saved again only when a later row said otherwise (#577).
 - What it's for: a device can know about a device it never met, and the Devices page and warnings can show who's behind, on any device. That fixes two gaps: the out-of-date warning skips your own devices, and it keeps only a person's newest version, so Blake's laptop hides Blake's old phone (`boards_status.rs:136-145`). It also means a future level can name a sleeping device correctly.
 - What it isn't for: an older build writes no `reads`, and every build that does is past today's levels. So at today's levels these rows only ever say ready. They don't themselves remove the wait; the next change does.
 

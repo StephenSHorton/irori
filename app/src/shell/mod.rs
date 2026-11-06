@@ -19,10 +19,14 @@ mod apk;
 #[cfg(test)]
 mod golden;
 pub mod instance;
+mod keep;
 pub mod login;
 #[cfg(target_os = "android")]
 mod notify_android;
 mod probe;
+#[cfg(target_os = "macos")]
+mod quit_mac;
+mod shot;
 // No tray on a phone (card #226): the same API with nothing behind it.
 #[cfg_attr(mobile, path = "tray_mobile.rs")]
 pub mod tray;
@@ -32,7 +36,7 @@ mod update;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use irori_window::{Config, Window, attachments};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::commands::version;
@@ -68,6 +72,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     unsafe { sys::shellpath::fix_gui_path() };
     let startup = login::started_at_login(args);
     let data = datadir::process_data_dir()?;
+    // Card #578: the restart Keep this device up to date made while the
+    // window was hidden comes back hidden too.
+    let restarted_hidden = keep::after_start(&data, version(), keep::unix_now());
     let rt = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -112,6 +119,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // The updater (M8), GUI role only; a dev build never checks.
     let updater = update::new(&data);
+    // Keep this device up to date (card #578): the setting, and the wake
+    // its switch sends the loop.
+    let (every, hold, tick) = keep::timings();
+    let keeper = Arc::new(keep::Keeper::new(data.clone(), hold));
+    let (keep_tx, keep_rx) = std::sync::mpsc::channel::<()>();
 
     // Card #232: the window opens first, with the opening screen, and the
     // Core starts on its own thread (a fully synced log takes seconds, most
@@ -220,6 +232,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let probe = probe.clone();
             let pumps_stop = pumps_stop.clone();
             let updater = updater.clone();
+            let keeper = keeper.clone();
             let ready = ready.clone();
             let hosted = hosted.clone();
             let starting = starting.clone();
@@ -227,7 +240,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             move |app| {
                 builder.mount_events(app);
                 // The probe never puts a window on screen.
-                main_window(app.handle(), startup || probe.on())?;
+                main_window(app.handle(), startup || restarted_hidden || probe.on())?;
+                if restarted_hidden {
+                    irori_core::log(
+                        "start: restarted by Keep this device up to date; the window stays hidden",
+                    );
+                }
+                shot::start(app.handle());
                 irori_core::log(&format!(
                     "start: window open {} ms after launch",
                     launched.elapsed().as_millis()
@@ -243,6 +262,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             Started {
                                 notifier,
                                 updater,
+                                keep: Keep {
+                                    keeper,
+                                    tx: keep_tx,
+                                    rx: keep_rx,
+                                    every,
+                                    tick,
+                                },
                                 probe,
                                 pumps_stop,
                                 launched,
@@ -270,6 +296,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // too late on macOS (card #535): an Apple Event or the app menu's Quit
     // goes through -[NSApplication terminate:], which calls exit() itself
     // and never returns from the loop, so there it runs on RunEvent::Exit.
+    // There the main thread no longer serves its run loop, which the
+    // page's IPC answers wait on (card #588), so on macOS every quit runs
+    // it first on its own thread with the loop still going (quit_mac) and
+    // RunEvent::Exit finds it done.
     let shut_down = {
         let done: Arc<OnceLock<Result<(), String>>> = Arc::default();
         let probe = probe.clone();
@@ -306,6 +336,16 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     #[cfg(target_os = "macos")]
     let on_exit = shut_down.clone();
+    // The tao app delegate exists once the app is built.
+    #[cfg(target_os = "macos")]
+    if app.is_ok() {
+        let s = shut_down.clone();
+        if let Err(e) = quit_mac::install(move || {
+            let _ = s();
+        }) {
+            irori_core::log(&format!("irori: {e}"));
+        }
+    }
     let res = app.map(|app| {
         app.run_return(move |_app, ev| {
             // The tray keeps Irori running with no window open: only Quit
@@ -314,6 +354,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 RunEvent::ExitRequested {
                     code: None, api, ..
                 } => api.prevent_exit(),
+                // Quit (an explicit exit code) shuts down with the loop
+                // still running, then asks again (quit_mac).
+                #[cfg(target_os = "macos")]
+                RunEvent::ExitRequested {
+                    code: Some(code),
+                    api,
+                    ..
+                } => {
+                    let app = _app.clone();
+                    match quit_mac::begin(move || app.exit(code)) {
+                        quit_mac::Begin::Started | quit_mac::Begin::Running => api.prevent_exit(),
+                        quit_mac::Begin::Done => {}
+                    }
+                }
                 // A Dock click on the running app (check this against the
                 // Go build on the Mac).
                 #[cfg(target_os = "macos")]
@@ -339,9 +393,19 @@ type Running = (host::Hosted, Arc<Window>);
 struct Started {
     notifier: notify::Notifier,
     updater: Arc<::update::Updater>,
+    keep: Keep,
     probe: probe::Probe,
     pumps_stop: sys::cancel::Cancel,
     launched: std::time::Instant,
+}
+
+/// Keep this device up to date (card #578): what its loop and switch need.
+struct Keep {
+    keeper: Arc<keep::Keeper>,
+    tx: std::sync::mpsc::Sender<()>,
+    rx: std::sync::mpsc::Receiver<()>,
+    every: std::time::Duration,
+    tick: std::time::Duration,
 }
 
 /// Card #232: starts the Core and its API (off the main thread), builds the
@@ -371,7 +435,11 @@ fn start_core(
     let mut seams = Window::default_seams(&core);
     seams.login = Arc::new(ShellLogin(app.clone()));
     seams.notifier = Arc::new(irori_window::settings::NotifierSeam(s.notifier.clone()));
-    seams.updater = Arc::new(update::WindowUpdater(s.updater.clone()));
+    seams.updater = Arc::new(update::WindowUpdater(
+        s.updater.clone(),
+        s.keep.keeper.clone(),
+        Mutex::new(s.keep.tx.clone()),
+    ));
     let claude_dir = match host::claude_dir() {
         Ok(d) => d,
         Err(e) => {
@@ -398,8 +466,12 @@ fn start_core(
     // lists `claude` agents, so it doesn't log "spawn cleanup: can't find
     // the claude command" every second. Its switch's default is unchanged:
     // the coord's offers and its "starts an agent" lines read it.
+    // An offline copy (IRORI_DEV_OFFLINE, a rehearsal or a window check on
+    // a copy of a real data dir, card #587) never starts real agents.
     #[cfg(desktop)]
-    core.set_spawner(Some(spawner()));
+    if !crate::host::offline() {
+        core.set_spawner(Some(spawner()));
+    }
     #[cfg(not(desktop))]
     core.set_runs_no_agents();
     // Spawning is on by default for the private board where agents can
@@ -409,6 +481,7 @@ fn start_core(
     app.manage(window.clone());
     wire_window(app, &window);
     wire_opener(app, &s.notifier);
+    let keep_stop = s.pumps_stop.clone();
     irori_window::events::start(window.clone(), s.pumps_stop);
 
     // The tray, the launch-at-login cutover and the updater belong on the
@@ -418,6 +491,8 @@ fn start_core(
         let window = window.clone();
         let probe = s.probe.clone();
         let updater = s.updater.clone();
+        let keep = s.keep;
+        let pumps_stop = keep_stop;
         let launched = s.launched;
         move || {
             irori_core::log(&format!(
@@ -449,7 +524,8 @@ fn start_core(
                     Err(e) => irori_core::log(&format!("irori: tray: {e}")),
                 }
             }
-            update::wire(&app, &updater, tray_for_update, &s.notifier);
+            let recheck_card =
+                update::wire(&app, &updater, tray_for_update, &s.notifier, &keep.keeper);
             if !probe.on() {
                 // The launch-at-login cutover (surface.md 7.4).
                 if let Err(e) = login::LoginItem::system().cutover() {
@@ -459,6 +535,22 @@ fn start_core(
                 // unsupported platforms return at once).
                 let u = updater.clone();
                 tauri::async_runtime::spawn(async move { u.auto_update().await });
+                // Card #578: Keep this device up to date's loop (desktops;
+                // a phone's update waits for the person's tap).
+                if updater.supported() && !cfg!(target_os = "android") {
+                    let hooks = keep_hooks(&app, &core, recheck_card);
+                    if let Err(e) = keep::spawn(
+                        keep.keeper.clone(),
+                        updater.clone(),
+                        hooks,
+                        keep.rx,
+                        pumps_stop.clone(),
+                        keep.every,
+                        keep.tick,
+                    ) {
+                        irori_core::log(&format!("irori: keep up to date: {e}"));
+                    }
+                }
             }
             // The rehearsal's launch-at-login switch-over against a
             // scratch Run key (tools/rehearse; probe only).
@@ -489,6 +581,37 @@ fn start_core(
     Ok((hosted, window))
 }
 
+/// What Keep this device up to date's loop asks the app (card #578).
+/// "No agent working" reads presence again first, so a turn that just
+/// started counts; a window the person is using also waits.
+fn keep_hooks(
+    app: &AppHandle,
+    core: &Arc<irori_core::Core>,
+    recheck_card: Box<dyn Fn(&::update::Status) + Send>,
+) -> keep::Hooks {
+    let (a, c) = (app.clone(), core.clone());
+    let av = app.clone();
+    keep::Hooks {
+        idle: Box::new(move || {
+            let focused = a.get_webview_window(MAIN).is_some_and(|w| {
+                w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false)
+            });
+            if focused {
+                return false;
+            }
+            c.presence().rescan();
+            let cards = c.presence().snapshot();
+            let open = c.terms().list().iter().filter(|t| t.2).count();
+            keep::idle_now(&cards, open, keep::unix_now(), keep::SETTLE)
+        }),
+        visible: Box::new(move || {
+            av.get_webview_window(MAIN)
+                .is_some_and(|w| w.is_visible().unwrap_or(false))
+        }),
+        recheck_card,
+    }
+}
+
 /// Go `handOff`: a bare app with the same single-instance id, so the
 /// plugin passes the launch to the running copy and exits this process.
 /// Reaching the end means no copy answered (a Go GUI holds the Core: the
@@ -507,7 +630,10 @@ fn hand_off() -> Result<(), String> {
 /// title bar), 1100×720, URL `/`; hidden at a login launch. The background
 /// is the opening screen's (index.html, card #232), so nothing flashes.
 fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
-    let b = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())
+    // A window check on a Mac (card #587, shot.rs) may open a debug build
+    // on a preview switch.
+    let url = shot::window_url().unwrap_or_default();
+    let b = WebviewWindowBuilder::new(app, MAIN, url)
         .title("Irori")
         .background_color(tauri::window::Color(11, 12, 15, 255));
     // A phone's window is the whole screen (card #226). Desktop only: iOS

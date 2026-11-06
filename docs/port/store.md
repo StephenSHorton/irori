@@ -456,7 +456,9 @@ WHERE clauses ANDed: kinds OR-group — prefix `k` ending in `.` -> `(kind >= k 
 `/` = `.`+1 under BINARY collation), else `kind = k`; `device_id = ?`; `seq > after_seq` (if >0); `hlc > after_hlc`
 (if != 0; if > i64::MAX return empty); cursor `(hlc > h OR (hlc = h AND (device_id > d OR (device_id = d AND seq > s))))`
 (if non-zero; > i64::MAX -> empty). Order `hlc, device_id, seq` (or all DESC). Limit `<=0 -> 200`, cap 1000. Table
-`local_events` when `local`. Note the cursor is "strictly after" even with `desc` (Go does not flip it).
+`local_events` when `local`. Note the cursor is "strictly after" even with `desc` (Go does not flip it). A read of one
+device's `events` by seq asks SQLite for `ORDER BY seq` (or `DESC`) instead: the same rows in the same order, since hlc
+rises with seq on a device, without sorting its tail (card #567; `one_device_by_seq` says which reads).
 
 ### 3.11 Hold appends (Q:398-403, 446-455)
 

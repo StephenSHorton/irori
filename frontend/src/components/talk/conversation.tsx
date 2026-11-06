@@ -16,8 +16,10 @@ import {
   ChevronLeftIcon,
   EyeIcon,
   HashIcon,
+  LogOutIcon,
   MessageSquareTextIcon,
   SquarePlusIcon,
+  UserIcon,
   UsersIcon,
 } from "lucide-react"
 
@@ -36,10 +38,12 @@ import {
 } from "@/components/ui/context-menu"
 import {
   agentsNowFor,
+  dmPerson,
   dmWith,
   fromPost,
   talkApi,
   usePosts,
+  waitingText,
   type Conversation,
   type Member,
   type Post,
@@ -166,6 +170,21 @@ export function ConversationView({
   }, [last])
 
   const other = conv.kind === "dm" ? dmWith(conv) : []
+  // A DM with another person (card #538): their name, what it waits on,
+  // and leaving it.
+  const person = dmPerson(conv)
+  const personName = person ? nameOr(plainLine(person.name || conv.name)) : ""
+  const waiting = person ? waitingText(conv, personName) : ""
+  const [leaving, setLeaving] = useState(false)
+  const [leaveError, setLeaveError] = useState("")
+  const leave = async () => {
+    try {
+      await talkApi.dmLeave(conv.convId)
+      onBack()
+    } catch (err) {
+      setLeaveError(errorText(err))
+    }
+  }
   const title =
     conv.kind === "channel" ? (
       <>
@@ -174,6 +193,19 @@ export function ConversationView({
           aria-hidden
         />
         <span className="truncate">{plainLine(conv.name)}</span>
+      </>
+    ) : person ? (
+      <>
+        <UserIcon
+          className="size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
+        <span className="truncate">{personName}</span>
+        {waiting && (
+          <span className="shrink-0 text-[12px] font-normal text-muted-foreground">
+            {waiting}
+          </span>
+        )}
       </>
     ) : conv.readOnly ? (
       <>
@@ -252,11 +284,51 @@ export function ConversationView({
               {conv.members.length}
             </Button>
           )}
+          {person && (
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {leaveError && (
+                <span className="text-[11px] text-destructive">
+                  {leaveError}
+                </span>
+              )}
+              {leaving ? (
+                <>
+                  <span className="text-[12px] text-muted-foreground">
+                    Its messages go from your devices.
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="destructive"
+                    onClick={() => void leave()}
+                  >
+                    Leave
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setLeaving(false)}
+                  >
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  title={`Leave your DM with ${personName}`}
+                  onClick={() => setLeaving(true)}
+                >
+                  <LogOutIcon />
+                  Leave
+                </Button>
+              )}
+            </span>
+          )}
         </header>
         {narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] content-start gap-0.5 overflow-y-auto px-3 py-3 mac:overscroll-none">
             {error && (
               <p className="px-2 text-xs text-destructive" role="alert">
                 Could not load the posts: {error}
@@ -268,7 +340,9 @@ export function ConversationView({
                   ? "Nothing here yet. Agents wake only when you @-mention them; the rest read it at their next turn."
                   : conv.readOnly
                     ? "Nothing between them yet."
-                    : "Nothing yet. Every message here wakes the agent."}
+                    : person
+                      ? `Nothing yet. Only you and ${personName} can read this.`
+                      : "Nothing yet. Every message here wakes the agent."}
               </p>
             )}
             {posts.map((p, i) => {

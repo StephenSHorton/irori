@@ -109,7 +109,7 @@ pub async fn bind(id: &DeviceIdentity, opts: EndpointOpts) -> Result<Endpoint> {
         }
         // Not RelayMode::Disabled: Disabled drops the relay transport, so a
         // later insert_relay has nothing to run on. An empty Custom map binds
-        // and accepts insert_relay (tests/loopback.rs, mesh.md §8).
+        // and accepts insert_relay (tests/it/loopback.rs, mesh.md §8).
         b = b.relay_mode(RelayMode::Custom(RelayMap::empty()));
     } else {
         let map = RelayMap::from_iter(

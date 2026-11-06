@@ -81,6 +81,22 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub no_agent: String,
+    /// The device whose cap it waits on, with its place in that device's
+    /// spawn queue (card #450): "queued: 2nd for the PC".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub at_cap: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    #[specta(optional)]
+    pub queue_place: i64,
+    /// While a Claude usage limit holds spawns, when they start again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional, type = Option<ts::Time>)]
+    pub usage_limit: Option<GoTime>,
+}
+
+fn is_zero(n: &i64) -> bool {
+    *n == 0
 }
 
 /// What a #ref in text names (card #144): a card or a thread, live or
@@ -420,7 +436,11 @@ impl Window {
                     .unwrap_or_default(),
                 cant_start: t
                     .spawn_request()
-                    .filter(|sp| sp.op == coord::SPAWN_FAILED && state == THREAD_WAITING)
+                    .filter(|sp| {
+                        sp.op == coord::SPAWN_FAILED
+                            && !coord::usage_limited(sp)
+                            && state == THREAD_WAITING
+                    })
                     .map(|sp| crate::cards::cant_start_text(&t, sp, &p))
                     .unwrap_or_default(),
                 // A waiting thread, or an answered one the person followed
@@ -432,7 +452,15 @@ impl Window {
                 } else {
                     String::new()
                 },
+                ..ThreadSummary::default()
             };
+            let mut s = s;
+            if state == THREAD_WAITING {
+                let w = crate::cards::queue_words(&t.id, &p);
+                s.at_cap = w.at_cap;
+                s.queue_place = w.queue_place;
+                s.usage_limit = w.usage_limit;
+            }
             if resolved {
                 done.push(s);
             } else {

@@ -11,8 +11,8 @@ use super::cards::{block_question, check_steps, new_steps};
 use super::comments::check_reason;
 use super::error::{Result, bad_state, held, invalid, not_allowed, not_found, subtask};
 use super::fold::{
-    FOLLOW_KINDS, Fold, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, engaged, is_holder,
-    restore_state, stolen_key,
+    Fold, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, engaged, is_holder, restore_state,
+    stolen_key,
 };
 use super::links::{MAX_LINKS, parse_link};
 use super::resource::{
@@ -38,8 +38,6 @@ pub(crate) struct CleanTask {
     pub parent: String,
     /// A helper's part of its parent (spawned agents §3).
     pub spawn: bool,
-    /// Up to N agents (§3); 0 for the board's.
-    pub agents: i64,
     /// The thread it was made from (card #155).
     pub from: String,
     /// The board in its space (card #392).
@@ -106,12 +104,6 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         return Err(invalid("BlockedBy needs a BlockReason"));
     }
     check_reason(&reason, false)?;
-    if !(0..=super::MAX_AGENTS_PER_CARD).contains(&nt.agents) {
-        return Err(invalid(format!(
-            "agents is 1 to {} (0 for the board's Agents per card)",
-            super::MAX_AGENTS_PER_CARD
-        )));
-    }
     let mut steps = nt.steps.clone();
     check_steps(&mut steps)?;
     Ok(CleanTask {
@@ -128,7 +120,6 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         parent: String::new(),
         spawn: false,
-        agents: nt.agents,
         from: String::new(),
         board: String::new(),
         side: String::new(),
@@ -211,7 +202,6 @@ impl Fold {
                 links: ct.links.clone(),
                 parent: ct.parent.clone(),
                 spawn: ct.spawn,
-                agents: ct.agents,
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),
@@ -1001,6 +991,8 @@ impl Fold {
         self.reset_stale();
         self.links.clear();
         self.pr_states.clear();
+        self.pr_ahead.clear();
+        self.pr_vouchers.clear();
         self.pins.clear();
         self.archived.clear();
         // Pins from rows the cut moved out go too (card #494).
@@ -1027,71 +1019,27 @@ impl Fold {
         Ok(())
     }
 
-    /// After a store resync signal: refold if cut, then page each other
-    /// device's rows past what was folded.
-    pub(crate) fn catch_up(&mut self) -> Result<()> {
-        let Some(st) = self.st.clone() else {
-            return Ok(());
-        };
-        let vec = st.vector()?;
-        self.refold_if_cut(&vec)?;
-        for (dev, top) in &vec {
-            if *dev == self.dev {
+    /// Folds one page of a catch-up, in seq order, as [`Fold::apply_remote`]
+    /// would row by row. A row that moved links relinks at once, since the
+    /// rows after it read parents and subtasks; the rest share one relink,
+    /// which has to run before the lock goes (card #567). The duties stay
+    /// per row: a lease lost or a claim answered between two rows writes
+    /// rows the second would have prevented.
+    pub(crate) fn fold_page(&mut self, evs: &[Event]) {
+        if evs.is_empty() {
+            return;
+        }
+        for ev in evs {
+            if ev.seq <= self.last.get(&ev.device_id).copied().unwrap_or(0) {
                 continue;
             }
-            loop {
-                let after = self.last.get(dev).copied().unwrap_or(0);
-                if after >= *top {
-                    break;
-                }
-                let evs = st.list(&store::Filter {
-                    device_id: dev.clone(),
-                    after_seq: after,
-                    kinds: FOLLOW_KINDS.iter().map(|k| k.to_string()).collect(),
-                    limit: store::MAX_LIST_LIMIT,
-                    ..store::Filter::default()
-                })?;
-                if evs.is_empty() {
-                    break;
-                }
-                for ev in &evs {
-                    self.apply_remote(ev);
-                }
-                if (evs.len() as i64) < store::MAX_LIST_LIMIT {
-                    break;
-                }
+            self.last.insert(ev.device_id.clone(), ev.seq);
+            self.apply_row(ev);
+            if self.links_moved {
+                self.relink();
             }
+            self.holder_duties();
         }
-        self.catch_up_own_seen(&st)?;
-        self.holder_duties();
-        Ok(())
-    }
-
-    /// This device's repo.seen rows are capture's, not coord's own writes,
-    /// so they reach the fold only live ([`super::Coord::handle`]); one a
-    /// full subscription dropped, or one written between the startup replay
-    /// and Follow subscribing, is read here. There is one per worktree root,
-    /// and folding one twice changes nothing (card #521).
-    fn catch_up_own_seen(&mut self, st: &store::Store) -> Result<()> {
-        if self.on_board {
-            return Ok(());
-        }
-        let mut after = 0;
-        loop {
-            let evs = st.list(&store::Filter {
-                device_id: self.dev.clone(),
-                after_seq: after,
-                kinds: vec![kinds::REPO_SEEN.to_string()],
-                limit: store::MAX_LIST_LIMIT,
-                ..store::Filter::default()
-            })?;
-            for ev in &evs {
-                self.fold_desk(ev);
-            }
-            match evs.last() {
-                Some(l) if (evs.len() as i64) == store::MAX_LIST_LIMIT => after = l.seq,
-                _ => return Ok(()),
-            }
-        }
+        self.relink();
     }
 }

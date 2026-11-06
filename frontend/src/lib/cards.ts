@@ -442,7 +442,8 @@ function sampleThreads(boardId = ""): ThreadSummary[] {
       at: c.updatedAt,
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
-      starting: c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+      starting:
+        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -482,18 +483,20 @@ export const threads = {
   ): Promise<TaskResult> {
     checkUploads(files)
     if (inWails()) {
-      if (!files.length)
-        return BoardService.StartThread(text, mentions, boardId, agentsNow)
-      if (boardId)
+      if (boardId && files.length)
         throw new Error(
           "files go with a thread on your own board only; on a shared board, attach them on a card"
         )
-      return BoardService.StartThreadWithFiles(
-        text,
-        mentions,
-        await Promise.all(files.map(uploadOf)),
-        agentsNow
-      )
+      const res = files.length
+        ? await BoardService.StartThreadWithFiles(
+            text,
+            mentions,
+            await Promise.all(files.map(uploadOf)),
+            agentsNow
+          )
+        : await BoardService.StartThread(text, mentions, boardId, agentsNow)
+      rememberStarted(boardId, startedRow(res))
+      return res
     }
     const t = text.trim()
     if (!t) throw new Error("coord: invalid input: an empty comment")
@@ -697,15 +700,85 @@ export function cardStatus(c: CardSummary): RefStatus {
   })
 }
 
+// A thread the person just started shows at once (card #551), from what
+// StartThread answered: on a slow window the list's next read can be
+// seconds off, and Talk opens the new thread by finding it in the list.
+// The row stands in until a read begun after it was remembered: that read
+// is the truth, with the row in it or not.
+export type StartedThread = { seq: number; boardId: string; row: ThreadSummary }
+
+let startedThreads: StartedThread[] = []
+let startedSeq = 0
+const startedListeners = new Set<() => void>()
+
+function rememberStarted(boardId: string, row: ThreadSummary) {
+  startedThreads = [...startedThreads, { seq: ++startedSeq, boardId, row }]
+  for (const fn of startedListeners) fn()
+}
+
+function onStarted(fn: () => void): () => void {
+  startedListeners.add(fn)
+  return () => startedListeners.delete(fn)
+}
+
+// startedRow is the list's row for a thread StartThread just made. It has
+// no replies yet; who heard it comes with the next read.
+export function startedRow(res: TaskResult): ThreadSummary {
+  const t = res.task
+  return ThreadSummary({
+    id: t.id,
+    short: t.short ?? "",
+    title: t.title,
+    text: t.objective,
+    state: t.ask?.taker ? "handed" : "waiting",
+    at: t.createdAt,
+    updatedAt: t.updatedAt,
+    private: !!t.ask?.board,
+    agentsNow: !!t.ask?.wake,
+  })
+}
+
+// withStarted is rows, a read of boardId's threads begun at seq asOf, with
+// the threads started since on top, newest first.
+export function withStarted(
+  rows: ThreadSummary[],
+  asOf: number,
+  boardId: string,
+  started: StartedThread[]
+): ThreadSummary[] {
+  const fresh = started
+    .filter(
+      (s) =>
+        s.seq > asOf &&
+        s.boardId === boardId &&
+        !rows.some((r) => r.id === s.row.id)
+    )
+    .map((s) => s.row)
+    .reverse()
+  return fresh.length ? [...fresh, ...rows] : rows
+}
+
 // useThreads is the Threads panel's rows, fresh on every card change.
 export function useThreads(boardId = ""): {
   threads: ThreadSummary[]
   error: string | null
 } {
-  const load = useCallback(() => threads.list(boardId), [boardId])
-  const { value, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  const load = useCallback(async () => {
+    const asOf = startedSeq
+    return { rows: await threads.list(boardId), asOf }
+  }, [boardId])
+  const { value, error, reload } = useLatest(
+    load,
+    { rows: [] as ThreadSummary[], asOf: startedSeq },
+    "threads"
+  )
   useFresh(reload, error, true)
-  return { threads: value, error }
+  const started = useSyncExternalStore(onStarted, () => startedThreads)
+  const list = useMemo(
+    () => withStarted(value.rows, value.asOf, boardId, started),
+    [value, boardId, started]
+  )
+  return { threads: list, error }
 }
 
 function sampleChanged() {
@@ -751,6 +824,8 @@ function summary(c: CardDetail): CardSummary {
     noAgent: c.noAgent,
     starting: c.starting,
     atCap: c.atCap,
+    queuePlace: c.queuePlace,
+    usageLimit: c.usageLimit,
     waitPr: c.waitPr,
     mergePr: c.mergePr,
     goneWait: c.goneWait,
@@ -1965,7 +2040,8 @@ export type CardsState = {
 export function useCards(): CardsState {
   const { value, loading, error, reload } = useLatest<CardSummary[]>(
     loadCards,
-    []
+    [],
+    "cards"
   )
   useFresh(reload, error)
   return { cards: value, loading, error }
@@ -1978,9 +2054,12 @@ export function useCards(): CardsState {
 export function useIdleReport(
   agents: { status: string; deviceState?: string | null }[]
 ) {
-  const sampleIdle = agents.filter(
-    (a) => a.status === "idle" && a.deviceState !== "offline"
-  ).length
+  // 0 in the app: a load that changed with the count would read beside the
+  // running one and drop its answer (card #551).
+  const sampleIdle = inWails()
+    ? 0
+    : agents.filter((a) => a.status === "idle" && a.deviceState !== "offline")
+        .length
   const load = useCallback(
     async (): Promise<IdleReport> =>
       inWails() ? BoardService.IdleReport() : sampleIdleReport(sampleIdle),
