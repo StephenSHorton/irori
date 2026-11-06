@@ -15,6 +15,7 @@ mod buildclean;
 mod common;
 mod core;
 mod desk_default;
+mod desk_merged;
 mod desk_opened;
 mod desk_wake;
 mod deskmap;
