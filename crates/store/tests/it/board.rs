@@ -151,17 +151,24 @@ fn board_refuses_kinds() {
     assert!(all(e.s()).is_empty(), "a refused row was stored");
 }
 
-/// The tolerant reader (no-server.md §3.5): a pulled row of a `task.*` or
-/// `space.*` kind nobody has named is stored and its stream goes on. This
-/// device's own writes stay strict.
+/// The tolerant reader (no-server.md §3.5): a pulled row of a `task.*`,
+/// `space.*`, `talk.*` or `call.*` kind nobody has named is stored and its
+/// stream goes on. This device's own writes stay strict.
 #[test]
 fn board_stores_pulled_unknown_task_and_space_kinds() {
     let mut e = Env::new();
     let empty = json!({});
-    for (i, kind) in ["task.future", "task.future.sub", "space.future"]
-        .iter()
-        .enumerate()
-    {
+    let kinds = [
+        "task.future",
+        "task.future.sub",
+        "space.future",
+        // Card #652 (tolerant 2): calls' rows, and Talk's next ones.
+        "call.started",
+        "call.segment",
+        "talk.future",
+        "talk.post.future",
+    ];
+    for (i, kind) in kinds.iter().enumerate() {
         assert!(store::board_tolerated(kind));
         let (ev, r) = e.insert_b("irori", kind, &empty);
         r.unwrap_or_else(|err| panic!("insert {kind}: {err}"));
@@ -176,12 +183,13 @@ fn board_stores_pulled_unknown_task_and_space_kinds() {
     e.insert_b("irori", "lease.acquired", &json!({"resource": "gpu/1"}))
         .1
         .unwrap();
-    assert_eq!(e.s().vector().unwrap().get("dev-b").copied(), Some(4));
+    let n = kinds.len() as i64;
+    assert_eq!(e.s().vector().unwrap().get("dev-b").copied(), Some(n + 1));
     // Only the appends counted as refused.
-    assert_eq!(e.s().board_refused().kind, 3);
+    assert_eq!(e.s().board_refused().kind, n);
 }
 
-/// Only those two families, and only kinds nobody has named: a stall on a
+/// Only those families, and only kinds nobody has named: a stall on a
 /// membership or revoke row fails closed, and skipping one fails open.
 #[test]
 fn board_stays_strict_on_every_other_unknown_kind() {
@@ -197,11 +205,17 @@ fn board_stays_strict_on_every_other_unknown_kind() {
         "future.kind",
         "task.",
         "space.",
+        "talk.",
+        "call.",
         "task",
+        "call",
         "tasks.future",
+        "calls.future",
+        "talking.future",
         // Named and refused: not unknown, so not tolerated.
         "task.shared",
         "task.deleted",
+        "talk.read",
     ] {
         assert!(!store::board_tolerated(kind), "{kind}");
         assert_eq!(
@@ -227,21 +241,33 @@ fn board_tolerated_row_keeps_the_actor_check() {
 }
 
 /// A kind stored as unknown must never become Refuses, or the build that
-/// says so stalls on rows already in logs. This is every `task.*` and
-/// `space.*` kind refused when the tolerant reader shipped: don't add to it.
-/// A new kind of these families is Accepts, or a family of its own.
+/// says so stalls on rows already in logs. This is every kind of a
+/// tolerated family refused when its family became tolerated (`task.*` and
+/// `space.*` in #579; `talk.*` and `call.*` in #652, when every Irori that
+/// writes `talk.read` already names it): don't add to it. A new kind of
+/// these families is Accepts, or a family of its own.
 #[test]
 fn no_tolerated_family_kind_becomes_refused() {
+    assert_eq!(
+        store::TOLERATED_FAMILIES,
+        ["task.", "space.", "talk.", "call."],
+        "a newly tolerated family pins its refused kinds below"
+    );
     let mut refused: Vec<&str> = REGISTRY
         .iter()
         .filter(|k| k.board != store::Board::Accepts)
-        .filter(|k| k.kind.starts_with("task.") || k.kind.starts_with("space."))
+        .filter(|k| {
+            store::TOLERATED_FAMILIES
+                .iter()
+                .any(|f| k.kind.starts_with(f))
+        })
         .map(|k| k.kind)
         .collect();
     refused.sort();
     assert_eq!(
         refused,
         [
+            "talk.read",
             "task.archived",
             "task.comment.edited",
             "task.deleted",
