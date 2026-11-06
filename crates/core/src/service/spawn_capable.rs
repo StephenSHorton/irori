@@ -27,6 +27,10 @@ const ANDROID: &str = "android";
 /// a connected computer starts it well inside this.
 pub const NO_AGENT_AFTER: Duration = Duration::from_secs(30);
 
+/// The board change a window hears when which computers can run agents, or
+/// the words saying none can, changed: no row says so.
+pub const AGENTS_CHANGED: &str = "agents.changed";
+
 /// A "no agent can start" notification's id for card `id`.
 pub fn no_agent_id(id: &str) -> String {
     format!("{}{id}", notify::NO_AGENT_PREFIX)
@@ -203,18 +207,39 @@ impl Services {
                 .map(|(d, t)| (d.clone(), t.unix_nano()))
                 .collect()
         };
-        *self.spawn.agents.write().unwrap_or_else(|e| e.into_inner()) = AgentDevices {
+        let agents = AgentDevices {
             homes: ranked.into_iter().map(|(_, _, d)| d).collect(),
             cant,
             away,
             away_since,
             moves,
         };
-        *self
-            .spawn
-            .no_agent
-            .write()
-            .unwrap_or_else(|e| e.into_inner()) = text;
+        let moved = {
+            let mut cur = self.spawn.agents.write().unwrap_or_else(|e| e.into_inner());
+            let moved = *cur != agents;
+            *cur = agents;
+            moved
+        };
+        let reworded = {
+            let mut cur = self
+                .spawn
+                .no_agent
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            let reworded = *cur != text;
+            *cur = text;
+            reworded
+        };
+        // No board row changes when a computer comes or goes, so an open
+        // window would keep its old "why no agent" words (a phone in
+        // airplane mode showed none): tell it to read them again.
+        if moved || reworded {
+            self.hub
+                .publish(crate::events::CoreEvent::Board(coord::Change {
+                    kind: AGENTS_CHANGED.into(),
+                    ..coord::Change::default()
+                }));
+        }
     }
 
     /// What the person reads while no computer can start an agent; empty
