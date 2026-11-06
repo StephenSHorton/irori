@@ -92,7 +92,12 @@ isn't tied to an item and could close a newer park when it arrives late:
 Field rules:
 
 - Hold and after items take an id no other device picks: the card's next
-  `b<n>` plus six random characters. Every tag accepts any id string (the
+  `b<n>` plus six random characters. A hold that is changed, reworded or
+  taken by a subtask keeps the first hold's six as a third part,
+  `b<n>-<new six>-<first six>`. Revise can't change an id, so that part
+  names the hold whatever its words: bringing a parent back, changing it
+  and rewording it find a subtask's copy by it, even one made on another
+  device before the last reword. Every tag accepts any id string (the
   store keys `taskId/blockerId`, the window `blocker:<card>:<id>`, so no `/`
   or `:`), and `seq_of` reads it as 0 there and here, so the counter that
   names reason-only items stays the same on every device. Plain questions
@@ -118,26 +123,46 @@ Field rules:
 - Refused while a person's question, done check, transfer, merge wait or
   `INPUT_REQUIRED` is open: those stay Needs you, and raising would swallow
   them.
-- One park per card. Changing it closes the old item with a per-item
-  `blocker.resolved` and raises a new item with a fresh id, on the card and
-  on the subtasks that took it. A revise of a hold's words does the same on
-  the card and on the subtasks that took it, so bringing the parent back
-  still finds them. A subtask's inherited hold is changed on its parent: a
-  revise of it on the subtask is refused. Close first: the fold merges a
-  raise into an open item with the same question. Never a `replace`: one crossing a close of the same id
-  leaves the card `BLOCKED` with nothing open, on every tag.
+- One park per card. Changing it raises a new item with a fresh id, then
+  closes every old hold with a per-item `blocker.resolved`, on the card and
+  on the subtasks that took it. Raise first, so a device that has only
+  part of the change never sees the card free and no agent takes it. The
+  fold merges a raise into an open item with the same question, so an old
+  hold with the new words is renamed first (`… (changed)`, a `replace` on
+  it), then the raise, then the close. A rename crossing that item's close
+  elsewhere is dropped there and the raise still lands. A revise of a
+  hold's words does the same on the card and on the subtasks that took it,
+  so bringing the parent back still finds them. A subtask's inherited hold
+  is changed on its parent: a revise of it on the subtask is refused. The
+  new hold itself is never a `replace`: one crossing a close of the same
+  id leaves the card `BLOCKED` with nothing open, on every tag.
+- Two devices that each raise a hold with the same words apart (two
+  changes of one hold, say) can't be kept apart: each device's fold merges
+  the second raise into the first, in the order they arrived, so the item
+  ids differ between devices until a restart. Each item remembers the
+  raises merged into it (fold bookkeeping only, never shown and never
+  deciding anything), and every close of a hold names those ids too, so a
+  close on either device ends it on both.
 - Two devices can each park a card apart. It then has two holds and stays
   held until the last one closes.
 - A block or question with the hold's own words is refused: the fold's
-  same-question merge would rewrite the hold's `on`. A hold takes no options
-  through revise either.
+  same-question merge would rewrite the hold's `on`. A hold takes no
+  options, through revise or recommend: an item with options is no wait,
+  so a card hold would stop being an edge.
 - A pending spawn is ended on park, where the cancel counts. Binding an agent
   to a held card is refused, and ends its request; the session started for it
-  is ended. "Start an agent" on a held card is the person's word: it brings
+  is ended. A cancel row carries the request's session name, so the author's
+  device still finds and ends that session when it shows up after the cancel
+  (a board's bind loop looks at requests canceled as held, and the private
+  board keeps watching for it while the card is held). "Start an agent" on a held card is the person's word: it brings
   the card back first.
 - A held card: parking drops its holders, because a kept holder would come back
   silently as `WORKING`. Only the holder or a person may park a held card.
 - Order keeps the holder, as `board_block` does.
+- An agent that took a held card, or a step on it, on a device that hadn't
+  seen the hold yet is taken off by the sweep on its person's device, where
+  those rows count, and told. On a board the step row is the agent's own,
+  since a sweeper's step row doesn't count there.
 - A held card has no gone waits: a wait on an agent that went, or an outside
   wait its gone raiser left, isn't the person's until the card comes back, so
   the card stays in Later and off the tray's count. Once back, it shows.
@@ -165,7 +190,8 @@ devices.
   `card` goes by the task arm, as any wait on a card: it closes when the
   card's lane is done (a parent's rollup, not its raw state) or the card
   was deleted. A card this device hasn't seen yet isn't gone.
-- `remove_after` still takes a deleted card's short ref.
+- `remove_after` still takes a deleted card's short ref, after a restart
+  too: the claim still names the deleted card.
 - `sweep_rest` closes every item per item with `blocker.resolved`, never
   `blocker.closed`, which names no item and would end a hold the sweeping
   device hasn't seen. The last close sets `restored`.
@@ -206,10 +232,18 @@ devices.
   that card while someone is on it.
 - An ask its taker keeps can't be closed as a card under a held parent; one
   nobody keeps takes the hold. Either way the circle check runs first.
+- Holding a parent, adopting a card under a held parent and the sweep's
+  copy all check the subtask for an open item with the hold's words: the
+  fold would merge the hold into it and drop its wait. Park and adopt
+  refuse; the sweep and a reopen skip that subtask.
 - A subtask an old device makes under a held parent has no hold. A new
   device's sweep puts the parent's item on it, where that row counts (the
   subtask's creator's person or a board owner), when nobody is on or assigned
-  to it and it was never held. One a person freed stays free.
+  to it and it was never held. One a person freed stays free: "ever held" is
+  fold bookkeeping, kept when the closed item is trimmed.
+- A subtask's copy of its parent's hold ends once every parent item of that
+  hold has closed: the sweep closes it, where that close counts. That covers
+  a copy made on a device that hadn't seen the parent's last change.
 - Bringing back a `word` parent closes the items on its subtasks too.
 - A parked child doesn't set the parent's rollup to `BLOCKED`. Old windows still
   will, with "A subtask needs a call".
@@ -234,8 +268,9 @@ devices.
 ## 4. Known limits, ranked
 
 1. **Older agents can bypass a park.** Refusals are at write time, so an agent
-   on an old core can still `board_unblock`, `board_status working` or
-   `board_join`. A subtask an old device makes under a held parent has no hold,
+   on an old core can still `board_unblock`, `board_status working`,
+   `board_join`, or take a step with `board_step`/`board_steps`. A new
+   device of its person takes it off again in its sweep. A subtask an old device makes under a held parent has no hold,
    so its old origin can hand it out until a new device allowed to write it
    sweeps; one claimed before that stays with its agent. Old windows' Stop
    waiting also closes a park, which is a confirmed act by the person.
@@ -264,15 +299,25 @@ devices.
 10. **Plain question ids still collide.** Two devices raising questions on
    one card apart both pick `b<n>`, and one is dropped. Pre-existing; holds
    and after items no longer do this.
-11. **A bind racing a park.** If the author's device binds the agent before
-   another member's park reaches it, the park's device can't drop a holder it
-   hasn't seen, so the agent stays on the held card. Old author devices bind
-   with no check at all.
+11. **A bind, claim or step racing a park.** If an agent is bound to the
+   card, claims it or takes a step on it before the park reaches its device,
+   it stays on the held card until a sweep on its person's device takes it
+   off. With only old devices of that person on, it stays. Old author devices
+   bind with no check at all.
 12. **v0.12.x `answered_left` can end a hold.** New builds put a reply on a
    hold on the card's thread, not the item. A reply an older window puts
    on the item marks it `ANSWERED`, and a v0.12.x device of the raiser's
    person then closes it once the raiser left the card (an agent that
    parked a card it held), and the card goes out.
+13. **Same-words holds made apart differ until a restart.** Which raise's
+   `later` an item keeps is arrival order live and stamp order after a
+   restart, so two devices can show different conditions until then. Closes
+   reach both, so they agree once either ends it. A third device that has
+   one side's close before the other side's raise can keep the raise open
+   until a restart.
+14. **A session held while starting.** The private board watches for it
+   while the card stays held; one that never shows is forgotten once the
+   card comes back. The board path is from reading, not a test.
 
 ## 5. Bugs found on the way
 

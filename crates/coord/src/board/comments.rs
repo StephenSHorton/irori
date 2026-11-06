@@ -1591,7 +1591,9 @@ impl Fold {
         let now = *now;
         self.return_gone(&now, out)?;
         self.hold_old_subtasks()?;
+        self.end_kid_holds()?;
         self.end_held_spawns()?;
+        self.take_off_held(out)?;
         self.return_unheld_prs()?;
         self.tell_not_answering(out)?;
         self.tell_idle_holders(out);
@@ -1655,21 +1657,26 @@ impl Fold {
                 } else {
                     String::new()
                 };
-                self.write(
-                    SWEEPER,
-                    kinds::BLOCKER_RESOLVED,
-                    &BlockerResolvedRow {
-                        task_id: id.clone(),
-                        blocker_id: bid.clone(),
-                        answer,
-                        option,
-                        note,
-                        by: SWEEPER.into(),
-                        closed: true,
-                        restored,
-                        at: now,
-                    },
-                )?;
+                // And the raises merged into it (card #570): another
+                // device may have one of them as the item.
+                let merged = super::later::merged_into(cur, bid);
+                for x in std::iter::once(bid.clone()).chain(merged) {
+                    self.write(
+                        SWEEPER,
+                        kinds::BLOCKER_RESOLVED,
+                        &BlockerResolvedRow {
+                            task_id: id.clone(),
+                            blocker_id: x,
+                            answer: answer.clone(),
+                            option,
+                            note: note.clone(),
+                            by: SWEEPER.into(),
+                            closed: true,
+                            restored: restored.clone(),
+                            at: now,
+                        },
+                    )?;
+                }
             }
             // All of it closed: told as an unblock, as before.
             if whole {

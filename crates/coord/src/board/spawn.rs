@@ -436,6 +436,9 @@ impl Fold {
                 op: op.into(),
                 device: s.device,
                 permission_mode: s.permission_mode,
+                // So a session started under that name can still be found
+                // and ended (card #570).
+                name: s.name,
                 reason: reason.into(),
                 by,
                 at: now,

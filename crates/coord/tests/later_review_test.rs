@@ -1424,3 +1424,376 @@ mod waits_end {
         }
     }
 }
+
+// ---- the checkers' second round ----
+
+mod round_two {
+    use super::*;
+    use crate::common::two_people::*;
+
+    fn hours(n: u64) -> Duration {
+        Duration::from_secs(3600 * n)
+    }
+
+    fn open_items(t: &Task) -> usize {
+        t.blockers.iter().filter(|b| b.open()).count()
+    }
+
+    fn holds(t: &Task) -> usize {
+        t.blockers
+            .iter()
+            .filter(|b| b.open() && !b.later.is_empty())
+            .count()
+    }
+
+    /// Finding 16 by recommend: a hold takes no options, so a card hold
+    /// stays an edge and the circle back is refused.
+    #[test]
+    fn recommend_on_a_hold_is_refused() {
+        let e = Env::new();
+        let x = make(&e, "first");
+        let t = make(&e, "card");
+        let (t, _) =
+            e.c.park(ALICE, &t.id, "after first", Back::Card(x.id.clone()))
+                .unwrap();
+        let bid = t.parked().unwrap().id.clone();
+        let got = e.c.recommend(BOB, &t.id, &bid, "go", "");
+        assert!(got.is_err(), "{got:?}");
+        assert!(
+            e.c.get_task(&t.id)
+                .unwrap()
+                .parked()
+                .unwrap()
+                .options
+                .is_empty()
+        );
+        assert!(e.c.order_reaches(&t.id, &x.id));
+        let got = e.c.add_after(ALICE, &x.id, std::slice::from_ref(&t.id));
+        assert!(got.is_err(), "{got:?}");
+    }
+
+    /// A card waiting on `y` with the words of a hold on "voice calls".
+    fn voice_wait(parent: &str, y: &str) -> NewTask {
+        NewTask {
+            parent: parent.into(),
+            block_reason: "Not yet: voice calls".into(),
+            blocked_by: on(BLOCKED_ON_TASK, y),
+            ..nt("kid")
+        }
+    }
+
+    /// Finding 8 by park: holding a parent whose subtask has an item with
+    /// the hold's words is refused, not merged into that item.
+    #[test]
+    fn parking_a_parent_over_a_subtasks_same_words_is_refused() {
+        let e = Env::new();
+        let p = make(&e, "parent");
+        let y = make(&e, "other");
+        let k = e.c.create_task(ALICE, voice_wait(&p.id, &y.id)).unwrap();
+        assert_eq!(task_waits(&k), vec![y.id.clone()]);
+        let got = e.c.park(ALICE, &p.id, "voice calls", Back::Word);
+        assert!(got.is_err(), "{got:?}");
+        let k = e.c.get_task(&k.id).unwrap();
+        assert_eq!(task_waits(&k), vec![y.id.clone()]);
+        assert!(k.parked().is_none());
+        assert!(e.c.get_task(&p.id).unwrap().parked().is_none());
+    }
+
+    /// Finding 8 by adopting: a held parent can't take a card whose own
+    /// wait has the hold's words.
+    #[test]
+    fn adopting_a_card_with_the_holds_words_is_refused() {
+        let e = Env::new();
+        let y = make(&e, "other");
+        let k = e.c.create_task(ALICE, voice_wait("", &y.id)).unwrap();
+        let p = make(&e, "parent");
+        e.c.park(ALICE, &p.id, "voice calls", Back::Word).unwrap();
+        let got = e.c.split(ALICE, &p.id, Vec::new(), vec![k.id.clone()]);
+        assert!(got.is_err(), "{got:?}");
+        let k = e.c.get_task(&k.id).unwrap();
+        assert_eq!(task_waits(&k), vec![y.id.clone()]);
+        assert!(k.parked().is_none() && k.parent.is_empty());
+    }
+
+    /// Both sides agree on t, live and after a restart, and the restart
+    /// changes nothing.
+    fn agree(a: &mut Side, b: &mut Side, id: &str) -> (String, usize) {
+        let look = |s: &Side| {
+            let t = s.c.get_task(id).unwrap();
+            assert_eq!(t.state == BLOCKED, open_items(&t) > 0, "{t:?}");
+            (t.state.clone(), open_items(&t))
+        };
+        let live = look(a);
+        assert_eq!(look(b), live, "live");
+        a.restart();
+        b.restart();
+        assert_eq!(look(a), live, "dev-a restarted");
+        assert_eq!(look(b), live, "dev-b restarted");
+        live
+    }
+
+    /// Finding 4 of round two: two changes of one hold, made apart with
+    /// the same words. A close on one device reaches the other.
+    #[test]
+    fn two_changes_with_the_same_words_made_apart_agree() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", Back::Word).unwrap();
+        let later = Back::Date(plus(fixed_now(), hours(72)));
+        b.c.park(P2, &t.id, "not now", later).unwrap();
+        sync(&a, &b);
+        a.clk.add(hours(73));
+        b.clk.add(hours(73));
+        a.c.sweep_notices().unwrap();
+        b.c.sweep_notices().unwrap();
+        sync(&a, &b);
+        agree(&mut a, &mut b, &t.id);
+    }
+
+    /// Finding 5 of round two: a device that has only part of a change
+    /// never sees the card free, so no agent takes it.
+    #[test]
+    fn a_change_seen_in_part_never_frees_the_card() {
+        let (a, b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        a.c.park(P1, &t.id, "not now", Back::Word).unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        while pull_n(&a, &b, 1) > 0 {
+            let got = b.c.get_task(&t.id).unwrap();
+            assert_eq!(got.state, BLOCKED, "{:?}", got.blockers);
+            assert!(got.parked().is_some(), "{:?}", got.blockers);
+        }
+        assert!(b.c.claim_task(CARD2, &t.id).is_err());
+        for s in [&a, &b] {
+            let got = s.c.get_task(&t.id).unwrap();
+            assert_eq!(holds(&got), 1, "{:?}", got.blockers);
+            assert_eq!(got.parked().unwrap().back(), Some(tomorrow()));
+        }
+    }
+
+    /// Finding 6 of round two: a change ends every hold the card has, so
+    /// it comes back on the new date.
+    #[test]
+    fn a_change_ends_every_hold() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        b.c.park(P2, &t.id, "for later", Back::Word).unwrap();
+        sync(&a, &b);
+        let later = Back::Date(plus(fixed_now(), hours(48)));
+        let (got, _) = a.c.park(P1, &t.id, "next week", later.clone()).unwrap();
+        assert_eq!(holds(&got), 1, "{:?}", got.blockers);
+        assert_eq!(got.parked().unwrap().back(), Some(later));
+        sync(&a, &b);
+        a.clk.add(hours(49));
+        b.clk.add(hours(49));
+        a.c.sweep_notices().unwrap();
+        b.c.sweep_notices().unwrap();
+        sync(&a, &b);
+        let (state, _) = agree(&mut a, &mut b, &t.id);
+        assert_eq!(state, SUBMITTED);
+    }
+
+    /// Finding 8 of round two: a reword on dev-a crossing a subtask made
+    /// on dev-b. Bringing the parent back frees that subtask too.
+    #[test]
+    fn a_reword_crossing_a_new_subtask_still_frees_it() {
+        let (mut a, mut b, _) = two_people();
+        let p = a.c.create_task(P1, nt("parent")).unwrap();
+        let (pt, _) = a.c.park(P1, &p.id, "not now", Back::Word).unwrap();
+        let bid = pt.parked().unwrap().id.clone();
+        sync(&a, &b);
+        let (_, kids) =
+            b.c.split(
+                P2,
+                &p.id,
+                vec![NewSubtask {
+                    title: "part".into(),
+                    ..NewSubtask::default()
+                }],
+                Vec::new(),
+            )
+            .unwrap();
+        let k = kids[0].id.clone();
+        assert!(b.c.get_task(&k).unwrap().parked().is_some());
+        a.c.revise(
+            P1,
+            &p.id,
+            &bid,
+            BlockerRevision {
+                question: "Not yet: until the spring".into(),
+                ..BlockerRevision::default()
+            },
+        )
+        .unwrap();
+        sync(&a, &b);
+        a.c.bring_back(P1, &p.id, "go").unwrap();
+        sync(&a, &b);
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                let got = s.c.get_task(&k).unwrap();
+                assert!(got.parked().is_none(), "{name} {round}: {:?}", got.blockers);
+                assert_eq!(got.state, SUBMITTED, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+    }
+
+    /// Finding 8 of round two, by a change: P's word hold becomes a date
+    /// on dev-a while dev-b adds a subtask. When the date comes, the
+    /// subtask's stale word hold ends with P's.
+    #[test]
+    fn a_change_crossing_a_new_subtask_ends_with_the_parents_hold() {
+        let (mut a, mut b, _) = two_people();
+        let p = a.c.create_task(P1, nt("parent")).unwrap();
+        a.c.park(P1, &p.id, "not now", Back::Word).unwrap();
+        sync(&a, &b);
+        let (_, kids) =
+            b.c.split(
+                P2,
+                &p.id,
+                vec![NewSubtask {
+                    title: "part".into(),
+                    ..NewSubtask::default()
+                }],
+                Vec::new(),
+            )
+            .unwrap();
+        let k = kids[0].id.clone();
+        a.c.park(P1, &p.id, "not now", tomorrow()).unwrap();
+        sync(&a, &b);
+        a.clk.add(hours(25));
+        b.clk.add(hours(25));
+        for _ in 0..2 {
+            a.c.sweep_notices().unwrap();
+            b.c.sweep_notices().unwrap();
+            sync(&a, &b);
+        }
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                assert!(s.c.get_task(&p.id).unwrap().parked().is_none());
+                let got = s.c.get_task(&k).unwrap();
+                assert!(got.parked().is_none(), "{name} {round}: {:?}", got.blockers);
+                assert_eq!(got.state, SUBMITTED, "{name} {round}");
+                assert_eq!(s.c.ignored_rows(), 0, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+    }
+
+    /// Finding 9 of round two: a subtask the person freed stays free,
+    /// even once its closed hold is trimmed away.
+    #[test]
+    fn a_freed_subtask_stays_free_after_its_hold_is_trimmed() {
+        let e = Env::new();
+        let p = make(&e, "parent");
+        let (_, kids) =
+            e.c.split(
+                ALICE,
+                &p.id,
+                vec![NewSubtask {
+                    title: "part".into(),
+                    ..NewSubtask::default()
+                }],
+                Vec::new(),
+            )
+            .unwrap();
+        let k = kids[0].id.clone();
+        e.c.park(USER, &p.id, "not now", Back::Word).unwrap();
+        e.c.bring_back(USER, &k, "this part now").unwrap();
+        for i in 0..11 {
+            let (_, b) =
+                e.c.raise(
+                    ALICE,
+                    &k,
+                    NewBlocker {
+                        question: format!("Which way {i}?"),
+                        ..NewBlocker::default()
+                    },
+                )
+                .unwrap();
+            e.c.answer(
+                USER,
+                &k,
+                &b.id,
+                BlockerAnswer {
+                    text: "this way".into(),
+                    resolve: true,
+                    ..BlockerAnswer::default()
+                },
+            )
+            .unwrap();
+        }
+        let got = e.c.get_task(&k).unwrap();
+        assert!(got.blockers.iter().all(|b| b.later.is_empty()), "trimmed");
+        e.c.sweep_notices().unwrap();
+        assert!(e.c.get_task(&k).unwrap().parked().is_none());
+        let c = e.reopen();
+        c.sweep_notices().unwrap();
+        assert!(c.get_task(&k).unwrap().parked().is_none());
+    }
+
+    fn step(text: &str) -> Step {
+        Step {
+            text: text.into(),
+            ..Step::default()
+        }
+    }
+
+    /// Finding 10 of round two: an agent that took a step, or the card,
+    /// on a device that hadn't seen the hold yet is taken off it.
+    #[test]
+    fn an_agent_on_a_card_held_meanwhile_is_taken_off() {
+        for claim in [false, true] {
+            let (mut a, mut b, _) = two_people();
+            let t = b.c.create_task(P2, nt("card")).unwrap();
+            b.c.set_steps(P2, &t.id, vec![step("one")]).unwrap();
+            sync(&a, &b);
+            a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+            if claim {
+                b.c.claim_task(CARD2, &t.id).unwrap();
+            } else {
+                b.c.set_step_owner(CARD2, &t.id, "s1", CARD2).unwrap();
+            }
+            sync(&a, &b);
+            a.c.sweep_notices().unwrap();
+            b.c.sweep_notices().unwrap();
+            sync(&a, &b);
+            for round in ["live", "restarted"] {
+                for (name, s) in [("dev-a", &a), ("dev-b", &b)] {
+                    let got = s.c.get_task(&t.id).unwrap();
+                    let at = format!("claim={claim} {name} {round}");
+                    assert!(got.parked().is_some(), "{at}");
+                    assert!(got.holders.is_empty(), "{at}: {:?}", got.holders);
+                    assert!(got.co_holders.is_empty(), "{at}: {:?}", got.co_holders);
+                    assert!(got.steps.iter().all(|s| s.owner.is_empty()), "{at}");
+                    assert_eq!(s.c.ignored_rows(), 0, "{at}");
+                }
+                a.restart();
+                b.restart();
+            }
+        }
+    }
+
+    /// Finding 11 of round two: a deleted card's short ref still takes
+    /// its wait off after a restart.
+    #[test]
+    fn remove_after_by_a_deleted_cards_short_ref_after_a_restart() {
+        let e = Env::new();
+        let k = make(&e, "first");
+        let a = make(&e, "second");
+        e.c.add_after(ALICE, &a.id, std::slice::from_ref(&k.id))
+            .unwrap();
+        e.c.delete_task(USER, &k.id).unwrap();
+        let c = e.reopen();
+        let got = c.remove_after(ALICE, &a.id, &[k.short_ref()]).unwrap();
+        assert_eq!(got.state, SUBMITTED, "{:?}", got.blockers);
+        assert!(task_waits(&got).is_empty());
+    }
+}

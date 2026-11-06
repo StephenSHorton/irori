@@ -149,3 +149,13 @@ pub fn pull(from: &Side, to: &Side) {
     r.unwrap();
     to.c.fold_live(&rows);
 }
+
+/// Moves at most `n` of what `to` lacks from `from`, oldest first, as a
+/// sync cut short would.
+pub fn pull_n(from: &Side, to: &Side, n: i64) -> usize {
+    let rows = from.st.missing(&to.st.vector().unwrap(), n).unwrap();
+    let (_, r) = to.st.insert_batch(&rows);
+    r.unwrap();
+    to.c.fold_live(&rows);
+    rows.len()
+}

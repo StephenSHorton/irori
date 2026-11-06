@@ -28,7 +28,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use coord::roster::Agents;
-use coord::{SPAWN_FAILED, Spawn, SpawnAsk, Task};
+use coord::{SPAWN_CANCELED, SPAWN_FAILED, Spawn, SpawnAsk, Task};
 use gocompat::time::GoTime;
 use irori_identity::owner::device_of;
 use serde::{Deserialize, Serialize};
@@ -639,10 +639,14 @@ impl Services {
         }
         let live = self.presence.snapshot();
         for ((id, generation), name) in started {
-            let current = self
-                .coord
-                .get_task(&id)
-                .and_then(|t| t.spawn_request().cloned());
+            let card = self.coord.get_task(&id);
+            let current = card.as_ref().and_then(|t| t.spawn_request().cloned());
+            // Held while it was starting (card #570): the session may show
+            // up yet, so it is watched for as long as the card is held.
+            let held = card.as_ref().is_some_and(|t| t.parked().is_some())
+                && current
+                    .as_ref()
+                    .is_some_and(|s| s.generation == generation && s.op == SPAWN_CANCELED);
             let mine: Option<&Spawn> = current
                 .as_ref()
                 .filter(|s| s.generation == generation && s.op == coord::SPAWN_REQUESTED);
@@ -669,6 +673,7 @@ impl Services {
                     }
                 }
                 (None, Some(_)) => {}
+                (None, None) if held => continue,
                 // Failed or canceled before it showed: nothing runs.
                 (None, None) => {}
             }

@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use coord::roster::Agents;
-use coord::{Coord, SPAWN_CANCELED, SpawnAsk, Task, TaskFilter};
+use coord::{Coord, SPAWN_CANCELED, Spawn, SpawnAsk, Task, TaskFilter};
 use irori_identity::owner::device_of;
 
 use super::Services;
@@ -226,10 +226,13 @@ impl Services {
             if b.verifier.key_person(&t.created_by) != self.person_id() {
                 continue;
             }
+            // Pending, or ended because the card was held while its agent
+            // started (card #570): that session still goes.
+            let held = t.parked().is_some();
             let Some(s) = t
                 .spawn_request()
                 .filter(|s| {
-                    s.pending()
+                    (s.pending() || (held && s.op == SPAWN_CANCELED && s.reason == HELD))
                         && s.device == me
                         && (s.by == SWEEPER || b.verifier.key_person(&s.by) == self.person_id())
                 })
@@ -247,8 +250,8 @@ impl Services {
             };
             // A held card gets no agent (card #570): its request ends and
             // the session started for it goes, unmarked.
-            if t.parked().is_some() {
-                self.end_held_start(sp, co, &t, s.generation, &a.key);
+            if held {
+                self.end_held_start(sp, co, &t, &s, &a.key);
                 continue;
             }
             if let Err(e) =
@@ -277,8 +280,10 @@ impl Services {
 
     /// Ends held card t's request `generation` and session `key`, started
     /// for it before it was held.
-    fn end_held_start(&self, sp: &Spawner, co: &Coord, t: &Task, generation: i64, key: &str) {
-        if let Err(e) = co.end_spawn(SWEEPER, &t.id, generation, SPAWN_CANCELED, HELD) {
+    fn end_held_start(&self, sp: &Spawner, co: &Coord, t: &Task, s: &Spawn, key: &str) {
+        if s.pending()
+            && let Err(e) = co.end_spawn(SWEEPER, &t.id, s.generation, SPAWN_CANCELED, HELD)
+        {
             logf(format_args!("spawn {}: end request: {e}", t.short_ref()));
             return;
         }

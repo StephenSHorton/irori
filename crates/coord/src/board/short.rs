@@ -239,10 +239,28 @@ impl Fold {
         {
             v = trim_space(id).to_string();
         }
-        match parse_ref(&v).and_then(|(_, short)| self.short_idx.get(&short)) {
-            Some(id) if self.deleted.contains(id) => Ok(id.clone()),
-            _ => Err(e),
+        let Some((_, short)) = parse_ref(&v) else {
+            return Err(e);
+        };
+        if let Some(id) = self.short_idx.get(&short)
+            && self.deleted.contains(id)
+        {
+            return Ok(id.clone());
         }
+        // After a replay a deleted card is in no index: its claim still
+        // names it, as settle would.
+        let n: Option<i64> = super::resource::go_atoi(short_num(&short));
+        let g = n.and_then(|n| self.short_groups.get(&n));
+        for (i, cl) in g.into_iter().flatten().enumerate() {
+            let s = match g.map_or(0, Vec::len) {
+                1 => short_num(&short).to_string(),
+                _ => format!("{}{}", short_num(&short), short_suffix(i as i64)),
+            };
+            if s == short && self.deleted.contains(&cl.id) {
+                return Ok(cl.id.clone());
+            }
+        }
+        Err(e)
     }
 
     /// Ambiguous, naming each card, when short is a bare number more than

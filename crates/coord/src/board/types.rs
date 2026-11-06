@@ -231,6 +231,11 @@ pub struct Blocker {
     /// #50): a recommendation logged before it was for options gone now.
     #[serde(skip)]
     pub(crate) options_at: RowPos,
+    /// Raises with this item's question that folded into it (card #570).
+    /// Another device may have one of them as the item, so a close names
+    /// them too. Never decides anything here.
+    #[serde(skip)]
+    pub(crate) merged: Vec<String>,
 }
 
 impl Blocker {
@@ -487,6 +492,10 @@ pub struct Task {
     /// answered blocker that went to one of them has nobody to act on it.
     #[serde(skip)]
     pub left: Vec<String>,
+    /// Whether a Not yet hold was ever raised on it (card #570). Kept when
+    /// the closed item is trimmed.
+    #[serde(skip)]
+    pub was_held: bool,
     #[serde(skip_serializing_if = "omit")]
     pub parent: String,
     /// A helper's part (spawned agents §3): the subtask was split off

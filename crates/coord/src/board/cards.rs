@@ -646,7 +646,9 @@ impl Fold {
                 // revise rewrites the row without it.
                 if !br.later.is_empty() {
                     b.later = br.later.clone();
+                    t.was_held = true;
                 }
+                let b = &mut t.blockers[i];
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
                 b.asked = pos;
@@ -668,11 +670,13 @@ impl Fold {
                 return none();
             }
             if let Some(i) = open_with_question(t, &br.question) {
+                t.was_held |= !br.later.is_empty();
                 let b = &mut t.blockers[i];
                 b.on = br.on.clone();
                 if !br.later.is_empty() {
                     b.later = br.later.clone();
                 }
+                b.merged.push(br.id.clone());
                 if !brings_new(b, &br.links, &br.attachments) {
                     return none();
                 }
@@ -712,6 +716,7 @@ impl Fold {
             // An agent that asks on a card it left is back on it: its
             // answer has someone to go to (card #481).
             t.left.retain(|w| w != &p.by);
+            t.was_held |= !nb.later.is_empty();
             t.blockers.push(nb);
             return Folded::raised(format!("raised a blocker: {}", br.question), &br.id);
         }
@@ -1521,6 +1526,13 @@ impl Fold {
         let b = &t.blockers[i];
         if !b.open() {
             return Err(bad_state(format!("blocker {} is already resolved", b.id)));
+        }
+        // A hold has no options, as in revise (card #570).
+        if !b.later.is_empty() {
+            return Err(invalid(format!(
+                "{} is the card's Not yet hold, which takes no options: ask the person in a separate blocker",
+                b.id
+            )));
         }
         match option_index(&b.options, &answer) {
             Some(j) if b.options[j].recommended => return Ok(t),
