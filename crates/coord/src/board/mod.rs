@@ -377,7 +377,13 @@ pub struct Coord {
     /// away. It blocks, never tries: a caller relies on the rows committed
     /// before its call being folded when it returns, and a running pass may
     /// have read its vector too early to cover them.
-    catching: Mutex<()>,
+    ///
+    /// It holds how far a pass read each device's rows, unfollowed ones
+    /// too, so the next starts past them. That is apart from the fold's
+    /// `last`, the newest followed row folded: only a cut of followed rows
+    /// rebuilds the fold, so a revoke that cuts a tail of unfollowed rows
+    /// doesn't.
+    catching: Mutex<std::collections::HashMap<String, i64>>,
     f: Mutex<Fold>,
     stale: Arc<RwLock<fold::StaleMap>>,
     spawned: Arc<RwLock<std::collections::HashSet<String>>>,
@@ -436,6 +442,13 @@ impl Coord {
         self.lock().last.get(dev).copied().unwrap_or(0)
     }
 
+    /// How far a catch-up has read `dev`'s rows, unfollowed ones too.
+    #[doc(hidden)]
+    pub fn read_to(&self, dev: &str) -> i64 {
+        let read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        read.get(dev).copied().unwrap_or(0).max(self.folded_to(dev))
+    }
+
     /// The board's set-aside gate alone (Go's `impl.asideGate`): `true`
     /// means the row would fold now. For tests of the cap.
     #[doc(hidden)]
@@ -448,7 +461,7 @@ impl Coord {
         let spawned = f.spawned_keys.clone();
         let board = f.on_board;
         Coord {
-            catching: Mutex::new(()),
+            catching: Mutex::default(),
             f: Mutex::new(f),
             stale,
             spawned,
@@ -1713,7 +1726,13 @@ impl Coord {
     /// [`Coord::catch_up`] in pages of `limit` rows.
     #[doc(hidden)]
     pub fn catch_up_by(&self, limit: i64) -> Result<()> {
-        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        // As Store::list clamps it: only the last page is short.
+        let limit = if limit <= 0 {
+            store::DEFAULT_LIST_LIMIT
+        } else {
+            limit.min(store::MAX_LIST_LIMIT)
+        };
+        let mut read = self.catching.lock().unwrap_or_else(|e| e.into_inner());
         // In one hold: a vector read apart from `last` could sit below a row
         // folded since, which reads as a cut.
         let (st, vec, me, on_board) = {
@@ -1726,7 +1745,11 @@ impl Coord {
             (st, vec, f.dev.clone(), f.on_board)
         };
         for (dev, top) in vec.iter().filter(|(d, _)| **d != me) {
-            self.catch_up_device(&st, dev, *top, limit)?;
+            // A mark above `top` means a cut took unfollowed rows: read on
+            // from `top`, where the device's next row lands.
+            let from = read.get(dev).copied().unwrap_or(0).min(*top);
+            self.catch_up_device(&st, dev, from, *top, limit)?;
+            read.insert(dev.clone(), *top);
         }
         if !on_board {
             self.catch_up_own_seen(&st, &me, limit)?;
@@ -1735,12 +1758,20 @@ impl Coord {
         Ok(())
     }
 
-    /// Pages `dev`'s rows up to `top`, each read outside the lock. The last
-    /// page moves `last` to `top`, past the unfollowed rows at the device's
-    /// tail, so the next catch-up doesn't read them again: every followed
-    /// row up to `top` was committed before the read.
-    fn catch_up_device(&self, st: &Store, dev: &str, top: i64, limit: i64) -> Result<()> {
-        let mut after = self.lock().last.get(dev).copied().unwrap_or(0);
+    /// Pages `dev`'s followed rows past `from`, or past what is folded if
+    /// that is further, up to `top`, each page read outside the lock. Every
+    /// followed row up to `top` was committed before the vector was read, so
+    /// when it returns they are all folded and the caller marks `top` read,
+    /// past the unfollowed rows at the device's tail.
+    fn catch_up_device(
+        &self,
+        st: &Store,
+        dev: &str,
+        from: i64,
+        top: i64,
+        limit: i64,
+    ) -> Result<()> {
+        let mut after = from.max(self.lock().last.get(dev).copied().unwrap_or(0));
         while after < top {
             let evs = st.list(&store::Filter {
                 device_id: dev.to_string(),
@@ -1749,15 +1780,17 @@ impl Coord {
                 limit,
                 ..store::Filter::default()
             })?;
+            let Some(end) = evs.last().map(|e| e.seq) else {
+                return Ok(());
+            };
             let more = evs.len() as i64 == limit;
             let mut f = self.lock();
             f.fold_page(&evs);
-            let last = f.last.entry(dev.to_string()).or_default();
             if !more {
-                *last = top.max(*last);
+                return Ok(());
             }
-            // From `last`, not the page: a live row may have passed it.
-            after = *last;
+            // A live row may have passed the page.
+            after = end.max(f.last.get(dev).copied().unwrap_or(0));
         }
         Ok(())
     }

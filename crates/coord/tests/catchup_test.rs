@@ -341,28 +341,50 @@ fn a_catch_up_moves_past_the_unfollowed_rows_at_a_devices_tail() {
     l.insert(&unfollowed());
     assert_eq!(l.e.c.folded_to(DEV), 1);
     l.e.c.catch_up().unwrap();
-    assert_eq!(l.e.c.folded_to(DEV), l.seq, "the tail is not read again");
+    assert_eq!(l.e.c.read_to(DEV), l.seq, "the tail is not read again");
+    assert_eq!(l.e.c.folded_to(DEV), 2, "folded is the followed rows'");
     assert_eq!(l.e.c.get_task("P").unwrap().state, WORKING);
 }
 
-/// Unfollowed rows cut from the tail read as a cut: the fold rebuilds, the
-/// next pass ends where it should, and the one after has nothing to rebuild.
+/// A cut that takes only unfollowed rows from a device's tail cuts nothing
+/// folded: no rebuild and no resync note, as before #567. The device's next
+/// row lands where the cut ended, below what was read, and still folds.
 #[test]
-fn a_cut_of_unfollowed_rows_refolds_and_settles() {
+fn a_cut_of_unfollowed_rows_rebuilds_nothing() {
     let mut l = Log::new(&[created("P", "")]);
     l.insert(&unfollowed());
     l.e.c.catch_up().unwrap();
-    assert_eq!(l.e.c.folded_to(DEV), 2);
-    let mut vec = l.e.st.vector().unwrap();
-    vec.insert(DEV.into(), 1);
-    l.e.c.refold_if_cut(&vec).unwrap();
-    assert_eq!(l.e.c.folded_to(DEV), 1);
-    l.e.c.catch_up().unwrap();
-    assert_eq!(l.e.c.folded_to(DEV), 2);
-    assert!(l.e.c.get_task("P").is_some());
+    assert_eq!(l.e.c.read_to(DEV), 2);
+    let db = rusqlite::Connection::open(l.e._dir.path().join("irori.db")).unwrap();
+    db.execute("DELETE FROM events WHERE device_id = ?1 AND seq = 2", [DEV])
+        .unwrap();
+    assert_eq!(l.e.st.vector().unwrap().get(DEV).copied(), Some(1));
     while matches!(l.q.try_recv(), TryRecv::Item(_)) {}
     l.e.c.catch_up().unwrap();
-    assert!(matches!(l.q.try_recv(), TryRecv::Empty), "no second refold");
+    let mut said = Vec::new();
+    while let TryRecv::Item(x) = l.q.try_recv() {
+        said.push(x.kind);
+    }
+    assert!(said.is_empty(), "nothing to say: {said:?}");
+    assert_eq!(l.e.c.folded_to(DEV), 1);
+    l.seq = 1;
+    l.insert(&status("P", WORKING));
+    l.e.c.catch_up().unwrap();
+    assert_eq!(l.e.c.get_task("P").unwrap().state, WORKING);
+    assert_eq!(l.e.c.read_to(DEV), 2);
+}
+
+/// A page longer than the store gives is read as the store's: the rows past
+/// its first page still fold.
+#[test]
+fn a_page_limit_past_the_stores_still_reads_every_row() {
+    let mut l = Log::new(&lead());
+    let n = store::MAX_LIST_LIMIT + 5;
+    for i in 0..n {
+        l.insert(&created(&format!("K{i}"), "P"));
+    }
+    l.e.c.catch_up_by(n * 2).unwrap();
+    assert_eq!(l.e.c.get_task("P").unwrap().subtasks.len(), n as usize);
 }
 
 /// A resync row takes the catch-up lock before coord's, like every other
