@@ -274,37 +274,11 @@ impl Services {
         self.coord.spawned_since(&local_midnight(&now))
     }
 
-    /// How many agents count toward today: those started today, and the
-    /// requests still waiting for theirs (bound later, their mark would
-    /// come later).
+    /// How many agents Irori started today, every device's: bound marks
+    /// only, so a card still queued or starting isn't counted. Shared
+    /// boards' agents are in it too, their marks are in the private log.
     pub(crate) fn started_today(&self) -> i64 {
-        let midnight = local_midnight(&(self.now)());
-        let waiting = |cards: &[Task]| {
-            cards
-                .iter()
-                .filter(|t| {
-                    t.spawn_request()
-                        .is_some_and(|s| s.pending() && s.at.secs >= midnight.secs)
-                })
-                .count()
-        };
-        // Shared boards' too: bound, their marks are in the private log.
-        // Only this person's cards: Irori starts no other, and another
-        // member's agents count toward that member's day.
-        let person = self.person_id();
-        let on_boards: usize = self
-            .shown_boards()
-            .iter()
-            .map(|b| {
-                let mut cards = b.coord().list_tasks(&coord::TaskFilter {
-                    open: true,
-                    ..coord::TaskFilter::default()
-                });
-                cards.retain(|t| b.verifier.key_person(&t.created_by) == person);
-                waiting(&cards)
-            })
-            .sum();
-        (self.spawned_today().len() + waiting(&self.open_cards()) + on_boards) as i64
+        self.spawned_today().len() as i64
     }
 
     /// The queue as the sweep would walk it now (card #450): every card

@@ -149,9 +149,9 @@ function LimitRow({
 }
 
 // LimitsSection is every limit on the agents Irori starts: how many run at
-// once on each device, and below that the limits on a day and a card, with
-// today's count and cost and a usage limit holding the queue (cards #450,
-// #576, sa-6). Over a device's cap a card queues and says its place; a
+// once on each device, and below that the idle limit and the crashes and
+// failed starts in a row, with today's count and cost and a usage limit
+// holding the queue (cards #450, #576, sa-6). Over a device's cap a card queues and says its place; a
 // Claude usage limit queues every card until it resets. A change holds from
 // the next start, with no restart; agents already running keep going.
 function LimitsSection({

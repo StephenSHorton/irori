@@ -1059,6 +1059,7 @@ fn a_shared_board_agent_on_a_usage_limit_is_ended_and_requeued() {
     assert!(q.held_until.is_some());
     assert!(q.on_boards.contains(&t.id), "{:?}", q.on_boards);
     assert_eq!(o.fake.started(), 1, "no fresh agent while held");
+    assert_eq!(q.today, 1, "the queued retry hasn't started");
 
     o.s.core.start_agent(&t.id, "").unwrap();
     assert_eq!(o.s.core.spawn_queue().held_until, None, "his Start ends it");
