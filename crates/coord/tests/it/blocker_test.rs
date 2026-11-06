@@ -1323,3 +1323,58 @@ fn test_person_answer_long() {
         ErrorKind::Invalid,
     );
 }
+
+/// Card #659: a blocker's file stays credited to the device whose row put
+/// it on the item. Another device's revision re-sends the item's files,
+/// and a file that device adds is credited to it; a shared board's caller
+/// counts a file only where that device offered it.
+#[test]
+fn a_blockers_file_keeps_the_device_that_attached_it() {
+    let e = Env::new();
+    let task = claimed(&e);
+    let file = |sha: &str, dev: &str| FileRef {
+        sha256: sha.into(),
+        name: "shot.png".into(),
+        size: 12,
+        mime: "image/png".into(),
+        device: dev.into(),
+    };
+    let (a, b) = ("ab".repeat(32), "cd".repeat(32));
+    let (_, bl) =
+        e.c.raise(
+            ALICE,
+            &task.id,
+            NewBlocker {
+                question: "Which build do we ship?".into(),
+                files: vec![file(&a, "dev-a")],
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    let raised = e.rows(kinds::TASK_STATUS).pop().unwrap();
+    let mut v: serde_json::Value = serde_json::from_slice(&raised.payload).unwrap();
+    // dev-b revises it: the row carries the item's file over and adds one.
+    v["blocker"]["replace"] = true.into();
+    v["blocker"]["question"] = "Which build do we ship today?".into();
+    v["blocker"]["attachments"] = serde_json::json!([file(&a, "dev-a"), file(&b, "dev-b")]);
+    e.remote(
+        "dev-b",
+        1,
+        raised.hlc.0 + 1_000_000,
+        BOB,
+        kinds::TASK_STATUS,
+        &v,
+    );
+    for c in [&e.c, &e.reopen()] {
+        let (_, got) = blocker_of(c, &task.id, &bl.id);
+        assert_eq!(got.question, "Which build do we ship today?");
+        assert_eq!(
+            c.attachment_rows(&a),
+            vec![(file(&a, "dev-a"), "dev-a".to_string())]
+        );
+        assert_eq!(
+            c.attachment_rows(&b),
+            vec![(file(&b, "dev-b"), "dev-b".to_string())]
+        );
+    }
+}

@@ -339,6 +339,21 @@ pub struct Post {
     /// DM can be in two logs, and only one may go (card #538).
     #[serde(skip)]
     pub space: String,
+    /// The device that wrote its row (card #659); empty for a post mapped
+    /// from elsewhere.
+    #[serde(skip)]
+    pub device: String,
+}
+
+/// A file on a Talk post, where it is (card #659): see [`Talk::attachments`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostFile {
+    pub conv: String,
+    /// The space whose log holds the post; empty for the private log.
+    pub space: String,
+    /// The device that wrote the post's row.
+    pub device: String,
+    pub file: blob::FileRef,
 }
 
 #[derive(Debug, Clone)]
@@ -1056,23 +1071,29 @@ impl Talk {
     }
 
     /// The posts with the file whose hash is `sha` (card #643), the
-    /// earliest first, each with the conversation it is in and the file
-    /// as that post names it. Empty when no post has it. A caller that
-    /// checks a reader takes the first conversation the reader may read.
-    pub fn attachments(&self, sha: &str) -> Vec<(String, blob::FileRef)> {
+    /// earliest first, each with the conversation it is in, the log and
+    /// device that wrote it (card #659) and the file as that post names
+    /// it. Empty when no post has it. A caller that checks a reader takes
+    /// the first conversation the reader may read.
+    pub fn attachments(&self, sha: &str) -> Vec<PostFile> {
         let s = self.lock();
-        let mut found: Vec<(&Ord3, &String, &blob::FileRef)> = Vec::new();
+        let mut found: Vec<(&Ord3, &String, &Post, &blob::FileRef)> = Vec::new();
         for (conv, ps) in &s.posts {
             for p in ps {
                 if let Some(f) = p.files.iter().find(|f| f.sha256 == sha) {
-                    found.push((&p.ord, conv, f));
+                    found.push((&p.ord, conv, p, f));
                 }
             }
         }
         found.sort_by(|a, b| a.0.cmp(b.0));
         found
             .into_iter()
-            .map(|(_, conv, f)| (conv.clone(), f.clone()))
+            .map(|(_, conv, p, f)| PostFile {
+                conv: conv.clone(),
+                space: p.space.clone(),
+                device: p.device.clone(),
+                file: f.clone(),
+            })
             .collect()
     }
 
@@ -1308,6 +1329,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),
+                device: ev.device_id.clone(),
             };
             let v = s.posts.entry(r.conv_id).or_default();
             let i = v.partition_point(|x| x.ord <= p.ord);

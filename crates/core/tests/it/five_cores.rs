@@ -3229,3 +3229,174 @@ fn a_file_on_a_post_reaches_the_other_person_and_a_dm_file_only_its_parties() {
     assert_eq!(std::fs::read(&path).unwrap(), b"for bob only");
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Card #659: a member who knows the hash of a file Bob's device holds for
+/// something else (here his own private file) names it in a channel post,
+/// then offers it and names it in a card comment too. Bob's agent may read
+/// the channel and the card, but the file was never theirs to lend: a row
+/// whose writer never offered the file counts for nothing, and with a
+/// forged offer the copy already on Bob's device counts only once the
+/// device that offered it shows it holds the bytes. Once Alice really has
+/// the file, it does.
+#[test]
+fn a_row_naming_a_hash_its_writer_never_held_lends_nothing() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&space).unwrap().is_empty()
+    });
+    a1.core.space_gate(&space).unwrap();
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "general", "", &space)
+        .unwrap();
+    let offered = |d: &Dev, sha: &str| {
+        mesh::files::holders_in(&d.core.board_store(&space).unwrap(), sha).unwrap()
+    };
+
+    // Bob's private file: on his device, on no post, card or message.
+    let files = tempfile::tempdir().unwrap();
+    let body = b"bob's payroll, bob only";
+    let p = files.path().join("payroll.csv");
+    std::fs::write(&p, body).unwrap();
+    let secret = b1
+        .core
+        .attach_files(&b1.user(), &[p.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
+    let sha = secret.sha256.clone();
+    assert!(b1.core.files().has(&sha));
+    let named = blob::FileRef {
+        sha256: sha.clone(),
+        name: "payroll.csv".into(),
+        size: secret.size,
+        mime: String::new(),
+        device: b1.core.device_id().to_string(),
+    };
+    let out = files.path().join("got");
+    std::fs::create_dir(&out).unwrap();
+    let to = |n: &str| out.join(n).to_string_lossy().into_owned();
+    let lent = |n: &str| {
+        let got = b1.core.get_attachment(&b1.agent, &sha, &to(n));
+        assert!(!out.join(n).exists(), "bob's agent got the file: {got:?}");
+        got
+    };
+
+    // 1. A post naming the hash, which Alice never held: no offer goes
+    // with it.
+    let post = a1
+        .core
+        .talk_post(
+            &a1.core.user_sender(),
+            &ch.id,
+            "what's this?",
+            &[],
+            false,
+            None,
+            vec![named.clone()],
+        )
+        .unwrap();
+    assert!(offered(a1, &sha).is_empty(), "alice offered what she lacks");
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets the post", || {
+        b1.core
+            .talk()
+            .posts(&ch.id)
+            .iter()
+            .any(|q| q.post_id == post.post.post_id && q.files.len() == 1)
+    });
+    assert_eq!(
+        lent("1").unwrap_err(),
+        irori_core::attachments::NO_ATTACHMENT
+    );
+    assert!(b1.core.post_attachment(&b1.agent, &sha).is_none());
+
+    // 2. Alice offers it in the space's log too, though she never had it.
+    a1.core
+        .board_store(&space)
+        .unwrap()
+        .append(
+            "irori",
+            kinds::ATTACH_OFFERED,
+            &serde_json::json!({"sha256": sha, "size": secret.size, "name": "payroll.csv"}),
+        )
+        .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets alice's offer", || {
+        offered(b1, &sha).contains(&a1.core.device_id().to_string())
+    });
+    assert!(lent("2").is_err());
+
+    // 3. And names it in a comment on a card in the space.
+    let aco = a1.core.board_coord(&space).unwrap();
+    let t = aco
+        .create_task(&a1.person_actor(), new_task("payroll"))
+        .unwrap();
+    aco.comment_on(
+        &a1.person_actor(),
+        &t.id,
+        coord::CommentInput {
+            text: "this one".into(),
+            files: vec![coord::FileRef {
+                sha256: sha.clone(),
+                name: "payroll.csv".into(),
+                size: secret.size,
+                mime: String::new(),
+                device: b1.core.device_id().to_string(),
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    a1.core.kick_board(&space);
+    wait_for(WAIT, "bob gets the comment", || {
+        b1.core
+            .board_coord(&space)
+            .ok()
+            .and_then(|c| c.comments(&t.id))
+            .is_some_and(|cs| cs.iter().any(|c| !c.attachments.is_empty()))
+    });
+    assert!(lent("3").is_err());
+    // Bob's device never took the forged rows for an offer of its own.
+    assert!(!offered(b1, &sha).contains(&b1.core.device_id().to_string()));
+    assert!(b1.core.files().has(&sha), "bob's own copy stays");
+
+    // A forged row never stands in the way of a real one: Bob posts the
+    // file in a channel of his own, and his agent gets it from there.
+    let mine = b1
+        .core
+        .talk_channel_create(&b1.user(), "notes", "")
+        .unwrap();
+    b1.core
+        .talk_post(
+            &b1.core.user_sender(),
+            &mine.id,
+            "for my agent",
+            &[],
+            false,
+            None,
+            vec![secret.clone()],
+        )
+        .unwrap();
+    let (path, from) = b1.core.get_attachment(&b1.agent, &sha, &to("own")).unwrap();
+    assert_eq!(from, "", "bob's own copy");
+    assert_eq!(std::fs::read(&path).unwrap(), body);
+
+    // 4. Alice gets the file for real: now she shows she holds it, and the
+    // agent's copy is the one already on Bob's device.
+    let ap = files.path().join("alice-copy.csv");
+    std::fs::write(&ap, body).unwrap();
+    let mine = a1
+        .core
+        .attach_files(&a1.agent, &[ap.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
+    assert_eq!(mine.sha256, sha);
+    let (path, from) = b1.core.get_attachment(&b1.agent, &sha, &to("4")).unwrap();
+    assert_eq!(from, a1.core.device_id());
+    assert_eq!(std::fs::read(&path).unwrap(), body);
+    assert!(offered(b1, &sha).contains(&b1.core.device_id().to_string()));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
