@@ -494,3 +494,146 @@ fn another_of_my_devices_starts_what_it_made() {
         other => panic!("{other:?}"),
     }
 }
+
+/// A blocked card says it's blocked, not its old failure: Trust and start
+/// starts nothing until the blocker clears.
+#[test]
+fn a_blocked_card_says_blocked_before_an_old_failure() {
+    let r = Rig::new();
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    let dev = r.core.device_id().to_string();
+    let first = card(&r, "First");
+    let t = card(&r, "Untrusted, then blocked");
+    failed(&r, &t, &format!("not trusted: /work/api on {dev}"));
+    assert!(matches!(
+        r.core.why_no_agent(&t.id, false),
+        Some(Why::NeedsTrust { .. })
+    ));
+    r.core
+        .coord()
+        .raise(
+            &r.key_a,
+            &t.id,
+            coord::NewBlocker {
+                question: "waits".into(),
+                blocked_by: Some(coord::BlockedBy {
+                    kind: coord::BLOCKED_ON_TASK.into(),
+                    reference: first.id.clone(),
+                }),
+                ..coord::NewBlocker::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(r.core.why_no_agent(&t.id, false), Some(Why::Blocked));
+}
+
+/// A request past its grace with no agent says none showed up, not that
+/// the device looks full.
+#[test]
+fn a_request_with_no_agent_says_none_showed_up() {
+    let ahead = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let a = ahead.clone();
+    let r = Rig::with(move |o| {
+        o.now = Some(Arc::new(move || {
+            let by = Duration::from_secs(a.load(std::sync::atomic::Ordering::SeqCst));
+            gocompat::time::GoTime::from_system(std::time::SystemTime::now() + by)
+        }));
+    });
+    switch(&r, true);
+    r.core.set_spawner(Some(idle_spawner()));
+    // At cap 0 the sweep asks nobody again, so the request stays stale.
+    r.core.set_spawn_cap(0).unwrap();
+    let t = card(&r, "A card");
+    r.core
+        .coord()
+        .request_spawn(
+            "irori",
+            SpawnAsk {
+                task_id: t.id.clone(),
+                device: r.core.device_id().to_string(),
+                repo_key: REPO.into(),
+                permission_mode: "acceptEdits".into(),
+                name: "heron".into(),
+                ..SpawnAsk::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        r.core.why_no_agent(&t.id, false),
+        Some(Why::Starting { .. })
+    ));
+    ahead.store(
+        coord::SPAWN_GRACE.as_secs() + 10,
+        std::sync::atomic::Ordering::SeqCst,
+    );
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::NoShow { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What's on the card itself (its side, its lead, its parent's limit) is
+/// said whether or not the switch is on, but on its own only when the
+/// board starts agents.
+#[test]
+fn a_part_says_its_lead_or_its_limit_and_a_card_its_side() {
+    let r = Rig::new();
+    r.core.set_spawner(Some(idle_spawner()));
+    r.core.set_spawn_cap(0).unwrap();
+    let co = r.core.coord();
+    let person = format!("user:{}", r.core.device_id());
+    let p = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Big card".into(),
+                repo_key: REPO.into(),
+                agents: 2,
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.claim_task(&r.key_a, &p.id).unwrap();
+    let sub = |title: &str, spawn: bool| coord::NewSubtask {
+        title: title.into(),
+        spawn,
+        ..coord::NewSubtask::default()
+    };
+    let (_, parts) = co
+        .split(
+            &r.key_a,
+            &p.id,
+            vec![sub("plain", false), sub("one", true), sub("two", true)],
+            vec![],
+        )
+        .unwrap();
+    let (plain, two) = (&parts[0], &parts[2]);
+    assert_eq!(r.core.why_no_agent(&plain.id, false), None, "switch off");
+    assert_eq!(r.core.why_no_agent(&plain.id, true), Some(Why::ForLead));
+    switch(&r, true);
+    assert_eq!(r.core.why_no_agent(&plain.id, false), Some(Why::ForLead));
+    assert_eq!(
+        r.core.why_no_agent(&two.id, false),
+        Some(Why::AtLimit { limit: 2 }),
+        "the lead and one helper"
+    );
+
+    r.core.set_device_sides(&["front".into()]).unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Back end".into(),
+                repo_key: REPO.into(),
+                side: "back".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    match r.core.why_no_agent(&t.id, false) {
+        Some(Why::OffSide(w)) => assert!(w.contains("back"), "{w}"),
+        other => panic!("{other:?}"),
+    }
+}

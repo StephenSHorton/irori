@@ -181,6 +181,25 @@ fn why_no_agent_shows_after_asking_and_on_the_card() {
     has(&out, &["(spawn)", LINE]);
 }
 
+/// `show` on a card says it too, once, at the top of the card only.
+#[test]
+fn show_says_why_a_card_has_no_agent() {
+    let r = with_capture(|_| {});
+    let a = call_a();
+    let id = r.new_card(&a, json!({"title": "Needs hands"}));
+    *r.b.spawn_why.lock().unwrap() = "Mac is at its cap (2/2); it starts when one ends".into();
+    const LINE: &str = "no agent yet: Mac is at its cap (2/2)";
+    let shown = r.okj(&a, "show", json!({"ref": format!("task:{id}")}));
+    has(&shown, &[LINE]);
+    assert_eq!(shown.matches(LINE).count(), 1, "{shown}");
+    let later = r.okj(
+        &a,
+        "show",
+        json!({"ref": format!("task:{id}"), "offset": 10}),
+    );
+    assert!(!later.contains(LINE), "{later}");
+}
+
 #[test]
 fn a_card_with_no_reason_shows_no_line() {
     let h = new_harness();
