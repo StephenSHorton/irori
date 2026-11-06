@@ -53,7 +53,11 @@ export function agentOnRows(
   for (const c of cards) {
     const who = c.holder.who
     if (!c.short || !who?.key || who.key.startsWith("user:")) continue
-    if (c.holder.state === "person" || c.holder.state === "gone" || c.holder.state === "nobody")
+    if (
+      c.holder.state === "person" ||
+      c.holder.state === "gone" ||
+      c.holder.state === "nobody"
+    )
       continue
     if (isGone(who)) continue
     const known = cands.find((x) => x.who.key === who.key && !x.card)
@@ -89,7 +93,6 @@ export const MentionBoard = createContext("")
 export function boardRows(cands: MentionCandidate[], board: string) {
   return cands.filter((c) => !c.board || c.board === board)
 }
-
 
 // MaxMentions mirrors coord's MAX_MENTIONS.
 export const MaxMentions = 10
@@ -163,7 +166,11 @@ export function filterCandidates(
   const matches = (c: MentionCandidate) =>
     c.card
       ? agentOnLabel(c.card).toLowerCase().includes(q) ||
-        (q.length > 0 && c.card.toLowerCase().replace(/^.*#/, "").startsWith(q.replace(/^#/, "")))
+        (q.length > 0 &&
+          c.card
+            .toLowerCase()
+            .replace(/^.*#/, "")
+            .startsWith(q.replace(/^#/, "")))
       : c.who.name.toLowerCase().includes(q)
   const rank = (c: MentionCandidate) => {
     const n = rowName(c).toLowerCase()
@@ -510,7 +517,12 @@ export function useMissed(): [
 // CardRef is one card ref in text (card #114): "#12" (tag null) or
 // "mlg#12", as the Core's card_refs reads them: a whole word, after the
 // start, whitespace or "(", and not followed by a letter, digit or "_".
-export type CardRef = { start: number; end: number; tag: string | null; n: string }
+export type CardRef = {
+  start: number
+  end: number
+  tag: string | null
+  n: string
+}
 
 export function cardRefs(text: string): CardRef[] {
   const out: CardRef[] = []
@@ -526,7 +538,11 @@ export function cardRefs(text: string): CardRef[] {
 // RefHit is what a card ref names among what the window already holds
 // (card #144): one live card, one thread, or null (look it up: a done card
 // or an old thread, or nothing).
-export type RefHit = { kind: "card" | "thread"; id: string; title: string } | null
+export type RefHit = {
+  kind: "card" | "thread"
+  id: string
+  title: string
+} | null
 
 // localRef resolves r against the live cards, then the threads (own board,
 // so only an untagged ref). More than one live card leaves it to the
@@ -574,15 +590,22 @@ export function cardTokenAt(
   const at = head.lastIndexOf("#")
   if (at < 0 || (at > 0 && !before.test(head[at - 1]))) return null
   const query = head.slice(at + 1)
-  if (query.includes("\n") || query.includes("@") || query.length > 64) return null
+  if (query.includes("\n") || query.includes("@") || query.length > 64)
+    return null
   if (!/\s/.test(query)) return { start: at, query }
   const q = query.toLowerCase()
-  if (titles.some((t) => t.toLowerCase().includes(q))) return { start: at, query }
+  if (titles.some((t) => t.toLowerCase().includes(q)))
+    return { start: at, query }
   return null
 }
 
 // CardCandidate is one row of the # picker.
-export type CardCandidate = { id: string; ref: string; short: string; title: string }
+export type CardCandidate = {
+  id: string
+  ref: string
+  short: string
+  title: string
+}
 
 // filterCards are the # picker's rows for query: a number matches the
 // cards whose number starts with it, words match titles. Number matches

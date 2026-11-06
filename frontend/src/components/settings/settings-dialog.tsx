@@ -379,9 +379,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
             />
           </div>
         )}
-        {keep.error && (
-          <p className="text-xs text-destructive">{keep.error}</p>
-        )}
+        {keep.error && <p className="text-xs text-destructive">{keep.error}</p>}
       </div>
       {version && (
         <div className="flex items-center justify-between gap-3 border-t border-border pt-3">

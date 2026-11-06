@@ -47,7 +47,10 @@ export function SearchBox({
     },
   ])
   return (
-    <div className={cn("relative flex w-56 items-center", className)} role="search">
+    <div
+      className={cn("relative flex w-56 items-center", className)}
+      role="search"
+    >
       <SearchIcon
         className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground"
         aria-hidden
@@ -83,7 +86,9 @@ export function SearchBox({
           <XIcon className="size-3.5" aria-hidden />
         </button>
       ) : (
-        <Kbd className="absolute right-1.5 h-4 min-w-4 rounded-none px-1 text-[10px]">/</Kbd>
+        <Kbd className="absolute right-1.5 h-4 min-w-4 rounded-none px-1 text-[10px]">
+          /
+        </Kbd>
       )}
     </div>
   )

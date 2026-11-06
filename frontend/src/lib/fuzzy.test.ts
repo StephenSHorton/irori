@@ -26,21 +26,34 @@ describe("score", () => {
     expect(score("new zebra", "New card")).toBe(0)
   })
   test("keywords count, below the title", () => {
-    expect(score("preferences", "Open settings", ["preferences"])).toBeGreaterThan(0)
+    expect(
+      score("preferences", "Open settings", ["preferences"])
+    ).toBeGreaterThan(0)
     expect(score("settings", "Settings")).toBeGreaterThan(
       score("settings", "Devices", ["settings"])
     )
   })
   test("a card ref is found by its ref text", () => {
-    expect(score("#212", "Command palette", ["#212", "irori#212"])).toBeGreaterThan(0)
-    expect(score("wind#51", "Boss relay", ["#51", "wind#51"])).toBeGreaterThan(0)
+    expect(
+      score("#212", "Command palette", ["#212", "irori#212"])
+    ).toBeGreaterThan(0)
+    expect(score("wind#51", "Boss relay", ["#51", "wind#51"])).toBeGreaterThan(
+      0
+    )
   })
 })
 
 describe("rank", () => {
   test("best first, misses dropped", () => {
-    const items = ["Pin this board", "Open settings", "Settings: Devices", "Home"]
-    const got = rank(items, "settings", (t) => ({ title: t })).map((s) => s.item)
+    const items = [
+      "Pin this board",
+      "Open settings",
+      "Settings: Devices",
+      "Home",
+    ]
+    const got = rank(items, "settings", (t) => ({ title: t })).map(
+      (s) => s.item
+    )
     expect(got).toEqual(["Settings: Devices", "Open settings"])
   })
 })
@@ -55,7 +68,9 @@ describe("commands", () => {
     const active = activeCommands().map((c) => c.id)
     expect(active).toContain("t.a")
     expect(active).not.toContain("t.b")
-    activeCommands().find((c) => c.id === "t.a")?.run()
+    activeCommands()
+      .find((c) => c.id === "t.a")
+      ?.run()
     expect(ran).toBe(1)
     off()
     expect(activeCommands().map((c) => c.id)).not.toContain("t.a")

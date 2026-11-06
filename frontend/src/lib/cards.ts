@@ -843,7 +843,6 @@ function summary(c: CardDetail): CardSummary {
     waitTask: c.waitTask,
     waitLoop: c.waitLoop,
     waitStuck: c.waitStuck,
-    mainRed: c.mainRed,
     cantStart: c.cantStart,
     noAgent: c.noAgent,
     starting: c.starting,
@@ -886,8 +885,12 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (id: string) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(fn: (id: string) => { boardId: string; tag: string } | undefined) {
+let samplePersonalOf: (
+  id: string
+) => { boardId: string; tag: string } | undefined = () => undefined
+export function setSamplePersonal(
+  fn: (id: string) => { boardId: string; tag: string } | undefined
+) {
   samplePersonalOf = fn
 }
 
@@ -909,7 +912,9 @@ function sampleCreate(input: NewCardInput): TaskResult {
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
-    ...cs.filter((c) => (c.tag ?? "") === tag).map((c) => parseInt(c.short, 10) || 0)
+    ...cs
+      .filter((c) => (c.tag ?? "") === tag)
+      .map((c) => parseInt(c.short, 10) || 0)
   )
   const to = input.assignTo || (board ? "" : "sample-heron")
   const onBoard = board

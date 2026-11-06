@@ -85,6 +85,9 @@ slot_take
 (
   cd frontend
   bun install --frozen-lockfile
+  # Same files as `bun run format` (card #615). end-of-line auto: a Windows
+  # checkout (core.autocrlf) has CRLF, and git stores LF either way.
+  bunx prettier --check --end-of-line auto "**/*.{ts,tsx}"
   # src/gen/models.ts follows src/gen/bindings.ts (cargo xtask bindings).
   bun scripts/gen-models.ts --check
   bun run build
@@ -105,12 +108,17 @@ else
   cargo fmt --all --check
 fi
 cargo clippy --workspace --all-targets -- -D warnings
+# Build before the guard: rustc and the linker use the temp folder too and
+# can leave a file there (.tmpXXXXXXlibclang_rt.osx.a, card #607).
+cargo test --workspace --no-run
 # Every crate's tests run even when one fails, so one failure can't hide
 # another (card #609); the run still fails at the end.
 temp_clean cargo test --workspace --no-fail-fast
 # frontend/src/gen/bindings.ts is what the window's commands generate (D10).
 cargo xtask bindings --check
 # Timing-sensitive, as in Go: capture's tests once more on one thread.
+# -p builds with its own features, so it gets its own build first (#607).
+cargo test -p irori-capture --no-run
 temp_clean cargo test -p irori-capture -- --test-threads=1
 sh scripts/no-third-party.sh
 

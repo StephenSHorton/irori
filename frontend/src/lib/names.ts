@@ -19,7 +19,10 @@ export function isKeyLike(s: string): boolean {
 
 // nameOr is `name` for a person to read, or the fallback when it is empty
 // or a key.
-export function nameOr(name: string | null | undefined, fallback = unknownAgent): string {
+export function nameOr(
+  name: string | null | undefined,
+  fallback = unknownAgent
+): string {
   const n = plainLine(name ?? "")
   return n && !isKeyLike(n) ? n : fallback
 }
@@ -34,5 +37,9 @@ export function memberName(m: { kind: string; name?: string | null }): string {
 // shared board: this device's roster never holds it, so missing from the
 // roster doesn't make it gone.
 export function isOthersKey(key: string): boolean {
-  return key.startsWith("board:") || key.startsWith("agent:") || key.startsWith("person:")
+  return (
+    key.startsWith("board:") ||
+    key.startsWith("agent:") ||
+    key.startsWith("person:")
+  )
 }

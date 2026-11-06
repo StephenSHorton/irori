@@ -111,6 +111,12 @@ fi
 DIST="$ROOT/dist/release/$tag-mac"
 mkdir -p "$DIST"
 
+# release-android.sh may be running too (scripts/release-lock.sh): it
+# rebuilds frontend/dist, which check.sh and the build below embed, so this
+# tree's frontend lock is held from here until the binary is built.
+. scripts/release-lock.sh
+release_lock "$ROOT/dist/release/frontend.lock" "building with frontend/dist"
+
 if [[ "${IRORI_SKIP_CHECKS:-0}" != 1 ]]; then sh scripts/check.sh; fi
 
 (cd frontend && bun install --frozen-lockfile && bun run build)
@@ -124,6 +130,7 @@ IRORI_VERSION="$v" TAURI_CONFIG="{\"version\":\"${v%%[-+]*}\"}" \
   cargo build --release --locked -p irori-app --target aarch64-apple-darwin --features tauri/custom-protocol
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/aarch64-apple-darwin/release/irori"
 file "$BIN"
+release_unlock "$ROOT/dist/release/frontend.lock"
 
 if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then
   if xcrun notarytool history --keychain-profile "${IRORI_NOTARY_PROFILE:-irori-notary}" >/dev/null 2>&1; then
@@ -172,6 +179,11 @@ if [[ "$MODE" != "--publish" ]]; then
 fi
 
 # Add the Mac lines to the draft's SHA256SUMS (sha256sum format) and upload.
+# Download to upload holds the tag's SHA256SUMS lock, shared by every
+# worktree of this clone, so release-android.sh can't upload its own copy in
+# between and drop these lines (or have its line dropped).
+sums_lock="$(git rev-parse --path-format=absolute --git-common-dir)/irori-release-$tag-SHA256SUMS.lock"
+release_lock "$sums_lock" "updating SHA256SUMS on the draft $tag"
 rm -f "$DIST/SHA256SUMS"
 gh release download "$tag" --repo "$REPO" --pattern SHA256SUMS --dir "$DIST"
 grep -v -e "  $appzip\$" -e "  $dmg\$" "$DIST/SHA256SUMS" >"$DIST/SHA256SUMS.new" || true
@@ -179,4 +191,5 @@ grep -v -e "  $appzip\$" -e "  $dmg\$" "$DIST/SHA256SUMS" >"$DIST/SHA256SUMS.new
 mv "$DIST/SHA256SUMS.new" "$DIST/SHA256SUMS"
 cat "$DIST/SHA256SUMS"
 gh release upload "$tag" --repo "$REPO" --clobber "$DIST/$appzip" "$DIST/$dmg" "$DIST/SHA256SUMS"
+release_unlock "$sums_lock"
 echo "Mac assets added to the draft $tag; add the APK (scripts/release-android.sh $v --publish), then --finalize"

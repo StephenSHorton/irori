@@ -14,10 +14,25 @@ export function phoneTab(s: Section): PhoneTab {
   return "home"
 }
 
-const tabs: { tab: PhoneTab; label: string; to: Section; Icon: typeof HouseIcon }[] = [
+const tabs: {
+  tab: PhoneTab
+  label: string
+  to: Section
+  Icon: typeof HouseIcon
+}[] = [
   { tab: "home", label: "Home", to: { kind: "home" }, Icon: HouseIcon },
-  { tab: "talk", label: "Talk", to: { kind: "talk", id: "" }, Icon: MessagesSquareIcon },
-  { tab: "boards", label: "Spaces", to: { kind: "boards" }, Icon: LayoutGridIcon },
+  {
+    tab: "talk",
+    label: "Talk",
+    to: { kind: "talk", id: "" },
+    Icon: MessagesSquareIcon,
+  },
+  {
+    tab: "boards",
+    label: "Spaces",
+    to: { kind: "boards" },
+    Icon: LayoutGridIcon,
+  },
 ]
 
 // PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Spaces,
@@ -38,7 +53,7 @@ export function PhoneTabs({
   return (
     <nav
       aria-label="Tabs"
-      className="glass-panel grid shrink-0 grid-cols-3 border-x-0! border-b-0! pb-[var(--safe-bottom)] pl-[var(--safe-left)] pr-[var(--safe-right)]"
+      className="grid shrink-0 grid-cols-3 border-x-0! border-b-0! pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] glass-panel"
     >
       {tabs.map(({ tab, label, to, Icon }) => {
         const on = tab === at

@@ -37,10 +37,17 @@ export function Face({
         sizes[size],
         className
       )}
-      style={!pic && color ? { background: `var(--device-${color})` } : undefined}
+      style={
+        !pic && color ? { background: `var(--device-${color})` } : undefined
+      }
     >
       {pic ? (
-        <img src={pic} alt="" className="size-full object-cover" draggable={false} />
+        <img
+          src={pic}
+          alt=""
+          className="size-full object-cover"
+          draggable={false}
+        />
       ) : (
         <span aria-hidden>{initials(name)}</span>
       )}

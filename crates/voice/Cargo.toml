@@ -22,9 +22,10 @@ rustls-platform-verifier = "0.7.1"
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "net", "io-util"] }
 
-# Building whisper.cpp needs cmake on PATH (or CMAKE=<path to cmake>) and a
-# C/C++ compiler; the bundled bindings are used (WHISPER_DONT_GENERATE_BINDINGS
-# in .cargo/config.toml), so no libclang.
+# Building whisper.cpp needs cmake on PATH (or CMAKE=<path to cmake>), a
+# C/C++ compiler, and libclang (or LIBCLANG_PATH): bindgen generates the
+# bindings, since whisper-rs-sys's bundled ones are Linux-only (glibc types
+# and a 64-bit `long`). Setup per OS: docs/releasing.md "Build tools".
 [target.'cfg(windows)'.dependencies]
 cpal = "0.18.2"
 whisper-rs = "0.16.0"

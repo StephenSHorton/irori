@@ -46,7 +46,9 @@ describe("the shared boards list (card #233)", () => {
     const offC = subscribeBoards(() => c++)
     await settled()
     expect(c).toBeGreaterThan(0)
-    expect(boardsNow().boards.map((x) => x.boardId)).toEqual(after.map((x) => x.boardId))
+    expect(boardsNow().boards.map((x) => x.boardId)).toEqual(
+      after.map((x) => x.boardId)
+    )
     offA()
     offB()
     offC()
@@ -59,7 +61,9 @@ describe("the shared boards list (card #233)", () => {
     const first = reloadBoards()
     const made = await boards.create("Late", "late")
     await Promise.all([first, reloadBoards()])
-    expect(boardsNow().boards.some((x) => x.boardId === made.boardId)).toBe(true)
+    expect(boardsNow().boards.some((x) => x.boardId === made.boardId)).toBe(
+      true
+    )
     off()
     await boards.leave(made.boardId)
   })
@@ -67,8 +71,19 @@ describe("the shared boards list (card #233)", () => {
 
 describe("board tags (identity.ValidBoardTag)", () => {
   test("a lowercase letter, then letters, digits or '-', 8 at most (card #590)", () => {
-    for (const t of ["mlg", "a", "site-2", "agility", "abcdefgh"]) expect(validTag(t)).toBe(true)
-    for (const t of ["", "MLG", "1mlg", "-x", "has space", "abcdefghi", "abcdefghijklmnop", "m#1"]) expect(validTag(t)).toBe(false)
+    for (const t of ["mlg", "a", "site-2", "agility", "abcdefgh"])
+      expect(validTag(t)).toBe(true)
+    for (const t of [
+      "",
+      "MLG",
+      "1mlg",
+      "-x",
+      "has space",
+      "abcdefghi",
+      "abcdefghijklmnop",
+      "m#1",
+    ])
+      expect(validTag(t)).toBe(false)
   })
   test("New board suggests one from the name's first word", () => {
     expect(suggestTag("MLG")).toBe("mlg")
@@ -83,12 +98,15 @@ describe("invites", () => {
   test("inviteOpen is true only while an invite is in progress", () => {
     expect(inviteOpen(null)).toBe(false)
     expect(inviteOpen(InviteStatus({}))).toBe(false)
-    for (const st of [InviteState.Waiting, InviteState.Words, InviteState.Joining])
+    for (const st of [
+      InviteState.Waiting,
+      InviteState.Words,
+      InviteState.Joining,
+    ])
       expect(inviteOpen(InviteStatus({ state: st }))).toBe(true)
     for (const st of [InviteState.Done, InviteState.Failed])
       expect(inviteOpen(InviteStatus({ state: st }))).toBe(false)
   })
-
 })
 
 // Card #371: the People panel's line for each member.
@@ -107,20 +125,33 @@ describe("presenceLine", () => {
 
   test("online, with their agents on the board", () => {
     // Card #512: no "free" count.
-    expect(presenceLine(m({ working: 2, free: 1 }), now)).toBe("online · 2 working")
+    expect(presenceLine(m({ working: 2, free: 1 }), now)).toBe(
+      "online · 2 working"
+    )
     expect(presenceLine(m({ free: 1 }), now)).toBe("online")
     expect(presenceLine(m({}), now)).toBe("online · no agents")
   })
 
   test("recent says when they were seen", () => {
-    expect(presenceLine(m({ presence: "recent", lastSeen: ago(5 * 60_000), working: 1 }), now)).toBe(
-      "seen 5m ago · 1 working"
-    )
+    expect(
+      presenceLine(
+        m({ presence: "recent", lastSeen: ago(5 * 60_000), working: 1 }),
+        now
+      )
+    ).toBe("seen 5m ago · 1 working")
   })
 
   test("offline says when, and leaves out agent counts that may be stale", () => {
     expect(
-      presenceLine(m({ presence: "offline", lastSeen: ago(2 * 3600_000), working: 3, free: 1 }), now)
+      presenceLine(
+        m({
+          presence: "offline",
+          lastSeen: ago(2 * 3600_000),
+          working: 3,
+          free: 1,
+        }),
+        now
+      )
     ).toBe("offline · seen 2h ago")
     expect(presenceLine(m({ presence: "offline" }), now)).toBe("offline")
     expect(presenceLine(m({ presence: "" }), now)).toBe("offline")

@@ -10,9 +10,24 @@ const Day = 24 * 60 * 60
 // clearAges are the ages a clear can take (card #138): closed more than a
 // day, a week or a month ago, or every done card.
 export const clearAges = [
-  { id: "day", label: "Older than a day", secs: Day, phrase: "closed more than a day ago" },
-  { id: "week", label: "Older than a week", secs: 7 * Day, phrase: "closed more than a week ago" },
-  { id: "month", label: "Older than a month", secs: 30 * Day, phrase: "closed more than a month ago" },
+  {
+    id: "day",
+    label: "Older than a day",
+    secs: Day,
+    phrase: "closed more than a day ago",
+  },
+  {
+    id: "week",
+    label: "Older than a week",
+    secs: 7 * Day,
+    phrase: "closed more than a week ago",
+  },
+  {
+    id: "month",
+    label: "Older than a month",
+    secs: 30 * Day,
+    phrase: "closed more than a month ago",
+  },
   { id: "all", label: "All", secs: 0, phrase: "" },
 ] as const
 
@@ -63,10 +78,18 @@ export function ClearDone({
     : `all ${plural(count ?? 0)}`
 
   return (
-    <div className={compact ? "flex flex-wrap items-center gap-2" : "grid gap-2.5"}>
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Clear done cards by age">
+    <div
+      className={compact ? "flex flex-wrap items-center gap-2" : "grid gap-2.5"}
+    >
+      <div
+        className="flex flex-wrap items-center gap-1"
+        role="group"
+        aria-label="Clear done cards by age"
+      >
         {compact && (
-          <span className="mr-1 text-xs text-muted-foreground">Clear done:</span>
+          <span className="mr-1 text-xs text-muted-foreground">
+            Clear done:
+          </span>
         )}
         {clearAges.map((a) => (
           <Button
@@ -86,7 +109,11 @@ export function ClearDone({
       <div className="flex flex-wrap items-center gap-2">
         {!compact && (
           <span className="text-[12.5px] text-muted-foreground tabular-nums">
-            {count === null ? "Counting…" : count === 0 ? "Nothing to clear." : `Clears ${what}.`}
+            {count === null
+              ? "Counting…"
+              : count === 0
+                ? "Nothing to clear."
+                : `Clears ${what}.`}
           </span>
         )}
         <ConfirmButton
@@ -96,8 +123,7 @@ export function ClearDone({
           question={
             <>
               Clear {what}? They leave the app's lists, in your spaces too.
-              Agents still find them with search and show. Nothing is
-              deleted.
+              Agents still find them with search and show. Nothing is deleted.
             </>
           }
           onConfirm={async () => {

@@ -280,16 +280,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_question: String,
-    /// The card the first wait is on, by id (Home counts the cards that
-    /// wait on a red main's card by it, card #436).
+    /// The card the first wait is on, by id.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_task: String,
-    /// A "main is red" card's failing test (card #436): Home leads with
-    /// it while it is open.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub main_red: String,
     /// Where the first wait's chain of cards ends at the person (card
     /// #347): "your answer on #12". A PR never waits on the person (card
     /// #471): agents merge it, or another member's agents approve it.
@@ -1620,7 +1614,6 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         pinned: t.pinned,
         pin_rank: t.pin_rank,
         paused: t.paused,
-        main_red: coord::main_red_test(t).unwrap_or_default().to_string(),
         cant_start: t
             .spawn_request()
             .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))

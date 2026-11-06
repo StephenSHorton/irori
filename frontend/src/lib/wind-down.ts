@@ -12,7 +12,8 @@ export function windDownLine(st: WindDownStatus): string {
   const n = st.rows.length
   const done = st.rows.filter((r) => r.state === "done").length
   // Every send failed: the run never starts, so it never finishes either.
-  if (st.rows.every((r) => !r.deliveryId)) return `Wind down reached none of ${agents(n)}`
+  if (st.rows.every((r) => !r.deliveryId))
+    return `Wind down reached none of ${agents(n)}`
   if (!st.finished) return `Winding down ${agents(n)}, ${done} confirmed so far`
   const tail = st.paused ? " · Pause all is on" : ""
   return `Wound down ${agents(n)}, ${done} confirmed${tail}`
@@ -21,7 +22,10 @@ export function windDownLine(st: WindDownStatus): string {
 // windDownSample is the browser preview's finished run (`?winddown`): 43
 // agents, 23 of them answered.
 export function windDownSample(): WindDownStatus | null {
-  if (typeof window === "undefined" || !new URLSearchParams(window.location.search).has("winddown")) {
+  if (
+    typeof window === "undefined" ||
+    !new URLSearchParams(window.location.search).has("winddown")
+  ) {
     return null
   }
   const rows: WindDownRow[] = Array.from({ length: 43 }, (_, i) => {
@@ -33,9 +37,18 @@ export function windDownSample(): WindDownStatus | null {
       device: "this Mac",
       deliveryId: `sample-wd-dlv-${i + 1}`,
       state: done ? "done" : "no_answer",
-      reply: done ? `Wound down. Left #${440 + i} with a hand-off; no leases held.` : "",
+      reply: done
+        ? `Wound down. Left #${440 + i} with a hand-off; no leases held.`
+        : "",
       error: "",
     }
   })
-  return { id: "wd_sample", scope: "this", pauseAfter: true, paused: true, finished: true, rows }
+  return {
+    id: "wd_sample",
+    scope: "this",
+    pauseAfter: true,
+    paused: true,
+    finished: true,
+    rows,
+  }
 }
