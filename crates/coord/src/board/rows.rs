@@ -216,6 +216,11 @@ crate::go_struct! {
         pub note: String = "note" "omit",
         pub restored: String = "restored",
         pub at: GoTime = "at",
+        /// The items its writer saw open (card #635): only these close. A
+        /// close from another device can land after a new item was raised,
+        /// such as the person's done check. Older rows close every open
+        /// item, and older folds ignore it.
+        pub blocker_ids: Vec<String> = "blockerIds" "omit",
     }
 }
 
