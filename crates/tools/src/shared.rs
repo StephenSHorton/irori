@@ -401,7 +401,7 @@ pub(crate) fn create_on_board(
     assign_to: String,
     waits: Option<(String, coord::BlockedBy)>,
     after: Vec<String>,
-    later: Option<(coord::Back, String)>,
+    later: crate::board::NewLater,
 ) -> String {
     let b = match s.find_board(board) {
         Ok(b) => b,

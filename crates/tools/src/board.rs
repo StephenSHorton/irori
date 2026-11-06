@@ -860,12 +860,12 @@ const CREATE_ARGS: &[(&str, Ty)] = &[
 /// board_create's later: what brings the card back, and why it waits.
 const LATER_FIELDS: &[(&str, Ty)] = &[("until", Ty::Str), ("why", Ty::Str)];
 
+/// What brings a card made Not yet back, and why it waits.
+pub(crate) type NewLater = Option<(coord::Back, String)>;
+
 /// board_create's after and later (card #570): the cards it comes after,
 /// and what brings it back when it is Not yet from the start, with why.
-pub(crate) fn order_of(
-    s: &Inner,
-    a: &Args,
-) -> Result<(Vec<String>, Option<(coord::Back, String)>), String> {
+pub(crate) fn order_of(s: &Inner, a: &Args) -> Result<(Vec<String>, NewLater), String> {
     let after: Vec<String> = a
         .strs("after")
         .iter()

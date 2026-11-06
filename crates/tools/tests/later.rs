@@ -84,7 +84,7 @@ fn a_card_made_not_yet_says_what_brings_it_back() {
             &[
                 &format!("It is Not yet: it {says}. Nobody starts it until then."),
                 "[not yet]",
-                &format!("not yet [b"),
+                "not yet [b",
             ],
         );
         has_not(&out, &["Irori handed it to", "  blocked ["]);
