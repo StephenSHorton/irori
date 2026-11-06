@@ -103,9 +103,9 @@ pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
 pub use mirror::RELEASE_REQUEST;
 pub use notes::{
-    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_PROPOSED, NOTE_REMOVED,
-    NOTES_PER_WAKE, NewNote, Note, NoteChange, NoteContext, NoteEdit, NoteEvent, NoteMatch,
-    TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE, TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
+    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_REMOVED, NOTES_PER_WAKE, NewNote,
+    Note, NoteContext, NoteEdit, NoteEvent, NoteMatch, TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE,
+    TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
@@ -1258,23 +1258,15 @@ impl Coord {
     }
     // ---- notes (card #401) ----
 
-    /// Writes a new note. A person's is accepted at once; an agent's waits
-    /// for a person's accept.
+    /// Writes a new note, live at once whoever writes it (card #616).
     pub fn propose_note(&self, by: &str, n: NewNote) -> Result<Note> {
         self.lock().propose_note(by, n)
     }
-    /// A person accepts a proposed note, or an agent's pending edit or
-    /// removal of one.
-    pub fn accept_note(&self, by: &str, id: &str) -> Result<Note> {
-        self.lock().accept_note(by, id)
-    }
-    /// Edits a note: a person's applies at once, an agent's on a live note
-    /// waits for an accept.
+    /// Edits a note, at once whoever edits it (card #616).
     pub fn edit_note(&self, by: &str, id: &str, e: NoteEdit, why: &str) -> Result<Note> {
         self.lock().edit_note(by, id, e, why)
     }
-    /// Removes a note: a person's removes it, an agent's on a live note
-    /// waits for an accept.
+    /// Removes a note, at once whoever removes it (card #616).
     pub fn remove_note(&self, by: &str, id: &str, why: &str) -> Result<Note> {
         self.lock().remove_note(by, id, why)
     }

@@ -1,23 +1,19 @@
 // NotesPage is Notes (docs/design/notes.md §9, card #413): the short rules,
 // gotchas, decisions, pointers and preferences agents get on wake. Notes
 // are the person's own (card #616): one list, read only by their agents.
-// New from agents sits at the top: an agent's proposal reaches no agent
-// until you keep it, and an agent's edit or removal of a live note waits
-// the same way. Below, the live notes, filtered by kind.
+// An agent's note, edit or removal applies at once, with no approval; each
+// row says who wrote it, and you edit or remove any of them. The list is
+// filtered by kind.
 
 import { useMemo, useState } from "react"
 import {
   AlertTriangleIcon,
-  CheckIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
-  SparklesIcon,
   Trash2Icon,
-  XIcon,
 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Loading } from "@/components/ui/loading"
@@ -25,7 +21,6 @@ import type { BoardSummary } from "@/lib/boards"
 import { plainLine, relativeTime, type Roster } from "@/lib/irori"
 import {
   kindCounts,
-  needsLook,
   notes,
   tagLabel,
   useNotes,
@@ -58,7 +53,6 @@ export function NotesPage({
     return b ? plainLine(b.name) : t
   }
 
-  const waiting = list.filter(needsLook)
   const counts = kindCounts(list)
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -100,31 +94,14 @@ export function NotesPage({
       </div>
       <p className="max-w-3xl text-[13px] text-muted-foreground">
         Notes stay on your devices and only your agents read them, even when a
-        note is about a shared space. Agents get the few that match their card
+        note is about a shared space. Agents write and change them as they
+        learn; edit or remove any here. Agents get the few that match their card
         on wake.
       </p>
       {error && (
         <p className="text-xs text-destructive">
           Could not load the notes: {error}
         </p>
-      )}
-
-      {waiting.length > 0 && (
-        <section aria-label="New from agents" className="grid gap-2">
-          <h2 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            New from agents · {waiting.length}
-          </h2>
-          {waiting.map((n) => (
-            <Proposed
-              key={n.id}
-              n={n}
-              who={who}
-              boardName={boardName}
-              onOpen={onOpen}
-              now={now}
-            />
-          ))}
-        </section>
       )}
 
       <section aria-label="Your notes" className="grid gap-2">
@@ -182,7 +159,7 @@ export function NotesPage({
                 <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-[13px] text-muted-foreground">
                   {query || kind !== "all"
                     ? "No notes match."
-                    : "No notes yet. Agents propose them here, or write one with New note."}
+                    : "No notes yet. Agents add them as they learn, or write one with New note."}
                 </p>
               )}
             </div>
@@ -366,155 +343,5 @@ function NoteRow({
         }}
       />
     </li>
-  )
-}
-
-// Proposed is one item of New from agents: a new note an agent proposed,
-// or its edit or removal of a live note, with Keep or Accept, Edit, and
-// Remove or Reject.
-function Proposed({
-  n,
-  who,
-  boardName,
-  onOpen,
-  now,
-}: {
-  n: Note
-  who: Who
-  boardName: (tag: string) => string
-  onOpen: (cardId: string) => void
-  now: Date
-}) {
-  const [editing, setEditing] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const p = n.pending
-  const proposer = p ? p.by : n.by
-  const run = (fn: () => Promise<void>) => {
-    setBusy(true)
-    setError("")
-    fn()
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : String(e))
-      )
-      .finally(() => setBusy(false))
-  }
-  const what = !p
-    ? "proposes a note"
-    : p.remove
-      ? "proposes removing this note"
-      : "proposes an edit"
-  const yes = !p ? "Keep" : p.remove ? "Remove it" : "Accept the edit"
-  const no = !p ? "Remove" : "Keep it as it is"
-  return (
-    <div className="grid gap-2 rounded-lg border border-info/40 bg-info-foreground/40 p-3">
-      <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-2">
-        <SparklesIcon className="size-3.5 text-info" aria-hidden />
-        <span>
-          <b className="font-medium text-ink">{who(proposer)}</b> {what}
-        </span>
-        <span className="text-muted-foreground">
-          {relativeTime(new Date(p ? p.at : n.at), now)}
-        </span>
-        <span className="ml-auto">
-          <Badge variant="warning" className="h-5 px-1.5 text-[10px]">
-            {p ? "Agents still get the live note" : "No agent gets it yet"}
-          </Badge>
-        </span>
-      </div>
-      <div className="flex items-start gap-2">
-        <KindBadge k={(p?.kind as NoteKind) || n.kind} />
-        <div className="grid flex-1 gap-1">
-          {p && !p.remove && p.text && p.text !== n.text ? (
-            <>
-              <span className="text-[13px] leading-snug text-muted-foreground line-through">
-                {n.text}
-              </span>
-              <span className="text-[13px] leading-snug text-ink">
-                {p.text}
-              </span>
-            </>
-          ) : (
-            <span
-              className={cn(
-                "text-[13px] leading-snug text-ink",
-                p?.remove && "line-through"
-              )}
-            >
-              {n.text}
-            </span>
-          )}
-          {p?.why && (
-            <span className="text-[12px] text-ink-2">Why: {p.why}</span>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Meta
-          n={p?.tags ? { ...n, tags: p.tags } : n}
-          who={who}
-          boardName={boardName}
-          onOpen={onOpen}
-          now={now}
-        />
-        <span className="ml-auto flex gap-1.5">
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => run(() => notes.accept(n.id))}
-          >
-            <CheckIcon className="size-3.5" aria-hidden /> {yes}
-          </Button>
-          {!p?.remove && (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={busy}
-              onClick={() => setEditing(true)}
-            >
-              <PencilIcon className="size-3.5" aria-hidden /> Edit
-            </Button>
-          )}
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              run(() =>
-                p
-                  ? // Turning down a change is a person's edit that keeps the
-                    // live note: it drops the pending change (§11).
-                    notes.edit(n.id, {
-                      kind: n.kind,
-                      text: n.text,
-                      tags: n.tags,
-                    })
-                  : notes.remove(n.id)
-              )
-            }
-          >
-            <XIcon className="size-3.5" aria-hidden /> {no}
-          </Button>
-        </span>
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <NoteForm
-        open={editing}
-        onOpenChange={setEditing}
-        title={p ? "Edit before accepting" : "Edit, then keep"}
-        save="Keep"
-        initial={{
-          kind: ((p?.kind as NoteKind) || n.kind) as NoteKind,
-          text: p?.text || n.text,
-          tags: p?.tags ?? n.tags,
-        }}
-        onSave={async (e) => {
-          // A person's edit applies at once; on a proposal it is their word
-          // that it goes live.
-          await notes.edit(n.id, { kind: e.kind, text: e.text, tags: e.tags })
-          if (n.state === "proposed") await notes.accept(n.id).catch(() => {})
-        }}
-      />
-    </div>
   )
 }

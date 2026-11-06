@@ -1,8 +1,8 @@
 //! notes_propose / notes_search (card #412, docs/design/notes.md §11): the
-//! agent side of notes. An agent proposes a note, or an edit or removal of
-//! one; nothing it writes reaches another agent until the person accepts
-//! it. Notes are the person's own (decision 53, card #616): there are no
-//! shared notes. Search reads accepted notes only.
+//! agent side of notes. An agent writes a note, or edits or removes one,
+//! and it applies at once: the person sees, edits and removes notes on the
+//! Notes page, with no approval step (card #616). Notes are the person's
+//! own (decision 53): there are no shared notes.
 
 use crate::args::Ty;
 use crate::format::{one_line, trim};
@@ -20,7 +20,7 @@ pub trait NotesBackend: Send + Sync {
         why: &str,
     ) -> Result<coord::Note, coord::Error>;
     fn remove(&self, by: &str, id: &str, why: &str) -> Result<coord::Note, coord::Error>;
-    /// Accepted notes holding every word of `q`, newest first.
+    /// Live notes holding every word of `q`, newest first.
     fn search(&self, q: &str) -> Vec<coord::Note>;
     /// The names a `machine:` tag can match, lower case: each of the
     /// person's devices as a wake on it names it. Empty: not checked.
@@ -122,18 +122,22 @@ pub(crate) fn notes_propose(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             blocker_id: String::new(),
         };
         return match nb.propose(by, n) {
-            Ok(n) => written(&n, "Proposed"),
+            Ok(n) => format!(
+                "Wrote {} ({}): it is live, and agents get it on wake when its tags match. The person sees it on the Notes page.",
+                n.reference(),
+                n.kind
+            ),
             Err(e) => map_err(e),
         };
     }
-    if !scope.is_empty() || !trim(a.str("source")).is_empty() {
+    if !trim(a.str("source")).is_empty() {
         return err_text(
             "a change to an existing note takes note, the fields that change and why; source is only for a new note.",
         );
     }
     if why.is_empty() {
         return err_text(
-            "say why the note should change (why): the person reads it before accepting.",
+            "say why the note should change (why): it stays in the note's history for the person.",
         );
     }
     if a.bool("remove") {
@@ -144,7 +148,7 @@ pub(crate) fn notes_propose(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             return err_text("a removal takes note, remove = true and why only.");
         }
         return match nb.remove(by, note, why) {
-            Ok(n) => changed(&n, true),
+            Ok(n) => format!("Removed {}.", n.reference()),
             Err(e) => map_err(e),
         };
     }
@@ -162,7 +166,7 @@ pub(crate) fn notes_propose(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         return err_text("give what changes: kind, text or tags (or remove = true).");
     }
     match nb.edit(by, note, e, why) {
-        Ok(n) => changed(&n, false),
+        Ok(n) => format!("Changed {}.", n.reference()),
         Err(e) => map_err(e),
     }
 }
@@ -184,39 +188,6 @@ fn source_of(s: &Inner, src: &str) -> Result<(String, String, String), String> {
     Ok((format!("task:{id}"), id, String::new()))
 }
 
-fn written(n: &coord::Note, verb: &str) -> String {
-    if n.live() {
-        return format!(
-            "Wrote {} ({}): it is live, and agents get it on wake when its tags match.",
-            n.reference(),
-            n.kind,
-        );
-    }
-    format!(
-        "{verb} {} ({}). It reaches no agent until the person accepts it on the Notes page. To change it before then, call notes_propose with note = {} and why.",
-        n.reference(),
-        n.kind,
-        n.reference()
-    )
-}
-
-fn changed(n: &coord::Note, remove: bool) -> String {
-    let r = n.reference();
-    if n.state == coord::NOTE_REMOVED {
-        return format!("Removed {r}.");
-    }
-    if n.pending.is_some() {
-        let what = if remove { "removal" } else { "edit" };
-        return format!(
-            "Proposed the {what} of {r}. The live note stays as it is until the person accepts the change."
-        );
-    }
-    if !n.live() {
-        return format!("Changed your proposal {r}; it still waits for the person's accept.");
-    }
-    format!("Changed {r}.")
-}
-
 pub(crate) fn notes_search(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, &[("q", Ty::Str)]) {
         Ok(a) => a,
@@ -234,14 +205,11 @@ pub(crate) fn notes_search(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
     }
     let hits = nb.search(q);
     if hits.is_empty() {
-        return format!(
-            "No accepted note holds all of {}. Proposed notes aren't searched: they reach no agent until the person accepts them.",
-            crate::format::q(q)
-        );
+        return format!("No note holds all of {}.", crate::format::q(q));
     }
     let names = s.roster();
     let mut out = format!(
-        "{} accepted note{} match {}. {}",
+        "{} note{} match {}. {}",
         hits.len(),
         if hits.len() == 1 { "" } else { "s" },
         crate::format::q(q),
@@ -249,13 +217,12 @@ pub(crate) fn notes_search(s: &Inner, _c: &Caller, raw: &[u8]) -> String {
     );
     for n in hits.iter().take(SEARCH_MAX) {
         out.push_str(&format!(
-            "\n- {} [{}] {}\n  tags: {}; by {}, accepted by {}",
+            "\n- {} [{}] {}\n  tags: {}; by {}",
             n.reference(),
             n.kind,
             one_line(&n.text, 600),
             one_line(&n.tags.join(", "), 300),
             names.who(&n.by),
-            names.who(&n.accepted_by)
         ));
     }
     if hits.len() > SEARCH_MAX {

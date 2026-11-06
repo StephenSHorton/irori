@@ -78,7 +78,6 @@ import {
 } from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
-import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -232,7 +231,6 @@ export function App() {
       ? { kind: "boards" }
       : sectionFromHash(window.location.hash)
   })
-  const notesWaiting = useNotesWaiting()
   // A board page's own tab (All, Needs a decision, Closed).
   // A board page starts on All; the preview's ?filter=owner:<id> starts it
   // on one member's cards (card #268).
@@ -786,7 +784,6 @@ export function App() {
             onHeld={() => openHeld("")}
             unread={unreadNotifications}
             section={open ? null : section}
-            notesWaiting={notesWaiting}
             boardsNeedYou={boardDecide.length}
             boards={boards}
             cards={spaceCards}

@@ -1,6 +1,8 @@
 //! Notes are Mine only (decision 53, card #616, docs/design/notes.md §3):
 //! every note lives in the person's private log and only their own agents
-//! read it. Board logs still accept `note.*` rows, since devices on
+//! read it. Whoever writes a note, edit or removal (the person or one of
+//! their agents), it applies at once: there is no approval step. Board
+//! logs still accept `note.*` rows, since devices on
 //! 0.11.0-0.12.3 can write them and refusing one would stall that writer's
 //! stream, but Irori never reads them. Tools and the window reach the log
 //! through these.
@@ -22,17 +24,15 @@ impl Services {
     pub(crate) fn propose_note(
         &self,
         by: &str,
-        n: coord::NewNote,
+        mut n: coord::NewNote,
     ) -> std::result::Result<coord::Note, coord::Error> {
+        // A source card on a shared space isn't in the private log, so it
+        // stays the note's source text only: the log checks a task_id
+        // against its own cards, and Still true? watches only those.
+        if !n.task_id.is_empty() && self.coord.get_task(&n.task_id).is_none() {
+            n.task_id.clear();
+        }
         self.coord.propose_note(by, n)
-    }
-
-    pub(crate) fn accept_note(
-        &self,
-        by: &str,
-        id: &str,
-    ) -> std::result::Result<coord::Note, coord::Error> {
-        self.coord.accept_note(by, bare(id))
     }
 
     pub(crate) fn edit_note(
@@ -88,11 +88,6 @@ impl super::Core {
         self.s.propose_note(by, n)
     }
 
-    /// A person accepts note `id` (or an agent's pending change to it).
-    pub fn accept_note(&self, by: &str, id: &str) -> std::result::Result<coord::Note, coord::Error> {
-        self.s.accept_note(by, id)
-    }
-
     pub fn edit_note(
         &self,
         by: &str,
@@ -133,7 +128,11 @@ impl super::Core {
 // ---- the agent tools' seam (card #412) ---------------------------------------
 
 impl tools::NotesBackend for super::ToolsView {
-    fn propose(&self, by: &str, n: coord::NewNote) -> std::result::Result<coord::Note, coord::Error> {
+    fn propose(
+        &self,
+        by: &str,
+        n: coord::NewNote,
+    ) -> std::result::Result<coord::Note, coord::Error> {
         self.0.propose_note(by, n)
     }
     fn edit(
@@ -145,7 +144,12 @@ impl tools::NotesBackend for super::ToolsView {
     ) -> std::result::Result<coord::Note, coord::Error> {
         self.0.edit_note(by, id, e, why)
     }
-    fn remove(&self, by: &str, id: &str, why: &str) -> std::result::Result<coord::Note, coord::Error> {
+    fn remove(
+        &self,
+        by: &str,
+        id: &str,
+        why: &str,
+    ) -> std::result::Result<coord::Note, coord::Error> {
         self.0.remove_note(by, id, why)
     }
     fn search(&self, q: &str) -> Vec<coord::Note> {

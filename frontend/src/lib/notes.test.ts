@@ -4,7 +4,6 @@ import {
   NoteMaxChars,
   cleanTags,
   kindCounts,
-  needsLook,
   noteProblem,
   notes,
   parseTag,
@@ -80,25 +79,24 @@ describe("sample notes (the browser preview)", () => {
     expect(all.every((n) => !("scope" in n) && !("boardId" in n))).toBe(true)
   })
 
-  test("Keep makes a proposal live; Remove turns it down", async () => {
-    const waiting = (await notes.list()).filter((n) => n.state === "proposed")
-    expect(waiting.length).toBe(2)
-    await notes.accept(waiting[0].id)
-    await notes.remove(waiting[1].id)
-    const after = await notes.list()
-    expect(after.find((n) => n.id === waiting[0].id)?.state).toBe("accepted")
-    expect(after.find((n) => n.id === waiting[1].id)).toBeUndefined()
+  test("agents' notes are live with no accepter, and removable (card #616)", async () => {
+    const list = await notes.list()
+    expect(list.every((n) => n.state === "accepted")).toBe(true)
+    const theirs = list.filter((n) => !n.byPerson)
+    expect(theirs.length).toBeGreaterThan(0)
+    expect(theirs.every((n) => !n.acceptedBy)).toBe(true)
+    await notes.remove(theirs[0].id)
+    expect(
+      (await notes.list()).find((n) => n.id === theirs[0].id)
+    ).toBeUndefined()
   })
 
-  test("accepting an agent's edit applies it; New from agents empties", async () => {
-    const edit = (await notes.list()).find((n) => n.pending)!
-    expect(needsLook(edit)).toBe(true)
-    const proposed = edit.pending!.text!
-    await notes.accept(edit.id)
-    const n = (await notes.list()).find((x) => x.id === edit.id)!
-    expect(n.text).toBe(proposed)
-    expect(n.pending).toBeUndefined()
-    expect(needsLook(n)).toBe(false)
+  test("the person's edit of an agent's note applies at once", async () => {
+    const n = (await notes.list()).find((x) => !x.byPerson)!
+    await notes.edit(n.id, { text: "Shorter." })
+    expect((await notes.list()).find((x) => x.id === n.id)!.text).toBe(
+      "Shorter."
+    )
   })
 
   test("a person's new note is live at once and counted", async () => {

@@ -545,7 +545,11 @@ fn old_board_note_rows_still_sync_and_go_unread() {
     let (a, b) = paired();
     let id = a.core.create_board("MLG", "mlg").unwrap();
     wait_for(45, "b opens the board", || b.core.board_coord(&id).is_ok());
-    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, a.core.person().id);
+    let person = format!(
+        "{}{}",
+        store::kinds::PERSON_ACTOR_PREFIX,
+        a.core.person().id
+    );
     let old = a
         .core
         .board_coord(&id)

@@ -1,7 +1,8 @@
 //! The Notes page's commands (decision 45, card #401, docs/design/notes.md
-//! §11): list, New note, accept, edit and remove, each through the Core's
-//! notes API. Every note is the person's own, in the private log
-//! (decision 53, card #616).
+//! §11): list, New note, edit and remove, each through the Core's notes
+//! API. Every note is the person's own, in the private log, and an agent's
+//! note, edit or removal applies at once like the person's (decision 53,
+//! card #616), so nothing waits for an accept.
 
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
@@ -9,27 +10,11 @@ use specta::Type;
 
 use crate::Window;
 
-/// A pending agent change to a live note, waiting for a person's accept.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct NoteChangeView {
-    pub by: String,
-    #[specta(type = crate::ts::Time)]
-    pub at: GoTime,
-    /// The proposed kind, text or tags; empty or absent when unchanged.
-    pub kind: String,
-    pub text: String,
-    pub tags: Option<Vec<String>>,
-    /// The proposal is to remove the note.
-    pub remove: bool,
-    pub why: String,
-}
-
 /// One step of a note's history.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteEventView {
-    /// proposed, accepted, edited, edit_proposed, removal_proposed, removed.
+    /// proposed (written), edited or removed.
     pub what: String,
     pub by: String,
     #[specta(type = crate::ts::Time)]
@@ -52,18 +37,17 @@ pub struct NoteView {
     pub task_id: String,
     /// The author's key: the person (`user:…`) or an agent.
     pub by: String,
-    /// Whether the author is a person (a person's note is live at once).
+    /// Whether the author is the person, not one of their agents.
     pub by_person: bool,
     #[specta(type = crate::ts::Time)]
     pub at: GoTime,
-    /// proposed, accepted or removed.
+    /// accepted (live) or removed.
     pub state: String,
     pub accepted_by: String,
     #[specta(type = crate::ts::Time)]
     pub accepted_at: GoTime,
     #[specta(type = crate::ts::Time)]
     pub updated: GoTime,
-    pub pending: Option<NoteChangeView>,
     pub history: Vec<NoteEventView>,
     /// Still true? (v1): why the note may be out of date, else "". A
     /// `path:` tag whose path is gone from every checkout of its repo on
@@ -104,15 +88,6 @@ fn view(n: coord::Note, person: impl Fn(&str) -> bool) -> NoteView {
         accepted_by: n.accepted_by,
         accepted_at: n.accepted_at,
         updated: n.updated,
-        pending: n.pending.map(|c| NoteChangeView {
-            by: c.by,
-            at: c.at,
-            kind: c.kind,
-            text: c.text,
-            tags: c.tags,
-            remove: c.remove,
-            why: c.why,
-        }),
         history: n
             .history
             .into_iter()
@@ -125,11 +100,6 @@ fn view(n: coord::Note, person: impl Fn(&str) -> bool) -> NoteView {
             .collect(),
         stale: String::new(),
     }
-}
-
-/// A note in New from agents: the frontend's needsLook (lib/notes.ts).
-fn needs_look(n: &coord::Note) -> bool {
-    n.state == coord::NOTE_PROPOSED || (n.state == coord::NOTE_ACCEPTED && n.pending.is_some())
 }
 
 impl Window {
@@ -185,16 +155,7 @@ impl Window {
             .collect())
     }
 
-    /// The sidebar's Notes count (card #468): notes waiting on the
-    /// person's look, an agent's proposal or an agent's pending edit or
-    /// removal of a live note. It reads the fold only: no Still true?
-    /// checks on disk and no views, which notes_list did for every note on
-    /// every board change.
-    pub fn notes_waiting(&self) -> Result<usize, String> {
-        Ok(self.core.notes(false).iter().filter(|n| needs_look(n)).count())
-    }
-
-    /// New note: written by the person, so live at once.
+    /// New note, live at once.
     pub fn note_new(&self, n: NoteInput) -> Result<NoteView, String> {
         let me = self.user_key();
         let s = self
@@ -212,17 +173,7 @@ impl Window {
         Ok(self.note_view(s))
     }
 
-    /// Keep or Accept: the person accepts an agent's note, or its pending
-    /// edit or removal.
-    pub fn note_accept(&self, id: &str) -> Result<NoteView, String> {
-        let s = self
-            .core
-            .accept_note(&self.user_key(), crate::trim(id))
-            .map_err(|e| e.to_string())?;
-        Ok(self.note_view(s))
-    }
-
-    /// The person's edit, live at once.
+    /// The person's edit, at once.
     pub fn note_edit(&self, id: &str, e: NoteEditInput) -> Result<NoteView, String> {
         let s = self
             .core

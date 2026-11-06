@@ -325,9 +325,7 @@ export const TalkService = {
 // NotesService is the window's notes_* commands (card #411).
 export const NotesService = {
   List: (removed = false) => call(commands.notesList(removed)),
-  Waiting: () => call(commands.notesWaiting()),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
-  Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) =>
     call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
