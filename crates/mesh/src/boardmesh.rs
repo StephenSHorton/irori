@@ -553,6 +553,10 @@ struct Shared {
     heard: Mutex<BTreeMap<String, PeerHeard>>,
     /// Refused writers, by (writer, peer).
     holds: Mutex<Holds>,
+    /// Each connected peer's vector as its last frame said it. Unlike
+    /// [`PeerHeard::vector`] it can go down (a revoke's cut), and it goes
+    /// when the connection does.
+    latest: Mutex<BTreeMap<String, BTreeMap<String, i64>>>,
 }
 
 /// One board's mesh: a board room per held epoch (current and previous
@@ -597,6 +601,7 @@ impl BoardMesh {
                 rt: std::sync::OnceLock::new(),
                 heard: Mutex::new(BTreeMap::new()),
                 holds: Mutex::new(Holds::default()),
+                latest: Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -1457,6 +1462,8 @@ impl Shared {
         if peers.get(&key).is_some_and(|x| Arc::ptr_eq(x, &p)) {
             peers.remove(&key);
         }
+        // Another connection to it, if any, says its vector again soon.
+        self.latest.lock().expect("latest").remove(p.conn.id());
     }
 
     async fn read(self: Arc<Self>, p: Arc<Peer>, ctx: CancellationToken) {
@@ -1538,6 +1545,10 @@ impl Shared {
         hello: Option<(&str, &str, i64, i64, i64)>,
         vector: &BTreeMap<String, i64>,
     ) {
+        self.latest
+            .lock()
+            .expect("latest")
+            .insert(dev.to_string(), vector.clone());
         let mut heard = self.heard.lock().expect("heard");
         let h = heard.entry(dev.to_string()).or_default();
         h.device_id = dev.to_string();
@@ -1585,15 +1596,15 @@ impl Shared {
         );
     }
 
-    /// [`Holds::stalled`], a row counting as written when some peer's last
-    /// vector says so.
+    /// [`Holds::stalled`], a row counting as written when a connected
+    /// peer's last vector says so.
     fn stalled(&self, vector: &BTreeMap<String, i64>) -> Vec<SelfStall> {
         let holds = self.holds.lock().expect("holds");
-        let heard = self.heard.lock().expect("heard");
+        let latest = self.latest.lock().expect("latest");
         holds.stalled(vector, |dev, seq| {
-            heard
+            latest
                 .values()
-                .any(|p| p.vector.get(dev).copied().unwrap_or(0) >= seq)
+                .any(|v| v.get(dev).copied().unwrap_or(0) >= seq)
         })
     }
 
