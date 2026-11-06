@@ -175,6 +175,8 @@ pub const MAX_PERSON_TEXT: usize = 512 << 10;
 pub const MAX_WAKE_BYTES: usize = 16 << 10;
 /// The most a wake's Notes section adds to its prompt (card #412).
 pub const MAX_NOTES_BYTES: usize = 6 << 10;
+/// The most a wake's "the person said" section adds (card #555).
+pub const MAX_SAID_BYTES: usize = 3 << 10;
 pub const DIRECT_LIMIT: usize = 8;
 pub const DIRECT_WINDOW: Duration = Duration::from_secs(10 * 60);
 /// The runaway-loop guard: a message this many replies down one chain of
@@ -485,6 +487,12 @@ pub struct Wake {
     /// The accepted notes the wake carried (card #412).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<WakeNote>,
+    /// The agent's card the person's words were picked for (card #555).
+    #[serde(rename = "saidFor", skip_serializing_if = "String::is_empty")]
+    pub said_for: String,
+    /// What the person said lately on the cards around it (card #555).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<WakeSaid>,
 }
 
 /// SendWith's choices beyond the text.
@@ -644,6 +652,23 @@ pub struct WakeNotes {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub task: String,
     pub notes: Vec<WakeNote>,
+    /// The agent's own card, by its short ref, when `said` isn't empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub said_for: String,
+    /// What the person said lately on the cards around it (card #555).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<WakeSaid>,
+}
+
+/// One thing the person said on a card near the agent's (card #555).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WakeSaid {
+    /// The comment's id (no `comment:` prefix).
+    pub id: String,
+    /// The card it is on, by its short ref.
+    pub card: String,
+    pub text: String,
 }
 
 /// One note in a wake.
@@ -679,7 +704,9 @@ pub struct Options {
     pub on_passed: Option<OnPassedFn>,
     /// Runs under the inbox lock: it must not call the inbox.
     pub stale: Option<StaleFn>,
-    /// Runs under the inbox lock: it must not call the inbox.
+    /// Runs under the inbox lock: it must not call the inbox, nor wait on
+    /// anything that may be waiting on the inbox (a shared board's coord
+    /// is: its writes read the hop here).
     pub notes: Option<NotesFn>,
     /// Whether Irori started agent `key` for one card (card #446): it is
     /// never a repo's front desk. Runs under the inbox lock.

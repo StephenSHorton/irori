@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use coord::{Coord, ErrorKind as CK};
+use store::kinds::AGENT_ACTOR_PREFIX;
 
 use super::Services;
 use super::boards::{Error, trim};
@@ -30,7 +31,7 @@ impl Services {
     /// note.* row would stall this device's whole stream on any member
     /// device that predates notes (nutmeg, #392). The note kinds landed
     /// before the board hello's `spaces` field (0f6544ab, then 9d5a72dc),
-    /// so a device heard to read space rows reads note rows too: the
+    /// so a device that reads space rows reads note rows too: the
     /// space gate ([`Services::space_not_ready`]) is the notes gate. Mine
     /// notes never wait.
     pub(crate) fn board_notes_ready(
@@ -375,14 +376,20 @@ impl Services {
     /// roster card gives its repo when the card has none, and its cwd a
     /// path; the device's name is the machine. Mine's matches and the
     /// board's are merged, most specific first, [`coord::NOTES_PER_WAKE`]
-    /// at most. Runs under the inbox lock: it never calls the inbox, and
-    /// the locks it takes (the boards list, the roster, the logs' coords,
-    /// the name folds) are never held while the inbox is called.
+    /// at most.
+    ///
+    /// Runs under the inbox lock, so it never calls the inbox and never
+    /// waits on a board coord (card #561): a board coord's write takes the
+    /// inbox lock under its own (`hop_of`). Boards are only tried. A busy
+    /// board reads as no card and no notes here: a note left out goes in a
+    /// later wake. The boards list it may wait on: nothing waits on a coord
+    /// while holding that ([`Services::route`]).
     pub(crate) fn wake_notes(&self, agent: &str, refs: &[String]) -> inbox::WakeNotes {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
         // The card, and the board log it is on (None: the private log).
         let mut card: Option<(coord::Task, Option<NoteLog>)> = None;
-        for r in refs {
+        // A comment: ref is for the person's words below, not for notes.
+        for r in refs.iter().filter(|r| r.starts_with("task:")) {
             let id = r.strip_prefix("task:").unwrap_or(r);
             if let Some(t) = self.coord.get_task(id) {
                 card = Some((t, None));
@@ -391,7 +398,7 @@ impl Services {
             if let Some((t, b)) = self
                 .shown_boards()
                 .into_iter()
-                .find_map(|b| b.coord().get_task(id).map(|t| (t, b)))
+                .find_map(|b| b.coord().try_get_task(id).flatten().map(|t| (t, b)))
             {
                 card = Some((
                     t,
@@ -456,8 +463,10 @@ impl Services {
             .map(|m| (m, true))
             .collect();
         let board = card.as_ref().and_then(|(_, b)| b.clone());
-        if let Some(b) = &board {
-            picked.extend(b.coord.notes_for(&cx).into_iter().map(|m| (m, false)));
+        let mut board_people = std::collections::HashSet::new();
+        if let Some((found, people)) = board.as_ref().and_then(|b| b.coord.try_notes_for(&cx)) {
+            picked.extend(found.into_iter().map(|m| (m, false)));
+            board_people = people;
         }
         // Most specific first (stable: each log's newest first within a
         // score, Mine's before the board's).
@@ -468,15 +477,7 @@ impl Services {
             if key.is_empty() {
                 return String::new();
             }
-            let co = if mine {
-                &self.coord
-            } else {
-                match &board {
-                    Some(b) => &b.coord,
-                    None => &self.coord,
-                }
-            };
-            if co.is_person(key) {
+            if (mine && self.coord.is_person(key)) || (!mine && board_people.contains(key)) {
                 return if mine {
                     "the person".into()
                 } else {
@@ -499,6 +500,7 @@ impl Services {
                 text: m.note.text,
             })
             .collect();
+        let (said_for, said) = self.wake_said(agent, refs);
         inbox::WakeNotes {
             task: if notes.is_empty() {
                 String::new()
@@ -507,7 +509,48 @@ impl Services {
                     .unwrap_or_default()
             },
             notes,
+            said_for,
+            said,
         }
+    }
+
+    /// What the person said lately around `agent`'s card, for a wake (card
+    /// #555), and that card's short ref. Its card is the one the wake is
+    /// about when that is the agent's own, else the card it works now: a
+    /// wake about a card it only watches says nothing about that card's
+    /// neighbours. Runs under the inbox lock, so it never waits on a board:
+    /// a board coord's write takes the inbox lock under its own (`hop_of`).
+    /// A busy board is skipped, and its words go in a later wake.
+    fn wake_said(&self, agent: &str, refs: &[String]) -> (String, Vec<inbox::WakeSaid>) {
+        let boards = self.shown_boards();
+        let read = |working: bool| {
+            self.coord.said_for(agent, refs, working).or_else(|| {
+                boards.iter().find_map(|b| {
+                    // Board logs hold agent:<cardId>, not the session key.
+                    let id = b
+                        .maps
+                        .try_lock()
+                        .ok()?
+                        .keys
+                        .get(agent.strip_prefix("api:").unwrap_or(agent))?
+                        .clone();
+                    let key = format!("{AGENT_ACTOR_PREFIX}{id}");
+                    b.coord().try_said_for(&key, refs, working).flatten()
+                })
+            })
+        };
+        let Some((card, said)) = read(false).or_else(|| read(true)) else {
+            return Default::default();
+        };
+        let said = said
+            .into_iter()
+            .map(|s| inbox::WakeSaid {
+                id: s.comment_id,
+                card: s.card,
+                text: s.text,
+            })
+            .collect();
+        (card, said)
     }
 
     /// This device's name as the person sees it (`machine:` tags).
