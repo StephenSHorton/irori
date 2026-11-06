@@ -270,7 +270,8 @@ fn team_signed(app: &Path) -> bool {
         .arg(app)
         .output()
         .unwrap();
-    let text = String::from_utf8_lossy(&o.stderr).into_owned() + &String::from_utf8_lossy(&o.stdout);
+    let text =
+        String::from_utf8_lossy(&o.stderr).into_owned() + &String::from_utf8_lossy(&o.stdout);
     text.contains("Authority=Developer ID Application") && text.contains("leaf[subject.OU]")
 }
 
@@ -291,7 +292,10 @@ async fn update_and_swap(live_tweak: Option<fn(&Path)>) {
     run(Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])
         .arg(&r.live));
-    assert!(team_signed(&r.live), "the swapped bundle lost its signature");
+    assert!(
+        team_signed(&r.live),
+        "the swapped bundle lost its signature"
+    );
 }
 
 /// The signing paths a Developer ID release meets (card #537): over an ad
