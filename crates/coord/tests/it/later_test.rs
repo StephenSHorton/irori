@@ -1424,7 +1424,7 @@ fn a_version_park_keeps_the_boards_refusal() {
         a.c.park(CARD1, &t.id, "why", Back::Version("0.13.0 dev-a".into()))
             .unwrap_err();
     assert!(err.is(ErrorKind::Invalid), "{err}");
-    assert!(err.to_string().contains("your own board"), "{err}");
+    assert!(err.to_string().contains("a private card"), "{err}");
     assert!(a.c.get_task(&t.id).unwrap().parked().is_none());
 }
 

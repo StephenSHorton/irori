@@ -562,7 +562,8 @@ impl Fold {
     }
 
     /// Whether a cancel `by` writes here for card t counts: on a board
-    /// only from the author's person's device (see spawn_writer_ok).
+    /// only from the device of the person serving it, who it was given to
+    /// else its author (see spawn_writer_ok, card #573).
     fn may_end_spawn(&self, by: &str, t: &Task) -> bool {
         if !self.on_board {
             return true;
@@ -570,13 +571,13 @@ impl Fold {
         let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
             return false;
         };
-        let author = kp(&t.created_by);
-        !author.is_empty() && author == dp(&self.dev) && (by == SWEEPER || kp(by) == author)
+        let serves = self.serving_person(t);
+        !serves.is_empty() && serves == dp(&self.dev) && (by == SWEEPER || kp(by) == serves)
     }
 
     /// Ends every request of card `id` still waiting for its agent (card
-    /// #570), where this device's cancel counts. Anywhere else the
-    /// author's device ends it: bind_spawn and the sweep both do.
+    /// #570), where this device's cancel counts. Anywhere else the serving
+    /// person's device ends it: bind_spawn and the sweep both do.
     pub(crate) fn end_pending_spawns(&mut self, by: &str, id: &str, reason: &str) -> Result<()> {
         let by = if self.may_end_spawn(by, &self.tasks[id]) {
             by

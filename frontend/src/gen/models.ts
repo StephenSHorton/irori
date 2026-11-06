@@ -612,7 +612,7 @@ export function NotifyOptions(p: Partial<B.NotifyOptions> = {}): B.NotifyOptions
 
 /** OrderStep with Go's zero values for every field left out. */
 export function OrderStep(p: Partial<B.OrderStep> = {}): B.OrderStep {
-  return { "id": "", "short": "", "title": "", "state": "", ...p } as B.OrderStep
+  return { "id": "", "short": "", "tag": "", "title": "", "state": "", ...p } as B.OrderStep
 }
 
 /** Outcome with Go's zero values for every field left out. */

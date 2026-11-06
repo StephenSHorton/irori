@@ -370,18 +370,20 @@ impl Inner {
             .board_coord(&b.board_id, &[agent.to_string(), assign_to.to_string()])
             .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
         // Given to a member: made and given in one step, so no sweep sees
-        // it unheld and starts its author's agent first (card #573).
-        let (t, given) = if keys[1].starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
-            let (t, n) = co
-                .create_and_assign(&keys[0], task, &keys[1])
-                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
-            (t, Some(n))
-        } else {
-            let t = co
-                .create_task(&keys[0], task)
-                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
-            (t, None)
-        };
+        // it unheld and starts its author's agent first (card #573). A card
+        // held from the start isn't given (card #570): nobody takes it yet.
+        let (t, given) =
+            if task.later.is_none() && keys[1].starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
+                let (t, n) = co
+                    .create_and_assign(&keys[0], task, &keys[1])
+                    .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+                (t, Some(n))
+            } else {
+                let t = co
+                    .create_task(&keys[0], task)
+                    .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+                (t, None)
+            };
         let n = self.roster();
         let mut out = format!(
             "Created {} (task:{}) on {}.",

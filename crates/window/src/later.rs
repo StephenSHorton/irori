@@ -63,9 +63,11 @@ pub enum OrderState {
 #[serde(rename_all = "camelCase")]
 pub struct OrderStep {
     pub id: String,
-    /// Its number on its board, as the card's own `short`: "12". Order
-    /// stays on one log, so the card around it says which board.
+    /// Its number on its board, as the card's own `short`: "12".
     pub short: String,
+    /// Its board's tag (card #558): one log holds several boards, each
+    /// numbered from 1, and an order may cross them. "": Personal's own.
+    pub tag: String,
     pub title: String,
     pub state: OrderState,
 }
@@ -252,6 +254,7 @@ fn step_of(t: &Task) -> OrderStep {
     OrderStep {
         id: t.id.clone(),
         short: t.short.clone(),
+        tag: t.tag.clone(),
         title: t.title.clone(),
         state,
     }

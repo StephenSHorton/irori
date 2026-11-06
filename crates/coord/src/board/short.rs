@@ -353,8 +353,11 @@ impl Fold {
     /// [`Self::task_ref_locked`] that also names a deleted card, for taking
     /// a wait on it off (card #570).
     pub(crate) fn removal_ref(&self, r: &str) -> Result<String> {
+        // Only a card not found may be a deleted one: an ambiguous ref
+        // stays ambiguous.
         let e = match self.task_ref_locked(r) {
             Ok(id) => return Ok(id),
+            Err(e) if e.kind() != ErrorKind::NotFound => return Err(e),
             Err(e) => e,
         };
         let mut v = trim_space(r).to_string();
@@ -370,8 +373,9 @@ impl Fold {
         let Ok(n) = base.parse::<i64>() else {
             return Err(e);
         };
-        // A claim outlives its card, so it still names a deleted one. The
-        // default board ("") sorts first, as a bare number means it first.
+        // A claim outlives its card, so it still names a deleted one. More
+        // than one deleted card with that ref names none of them.
+        let mut ids: Vec<&str> = Vec::new();
         for ((b, num), g) in &self.short_groups {
             if *num != n || !(tag.is_empty() || self.tag_of(b) == tag) {
                 continue;
@@ -383,11 +387,14 @@ impl Fold {
                     short == base
                 };
                 if named && self.deleted.contains(&cl.id) {
-                    return Ok(cl.id.clone());
+                    ids.push(&cl.id);
                 }
             }
         }
-        Err(e)
+        match ids.as_slice() {
+            [id] => Ok(id.to_string()),
+            _ => Err(e),
+        }
     }
 
     /// Whether id's short ref changed at or after `since`.

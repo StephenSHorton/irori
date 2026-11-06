@@ -893,15 +893,19 @@ function sampleNotYet(id: string, until: string, why: string) {
   if (!u)
     later = CardLater({ why: reason, back: "word", line: "when you say", by })
   else if (/#|^\d+$/.test(u)) {
-    const short = u.replace(/^.*#/, "")
-    const k = sampleState().find((x) => x.short === short)
+    // Numbers are per board (card #558): a bare one means the card's own.
+    const ref = u.includes("#") ? u : `${c.tag ?? ""}#${u}`
+    const hit =
+      sampleCardRef(ref.startsWith("#") ? `${c.tag ?? ""}${ref}` : ref) ??
+      sampleCardRef(ref)
+    const k = hit && sampleCard(hit.id)
     if (!k) throw new Error(`coord: not found: no card ${u}`)
     if (k.id === c.id)
       throw new Error("coord: invalid input: a card can't wait on itself")
     later = CardLater({
       why: reason,
       back: "card",
-      line: `when #${short} is done`,
+      line: `when ${k.tag ?? ""}#${k.short} is done`,
       by,
       card: k.id,
     })

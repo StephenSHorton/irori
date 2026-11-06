@@ -2120,11 +2120,13 @@ export type OrderState = "done" | "working" | "waiting" | "later";
 /**  One card of an order. */
 export type OrderStep = {
 	id: string,
-	/**
-	 *  Its number on its board, as the card's own `short`: "12". Order
-	 *  stays on one log, so the card around it says which board.
-	 */
+	/**  Its number on its board, as the card's own `short`: "12". */
 	short: string,
+	/**
+	 *  Its board's tag (card #558): one log holds several boards, each
+	 *  numbered from 1, and an order may cross them. "": Personal's own.
+	 */
+	tag: string,
 	title: string,
 	state: OrderState,
 };

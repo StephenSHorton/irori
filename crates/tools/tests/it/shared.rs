@@ -824,6 +824,23 @@ fn a_shared_card_can_be_given_to_a_member_by_name() {
     );
 }
 
+/// Card #570 with #573: a shared card made Not yet with a member named
+/// isn't given to them (nobody takes a held card), and making it doesn't
+/// fail half way with the card already on the board.
+#[test]
+fn a_shared_card_made_not_yet_isnt_given() {
+    let r = rig();
+    r.autonomy("trusted");
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Voice calls", "board": "mlg", "assign_to": "blake", "later": {"why": "after the move"}}),
+    );
+    has(&out, &["It isn't assigned"]);
+    let t = r.fake.co.get_task(&created_id(&out)).unwrap();
+    assert!(t.parked().is_some() && t.assigned.is_empty() && t.given.is_none());
+}
+
 #[test]
 fn show_opens_a_shared_card_and_its_comments() {
     let r = rig();

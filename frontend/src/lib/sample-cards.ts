@@ -2190,6 +2190,7 @@ function laterSample(
   ): OrderStep => ({
     id: `sample-card-order-${short}`,
     short,
+    tag: "",
     title,
     state,
   })

@@ -4,6 +4,7 @@
 
 import { useState, type ReactNode } from "react"
 import { ChevronRightIcon } from "lucide-react"
+import { cardRef } from "@/components/cards/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -67,7 +68,7 @@ function CardLink({
       disabled={!onOpen}
       onClick={() => onOpen?.(s.id)}
     >
-      <span className="font-mono">#{s.short}</span> {plainLine(s.title)}
+      <span className="font-mono">{cardRef(s)}</span> {plainLine(s.title)}
     </button>
   )
 }
