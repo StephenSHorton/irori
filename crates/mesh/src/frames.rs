@@ -26,6 +26,11 @@ pub const FRAME_PERSON_SECRET: &str = "person.secret";
 /// (boards2-transport.md §4): `boardId`, `epoch` (the board epoch), `maker`,
 /// and `sealed` under the mesh key of epoch `from`.
 pub const FRAME_BOARD_SECRET: &str = "board.secret";
+/// A DM space's secret to another of the person's devices (card #538): the
+/// fields of `board.secret`, and so the same schema, under its own name. An
+/// older build ignores a type it doesn't know, so it never gets the secret
+/// and never opens the hidden log.
+pub const FRAME_DM_SECRET: &str = "dm.secret";
 /// Asks the peer for its copy of the asker's own row at `seq` (`device_id`
 /// is the asker): a restored device checks the last row it holds against
 /// the peer's before it takes the rows after it.
@@ -101,7 +106,7 @@ pub struct Frame {
     #[serde(skip_serializing_if = "is_zero")]
     pub from: i64,
 
-    // board.secret (epoch, sealed and from too)
+    // board.secret and dm.secret (epoch, sealed and from too)
     #[serde(rename = "boardId", skip_serializing_if = "String::is_empty")]
     pub board_id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -397,5 +402,20 @@ mod tests {
         let p = Frame::of_type(FRAME_PING).encode();
         let s = String::from_utf8(p).unwrap();
         assert!(!s.contains("boardId") && !s.contains("maker"), "{s}");
+    }
+
+    #[test]
+    fn a_dm_secret_frame_round_trips() {
+        let f = Frame {
+            board_id: "0123456789abcdef0123456789abcdef".into(),
+            epoch: 1,
+            maker: "dev-a".into(),
+            from: 2,
+            sealed: vec![7; 56],
+            ..Frame::of_type(FRAME_DM_SECRET)
+        };
+        let s = String::from_utf8(f.encode()).unwrap();
+        assert!(s.starts_with(r#"{"type":"dm.secret""#), "{s}");
+        assert_eq!(decode_frame(&f.encode()).unwrap(), f);
     }
 }

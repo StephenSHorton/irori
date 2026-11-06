@@ -15,6 +15,7 @@ import { Thread } from "@/components/cards/thread"
 import { MessageRowsShape } from "@/components/common/loading-shapes"
 import { Loading } from "@/components/ui/loading"
 import { spawnLine } from "@/lib/spawn-line"
+import { StartPastLimit } from "@/components/cards/start-past-limit"
 import {
   displayName,
   threads as threadsApi,
@@ -227,6 +228,9 @@ export function ThreadView({
         composer={resolved ? undefined : <CommentBox cardId={t.id} reply />}
         scroll
       />
+      {t.state === "waiting" && (
+        <StartPastLimit id={t.id} state={t} size="xs" />
+      )}
       <div className="flex shrink-0 items-center gap-2">
         {resolved ? (
           <Button

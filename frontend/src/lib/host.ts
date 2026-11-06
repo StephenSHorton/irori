@@ -312,6 +312,9 @@ export const TalkService = {
     spaceId: string | null = null
   ) => call(commands.talkChannelCreate(name, topic, spaceId)),
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
+  // Everyone the person can DM, and leaving a DM with one of them (#538).
+  DmPeople: () => call(commands.talkDmPeople()),
+  DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
   Leave: (convId: string, member: B.TalkMemberRef) =>
@@ -343,6 +346,10 @@ export const AgentsService = {
   Attach: (key: string, cols: number, rows: number) =>
     call(commands.agentsAttach(key, cols, rows)),
   Running: () => call(commands.agentsRunning()),
+  Limits: () => call(commands.agentsLimits()),
+  CapSet: (device: string, cap: number) =>
+    call(commands.agentsCapSet(device, cap)),
+  UsageRelease: () => call(commands.agentsUsageRelease()),
   TrustNeed: (taskId: string) => call(commands.agentsTrustNeed(taskId)),
   TrustAndStart: (taskId: string) => call(commands.agentsTrustAndStart(taskId)),
   // Asks the device the agent starts on to trust it there (part 11);
@@ -410,7 +417,8 @@ export const DevicesService = {
   RenameDevice: (deviceId: string, name: string) =>
     call(commands.devicesRenameDevice(deviceId, name)),
   SideNames: () => call(commands.devicesSideNames()),
-  SetDeviceSides: (sides: string[]) => call(commands.devicesSetDeviceSides(sides)),
+  SetDeviceSides: (sides: string[]) =>
+    call(commands.devicesSetDeviceSides(sides)),
   AddDevice: (role: string) => call(commands.devicesAddDevice(role)),
   JoinWithCode: (code: string, server: string) =>
     call(commands.devicesJoinWithCode(code, server)),
@@ -457,6 +465,10 @@ export const UpdateService = {
   Supported: () => call(commands.updateSupported()),
   CheckAndDownload: () => call(commands.updateCheckAndDownload()),
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
+  // Keep this device up to date (card #578): null where it doesn't apply.
+  GetKeepUpToDate: () => call(commands.updateGetKeepUpToDate()),
+  SetKeepUpToDate: (on: boolean) =>
+    call(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as

@@ -89,10 +89,14 @@ export const ThreadsModes = [
 // MaxBoardName mirrors identity.MaxBoardName.
 export const MaxBoardName = 60
 
-// validTag is identity.ValidBoardTag: a lowercase letter, then up to 15
-// lowercase letters, digits or '-'.
+// MaxBoardTag mirrors identity.MAX_BOARD_TAG (card #590): a new board's
+// tag is this long at most, so refs like agility#1234 stay short.
+export const MaxBoardTag = 8
+
+// validTag is identity.valid_board_tag: a lowercase letter, then
+// lowercase letters, digits or '-', MaxBoardTag at most.
 export function validTag(tag: string): boolean {
-  return /^[a-z][a-z0-9-]{0,15}$/.test(tag)
+  return tag.length <= MaxBoardTag && /^[a-z][a-z0-9-]*$/.test(tag)
 }
 
 // suggestTag is a tag from a board's name: its first word, lowercased,
@@ -103,7 +107,7 @@ export function suggestTag(name: string): string {
     .replace(/[^a-z0-9-\s]/g, "")
     .trim()
     .split(/\s+/)[0]
-  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, 16)
+  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, MaxBoardTag)
   return validTag(t) ? t : ""
 }
 
@@ -225,7 +229,7 @@ export const boards = {
       throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
     if (!validTag(t))
       throw new Error(
-        "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
+        `coord: invalid input: a board tag is a lowercase letter, then lowercase letters, digits or '-', ${MaxBoardTag} characters at most`
       )
     if (boardsState().some((b) => b.tag === t))
       throw new Error(`coord: invalid input: the tag "${t}" is already a board's`)
