@@ -105,10 +105,13 @@ pub const DMS_PROTOCOL: i64 = 1;
 pub const CALLS_PROTOCOL: i64 = 1;
 
 /// This build's tolerant reader (no-server.md §3.5): a board hello's
-/// `tolerant`. A device saying at least this stores a pulled `task.*` or
-/// `space.*` kind it doesn't know instead of stalling on it, so once a
-/// space's devices are past it a new kind of those needs no gate.
-pub const TOLERANT_PROTOCOL: i64 = 1;
+/// `tolerant`. A device saying at least this stores a pulled kind it
+/// doesn't know of a [`store::TOLERATED_FAMILIES`] family instead of
+/// stalling on it, so once a space's devices are past it a new kind of
+/// those needs no gate. 1 (v0.12.4, card #579): `task.*` and `space.*`.
+/// 2 (card #652): `talk.*` and `call.*` too, a release ahead of calls
+/// (#571), which write `call.*` rows only where every device says 2.
+pub const TOLERANT_PROTOCOL: i64 = 2;
 
 /// The longest a refused writer waits before it's tried again from a peer
 /// (no-server.md §4.3). The first wait is one vector tick, then it doubles.
@@ -376,6 +379,15 @@ pub struct SavedHello {
 }
 
 impl SavedHello {
+    /// The levels it said.
+    pub fn reads(&self) -> BoardReads {
+        BoardReads {
+            spaces: self.spaces,
+            spawns: self.spawns,
+            tolerant: self.tolerant,
+        }
+    }
+
     fn says_the_same(&self, o: &SavedHello) -> bool {
         (
             &self.person_id,
@@ -444,10 +456,21 @@ impl DeviceWords {
     /// device long after its last hello here, and a hello after a row is a
     /// downgrade.
     pub fn spaces(&self, dev: &str) -> Option<i64> {
+        self.reads(dev).map(|r| r.spaces)
+    }
+
+    /// The `tolerant` level of `dev`'s latest word (card #652), None when
+    /// there is none; chosen as [`DeviceWords::spaces`] is.
+    pub fn tolerant(&self, dev: &str) -> Option<i64> {
+        self.reads(dev).map(|r| r.tolerant)
+    }
+
+    /// Every level of `dev`'s latest word, None when there is none.
+    pub fn reads(&self, dev: &str) -> Option<BoardReads> {
         match (self.hellos.get(dev), self.rows.get(dev)) {
-            (Some(h), Some((r, seq))) if *seq > h.seq => Some(r.spaces),
-            (Some(h), _) => Some(h.spaces),
-            (None, Some((r, _))) => Some(r.spaces),
+            (Some(h), Some((r, seq))) if *seq > h.seq => Some(r.clone()),
+            (Some(h), _) => Some(h.reads()),
+            (None, Some((r, _))) => Some(r.clone()),
             (None, None) => None,
         }
     }
@@ -463,7 +486,7 @@ impl DeviceWords {
             .hellos
             .get(&h.device_id)
             .is_some_and(|s| s.says_the_same(h))
-            && self.spaces(&h.device_id) == Some(h.spaces))
+            && self.reads(&h.device_id) == Some(h.reads()))
     }
 }
 
@@ -1046,10 +1069,28 @@ impl BoardMesh {
     /// The `spaces` each device on a live connection said in its hello:
     /// the word that beats any saved one (no-server.md §5).
     pub fn live_spaces(&self) -> BTreeMap<String, i64> {
+        self.live_reads()
+            .into_iter()
+            .map(|(d, r)| (d, r.spaces))
+            .collect()
+    }
+
+    /// Every level each device on a live connection said in its hello
+    /// (card #652): the word that beats any saved one.
+    pub fn live_reads(&self) -> BTreeMap<String, BoardReads> {
         let live = self.peers();
         let heard = self.s.heard.lock().expect("heard");
         live.into_iter()
-            .filter_map(|(_, d)| heard.get(&d).map(|h| (d, h.spaces)))
+            .filter_map(|(_, d)| {
+                heard.get(&d).map(|h| {
+                    let r = BoardReads {
+                        spaces: h.spaces,
+                        spawns: h.spawns,
+                        tolerant: h.tolerant,
+                    };
+                    (d, r)
+                })
+            })
             .collect()
     }
 
@@ -2455,6 +2496,41 @@ mod tests {
         assert!(w.needs_saving(&back));
         w.hellos.insert("d".into(), back);
         assert_eq!(w.spaces("d"), Some(0), "the downgrade is its latest word");
+    }
+
+    /// Card #652: `tolerant` is chosen from the same latest word as
+    /// `spaces`, and a hello that differs from a later row only in
+    /// `tolerant` is saved again too (a v0.12.4 hello after a row of 2).
+    #[test]
+    fn a_devices_tolerant_level_is_its_latest_words() {
+        let hello = |tolerant, seq| SavedHello {
+            device_id: "d".into(),
+            core_version: "0.12.4".into(),
+            spaces: 1,
+            spawns: 1,
+            tolerant,
+            seq,
+            ..Default::default()
+        };
+        let row = |tolerant| BoardReads {
+            spaces: 1,
+            spawns: 1,
+            tolerant,
+        };
+        let mut w = DeviceWords::default();
+        assert_eq!(w.tolerant("d"), None, "no word");
+        w.hellos.insert("d".into(), hello(1, 5));
+        assert_eq!(w.tolerant("d"), Some(1));
+        assert!(!w.needs_saving(&hello(1, 6)), "nothing new");
+        // It updated to tolerant 2; the row came through another device.
+        w.rows.insert("d".into(), (row(TOLERANT_PROTOCOL), 9));
+        assert_eq!(w.tolerant("d"), Some(TOLERANT_PROTOCOL));
+        assert_eq!(w.reads("d"), Some(row(TOLERANT_PROTOCOL)));
+        // Then back to v0.12.4: the same spaces, a lower tolerant.
+        let back = hello(1, 12);
+        assert!(w.needs_saving(&back), "the downgrade is news");
+        w.hellos.insert("d".into(), back);
+        assert_eq!(w.tolerant("d"), Some(1));
     }
 
     /// Card #392: an older Irori's hello has no `spaces` and still parses
