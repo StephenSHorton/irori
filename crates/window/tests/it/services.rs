@@ -913,7 +913,10 @@ fn talk_through_the_window() {
     assert!(ds.iter().any(|d| d.message_id == id), "{ds:?}");
     // The DM's agent shows as replying (card #645), by name.
     let rs = w.talk_replying();
-    let row = rs.iter().find(|r| r.conv_id == dm).expect("replying in the DM");
+    let row = rs
+        .iter()
+        .find(|r| r.conv_id == dm)
+        .expect("replying in the DM");
     assert_eq!(row.agents.len(), 1);
     assert_eq!(row.agents[0].key, r.key_a);
     assert!(!row.agents[0].name.is_empty() && row.agents[0].name != r.key_a);
