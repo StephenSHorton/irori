@@ -1024,25 +1024,38 @@ impl Fold {
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
-                if t.state != BLOCKED {
+                // Card #635: a close names what its writer saw open. One
+                // from another device can land after the card was unblocked
+                // and blocked again (the person's done check): what it
+                // names is closed already, so it changes nothing; or after
+                // a new item was raised, which stays open.
+                let ids = &p.blocker_ids;
+                let named = |b: &Blocker| ids.is_empty() || ids.contains(&b.id);
+                if t.state != BLOCKED || !t.blockers.iter().any(|b| b.open() && named(b)) {
                     self.tasks.insert(p.task_id, t);
                     return;
                 }
-                let mut s = p.restored.clone();
-                if !valid_state(&s) || s == BLOCKED || is_terminal(&s) {
-                    s = restore_state(&t).into();
-                }
-                t.state = s;
-                t.reason.clear();
-                t.blocked_by = None;
-                if !p.note.is_empty() {
-                    t.note = p.note.clone();
-                }
-                t.updated_at = at(p.at);
+                let when = at(p.at);
+                let others = t.blockers.iter().any(|b| b.open() && !named(b));
+                super::cards::close_named(&mut t, ids, &p.by, &p.note, when);
+                let mut what = if others {
+                    super::cards::sync_reason(&mut t);
+                    "closed what it waited on".to_string()
+                } else {
+                    let mut s = p.restored.clone();
+                    if !valid_state(&s) || s == BLOCKED || is_terminal(&s) {
+                        s = restore_state(&t).into();
+                    }
+                    t.state = s;
+                    t.reason.clear();
+                    t.blocked_by = None;
+                    if !p.note.is_empty() {
+                        t.note = p.note.clone();
+                    }
+                    "unblocked it".to_string()
+                };
+                t.updated_at = when;
                 t.updated_by = p.by.clone();
-                let when = t.updated_at;
-                super::cards::close_open(&mut t, &p.by, &p.note, when);
-                let mut what = "unblocked it".to_string();
                 if !p.note.is_empty() {
                     what.push_str(&format!(": {}", p.note));
                 }
@@ -2304,10 +2317,16 @@ impl Fold {
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:
             // that device sees what it waited on.
+            // Of the items it names, when it names them (card #635).
             kinds::BLOCKER_CLOSED => self.tasks.get(&p.task_id).is_some_and(|t| {
-                t.blockers
-                    .iter()
-                    .any(|b| b.open() && self.may_write(&b.raised_by, &ev.device_id))
+                let ids = row::<BlockerClosedRow>(&ev.payload)
+                    .map(|r| r.blocker_ids)
+                    .unwrap_or_default();
+                t.blockers.iter().any(|b| {
+                    b.open()
+                        && (ids.is_empty() || ids.contains(&b.id))
+                        && self.may_write(&b.raised_by, &ev.device_id)
+                })
             }),
             // A spawned agent's request and mark (card #455): from a device
             // of the person it serves, which spawn_writer_ok checks itself.
