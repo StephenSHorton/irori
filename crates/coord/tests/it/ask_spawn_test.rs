@@ -13,6 +13,7 @@ use std::sync::{Arc, RwLock};
 
 use common::*;
 use coord::roster::AgentCard;
+use coord::rows::TaskCommentRow;
 use coord::*;
 use gocompat::time::GoTime;
 
@@ -822,4 +823,311 @@ fn an_ask_whose_agent_hit_the_usage_limit_spawns_again() {
     let t = e.c.get_task(&tk.id).unwrap();
     assert_eq!(t.spawn_crashes, 0, "a usage limit is no crash");
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&tk.id));
+}
+
+// Card #631: an agent opens a thread itself and holds it. Irori never hands
+// it out or starts an agent for it, even once its opener goes, until its
+// person writes in it (spawned-agents.md §7).
+
+fn open_thread(e: &Env, by: &str, text: &str) -> Task {
+    e.c.post_agent_thread(
+        by,
+        NewAsk {
+            text: text.into(),
+            thread: true,
+            ..NewAsk::default()
+        },
+    )
+    .unwrap()
+    .0
+}
+
+/// Nothing hands it out or starts an agent for it.
+fn rests(e: &Env, id: &str, agents: &[AgentCard]) {
+    let ns = e.c.sweep_asks(agents).unwrap();
+    assert!(ns.iter().all(|n| n.task_id != id), "handed out: {ns:?}");
+    assert!(e.c.cards_to_spawn().is_empty(), "listed to spawn");
+    assert_eq!(e.c.request_spawn(SWEEPER_KEY, sask(id)).unwrap(), None);
+    let t = e.c.get_task(id).unwrap();
+    assert!(!e.c.waits_for_agent(&t), "waits for an agent: {t:?}");
+    assert!(!t.ask.unwrap().unclaimed);
+}
+
+#[test]
+fn an_agent_opens_a_thread_it_holds_and_gets_the_persons_replies() {
+    let mut e = Env::new();
+    // Bob has "Offer it cards" on and is idle: he still never gets it.
+    let _r = rig(&mut e, &[BOB]);
+    let agents = vec![idle(BOB, 20), idle(CAROL, 10)];
+    for k in [ALICE, BOB, CAROL] {
+        e.ros.set(k, "idle");
+    }
+    let (t, n) =
+        e.c.post_agent_thread(
+            ALICE,
+            NewAsk {
+                text: "Which of the two release notes do you prefer, @carol?".into(),
+                thread: true,
+                mentions: vec![Mention {
+                    key: CAROL.into(),
+                    ..Mention::default()
+                }],
+                ..NewAsk::default()
+            },
+        )
+        .unwrap();
+    let a = t.ask.clone().unwrap();
+    assert!(a.thread && a.opener == ALICE && a.taker == ALICE, "{a:?}");
+    assert!(!a.handed && !a.unclaimed, "{a:?}");
+    assert_eq!(t.created_by, ALICE);
+    assert_eq!(t.holders, [ALICE]);
+    // The agent it names is woken, as for the person's thread, but not as
+    // the person speaking.
+    let n = n.expect("Carol hears it");
+    assert_eq!(n.to, [CAROL]);
+    assert!(n.wake && !n.person, "{n:?}");
+    assert!(
+        n.text.contains(&format!("Agent {ALICE} started a thread")),
+        "{}",
+        n.text
+    );
+
+    rests(&e, &t.id, &agents);
+    e.clk.add(mins(10));
+    rests(&e, &t.id, &agents);
+    assert_eq!(ask_of(&e, &t.id).taker, ALICE);
+
+    // The person replies: it goes to its opener, woken.
+    let (_, ns) =
+        e.c.person_comment(USER, &t.id, "The shorter one.", true, &[], None)
+            .unwrap();
+    let n = ns
+        .iter()
+        .find(|n| n.to.contains(&ALICE.to_string()))
+        .expect("to Alice");
+    assert!(n.wake, "{n:?}");
+    assert!(n.text.contains("the thread agent"), "{}", n.text);
+    // The opener answers: answered, and the next reply goes to it again.
+    e.c.add_comment(ALICE, &t.id, "Done, I'll use it.", false)
+        .unwrap();
+    e.c.sweep_asks(&agents).unwrap();
+    assert_eq!(ask_of(&e, &t.id).reason, TAKE_ANSWERED);
+    let (_, ns) =
+        e.c.person_comment(USER, &t.id, "Thanks!", true, &[], None)
+            .unwrap();
+    assert!(ns.iter().any(|n| n.to == [ALICE]), "{ns:?}");
+    assert!(e.c.cards_to_spawn().is_empty());
+    // Only the person resolves it.
+    want_err(
+        e.c.ask_close(
+            ALICE,
+            &t.id,
+            AskOutcome {
+                kind: OUTCOME_ANSWERED.into(),
+                note: "done".into(),
+                ..AskOutcome::default()
+            },
+        ),
+        ErrorKind::NotAllowed,
+    );
+    e.c.resolve_thread(USER, &t.id).unwrap();
+}
+
+#[test]
+fn an_agents_thread_stays_without_an_agent_after_it_goes_until_the_person_writes() {
+    let mut e = Env::new();
+    let r = rig(&mut e, &[BOB]);
+    let agents = vec![idle(BOB, 20), idle(CAROL, 10)];
+    e.ros.set(ALICE, "idle");
+    let t = open_thread(&e, ALICE, "I found two ways to fix the sync bug.");
+    rests(&e, &t.id, &agents);
+
+    // Its opener goes away: parked, nobody holds it, nothing starts.
+    e.ros.set(ALICE, "");
+    e.c.sweep_asks(&agents).unwrap();
+    e.clk.add(mins(10));
+    rests(&e, &t.id, &agents);
+    let tk = e.c.get_task(&t.id).unwrap();
+    let a = tk.ask.clone().unwrap();
+    assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
+    assert!(tk.holders.is_empty(), "{tk:?}");
+    e.clk.add(mins(60));
+    rests(&e, &t.id, &agents);
+
+    // Another agent's words don't wake it either.
+    e.c.add_comment(CAROL, &t.id, "I'd pick the second.", false)
+        .unwrap();
+    rests(&e, &t.id, &agents);
+
+    // The person writes: it goes out as their own thread would (#512).
+    // Carol answered, so she hears it while she's live.
+    let not_alice = |k: &str| k != ALICE;
+    let (_, ns) =
+        e.c.person_comment(USER, &t.id, "Carol, why?", true, &[], Some(&not_alice))
+            .unwrap();
+    assert!(ns.iter().any(|n| n.to == [CAROL] && n.wake), "{ns:?}");
+    // With her gone, an idle agent with Offer it cards on gets it.
+    e.clk.add(mins(1));
+    let live = |k: &str| k != CAROL && k != ALICE;
+    e.c.person_comment(USER, &t.id, "Which one is safer?", true, &[], Some(&live))
+        .unwrap();
+    let ns = e.c.sweep_asks(&agents).unwrap();
+    assert!(ns.iter().any(|n| n.to == [BOB]), "{ns:?}");
+    assert!(!ns.iter().any(|n| n.person), "{ns:?}");
+    assert_eq!(ask_of(&e, &t.id).taker, BOB);
+    // Bob gives it back with nobody else free: listed to spawn, and the
+    // started agent takes it.
+    r.offered.write().unwrap().clear();
+    e.c.leave(BOB, &t.id, BOB).unwrap();
+    e.c.sweep_asks(&agents).unwrap();
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+    let tk = e.c.get_task(&t.id).unwrap();
+    assert!(e.c.waits_for_agent(&tk));
+    spawn_bound(&e, &t.id);
+    assert_eq!(ask_of(&e, &t.id).taker, SPAWNED);
+}
+
+#[test]
+fn an_agents_thread_its_opener_gives_back_rests_too() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[BOB]);
+    let agents = vec![idle(BOB, 20)];
+    e.ros.set(ALICE, "idle");
+    let t = open_thread(&e, ALICE, "Heads up: the PC build is red.");
+    e.c.leave(ALICE, &t.id, ALICE).unwrap();
+    rests(&e, &t.id, &agents);
+    let a = ask_of(&e, &t.id);
+    assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
+}
+
+#[test]
+fn a_person_post_from_another_device_wakes_a_parked_agents_thread() {
+    let owner: KeyFn = Arc::new(|k: &str| k == USER || k == "user:dev-b");
+    let mut e = Env::with("dev-a", Some(owner));
+    let _r = rig(&mut e, &[]);
+    e.ros.set(ALICE, "idle");
+    let t = open_thread(&e, ALICE, "Should I keep the old flag?");
+    e.ros.set(ALICE, "");
+    e.c.sweep_asks(&[]).unwrap();
+    e.clk.add(mins(10));
+    e.c.sweep_asks(&[]).unwrap();
+    assert!(e.c.cards_to_spawn().is_empty());
+    let a = ask_of(&e, &t.id);
+    assert!(a.taker.is_empty() && a.reason == TAKE_ANSWERED, "{a:?}");
+    // Posts from another device, which write no take row.
+    let post = |seq: i64, min: u64, actor: &str, id: &str, wake: bool| {
+        let at = plus(fixed_now(), mins(min));
+        e.remote(
+            "dev-b",
+            seq,
+            hlc_at(at),
+            actor,
+            store::kinds::TASK_COMMENT,
+            &TaskCommentRow {
+                task_id: t.id.clone(),
+                comment_id: id.into(),
+                by: "user:dev-b".into(),
+                text: "Yes, keep it.".into(),
+                wake,
+                at,
+                ..TaskCommentRow::default()
+            },
+        );
+        e.clk.add(mins(1));
+        e.c.sweep_asks(&[]).unwrap();
+        e.c.sweep_asks(&[]).unwrap();
+    };
+    // An agent's row that only names the person as its author: not theirs.
+    post(1, 11, "agent:dev-b/x", "c-forged", true);
+    assert!(e.c.cards_to_spawn().is_empty(), "a forged post");
+    // A quiet post (Agents answer now off for it) never sends it out.
+    post(2, 12, "user", "c-quiet", false);
+    assert!(e.c.cards_to_spawn().is_empty(), "a quiet post");
+    // The person's post from their phone does.
+    post(3, 13, "user", "c-phone", true);
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+}
+
+#[test]
+fn an_agents_thread_keeps_its_opener_when_a_named_agent_answers_first() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    for k in [ALICE, BOB] {
+        e.ros.set(k, "idle");
+    }
+    let (t, _) =
+        e.c.post_agent_thread(
+            ALICE,
+            NewAsk {
+                text: "Bob, is the cache warm?".into(),
+                thread: true,
+                mentions: vec![Mention {
+                    key: BOB.into(),
+                    ..Mention::default()
+                }],
+                ..NewAsk::default()
+            },
+        )
+        .unwrap();
+    e.c.add_comment(BOB, &t.id, "It is.", false).unwrap();
+    e.c.sweep_asks(&[]).unwrap();
+    // The person's reply reaches the opener as well as Bob.
+    let (_, ns) =
+        e.c.person_comment(USER, &t.id, "Thanks both.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&ALICE.to_string())),
+        "{ns:?}"
+    );
+    // Bob gone, the opener live: nothing goes out or starts.
+    let live = |k: &str| k == ALICE;
+    e.clk.add(mins(1));
+    e.c.person_comment(USER, &t.id, "Alice?", true, &[], Some(&live))
+        .unwrap();
+    e.c.sweep_asks(&[idle(ALICE, 5)]).unwrap();
+    assert!(e.c.cards_to_spawn().is_empty());
+    assert!(ask_of(&e, &t.id).taker.is_empty() || ask_of(&e, &t.id).taker == ALICE);
+}
+
+#[test]
+fn only_an_agent_on_this_device_opens_a_thread() {
+    let e = Env::new();
+    let ask = |by: &str| {
+        e.c.post_agent_thread(
+            by,
+            NewAsk {
+                text: "hello".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+        )
+    };
+    want_err(ask(USER), ErrorKind::NotAllowed);
+    want_err(ask(SWEEPER_KEY), ErrorKind::NotAllowed);
+    want_err(ask("dev-b/other-session"), ErrorKind::NotAllowed);
+    // The refusals wrote nothing.
+    assert!(e.c.list_tasks(&TaskFilter::default()).is_empty());
+}
+
+#[test]
+fn an_agents_thread_folds_as_its_thread_after_a_replay() {
+    let mut e = Env::new();
+    let _r = rig(&mut e, &[]);
+    e.ros.set(ALICE, "idle");
+    let t = open_thread(&e, ALICE, "Replay me.");
+    e.c = e.reopen();
+    let a = ask_of(&e, &t.id);
+    assert!(a.opener == ALICE && a.taker == ALICE, "{a:?}");
+    // A plain ask from an agent is still refused.
+    want_err(
+        e.c.post_ask(
+            ALICE,
+            NewAsk {
+                text: "Not a thread".into(),
+                ..NewAsk::default()
+            },
+            &[],
+        ),
+        ErrorKind::NotAllowed,
+    );
 }

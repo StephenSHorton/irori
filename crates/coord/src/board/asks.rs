@@ -230,7 +230,7 @@ impl Fold {
     }
 
     /// Sets up t's ask from its task.created row: only the person's row
-    /// makes an ask.
+    /// makes an ask, and an agent's own row a thread it opened (card #631).
     pub(crate) fn fold_ask_created(
         &self,
         t: &mut Task,
@@ -239,16 +239,27 @@ impl Fold {
         by: &str,
     ) {
         let Some(a) = a else { return };
-        if !self.person_row(ev, by) {
+        let opener = !self.person_row(ev, by);
+        if opener && !(a.thread && self.agent_own_row(ev, by)) {
             return;
         }
         t.ask = Some(Ask {
             wake: a.wake,
             repo_key: ledger::canonical_repo_key(&a.repo_key),
-            owner: if !a.owner.is_empty() && self.same_person_dev(&a.owner, &ev.device_id) {
+            // An agent's thread is its own device's: that device writes its
+            // take rows, and no other device hands it out.
+            owner: if !opener
+                && !a.owner.is_empty()
+                && self.same_person_dev(&a.owner, &ev.device_id)
+            {
                 a.owner.clone()
             } else {
                 ev.device_id.clone()
+            },
+            opener: if opener {
+                by.to_string()
+            } else {
+                String::new()
             },
             since: t.created_at,
             // A board log carries mentions in board form only (cards #177,
@@ -429,6 +440,7 @@ impl Fold {
                 let t = &self.tasks[&p.task_id];
                 let ti = Touch::of(t);
                 let created_by = t.created_by.clone();
+                let opened = t.ask.as_ref().is_some_and(|a| !a.opener.is_empty());
                 let was_who = cmp_or_dev(&p.was, &was).to_string();
                 if !p.taker.is_empty() && p.taker != was && p.handed {
                     let what = format!("handed it to {}", p.taker);
@@ -445,15 +457,14 @@ impl Fold {
                     let what = format!("opened it again: {was_who} went away");
                     self.touch(ev, &ti, when, SWEEPER, &what, true, Vec::new());
                 } else if p.reason == TAKE_REOPENED {
-                    self.touch(
-                        ev,
-                        &ti,
-                        when,
-                        &created_by,
-                        "asked the room again",
-                        true,
-                        Vec::new(),
-                    );
+                    // An agent's thread goes out again on its person's
+                    // post, not the agent's (card #631).
+                    let (who, what) = if opened {
+                        (SWEEPER, "opened it again: the person wrote in it")
+                    } else {
+                        (created_by.as_str(), "asked the room again")
+                    };
+                    self.touch(ev, &ti, when, who, what, true, Vec::new());
                 } else if p.reason == TAKE_UNCLAIMED && p.taker.is_empty() && was.is_empty() {
                     self.touch(
                         ev,
@@ -984,6 +995,103 @@ impl Fold {
         Ok((t, n))
     }
 
+    /// An agent opens a thread itself (card #631): a conversation with the
+    /// person, in the private log or a shared board's. It holds it from the
+    /// start, on its own device, so Irori never hands it out or starts an
+    /// agent for it; the agents it names hear it, woken, as for the
+    /// person's thread. Once its person writes in it, it goes like their
+    /// own (card #512). Returns the notice for the agents it names, if any.
+    pub(crate) fn post_agent_thread(
+        &mut self,
+        by: &str,
+        input: NewAsk,
+    ) -> Result<(Task, Option<Notice>)> {
+        let (by, text) = super::comments::check_comment(by, &input.text, &[], false)?;
+        let mine = if self.on_board {
+            self.may_write(&by, &self.dev.clone())
+        } else {
+            owner::may_write(&by, &self.dev) && !owner::device_of(&by).is_empty()
+        };
+        if by == SWEEPER
+            || self.is_person(&by)
+            || super::threads::names_person(&by)
+            || by.starts_with("api:")
+            || !mine
+        {
+            return Err(not_allowed(
+                "only an agent on this device opens a thread here; the person starts theirs in the app",
+            ));
+        }
+        if !input.files.is_empty() {
+            return Err(invalid("a thread an agent opens carries no files"));
+        }
+        let mut given = input.mentions.clone();
+        if self.on_board {
+            given.retain(|m| super::mention::board_form(&m.key));
+        }
+        let mentions = self.check_mentions(&by, &given)?;
+        let repo_key = ledger::canonical_repo_key(&input.repo_key);
+        if !repo_key.is_empty() {
+            check_repo_key(&repo_key)?;
+        }
+        let at = self.stamp();
+        let id = new_id(&at);
+        let num = self.next_short("");
+        let side = self.new_side("", "");
+        self.write(
+            &by,
+            kinds::TASK_CREATED,
+            &TaskCreatedRow {
+                task_id: id.clone(),
+                num,
+                title: ask_title(&text),
+                objective: text.clone(),
+                repo_key: repo_key.clone(),
+                ask: Some(AskField {
+                    wake: true,
+                    repo_key,
+                    mentions: mentions.clone(),
+                    thread: true,
+                    board: if self.on_board {
+                        String::new()
+                    } else {
+                        input.board.trim().to_string()
+                    },
+                    owner: String::new(),
+                    channel: clean_channel(&input.channel),
+                }),
+                side,
+                by: by.clone(),
+                at,
+                ..TaskCreatedRow::default()
+            },
+        )?;
+        if !self.tasks[&id].ask.as_ref().is_some_and(|a| a.opener == by) {
+            return Err(not_allowed(
+                "the thread didn't open: Irori couldn't tell it was yours",
+            ));
+        }
+        let heard: Vec<String> = self
+            .thread_hearers(&text, &mentions)
+            .into_iter()
+            .filter(|k| *k != by)
+            .collect();
+        self.write_take(
+            &id,
+            TakeStateRow {
+                taker: by.clone(),
+                reason: TAKE_TAKEN.into(),
+                told: heard.len() as i64,
+                heard: heard.clone(),
+                since: at,
+                ..TakeStateRow::default()
+            },
+        )?;
+        let t = self.tasks[&id].clone();
+        let n = (!heard.is_empty()).then(|| super::threads::thread_notice(&t, &heard));
+        Ok((t, n))
+    }
+
     /// The files the person posted with ask `id` (the first comment
     /// post_ask writes), for a notice that hands it out later.
     pub(crate) fn ask_files(&self, id: &str) -> Vec<FileRef> {
@@ -1003,7 +1111,9 @@ impl Fold {
             .values()
             .filter(|t| t.id != id && !is_terminal(&t.state))
             .filter_map(|t| t.open_ask())
-            .filter(|a| !a.taker.is_empty())
+            // A thread an agent opened itself doesn't keep it from others
+            // (card #631).
+            .filter(|a| !a.taker.is_empty() && a.taker != a.opener)
             .map(|a| a.taker.clone())
             .collect();
         out.extend(self.offered_elsewhere(id));
@@ -1444,6 +1554,23 @@ impl Fold {
             .collect();
         let res = (|| -> Result<()> {
             for id in &ids {
+                // A thread an agent opened (card #631): never handed out
+                // while it rests, whatever happened to its opener.
+                let gone = |f: &Fold, k: &str| f.taker_gone(k, &in_roster, &now);
+                if let Some(ag) = self.agent_thread_sweep(id, &gone)? {
+                    again.insert(id.clone(), ag);
+                }
+                if self.agent_thread_rests(&self.tasks[id]) {
+                    again.remove(id);
+                    if self.tasks[id]
+                        .ask
+                        .as_ref()
+                        .is_some_and(|a| !a.taker.is_empty())
+                    {
+                        self.thread_sweep(id)?;
+                    }
+                    continue;
+                }
                 if self.thread_sweep(id)? {
                     continue;
                 }
@@ -1828,7 +1955,7 @@ impl Fold {
         };
         let person = self.is_owner(&by);
         // On a board, a thread is the member's who started it (card #134).
-        if a.thread && (!person || (self.on_board && t.created_by != by)) {
+        if a.thread && (!person || (self.on_board && !self.started_by(&t, &a, &by))) {
             return Err(not_allowed(format!(
                 "{} is the person's thread: they resolve it",
                 t.short_ref()

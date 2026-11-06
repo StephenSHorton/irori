@@ -738,7 +738,12 @@ impl Fold {
             // A request that didn't count was the person's Start, which
             // holds through a retry; a crash they answered is theirs too.
             Some(s) => s.counted && t.person_restart != s.generation,
-            None => self.spawned.get(&t.created_by).is_some_and(|m| m.counted),
+            // An agent's own thread starts one only on its person's post
+            // (card #631), so its opener's mark doesn't carry.
+            None => {
+                t.ask.as_ref().is_none_or(|a| a.opener.is_empty())
+                    && self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
+            }
         }
     }
 
@@ -1304,6 +1309,7 @@ impl Fold {
                     && a.reason != super::threads::TAKE_ANSWERED
                     && (a.thread || a.mentions.is_empty())
                     && (!a.thread || a.wake)
+                    && !self.agent_thread_rests(t)
             }
             None => super::offers::needs_agent(t) || self.needs_lead(t),
         }
@@ -1404,6 +1410,9 @@ impl Fold {
     pub(crate) fn queue_class(&self, t: &Task) -> u8 {
         if self.spawn_now.contains(&t.id)
             || (t.parent.is_empty() && self.is_owner(&t.created_by) && !self.in_chain(t))
+            // An agent's thread its person wrote in is theirs (card #631).
+            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty())
+                && !self.agent_thread_rests(t))
         {
             0
         } else if t.spawn && !t.parent.is_empty() {

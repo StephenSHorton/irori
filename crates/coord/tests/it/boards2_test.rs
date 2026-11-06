@@ -2500,41 +2500,18 @@ fn board_note(text: &str) -> NewNote {
     }
 }
 
+/// Board logs still take note rows (card #616: an older device can write
+/// them, and Irori no longer reads them), and fold them like the private
+/// log's: live at once, on every member's device.
 #[test]
-fn a_board_note_any_member_accepts_reaches_every_members_agents() {
+fn a_board_note_row_syncs_to_every_member() {
     let (a, b, _) = two_people();
     let n =
         a.c.propose_note(CARD1, board_note("MLG models ship to the repo, not zips."))
             .unwrap();
     sync(&a, &b);
-    let cx = NoteContext {
-        repo_key: REPO_A.into(),
-        ..NoteContext::default()
-    };
     for s in [&a, &b] {
-        assert_eq!(s.c.note_by_id(&n.id).unwrap().state, NOTE_PROPOSED);
-        assert!(
-            s.c.notes_for(&cx).is_empty(),
-            "a proposed note reaches no agent"
-        );
-    }
-    // p2's device can't accept as p1: the forged row is ignored.
-    let _ = b.c.accept_note(P1, &n.id);
-    sync(&a, &b);
-    assert_eq!(a.c.note_by_id(&n.id).unwrap().state, NOTE_PROPOSED);
-    // An agent never accepts.
-    let e = b.c.accept_note(CARD2, &n.id).unwrap_err();
-    assert!(e.is(ErrorKind::NotAllowed), "{e}");
-    // The other person accepts it: live for both people's agents.
-    b.c.accept_note(P2, &n.id).unwrap();
-    sync(&a, &b);
-    for s in [&a, &b] {
-        let n2 = s.c.note_by_id(&n.id).unwrap();
-        assert_eq!(
-            (n2.state.as_str(), n2.accepted_by.as_str()),
-            (NOTE_ACCEPTED, P2)
-        );
-        assert_eq!(s.c.notes_for(&cx).len(), 1);
+        assert_eq!(s.c.note_by_id(&n.id).unwrap().state, NOTE_ACCEPTED);
     }
     // Either member removes it.
     a.c.remove_note(P1, &n.id, "done with zips").unwrap();
@@ -3049,6 +3026,98 @@ fn a_board_thread_spawns_on_the_posters_device_at_once() {
         "{:?}",
         a.c.get_task(&off.id).unwrap().ask
     );
+}
+
+/// Card #631: p1's agent opens a thread in the space's log. It holds it on
+/// both sides, nothing hands it out or starts an agent for it on either
+/// device, even after it gives it back and p2 writes in it; p1's own post
+/// lists it on p1's device only, and p1 resolves it.
+#[test]
+fn an_agents_board_thread_waits_for_its_own_person() {
+    let (a, b, owners) = two_people();
+    let on = || Options {
+        spawning: Some(Arc::new(|| true)),
+        ..Options::default()
+    };
+    let a = side_reopen_with(a, P1, &owners, on());
+    let b = side_reopen_with(b, P2, &owners, on());
+    let (tk, _) =
+        a.c.post_agent_thread(
+            CARD1,
+            NewAsk {
+                text: "The deploy needs a key only you have. Can you add it?".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+        )
+        .unwrap();
+    // p2's agent can't open one from p1's device.
+    want_err(
+        a.c.post_agent_thread(
+            CARD2,
+            NewAsk {
+                text: "Not mine to write".into(),
+                thread: true,
+                ..NewAsk::default()
+            },
+        ),
+        ErrorKind::NotAllowed,
+    );
+    sync(&a, &b);
+    let quiet = |why: &str| {
+        a.c.sweep_asks(&[]).unwrap();
+        b.c.sweep_asks(&[]).unwrap();
+        sync(&a, &b);
+        for s in [&a, &b] {
+            assert!(s.c.cards_to_spawn().is_empty(), "{why}");
+            let t = s.c.get_task(&tk.id).unwrap();
+            assert!(!s.c.waits_for_agent(&t), "{why}");
+        }
+        assert_eq!(
+            a.c.request_spawn("irori", spawn_ask(&tk.id, "dev-a")).ok(),
+            Some(None),
+            "{why}"
+        );
+    };
+    for s in [&a, &b] {
+        let ask = s.c.get_task(&tk.id).unwrap().ask.unwrap();
+        assert!(ask.opener == CARD1 && ask.taker == CARD1, "{ask:?}");
+    }
+    quiet("held by its opener");
+    a.c.leave(CARD1, &tk.id, CARD1).unwrap();
+    quiet("given back");
+    let ask = a.c.get_task(&tk.id).unwrap().ask.unwrap();
+    assert!(
+        ask.taker.is_empty() && ask.reason == TAKE_ANSWERED,
+        "{ask:?}"
+    );
+    // Another member's words never start p1's agent.
+    b.c.person_comment(P2, &tk.id, "I can add it too.", true, &[], None)
+        .unwrap();
+    sync(&a, &b);
+    quiet("p2 wrote");
+    // p1 writes: while its opener is live, the post goes to it.
+    let (_, ns) =
+        a.c.person_comment(P1, &tk.id, "Done, it's in.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter().any(|n| n.to.contains(&CARD1.to_string())),
+        "{ns:?}"
+    );
+    // Its opener is live (this rig has no presence to lose it): it answers,
+    // and no other agent starts on either device.
+    quiet("p1 wrote, its opener live");
+    // p1 resolves the thread their agent opened; p2 can't.
+    want_err(b.c.resolve_thread(P2, &tk.id), ErrorKind::NotAllowed);
+    a.c.resolve_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    // And reopens it: open again on both sides, as a thread.
+    a.c.reopen_thread(P1, &tk.id).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let t = s.c.get_task(&tk.id).unwrap();
+        assert!(t.open_ask().is_some_and(|a| a.thread), "{t:?}");
+    }
 }
 
 /// Card #477 (docs/design/work-personal-separation.md §3): on one space,

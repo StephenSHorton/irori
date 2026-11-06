@@ -82,7 +82,6 @@ export function AppSidebar({
   desks = { on: 0, needYou: 0 },
   unread = 0,
   section,
-  notesWaiting = 0,
   boardsNeedYou,
   boards,
   cards,
@@ -106,9 +105,6 @@ export function AppSidebar({
   unread?: number
   // Where the window is; null on a card's page.
   section: Section | null
-  // Notes agents proposed (or changes to live ones) waiting on the
-  // person's look (card #413), the amber count by Notes.
-  notesWaiting?: number
   // Cards on boards waiting on the person, the red count by Boards.
   boardsNeedYou: number
   boards: BoardSummary[]
@@ -413,10 +409,7 @@ export function AppSidebar({
             label="Notes"
             folded={folded}
             current={!openCard && section?.kind === "notes"}
-            count={notesWaiting}
-            countTone="warning"
-            countTitle="Notes agents proposed, waiting on your look"
-            onClick={() => go({ kind: "notes", tab: "" })}
+            onClick={() => go({ kind: "notes" })}
           />
           <NavItem
             icon={LayoutGridIcon}

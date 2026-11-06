@@ -111,6 +111,9 @@ impl Fold {
             && a.unclaimed
             && (a.thread || a.mentions.is_empty())
             && (!a.thread || a.wake)
+            // An agent's own thread its person hasn't written in (card
+            // #631): another agent's words never start one.
+            && !self.agent_thread_rests(t)
     }
 }
 

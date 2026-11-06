@@ -101,9 +101,9 @@ pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
 pub use mirror::RELEASE_REQUEST;
 pub use notes::{
-    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_PROPOSED, NOTE_REMOVED,
-    NOTES_PER_WAKE, NewNote, Note, NoteChange, NoteContext, NoteEdit, NoteEvent, NoteMatch,
-    TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE, TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
+    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_REMOVED, NOTES_PER_WAKE, NewNote,
+    Note, NoteContext, NoteEdit, NoteEvent, NoteMatch, TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE,
+    TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
@@ -599,26 +599,6 @@ impl Coord {
     /// lock (card #561): the outer `None` means the log is busy.
     pub fn try_get_task(&self, id: &str) -> Option<Option<Task>> {
         self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
-    }
-
-    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
-    /// lock (card #561): `None` when the log is busy. With the matches, the
-    /// keys among their writers and accepters that are this log's person
-    /// ([`Coord::is_person`]), so telling them apart needs no second read.
-    pub fn try_notes_for(
-        &self,
-        cx: &NoteContext,
-    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
-        self.try_read(|f| {
-            let notes = f.notes_for(cx);
-            let people = notes
-                .iter()
-                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
-                .filter(|k| f.is_owner(k))
-                .cloned()
-                .collect();
-            (notes, people)
-        })
     }
 
     /// Holds this log's lock until the guard drops, so a test can show a
@@ -1328,23 +1308,15 @@ impl Coord {
     }
     // ---- notes (card #401) ----
 
-    /// Writes a new note. A person's is accepted at once; an agent's waits
-    /// for a person's accept.
+    /// Writes a new note, live at once whoever writes it (card #616).
     pub fn propose_note(&self, by: &str, n: NewNote) -> Result<Note> {
         self.lock().propose_note(by, n)
     }
-    /// A person accepts a proposed note, or an agent's pending edit or
-    /// removal of one.
-    pub fn accept_note(&self, by: &str, id: &str) -> Result<Note> {
-        self.lock().accept_note(by, id)
-    }
-    /// Edits a note: a person's applies at once, an agent's on a live note
-    /// waits for an accept.
+    /// Edits a note, at once whoever edits it (card #616).
     pub fn edit_note(&self, by: &str, id: &str, e: NoteEdit, why: &str) -> Result<Note> {
         self.lock().edit_note(by, id, e, why)
     }
-    /// Removes a note: a person's removes it, an agent's on a live note
-    /// waits for an accept.
+    /// Removes a note, at once whoever removes it (card #616).
     pub fn remove_note(&self, by: &str, id: &str, why: &str) -> Result<Note> {
         self.lock().remove_note(by, id, why)
     }
@@ -1442,6 +1414,19 @@ impl Coord {
         agents: &[AgentCard],
     ) -> Result<(Task, Notice)> {
         self.lock().post_ask(by, input, agents)
+    }
+
+    /// An agent opens a thread it holds itself (card #631): never handed
+    /// out, and no agent is started for it until its person writes in it.
+    /// The notice is for the agents it names, if any.
+    pub fn post_agent_thread(&self, by: &str, input: NewAsk) -> Result<(Task, Option<Notice>)> {
+        self.lock().post_agent_thread(by, input)
+    }
+
+    /// Whether t is an agent's thread its person hasn't written in yet
+    /// (card #631): it waits on them, and no agent is started for it.
+    pub fn agent_thread_rests(&self, t: &Task) -> bool {
+        self.lock().agent_thread_rests(t)
     }
     /// Asks for an ask's take and waits up to `wait` for the owner's answer.
     pub fn ask_claim(&self, by: &str, id: &str, wait: Duration) -> Result<ClaimResult> {
