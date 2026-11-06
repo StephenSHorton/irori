@@ -21,7 +21,7 @@ pub use encode::{append_string, format_f32, format_f64, quote_string};
 pub use lenient::{Out, Schema, unmarshal, unmarshal_value};
 pub use marshal::{Options, RawJson, encode_line, marshal, marshal_indent, marshal_with};
 pub use scanner::{MAX_NESTING_DEPTH, check_valid, compact, indent, valid};
-pub use value::{JsonStr, Value, parse};
+pub use value::{JsonStr, Value, encode, parse, rewrite_indented};
 
 /// Errors, with Go's message texts where Go has one.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

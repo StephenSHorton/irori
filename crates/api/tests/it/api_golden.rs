@@ -28,6 +28,14 @@ const HEADERS: [&str; 5] = [
 /// Services this build has; a step needing another is skipped.
 const HAVE: [&str; 1] = ["tools"];
 
+/// Steps whose body is this build's tool text: IRORI_BLESS=1 rewrites
+/// them in go.json when that is all that differs (architecture.md §6.2).
+const BLESS: [&str; 1] = ["tools-grok"];
+
+fn bless() -> bool {
+    std::env::var_os("IRORI_BLESS").is_some_and(|v| v == "1")
+}
+
 fn golden_dir() -> std::path::PathBuf {
     manifest_dir().join("../../testdata/golden/api")
 }
@@ -460,7 +468,8 @@ fn api_replays_equal_to_go() {
     let (mut gm, mut rm) = (Masker::new(), Masker::new());
     let mut diffs = Vec::new();
     let mut skipped = Vec::new();
-    for (step, g) in steps.iter().zip(&go) {
+    let mut blessed: HashMap<usize, String> = HashMap::new();
+    for (i, (step, g)) in steps.iter().zip(&go).enumerate() {
         let id = step["id"].as_str().unwrap();
         assert_eq!(id, g.id, "go.json is stale: re-run export.sh");
         let needs = step["needs"].as_str().unwrap_or("");
@@ -484,8 +493,25 @@ fn api_replays_equal_to_go() {
             rw.body = rw.body.map(|b| drop_keys(&b, &keys));
         }
         if gw != rw {
+            if bless() && BLESS.contains(&id) && (gw.status, &gw.headers) == (rw.status, &rw.headers)
+            {
+                blessed.insert(i, r.body.clone().unwrap_or_default());
+                continue;
+            }
             diffs.push(format!("step {id}:\n  go:   {gw:?}\n  rust: {rw:?}"));
         }
+    }
+    if !blessed.is_empty() {
+        gocompat::json::rewrite_indented(&dir.join("go.json"), |v| {
+            let Some(gocompat::json::Value::Array(steps)) = v.get_mut("steps") else {
+                panic!("go.json: no steps")
+            };
+            for (i, body) in &blessed {
+                *steps[*i].get_mut("body").expect("body") = gocompat::json::Value::string(body);
+            }
+        })
+        .unwrap();
+        eprintln!("api golden: blessed {} step(s) in go.json", blessed.len());
     }
     eprintln!(
         "api golden: {} steps, {} skipped: {}",

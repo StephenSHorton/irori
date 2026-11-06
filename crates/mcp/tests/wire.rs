@@ -21,10 +21,21 @@ fn canon(s: &str) -> String {
     String::from_utf8(gocompat::json::canonical_raw(s.as_bytes()).unwrap()).unwrap()
 }
 
-/// Replays one Go run against `w`.
-fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>) {
+/// IRORI_BLESS=1: rewrite what this build's tool text changes in wire.json
+/// (tools/list answers, the fallback list, the instructions) instead of
+/// failing on it (architecture.md §6.2).
+fn bless() -> bool {
+    std::env::var_os("IRORI_BLESS").is_some_and(|v| v == "1")
+}
+
+/// A recv line to rewrite: (step, line, new line).
+type Fix = (usize, usize, String);
+
+/// Replays one Go run against `w`. Blessing, a differing answer to
+/// tools/list goes in `fixes` instead of failing.
+fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>, fixes: &mut Vec<Fix>) {
     let name = run["name"].as_str().unwrap();
-    for st in run["steps"].as_array().unwrap() {
+    for (si, st) in run["steps"].as_array().unwrap().iter().enumerate() {
         let want: Vec<&str> = st["recv"]
             .as_array()
             .map(|a| a.iter().map(|v| v.as_str().unwrap()).collect())
@@ -34,8 +45,15 @@ fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>) {
         } else {
             w.send(st["send"].as_str().unwrap());
         }
-        for line in want {
+        let tools_list = st["send"]
+            .as_str()
+            .is_some_and(|s| s.contains(r#""method":"tools/list""#));
+        for (li, line) in want.into_iter().enumerate() {
             let got = w.recv();
+            if canon(&got) != canon(line) && bless() && tools_list {
+                fixes.push((si, li, got));
+                continue;
+            }
             assert_eq!(canon(&got), canon(line), "{name}: answer to {}", st["send"]);
         }
         if st["recv"].as_array().is_none_or(|a| a.is_empty()) {
@@ -50,10 +68,45 @@ fn replay(w: &Wire, run: &Value, core: Option<&FakeCore>) {
     }
 }
 
+/// The fallback list as wire.json holds it: Go's `json.Marshal` of it.
+fn our_fallback() -> String {
+    String::from_utf8(gocompat::json::marshal(&tools::fallback_specs()).unwrap()).unwrap()
+}
+
+/// Writes `fixes` (per run) and this build's fallback list and instructions
+/// into wire.json.
+fn bless_wire(fixes: &[(usize, Fix)]) {
+    use gocompat::json::Value as G;
+    let p = manifest_dir().join("../../testdata/golden/mcp/wire.json");
+    let fallback = gocompat::json::parse(our_fallback().as_bytes()).unwrap();
+    let changed = gocompat::json::rewrite_indented(&p, |v| {
+        *v.get_mut("fallback").expect("fallback") = fallback;
+        *v.get_mut("instructions").expect("instructions") = G::string(&mcp::instructions());
+        let Some(G::Array(runs)) = v.get_mut("runs") else {
+            panic!("wire.json: no runs")
+        };
+        for (ri, (si, li, line)) in fixes {
+            let Some(G::Array(steps)) = runs[*ri].get_mut("steps") else {
+                panic!("wire.json: run {ri} has no steps")
+            };
+            let Some(G::Array(recv)) = steps[*si].get_mut("recv") else {
+                panic!("wire.json: run {ri} step {si} has no recv")
+            };
+            recv[*li] = G::string(line);
+        }
+    })
+    .unwrap();
+    if changed {
+        eprintln!("wire golden: blessed wire.json ({} answer(s))", fixes.len());
+    }
+}
+
 #[test]
 fn wire_matches_go() {
     let g = golden();
-    for run in g["runs"].as_array().unwrap() {
+    let mut fixes: Vec<(usize, Fix)> = Vec::new();
+    for (ri, run) in g["runs"].as_array().unwrap().iter().enumerate() {
+        let mut run_fixes = Vec::new();
         let name = run["name"].as_str().unwrap();
         match name {
             // Decision (lib.rs): server/discover is "method not found", so
@@ -72,7 +125,7 @@ fn wire_matches_go() {
                 let mut o = quick(Some(f.dial()));
                 o.version = "test".into();
                 let w = Wire::start(o);
-                replay(&w, run, Some(&f));
+                replay(&w, run, Some(&f), &mut run_fixes);
                 let (calls, joins) = f.snapshot();
                 assert_eq!(joins, vec![("grok bot".to_string(), "conv-42".to_string())]);
                 let bodies: Vec<_> = calls
@@ -89,19 +142,24 @@ fn wire_matches_go() {
             }
             _ => {
                 let w = Wire::start(quick(None));
-                replay(&w, run, None);
+                replay(&w, run, None, &mut run_fixes);
             }
         }
+        fixes.extend(run_fixes.into_iter().map(|f| (ri, f)));
     }
+    let g = if bless() {
+        bless_wire(&fixes);
+        golden()
+    } else {
+        g
+    };
     assert_eq!(g["instructions"].as_str().unwrap(), mcp::instructions());
     assert_eq!(g["texts"]["notRunning"], mcp::NOT_RUNNING_TEXT);
     assert_eq!(g["texts"]["joinFirst"], mcp::JOIN_FIRST_TEXT);
     assert_eq!(g["texts"]["superseded"], mcp::SUPERSEDED_TEXT);
     // The embedded fallback equals Go's fallback_tools.json.
     let fb = serde_json::to_string(&g["fallback"]).unwrap();
-    let ours =
-        String::from_utf8(gocompat::json::marshal(&tools::fallback_specs()).unwrap()).unwrap();
-    assert_eq!(canon(&ours), canon(&fb));
+    assert_eq!(canon(&our_fallback()), canon(&fb));
 }
 
 fn push(w: &Wire) -> Value {

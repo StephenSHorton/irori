@@ -218,11 +218,38 @@ fn budget_texts_match_go() {
     check("budget");
 }
 
+/// IRORI_BLESS=1: rewrite the parts of the goldens this build's tool text
+/// changes, instead of failing on them (architecture.md §6.2).
+fn bless() -> bool {
+    std::env::var_os("IRORI_BLESS").is_some_and(|v| v == "1")
+}
+
 #[test]
 fn specs_and_instructions_match_go() {
-    let want = golden("specs.json");
     let h = new_harness();
-    for client in ["", "claude", "grok", "other"] {
+    const CLIENTS: [&str; 4] = ["", "claude", "grok", "other"];
+    if bless() {
+        // Go wrote this file with HTML escaping off.
+        let s = |t: &str| gocompat::json::Value::string_with(t, false);
+        let p = manifest_dir().join("../../testdata/golden/tools/specs.json");
+        gocompat::json::rewrite_indented(&p, |v| {
+            let specs = v.get_mut("specs").expect("specs");
+            for client in CLIENTS {
+                let got = String::from_utf8(h.set.specs_json(client)).unwrap();
+                *specs.get_mut(client).expect("client") = s(&got);
+            }
+            for (k, text) in [
+                ("instructions", tools::INSTRUCTIONS),
+                ("boardInstructions", tools::BOARD_INSTRUCTIONS),
+                ("askInstructions", tools::ASK_INSTRUCTIONS),
+            ] {
+                *v.get_mut(k).expect(k) = s(text);
+            }
+        })
+        .unwrap();
+    }
+    let want = golden("specs.json");
+    for client in CLIENTS {
         let got = String::from_utf8(h.set.specs_json(client)).unwrap();
         assert_eq!(
             got,
