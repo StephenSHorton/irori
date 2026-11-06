@@ -59,7 +59,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     hosted.close()
 }
 
-/// Ctrl+C, or on Unix a SIGTERM (a service manager's stop).
+/// Ctrl+C, on Unix a SIGTERM (a service manager's stop), on Windows the
+/// console closing, a logoff or a shutdown (card #580). Tokio holds the
+/// Windows handler until the process exits, so the sync out still runs.
 async fn stopped() {
     #[cfg(unix)]
     {
@@ -68,6 +70,21 @@ async fn stopped() {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {}
                 _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows::{ctrl_close, ctrl_logoff, ctrl_shutdown};
+        if let (Ok(mut close), Ok(mut logoff), Ok(mut shutdown)) =
+            (ctrl_close(), ctrl_logoff(), ctrl_shutdown())
+        {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = close.recv() => {}
+                _ = logoff.recv() => {}
+                _ = shutdown.recv() => {}
             }
             return;
         }

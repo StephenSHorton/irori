@@ -16,6 +16,13 @@ use crate::logf;
 /// How often [`Core::sync_out`] looks again.
 const POLL: Duration = Duration::from_millis(50);
 
+/// How long one of the person's own devices up on the private mesh counts
+/// as reachable for a board with no board connection to it yet (card
+/// #580): about the time a board dial to it takes. A device that never
+/// brings the board up (not open there, an older build) costs this, not
+/// the whole deadline.
+const DIAL_GRACE: Duration = Duration::from_secs(2);
+
 /// One log's part of a [`SyncOutReport`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncOutLog {
@@ -98,23 +105,30 @@ impl Services {
     }
 
     /// Marks each target another device now holds; true while a target
-    /// not yet held has a device connected that could take it.
-    fn sync_check(&self, logs: &mut [SyncOutLog]) -> bool {
+    /// not yet held has a device connected that could take it. `elapsed`
+    /// is the time since the sync began.
+    fn sync_check(&self, logs: &mut [SyncOutLog], elapsed: Duration) -> bool {
         let mut reachable = false;
         for l in logs.iter_mut().filter(|l| l.taken_by.is_none()) {
             if l.log == PERSONAL {
                 let node = &self.mesh.node;
                 l.taken_by = node.taken_by(l.seq);
-                reachable |= l.taken_by.is_none() && node.any_connected();
+                // Not while this device's own stream is stopped (a fork):
+                // its rows are withheld, so no device will ever hold them.
+                reachable |= l.taken_by.is_none()
+                    && node.any_connected()
+                    && node.stopped_reason(&self.device.id).is_none();
             } else if let Some(m) = self.mesh.board(&l.log) {
                 l.taken_by = m.taken_by(l.seq);
-                // A board connection, or one of the person's own member
-                // devices up on the private mesh, so a dial will reach it.
+                // A board connection, or, for [`DIAL_GRACE`], one of the
+                // person's own member devices up on the private mesh, so a
+                // dial will reach it.
                 reachable |= l.taken_by.is_none()
                     && (!m.peers().is_empty()
-                        || m.member_devices()
-                            .iter()
-                            .any(|d| self.mesh.node.reaches(&d.device_id)));
+                        || (elapsed < DIAL_GRACE
+                            && m.member_devices()
+                                .iter()
+                                .any(|d| self.mesh.node.reaches(&d.device_id))));
             }
         }
         reachable
@@ -133,13 +147,13 @@ impl Core {
         let start = Instant::now();
         let s = &self.s;
         let mut logs = s.sync_targets();
-        let mut reachable = s.sync_check(&mut logs);
+        let mut reachable = s.sync_check(&mut logs, start.elapsed());
         if reachable {
             self.kick_sync();
         }
         while reachable && start.elapsed() < deadline {
             std::thread::sleep(POLL.min(deadline.saturating_sub(start.elapsed())));
-            reachable = s.sync_check(&mut logs);
+            reachable = s.sync_check(&mut logs, start.elapsed());
         }
         let r = SyncOutReport {
             logs,
