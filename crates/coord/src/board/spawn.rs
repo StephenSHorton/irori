@@ -16,7 +16,7 @@ use gocompat::time::GoTime;
 use irori_identity::owner;
 use store::{Event, kinds};
 
-use super::error::{Result, bad_state};
+use super::error::{Result, bad_state, not_allowed};
 use super::fold::Fold;
 use super::rows::*;
 use super::types::*;
@@ -795,18 +795,33 @@ impl Fold {
 
     /// The person a `task.assigned` row gives a card to: a `person:` key,
     /// another person's, written from a device of the person it names as
-    /// the giver.
+    /// the giver, who made or owns the card. Nobody gives away a card that
+    /// isn't theirs, nor gives one that isn't given to the person who
+    /// serves it already; giving it again starts its question over.
     pub(crate) fn gave_to_person(&self, ev: &Event, p: &TaskAssignedRow) -> Option<String> {
         let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
             return None;
         };
+        let t = self.tasks.get(&p.task_id)?;
         let (to, by) = (kp(&p.to), kp(&p.by));
         (p.to.starts_with(kinds::PERSON_ACTOR_PREFIX)
             && !to.is_empty()
             && !by.is_empty()
             && to != by
-            && by == dp(&ev.device_id))
-        .then_some(to)
+            && by == dp(&ev.device_id)
+            && self.may_give(t, &by)
+            && (t.given.is_some() || self.serving_person(t) != to))
+            .then_some(to)
+    }
+
+    /// The persons whose card t is: who made it and who owns it.
+    fn card_persons(&self, t: &Task) -> [String; 2] {
+        [self.person_of(&t.created_by), self.owner_person(t)]
+    }
+
+    /// Whether `person` may give card t to someone: it is theirs.
+    pub(crate) fn may_give(&self, t: &Task, person: &str) -> bool {
+        !person.is_empty() && self.card_persons(t).iter().any(|p| p == person)
     }
 
     /// Whether a `task.assigned` row is the card's author taking it back:
@@ -825,13 +840,18 @@ impl Fold {
             })
     }
 
-    /// Whether someone other than card `id`'s given person wrote `by`'s
-    /// change to what its agent's brief says.
-    pub(crate) fn edited_by_another(&self, id: &str, by: &str) -> bool {
+    /// Whether someone other than card `id`'s given person wrote ev, a
+    /// change to what its agent's brief says. Decided by the device that
+    /// wrote it as well as the `by` it claims: a row anyone can write
+    /// names whoever its writer likes.
+    pub(crate) fn edited_by_another(&self, ev: &Event, id: &str, by: &str) -> bool {
         let Some(g) = self.tasks.get(id).and_then(|t| t.given.as_ref()) else {
             return false;
         };
-        self.key_person.as_ref().is_none_or(|kp| kp(by) != g.person)
+        let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+            return true;
+        };
+        kp(by) != g.person || dp(&ev.device_id) != g.person
     }
 
     /// Whether an assignment to `to`, already on card t, is someone else
@@ -854,6 +874,18 @@ impl Fold {
             || self.person_of(by) == self.person_of(to)
         {
             return Ok(());
+        }
+        if !self.may_give(t, &self.person_of(by)) {
+            return Err(not_allowed(format!(
+                "{} isn't yours to give: only the person who made or owns it gives it to someone",
+                t.short_ref()
+            )));
+        }
+        if t.given.is_none() && self.serving_person(t) == self.person_of(to) {
+            return Err(bad_state(format!(
+                "{} is already theirs: assign it to one of their agents instead",
+                t.short_ref()
+            )));
         }
         if !t.subtasks.is_empty() {
             return Err(bad_state(format!(
@@ -905,8 +937,8 @@ impl Fold {
     /// Notes the given person raising the question on card t, as
     /// themselves from their own device: no agent's or other member's row
     /// makes a question their yes can stand on. True when it is a second
-    /// row for the question the card already has: it changes nothing, but
-    /// until they've answered the lowest device of the two acts.
+    /// row for the question the card already has: it changes nothing, and
+    /// the lowest device of the two acts.
     pub(crate) fn given_raised(&self, t: &mut Task, p: &TaskStateRow, ev: &Event) -> bool {
         let Some(br) = p.blocker.as_ref().filter(|b| b.question == GIVEN_QUESTION) else {
             return false;
@@ -915,13 +947,15 @@ impl Fold {
         if !mine || !self.person_row(ev, &p.by) {
             return false;
         }
-        let said = t.given_said.is_some();
         let known = t.blockers.iter().any(|b| b.id == br.id);
         let Some(g) = t.given.as_mut() else {
             return false;
         };
+        // The lowest device that raised it asks, whatever has been said:
+        // every device works that out the same from the same rows, so one
+        // yes can't have two askers.
         if known {
-            if !said && ev.device_id < g.asker {
+            if ev.device_id < g.asker {
                 g.asker = ev.device_id.clone();
             }
             return true;
@@ -932,23 +966,33 @@ impl Fold {
         false
     }
 
-    /// Whether a row of the person a card was given to waits for the give
-    /// that lets it in: rows come device by device, so theirs can arrive
-    /// before the giver's. Their spawn rows, the bind's assignment, and the
-    /// question and its answer.
+    /// Whether ev waits beside the row that lets it in: rows come device
+    /// by device, and a store batch holds one device's rows ahead of
+    /// another's. Every row of a card that isn't folded yet waits for it,
+    /// so they all fold in the order they came. On a card never given,
+    /// the given person's rows wait for the give: their spawn rows, the
+    /// bind's assignment, the question and an answer on a blocker not
+    /// raised yet. Once a card has been given or taken back, nothing
+    /// waits: rows from someone who no longer serves it are ignored, not
+    /// kept for a later give.
     pub(crate) fn ahead_of_give(&self, ev: &Event) -> bool {
-        if !self.on_board {
+        if !self.on_board || ev.kind == kinds::TASK_CREATED {
+            return false;
+        }
+        let Some(id) = row::<TaskIdRow>(&ev.payload).filter(|p| !p.task_id.is_empty()) else {
+            return false;
+        };
+        let Some(t) = self.tasks.get(&id.task_id) else {
+            return !self.deleted.contains(&id.task_id);
+        };
+        if t.given.is_some() || self.given_ever.contains(&t.id) {
             return false;
         }
         let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
             return false;
         };
-        let Some(id) = row::<TaskIdRow>(&ev.payload) else {
-            return false;
-        };
-        // The card itself can be behind them: it came from the giver's device.
-        let t = self.tasks.get(&id.task_id);
-        if t.is_some_and(|t| t.given.is_some() || kp(&t.created_by) == dp(&ev.device_id)) {
+        let writer = dp(&ev.device_id);
+        if writer.is_empty() || kp(&t.created_by) == writer {
             return false;
         }
         match ev.kind.as_str() {
@@ -956,11 +1000,33 @@ impl Fold {
             kinds::TASK_ASSIGNED => ev.actor == SWEEPER,
             kinds::TASK_STATUS => row::<TaskStateRow>(&ev.payload)
                 .is_some_and(|p| p.blocker.is_some_and(|b| b.question == GIVEN_QUESTION)),
+            // Only a blocker not raised yet: one already trimmed folds as
+            // nothing, as it always has.
             kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload).is_some_and(|p| {
-                t.is_none_or(|t| !t.blockers.iter().any(|b| b.id == p.blocker_id))
+                !t.blockers.iter().any(|b| b.id == p.blocker_id)
+                    && super::cards::seq_of(&p.blocker_id, "b")
+                        > self.blocker_seq.get(&t.id).copied().unwrap_or(0)
             }),
             _ => false,
         }
+    }
+
+    /// Whether ev waits behind an earlier row of its device about the same
+    /// card that waits for the give: one device's rows keep their order,
+    /// so an agent's leave can't fold before the bind that put it on.
+    pub(crate) fn behind_held(&self, ev: &Event, earlier: &[Event]) -> bool {
+        // The card's own row is what the others wait for.
+        if !self.on_board || ev.kind == kinds::TASK_CREATED {
+            return false;
+        }
+        let Some(id) = row::<TaskIdRow>(&ev.payload).filter(|p| !p.task_id.is_empty()) else {
+            return false;
+        };
+        earlier.iter().any(|a| {
+            a.device_id == ev.device_id
+                && row::<TaskIdRow>(&a.payload).is_some_and(|p| p.task_id == id.task_id)
+                && self.ahead_of_give(a)
+        })
     }
 
     /// Whether card t, given to someone, is free for an agent: only people

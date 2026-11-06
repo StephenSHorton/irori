@@ -774,7 +774,16 @@ pub(crate) fn build_brief(
     }
     let hand = t.handover_lines();
     if !hand.trim().is_empty() {
-        fence(&mut b, "Where the work is", "irori", hand.trim());
+        // Irori's lines, unless another member wrote them (card #573).
+        let by = [
+            t.left_off.as_ref().map(|l| l.by.as_str()),
+            t.where_.as_ref().map(|w| w.who.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|k| others(k).is_some())
+        .unwrap_or("irori");
+        fence(&mut b, "Where the work is", by, hand.trim());
     }
     if !more.parts.is_empty() {
         b.push_str(&format!(
@@ -1747,7 +1756,19 @@ impl Services {
             }
             None => self.checkout_here(&repo_key),
         };
-        let comments = log.co.comments(&t.id).unwrap_or_default();
+        // A line goes in the brief as whoever's device wrote it (#573).
+        let comments: Vec<coord::Comment> = log
+            .co
+            .comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut c| {
+                if let Some(k) = log.co.written_as(&c.by, &c.device) {
+                    c.by = k;
+                }
+                c
+            })
+            .collect();
         let named = |k: &str| (log.named)(k);
         // The person's words: kept here, or carried on the request from
         // the card's own device (card #455), or their answer on the card.
@@ -2666,19 +2687,14 @@ impl Services {
     /// Board if nobody holds it, and the next sweep starts its agent. His
     /// ask ends a usage hold here (card #576).
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
-        // A card given to them, after their Not now (card #573), else a
-        // board card of their own (card #576).
-        if self.coord.get_task(id).is_none() {
+        let Some(t) = self.coord.get_task(id) else {
+            // A card given to them, after their Not now (card #573).
             if self.ask_given_again(id)? {
                 self.asks_kick.kick();
                 return Ok(());
             }
             return self.start_board_agent(id);
-        }
-        let t = self
-            .coord
-            .get_task(id)
-            .ok_or_else(|| format!("no card {id}"))?;
+        };
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }

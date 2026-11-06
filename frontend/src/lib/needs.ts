@@ -313,9 +313,9 @@ export function waitsOnTrust(c: CardSummary): boolean {
 // #456, sa-7). They must match the Rust constants word for word:
 // WAITING_PERMISSION in crates/core/src/service/spawn_waiting.rs (the
 // blocker reads "Waiting for your permission: <name> is stopped on a
-// prompt"), and CRASHED_QUESTION and GIVEN_QUESTION in
-// crates/coord/src/board/spawn.rs. The crash question's number follows the
-// crash limit in Settings › Agents (card #576).
+// prompt"), and CRASHED_QUESTION (whose number follows the crash limit in
+// Settings › Agents, card #576) and GIVEN_QUESTION in
+// crates/coord/src/board/spawn.rs.
 export const WAITING_PERMISSION = "Waiting for your permission"
 export const CRASHED_QUESTION =
   "Its agent crashed twice in a row: start another?"

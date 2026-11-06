@@ -181,7 +181,7 @@ impl Services {
     /// their devices asks, the one that would start the agent, and only it
     /// starts and binds one. Runs even while paused: it starts nothing.
     pub(crate) fn ask_given_cards(&self) {
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let co = b.coord();
             let log = SpawnLog::board(self, &b);
             let me = self.person_actor();
@@ -202,7 +202,7 @@ impl Services {
     /// Not now: the question comes back on this device, which then starts
     /// it on their yes. False when `id` is no such card.
     pub(crate) fn ask_given_again(&self, id: &str) -> Result<bool, String> {
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let co = b.coord();
             let Some(t) = co.get_task(id) else {
                 continue;
