@@ -165,8 +165,21 @@ struct Release {
 /// release 1.2.3 whose `.app.zip` holds a bundle at `version`, altered by
 /// `tweak` after signing. `pid` is the GUI process the helper waits for.
 async fn mac_release(version: &str, tweak: Option<fn(&Path)>, pid: Option<u32>) -> Release {
+    mac_release_over(None, version, tweak, pid).await
+}
+
+/// [`mac_release`] with the installed bundle altered by `live_tweak` first.
+async fn mac_release_over(
+    live_tweak: Option<fn(&Path)>,
+    version: &str,
+    tweak: Option<fn(&Path)>,
+    pid: Option<u32>,
+) -> Release {
     let root = tempfile::tempdir().unwrap();
     let live = fake_app(&root.path().join("Applications"), "1.0.0");
+    if let Some(t) = live_tweak {
+        t(&live);
+    }
     let new_app = fake_app(&root.path().join("build"), version);
     if let Some(t) = tweak {
         t(&new_app);
@@ -238,6 +251,70 @@ async fn mac_update_swaps_bundle() {
     run(Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])
         .arg(&r.live));
+}
+
+/// Signs a fake bundle as package.sh signs a release, with the identity in
+/// IRORI_TEST_CODESIGN_IDENTITY.
+fn developer_id(app: &Path) {
+    let identity = std::env::var("IRORI_TEST_CODESIGN_IDENTITY").unwrap();
+    run(Command::new("codesign")
+        .args(["--force", "--options", "runtime", "--timestamp", "--sign"])
+        .arg(identity)
+        .args(["--identifier", BUNDLE_ID])
+        .arg(app));
+}
+
+fn team_signed(app: &Path) -> bool {
+    let o = Command::new("codesign")
+        .args(["-dvv", "-r-"])
+        .arg(app)
+        .output()
+        .unwrap();
+    let text =
+        String::from_utf8_lossy(&o.stderr).into_owned() + &String::from_utf8_lossy(&o.stdout);
+    text.contains("Authority=Developer ID Application") && text.contains("leaf[subject.OU]")
+}
+
+/// Stages the release and swaps it in once the GUI process is gone.
+async fn update_and_swap(live_tweak: Option<fn(&Path)>) {
+    let mut gui = Sleeper::start();
+    let r = mac_release_over(live_tweak, "1.2.3", Some(developer_id), Some(gui.0.id())).await;
+    let st = r.s.check_and_download().await.unwrap();
+    assert_eq!(st.phase, PHASE_READY, "{st:?}");
+    r.s.install_on_exit();
+    gui.kill();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while bundle_version(&r.live) != "1.2.3" {
+        let log = std::fs::read_to_string(r.dir.join("update.log")).unwrap_or_default();
+        assert!(Instant::now() < deadline, "not swapped; helper log:\n{log}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    run(Command::new("codesign")
+        .args(["--verify", "--deep", "--strict"])
+        .arg(&r.live));
+    assert!(
+        team_signed(&r.live),
+        "the swapped bundle lost its signature"
+    );
+}
+
+/// The signing paths a Developer ID release meets (card #537): over an ad
+/// hoc install (the first signed release), over a signed one (every release
+/// after it), and the refusal of an ad hoc update over a signed one. Needs a
+/// real identity, so it is ignored by default:
+/// `IRORI_TEST_CODESIGN_IDENTITY="Developer ID Application: ..." cargo test
+/// -p irori-update --test mac -- --ignored`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a Developer ID identity in IRORI_TEST_CODESIGN_IDENTITY"]
+async fn mac_update_developer_id_paths() {
+    update_and_swap(None).await;
+    update_and_swap(Some(developer_id)).await;
+
+    let r = mac_release_over(Some(developer_id), "1.2.3", None, None).await;
+    let err = r.s.check_and_download().await.unwrap_err();
+    assert!(err.contains("signed with Developer ID"), "{err}");
+    let (next, _) = side_paths(&r.live);
+    assert!(!next.exists(), "{} left staged", next.display());
 }
 
 /// Go TestMacUpdateRefusesBadBundle: a bad signature, version or bundle id
