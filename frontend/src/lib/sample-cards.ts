@@ -292,39 +292,6 @@ export function sampleCards(now: Date): CardDetail[] {
     ]),
   })
 
-  // Card #436: ?red=1 shows main red for one test, with two cards that
-  // hit it waiting on its card (PREVIEW.md).
-  const red = new URLSearchParams(window.location.search).has("red")
-    ? [
-        card({
-          id: "sample-card-red",
-          short: "60",
-          title: "attach_exe fails on clean main",
-          goal: "attach_exe fails on clean main at 3573cf11, first reported from #61.",
-          state: TaskState.Submitted,
-          working: [],
-          mainRed: "attach_exe",
-          updatedAt: at(2),
-        }),
-        ...["61", "62"].map((n) =>
-          card({
-            id: `sample-card-red-wait-${n}`,
-            short: n,
-            title:
-              n === "61" ? "Talk 3: agents answer now" : "Merge desk slice 2",
-            goal: "Waiting on main going green.",
-            state: TaskState.Blocked,
-            working: [idleHolder],
-            waitingOn: 1,
-            waitOn: "#60",
-            waitTask: "sample-card-red",
-            waitQuestion: "attach_exe fails on clean main",
-            updatedAt: at(2),
-          })
-        ),
-      ]
-    : []
-
   // Card #481: ?loop=1 shows three cards that wait on each other, as
   // #392, #394 and #396 did: each wait a grey link with nothing to
   // answer, one Needs you item for the loop, and #72's own question
@@ -780,7 +747,6 @@ export function sampleCards(now: Date): CardDetail[] {
   return [
     ...longRefs,
     ...spawn,
-    ...red,
     ...loop,
     ...gone,
     longWait,

@@ -843,7 +843,6 @@ function summary(c: CardDetail): CardSummary {
     waitTask: c.waitTask,
     waitLoop: c.waitLoop,
     waitStuck: c.waitStuck,
-    mainRed: c.mainRed,
     cantStart: c.cantStart,
     noAgent: c.noAgent,
     starting: c.starting,
