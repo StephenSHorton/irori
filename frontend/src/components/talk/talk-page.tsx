@@ -35,6 +35,7 @@ import {
   dmGone,
   dmPerson,
   dmWith,
+  isYou,
   listed,
   memberOf,
   readAll,
@@ -817,12 +818,11 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const when = at ? relativeTime(at, now) : ""
   if (!text) return { line: "", when }
   const by = c.lastBy ? memberOf(c.members, c.lastBy) : undefined
-  const who =
-    c.readOnly && by
-      ? `${memberName(by)}: `
-      : by?.kind === "person"
-        ? "You: "
-        : ""
+  // "You: " only for the person themselves: in a DM with another person
+  // (card #538) their post is theirs, not yours.
+  const mine =
+    by?.kind === "person" && (isYou(by.key) || by.name === "you")
+  const who = c.readOnly && by ? `${memberName(by)}: ` : mine ? "You: " : ""
   return { line: `${who}${text}`, when }
 }
 
