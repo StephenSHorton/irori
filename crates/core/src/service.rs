@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+pub(crate) mod calls;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
@@ -136,6 +137,12 @@ pub struct Options {
     /// for this data dir. `None` is headless (Go's nil Notifier): no card
     /// is ever shown and no Watch runs, so tests never put one on screen.
     pub notifier: Option<notify::Notifier>,
+    /// The phone's side of a call (card #654): Android's microphone
+    /// service. `None` on desktops and in tests.
+    pub call_platform: Option<Arc<dyn call::Platform>>,
+    /// The mic and speaker a call opens; `None` is the default devices.
+    /// Tests pass fake ones.
+    pub call_audio: Option<call::device::OpenerFn>,
     /// Builds the transport pairing runs on (M7, [`crate::devices`]);
     /// `None` is iroh on the device key, bound when a window opens.
     pub pair_net: Option<crate::devices::PairNetFn>,
@@ -316,6 +323,8 @@ struct Services {
     dm_spaces: Arc<boards_own::DmSpaces>,
     /// The DM hand-offs' work (card #538).
     dms: dm_spaces::Dms,
+    /// Calls (card #654).
+    calls: calls::Calls,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -1471,6 +1480,7 @@ impl Core {
             boards: board_set,
             dm_spaces,
             dms: dm_spaces::Dms::default(),
+            calls: calls::Calls::new(opts.call_platform.clone(), opts.call_audio.clone()),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1512,6 +1522,13 @@ impl Core {
                 Arc::new(dm_spaces::DmBridge(w.clone())),
                 Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
             );
+            // And the call hooks (card #654).
+            s.mesh
+                .set_calls(Arc::new(calls::CallBridge(Arc::downgrade(&s))));
+            // A Personal channel's huddle rings on the private mesh (#663).
+            s.mesh
+                .node
+                .set_own_calls(Some(Arc::new(calls::CallBridge(Arc::downgrade(&s)))));
         }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
@@ -2424,12 +2441,13 @@ impl Core {
     }
 
     /// Go `GetAttachment`: fetches a file `reader` may read (on a message it
-    /// sent or received, or on any Board comment) and writes it to `to`, or
+    /// sent or received, on any Board comment, or on a Talk post in a
+    /// channel or DM it may read, card #643) and writes it to `to`, or
     /// by default to `<data>/received/<reader>/<name>`. Returns the local
     /// path and the device it came from ("" when it was already here). A
     /// `to` inside the data dir is refused, and an existing file is never
-    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message
-    /// or card the reader may read carries it. Blocks on the mesh's runtime
+    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message,
+    /// card or post the reader may read carries it. Blocks on the mesh's runtime
     /// when another device holds it: call it off that runtime's workers.
     pub fn get_attachment(
         &self,
@@ -3156,6 +3174,12 @@ impl Core {
         self.s.comment_attachment(sha)
     }
 
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read, the earliest such post's; None when there is none.
+    pub fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        self.s.post_attachment(reader, sha)
+    }
+
     /// The Core's network side: the Node and every open board's mesh.
     pub(crate) fn mesh_net(&self) -> &Arc<crate::meshnode::Mesh> {
         &self.s.mesh
@@ -3236,6 +3260,12 @@ struct Subs {
     asks: Arc<store::Subscription>,
     colors: Arc<store::Subscription>,
     decisions: Arc<store::Subscription>,
+}
+
+/// Whether device `dev` wrote an `attach.offered` for `sha` in `st` (card
+/// #659): what lets a shared board's row lend a file.
+fn offered_in(st: &store::Store, dev: &str, sha: &str) -> bool {
+    !dev.is_empty() && mesh::files::holders_in(st, sha).is_ok_and(|h| h.iter().any(|d| d == dev))
 }
 
 /// Go `ignoredBy`: the rows every fold ignored for the writer rules, per
@@ -3466,7 +3496,7 @@ impl Services {
         self.notifier.0.post(notify::Note {
             id: notify::talk_id(&p.conv_id, &p.post_id),
             title,
-            body: notify::preview(&p.text),
+            body: notify::preview(&tools::talk::post_line(&p)),
             on_click: Some(Arc::new(move || {
                 n.open(notify::Target {
                     tab: notify::TAB_TALK.into(),
@@ -3524,13 +3554,83 @@ impl Services {
     /// A file on a comment or blocker: the private board's first, then
     /// each open shared board's (v0.5 §5.5).
     pub(crate) fn comment_attachment(&self, sha: &str) -> Option<coord::FileRef> {
-        self.coord.comment_attachment(sha).or_else(|| {
-            self.boards
-                .list()
-                .iter()
-                .filter(|b| !self.is_dm_space(&b.id))
-                .find_map(|b| b.coord().comment_attachment(sha))
-        })
+        self.comment_files(sha).into_iter().next().map(|(f, _)| f)
+    }
+
+    /// [`Self::comment_attachment`]'s candidates, each with where it was
+    /// found: None for the private board, which only this person's
+    /// devices write, else the shared board (its earliest row that
+    /// counts). On a shared board a comment or blocker counts only where
+    /// the device whose row put the file there offered it in that board's
+    /// log (card #659): a member's row naming a hash it never held lends
+    /// nothing.
+    fn comment_files(&self, sha: &str) -> Vec<(coord::FileRef, Option<String>)> {
+        let mut out = Vec::new();
+        if let Some(f) = self.coord.comment_attachment(sha) {
+            out.push((f, None));
+        }
+        for b in self
+            .boards
+            .list()
+            .iter()
+            .filter(|b| !self.is_dm_space(&b.id))
+        {
+            if let Some((f, _)) = b.coord().attachment_rows(sha).into_iter().find(|(f, dev)| {
+                offered_in(&b.store, dev, sha) || offered_in(&b.store, &f.device, sha)
+            }) {
+                out.push((f, Some(b.id.clone())));
+            }
+        }
+        out
+    }
+
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read ([`tools::talk::can_read`], [`tools::talk::posts`]'s rule:
+    /// anyone reads a channel this device folds, a DM its parties and the
+    /// person): the earliest such post's. A post in a conversation the
+    /// reader can't read never lends its file, even when the same file is
+    /// on one they can. It asks per image the window shows, so it never
+    /// lists the conversation's posts to decide.
+    pub(crate) fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        self.post_files(reader, sha)
+            .into_iter()
+            .next()
+            .map(|(f, _)| f)
+    }
+
+    /// [`Self::post_attachment`]'s candidates, earliest first, each with
+    /// where it was found: None for a post in the private log, else the
+    /// space whose log holds it (once per place). A space's post counts
+    /// only where the device that wrote it offered the file in that
+    /// space's log (card #659).
+    fn post_files(&self, reader: &str, sha: &str) -> Vec<(blob::FileRef, Option<String>)> {
+        let found = self.talk.attachments(sha);
+        if found.is_empty() {
+            return Vec::new();
+        }
+        let Some(me) = self.this.get().and_then(Weak::upgrade) else {
+            return Vec::new();
+        };
+        let view = ToolsView(me);
+        let mut out: Vec<(blob::FileRef, Option<String>)> = Vec::new();
+        for pf in found {
+            let space = (!pf.space.is_empty()).then(|| pf.space.clone());
+            if out.iter().any(|(_, s)| *s == space) {
+                continue;
+            }
+            if let Some(id) = &space {
+                let Ok(b) = self.board(id) else { continue };
+                if !offered_in(&b.store, &pf.device, sha)
+                    && !offered_in(&b.store, &pf.file.device, sha)
+                {
+                    continue;
+                }
+            }
+            if tools::talk::can_read(&view, reader, &pf.conv) {
+                out.push((pf.file, space));
+            }
+        }
+        out
     }
 
     /// Go `GetAttachment` ([`Core::get_attachment`]).
@@ -3546,48 +3646,85 @@ impl Services {
         if !blob::valid_id(&sha) {
             return Err("blob: id must be 64 lowercase hex characters".into());
         }
-        let r = match self.inbox.attachment(reader, &sha) {
-            Some(f) => blob::FileRef {
+        // Every place the reader may read it, in order: its messages, the
+        // private board's comments, each shared board's, then Talk posts
+        // (card #643). A shared board's or space's goes through that board
+        // alone (card #659), so each is tried until one brings the file: a
+        // forged row elsewhere never stands in the way of a real one.
+        let to_ref = |f: coord::FileRef| blob::FileRef {
+            sha256: f.sha256,
+            name: f.name,
+            size: f.size,
+            mime: f.mime,
+            device: f.device,
+        };
+        let mut cands: Vec<(blob::FileRef, Option<String>)> = Vec::new();
+        if let Some(f) = self.inbox.attachment(reader, &sha) {
+            let r = blob::FileRef {
                 sha256: f.sha256,
                 name: f.name,
                 size: f.size,
                 mime: f.mime,
                 device: f.device,
-            },
-            // The private board's comments, then each shared board's.
-            None => match self.comment_attachment(&sha) {
-                Some(f) => blob::FileRef {
-                    sha256: f.sha256,
-                    name: f.name,
-                    size: f.size,
-                    mime: f.mime,
-                    device: f.device,
-                },
-                None => return Err(at::NO_ATTACHMENT.into()),
-            },
-        };
-        let name = blob::safe_name(&r.name, &sha);
-        let to = trim_space(to);
-        let dst = at::attachment_dst(&self.data_dir, reader, &name, to, || {
-            self.local_agents()
+            };
+            cands.push((r, None));
+        }
+        cands.extend(
+            self.comment_files(&sha)
                 .into_iter()
-                .rfind(|a| a.key == reader)
-                .map(|a| a.cwd)
-                .unwrap_or_default()
-        })?;
-        let from = crate::meshview::fetch_file_blocking(
-            &self.mesh,
-            &self.pairing.handle,
-            &self.device.id,
-            &self.chain,
-            &self.device_names.chosen(),
-            &r,
-        )
-        .map_err(|e| match e {
-            FileFetchError::Offline(on) => at::offline_text(&on),
-            FileFetchError::TimedOut => at::TIMED_OUT.into(),
-            FileFetchError::Other(s) => s,
-        })?;
+                .map(|(f, b)| (to_ref(f), b)),
+        );
+        cands.extend(self.post_files(reader, &sha));
+        if cands.is_empty() {
+            return Err(at::NO_ATTACHMENT.into());
+        }
+        let to = trim_space(to);
+        let dst_for = |r: &blob::FileRef| {
+            at::attachment_dst(
+                &self.data_dir,
+                reader,
+                &blob::safe_name(&r.name, &sha),
+                to,
+                || {
+                    self.local_agents()
+                        .into_iter()
+                        .rfind(|a| a.key == reader)
+                        .map(|a| a.cwd)
+                        .unwrap_or_default()
+                },
+            )
+        };
+        // A `to` it refuses is refused before anything is fetched.
+        dst_for(&cands[0].0)?;
+        let mut got: Option<(blob::FileRef, String)> = None;
+        let mut last = String::new();
+        for (r, board) in &cands {
+            match crate::meshview::fetch_file_blocking(
+                &self.mesh,
+                &self.pairing.handle,
+                &self.device.id,
+                &self.chain,
+                &self.device_names.chosen(),
+                r,
+                board.as_deref(),
+            ) {
+                Ok(from) => {
+                    got = Some((r.clone(), from));
+                    break;
+                }
+                Err(e) => {
+                    last = match e {
+                        FileFetchError::Offline(on) => at::offline_text(&on),
+                        FileFetchError::TimedOut => at::TIMED_OUT.into(),
+                        FileFetchError::Other(s) => s,
+                    }
+                }
+            }
+        }
+        let Some((r, from)) = got else {
+            return Err(last);
+        };
+        let dst = dst_for(&r)?;
         let shown = |p: &std::path::Path| p.to_string_lossy().into_owned();
         let dst = if to.is_empty() {
             let dst = at::free_name(&dst, &sha);

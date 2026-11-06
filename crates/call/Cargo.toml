@@ -1,0 +1,29 @@
+[package]
+name = "irori-call"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's call layer (#654): Opus over iroh QUIC datagrams, echo cancelling, full mesh"
+
+[lib]
+name = "call"
+
+# neteq 0.9 was the plan's jitter buffer, but with its optional features off
+# it never tells the decoder a packet was lost, so Opus loss concealment and
+# FEC can't run through it: jitter.rs is our own.
+[dependencies]
+opus = "0.4.0"
+sonora = "0.2.0"
+rubato = "5.0.1"
+ringbuf = "0.4"
+# realtime: AAudio's LowLatency mode on Android, a raised audio thread on
+# Windows; no effect on macOS.
+cpal = { version = "0.18.2", features = ["realtime"] }
+
+# examples/call-dev.rs: a real call over iroh between machines.
+[dev-dependencies]
+iroh = "1.4.1"
+irori-net.workspace = true
+tokio = { version = "1.54", features = ["full"] }
+anyhow = "1"

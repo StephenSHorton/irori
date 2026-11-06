@@ -24,6 +24,12 @@ import {
   UsersIcon,
 } from "lucide-react"
 
+import {
+  AttachButton,
+  AttachmentList,
+  PendingFiles,
+  useFileAttach,
+} from "@/components/attachments"
 import { MentionTextarea } from "@/components/common/mention-textarea"
 import { AgentsNowToggle } from "@/components/common/agents-now-toggle"
 import { RichText } from "@/components/common/rich-text"
@@ -46,6 +52,8 @@ import {
   dmPerson,
   dmWith,
   fromPost,
+  memberOf,
+  postLine,
   replyingLine,
   talkApi,
   usePosts,
@@ -58,15 +66,26 @@ import {
 import { AgentRef, TalkPost } from "@/lib/models"
 import {
   callChannel,
-  CallPanel,
   callMock,
+  MockCallPanel,
+  MockHuddleEnded,
+  ShareStage,
+  TranscriptPane,
+} from "./call-mock"
+import {
+  CallPanel,
   HuddleButton,
   HuddleEnded,
   HuddleStarted,
-  ShareStage,
-  StartHuddle,
-  TranscriptPane,
-} from "./call-mock"
+  useCallPart,
+} from "./huddle"
+import {
+  joinHuddle,
+  leaveHuddle,
+  liveIn,
+  setMuted,
+  startHuddle,
+} from "@/lib/call"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
@@ -172,9 +191,36 @@ export function ConversationView({
   // 1100 px it left the box a few letters wide. Its header button still
   // opens it.
   const roomy = useMedia(membersRoomyQuery)
-  // The voice-call mock-up (card #571): the browser preview only.
+  // What's still the voice-call mock-up (card #571): the browser preview
+  // only.
   const mock = conv.convId === callChannel ? callMock() : null
-  const inCall = mock === "live" || mock === "share"
+  // Huddles (#654): this conversation's, and whether this device is in it.
+  // Only the parts this page shows, so another conversation's huddle (or
+  // its health) doesn't render it again.
+  const mine = useCallPart((s) =>
+    s.mine?.convId === conv.convId ? s.mine : null
+  )
+  const liveCallId = useCallPart((s) => liveIn(s, conv.convId)?.callId ?? "")
+  const livePeople = useCallPart(
+    (s) => liveIn(s, conv.convId)?.people.length ?? 0
+  )
+  const liveHere = liveCallId ? { callId: liveCallId } : undefined
+  const [huddleBusy, setHuddleBusy] = useState(false)
+  const [huddleError, setHuddleError] = useState("")
+  const huddle = async (f: () => Promise<void>) => {
+    setHuddleBusy(true)
+    setHuddleError("")
+    try {
+      await f()
+    } catch (err) {
+      setHuddleError(errorText(err))
+    } finally {
+      setHuddleBusy(false)
+    }
+  }
+  const onMute = (on: boolean) =>
+    void setMuted(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onLeave = () => void huddle(leaveHuddle)
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -183,7 +229,10 @@ export function ConversationView({
   const { boards } = useBoards()
   const where = conv.kind === "channel" ? `#${conv.name}` : `a DM`
   const prefill = useMemo(
-    () => (making ? fromPost(making.text, where) : undefined),
+    () =>
+      making
+        ? fromPost(making.text, where, making.attachments ?? [])
+        : undefined,
     [making, where]
   )
   const names = useMemo(() => {
@@ -226,6 +275,10 @@ export function ConversationView({
   const person = dmPerson(conv)
   const personName = person ? nameOr(plainLine(person.name || conv.name)) : ""
   const waiting = person ? waitingText(conv, personName) : ""
+  // A channel or a DM with another person that has reached them has a
+  // huddle; an agent's DM and a read-only one never do.
+  const canHuddle =
+    !conv.readOnly && (conv.kind === "channel" || (!!person && !waiting))
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")
   const leave = async () => {
@@ -322,16 +375,37 @@ export function ConversationView({
               {plainLine(conv.topic)}
             </span>
           )}
-          {mock && (
-            <span className="ml-auto flex shrink-0">
-              <HuddleButton mock={mock} />
+          {canHuddle && (
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {huddleError && (
+                <span
+                  role="alert"
+                  className="max-w-[240px] truncate text-[11px] text-destructive"
+                  title={huddleError}
+                >
+                  {huddleError}
+                </span>
+              )}
+              <HuddleButton
+                mine={mine}
+                live={livePeople}
+                busy={huddleBusy}
+                onStart={() =>
+                  void huddle(() =>
+                    startHuddle(conv.convId, plainLine(conv.name))
+                  )
+                }
+                onJoin={() =>
+                  liveHere && void huddle(() => joinHuddle(liveHere.callId))
+                }
+              />
             </span>
           )}
           {conv.kind === "channel" && !narrow && (
             <Button
               size="xs"
               variant={showMembers ? "secondary" : "ghost"}
-              className={cn("shrink-0", !mock && "ml-auto")}
+              className={cn("shrink-0", !canHuddle && "ml-auto")}
               aria-pressed={showMembers}
               onClick={() => setShowMembers((s) => !s)}
               title="Who's in this channel"
@@ -341,7 +415,12 @@ export function ConversationView({
             </Button>
           )}
           {person && (
-            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            <span
+              className={cn(
+                "flex shrink-0 items-center gap-1.5",
+                !canHuddle && "ml-auto"
+              )}
+            >
               {leaveError && (
                 <span className="text-[11px] text-destructive">
                   {leaveError}
@@ -381,8 +460,8 @@ export function ConversationView({
             </span>
           )}
         </header>
-        {narrow && inCall ? (
-          <CallPanel channel={conv.name} wide />
+        {narrow && mine ? (
+          <CallPanel mine={mine} wide onMute={onMute} onLeave={onLeave} />
         ) : mock === "share" ? (
           <ShareStage />
         ) : narrow && showMembers && conv.kind === "channel" ? (
@@ -423,21 +502,29 @@ export function ConversationView({
                         {newDay && at && <DayLine label={dayLabel(at, now)} />}
                         <PostRow
                           post={p}
-                          who={names.get(p.by)}
+                          who={memberOf(names.values(), p.by)}
                           names={names}
                           live={live}
                           onMakeCard={
                             conv.readOnly ? undefined : () => setMaking(p)
                           }
                           channel={conv.kind === "channel" ? conv : undefined}
+                          // Join from its start post while it's on.
+                          onJoinCall={
+                            !mine && liveHere
+                              ? (id) =>
+                                  id === liveHere.callId &&
+                                  void huddle(() => joinHuddle(id))
+                              : undefined
+                          }
+                          liveCall={liveHere?.callId}
                         />
                       </div>
                     )
                   })}
-                  {mock === "live" && <HuddleStarted />}
                   {mock === "transcript" && (
                     <>
-                      <HuddleEnded />
+                      <MockHuddleEnded />
                       {mockAfter(conv).map((p) => (
                         <PostRow
                           key={p.postId}
@@ -466,16 +553,18 @@ export function ConversationView({
           <Composer conv={conv} other={other[0]} />
         )}
       </div>
-      {mock === "start" && <StartHuddle channel={conv.name} />}
-      {inCall && !narrow ? (
-        <CallPanel channel={conv.name} sharing={mock === "share"} />
+      {mine && !narrow ? (
+        mock === "share" ? (
+          <MockCallPanel channel={conv.name} sharing />
+        ) : (
+          <CallPanel mine={mine} onMute={onMute} onLeave={onLeave} />
+        )
       ) : mock === "transcript" && !narrow ? (
         <TranscriptPane />
       ) : (
         showMembers &&
         conv.kind === "channel" &&
-        !narrow &&
-        mock !== "start" && <Members members={conv.members} live={live} />
+        !narrow && <Members members={conv.members} live={live} />
       )}
       <NewCardDialog
         open={!!making}
@@ -547,6 +636,8 @@ export function PostRow({
   live,
   onMakeCard,
   channel,
+  liveCall,
+  onJoinCall,
 }: {
   post: Post
   who?: Member
@@ -556,17 +647,19 @@ export function PostRow({
   onMakeCard?: () => void
   // The channel it's in: a channel message can start a thread (design b2).
   channel?: Conversation
+  // The huddle on in its conversation now (#654), and joining it.
+  liveCall?: string
+  onJoinCall?: (callId: string) => void
 }) {
   const [asking, setAsking] = useState(false)
   // Its @names, so the text shows them as mentions.
   const mentions = post.mentions.map((key) => {
     // "user" is the person on any of their devices (an agent's mention
     // "person", card #395).
-    const m: Member =
-      names.get(key) ??
-      (key === "user" || key.startsWith("user:")
-        ? { kind: "person", key, name: "you" }
-        : { kind: key.startsWith("person:") ? "person" : "agent", key })
+    const m: Member = memberOf(names.values(), key) ?? {
+      kind: key.startsWith("person:") ? "person" : "agent",
+      key,
+    }
     const ref = refOf(m, live)
     return {
       name: m.kind === "person" && m.name === "you" ? "you" : memberName(m),
@@ -580,6 +673,23 @@ export function PostRow({
   }
   const at = parseTime(post.at)
   const name = m.kind === "person" && m.name === "you" ? "You" : memberName(m)
+  // A huddle's start or end (#654); an older build shows its text.
+  if (post.call)
+    return post.call.op === "end" ? (
+      <HuddleEnded
+        durationMs={post.call.durationMs}
+        people={post.call.people}
+      />
+    ) : (
+      <HuddleStarted
+        by={name}
+        onJoin={
+          onJoinCall && post.call.callId === liveCall
+            ? () => onJoinCall(post.call!.callId)
+            : undefined
+        }
+      />
+    )
   // A thread started from a message here leaves this one line (design b2):
   // the thread itself lives in Threads.
   if (post.threadFrom)
@@ -650,11 +760,15 @@ export function PostRow({
             </button>
           )}
         </div>
-        <RichText
-          text={post.text}
-          mentions={mentions}
-          className="text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2"
-        />
+        {/* A post may be files alone (card #643). */}
+        {post.text.trim() && (
+          <RichText
+            text={post.text}
+            mentions={mentions}
+            className="text-[13px] leading-relaxed [overflow-wrap:anywhere] text-ink-2"
+          />
+        )}
+        <AttachmentList attachments={post.attachments ?? []} />
         {post.card && <CardChip id={post.card} />}
         {asking && channel && (
           <ThreadFrom
@@ -735,7 +849,7 @@ function ThreadFrom({
           await talkApi.threadFrom(
             channel.convId,
             post.postId,
-            threadText(text, author, post.text, channel.name)
+            threadText(text, author, postLine(post), channel.name)
           )
           onDone()
         } catch (err) {
@@ -852,6 +966,10 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   const [mentions, setMentions] = useState<Mention[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Files go with a post (card #643), as on a comment: the clip, a drop on
+  // the box, or a pasted screenshot. With files the text may be empty.
+  const attach = useFileAttach(busy)
+  const files = attach.files
   // A channel post carries the "Agents answer now" toggle (card #391); a DM
   // always wakes the other side, so it keeps the default.
   const agentsNow = useAgentsNow(mentions)
@@ -859,7 +977,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     const body = text.trim()
-    if (!body || busy) return
+    if ((!body && !files.length) || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -869,11 +987,13 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
         body,
         now,
         null,
-        mentions.map((m) => m.key)
+        mentions.map((m) => m.key),
+        files
       )
       setText("")
       setMentions([])
       agentsNow.reset()
+      attach.clear()
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -888,21 +1008,29 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
     <form
       className="grid gap-1 border-t border-border px-3 py-2.5"
       onSubmit={(e) => void submit(e)}
+      {...attach.drop}
     >
       {/* Too tight for the box and its controls (members open on a smaller
         window), the controls drop under the box rather than squeeze it to
-        a few letters (card #639). A phone keeps them on one row. */}
+        a few letters (card #639). On a phone a DM's box, mic, clip and Send
+        fit one row; a channel's toggle drops them under it (card #643). */}
       <div className="flex flex-wrap items-start gap-2 p-1.5 glass-panel">
         {/* A space's channel offers its other people's agents too (#461). */}
         <MentionBoard.Provider value={conv.spaceId ?? ""}>
+          {/* The mic (card #643): "main", since the ask box, the other
+            "main" composer, never shows beside a conversation. */}
           <MentionTextarea
             autoSize
+            voice="main"
             rows={1}
             value={text}
             mentions={mentions}
             onChange={(v, ms) => {
               setText(v)
               setMentions(ms)
+            }}
+            onPaste={(e) => {
+              if (attach.onPaste(e)) setError(null)
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
@@ -912,7 +1040,7 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
             }}
             placeholder={placeholder}
             aria-label={placeholder}
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
+            className="max-h-40 min-h-9 min-w-40 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent md:min-w-48"
             readOnly={busy}
             aria-busy={busy}
           />
@@ -925,11 +1053,22 @@ function Composer({ conv, other }: { conv: Conversation; other?: Member }) {
               disabled={busy}
             />
           )}
-          <Button type="submit" size="sm" disabled={busy || !text.trim()}>
+          {attach.input}
+          <AttachButton attach={attach} disabled={busy} />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={busy || (!text.trim() && !files.length)}
+          >
             {busy ? "Sending…" : "Send"}
           </Button>
         </div>
       </div>
+      <PendingFiles
+        attach={attach}
+        disabled={busy}
+        label="Files with the message"
+      />
       {error && (
         <p className="px-1 text-xs text-destructive" role="alert">
           {error}

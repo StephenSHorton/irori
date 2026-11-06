@@ -31,7 +31,15 @@ fn two_mentions_show_together_until_each_answers() {
     let ch = r.core.talk_channel_create(&me.key, "general", "").unwrap();
     assert!(r.core.talk_replying(&me.key).is_empty());
     r.core
-        .talk_post(&me, &ch.id, "@alpha @beta can you look?", &[], true, None)
+        .talk_post(
+            &me,
+            &ch.id,
+            "@alpha @beta can you look?",
+            &[],
+            true,
+            None,
+            vec![],
+        )
         .unwrap();
     // From the wake, before either turn starts.
     assert_eq!(
@@ -48,7 +56,7 @@ fn two_mentions_show_together_until_each_answers() {
     // alpha answers in the channel: it drops off, beta stays.
     let alpha = inbox::Sender::new(&r.key_a, "alpha", "claude");
     r.core
-        .talk_post(&alpha, &ch.id, "on it", &[], true, None)
+        .talk_post(&alpha, &ch.id, "on it", &[], true, None, vec![])
         .unwrap();
     assert_eq!(names(&r.core.talk_replying(&me.key), &ch.id), vec!["beta"]);
     // beta's turn ends without a post: it drops off too.
@@ -72,7 +80,7 @@ fn a_dm_shows_its_agent() {
         )
         .unwrap();
     r.core
-        .talk_post(&me, &dm, "can you look at #3?", &[], false, None)
+        .talk_post(&me, &dm, "can you look at #3?", &[], false, None, vec![])
         .unwrap();
     let rs = r.core.talk_replying(&me.key);
     assert_eq!(names(&rs, &dm), vec!["beta"]);
@@ -82,12 +90,12 @@ fn a_dm_shows_its_agent() {
     // A DM is answered with a post, not the inbox: the post clears it.
     let beta = inbox::Sender::new(&r.key_b, "beta", "claude");
     r.core
-        .talk_post(&beta, &dm, "looking", &[], false, None)
+        .talk_post(&beta, &dm, "looking", &[], false, None, vec![])
         .unwrap();
     assert!(r.core.talk_replying(&me.key).is_empty());
     // The next DM shows it again.
     r.core
-        .talk_post(&me, &dm, "and #4?", &[], false, None)
+        .talk_post(&me, &dm, "and #4?", &[], false, None, vec![])
         .unwrap();
     assert_eq!(names(&r.core.talk_replying(&me.key), &dm), vec!["beta"]);
 }
@@ -106,7 +114,7 @@ fn it_drops_after_thirty_minutes() {
     let me = r.core.user_sender();
     let ch = r.core.talk_channel_create(&me.key, "general", "").unwrap();
     r.core
-        .talk_post(&me, &ch.id, "@alpha hello", &[], true, None)
+        .talk_post(&me, &ch.id, "@alpha hello", &[], true, None, vec![])
         .unwrap();
     assert_eq!(names(&r.core.talk_replying(&me.key), &ch.id), vec!["alpha"]);
     *off.lock().unwrap() = irori_core::REPLYING_CAP + Duration::from_secs(1);
@@ -119,7 +127,7 @@ fn a_gone_agent_drops() {
     let me = r.core.user_sender();
     let ch = r.core.talk_channel_create(&me.key, "general", "").unwrap();
     r.core
-        .talk_post(&me, &ch.id, "@beta hello", &[], true, None)
+        .talk_post(&me, &ch.id, "@beta hello", &[], true, None, vec![])
         .unwrap();
     assert_eq!(names(&r.core.talk_replying(&me.key), &ch.id), vec!["beta"]);
     std::fs::remove_file(r.claude.join("sessions").join("900002.json")).unwrap();
@@ -160,7 +168,7 @@ fn a_turn_never_reported_ending_ends_when_the_agent_goes_idle() {
         )
         .unwrap();
     r.core
-        .talk_post(&me, &dm, "can you look?", &[], false, None)
+        .talk_post(&me, &dm, "can you look?", &[], false, None, vec![])
         .unwrap();
     engage(&r.core, &r.key_b, "t1");
     beta_status(&r, "busy");
@@ -177,15 +185,15 @@ fn a_later_post_naming_the_agent_isnt_the_waking_one() {
     let me = r.core.user_sender();
     let ch = r.core.talk_channel_create(&me.key, "general", "").unwrap();
     r.core
-        .talk_post(&me, &ch.id, "@alpha look", &[], true, None)
+        .talk_post(&me, &ch.id, "@alpha look", &[], true, None, vec![])
         .unwrap();
     let alpha = inbox::Sender::new(&r.key_a, "alpha", "claude");
     r.core
-        .talk_post(&alpha, &ch.id, "done", &[], true, None)
+        .talk_post(&alpha, &ch.id, "done", &[], true, None, vec![])
         .unwrap();
     // Thanking it with agents off wakes nobody, and its answer still counts.
     r.core
-        .talk_post(&me, &ch.id, "thanks @alpha", &[], false, None)
+        .talk_post(&me, &ch.id, "thanks @alpha", &[], false, None, vec![])
         .unwrap();
     assert!(r.core.talk_replying(&me.key).is_empty());
 }

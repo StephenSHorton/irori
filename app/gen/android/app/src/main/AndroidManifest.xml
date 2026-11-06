@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Talk notifications (#395): a mention or a DM; Android 13+ asks once. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Calls (#654): CallService keeps a call running with the screen off,
+         as a microphone foreground service, and holds a partial wake lock. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -42,5 +47,10 @@
             android:name="android.support.FILE_PROVIDER_PATHS"
             android:resource="@xml/file_paths" />
         </provider>
+
+        <service
+          android:name=".CallService"
+          android:exported="false"
+          android:foregroundServiceType="microphone" />
     </application>
 </manifest>

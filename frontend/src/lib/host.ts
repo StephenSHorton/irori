@@ -305,6 +305,25 @@ export const TalkService = {
     agentsNow: boolean,
     threadFrom: string | null
   ) => call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
+  // A post with files (card #643): the text may be empty then.
+  PostWithFiles: (
+    convId: string,
+    text: string,
+    mentions: string[],
+    agentsNow: boolean,
+    threadFrom: string | null,
+    files: B.UploadFile[]
+  ) =>
+    call(
+      commands.talkPostWithFiles(
+        convId,
+        text,
+        mentions,
+        agentsNow,
+        threadFrom,
+        files
+      )
+    ),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),
@@ -503,6 +522,17 @@ export const VoiceService = {
   Start: () => call(commands.voiceStart()),
   Stop: (session: number) => done(commands.voiceStop(session)),
   OpenSettings: (code: string) => done(commands.voiceOpenSettings(code)),
+}
+
+// Huddles (#654): voice calls in a channel or person DM; every change
+// arrives as call:state.
+export const CallService = {
+  State: () => call(commands.callState()),
+  Start: (convId: string) => call(commands.callStart(convId)),
+  Join: (callId: string) => done(commands.callJoin(callId)),
+  Leave: () => done(commands.callLeave()),
+  Mute: (on: boolean) => done(commands.callMute(on)),
+  Dismiss: (callId: string) => done(commands.callDismiss(callId)),
 }
 
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as

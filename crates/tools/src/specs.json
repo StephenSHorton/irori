@@ -1887,7 +1887,7 @@
   },
   {
     "name": "talk_post",
-    "description": "Post in Talk: a channel, a DM or a thread. A DM with an agent wakes it now; @name in text (or mention) wakes that agent and adds it to the channel. Posting to a thread is a comment on it. You can't DM another person or their agent. Talk is for talking: put work on a card.",
+    "description": "Post in Talk: a channel, a DM or a thread. A DM with an agent wakes it now; @name in text (or mention) wakes that agent and adds it to the channel. Posting to a thread is a comment on it. Files go with attach (text may then be empty, except in a thread). You can't DM another person or their agent. Talk is for talking: put work on a card.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1897,7 +1897,7 @@
         },
         "text": {
           "type": "string",
-          "description": "The post, plain text, at most 4000 characters."
+          "description": "The post, plain text, at most 4000 characters. May be empty when you attach files, except in a thread."
         },
         "mention": {
           "type": "array",
@@ -1909,6 +1909,14 @@
         "space": {
           "type": "string",
           "description": "Optional: the shared space a channel name or a bare #12 is in, by its tag or id. Without it, a name means a Personal channel."
+        },
+        "attach": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "description": "Optional files to attach: paths (absolute, or relative to your working directory), each at most 256 MiB. They show inline in the conversation; its readers fetch them with attachment_get. Files inside Irori's data dir, .env files, private keys and credential stores are refused."
         }
       },
       "required": [

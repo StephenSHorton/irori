@@ -410,6 +410,7 @@ fn channel_members_read_at_their_next_turn() {
         &[],
         false,
         None,
+        &[],
     )
     .unwrap();
     assert!(p.post.mentions.contains(&KEY_C.to_string()), "{:?}", p.post);
@@ -1226,6 +1227,7 @@ fn a_dm_crosses_people_only_person_to_person() {
             &[],
             false,
             None,
+            &[],
         )
         .map(|_| ())
         .unwrap_err()
@@ -1457,6 +1459,7 @@ fn a_person_dm_clears_its_mentions() {
         &["alpha".to_string()],
         true,
         None,
+        &[],
     )
     .unwrap();
     assert_eq!(out.post.conv_id, ct::pair_dm_id("person:me", BOB));
@@ -1532,4 +1535,180 @@ fn opening_a_dm_checks_who_with() {
     let own = open(USER, KEY_A).unwrap();
     assert_eq!(own, ct::dm_id(USER, KEY_A));
     assert!(h.b.talk.is_member(&own, KEY_A));
+}
+
+/// Card #643: talk_post takes files like board_comment does. In a channel
+/// the post carries them and talk_read shows them; files alone make a
+/// post; a DM to an agent sends them on the message; a thread passes them
+/// to its comment. A mention notice of a files-only post names them.
+#[test]
+fn posts_carry_files() {
+    let h = new_harness();
+    let (a, b, c) = (call_a(), call_b(), call_c());
+    // No attacher: refused, nothing posted.
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "see", "attach": ["/tmp/shot.png"]}),
+        &["attachments are off"],
+    );
+    assert!(h.b.talk.posts(&ch.id).is_empty());
+    assert!(h.b.attacher.set(std::sync::Arc::new(NamedFiles)).is_ok());
+
+    // In a channel: the post carries the file, talk_read shows it.
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "the red build", "attach": ["/tmp/shot.png"]}),
+    );
+    has(&out, &["Posted post_", " with shot.png", "sha256="]);
+    let ps = h.b.talk.posts(&ch.id);
+    assert_eq!(ps.len(), 1);
+    assert_eq!(ps[0].files.len(), 1);
+    assert_eq!(ps[0].files[0].name, "shot.png");
+    assert_eq!(ps[0].files[0].sha256, "a".repeat(64));
+    has(
+        &h.okj(&c, "talk_read", json!({"conv": "#general"})),
+        &["the red build", "    file: shot.png", "(attachment_get)"],
+    );
+
+    // Files alone: an empty text is fine with a file, never without.
+    h.clk.advance(std::time::Duration::from_secs(5));
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "", "attach": ["/tmp/log.txt"], "mention": ["gamma"]}),
+    );
+    has(&out, &["Posted post_", " with log.txt"]);
+    let ps = h.b.talk.posts(&ch.id);
+    assert_eq!(ps.len(), 2);
+    assert_eq!(ps[1].text, "");
+    // The woken agent's notice names the file it can't otherwise see.
+    let ns = h.notices(KEY_C);
+    let n = ns.last().expect("gamma woken");
+    has(&n.message.text, &["file: log.txt", "(attachment_get)"]);
+    // The list's last line names the files of a post with no text.
+    let cs = tools::talk::conversations(&*h.b, USER).unwrap();
+    let x = cs.iter().find(|x| x.conv_id == ch.id).unwrap();
+    assert_eq!(x.last_text, "📎 log.txt");
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "  "}),
+        &["empty post"],
+    );
+
+    // A DM to an agent: the message carries the file, the post too, once.
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "@beta", "text": "", "attach": ["/tmp/trace.json"]}),
+    );
+    has(&out, &["Posted msg_", " with trace.json"]);
+    let ds = h.b.ib.for_agent(KEY_B, false, 10);
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    assert_eq!(ds[0].message.attachments.len(), 1);
+    assert_eq!(ds[0].message.attachments[0].name, "trace.json");
+    let dm = ct::dm_id(KEY_A, KEY_B);
+    let ps = tools::talk::posts(&*h.b, KEY_B, &dm).unwrap();
+    assert_eq!(ps.len(), 1, "{ps:?}");
+    assert_eq!(ps[0].files.len(), 1);
+    has(
+        &h.okj(&b, "talk_read", json!({"conv": dm})),
+        &["file: trace.json"],
+    );
+
+    // A thread: the comment carries the file, and reading it shows it.
+    let (t, _) =
+        h.b.co
+            .post_ask(
+                USER,
+                coord::NewAsk {
+                    text: "why is the build slow?".into(),
+                    thread: true,
+                    ..Default::default()
+                },
+                &[],
+            )
+            .unwrap();
+    let r = h.short(&t.id);
+    let out = h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": r, "text": "flame graph", "attach": ["/tmp/flame.svg"]}),
+    );
+    has(&out, &["Commented comment:", "flame.svg"]);
+    // A comment needs text, files or not, as talk_post's spec says.
+    h.failsj(
+        &a,
+        "talk_post",
+        json!({"conv": r, "text": "", "attach": ["/tmp/flame.svg"]}),
+        &["give the comment text"],
+    );
+    let spec = h
+        .set
+        .specs("")
+        .into_iter()
+        .find(|s| s.name == "talk_post")
+        .unwrap();
+    has(
+        &spec.description,
+        &["text may then be empty, except in a thread"],
+    );
+    let cs = h.b.co.comments(&t.id).unwrap();
+    let cm = cs.iter().find(|x| x.text == "flame graph").unwrap();
+    assert_eq!(cm.attachments.len(), 1);
+    assert_eq!(cm.attachments[0].name, "flame.svg");
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": format!("task:{}", t.id)})),
+        &["flame graph", "file: flame.svg"],
+    );
+}
+
+/// Card #643: a post of files alone sums up as one line everywhere, the
+/// window's `postLine`: "📎 <first name>", plus " +N" for the rest. A
+/// channel member's reading notice quotes it so.
+#[test]
+fn a_files_only_post_reads_as_one_line() {
+    let file = |name: &str| blob::FileRef {
+        sha256: "a".repeat(64),
+        name: name.into(),
+        size: 10,
+        ..blob::FileRef::default()
+    };
+    let post = |text: &str, files: Vec<blob::FileRef>| ct::Post {
+        text: text.into(),
+        files,
+        ..ct::Post::default()
+    };
+    let line = tools::talk::post_line;
+    assert_eq!(line(&post("hi", vec![file("a.png")])), "hi");
+    assert_eq!(line(&post("", vec![])), "");
+    assert_eq!(line(&post("", vec![file("a.png")])), "📎 a.png");
+    assert_eq!(line(&post("  ", vec![file("a.png")])), "📎 a.png");
+    assert_eq!(
+        line(&post("", vec![file("a.png"), file("b.txt"), file("c.pdf")])),
+        "📎 a.png +2"
+    );
+
+    let h = new_harness();
+    assert!(h.b.attacher.set(std::sync::Arc::new(NamedFiles)).is_ok());
+    let (a, b) = (call_a(), call_b());
+    h.b.talk.create_channel(USER, "general", "").unwrap();
+    for k in [&a, &b] {
+        h.okj(k, "talk_join", json!({"conv": "#general"}));
+    }
+    h.okj(
+        &a,
+        "talk_post",
+        json!({"conv": "#general", "text": "", "attach": ["/tmp/a.png", "/tmp/b.txt"]}),
+    );
+    let ds: Vec<_> = h
+        .notices(KEY_B)
+        .into_iter()
+        .filter(|d| d.message.reason == coord::NOTICE_READING)
+        .collect();
+    assert_eq!(ds.len(), 1, "{ds:?}");
+    has(&ds[0].message.text, &[": 📎 a.png +1\n"]);
 }

@@ -95,7 +95,7 @@ pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
     REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
-    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed,
+    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
@@ -1220,6 +1220,12 @@ impl Coord {
     pub fn comment_attachment(&self, sha: &str) -> Option<FileRef> {
         self.lock().comment_attachment(sha)
     }
+    /// Every comment and blocker carrying sha, with the device whose row
+    /// put it there (card #659): a shared board's caller counts one only
+    /// where that device offered the file in the board's log.
+    pub fn attachment_rows(&self, sha: &str) -> Vec<(FileRef, String)> {
+        self.lock().attachment_rows(sha)
+    }
 
     // ---- links, leases ----
 
@@ -1608,6 +1614,19 @@ impl Coord {
     pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
+    }
+    /// Who helper part `id`'s "Part done" waits on now (card #557): its
+    /// lead's keys, empty while Irori would start one, None when it isn't
+    /// a part or no lead is coming.
+    pub fn part_lead(&self, id: &str) -> Option<Vec<String>> {
+        let f = self.lock();
+        f.tasks.get(id).and_then(|t| f.part_lead(t))
+    }
+    /// Whether the person's answer on card `id` brings it a fresh lead
+    /// (card #557): a split card nobody is on, where Irori starts leads.
+    pub fn answer_brings_lead(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.answer_brings_lead(t))
     }
     /// Why "Hand to an agent" can't move card `id` (a shared board's card,
     /// an open ask, subtasks, already on the Board); "" when it can.

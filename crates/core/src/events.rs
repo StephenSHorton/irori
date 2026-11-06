@@ -47,6 +47,9 @@ pub enum Topic {
     Talk,
     /// The notification history changed (card #377).
     Notifications,
+    /// A call changed: ringing, joined, left, mute, speaking, health
+    /// (card #654). `Core::call_snapshot` says what is on now.
+    Call,
 }
 
 /// One change.
@@ -67,6 +70,8 @@ pub enum CoreEvent {
     Talk,
     /// A notification was kept or read (card #377), here or synced.
     Notifications,
+    /// A call changed (card #654).
+    Call,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -83,6 +88,7 @@ impl CoreEvent {
             CoreEvent::Devices => Topic::Devices,
             CoreEvent::Talk => Topic::Talk,
             CoreEvent::Notifications => Topic::Notifications,
+            CoreEvent::Call => Topic::Call,
             CoreEvent::Resync => return None,
         })
     }

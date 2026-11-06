@@ -6,6 +6,21 @@ import { cn } from "cn"
 // side effects (a real row rendered on sample data would watch fake ids).
 // The words only set each line's length; nobody sees them.
 
+// AnswersShape is an item's answers in a Notifications row (card #644):
+// its question, then its buttons.
+export function AnswersShape() {
+  return (
+    <div className="grid gap-1.5">
+      <p className="text-sm">Which region should the staging box run in?</p>
+      <span className="flex gap-1.5">
+        <span skullet-block="" className="block h-8 w-28 rounded-md" />
+        <span skullet-block="" className="block h-8 w-20 rounded-md" />
+        <span skullet-block="" className="block h-8 w-20 rounded-md" />
+      </span>
+    </div>
+  )
+}
+
 // MessageRowsShape is a run of thread messages: the time column, then a
 // name and one or two lines, as the card's Thread and Talk draw them.
 export function MessageRowsShape({

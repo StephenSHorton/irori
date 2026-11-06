@@ -15,6 +15,7 @@ import { ConfirmDialog } from "@/components/common/confirm-button"
 import {
   BlockerState,
   cards as cardsApi,
+  cardStore,
   displayName,
   useCard,
   type CardBlocker,
@@ -37,6 +38,8 @@ import {
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { openSettings } from "@/components/settings/settings-menu"
 import { answerable } from "@/lib/thread"
+import { useDraft } from "@/lib/drafts"
+import { answerKey, answerPatch, instant, isDone } from "@/lib/optimistic"
 import {
   allowLifts,
   errorText,
@@ -236,6 +239,7 @@ export function OwnWords({
   busy,
   onSend,
   onCancel,
+  draft,
 }: {
   label: string
   placeholder: string
@@ -243,8 +247,12 @@ export function OwnWords({
   busy: boolean
   onSend: (text: string) => void
   onCancel: () => void
+  // The text kept here instead of in the box (card #644): an instant
+  // answer clears it only once saved, and a refused one finds it again.
+  draft?: [string, (t: string) => void]
 }) {
-  const [text, setText] = useState("")
+  const own = useState("")
+  const [text, setText] = draft ?? own
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (text.trim()) onSend(text)
@@ -743,27 +751,59 @@ function Where({ card: c }: { card: CardSummary }) {
   )
 }
 
+// BlockerAnswer is an item's answers in a row (Needs you, Notifications).
+// A pick or an own-words answer shows at once and saves in the background
+// (card #644); a refusal brings the item back, with the words typed still
+// in the box, and a toast says why. answerOpens: "Answer…" opens the card
+// to answer there instead (Notifications).
 export function BlockerAnswer({
   cardId,
   b,
   onOpen,
+  answerOpens = false,
 }: {
   cardId: string
   b: CardBlocker
   onOpen: () => void
+  answerOpens?: boolean
 }) {
-  const act = useAct()
-  const [own, setOwn] = useState(false)
+  const [said, setSaid] = useState("")
+  // The same draft as the card page's box for this item; a kept one (a
+  // refused answer's words) opens the box it was typed in.
+  const words = useDraft(`${cardId}/blocker/${b.id}`)
+  const [own, setOwn] = useState(() => !answerOpens && !!words[0])
   const question = plainLine(b.question)
-  const send = (option: number, text: string) =>
-    void act.run(
-      () => cardsApi.answer(cardId, b.id, option, text),
+  const send = (option: number, text: string) => {
+    const started = instant({
+      key: answerKey(cardId, b.id),
+      patch: answerPatch(
+        cardId,
+        b,
+        option,
+        cardStore.slot(cardId)?.detail?.openBlockers
+      ),
+      send: () => cardsApi.answer(cardId, b.id, option, text),
+      failed: b.doneCheck
+        ? "Your answer to the done check wasn't saved"
+        : "Your answer wasn't saved",
+      onSaved: () => {
+        if (option < 0) words[1]("")
+      },
+      onFailed: () => {
+        setSaid("")
+        if (option < 0) setOwn(true)
+      },
+    })
+    if (!started) return
+    setSaid(
       b.doneCheck
-        ? option >= 0
+        ? isDone(b, option)
           ? "Marked done."
           : "Sent back to the agent."
         : "Answer sent."
     )
+    setOwn(false)
+  }
   const replied = b.state === BlockerState.Replied
   return (
     <div className="grid min-w-0 gap-1.5">
@@ -785,7 +825,7 @@ export function BlockerAnswer({
           They still need: {b.missing.map(plainLine).join("; ")}
         </p>
       )}
-      {act.done ? null : own ? (
+      {said ? null : own ? (
         <OwnWords
           label={`${b.doneCheck ? "Why it isn't done" : "Your answer to"}: ${question}`}
           placeholder={
@@ -796,7 +836,8 @@ export function BlockerAnswer({
               : "Answer in your own words"
           }
           send={b.doneCheck ? "Not done" : "Answer"}
-          busy={act.busy}
+          busy={false}
+          draft={words}
           onSend={(t) => send(-1, t)}
           onCancel={() => setOwn(false)}
         />
@@ -816,7 +857,6 @@ export function BlockerAnswer({
                     ? "default"
                     : "outline"
                 }
-                disabled={act.busy}
                 className="h-auto min-h-8 max-w-full py-1 text-left whitespace-normal"
                 title={o.why ? plainLine(o.why) : undefined}
                 onClick={() => send(i, "")}
@@ -832,8 +872,7 @@ export function BlockerAnswer({
             <Button
               size="sm"
               variant="outline"
-              disabled={act.busy}
-              onClick={() => setOwn(true)}
+              onClick={() => (answerOpens ? onOpen() : setOwn(true))}
             >
               {b.doneCheck ? "Not done…" : replied ? "Reply…" : "Answer…"}
             </Button>
@@ -843,7 +882,7 @@ export function BlockerAnswer({
           </Button>
         </span>
       )}
-      <Said error={act.error} done={act.done} />
+      <Said error={null} done={said} />
     </div>
   )
 }

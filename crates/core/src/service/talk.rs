@@ -38,8 +38,18 @@ impl Core {
         Ok(coord::talk::page(&all, before, limit))
     }
 
+    /// What each key goes by, as conversations name their members
+    /// ([`tools::talk::names`]): a huddle's people (#654).
+    pub fn talk_names(&self, keys: &[String]) -> Vec<String> {
+        tools::talk::names(&self.talk_view(), keys)
+    }
+
     /// Posts to channel or DM `conv` as `from` ([`tools::talk::post`]); a
     /// thread's posts are its comments, so a thread id is refused here.
+    /// `files` are stored files sent with it (card #643): in a space's
+    /// channel or a DM with another person they're offered in that log
+    /// as the row goes in, so its members' devices may fetch them.
+    #[allow(clippy::too_many_arguments)]
     pub fn talk_post(
         &self,
         from: &Sender,
@@ -48,6 +58,7 @@ impl Core {
         mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
+        files: Vec<blob::FileRef>,
     ) -> Result<Posted, String> {
         let conv = conv.trim();
         let target = if coord::talk::is_channel(conv) {
@@ -67,6 +78,7 @@ impl Core {
             mentions,
             agents_now,
             thread_from,
+            &files,
         )
     }
 

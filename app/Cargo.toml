@@ -43,6 +43,8 @@ tauri-plugin-clipboard-manager = { workspace = true }
 irori-mcp = { workspace = true }
 irori-window = { workspace = true }
 irori-notify = { workspace = true }
+# Calls (#654): the phone fills its call::Platform (shell/call_android.rs).
+irori-call = { workspace = true }
 irori-update = { workspace = true }
 
 # Desktop only: a phone runs one copy by itself (card #226).

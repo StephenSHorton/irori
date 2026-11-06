@@ -54,10 +54,18 @@ fn only_mentions_and_dms_notify() {
         .unwrap();
 
     r.core
-        .talk_post(&me, &ch.id, "a note to the room", &[], true, None)
+        .talk_post(&me, &ch.id, "a note to the room", &[], true, None, vec![])
         .unwrap();
     r.core
-        .talk_post(&alpha, &ch.id, "the build is green", &[], true, None)
+        .talk_post(
+            &alpha,
+            &ch.id,
+            "the build is green",
+            &[],
+            true,
+            None,
+            vec![],
+        )
         .unwrap();
     let tagged = r
         .core
@@ -68,6 +76,7 @@ fn only_mentions_and_dms_notify() {
             &["person".into()],
             true,
             None,
+            vec![],
         )
         .unwrap();
     let id = notify::talk_id(&ch.id, &tagged.post.post_id);
@@ -85,7 +94,7 @@ fn only_mentions_and_dms_notify() {
         .unwrap();
     let said = r
         .core
-        .talk_post(&alpha, &dm, "took #371", &[], true, None)
+        .talk_post(&alpha, &dm, "took #371", &[], true, None, vec![])
         .unwrap();
     let dm_id = notify::talk_id(&dm, &said.post.post_id);
     wait_for(10, "the DM's card", || {
@@ -114,4 +123,31 @@ fn only_mentions_and_dms_notify() {
         (t.tab.as_str(), t.ref_.as_str()),
         (notify::TAB_TALK, dm.as_str())
     );
+
+    // Card #643: a DM of files alone reads as Talk's one line for it.
+    let file = |c: char, name: &str| blob::FileRef {
+        sha256: c.to_string().repeat(64),
+        name: name.into(),
+        size: 10,
+        ..blob::FileRef::default()
+    };
+    let files = r
+        .core
+        .talk_post(
+            &alpha,
+            &dm,
+            "",
+            &[],
+            true,
+            None,
+            vec![file('a', "shot.png"), file('b', "log.txt")],
+        )
+        .unwrap();
+    let files_id = notify::talk_id(&dm, &files.post.post_id);
+    wait_for(10, "the files' card", || {
+        cards.talk().iter().any(|c| c.0 == files_id)
+    });
+    let shown = cards.talk();
+    let c = shown.iter().find(|c| c.0 == files_id).unwrap();
+    assert_eq!(c.2, "📎 shot.png +1");
 }

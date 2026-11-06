@@ -163,6 +163,7 @@ impl Core {
             self.chain(),
             &self.device_renames(),
             r,
+            None,
         )
     }
 }
@@ -187,7 +188,9 @@ pub(crate) fn device_names(
 }
 
 /// [`Core::fetch_file_blocking`] over the Core's parts (the tools'
-/// attacher reaches them without a `Core`).
+/// attacher reaches them without a `Core`). With `board`, the reader
+/// reached `r` only through that shared board or space ([`fetch_for_board`],
+/// card #659).
 pub(crate) fn fetch_file_blocking(
     mesh: &Arc<crate::meshnode::Mesh>,
     rt: &tokio::runtime::Handle,
@@ -195,9 +198,18 @@ pub(crate) fn fetch_file_blocking(
     chain: &Chain,
     renames: &std::collections::HashMap<String, String>,
     r: &FileRef,
+    board: Option<&str>,
 ) -> Result<String, FileFetchError> {
     let mesh = mesh.clone();
-    let res = rt.block_on(async { tokio::time::timeout(FETCH_TIMEOUT, fetch_any(&mesh, r)).await });
+    let res = rt.block_on(async {
+        let fetch = async {
+            match board {
+                Some(b) => fetch_for_board(&mesh, b, r).await,
+                None => fetch_any(&mesh, r).await,
+            }
+        };
+        tokio::time::timeout(FETCH_TIMEOUT, fetch).await
+    });
     match res {
         Err(_) => Err(FileFetchError::TimedOut),
         Ok(Ok(from)) => Ok(from),
@@ -212,6 +224,28 @@ pub(crate) fn fetch_file_blocking(
         }
         Ok(Err(e)) => Err(FileFetchError::Other(e.to_string())),
     }
+}
+
+/// Makes sure `r`'s file is here for a reader who reached it only through
+/// shared board or space `board_id` (card #659). A file this person put on
+/// that board (or fetched for it) goes as [`fetch_any`]. Anything else
+/// comes through that board alone, and a copy already here counts only once
+/// a device that offered it there shows it holds the bytes
+/// ([`mesh::boardmesh::BoardMesh::fetch_for_board`]): a row naming a hash
+/// that another conversation brought here lends nothing.
+pub(crate) async fn fetch_for_board(
+    mesh: &crate::meshnode::Mesh,
+    board_id: &str,
+    r: &FileRef,
+) -> Result<String, mesh::FetchError> {
+    let Some(b) = mesh.board(board_id) else {
+        return Err(mesh::FetchError::Offline(Vec::new()));
+    };
+    if b.own_offer(&r.sha256) {
+        return fetch_any(mesh, r).await;
+    }
+    let _turn = mesh.node.lock_fetch(&r.sha256).await;
+    b.fetch_for_board(r).await
 }
 
 /// The private mesh first (this person's own devices), then every open

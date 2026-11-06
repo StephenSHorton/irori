@@ -19,9 +19,9 @@
 //! flight. The voice datagrams keep running beside it, so the summary also
 //! shows what the share does to voice on the same connection.
 //!
-//! Relays: by default n0's public relays and n0's address lookup (preset N0),
-//! which is what Irori's relay map holds with "Use public relays" on
-//! (docs/design/public-relays.md). `listen --home-relay-port P` also runs an
+//! Relays: by default n0's four public relays as Irori uses them
+//! (irori_net::public, decision 43; no preset, no address lookup), so a peer
+//! is found through the relays by its endpoint id alone. `listen --home-relay-port P` also runs an
 //! embedded Irori home relay (`irori_net::relay`, the home server's code, open
 //! to any client) on 0.0.0.0:P with its own pinned key, and homes the listener
 //! on it; `dial --home-relay https://HOST:P/` goes through it. A listener on
@@ -36,7 +36,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use iroh::endpoint::{Connection, presets};
+use iroh::endpoint::{Builder, Connection};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey};
 use iroh_relay::server::{Access, AccessControl, ClientRequest};
 use irori_net::endpoint::{self as irori_ep, EndpointOpts, IpMode, RelaySpec};
@@ -85,11 +85,16 @@ async fn online(ep: &Endpoint) -> Result<()> {
         .map_err(|_| anyhow!("no relay answered within 20 s"))
 }
 
-/// n0's relays and address lookup, as in #571's runs.
+/// n0's public relays as Irori uses them (irori_net::public, decision 43):
+/// no preset and no address lookup.
 async fn bind_n0(relay_only: bool) -> Result<Endpoint> {
-    let mut b = Endpoint::builder(presets::N0)
+    let mut b = Builder::empty()
+        .crypto_provider(irori_net::tls::provider())
         .secret_key(SecretKey::generate())
-        .alpns(vec![ALPN.to_vec()]);
+        .alpns(vec![ALPN.to_vec()])
+        .relay_mode(iroh::RelayMode::Custom(iroh::RelayMap::from_iter(
+            irori_net::public::configs(),
+        )));
     if relay_only {
         b = b.clear_ip_transports();
     }
@@ -481,7 +486,11 @@ fn kind_of(conn: &Connection) -> (&'static str, path::PathReport) {
 async fn dial(args: &[String]) -> Result<()> {
     let o = parse(args)?;
     let (ep, dest, relay_name) = match &o.home_relay {
-        None => (bind_n0(o.relay_only).await?, EndpointAddr::new(o.to), "n0"),
+        None => (
+            bind_n0(o.relay_only).await?,
+            irori_net::public::with_public(EndpointAddr::new(o.to), true),
+            "n0",
+        ),
         Some(url) => {
             let id = throwaway_identity();
             let pubk = o.relay_pub.unwrap_or(o.to);

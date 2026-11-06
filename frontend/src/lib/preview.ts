@@ -13,8 +13,10 @@
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied);
 //                   pressing it hears a sample sentence (lib/voice.ts)
-//   ?call=<state>   the voice-call mock-up on #suzuri (card #571): start,
-//                   live, share or transcript (components/talk/call-mock.tsx)
+//   ?call=<state>   huddles (#654) on lib/call.ts's stand-in: start (one
+//                   on in #netcode, ringing here) or live (you're in
+//                   #suzuri's); share and transcript are still the #571
+//                   mock-up (components/talk/call-mock.tsx)
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)

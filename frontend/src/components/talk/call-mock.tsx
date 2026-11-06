@@ -1,20 +1,16 @@
-// Voice calls, a mock-up (card #571). Only the browser preview shows it,
-// behind ?call= (lib/preview.ts): nothing is wired, no audio moves. It shows
-// how huddles, their transcript and screen sharing could look, so the person
-// can pick what to build before any of it is.
+// Voice calls, the parts still a mock-up (card #571). Only the browser
+// preview shows them, behind ?call= (lib/preview.ts): nothing is wired. The
+// huddle itself is real now (#654, huddle.tsx; ?call=live and ?call=start
+// show it on lib/call.ts's stand-in); what's left here is what a huddle
+// could grow into:
 //
-//   ?call=start       a channel's Huddle button open: what joining means and
-//                     that a transcript is written; netcode has a huddle on
-//   ?call=live        in a huddle: who's in it, on which device and link, the
-//                     transcript as it's written, and the bar that follows you
-//   ?call=share       someone shares a screen: it takes the posts' place
+//   ?call=share       someone shares a screen: it takes the posts' place,
+//                     beside the huddle with its transcript
 //   ?call=transcript  the huddle ended: its post in the channel, the
 //                     transcript beside it, an agent acting on it
 
-import { useState, type ReactNode } from "react"
 import {
   BotIcon,
-  ChevronDownIcon,
   CircleDotIcon,
   FileTextIcon,
   HeadphonesIcon,
@@ -29,28 +25,23 @@ import {
   SmartphoneIcon,
   SparklesIcon,
   SquarePlusIcon,
-  WifiIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { previewFlag } from "@/lib/preview"
 import { cn } from "@/lib/utils"
 
-export type CallMock = "start" | "live" | "share" | "transcript"
+export type CallMock = "share" | "transcript"
 
 export function callMock(): CallMock | null {
   // Server-rendered tests have no window.
   if (typeof window === "undefined") return null
   const v = previewFlag("call")
-  return v === "start" || v === "live" || v === "share" || v === "transcript"
-    ? v
-    : null
+  return v === "share" || v === "transcript" ? v : null
 }
 
 // The channel the mock-up's huddle is in.
 export const callChannel = "sample-ch-suzuri"
-// A channel where someone else's huddle is on (shown in the list).
-export const otherHuddleChannel = "sample-ch-netcode"
 
 type Device = "mac" | "pc" | "phone"
 
@@ -106,10 +97,10 @@ const people: Who[] = [
   },
 ]
 
-function DeviceIcon({ d }: { d: Device }) {
+function DevIcon({ device }: { device: Device }) {
   const cls = "size-3 shrink-0"
-  if (d === "phone") return <SmartphoneIcon className={cls} />
-  if (d === "pc") return <MonitorIcon className={cls} />
+  if (device === "phone") return <SmartphoneIcon className={cls} />
+  if (device === "pc") return <MonitorIcon className={cls} />
   return <LaptopIcon className={cls} />
 }
 
@@ -172,132 +163,6 @@ function Avatar({ w, size = "md" }: { w: Who; size?: "sm" | "md" | "lg" }) {
   )
 }
 
-// HuddleButton is the channel header's way in: Huddle, or the running time
-// while you're in it.
-export function HuddleButton({ mock }: { mock: CallMock }) {
-  if (mock === "live" || mock === "share")
-    return (
-      <Button
-        size="xs"
-        variant="secondary"
-        className="shrink-0 text-success"
-        title="You're in this channel's huddle"
-      >
-        <HeadphonesIcon />
-        In huddle · 4:12
-      </Button>
-    )
-  return (
-    <Button
-      size="xs"
-      variant={mock === "start" ? "secondary" : "ghost"}
-      className="shrink-0"
-      aria-expanded={mock === "start"}
-      title="Start a voice huddle in this channel"
-    >
-      <HeadphonesIcon />
-      Huddle
-    </Button>
-  )
-}
-
-// StartHuddle is what the Huddle button opens: who can join, your mic, and
-// the transcript, which is on unless you turn it off (decisions.md #52).
-export function StartHuddle({ channel }: { channel: string }) {
-  const [transcript, setTranscript] = useState(true)
-  return (
-    <div className="absolute top-12 right-4 z-20 w-[360px] rounded-xl border border-border bg-background p-4 text-[13px] text-popover-foreground shadow-2xl">
-      <h3 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
-        <HeadphonesIcon className="size-4" />
-        Start a huddle in #{channel}
-      </h3>
-      <p className="mt-1.5 text-muted-foreground">
-        The people in #{channel} get a notice and can join from any of their
-        devices, the phone too. Its agents can listen in by reading the
-        transcript.
-      </p>
-
-      <div className="mt-3 grid gap-2 rounded-lg bg-secondary/50 p-2.5">
-        <Row icon={<MicIcon className="size-4" />} label="Microphone">
-          <span className="flex items-center gap-1 text-ink-2">
-            MacBook Pro Microphone <ChevronDownIcon className="size-3" />
-          </span>
-        </Row>
-        <div className="flex h-1.5 gap-0.5 pl-6" aria-label="Mic level">
-          {Array.from({ length: 24 }, (_, i) => (
-            <span
-              key={i}
-              className={cn(
-                "flex-1 rounded-sm",
-                i < 9 ? "bg-success" : "bg-muted-foreground/25"
-              )}
-            />
-          ))}
-        </div>
-        <Row icon={<WifiIcon className="size-4" />} label="Noise suppression">
-          <span className="text-ink-2">On</span>
-        </Row>
-      </div>
-
-      <label className="mt-3 flex cursor-pointer gap-2.5 rounded-lg border border-border p-2.5">
-        <input
-          type="checkbox"
-          className="mt-0.5 accent-[var(--primary)]"
-          checked={transcript}
-          onChange={(e) => setTranscript(e.target.checked)}
-        />
-        <span className="grid gap-1">
-          <span className="font-medium text-ink">Write a transcript</span>
-          <span className="text-[12px] text-muted-foreground">
-            Each person's own device turns their voice into text, on the device.
-            No recording is kept. When the huddle ends the transcript is posted
-            in #{channel}, where its people and agents can read and act on it.
-            Everyone who joins is told it's on.
-          </span>
-        </span>
-      </label>
-
-      <div className="mt-3 flex justify-end gap-2">
-        <Button size="sm" variant="ghost">
-          Cancel
-        </Button>
-        <Button size="sm">
-          <HeadphonesIcon />
-          Start huddle
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function Row({
-  icon,
-  label,
-  children,
-}: {
-  icon: ReactNode
-  label: string
-  children: ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-muted-foreground">{icon}</span>
-      <span className="flex-1 text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  )
-}
-
-// HuddleLine is a channel row's live huddle: who's in it, and Join.
-export function HuddleLine({ names }: { names: string }) {
-  return (
-    <span className="flex min-w-0 items-center gap-1 text-[11px] text-success">
-      <HeadphonesIcon className="size-3 shrink-0" />
-      <span className="truncate">Huddle · {names}</span>
-    </span>
-  )
-}
-
 function TranscriptOn() {
   return (
     <Badge
@@ -333,7 +198,7 @@ function Tile({ w, compact }: { w: Who; compact?: boolean }) {
               <span className="truncate">{w.link}</span>
             ) : (
               <>
-                <DeviceIcon d={w.device} />
+                <DevIcon device={w.device} />
                 <span className="truncate">
                   {w.deviceName} · {w.link}
                 </span>
@@ -385,9 +250,9 @@ function Controls({ sharing }: { sharing?: boolean }) {
   )
 }
 
-// CallPanel is the huddle beside the posts (or the whole page on a phone):
-// who's in it, the transcript as it's written, and the controls.
-export function CallPanel({
+// MockCallPanel is the huddle beside a shared screen: who's in it, the
+// transcript as it's written, and the controls (none wired).
+export function MockCallPanel({
   channel,
   wide,
   sharing,
@@ -469,63 +334,6 @@ export function CallPanel({
   )
 }
 
-// CallBar sits above your name in the sidebar while you're in a huddle, so
-// it goes with you to any page.
-export function CallBar() {
-  return (
-    <div className="mx-2 mb-2 rounded-lg border border-success/40 bg-success/10 p-2">
-      <div className="flex items-center gap-2 text-[12.5px]">
-        <HeadphonesIcon className="size-4 text-success" />
-        <span className="min-w-0 flex-1 truncate font-medium text-ink">
-          Huddle · #suzuri
-        </span>
-        <span className="text-[11px] text-muted-foreground tabular-nums">
-          4:12
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-center gap-1">
-        <div className="flex -space-x-1.5">
-          {people.slice(0, 3).map((w) => (
-            <Avatar key={w.name} w={w} size="sm" />
-          ))}
-        </div>
-        <span className="ml-1 text-[11px] text-muted-foreground">
-          3 people, 1 agent
-        </span>
-        <span className="ml-auto flex gap-0.5">
-          <Button size="icon-xs" variant="ghost" title="Mute">
-            <MicIcon />
-          </Button>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            className="text-destructive"
-            title="Leave"
-          >
-            <PhoneOffIcon />
-          </Button>
-        </span>
-      </div>
-    </div>
-  )
-}
-
-// HuddleStarted is the line a running huddle leaves in the channel's posts.
-export function HuddleStarted() {
-  return (
-    <div className="mx-2 my-2 flex items-center gap-2 rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-[12.5px]">
-      <HeadphonesIcon className="size-4 text-success" />
-      <span className="text-ink-2">
-        <span className="font-medium text-ink">You</span> started a huddle ·
-        Spencer, Aiko and sample-heron joined
-      </span>
-      <span className="ml-auto">
-        <TranscriptOn />
-      </span>
-    </div>
-  )
-}
-
 // ShareStage takes the posts' place while someone shares a screen.
 export function ShareStage() {
   return (
@@ -578,9 +386,9 @@ PS C:\\src\\irori> `}
   )
 }
 
-// HuddleEnded is the post a huddle leaves when it ends: who was in it, what
-// was decided, and the transcript one click away.
-export function HuddleEnded({ onOpen }: { onOpen?: () => void }) {
+// MockHuddleEnded is an ended huddle's post with what an agent made of its
+// transcript, and the transcript one click away.
+export function MockHuddleEnded({ onOpen }: { onOpen?: () => void }) {
   return (
     <div className="mx-2 my-1.5 rounded-lg border border-border bg-card/60 p-3 text-[13px]">
       <div className="flex items-center gap-2">

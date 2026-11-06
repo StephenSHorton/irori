@@ -1,6 +1,8 @@
 //! Person-to-person DMs on the mesh (card #538, docs/design/talk-dms.md §2):
 //! the `dm` frame, its hooks and `send_to` on board connections, and
-//! `dm.secret` on the private mesh. Nothing here opens a socket.
+//! `dm.secret` on the private mesh. Call ringing rides the same connections
+//! and hooks the same way (`call` frames, `send_call`, card #654). Nothing
+//! here opens a socket.
 
 use crate::common;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,8 +14,8 @@ use common::{Dev, eventually, never};
 use ed25519_dalek::SigningKey;
 use irori_identity::*;
 use mesh::boardmesh::{
-    BoardMesh, BoardMeshOpts, DMS_PROTOCOL, DmFrame, DmHooks, LivePeer, MemberDevice, OwnDevicesFn,
-    open_board_secret,
+    BoardMesh, BoardMeshOpts, CALLS_PROTOCOL, CallFrame, CallHooks, DMS_PROTOCOL, DmFrame, DmHooks,
+    LivePeer, MemberDevice, OwnDevicesFn, open_board_secret,
 };
 use mesh::frames::{FRAME_BOARD_SECRET, FRAME_DM_SECRET, FRAME_HELLO, PROTOCOL};
 use mesh::ownboards::OwnBoards;
@@ -183,6 +185,8 @@ struct Heard {
     hellos: Mutex<Vec<(String, LivePeer)>>,
     ticks: AtomicUsize,
     frames: Mutex<Vec<(String, LivePeer, DmFrame)>>,
+    call_hellos: Mutex<Vec<(String, LivePeer)>>,
+    calls: Mutex<Vec<(String, LivePeer, CallFrame)>>,
 }
 
 impl DmHooks for Heard {
@@ -201,9 +205,25 @@ impl DmHooks for Heard {
     }
 }
 
+impl CallHooks for Heard {
+    fn hello(&self, via: &str, peer: &LivePeer) {
+        let mut g = self.call_hellos.lock().unwrap();
+        g.push((via.to_string(), peer.clone()));
+    }
+
+    fn frame(&self, via: &str, peer: &LivePeer, frame: CallFrame) {
+        let mut g = self.calls.lock().unwrap();
+        g.push((via.to_string(), peer.clone(), frame));
+    }
+}
+
 impl Heard {
     fn frame_count(&self) -> usize {
         self.frames.lock().unwrap().len()
+    }
+
+    fn call_count(&self) -> usize {
+        self.calls.lock().unwrap().len()
     }
 }
 
@@ -244,6 +264,7 @@ async fn member(net: &FakeNet, s: &Space, dev: &str, own: Option<OwnDevicesFn>) 
         own_devices: own,
         files: None,
         dms: Some(heard.clone()),
+        calls: Some(heard.clone()),
     });
     m.set_intervals(Intervals {
         presence: Duration::from_millis(40),
@@ -459,6 +480,117 @@ async fn a_device_s_doesnt_count_has_no_say_in_a_hand_off() {
     d.conn.send(&f).await.unwrap();
     never("its frame is heard", || a.heard.frame_count() > 0).await;
     assert!(a.mesh.send_to("a2", ask()).await.is_err());
+}
+
+fn ring() -> CallFrame {
+    CallFrame {
+        space_id: S.into(),
+        call_id: "call-1".into(),
+        op: "ring".into(),
+        conv_id: "general".into(),
+        epoch: 1,
+        devices: vec!["a1".into()],
+        at_ms: 1,
+    }
+}
+
+/// Card #654: a call frame reaches the receiver's call hooks alone, named
+/// by the connection's board, and both hellos say calls.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn send_call_reaches_the_call_hooks() {
+    let net = FakeNet::new();
+    let s = Space::new(&["b1", "c1"]);
+    let a = member(&net, &s, "a1", None).await;
+    let b = member(&net, &s, "b1", None).await;
+    let c = member(&net, &s, "c1", None).await;
+    eventually("a hears b and c", || live_ids(&a) == ["b1", "c1"]).await;
+    assert!(
+        a.mesh
+            .live_peers()
+            .iter()
+            .all(|p| p.calls == CALLS_PROTOCOL)
+    );
+    eventually("b's call hooks hear a's hello", || {
+        let g = b.heard.call_hellos.lock().unwrap();
+        g.iter()
+            .any(|(via, p)| via == S && p.device_id == "a1" && p.calls == CALLS_PROTOCOL)
+    })
+    .await;
+
+    a.mesh.send_call("b1", ring()).await.unwrap();
+    eventually("b gets the call", || b.heard.call_count() == 1).await;
+    {
+        let got = b.heard.calls.lock().unwrap();
+        let (via, peer, f) = &got[0];
+        assert_eq!(via, S, "the hook names the connection's board");
+        assert_eq!(f, &ring());
+        assert_eq!(peer.device_id, "a1");
+        assert_eq!(peer.person_id, s.person_of("a1"));
+    }
+    assert_eq!(b.heard.frame_count(), 0, "a call isn't a dm");
+    never("c gets b's call", || c.heard.call_count() > 0).await;
+    assert!(a.mesh.send_call("nobody", ring()).await.is_err());
+}
+
+/// A call frame about another space is dropped; one with an op this build
+/// doesn't know still reaches the hooks, and the connection stays up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_call_frame_for_another_space_is_dropped() {
+    let net = FakeNet::new();
+    let s = Space::new(&["d1"]);
+    let a = member(&net, &s, "a1", None).await;
+    let d = raw(&net, &a, s.device_pub("d1"), "d1", "a1").await;
+    let said = hello("d1", &s.person_of("d1"), json!({"spaces": 1, "calls": 1}));
+    d.conn.send(&said).await.unwrap();
+    eventually("a hears d", || live_ids(&a) == ["d1"]).await;
+    for f in [
+        json!({"type": "call", "spaceId": DM, "callId": "x", "op": "ring"}),
+        json!({"type": "call", "spaceId": S, "callId": "y", "op": "mute", "devices": ["d1"]}),
+    ] {
+        d.conn.send(&serde_json::to_vec(&f).unwrap()).await.unwrap();
+    }
+    eventually("the unknown op lands", || a.heard.call_count() == 1).await;
+    let got = a.heard.calls.lock().unwrap();
+    let (via, peer, f) = &got[0];
+    assert_eq!(via, S);
+    assert_eq!(f.call_id, "y", "the other space's frame never came");
+    assert_eq!(f.op, "mute");
+    assert_eq!(f.devices, ["d1"]);
+    assert_eq!(peer.device_id, "d1");
+    assert_eq!(peer.calls, CALLS_PROTOCOL);
+    assert!(d.conn.err().is_none(), "the connection stayed up");
+}
+
+/// A device whose hello doesn't say calls is still heard, and never rung.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_that_doesnt_say_calls_is_never_rung() {
+    let net = FakeNet::new();
+    let s = Space::new(&["d1"]);
+    let a = member(&net, &s, "a1", None).await;
+    let d = raw(&net, &a, s.device_pub("d1"), "d1", "a1").await;
+    let said = hello("d1", &s.person_of("d1"), json!({"spaces": 1, "dms": 1}));
+    d.conn.send(&said).await.unwrap();
+    eventually("a hears d", || live_ids(&a) == ["d1"]).await;
+    assert_eq!(a.mesh.live_peers()[0].calls, 0);
+    eventually("the call hooks hear d", || {
+        let g = a.heard.call_hellos.lock().unwrap();
+        g.len() == 1 && g[0].1.calls == 0
+    })
+    .await;
+    let err = a.mesh.send_call("d1", ring()).await.unwrap_err();
+    assert!(err.contains("too old for calls"), "{err}");
+}
+
+/// The keys a call connection is proved with are the joined epochs' topic
+/// keys: here epoch 1's alone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_topic_keys_are_the_joined_epochs() {
+    let net = FakeNet::new();
+    let s = Space::new(&[]);
+    let a = member(&net, &s, "a1", None).await;
+    let t = a.secrets.topics().unwrap().remove(0);
+    assert_eq!(a.mesh.newest_key(), Some((1, t.key)));
+    assert_eq!(a.mesh.topic_keys(), [(1, t.key)]);
 }
 
 /// The boards a stub Core holds open.

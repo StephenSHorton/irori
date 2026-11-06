@@ -764,8 +764,8 @@ const SPACE_TALK_KINDS: [&str; 5] = [
 ];
 
 /// Rewrites the keys a talk.* payload names (`by`, `member.key`, each of
-/// `mentions`) with `f`; a key `f` turns into None is dropped from
-/// `mentions` and refuses the row anywhere else.
+/// `mentions` and of `call.people`) with `f`; a key `f` turns into None is
+/// dropped from those lists and refuses the row anywhere else.
 fn map_talk_keys(
     v: &mut serde_json::Value,
     mut f: impl FnMut(&str) -> Option<String>,
@@ -786,6 +786,19 @@ fn map_talk_keys(
             .map(serde_json::Value::String)
             .collect();
         *ms = keep;
+    }
+    // A huddle's people (#654) are mapped as mentions are. Only people:
+    // `board_key` would mint a card for an agent's key.
+    if let Some(serde_json::Value::Array(ps)) = o.get_mut("call").and_then(|c| c.get_mut("people"))
+    {
+        let keep: Vec<serde_json::Value> = ps
+            .iter()
+            .filter_map(|p| p.as_str())
+            .filter(|p| coord::talk::is_person_key(p) || coord::talk::is_other_person_key(p))
+            .filter_map(&mut f)
+            .map(serde_json::Value::String)
+            .collect();
+        *ps = keep;
     }
     Ok(())
 }
@@ -951,6 +964,21 @@ impl Services {
             && let Some(o) = payload.as_object_mut()
         {
             o.insert("spaceId".into(), space_id.into());
+        }
+        // A post's files are offered in this log first, as a board
+        // comment's are (card #643): a member's device may fetch a file
+        // only where one of ours offered it here (v0.5 §5.5).
+        if kind == kinds::TALK_POST
+            && let Some(files) = payload.get("attach").and_then(|a| a.as_array())
+        {
+            let files: Vec<&serde_json::Value> = files.iter().collect();
+            coord::board::offer_files_in(
+                &b.store,
+                &self.device.id,
+                &|sha: &str| self.files.has(sha),
+                &files,
+            )
+            .map_err(|e| e.to_string())?;
         }
         let ev = b
             .store
