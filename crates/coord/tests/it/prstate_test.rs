@@ -111,6 +111,14 @@ fn closed_unmerged_tells_the_holder() {
         "{}",
         ns[0].text
     );
+    // Card #614: the closing comment may say where the work landed.
+    assert!(
+        ns[0].text.contains(&format!(
+            "Read the closing comment first (`gh pr view {PR} --comments`)"
+        )),
+        "{}",
+        ns[0].text
+    );
     // A closed PR doesn't hold completed.
     e.c.set_task_state(ALICE, &t.id, COMPLETED, "dropped")
         .unwrap();

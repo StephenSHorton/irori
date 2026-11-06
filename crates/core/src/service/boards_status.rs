@@ -355,13 +355,8 @@ mod tests {
             vector: vector.iter().map(|(d, s)| (d.to_string(), *s)).collect(),
             at_ms: NOW,
             advanced_ms: vector.iter().map(|(d, _)| (d.to_string(), NOW)).collect(),
-            spaces: 0,
-            spawns: 0,
-            moves: 0,
-
-            synced_ms: 0,
-            dms: 0,
-            tolerant: 0,
+            // A new PeerHeard field shouldn't conflict here on every merge.
+            ..Default::default()
         }
     }
 
