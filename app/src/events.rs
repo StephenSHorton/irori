@@ -623,6 +623,8 @@ mod tests {
     impl Drop for Follow {
         fn drop(&mut self) {
             self.stop.cancel();
+            // The server task outlives this: the runtime ends after the test.
+            let _ = self.b.st.close();
         }
     }
 

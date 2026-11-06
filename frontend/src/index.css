@@ -10,6 +10,8 @@
 @import "./design/themes.css";
 
 @custom-variant dark (&:is(.dark *));
+/* A Mac (data-os on <html>, set in main.tsx; card #585). */
+@custom-variant mac (&:where([data-os="mac"] *));
 
 /* Device colours (card #22, internal/devcolor.Palette): an agent's face and
    a single-device card wear their device's. Clear of the status hues
@@ -103,6 +105,11 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    }
+  html,
+  body {
+    /* No rubber-band bounce past the window's edges (macOS WebKit). */
+    overscroll-behavior: none;
     }
   body {
     @apply bg-background text-foreground;
