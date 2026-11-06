@@ -129,7 +129,9 @@ fn runs_here(key: &str, device: &str, me: &str) -> bool {
     key.split_once('/').is_some_and(|(d, _)| d == me)
 }
 
-/// [`on_permission_prompt`] for the mesh roster's card of an agent.
+/// Whether the mesh roster's card of an agent on another device may be on
+/// a permission prompt. Its status rows don't carry `waitingFor`, so any
+/// wait counts unless the card says it is for something else.
 fn roster_on_prompt(a: &coord::roster::AgentCard) -> bool {
-    a.status == "waiting" && a.waiting_for == PERMISSION_PROMPT
+    a.status == "waiting" && (a.waiting_for.is_empty() || a.waiting_for == PERMISSION_PROMPT)
 }
