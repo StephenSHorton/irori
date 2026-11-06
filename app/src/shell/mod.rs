@@ -467,6 +467,7 @@ fn start_core(
             {
                 probe.watch_terminate(&app);
                 probe.watch_voice(&window);
+                probe.watch_window(&app);
             }
             probe.note(&format!("version {}", version()));
             probe.note(&format!("api-port {api_port}"));
