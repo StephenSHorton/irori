@@ -638,10 +638,18 @@ pub(crate) fn board(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let mut cut = 0;
     // Card #570: where each card sits in its order, found once.
     let order = Order::of(
-        [&asks, &took, &v.needs_you, &v.blocked, &v.working, &v.open, &v.later]
-            .into_iter()
-            .flatten()
-            .map(|cd| &cd.task),
+        [
+            &asks,
+            &took,
+            &v.needs_you,
+            &v.blocked,
+            &v.working,
+            &v.open,
+            &v.later,
+        ]
+        .into_iter()
+        .flatten()
+        .map(|cd| &cd.task),
     );
     let group = |b: &mut String, name: &str, cards: &[Card], cut: &mut usize| {
         if cards.is_empty() {
@@ -2619,7 +2627,12 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let Some(t) = t else {
         return need_task_id();
     };
-    format!("Edited {}; {}.\n{}", t.short_ref(), done.join("; "), s.line(&t))
+    format!(
+        "Edited {}; {}.\n{}",
+        t.short_ref(),
+        done.join("; "),
+        s.line(&t)
+    )
 }
 
 /// Refs as the caller gave them, for a result line.

@@ -1376,6 +1376,8 @@ impl Services {
                 &mut v.blocked,
                 &mut v.working,
                 &mut v.open,
+                // Card #570: Not yet cards, or they'd carry the board's keys.
+                &mut v.later,
                 &mut v.done,
             ] {
                 let kept: Vec<Card> = std::mem::take(lane)

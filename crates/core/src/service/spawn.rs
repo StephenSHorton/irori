@@ -2197,7 +2197,13 @@ impl Services {
         // The card from whichever log holds it (a shared board's, #455).
         let t = self.spawn_card_of(key).map(|(_, t, _)| t);
         let short = t.as_ref().map(|t| t.short_ref()).unwrap_or_default();
+        let held = t.as_ref().is_some_and(|t| t.parked().is_some());
         let text = match t.as_ref().and_then(|t| t.ask.as_ref()) {
+            // Put aside as Not yet (card #570): not done, and not its to
+            // finish now.
+            None if held => format!(
+                "Irori is ending you: {short} was put aside as Not yet. It is not done: it comes back later, and an agent picks it up then. Stop work on it now. Before you go, leave where you got to on {short}: Where (commit and push), Left off (board_step left_off) and a closing comment (board_comment). Don't set it completed. {PROPOSE_NOTE} Then stop."
+            ),
             // An ask or a thread (card #470): no branch to hand off.
             Some(a) if a.thread => format!(
                 "Irori is ending you: the thread {short} is resolved or has gone quiet. If there's anything the person should still know, say it in the thread (board_comment {short}). {PROPOSE_NOTE} Then stop."

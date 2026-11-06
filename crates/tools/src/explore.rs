@@ -78,13 +78,17 @@ pub fn spawned_lines(
 }
 
 fn task_overview_line(t: &Task, n: &Names<'_>) -> capture::Line {
+    // Card #570: a card put aside says so, and why.
+    let held = t.parked();
     let mut text = format!(
         "{} [{}] {}",
         t.short_ref(),
-        t.state,
+        if held.is_some() { "not yet" } else { &t.state },
         one_line(&t.title, MAX_CARD_TITLE)
     );
-    if t.state == coord::BLOCKED {
+    if let Some(b) = held {
+        text += &format!(": {}", one_line(&b.question, 80));
+    } else if t.state == coord::BLOCKED {
         text += &format!(": {}", one_line(&t.reason, 80));
     } else if let Some(h) = t.holders.first() {
         text += &format!(", {}", n.who(h));
@@ -164,6 +168,8 @@ impl Inner {
         }
         tasks.extend(mine);
         tasks.extend(others);
+        // Card #570: put aside, last: they are open but not to start.
+        tasks.extend(v.later.iter().map(|cd| task_overview_line(&cd.task, n)));
         input.blockers.truncate(capture::OVERVIEW_LINES);
         if tasks.len() > capture::OVERVIEW_LINES {
             input.more_tasks = (tasks.len() - capture::OVERVIEW_LINES) as i64;

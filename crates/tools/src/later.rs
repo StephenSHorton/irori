@@ -77,7 +77,12 @@ impl Order {
 
     /// Steps along a plain chain from `id`, one card each way: `step` is
     /// the map walked, `back` the other way's, which must name one card.
-    fn walk(&self, id: &str, step: &HashMap<String, Vec<String>>, back: &HashMap<String, Vec<String>>) -> usize {
+    fn walk(
+        &self,
+        id: &str,
+        step: &HashMap<String, Vec<String>>,
+        back: &HashMap<String, Vec<String>>,
+    ) -> usize {
         let mut seen: HashSet<&str> = HashSet::from([id]);
         let mut cur = id;
         let mut n = 0;
@@ -154,7 +159,7 @@ impl Inner {
         if card.contains('#')
             || card.starts_with("task:")
             || coord::parse_short(card).is_some()
-            || self.task_ref(card).is_ok()
+            || (card.len() == 26 && card.bytes().all(|b| b.is_ascii_alphanumeric()))
         {
             return Ok(Back::Card(card.to_string()));
         }

@@ -399,12 +399,18 @@ mod tests {
         );
         assert_eq!(err(r#"{"options":[{"x":1}]}"#), r#"unknown argument "x""#);
         assert_eq!(err(r#"{"steps":[1]}"#), "argument steps should be struct");
-        assert_eq!(err(r#"{"later":"soon"}"#), "argument later should be an object");
+        assert_eq!(
+            err(r#"{"later":"soon"}"#),
+            "argument later should be an object"
+        );
         assert_eq!(
             err(r#"{"later":{"until":5}}"#),
             "argument later.until should be a string"
         );
-        assert_eq!(err(r#"{"later":{"when":"x"}}"#), r#"unknown argument "when""#);
+        assert_eq!(
+            err(r#"{"later":{"when":"x"}}"#),
+            r#"unknown argument "when""#
+        );
         assert_eq!(
             err(r#"{"bogus":1,"steps":[{"done":"x"}]}"#),
             "argument steps.done should be true or false"

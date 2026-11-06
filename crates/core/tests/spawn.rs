@@ -1027,3 +1027,69 @@ fn a_session_started_for_a_card_held_meanwhile_is_ended() {
     assert!(got.holders.is_empty(), "{:?}", got.holders);
     assert_eq!(started.lock().unwrap().len(), 1);
 }
+
+/// Card #570: a card put aside as Not yet while its agent works on it. The
+/// agent is off it, and Irori ends it with words for a card that isn't
+/// done: stop, leave where it got to, and don't set it completed.
+#[test]
+fn an_agent_whose_card_is_put_aside_is_told_it_isnt_done() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Voice calls".into(),
+                objective: "calls between devices".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core
+        .set_spawner(Some(spawner(&fake, r.claude.join("sessions"))));
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            board_id: String::new(),
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(60, "the spawned agent bound to the card", || {
+        co.get_task(&t.id)
+            .is_some_and(|t| t.holders.contains(&spawned))
+    });
+    co.park(&person, &t.id, "not before December", coord::Back::Word)
+        .unwrap();
+    let told = |d: &inbox::Delivery| d.message.text.contains("was put aside as Not yet");
+    wait_for(60, "the agent told its card was put aside", || {
+        let _ = r.core.set_spawn_cap(r.core.spawn_cap());
+        r.notices_to(&spawned).iter().any(told)
+    });
+    let ds = r.notices_to(&spawned);
+    let d = ds.iter().find(|d| told(d)).unwrap();
+    assert!(
+        d.message.text.contains("It is not done")
+            && d.message.text.contains("Don't set it completed")
+            && !d.message.text.contains("your work on"),
+        "{}",
+        d.message.text
+    );
+    let got = co.get_task(&t.id).unwrap();
+    assert!(got.parked().is_some(), "{:?}", got.blockers);
+    assert!(got.holders.is_empty(), "{:?}", got.holders);
+}
