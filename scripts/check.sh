@@ -16,6 +16,9 @@ cd "$(dirname "$0")/.."
 (
   cd frontend
   bun install --frozen-lockfile
+  # Same files as `bun run format` (card #615). end-of-line auto: a Windows
+  # checkout (core.autocrlf) has CRLF, and git stores LF either way.
+  bunx prettier --check --end-of-line auto "**/*.{ts,tsx}"
   # src/gen/models.ts follows src/gen/bindings.ts (cargo xtask bindings).
   bun scripts/gen-models.ts --check
   bun run build
