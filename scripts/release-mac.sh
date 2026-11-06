@@ -8,14 +8,15 @@
 #   scripts/release-mac.sh 0.6.0 --publish      # + upload to the draft, extend SHA256SUMS
 #   scripts/release-mac.sh 0.6.0 --finalize     # publish the draft
 #
-# Signing: without MACOS_CODESIGN_IDENTITY the app is signed ad hoc, as the
-# Go releases are. With a Developer ID identity in the login keychain set
-# MACOS_CODESIGN_IDENTITY="Developer ID Application: ... (TEAMID)", and for
-# notarization either APPLE_API_KEY_ID + APPLE_API_ISSUER_ID +
-# APPLE_API_KEY_P8 (path) or APPLE_ID + APPLE_TEAM_ID +
-# APPLE_APP_SPECIFIC_PASSWORD (app/macos/notarize.sh). Once a release is
-# Developer ID signed, keep signing: the updater refuses an update that is
-# not.
+# Signing: always Developer ID, never ad hoc. The updater refuses an update
+# that is not Developer ID signed over one that is, and a build signed any
+# other way counts as a new app to macOS and loses its permissions, so this
+# script stops rather than fall back. It uses the one "Developer ID
+# Application" identity in the login keychain; with several, name one in
+# MACOS_CODESIGN_IDENTITY. check-signed.sh checks the zip that ships.
+# Notarization: the keychain profile "irori-notary" (docs/releasing.md), or
+# the credentials app/macos/notarize.sh lists. Without any the build is
+# signed, not notarized, and says so.
 #
 # The asset names are a contract with crates/update and the Go updater
 # (crates/update/tests/release_names.rs reads them below).
@@ -60,6 +61,34 @@ if [[ "$MODE" == "--finalize" ]]; then
   exit 0
 fi
 
+# Before the long build: the identity must be here and be Developer ID.
+identities="$(security find-identity -v -p codesigning)"
+if [[ -z "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
+  found="$(sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' <<<"$identities")"
+  if [[ -z "$found" ]]; then
+    echo "no Developer ID Application identity in the keychain; a Mac release is never ad hoc" >&2
+    exit 1
+  fi
+  if [[ "$(wc -l <<<"$found")" -ne 1 ]]; then
+    echo "several Developer ID Application identities; pick one with MACOS_CODESIGN_IDENTITY:" >&2
+    echo "$found" >&2
+    exit 1
+  fi
+  MACOS_CODESIGN_IDENTITY="$found"
+fi
+export MACOS_CODESIGN_IDENTITY
+if [[ "$MACOS_CODESIGN_IDENTITY" != "Developer ID Application: "* ]]; then
+  echo "MACOS_CODESIGN_IDENTITY is \"$MACOS_CODESIGN_IDENTITY\"; a Mac release is signed with Developer ID, never ad hoc" >&2
+  exit 1
+fi
+if ! grep -qF -- "\"$MACOS_CODESIGN_IDENTITY\"" <<<"$identities"; then
+  echo "no valid identity \"$MACOS_CODESIGN_IDENTITY\" in the keychain" >&2
+  exit 1
+fi
+team="${MACOS_CODESIGN_IDENTITY##*(}"
+team="${team%)}"
+echo "signing with $MACOS_CODESIGN_IDENTITY"
+
 # The assets go up against the tag, so they must be built from it: a clean
 # tree at the tag's commit (Go's CI built the tag itself). A dry run only
 # warns.
@@ -96,8 +125,16 @@ IRORI_VERSION="$v" TAURI_CONFIG="{\"version\":\"${v%%[-+]*}\"}" \
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/aarch64-apple-darwin/release/irori"
 file "$BIN"
 
-if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then export IRORI_NOTARIZE=0; fi
+if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then
+  if xcrun notarytool history --keychain-profile "${IRORI_NOTARY_PROFILE:-irori-notary}" >/dev/null 2>&1; then
+    export IRORI_NOTARY_PROFILE="${IRORI_NOTARY_PROFILE:-irori-notary}"
+  else
+    echo "warning: no notary credentials, so this build won't be notarized" >&2
+    export IRORI_NOTARIZE=0
+  fi
+fi
 bash app/macos/package.sh --binary "$BIN" --version "$v" --out "$DIST" --zip "$appzip" --dmg "$dmg"
+bash app/macos/check-signed.sh "$DIST/$appzip" "$team"
 
 # Smoke (Go release.yml): the bundled binary reports the version.
 exe="$DIST/Irori.app/Contents/MacOS/irori"
