@@ -4,7 +4,11 @@ import { AgentRef, CardThreadItem } from "./models"
 import { sentBack } from "./rounds"
 
 const you = AgentRef({ key: "person", name: "You", status: "person" })
-const agent = AgentRef({ key: "mac/card-81-1", name: "card-81-1", status: "idle" })
+const agent = AgentRef({
+  key: "mac/card-81-1",
+  name: "card-81-1",
+  status: "idle",
+})
 const irori = AgentRef({ key: "irori", name: "Irori", status: "irori" })
 
 const reason = CardThreadItem({
@@ -23,7 +27,9 @@ describe("a done check the person sent back (card #476)", () => {
   })
 
   test("sent, not read yet: the pending line, neither sign", () => {
-    const r = sentBack([{ ...reason, pending: ["sent to card-81-1, not read yet"] }])
+    const r = sentBack([
+      { ...reason, pending: ["sent to card-81-1, not read yet"] },
+    ])
     expect(r?.reason).toBe("the others haven't been told the next steps")
     expect(r?.heard).toBe(false)
     expect(r?.answered).toBe(false)
@@ -43,7 +49,12 @@ describe("a done check the person sent back (card #476)", () => {
       who: agent,
       text: "made #108 for the deploy check and told the team",
     })
-    const early = CardThreadItem({ id: "c0", kind: "comment", who: agent, text: "earlier" })
+    const early = CardThreadItem({
+      id: "c0",
+      kind: "comment",
+      who: agent,
+      text: "earlier",
+    })
     const r = sentBack([early, reason, reply])
     expect(r?.replies.map((x) => x.id)).toEqual(["c2"])
     expect(r?.heard).toBe(true)
@@ -53,7 +64,12 @@ describe("a done check the person sent back (card #476)", () => {
 
   test("the newest reason counts when they sent it back twice", () => {
     const again = { ...reason, id: "c3", text: "still no note to the team" }
-    const reply = CardThreadItem({ id: "c2", kind: "comment", who: agent, text: "on it" })
+    const reply = CardThreadItem({
+      id: "c2",
+      kind: "comment",
+      who: agent,
+      text: "on it",
+    })
     const r = sentBack([reason, reply, again])
     expect(r?.reason).toBe("still no note to the team")
     expect(r?.answered).toBe(false)

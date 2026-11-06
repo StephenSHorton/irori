@@ -8,7 +8,12 @@ import { leaseNames, waitLine, waitName } from "./wait-name"
 describe("waitName", () => {
   test("a lease family is a free one of it", () => {
     expect(
-      leaseNames(["ww/dolphin-slot-1", "ww/dolphin-slot-2", "ww/dolphin-slot-3", "ww/dolphin-slot-4"])
+      leaseNames([
+        "ww/dolphin-slot-1",
+        "ww/dolphin-slot-2",
+        "ww/dolphin-slot-3",
+        "ww/dolphin-slot-4",
+      ])
     ).toBe("a free Dolphin slot")
     expect(leaseNames(["check/macbook/slot-1", "check/macbook/slot-2"])).toBe(
       "a free check slot on macbook"
@@ -19,41 +24,61 @@ describe("waitName", () => {
     expect(leaseNames(["gpu/qwen"])).toBe("gpu/qwen")
     expect(leaseNames(["port:8080"])).toBe("port 8080")
     expect(leaseNames(["desk/irori"])).toBe("the merge desk")
-    expect(leaseNames(["path:remote:github.com/sh/irori:crates/coord/**"])).toBe(
-      "crates/coord/** in irori"
+    expect(
+      leaseNames(["path:remote:github.com/sh/irori:crates/coord/**"])
+    ).toBe("crates/coord/** in irori")
+    expect(leaseNames(["path:root:abc1234def:src/*.rs"])).toBe(
+      "src/*.rs in repo abc1234"
     )
-    expect(leaseNames(["path:root:abc1234def:src/*.rs"])).toBe("src/*.rs in repo abc1234")
     expect(leaseNames(["check/mac/slot-3"])).toBe("check slot 3 on mac")
   })
   test("free text that isn't a lease keeps its words", () => {
-    expect(waitLine({ waitKind: "external", waitOn: "external deploy to aws/us-east-1 finishing" })).toBe(
-      "Waiting on deploy to aws/us-east-1 finishing"
-    )
-    expect(waitLine({ waitKind: "external", waitOn: "external CI at https://ci.example.com/job/build-42" })).toBe(
-      "Waiting on CI at https://ci.example.com/job/build-42"
-    )
-    expect(waitLine({ waitKind: "external", waitOn: "the ww/dolphin-slot-2 lease" })).toBe(
-      "Waiting for Dolphin slot 2"
-    )
+    expect(
+      waitLine({
+        waitKind: "external",
+        waitOn: "external deploy to aws/us-east-1 finishing",
+      })
+    ).toBe("Waiting on deploy to aws/us-east-1 finishing")
+    expect(
+      waitLine({
+        waitKind: "external",
+        waitOn: "external CI at https://ci.example.com/job/build-42",
+      })
+    ).toBe("Waiting on CI at https://ci.example.com/job/build-42")
+    expect(
+      waitLine({ waitKind: "external", waitOn: "the ww/dolphin-slot-2 lease" })
+    ).toBe("Waiting for Dolphin slot 2")
   })
   test("two families name the first and count the rest", () => {
-    expect(leaseNames(["ww/dolphin-slot-1", "ww/dolphin-slot-2", "port:9246"])).toBe(
-      "a free Dolphin slot and 1 more"
-    )
+    expect(
+      leaseNames(["ww/dolphin-slot-1", "ww/dolphin-slot-2", "port:9246"])
+    ).toBe("a free Dolphin slot and 1 more")
   })
   test("an external wait naming a lease family reads the same", () => {
-    const on = "external ww/dolphin-slot-1..4 leases (reed until the netem run ends)"
-    expect(waitName({ waitKind: "external", waitOn: on })).toBe("a free Dolphin slot")
+    const on =
+      "external ww/dolphin-slot-1..4 leases (reed until the netem run ends)"
+    expect(waitName({ waitKind: "external", waitOn: on })).toBe(
+      "a free Dolphin slot"
+    )
     expect(waitName({ waitOn: on })).toBe("a free Dolphin slot")
-    expect(waitLine({ waitKind: "external", waitOn: on })).toBe("Waiting for a free Dolphin slot")
-  })
-  test("anything else keeps its words", () => {
-    expect(waitLine({ waitKind: "agent", waitOn: "kestrel" })).toBe("Waiting on kestrel")
-    expect(waitLine({ waitKind: "task", waitOn: "#12" })).toBe("Waiting on #12")
-    expect(waitLine({ waitKind: "external", waitOn: "external CI on main" })).toBe("Waiting on CI on main")
-    expect(waitLine({ waitKind: "lease", waitOn: "ww/dolphin-slot-1 ww/dolphin-slot-2" })).toBe(
+    expect(waitLine({ waitKind: "external", waitOn: on })).toBe(
       "Waiting for a free Dolphin slot"
     )
+  })
+  test("anything else keeps its words", () => {
+    expect(waitLine({ waitKind: "agent", waitOn: "kestrel" })).toBe(
+      "Waiting on kestrel"
+    )
+    expect(waitLine({ waitKind: "task", waitOn: "#12" })).toBe("Waiting on #12")
+    expect(
+      waitLine({ waitKind: "external", waitOn: "external CI on main" })
+    ).toBe("Waiting on CI on main")
+    expect(
+      waitLine({
+        waitKind: "lease",
+        waitOn: "ww/dolphin-slot-1 ww/dolphin-slot-2",
+      })
+    ).toBe("Waiting for a free Dolphin slot")
     expect(waitLine({})).toBe("Waiting on something else")
   })
 })
@@ -69,17 +94,26 @@ describe("a version wait", () => {
   }
   test("the pill says the version", () => {
     expect(waitLabel(card)).toBe("Waiting on Irori 0.12.4")
-    expect(waitLabel({ ...card, waitingOn: 2 })).toBe("Waiting on Irori 0.12.4 +1")
+    expect(waitLabel({ ...card, waitingOn: 2 })).toBe(
+      "Waiting on Irori 0.12.4 +1"
+    )
   })
   test("the tooltip names the devices, then the question", () => {
-    expect(waitTip(card)).toBe("Waiting on Irori 0.12.4 on Desktop and another device")
+    expect(waitTip(card)).toBe(
+      "Waiting on Irori 0.12.4 on Desktop and another device"
+    )
     expect(waitTip({ ...card, waitQuestion: "After the update" })).toBe(
       "Waiting on Irori 0.12.4 on Desktop and another device: After the update"
     )
   })
   test("any other wait's tooltip is its label and question", () => {
-    expect(waitTip({ waitingOn: 1, waitKind: "agent", waitOn: "kestrel", waitQuestion: "Soon" })).toBe(
-      "Waiting on kestrel: Soon"
-    )
+    expect(
+      waitTip({
+        waitingOn: 1,
+        waitKind: "agent",
+        waitOn: "kestrel",
+        waitQuestion: "Soon",
+      })
+    ).toBe("Waiting on kestrel: Soon")
   })
 })

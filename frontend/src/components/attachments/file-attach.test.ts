@@ -44,7 +44,10 @@ describe("filesWithheld (card #321)", () => {
   const shot = new File(["png"], "image.png", { type: "image/png" })
   const paste = (types: string[], files: File[]) => ({
     types,
-    ...transfer(files, files.map((file) => ({ kind: "file", file }))),
+    ...transfer(
+      files,
+      files.map((file) => ({ kind: "file", file }))
+    ),
   })
 
   test("says files but hands none over: WebKit with a HEIC-only clipboard", () => {

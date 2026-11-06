@@ -201,7 +201,12 @@ export function toGraph(
   const held = new Map<string, number>() // hub id -> open cards in it
   const ids = new Set(cards.map((c) => c.id))
   const seen = new Set<string>()
-  const edge = (kind: EdgeKind, source: string, target: string, label?: string) => {
+  const edge = (
+    kind: EdgeKind,
+    source: string,
+    target: string,
+    label?: string
+  ) => {
     const id = `${kind}:${source}->${target}`
     if (seen.has(id)) return
     seen.add(id)
@@ -270,20 +275,25 @@ export function toGraph(
     // A done card is tucked away: no blockers, no agent lines.
     if (isDone) continue
 
-    const open = details
-      ?.get(c.id)
-      ?.blockers.filter(
-        (b) =>
-          !b.resolved &&
-          // A wait on other work isn't a question (card #481).
-          !b.waitsOn &&
-          b.state !== BlockerState.Resolved &&
-          b.state !== BlockerState.Closed
-      )
+    const open = details?.get(c.id)?.blockers.filter(
+      (b) =>
+        !b.resolved &&
+        // A wait on other work isn't a question (card #481).
+        !b.waitsOn &&
+        b.state !== BlockerState.Resolved &&
+        b.state !== BlockerState.Closed
+    )
     if (open?.length) {
       for (const b of open) {
         const id = `blocker:${c.id}:${b.id}`
-        nodes.push({ kind: "blocker", id, label: b.question, card: c.id, state: b.state, group: g })
+        nodes.push({
+          kind: "blocker",
+          id,
+          label: b.question,
+          card: c.id,
+          state: b.state,
+          group: g,
+        })
         edge("blocker", id, c.id)
       }
     } else if (c.openBlockers > 0 || c.waiting > 0) {
@@ -311,7 +321,9 @@ export function toGraph(
     }
 
     // Agents writing to each other on this card: a line per pair.
-    const talking = (c.talking ?? []).filter((a) => here(a) && a.status !== "person")
+    const talking = (c.talking ?? []).filter(
+      (a) => here(a) && a.status !== "person"
+    )
     for (let i = 0; i < talking.length; i++)
       for (let j = i + 1; j < talking.length; j++) {
         const [a, b] = [talking[i].key, talking[j].key].sort()
@@ -341,7 +353,9 @@ export function toGraph(
     hubs.push({
       kind: "group",
       id: a.group,
-      label: [a.person ? "You" : a.status, plural(n, "card")].filter(Boolean).join(" · "),
+      label: [a.person ? "You" : a.status, plural(n, "card")]
+        .filter(Boolean)
+        .join(" · "),
       by: "agent",
       key: a.agent.key,
     })
@@ -349,10 +363,20 @@ export function toGraph(
   const groupOf = new Map<string, string>()
   for (const x of nodes) if (x.kind === "card") groupOf.set(x.id, x.group)
   for (const e of edges)
-    if (e.kind === "holder" && groupOf.get(e.target) === agents.get(e.source)?.group) e.inHub = true
+    if (
+      e.kind === "holder" &&
+      groupOf.get(e.target) === agents.get(e.source)?.group
+    )
+      e.inHub = true
   const areas: GroupNode[] = []
   if (unheld)
-    areas.push({ kind: "group", id: UnheldId, label: `Nobody on these · ${unheld}`, by: "unheld", key: "" })
+    areas.push({
+      kind: "group",
+      id: UnheldId,
+      label: `Nobody on these · ${unheld}`,
+      by: "unheld",
+      key: "",
+    })
   if (others)
     areas.push({
       kind: "group",
@@ -361,7 +385,14 @@ export function toGraph(
       by: "others",
       key: "",
     })
-  if (done) areas.push({ kind: "group", id: DoneId, label: `Done · ${done}`, by: "done", key: "" })
+  if (done)
+    areas.push({
+      kind: "group",
+      id: DoneId,
+      label: `Done · ${done}`,
+      by: "done",
+      key: "",
+    })
   return { nodes: [...hubs, ...areas, ...nodes, ...agents.values()], edges }
 }
 
@@ -372,7 +403,12 @@ export function handOffs(prev: Map<string, string>, graph: Graph): string[] {
   for (const n of graph.nodes) {
     if (n.kind !== "card" || n.done) continue
     const was = prev.get(n.id)
-    if (was !== undefined && was !== n.group && n.group.startsWith("group:agent:")) out.push(n.id)
+    if (
+      was !== undefined &&
+      was !== n.group &&
+      n.group.startsWith("group:agent:")
+    )
+      out.push(n.id)
   }
   return out
 }
@@ -411,7 +447,11 @@ export function colsFor(n: number, max: number, wide = 1): number {
 function blockerSpot(card: Point, i: number): Point {
   return {
     x: card.x + BlockerInset,
-    y: card.y + NodeSize.card.h + BlockerGap + i * (NodeSize.blocker.h + BlockerGap),
+    y:
+      card.y +
+      NodeSize.card.h +
+      BlockerGap +
+      i * (NodeSize.blocker.h + BlockerGap),
   }
 }
 
@@ -421,7 +461,8 @@ function depthFirst(cards: CardNode[]): CardNode[] {
   const inSet = new Set(cards.map((c) => c.id))
   const kids = new Map<string, CardNode[]>()
   for (const c of cards)
-    if (c.parent && inSet.has(c.parent)) kids.set(c.parent, [...(kids.get(c.parent) ?? []), c])
+    if (c.parent && inSet.has(c.parent))
+      kids.set(c.parent, [...(kids.get(c.parent) ?? []), c])
   const out: CardNode[] = []
   const visit = (c: CardNode) => {
     out.push(c)
@@ -449,7 +490,13 @@ function placeArea(
   for (let r = 0; r * pillCols < agents.length; r++) {
     agents
       .slice(r * pillCols, (r + 1) * pillCols)
-      .forEach((a, i) => at.push([a.id, { x: Pad + i * (NodeSize.agent.w + PillGap), y }, NodeSize.agent]))
+      .forEach((a, i) =>
+        at.push([
+          a.id,
+          { x: Pad + i * (NodeSize.agent.w + PillGap), y },
+          NodeSize.agent,
+        ])
+      )
     w = Math.max(w, pillCols * NodeSize.agent.w + (pillCols - 1) * PillGap)
     y += NodeSize.agent.h + PillGap
   }
@@ -485,13 +532,16 @@ export function autoLayout(g: Graph): Layout {
   const cards = g.nodes.filter((n): n is CardNode => n.kind === "card")
   const blockersOf = new Map<string, BlockerNode[]>()
   for (const n of g.nodes)
-    if (n.kind === "blocker") blockersOf.set(n.card, [...(blockersOf.get(n.card) ?? []), n])
+    if (n.kind === "blocker")
+      blockersOf.set(n.card, [...(blockersOf.get(n.card) ?? []), n])
   const agentsOf = new Map<string, AgentNode[]>()
   for (const n of g.nodes)
-    if (n.kind === "agent") agentsOf.set(n.group, [...(agentsOf.get(n.group) ?? []), n])
+    if (n.kind === "agent")
+      agentsOf.set(n.group, [...(agentsOf.get(n.group) ?? []), n])
   const agentOf = (id: string) => agentsOf.get(id)?.[0]
   const members = new Map<string, CardNode[]>()
-  for (const c of cards) members.set(c.group, [...(members.get(c.group) ?? []), c])
+  for (const c of cards)
+    members.set(c.group, [...(members.get(c.group) ?? []), c])
   const count = (id: string) => members.get(id)?.length ?? 0
 
   const areas = g.nodes.filter((n): n is GroupNode => n.kind === "group")
@@ -503,7 +553,9 @@ export function autoLayout(g: Graph): Layout {
       return (
         pb - pa || // you first
         count(b.id) - count(a.id) ||
-        (agentOf(a.id)?.label ?? "").localeCompare(agentOf(b.id)?.label ?? "") ||
+        (agentOf(a.id)?.label ?? "").localeCompare(
+          agentOf(b.id)?.label ?? ""
+        ) ||
         a.key.localeCompare(b.key)
       )
     })
@@ -570,11 +622,18 @@ export function withPlaced(g: Graph, l: Layout): Layout {
     if (!within(n.card.pos, l.groups[n.group])) continue
     pos[n.id] = { x: n.card.pos.x, y: n.card.pos.y }
   }
-  return { ...l, pos: followers(g, pos), groups: groupRects(g, pos, l, l.groups) }
+  return {
+    ...l,
+    pos: followers(g, pos),
+    groups: groupRects(g, pos, l, l.groups),
+  }
 }
 
 // followers puts each blocker under its card's current spot.
-export function followers(g: Graph, pos: Record<string, Point>): Record<string, Point> {
+export function followers(
+  g: Graph,
+  pos: Record<string, Point>
+): Record<string, Point> {
   const out = { ...pos }
   const seen = new Map<string, number>()
   for (const n of g.nodes) {
@@ -627,18 +686,28 @@ export function groupRects(
   anchor?: Record<string, Rect>
 ): Record<string, Rect> {
   const out: Record<string, Rect> = { ...l.groups }
-  const box = new Map<string, { x0: number; y0: number; x1: number; y1: number }>()
+  const box = new Map<
+    string,
+    { x0: number; y0: number; x1: number; y1: number }
+  >()
   const away = new Set<string>()
   if (anchor)
     for (const n of g.nodes)
-      if (n.kind === "card" && pos[n.id] && !near(pos[n.id], anchor[n.group])) away.add(n.id)
+      if (n.kind === "card" && pos[n.id] && !near(pos[n.id], anchor[n.group]))
+        away.add(n.id)
   for (const n of g.nodes) {
-    if (n.kind !== "card" && n.kind !== "blocker" && n.kind !== "agent") continue
+    if (n.kind !== "card" && n.kind !== "blocker" && n.kind !== "agent")
+      continue
     if (away.has(n.kind === "blocker" ? n.card : n.id)) continue
     const p = pos[n.id]
     if (!p) continue
     const s = NodeSize[n.kind]
-    const b = box.get(n.group) ?? { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+    const b = box.get(n.group) ?? {
+      x0: Infinity,
+      y0: Infinity,
+      x1: -Infinity,
+      y1: -Infinity,
+    }
     box.set(n.group, {
       x0: Math.min(b.x0, p.x),
       y0: Math.min(b.y0, p.y),
@@ -647,7 +716,12 @@ export function groupRects(
     })
   }
   for (const [id, b] of box)
-    out[id] = { x: b.x0 - Pad, y: b.y0 - Head - Pad, w: b.x1 - b.x0 + 2 * Pad, h: b.y1 - b.y0 + Head + 2 * Pad }
+    out[id] = {
+      x: b.x0 - Pad,
+      y: b.y0 - Head - Pad,
+      w: b.x1 - b.x0 + 2 * Pad,
+      h: b.y1 - b.y0 + Head + 2 * Pad,
+    }
   return out
 }
 

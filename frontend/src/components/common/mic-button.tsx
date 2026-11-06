@@ -63,9 +63,7 @@ export function MicButton({
   const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
   const [phase, setPhase] = useState<Phase>("idle")
   const [note, setNote] = useState<
-    | { kind: "download" }
-    | { kind: "error"; code: string; text: string }
-    | null
+    { kind: "download" } | { kind: "error"; code: string; text: string } | null
   >(null)
   const session = useRef<Session | null>(null)
   const anchor = useRef<Anchor>({ before: "", after: "" })
@@ -109,7 +107,11 @@ export function MicButton({
           }
         }
         if (next.error) {
-          setNote({ kind: "error", code: next.error.code, text: next.error.text })
+          setNote({
+            kind: "error",
+            code: next.error.code,
+            text: next.error.text,
+          })
         }
         if (next.ended) finish()
       }),
@@ -152,7 +154,11 @@ export function MicButton({
     }
     const t = target.current
     const v = valueRef.current
-    anchor.current = anchorAt(v, t?.selectionStart ?? v.length, t?.selectionEnd ?? v.length)
+    anchor.current = anchorAt(
+      v,
+      t?.selectionStart ?? v.length,
+      t?.selectionEnd ?? v.length
+    )
     composed.current = v
     setNote(null)
     setPhase("starting")
@@ -205,7 +211,9 @@ export function MicButton({
           live && "bg-destructive/15 text-destructive hover:bg-destructive/25",
           st.state === "denied" && !live && "text-muted-foreground"
         )}
-        title={st.state === "denied" && !live ? `${label}. ${st.reason}` : label}
+        title={
+          st.state === "denied" && !live ? `${label}. ${st.reason}` : label
+        }
         aria-label={label}
         aria-pressed={live}
         disabled={disabled || busy || !!dl}
@@ -253,8 +261,9 @@ export function MicButton({
         ) : note?.kind === "download" ? (
           <>
             <p className="text-foreground">
-              Voice input turns speech into text on this device; no audio leaves it.
-              It needs the speech model, a one-time {megabytes(st.modelBytes)} download.
+              Voice input turns speech into text on this device; no audio leaves
+              it. It needs the speech model, a one-time{" "}
+              {megabytes(st.modelBytes)} download.
             </p>
             {voice.downloadError && (
               <p className="text-destructive" role="alert">
@@ -280,7 +289,9 @@ export function MicButton({
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={() => void openVoiceSettings(note.code).catch(() => {})}
+                  onClick={() =>
+                    void openVoiceSettings(note.code).catch(() => {})
+                  }
                 >
                   Open Settings
                 </Button>
@@ -304,7 +315,10 @@ function DownloadProgress({ done, total }: { done: number; total: number }) {
         Downloading the speech model… {megabytes(done)} of {megabytes(total)}
       </p>
       <div className="h-1.5 w-full overflow-hidden bg-muted">
-        <div className="h-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-primary transition-[width]"
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   )
@@ -314,7 +328,8 @@ function DownloadProgress({ done, total }: { done: number; total: number }) {
 // command rejects with the engine's message only).
 function codeOf(text: string): string {
   const t = text.toLowerCase()
-  if (t.includes("microphone access") || t.includes("allow")) return "mic-denied"
+  if (t.includes("microphone access") || t.includes("allow"))
+    return "mic-denied"
   if (t.includes("microphone")) return "no-mic"
   if (t.includes("model")) return "no-model"
   return "other"

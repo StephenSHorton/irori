@@ -38,10 +38,44 @@ export type Block =
 // names in code (.run, .info, .link, .in), so "board.go", "t.Run",
 // "subprocess.run" or "logger.info" stays text.
 const bareTLDs = new Set([
-  "com", "org", "net", "io", "ai", "dev", "app", "co", "me", "gg", "tv",
-  "xyz", "edu", "gov", "uk", "de", "jp", "fr", "ca", "us", "eu",
-  "nl", "se", "ch", "au", "ly", "page", "site", "cloud",
-  "tech", "to", "fm", "im", "be", "it", "es", "kr", "cn",
+  "com",
+  "org",
+  "net",
+  "io",
+  "ai",
+  "dev",
+  "app",
+  "co",
+  "me",
+  "gg",
+  "tv",
+  "xyz",
+  "edu",
+  "gov",
+  "uk",
+  "de",
+  "jp",
+  "fr",
+  "ca",
+  "us",
+  "eu",
+  "nl",
+  "se",
+  "ch",
+  "au",
+  "ly",
+  "page",
+  "site",
+  "cloud",
+  "tech",
+  "to",
+  "fm",
+  "im",
+  "be",
+  "it",
+  "es",
+  "kr",
+  "cn",
 ])
 
 // A URL with its scheme, or a bare host (two or more labels) with an
@@ -103,7 +137,15 @@ function linkOf(text: string, bare: boolean): Inline | null {
   const host = new URL(href).hostname
   const at = text.toLowerCase().indexOf(host)
   if (at < 0)
-    return { kind: "link", text, href, pre: text, host: "", rest: "", shownHost: host }
+    return {
+      kind: "link",
+      text,
+      href,
+      pre: text,
+      host: "",
+      rest: "",
+      shownHost: host,
+    }
   return {
     kind: "link",
     text,

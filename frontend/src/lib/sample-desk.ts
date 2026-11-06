@@ -14,7 +14,13 @@ function ago(now: Date, min: number): string {
 }
 
 export function sampleDesks(now: Date, flag: string | null): Desk[] {
-  const pr = (n: number, title: string, author: string, opened: number, over: Partial<SnapPr> = {}): SnapPr => ({
+  const pr = (
+    n: number,
+    title: string,
+    author: string,
+    opened: number,
+    over: Partial<SnapPr> = {}
+  ): SnapPr => ({
     number: n,
     url: `https://github.com/you/game-repo/pull/${n}`,
     title,
@@ -32,8 +38,12 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
     pr(212, "Boat wake follows the hull", "irori-agents", 300),
     pr(218, "Shop prices from one table", "irori-agents", 180),
     pr(219, "Fix lantern flicker", "blake-dev", 170),
-    pr(220, "Hookshot range +2 tiles", "irori-agents", 160, { checks: "pending" }),
-    pr(215, "Enemy camp: second patrol", "irori-agents", 400, { mergeStateStatus: "BEHIND" }),
+    pr(220, "Hookshot range +2 tiles", "irori-agents", 160, {
+      checks: "pending",
+    }),
+    pr(215, "Enemy camp: second patrol", "irori-agents", 400, {
+      mergeStateStatus: "BEHIND",
+    }),
     pr(216, "Save slots: keep the last 3", "irori-agents", 350),
     pr(217, "Night fog tweak", "irori-agents", 320),
     pr(221, "New title screen", "irori-agents", 60, { isDraft: true }),
@@ -50,17 +60,40 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       trusted: ["you", "blake-dev"],
       checks: [
         { command: "cargo test --workspace && bun run typecheck" },
-        { command: "./scripts/check-mac.sh", paths: ["app/macos/**", "crates/metal/**"], runner: "nutmeg", device: "mac" },
+        {
+          command: "./scripts/check-mac.sh",
+          paths: ["app/macos/**", "crates/metal/**"],
+          runner: "nutmeg",
+          device: "mac",
+        },
       ],
       mergeMethod: "squash",
       perPrOk: false,
     },
-    prs: { repoKey: GAME, at: ago(now, unreachable ? 9 : 2), truncated: flag === "truncated", prs },
+    prs: {
+      repoKey: GAME,
+      at: ago(now, unreachable ? 9 : 2),
+      truncated: flag === "truncated",
+      prs,
+    },
     holds: {
-      217: { repoKey: GAME, pr: 217, note: "after the playtest", by: "user:you", at: ago(now, 7) },
+      217: {
+        repoKey: GAME,
+        pr: 217,
+        note: "after the playtest",
+        by: "user:you",
+        at: ago(now, 7),
+      },
     },
     oks: {},
-    run: { repoKey: GAME, pr: 212, headSha: prs[0].headRefOid!, baseSha: "e81b0c4", by: "kowhai", at: ago(now, 1) },
+    run: {
+      repoKey: GAME,
+      pr: 212,
+      headSha: prs[0].headRefOid!,
+      baseSha: "e81b0c4",
+      by: "kowhai",
+      at: ago(now, 1),
+    },
     poll: unreachable
       ? { at: ago(now, 1), unreachableSince: ago(now, 6), device: "pc" }
       : { at: ago(now, 1), device: "pc" },
@@ -74,8 +107,22 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       217: { card: "c45", cardRef: "#45", agent: "kestrel", name: "kestrel" },
       221: { card: "c50", cardRef: "#50", agent: "nutmeg", name: "nutmeg" },
     },
-    checks: [{ pr: 216, headSha: prs[5].headRefOid!, state: "failed", note: "cargo test: 2 failed · output on #47" }],
-    merged: [{ pr: 210, title: "Rope bridge sway", sha: "e81b0c4a9d", at: ago(now, 3) }],
+    checks: [
+      {
+        pr: 216,
+        headSha: prs[5].headRefOid!,
+        state: "failed",
+        note: "cargo test: 2 failed · output on #47",
+      },
+    ],
+    merged: [
+      {
+        pr: 210,
+        title: "Rope bridge sway",
+        sha: "e81b0c4a9d",
+        at: ago(now, 3),
+      },
+    ],
   }
   const app: Desk = {
     settings: {

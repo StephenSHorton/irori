@@ -12,7 +12,12 @@ import {
   type VoiceEvent,
 } from "./voice"
 
-const ev = (session: number, kind: string, text = "", code = ""): VoiceEvent => ({
+const ev = (
+  session: number,
+  kind: string,
+  text = "",
+  code = ""
+): VoiceEvent => ({
   session,
   kind,
   text,
@@ -84,7 +89,10 @@ test("another session's events are ignored, and nothing after ended", () => {
 })
 
 test("errors keep their code and text", () => {
-  const s = step(newSession(4), ev(4, "error", "Allow the microphone", "mic-denied"))
+  const s = step(
+    newSession(4),
+    ev(4, "error", "Allow the microphone", "mic-denied")
+  )
   expect(s.error).toEqual({ code: "mic-denied", text: "Allow the microphone" })
   expect(settingsFix("mic-denied")).toBe(true)
   expect(settingsFix("no-model")).toBe(false)

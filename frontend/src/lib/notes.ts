@@ -222,7 +222,6 @@ export function kindCounts(notes: Note[]): KindCount[] {
 
 // ---- the gateway -----------------------------------------------------------
 
-
 const listeners = new Set<() => void>()
 function changed() {
   for (const fn of listeners) fn()

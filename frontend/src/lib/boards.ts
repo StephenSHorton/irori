@@ -7,8 +7,15 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 
 import { BoardsService, Events } from "./host"
-import { BoardSettings, BoardSummary, InviteStatus, SharePreview, type SummaryMember } from "./models"
 import {
+  BoardSettings,
+  BoardSummary,
+  InviteStatus,
+  SharePreview,
+  type SummaryMember,
+} from "./models"
+import {
+  sampleBoardGone,
   sampleShare,
   sampleTransferOwner,
   sampleWithdraw,
@@ -34,7 +41,12 @@ export function presenceLine(m: SummaryMember, now: Date): string {
   const at = seen && !Number.isNaN(seen.getTime()) ? seen : null
   if (m.presence !== "online" && m.presence !== "recent")
     return at ? `offline · seen ${relativeTime(at, now)}` : "offline"
-  const head = m.presence === "online" ? "online" : at ? `seen ${relativeTime(at, now)}` : "seen recently"
+  const head =
+    m.presence === "online"
+      ? "online"
+      : at
+        ? `seen ${relativeTime(at, now)}`
+        : "seen recently"
   // Card #512: no "free" count; idle agents just aren't working.
   if (m.working > 0) return `${head} · ${m.working} working`
   return m.free > 0 ? head : `${head} · no agents`
@@ -75,24 +87,60 @@ export function inviteOpen(s: InviteStatus | null): boolean {
 // your agents. Their comments always arrive at the next turn; the preset
 // decides wakes and rows to your bypass sessions. Open is the default.
 export const ReceivePresets = [
-  { value: "open", label: "Open", hint: "They can wake your agents, and their rows reach your bypass sessions." },
-  { value: "members", label: "Members wake", hint: "Only the people you pick wake your agents; the rest arrive at the next turn." },
-  { value: "ask", label: "Ask me", hint: "Wake requests wait for you to release them." },
-  { value: "closed", label: "Closed", hint: "Nothing wakes your agents; everything arrives at the next turn." },
+  {
+    value: "open",
+    label: "Open",
+    hint: "They can wake your agents, and their rows reach your bypass sessions.",
+  },
+  {
+    value: "members",
+    label: "Members wake",
+    hint: "Only the people you pick wake your agents; the rest arrive at the next turn.",
+  },
+  {
+    value: "ask",
+    label: "Ask me",
+    hint: "Wake requests wait for you to release them.",
+  },
+  {
+    value: "closed",
+    label: "Closed",
+    hint: "Nothing wakes your agents; everything arrives at the next turn.",
+  },
 ] as const
 
 // Autonomy presets (design §7.3): what your agents may do on a board
 // without asking. Trusted is the default.
 export const AutonomyPresets = [
-  { value: "ask", label: "Ask me", hint: "New cards in the space ask you first; your private cards aren't shared." },
-  { value: "trusted", label: "Trusted", hint: "They create cards in the space; sharing a private card asks you." },
-  { value: "autonomous", label: "Autonomous", hint: "They also share private cards (after scrub) and mirror all their leases." },
+  {
+    value: "ask",
+    label: "Ask me",
+    hint: "New cards in the space ask you first; your private cards aren't shared.",
+  },
+  {
+    value: "trusted",
+    label: "Trusted",
+    hint: "They create cards in the space; sharing a private card asks you.",
+  },
+  {
+    value: "autonomous",
+    label: "Autonomous",
+    hint: "They also share private cards (after scrub) and mirror all their leases.",
+  },
 ] as const
 
 // ThreadsModes are where your threads on a shared board live (card #185).
 export const ThreadsModes = [
-  { value: "shared", label: "Shared", hint: "Every member and their agents see your threads in this space." },
-  { value: "private", label: "Private", hint: "Only you and your own agents see them; they never reach other members' devices." },
+  {
+    value: "shared",
+    label: "Shared",
+    hint: "Every member and their agents see your threads in this space.",
+  },
+  {
+    value: "private",
+    label: "Private",
+    hint: "Only you and your own agents see them; they never reach other members' devices.",
+  },
 ] as const
 
 // MaxBoardName mirrors identity.MaxBoardName.
@@ -138,7 +186,14 @@ function boardsState(): BoardSummary[] {
       // Shared with Blake (card #268): each card shows whose it is.
       people: ["Stephen", "Blake", "Casey"],
       members: [
-        { personId: "sample-me", name: "Stephen", me: true, presence: "online", working: 2, free: 1 },
+        {
+          personId: "sample-me",
+          name: "Stephen",
+          me: true,
+          presence: "online",
+          working: 2,
+          free: 1,
+        },
         {
           personId: "sample-person-0",
           name: "Blake",
@@ -182,7 +237,16 @@ function boardsState(): BoardSummary[] {
       name: "Website refresh",
       tag: "site",
       people: ["Stephen"],
-      members: [{ personId: "sample-me", name: "Stephen", me: true, presence: "online", working: 0, free: 0 }],
+      members: [
+        {
+          personId: "sample-me",
+          name: "Stephen",
+          me: true,
+          presence: "online",
+          working: 0,
+          free: 0,
+        },
+      ],
       owner: true,
       devices: 2,
       cards: 0,
@@ -244,13 +308,17 @@ export const boards = {
     const n = name.trim()
     const t = tag.trim().toLowerCase()
     if (!n || n.length > MaxBoardName)
-      throw new Error(`coord: invalid input: a space name is 1 to ${MaxBoardName} characters`)
+      throw new Error(
+        `coord: invalid input: a space name is 1 to ${MaxBoardName} characters`
+      )
     if (!validTag(t))
       throw new Error(
         `coord: invalid input: a board tag is a lowercase letter, then lowercase letters, digits or '-', ${MaxBoardTag} characters at most`
       )
     if (boardsState().some((b) => b.tag === t))
-      throw new Error(`coord: invalid input: the tag "${t}" is already a board's`)
+      throw new Error(
+        `coord: invalid input: the tag "${t}" is already a board's`
+      )
     const b = BoardSummary({
       boardId: `sample-board-${Date.now()}`,
       name: n,
@@ -279,14 +347,23 @@ export const boards = {
 
   // renameInSpace renames one board of a space, its first too (card #558):
   // any member may, and the space keeps its own name.
-  async renameInSpace(spaceId: string, boardId: string, name: string): Promise<BoardSummary> {
+  async renameInSpace(
+    spaceId: string,
+    boardId: string,
+    name: string
+  ): Promise<BoardSummary> {
     if (inWails()) return BoardsService.RenameInSpace(spaceId, boardId, name)
     const b = sampleFind(spaceId)
     const n = name.trim()
     if (!n || n.length > MaxBoardName)
-      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
-    if (!b.boards.length) b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
-    b.boards = b.boards.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+      throw new Error(
+        `coord: invalid input: a board name is 1 to ${MaxBoardName} characters`
+      )
+    if (!b.boards.length)
+      b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+    b.boards = b.boards.map((x) =>
+      x.boardId === boardId ? { ...x, name: n } : x
+    )
     sampleMoved()
     return b
   },
@@ -305,19 +382,30 @@ export const boards = {
       throw new Error(
         "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
       )
-    if (samplePersonal.some((x) => x.tag === t) || boardsState().some((x) => x.tag === t))
+    if (
+      samplePersonal.some((x) => x.tag === t) ||
+      boardsState().some((x) => x.tag === t)
+    )
       throw new Error(`core: the tag "${t}" is already a board's`)
-    samplePersonal = [...samplePersonal, { boardId: `sample-personal-${t}`, name: name.trim(), tag: t }]
+    samplePersonal = [
+      ...samplePersonal,
+      { boardId: `sample-personal-${t}`, name: name.trim(), tag: t },
+    ]
     sampleMoved()
     return boards.personal()
   },
 
   async renameInPersonal(boardId: string, name: string): Promise<SpaceBoard[]> {
-    if (inWails()) return (await BoardsService.RenameInPersonal(boardId, name)) ?? []
+    if (inWails())
+      return (await BoardsService.RenameInPersonal(boardId, name)) ?? []
     const n = name.trim()
     if (!n || n.length > MaxBoardName)
-      throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
-    samplePersonal = samplePersonal.map((x) => (x.boardId === boardId ? { ...x, name: n } : x))
+      throw new Error(
+        `coord: invalid input: a board name is 1 to ${MaxBoardName} characters`
+      )
+    samplePersonal = samplePersonal.map((x) =>
+      x.boardId === boardId ? { ...x, name: n } : x
+    )
     sampleMoved()
     return boards.personal()
   },
@@ -325,16 +413,63 @@ export const boards = {
   // addToSpace puts another board in space `spaceId` (card #392): one
   // invite, one set of members, many boards. Refused, naming the devices,
   // until every member device runs an Irori that reads spaces.
-  async addToSpace(spaceId: string, name: string, tag: string): Promise<BoardSummary> {
+  async addToSpace(
+    spaceId: string,
+    name: string,
+    tag: string
+  ): Promise<BoardSummary> {
     if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag)
     const b = sampleFind(spaceId)
     const t = tag.trim().toLowerCase()
-    if (boardsState().some((x) => x.tag === t || x.boards.some((y) => y.tag === t)))
+    if (
+      boardsState().some(
+        (x) => x.tag === t || x.boards.some((y) => y.tag === t)
+      )
+    )
       throw new Error(`core: the tag "${t}" is already a board's`)
-    if (!b.boards.length) b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
-    b.boards = [...b.boards, { boardId: `${spaceId}-${t}`, name: name.trim(), tag: t }]
+    if (!b.boards.length)
+      b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+    b.boards = [
+      ...b.boards,
+      { boardId: `${spaceId}-${t}`, name: name.trim(), tag: t },
+    ]
     sampleMoved()
     return b
+  },
+
+  // deleteFromSpace deletes a board (card #563): its cards go to the space's
+  // first board with new numbers there, and their old refs still find them.
+  // Any member may. The first board can't go, and it's refused, naming the
+  // devices, until every member device runs an Irori that reads spaces.
+  async deleteFromSpace(
+    spaceId: string,
+    boardId: string
+  ): Promise<BoardSummary> {
+    if (inWails()) return BoardsService.DeleteInSpace(spaceId, boardId)
+    const b = sampleFind(spaceId)
+    if (b.boards[0]?.boardId === boardId)
+      throw new Error(
+        "coord: not allowed: a space's first board can't be deleted"
+      )
+    b.boards = b.boards.filter((x) => x.boardId !== boardId)
+    sampleBoardGone(boardId, b.tag)
+    sampleMoved()
+    return b
+  },
+
+  // deleteFromPersonal deletes one of Personal's boards (card #563): its
+  // cards go to the default board with new numbers there, and their old
+  // refs still find them. The default board can't go.
+  async deleteFromPersonal(boardId: string): Promise<SpaceBoard[]> {
+    if (inWails()) return (await BoardsService.DeleteInPersonal(boardId)) ?? []
+    if (boardId === Personal)
+      throw new Error(
+        "coord: not allowed: Personal's default board can't be deleted"
+      )
+    samplePersonal = samplePersonal.filter((x) => x.boardId !== boardId)
+    sampleBoardGone(boardId, "")
+    sampleMoved()
+    return boards.personal()
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {
@@ -362,7 +497,10 @@ export const boards = {
   },
 
   // removeMember takes someone off a board you own (§4.3).
-  async removeMember(boardId: string, personId: string): Promise<BoardSettings> {
+  async removeMember(
+    boardId: string,
+    personId: string
+  ): Promise<BoardSettings> {
     if (inWails()) return BoardsService.RemoveMember(boardId, personId)
     const s = await boards.settings(boardId)
     s.members = s.members.filter((m) => m.personId !== personId)
@@ -370,7 +508,11 @@ export const boards = {
   },
 
   // setRole makes a member an owner, or an owner a member (§4.2).
-  async setRole(boardId: string, personId: string, role: "owner" | "member"): Promise<BoardSettings> {
+  async setRole(
+    boardId: string,
+    personId: string,
+    role: "owner" | "member"
+  ): Promise<BoardSettings> {
     if (inWails()) return BoardsService.SetRole(boardId, personId, role)
     const s = await boards.settings(boardId)
     const owners = s.members.filter((m) => m.owner).length
@@ -455,7 +597,11 @@ export const boards = {
       conflicts: [],
       reviewers: [],
       agents: [
-        { agent: "sample-dev/alpha", name: "alpha", repo: "remote:github.com/sample-org/example-app" },
+        {
+          agent: "sample-dev/alpha",
+          name: "alpha",
+          repo: "remote:github.com/sample-org/example-app",
+        },
         { agent: "sample-dev/beta", name: "beta", repo: "" },
       ],
     }))
@@ -463,10 +609,18 @@ export const boards = {
 
   // setReceive sets what of other people's rows reaches your agents on the
   // board; "" goes back to the default.
-  async setReceive(boardId: string, preset: string, people: string[]): Promise<BoardSettings> {
+  async setReceive(
+    boardId: string,
+    preset: string,
+    people: string[]
+  ): Promise<BoardSettings> {
     if (inWails()) return BoardsService.SetReceive(boardId, preset, people)
     const s = await boards.settings(boardId)
-    Object.assign(s, { receive: preset || "open", people, receiveOwn: !!preset })
+    Object.assign(s, {
+      receive: preset || "open",
+      people,
+      receiveOwn: !!preset,
+    })
     return BoardSettings(s)
   },
 
@@ -490,7 +644,11 @@ export const boards = {
   // setReviewer dedicates one of your agents as your reviewer on the board
   // (design §10), for one repo or ("") the whole board; agent "" takes the
   // reviewer off.
-  async setReviewer(boardId: string, agent: string, repo: string): Promise<BoardSettings> {
+  async setReviewer(
+    boardId: string,
+    agent: string,
+    repo: string
+  ): Promise<BoardSettings> {
     if (inWails()) return BoardsService.SetReviewer(boardId, agent, repo)
     const s = await boards.settings(boardId)
     const rest = s.reviewers.filter((r) => r.repo !== repo)
@@ -564,7 +722,11 @@ export const boards = {
 
 // loaded is false until the window's first read ends, either way (card
 // #598): before it, an empty list is not yet "no boards".
-export type BoardsList = { boards: BoardSummary[]; error: string | null; loaded: boolean }
+export type BoardsList = {
+  boards: BoardSummary[]
+  error: string | null
+  loaded: boolean
+}
 
 const listState = {
   value: { boards: [], error: null, loaded: false } as BoardsList,
@@ -627,7 +789,11 @@ export function useBoards(): {
   loaded: boolean
   reload: () => Promise<void>
 } {
-  const { boards: value, error, loaded } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
+  const {
+    boards: value,
+    error,
+    loaded,
+  } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
   return { boards: value, error, loaded, reload: reloadBoards }
 }
 
@@ -638,7 +804,10 @@ export function usePersonalBoards(): {
   error: string | null
   reload: () => Promise<void>
 } {
-  const [state, setState] = useState<{ boards: SpaceBoard[]; error: string | null }>({
+  const [state, setState] = useState<{
+    boards: SpaceBoard[]
+    error: string | null
+  }>({
     boards: [],
     error: null,
   })

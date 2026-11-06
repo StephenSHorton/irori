@@ -57,9 +57,14 @@ compiler. When they are not on PATH, point the build at them:
    zips the bare exe, writes `SHA256SUMS`, and creates a **draft** release
    with the three files. `-SkipChecks` skips step 1's checks;
    without `-Publish` it is a dry run that stops at `dist/release/v0.6.0`.
-4. Mac:
+4. Mac. Build from a detached copy of the tag, so the clean-tree check
+   passes whatever your own checkout has on it, and run steps 4 and 5 in
+   turn from there:
 
    ```sh
+   git fetch origin --tags
+   git worktree add --detach ../irori-rel-0.6.0 v0.6.0
+   cd ../irori-rel-0.6.0
    scripts/release-mac.sh 0.6.0 --publish
    ```
 
@@ -85,9 +90,19 @@ compiler. When they are not on PATH, point the build at them:
    version and alignment, then uploads `irori-<v>-android-arm64.apk` to the
    draft and adds its line to `SHA256SUMS`. Toolchain: docs/android.md. See
    "Android" below for the key.
+
+   Run it after step 4 has finished, in the same copy. If the two do run
+   at once they wait for each other rather than clash
+   (`scripts/release-lock.sh`): both rebuild `frontend/dist`, which the
+   build embeds, so a copy builds one at a time; and both download, extend
+   and re-upload the draft's `SHA256SUMS`, so that span is one at a time
+   across every copy of the clone, or a line would be lost. A script
+   waiting prints who holds the lock; one left by a killed run is taken
+   over once its pid is gone.
 6. Publish the draft: `scripts/release.ps1 -Version 0.6.0 -Finalize` (or
    `scripts/release-mac.sh 0.6.0 --finalize`). It refuses unless the draft
-   has all six assets and a `SHA256SUMS` line for each of the five.
+   has all six assets and a `SHA256SUMS` line for each of the five. Then
+   `git worktree remove ../irori-rel-0.6.0`.
 
 With `-Publish` / `--publish` both scripts refuse to build unless HEAD is
 the tag's commit and the tree has no uncommitted changes (a dry run only
@@ -99,7 +114,25 @@ when its Authenticode signature is valid and Microsoft's.
 A version with a `-` (`0.6.0-rc.1`) becomes a prerelease, which
 `/releases/latest` never returns, so it is for hand testing only. Drafts are
 never returned either, which is why nothing installed sees a release before
-step 5.
+step 6.
+
+## Landing a batch
+
+When several branches are ready for one release, land them together so the
+checks run once, not once per branch (each run is 15–20 minutes on a busy
+Mac):
+
+1. Make one branch from main, `release-0.6.0`, and merge every ready branch
+   into it, resolving conflicts there.
+2. Run `sh scripts/check.sh` once on that branch (and step 1's other
+   checks when the release needs them).
+3. Merge it to main and push. A release branch reaches main directly,
+   without a PR, and the branches' own PRs are closed as replaced.
+4. Tag main and go on from step 2 of "Cut a release".
+
+So a "PR closed without merging" notice may mean the branch landed in a
+batch: before reopening it or asking again to merge it, check with
+`git merge-base --is-ancestor <branch tip> origin/main`.
 
 ## The contract with installed copies
 
@@ -202,6 +235,29 @@ GP6632G333` and an app-specific password from https://account.apple.com. The
 environment credentials `notarize.sh` lists work too. Without any the build
 is signed but not notarized, with a warning: updates and permissions work,
 and a fresh DMG download gets Gatekeeper's warning.
+
+### Rehearsing an update on the Mac
+
+The updater's swap script relaunches the app with `/usr/bin/open`
+(`crates/update/src/macapp.rs`), and `open` drops your shell's environment.
+So a scratch `Irori.app` that updates itself comes back on the live
+`~/.irori`, beside the person's own Irori. To rehearse one:
+
+1. Build it with `IRORI_UPDATE_API` set at build time, pointing at a fake
+   release feed on 127.0.0.1 (as in Android above). It is read with
+   `option_env!`, so setting it at run time does nothing. Only such a build
+   honours `IRORI_UPDATE_EVERY`, `IRORI_UPDATE_HOLD` and `IRORI_UPDATE_TICK`
+   (seconds) at run time.
+2. Put `IRORI_HOME` (a copy), `CLAUDE_CONFIG_DIR` (an empty dir) and any
+   `IRORI_UPDATE_*` you want in the scratch bundle's `Info.plist` under
+   `LSEnvironment`, so they survive `open`. Do the same in the bundle the
+   feed serves.
+3. Editing `Info.plist` breaks the signature: sign again with
+   `codesign --force --deep -s -`.
+4. Never quit Irori by name or bundle id (`osascript`, `killall`): every
+   bundle shares `com.stephenshorton.irori`, so that quits the live app.
+   Stop the scratch one by its PID, and afterwards check the live
+   `irori.log` gained no line for your version.
 
 ## Android
 

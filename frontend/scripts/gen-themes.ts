@@ -2,5 +2,8 @@
 // appearance.test.ts fails when the file is stale.
 import { themesCSS } from "../src/lib/appearance"
 
-await Bun.write(new URL("../src/design/themes.css", import.meta.url), themesCSS())
+await Bun.write(
+  new URL("../src/design/themes.css", import.meta.url),
+  themesCSS()
+)
 console.log("wrote src/design/themes.css")
