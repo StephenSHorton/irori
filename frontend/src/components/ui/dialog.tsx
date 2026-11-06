@@ -35,7 +35,7 @@ function DialogOverlay({
       data-slot="dialog-overlay"
       forceRender={forceRender}
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/25 backdrop-blur-sm dark:bg-black/60 duration-150 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-black/25 backdrop-blur-sm duration-150 dark:bg-black/60 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -202,7 +202,9 @@ function AlertDialogDescription({
 }
 
 function AlertDialogClose({ ...props }: AlertDialogPrimitive.Close.Props) {
-  return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
+  return (
+    <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
+  )
 }
 
 export {

@@ -18,9 +18,7 @@ export interface KeepUpToDateState {
 // server's switch, so the value read can change after the home server does.
 // Outside the app (sample data) it works on local state only.
 export function useKeepUpToDate(active: boolean): KeepUpToDateState {
-  const [on, setOn] = useState<boolean | null>(() =>
-    inWails() ? null : true
-  )
+  const [on, setOn] = useState<boolean | null>(() => (inWails() ? null : true))
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {

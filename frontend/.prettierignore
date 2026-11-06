@@ -5,3 +5,6 @@ pnpm-lock.yaml
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
+
+# Generated (cargo xtask bindings, scripts/gen-models.ts); their own --check owns them.
+src/gen/

@@ -207,8 +207,13 @@ let downloading: Promise<boolean> | null = null
 // downloadModel fetches the model once for every box; true when it's ready.
 export function downloadModel(): Promise<boolean> {
   if (downloading) return downloading
-  set({ download: { done: 0, total: shared.status?.modelBytes ?? 0 }, downloadError: "" })
-  const off = Events.On<VoiceDownload>(EventVoiceDownload, (e) => set({ download: e.data }))
+  set({
+    download: { done: 0, total: shared.status?.modelBytes ?? 0 },
+    downloadError: "",
+  })
+  const off = Events.On<VoiceDownload>(EventVoiceDownload, (e) =>
+    set({ download: e.data })
+  )
   downloading = VoiceService.DownloadModel()
     .then(async () => {
       await loadVoiceStatus(true)
@@ -236,7 +241,8 @@ export function onVoiceEvent(f: (e: VoiceEvent) => void): () => void {
 // when the page asks for the mic, so the first press opens the mic here
 // once (Android shows its Allow prompt) and closes it again before the
 // engine starts. Elsewhere the engine's own status and errors cover it.
-const onAndroid = typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
+const onAndroid =
+  typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
 let micAllowed = false
 
 export async function allowMic(): Promise<void> {
@@ -257,4 +263,5 @@ export const startVoice = async () => {
   return VoiceService.Start()
 }
 export const stopVoice = (session: number) => VoiceService.Stop(session)
-export const openVoiceSettings = (code: string) => VoiceService.OpenSettings(code)
+export const openVoiceSettings = (code: string) =>
+  VoiceService.OpenSettings(code)

@@ -485,9 +485,13 @@ impl Coord {
     /// short refs settle per row, links re-derive per row), with no duties
     /// run and no repeat check (Go's `impl.apply`). For checks that live
     /// and replay folds agree, and tests that hand the fold a row.
+    ///
+    /// Rows whose kind isn't in [`FOLLOW_KINDS`] are skipped, as
+    /// [`Coord::handle`] and the store replay skip them: a test that folds
+    /// a new kind here fails until production folds it too (card #614).
     pub fn fold_live(&self, rows: &[Event]) {
         let mut f = self.lock();
-        for ev in rows {
+        for ev in rows.iter().filter(|ev| followed(&ev.kind)) {
             let last = f.last.entry(ev.device_id.clone()).or_default();
             *last = (*last).max(ev.seq);
             f.apply(ev);

@@ -24,12 +24,21 @@ describe("cardsOnBoard", () => {
     expect(cardsOnBoard(b, cards, "s").map((c) => c.id)).toEqual(["a", "c"])
   })
   test("another space's cards aren't on it", () => {
-    expect(cardsOnBoard(b, [CardSummary({ id: "x", board: "t", spaceBoard: "n" })], "n")).toEqual([])
+    expect(
+      cardsOnBoard(
+        b,
+        [CardSummary({ id: "x", board: "t", spaceBoard: "n" })],
+        "n"
+      )
+    ).toEqual([])
   })
   test("two boards with the same tag keep their own cards", () => {
     const twin = BoardSummary({
       ...b,
-      boards: [...b.boards, { boardId: "m", name: "Netcode (old)", tag: "net" }],
+      boards: [
+        ...b.boards,
+        { boardId: "m", name: "Netcode (old)", tag: "net" },
+      ],
     })
     const both = [card("b", "n", "net"), card("d", "m", "net")]
     expect(cardsOnBoard(twin, both, "n").map((c) => c.id)).toEqual(["b"])

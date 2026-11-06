@@ -5,11 +5,9 @@ import { sidesLine } from "./devices-panel"
 
 describe("card #494: sides", () => {
   test("cleanSides trims, drops blanks and repeats in any case, keeps order", () => {
-    expect(cleanSides(["  Work ", "work", "", " ", "Home  lab", "Personal"])).toEqual([
-      "Work",
-      "Home lab",
-      "Personal",
-    ])
+    expect(
+      cleanSides(["  Work ", "work", "", " ", "Home  lab", "Personal"])
+    ).toEqual(["Work", "Home lab", "Personal"])
   })
   test("cleanSides keeps at most MaxSides", () => {
     const many = Array.from({ length: MaxSides + 3 }, (_, i) => `s${i}`)

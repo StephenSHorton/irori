@@ -404,11 +404,7 @@ function Proposed({
     : p.remove
       ? "proposes removing this note"
       : "proposes an edit"
-  const yes = !p
-    ? "Keep"
-    : p.remove
-      ? "Remove it"
-      : "Accept the edit"
+  const yes = !p ? "Keep" : p.remove ? "Remove it" : "Accept the edit"
   const no = !p ? "Remove" : "Keep it as it is"
   return (
     <div className="grid gap-2 rounded-lg border border-info/40 bg-info-foreground/40 p-3">

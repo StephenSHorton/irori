@@ -55,9 +55,7 @@ export function windowTally() {
     line(): string {
       const parts: string[] = []
       if (signals.size)
-        parts.push(
-          [...signals].map(([name, n]) => `${name} ${n}`).join(", ")
-        )
+        parts.push([...signals].map(([name, n]) => `${name} ${n}`).join(", "))
       if (reads) {
         let s = `${reads} reads for ${reloads} reloads`
         if (slow)
@@ -66,7 +64,8 @@ export function windowTally() {
       }
       if (dropped) {
         let s = `${dropped} answers dropped`
-        if (worst.n >= DroppedInARow) s += `, ${worst.n} in a row on ${worst.name}`
+        if (worst.n >= DroppedInARow)
+          s += `, ${worst.n} in a row on ${worst.name}`
         parts.push(s)
       }
       signals = new Map()
@@ -89,9 +88,7 @@ export function noteRead(name: string, r: ReadReport) {
 // tally each minute, until the function it returns is called.
 export function startWindowLog(): () => void {
   if (!inWails()) return () => {}
-  const offs = Signals.map((name) =>
-    Events.On(name, () => tally.signal(name))
-  )
+  const offs = Signals.map((name) => Events.On(name, () => tally.signal(name)))
   const onFocus = () => tally.signal("focus")
   window.addEventListener("focus", onFocus)
   const timer = window.setInterval(() => {

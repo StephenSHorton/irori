@@ -59,7 +59,7 @@ export function UpdateBanner() {
       role="status"
       aria-live="polite"
       aria-label={`Irori ${v} is ready to install`}
-      className="glass-panel mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-card-foreground"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-card-foreground glass-panel"
     >
       <Download className="size-5 shrink-0 text-primary" aria-hidden="true" />
       <div className="min-w-0 flex-1 basis-56">
@@ -157,10 +157,13 @@ function AndroidBanner({ u }: { u: UpdaterState }) {
       role="status"
       aria-live="polite"
       aria-label={title}
-      className="glass-panel mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-card-foreground"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-card-foreground glass-panel"
     >
       {failed ? (
-        <AlertTriangle className="size-5 shrink-0 text-destructive" aria-hidden="true" />
+        <AlertTriangle
+          className="size-5 shrink-0 text-destructive"
+          aria-hidden="true"
+        />
       ) : (
         <Download className="size-5 shrink-0 text-primary" aria-hidden="true" />
       )}

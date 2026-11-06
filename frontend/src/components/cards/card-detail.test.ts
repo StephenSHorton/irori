@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test"
 import { AgentRef, CardDetail, Holding, TaskState } from "@/lib/models"
 import { startable } from "./card-detail"
 
-const nobody = { state: Holding.HoldNobody, who: AgentRef({}) } as CardDetail["holder"]
+const nobody = {
+  state: Holding.HoldNobody,
+  who: AgentRef({}),
+} as CardDetail["holder"]
 
 // Card #558: a tag no longer means shared, since a Personal board's card
 // has one.

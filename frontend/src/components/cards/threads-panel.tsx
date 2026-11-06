@@ -234,7 +234,6 @@ function ThreadRow({
   )
 }
 
-
 // How tall an open thread grows in the panel (cards #170, #564): the window
 // less the header, the ask box and its row's title, so the row fits the
 // column. If a tall draft outgrows that in a tiny window, the thread itself

@@ -23,7 +23,8 @@ export function SpaceAgentSwitch({
 }) {
   const { settings: s, error, set } = useAgents(open, boardId)
   const id = useId()
-  if (!s) return error ? <p className="text-xs text-destructive">{error}</p> : null
+  if (!s)
+    return error ? <p className="text-xs text-destructive">{error}</p> : null
   return (
     <div className="flex items-start justify-between gap-3">
       <span className="flex min-w-0 flex-col">
@@ -55,7 +56,7 @@ export function SpaceAgentsOff({ boardId }: { boardId: string }) {
   return (
     <div
       role="status"
-      className="glass-panel flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-[12.5px] text-muted-foreground"
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-[12.5px] text-muted-foreground glass-panel"
     >
       <BotOffIcon className="size-4 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1 basis-56">

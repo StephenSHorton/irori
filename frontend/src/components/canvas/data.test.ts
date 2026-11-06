@@ -15,9 +15,12 @@ import {
 } from "./data"
 import { markersOf } from "./node"
 
-const busy = (key: string, name = key) => AgentRef({ key, name, status: "busy", live: true })
-const idle = (key: string) => AgentRef({ key, name: key, status: "idle", live: true })
-const gone = (key: string) => AgentRef({ key, name: key, status: "gone", live: false })
+const busy = (key: string, name = key) =>
+  AgentRef({ key, name, status: "busy", live: true })
+const idle = (key: string) =>
+  AgentRef({ key, name: key, status: "idle", live: true })
+const gone = (key: string) =>
+  AgentRef({ key, name: key, status: "gone", live: false })
 
 let n = 0
 function card(p: Partial<CardSummary> = {}): CardSummary {
@@ -38,11 +41,17 @@ function card(p: Partial<CardSummary> = {}): CardSummary {
   })
 }
 
-const inside = (r: Rect, p: { x: number; y: number }, s: { w: number; h: number }) =>
+const inside = (
+  r: Rect,
+  p: { x: number; y: number },
+  s: { w: number; h: number }
+) =>
   p.x >= r.x && p.y >= r.y && p.x + s.w <= r.x + r.w && p.y + s.h <= r.y + r.h
 
 function overlap(a: Rect, b: Rect): boolean {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  return (
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  )
 }
 
 describe("canvas layout (card #587)", () => {
@@ -51,7 +60,10 @@ describe("canvas layout (card #587)", () => {
       card({ working: [busy("a")] }),
       card({ working: [busy("a")] }),
       card({ working: [idle("b")] }),
-      card({ state: TaskState.Submitted, holder: CardHolder({ state: "nobody" }) }),
+      card({
+        state: TaskState.Submitted,
+        holder: CardHolder({ state: "nobody" }),
+      }),
       card({ working: [gone("c")], holder: CardHolder({ state: "gone" }) }),
       card({ state: TaskState.Completed, working: [busy("a")] }),
     ]
@@ -76,28 +88,37 @@ describe("canvas layout (card #587)", () => {
       expect(inside(l.groups[gid], l.pos[x.id], l.size[x.id])).toBe(true)
     }
     // The agent's pill heads its own hub.
-    expect(inside(l.groups["group:agent:a"], l.pos["agent:a"], NodeSize.agent)).toBe(true)
+    expect(
+      inside(l.groups["group:agent:a"], l.pos["agent:a"], NodeSize.agent)
+    ).toBe(true)
   })
 
   test("no tall column: one agent with 16 cards is a 4 by 4 grid", () => {
-    const cards = Array.from({ length: 16 }, () => card({ working: [busy("solo")] }))
+    const cards = Array.from({ length: 16 }, () =>
+      card({ working: [busy("solo")] })
+    )
     const l = autoLayout(toGraph(cards))
     const hub = l.groups["group:agent:solo"]
     expect(colsFor(16, 4)).toBe(4)
-    expect(hub.h).toBeLessThan(5 * (NodeSize.card.h + 24) + 2 * NodeSize.agent.h)
+    expect(hub.h).toBeLessThan(
+      5 * (NodeSize.card.h + 24) + 2 * NodeSize.agent.h
+    )
     expect(hub.w).toBeGreaterThan(hub.h)
   })
 
   test("areas don't overlap, wrap into rows, and done starts its own row", () => {
     const cards = [
-      ...Array.from({ length: 30 }, (_, i) => card({ working: [busy(`agent${i % 10}`)] })),
+      ...Array.from({ length: 30 }, (_, i) =>
+        card({ working: [busy(`agent${i % 10}`)] })
+      ),
       ...Array.from({ length: 12 }, () => card({ state: TaskState.Submitted })),
       ...Array.from({ length: 5 }, () => card({ state: TaskState.Completed })),
     ]
     const l = autoLayout(toGraph(cards))
     const rects = Object.values(l.groups)
     for (let i = 0; i < rects.length; i++)
-      for (let j = i + 1; j < rects.length; j++) expect(overlap(rects[i], rects[j])).toBe(false)
+      for (let j = i + 1; j < rects.length; j++)
+        expect(overlap(rects[i], rects[j])).toBe(false)
     const right = Math.max(...rects.map((r) => r.x + r.w))
     const bottom = Math.max(...rects.map((r) => r.y + r.h))
     // Wider than tall: a map, not a tower.
@@ -117,11 +138,17 @@ describe("canvas layout (card #587)", () => {
     expect(autoLayout(toGraph(cards))).toEqual(autoLayout(toGraph(cards)))
     // Bigger hub first.
     const l = autoLayout(toGraph(cards))
-    expect(l.groups["group:agent:y"].x).toBeLessThan(l.groups["group:agent:z"].x)
+    expect(l.groups["group:agent:y"].x).toBeLessThan(
+      l.groups["group:agent:z"].x
+    )
   })
 
   test("a blocker sits under its card, inside the hub", () => {
-    const c = card({ working: [busy("a")], openBlockers: 1, blockerQuestion: "Ship?" })
+    const c = card({
+      working: [busy("a")],
+      openBlockers: 1,
+      blockerQuestion: "Ship?",
+    })
     const l = autoLayout(toGraph([c]))
     const b = l.pos[`blocker:${c.id}:open`]
     expect(b.y).toBeGreaterThanOrEqual(l.pos[c.id].y + NodeSize.card.h)
@@ -132,7 +159,10 @@ describe("canvas layout (card #587)", () => {
     const a1 = card({ working: [busy("a")] })
     const a2 = card({ working: [busy("a")] })
     const g0 = toGraph([a1, a2])
-    const spot = { x: autoLayout(g0).pos[a1.id].x + 10, y: autoLayout(g0).pos[a1.id].y + 6 }
+    const spot = {
+      x: autoLayout(g0).pos[a1.id].x + 10,
+      y: autoLayout(g0).pos[a1.id].y + 6,
+    }
     // Arranged within its hub: kept.
     const inHub = card({ ...a2, pos: spot })
     let g = toGraph([a1, inHub])
@@ -144,8 +174,12 @@ describe("canvas layout (card #587)", () => {
     expect(withPlaced(g, auto).pos[far.id]).toEqual(auto.pos[far.id])
     // While dragged far, it floats rather than stretching the box.
     const dragged = { ...auto.pos, [far.id]: { x: 9000, y: 9000 } }
-    expect(groupRects(g, dragged, auto, auto.groups)["group:agent:a"].w).toBeLessThan(2000)
-    expect(groupRects(g, dragged, auto)["group:agent:a"].w).toBeGreaterThan(9000)
+    expect(
+      groupRects(g, dragged, auto, auto.groups)["group:agent:a"].w
+    ).toBeLessThan(2000)
+    expect(groupRects(g, dragged, auto)["group:agent:a"].w).toBeGreaterThan(
+      9000
+    )
     // Handed to b: its spot in a's hub no longer counts.
     const handed = card({ ...a2, working: [busy("b")], pos: spot })
     g = toGraph([a1, handed])
@@ -156,8 +190,14 @@ describe("canvas layout (card #587)", () => {
   test("a second holder sits in the shared strip with a line to the card", () => {
     const c = card({ working: [busy("a"), busy("b")] })
     const g = toGraph([c])
-    expect(g.nodes.find((x) => x.id === "agent:b")).toMatchObject({ group: "group:others" })
-    expect(g.edges.some((e) => e.kind === "holder" && e.source === "agent:b" && !e.inHub)).toBe(true)
+    expect(g.nodes.find((x) => x.id === "agent:b")).toMatchObject({
+      group: "group:others",
+    })
+    expect(
+      g.edges.some(
+        (e) => e.kind === "holder" && e.source === "agent:b" && !e.inHub
+      )
+    ).toBe(true)
   })
 })
 
@@ -166,7 +206,11 @@ describe("canvas markers and lines (card #587)", () => {
     const cards = [
       card({ working: [busy("a")], openBlockers: 1 }),
       card({ working: [gone("g")], holder: CardHolder({ state: "gone" }) }),
-      card({ working: [idle("a")], stale: true, holder: CardHolder({ state: "idle" }) }),
+      card({
+        working: [idle("a")],
+        stale: true,
+        holder: CardHolder({ state: "idle" }),
+      }),
       card({ state: TaskState.Completed, stale: true }),
     ]
     const g = toGraph(cards)
@@ -198,12 +242,17 @@ describe("canvas markers and lines (card #587)", () => {
     const areas = g.nodes.filter((x) => x.kind === "group").map((x) => x.id)
     expect(areas).toEqual(["group:agent:a", "group:others"])
     for (const k of ["agent:w1", "agent:w2"])
-      expect(inside(l.groups["group:others"], l.pos[k], NodeSize.agent)).toBe(true)
+      expect(inside(l.groups["group:others"], l.pos[k], NodeSize.agent)).toBe(
+        true
+      )
     expect(g.edges.find((e) => e.kind === "holder")?.inHub).toBe(true)
   })
 
   test("agent status tone comes from agentStatus", () => {
-    const g = toGraph([card({ working: [busy("a")] }), card({ working: [idle("b")] })])
+    const g = toGraph([
+      card({ working: [busy("a")] }),
+      card({ working: [idle("b")] }),
+    ])
     const tone = (id: string) => g.nodes.find((x) => x.id === id)
     expect(tone("agent:a")).toMatchObject({ tone: "working" })
     expect(tone("agent:b")).toMatchObject({ tone: "idle" })
@@ -213,9 +262,13 @@ describe("canvas markers and lines (card #587)", () => {
     const c = card({ working: [busy("a")] })
     const before = toGraph([c])
     const prev = new Map(
-      before.nodes.filter((x): x is CardNode => x.kind === "card").map((x) => [x.id, x.group])
+      before.nodes
+        .filter((x): x is CardNode => x.kind === "card")
+        .map((x) => [x.id, x.group])
     )
     expect(handOffs(prev, toGraph([c]))).toEqual([])
-    expect(handOffs(prev, toGraph([{ ...c, working: [busy("b")] }]))).toEqual([c.id])
+    expect(handOffs(prev, toGraph([{ ...c, working: [busy("b")] }]))).toEqual([
+      c.id,
+    ])
   })
 })

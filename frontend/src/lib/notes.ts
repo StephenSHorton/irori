@@ -1,7 +1,7 @@
 // Notes gateway (docs/design/notes.md, card #413): short rules, gotchas,
 // decisions, pointers and preferences that agents get on wake. Every note
 // is the person's own, in their private log, and only their agents read
-// it (decision 52, card #616). An agent's note is proposed until the
+// it (decision 53, card #616). An agent's note is proposed until the
 // person keeps it; the person's own note is live at once (§4).
 //
 // Like cards.ts, components import from here, never from src/gen. The
@@ -213,7 +213,6 @@ export function kindCounts(notes: Note[]): KindCount[] {
 }
 
 // ---- the gateway -----------------------------------------------------------
-
 
 const listeners = new Set<() => void>()
 function changed() {

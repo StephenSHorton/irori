@@ -94,6 +94,10 @@ pub(crate) struct DeliveryRow {
     pub at: GoTime,
 }
 
+/// A `wake.issued` row. It is read back through the explicit schema in
+/// [`decode_wake`], not serde: a field added here without a schema entry
+/// there comes back empty after a restart. `wake_row_round_trips` fills
+/// every field and catches that.
 #[derive(Debug, Clone, Default, Serialize)]
 pub(crate) struct WakeRow {
     #[serde(rename = "wakeId")]
@@ -1541,5 +1545,47 @@ pub(crate) fn pair_key(a: &str, c: &str) -> String {
         format!("{c}|{a}")
     } else {
         format!("{a}|{c}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every field is set, so one missing from `decode_wake`'s schema comes
+    /// back empty and the bytes differ. The literal has no
+    /// `..Default::default()`, so a new field has to be filled here.
+    #[test]
+    fn wake_row_round_trips() {
+        let row = WakeRow {
+            wake_id: "wake-1".into(),
+            to: "agent-key".into(),
+            token: "tok".into(),
+            reminder: true,
+            delivery_ids: vec!["d1".into(), "d2".into()],
+            path: "pty".into(),
+            mode: "next_turn".into(),
+            overflow: vec!["d3".into()],
+            at: GoTime::unix(1_762_000_000, 123_000_000).utc(),
+            notes_task: "task-1".into(),
+            notes: vec![crate::WakeNote {
+                id: "n1".into(),
+                why: "repo:irori".into(),
+                kind: "trap".into(),
+                text: "the text".into(),
+                by: "falcon".into(),
+                accepted_by: "Stephen".into(),
+            }],
+            said_for: "#614".into(),
+            said: vec![crate::WakeSaid {
+                id: "c1".into(),
+                card: "#613".into(),
+                text: "said this".into(),
+            }],
+        };
+        let raw = String::from_utf8(json::marshal(&row).unwrap()).unwrap();
+        let back = decode_wake(raw.as_bytes()).unwrap();
+        let again = String::from_utf8(json::marshal(&back).unwrap()).unwrap();
+        assert_eq!(again, raw);
     }
 }

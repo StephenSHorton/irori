@@ -294,7 +294,10 @@ export function MemberBar({
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
-  members: (OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>)[]
+  members: (OwnerMember &
+    Partial<
+      Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">
+    >)[]
   now: Date
 }) {
   if (members.length < 2) return null
@@ -319,7 +322,9 @@ export function MemberBar({
               (m.me
                 ? "Your cards: made by you or your agents"
                 : `${name}'s cards: made by them or their agents`) +
-              (m.presence ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}` : "")
+              (m.presence
+                ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}`
+                : "")
             }
           >
             <span className="relative inline-flex">
@@ -345,9 +350,15 @@ export function MemberBar({
 // withPresence fills the counts presenceLine reads, for a member from a
 // summary that has none.
 function withPresence(
-  m: OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
+  m: OwnerMember &
+    Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
 ): SummaryMember {
-  return { ...m, presence: m.presence ?? "", working: m.working ?? 0, free: m.free ?? 0 }
+  return {
+    ...m,
+    presence: m.presence ?? "",
+    working: m.working ?? 0,
+    free: m.free ?? 0,
+  }
 }
 
 // CardGrid is the cards of shared work, one button each; a button opens
@@ -982,7 +993,11 @@ export function EmptyCards() {
 }
 
 // PartOf is a subtask's "part of #12" chip, naming its parent card.
-function PartOf({ parent }: { parent: { short: string; tag?: string; title: string } }) {
+function PartOf({
+  parent,
+}: {
+  parent: { short: string; tag?: string; title: string }
+}) {
   return (
     <span
       className="font-mono text-[11px] text-muted-foreground"

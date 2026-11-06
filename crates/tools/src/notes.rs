@@ -1,7 +1,7 @@
 //! notes_propose / notes_search (card #412, docs/design/notes.md §11): the
 //! agent side of notes. An agent proposes a note, or an edit or removal of
 //! one; nothing it writes reaches another agent until the person accepts
-//! it. Notes are the person's own (decision 52, card #616): there are no
+//! it. Notes are the person's own (decision 53, card #616): there are no
 //! shared notes. Search reads accepted notes only.
 
 use crate::args::Ty;

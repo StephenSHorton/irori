@@ -1,4 +1,4 @@
-//! Notes are Mine only (decision 52, card #616, docs/design/notes.md §3):
+//! Notes are Mine only (decision 53, card #616, docs/design/notes.md §3):
 //! every note lives in the person's private log and only their own agents
 //! read it. Board logs still accept `note.*` rows, since devices on
 //! 0.11.0-0.12.3 can write them and refusing one would stall that writer's

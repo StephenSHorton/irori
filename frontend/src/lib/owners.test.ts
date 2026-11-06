@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { cardOwner, FORMER_MEMBER, memberOf, ownedBy, sharedBoard } from "./owners"
+import {
+  cardOwner,
+  FORMER_MEMBER,
+  memberOf,
+  ownedBy,
+  sharedBoard,
+} from "./owners"
 
 const me = { personId: "p-stephen", name: "Stephen", me: true }
 const blake = { personId: "p-blake", name: "Blake", me: false }
@@ -8,7 +14,11 @@ const shared = { boardId: "b-mlg", members: [me, blake] }
 const solo = { boardId: "b-solo", members: [me] }
 const boards = [shared, solo]
 
-const card = (owner: string, board = "b-mlg", scope = "board") => ({ scope, board, owner })
+const card = (owner: string, board = "b-mlg", scope = "board") => ({
+  scope,
+  board,
+  owner,
+})
 
 describe("cardOwner (card #268)", () => {
   test("a card made by the other member, or by one of their agents, is theirs", () => {
@@ -21,7 +31,10 @@ describe("cardOwner (card #268)", () => {
   })
 
   test("the person's own card names them and says it is theirs", () => {
-    expect(cardOwner(card("p-stephen"), boards)).toMatchObject({ name: "Stephen", me: true })
+    expect(cardOwner(card("p-stephen"), boards)).toMatchObject({
+      name: "Stephen",
+      me: true,
+    })
   })
 
   test("a member who left, or one not known here yet, is a former member", () => {
@@ -47,7 +60,10 @@ describe("cardOwner (card #268)", () => {
   })
 
   test("a member with no name is still named", () => {
-    const b = { boardId: "b-x", members: [me, { personId: "p-x", name: " ", me: false }] }
+    const b = {
+      boardId: "b-x",
+      members: [me, { personId: "p-x", name: " ", me: false }],
+    }
     expect(memberOf("p-x", b.members)?.name).toBe("Someone")
   })
 })

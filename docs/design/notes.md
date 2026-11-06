@@ -1,8 +1,8 @@
 # Notes: shared and private context for agents
 
-*2026-11-03, card #388 (from Stephen's thread #387). Built on #401, #411, #412 and the Notes page. 2026-11-06, card #616: notes are Mine only (decision 52), and the board scope is gone. Stephen's first ask: "shared context and private context ... per area (board/private board) ... accessible to the user and users of a board. So agent can have a shared sort of knowledge base that can be reviewed by people." Mockups: branch `marjoram/388-notes-mockups`, browser preview `?mockup=notes&view=1..3`.*
+*2026-11-03, card #388 (from Stephen's thread #387). Built on #401, #411, #412 and the Notes page. 2026-11-06, card #616: notes are Mine only (decision 53), and the board scope is gone. Stephen's first ask: "shared context and private context ... per area (board/private board) ... accessible to the user and users of a board. So agent can have a shared sort of knowledge base that can be reviewed by people." Mockups: branch `marjoram/388-notes-mockups`, browser preview `?mockup=notes&view=1..3`.*
 
-This document records the direction and, in §11, what was built. It amends decision 27 (decision 45), and decision 52 amends it: notes are each person's own.
+This document records the direction and, in §11, what was built. It amends decision 27 (decision 45), and decision 53 amends it: notes are each person's own.
 
 ## 1. Why
 
@@ -37,7 +37,7 @@ A note is a short fact that an agent should know before it acts. It has these pa
 
 - **Mine:** every note is Mine. It stays in the person's private log, on their own devices, and only their own agents read it. A person-level preference, such as "say Version, not take", is a Mine note that applies everywhere.
 - **About a shared space:** a Mine note tagged `board:<tag>`. It reaches the person's own agents when their card is on that space, and never the space's other members.
-- **No board scope.** Board notes were designed (decision 45) and built, but no `note.*` row was ever written to a space log, so #616 removed them (decision 52).
+- **No board scope.** Board notes were designed (decision 45) and built, but no `note.*` row was ever written to a space log, so #616 removed them (decision 53).
 
 ## 4. Review: proposed, then accepted
 
@@ -82,13 +82,13 @@ When the paths, flags or versions a note names have changed since it was accepte
 - Stephen's personal knowledge-base repo (`~/projects/knowledge-base`). Irori's notes are the knowledge base this design is about (b4).
 - Building notes automatically from the board's history. That was shape B, set aside because it is noisy, goes stale and is unsafe on shared boards.
 - A per-board handbook page. That was shape C.
-- Notes shared with a space's members. Built and removed (decision 52).
+- Notes shared with a space's members. Built and removed (decision 53).
 
 ## 11. Build contract (card #401)
 
 What v1 is built on, as it stands after #616.
 
-**Rows** (`crates/store/src/kinds.rs`, replicated; `crates/coord/src/board/notes.rs` folds them). Notes are written to the private log only. Board logs still accept the kinds, forever: devices on 0.11.0-0.12.3 can still write them, and refusing one would stall that writer's stream on every device. The board coord folds them, but nothing reads them (decision 52), like decision 27's decision rows.
+**Rows** (`crates/store/src/kinds.rs`, replicated; `crates/coord/src/board/notes.rs` folds them). Notes are written to the private log only. Board logs still accept the kinds, forever: devices on 0.11.0-0.12.3 can still write them, and refusing one would stall that writer's stream on every device. The board coord folds them, but nothing reads them (decision 53), like decision 27's decision rows.
 
 | Kind | Payload |
 |---|---|

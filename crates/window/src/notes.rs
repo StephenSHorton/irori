@@ -1,7 +1,7 @@
 //! The Notes page's commands (decision 45, card #401, docs/design/notes.md
 //! §11): list, New note, accept, edit and remove, each through the Core's
 //! notes API. Every note is the person's own, in the private log
-//! (decision 52, card #616).
+//! (decision 53, card #616).
 
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
