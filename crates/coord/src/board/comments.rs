@@ -150,8 +150,11 @@ impl Fold {
                 out.reference = names.join(" ");
             }
             BLOCKED_ON_TASK => {
-                if out.reference.is_empty() || out.reference == me {
+                if out.reference.is_empty() {
                     return Err(invalid("blocked on a task needs another task's id"));
+                }
+                if out.reference == me {
+                    return Err(invalid("a card can't wait on itself"));
                 }
                 let Some(o) = self.tasks.get(&out.reference) else {
                     return Err(not_found(format!(
