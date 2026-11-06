@@ -305,7 +305,8 @@ kinds! {
     DESK_HOLD = "desk.hold" => Replicated, Refuses;
     /// `{repoKey, paused, by, at}`: person only.
     DESK_PAUSE = "desk.pause" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, by, at}`: person only.
+    /// `{repoKey, pr, headSha, by, at}`: legacy, read only. Old rows still
+    /// decode; nothing writes it since card #625 removed Outside PR's OK.
     DESK_OK = "desk.ok" => Replicated, Refuses;
     /// `{repoKey, pr, headSha, baseSha?, by, at}`: the holder's run.
     DESK_RUN = "desk.run" => Replicated, Refuses;

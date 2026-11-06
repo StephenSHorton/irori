@@ -2,11 +2,10 @@ import { describe, expect, test } from "bun:test"
 
 import {
   deskQueue,
-  deskSub,
+  deskShown,
   inputsOf as inputsOfDesk,
   leaseRepo,
   queueCount,
-  talkDesks,
   type Desk,
   type RepoDesk,
   type SnapPr,
@@ -65,69 +64,15 @@ function one(p: SnapPr, extra: Parameters<typeof deskQueue>[0] = {}) {
 }
 
 describe("the §3 state table (card #417)", () => {
-  test("Outside PR: an untrusted author with no agent behind it", () => {
+  test("the snapshot holds only our PRs: one with no author entry is queued as any other (card #625)", () => {
     const p = pr({ author: "stranger" })
     const l = deskQueue({
-      desk,
+      desk: { ...desk, trusted: [] },
       snapshot: { repoKey: REPO, at: "t", truncated: false, prs: [p] },
     })[0]
-    expect(l.state).toBe("outside")
-    expect(l.canOk).toBe(true)
-  })
-  test("a login on the trusted list, any case, is not outside", () => {
-    const p = pr({ author: "stephenshorton" })
-    expect(
-      deskQueue({
-        desk,
-        snapshot: { repoKey: REPO, at: "t", truncated: false, prs: [p] },
-      })[0].state
-    ).toBe("waiting")
-  })
-  test("Stephen's OK trusts that head only; a new push needs a new OK", () => {
-    const p = pr({ author: "stranger" })
-    const ok = {
-      repoKey: REPO,
-      pr: p.number,
-      headSha: p.headRefOid!,
-      by: "user:s",
-      at: "t",
-    }
-    const snap = (q: SnapPr) => ({
-      repoKey: REPO,
-      at: "t",
-      truncated: false,
-      prs: [q],
-    })
-    expect(deskQueue({ desk, snapshot: snap(p), oks: [ok] })[0].state).toBe(
-      "waiting"
-    )
-    expect(
-      deskQueue({
-        desk,
-        snapshot: snap({ ...p, headRefOid: "pushed" }),
-        oks: [ok],
-      })[0].state
-    ).toBe("outside")
-  })
-  test("slice 2's verdict decides when there is one", () => {
-    const p = pr({ author: "stephenshorton" })
-    const snap = { repoKey: REPO, at: "t", truncated: false, prs: [p] }
-    expect(
-      deskQueue({
-        desk,
-        snapshot: snap,
-        authors: { [p.number]: { outside: true } },
-      })[0].state
-    ).toBe("outside")
-    const q = pr({ author: "stranger" })
-    const snap2 = { repoKey: REPO, at: "t", truncated: false, prs: [q] }
-    expect(
-      deskQueue({
-        desk,
-        snapshot: snap2,
-        authors: { [q.number]: { outside: false } },
-      })[0].state
-    ).toBe("waiting")
+    expect(l.state).toBe("waiting")
+    expect(l.note).toBe("no author card yet")
+    expect(l.author).toEqual({})
   })
   test("Draft is listed, never queued", () => {
     expect(one(pr({ isDraft: true })).state).toBe("draft")
@@ -258,10 +203,10 @@ describe("panel texts", () => {
     expect(queueCount(null)).toBe("not polled yet")
     expect(
       queueCount({ repoKey: REPO, at: "t", truncated: false, prs: [] })
-    ).toBe("0 open on GitHub")
+    ).toBe("0 of ours open")
     expect(
       queueCount({ repoKey: REPO, at: "t", truncated: true, prs: [pr()] })
-    ).toBe("showing the first 1; GitHub has more")
+    ).toBe("showing 1 of ours; GitHub has more")
   })
   test("the lease name is lowercase owner/name", () => {
     expect(leaseRepo("remote:github.com/You/Game-Repo.git")).toBe(
@@ -306,22 +251,18 @@ describe("the window's DeskView (card #417)", () => {
           at: "2026-11-03T10:00:00Z",
         },
       ],
-      oks: [],
       poll: {
         here: true,
         lastPollAt: "2026-11-03T10:01:00Z",
         unreachableSince: Z,
         error: "",
       },
-      authors: [
-        { pr: 9, card: "", cardRef: "", agent: "dev/s1", outside: false },
-      ],
+      authors: [{ pr: 9, card: "", cardRef: "", agent: "dev/s1" }],
     })
     expect(d.authors?.[9]).toEqual({
       card: undefined,
       cardRef: undefined,
       agent: "dev/s1",
-      outside: false,
     })
     expect(d.settings.holder).toBeUndefined()
     expect(d.settings.mergeMethod).toBe("squash")
@@ -343,7 +284,7 @@ describe("the window's DeskView (card #417)", () => {
   })
 })
 
-describe("desks in Talk › Channels (card #521)", () => {
+describe("which desks are listed (card #625)", () => {
   const snap = (prs: SnapPr[]) => ({
     repoKey: REPO,
     at: "2026-11-05T10:00:00Z",
@@ -353,37 +294,28 @@ describe("desks in Talk › Channels (card #521)", () => {
   const one = (over: Partial<Desk> = {}): Desk => ({
     settings: { ...desk, holder: undefined, trusted: [], checks: [] },
     holds: {},
-    oks: {},
     isDefault: true,
     seenOn: "pc",
     ...over,
   })
 
-  test("a default desk is listed, held by nobody", () => {
-    const [d] = talkDesks([one({ prs: snap([pr()]) })], "")
-    expect(d.name).toBe("StephenSHorton/Game-Repo")
-    expect(d.sub).toBe("merge desk · 1 open on GitHub")
+  test("a desk with an open PR of ours is listed", () => {
+    expect(deskShown(one({ prs: snap([pr()]) }))).toBe(true)
   })
 
-  test("an empty desk reads No open PRs on GitHub", () => {
-    expect(talkDesks([one({ prs: snap([]) })], "")[0].sub).toBe(
-      "No open PRs on GitHub"
+  test("a desk with none of ours open, or not polled yet, is hidden", () => {
+    expect(deskShown(one({ prs: snap([]) }))).toBe(false)
+    expect(deskShown(one())).toBe(false)
+    expect(deskShown(one({ prs: null }))).toBe(false)
+  })
+
+  test("a desk turned off, or taking no PRs, is hidden even with PRs", () => {
+    const prs = snap([pr()])
+    expect(deskShown(one({ prs, settings: { ...desk, enabled: false } }))).toBe(
+      false
     )
-    expect(deskSub(null)).toBe("merge desk · not polled yet")
-  })
-
-  test("a desk turned off is hidden", () => {
-    const off = one({ isDefault: false, settings: { ...desk, enabled: false } })
-    expect(talkDesks([off], "")).toEqual([])
-  })
-
-  test("desks live in the person's own log: Personal lists them, a shared space doesn't", () => {
-    expect(talkDesks([one()], "personal")).toHaveLength(1)
-    expect(talkDesks([one()], "board-abc")).toEqual([])
-  })
-
-  test("search finds a desk by its repo", () => {
-    expect(talkDesks([one()], "", "game")).toHaveLength(1)
-    expect(talkDesks([one()], "", "kowhai")).toEqual([])
+    expect(
+      deskShown(one({ prs, settings: { ...desk, takesPrs: false } }))
+    ).toBe(false)
   })
 })

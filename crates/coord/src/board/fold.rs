@@ -411,6 +411,10 @@ pub struct Fold {
     /// other is stray. `None` until it says, when every desk counts. Not
     /// from rows, so a resync keeps it.
     pub(crate) desk_repos: Option<std::collections::BTreeSet<String>>,
+    /// The desks the Core judged when it last said (card #625). A desk
+    /// made since (a repo an agent just started in) counts until the
+    /// Core's next pass, which runs before any poll.
+    pub(crate) desk_judged: std::collections::BTreeSet<String>,
 }
 
 /// `stolenKey`: resource, holder and acquiredAt (RFC3339Nano, UTC).
@@ -546,6 +550,7 @@ impl Fold {
             pr_vouched: false,
             desks: BTreeMap::new(),
             desk_repos: None,
+            desk_judged: std::collections::BTreeSet::new(),
         }
     }
 

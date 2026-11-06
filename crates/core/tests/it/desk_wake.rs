@@ -1,6 +1,6 @@
 //! Merge desk slice 4 on a real Core (card #418): after a poll, the desk
 //! holder is woken with the run's steps for the oldest trusted PR Waiting
-//! on desk, once per PR and head. An Outside PR never wakes it, nor does a
+//! on desk, once per PR and head. A PR that isn't ours never wakes it, nor does a
 //! paused desk or a run already on.
 
 use crate::common;
@@ -20,6 +20,11 @@ struct FakeGh(Mutex<Vec<DeskPr>>);
 impl PrLister for FakeGh {
     fn list(&self, _repo: &str, _limit: usize) -> Result<Vec<DeskPr>, String> {
         Ok(self.0.lock().unwrap().clone())
+    }
+
+    /// The repo's owner: it is the person's repo (card #625).
+    fn viewer(&self) -> Result<String, String> {
+        Ok("StephenSHorton".into())
     }
 }
 
@@ -71,7 +76,7 @@ fn the_holder_is_woken_once_for_the_oldest_trusted_waiting_pr() {
     let mut failing = pr(2, "StephenSHorton", 80);
     failing.checks = "failure".into();
     *gh.0.lock().unwrap() = vec![
-        // The oldest of all: an Outside PR, never the one.
+        // The oldest of all: a stranger's PR, not ours, never the one.
         pr(9, "a-stranger", 120),
         draft,
         failing,
@@ -120,7 +125,7 @@ fn the_holder_is_woken_once_for_the_oldest_trusted_waiting_pr() {
 }
 
 #[test]
-fn a_paused_desk_or_only_outside_prs_wake_nobody() {
+fn a_paused_desk_or_only_others_prs_wake_nobody() {
     let gh = Arc::new(FakeGh(Mutex::new(vec![pr(5, "a-stranger", 10)])));
     let g = gh.clone();
     let r = Rig::with(move |o| o.desk_lister = Some(g));

@@ -65,7 +65,7 @@ The work Irori, never paired, has its own person: a fresh data dir makes its own
   - Behind that, the fold counts a spawn row on a board only from a device of the card's author (`spawn_writer_ok`, `coord/src/board/spawn.rs:170-197`).
   - The step "spawn" mark that asks for helper agents is refused from another person (`boards2_test::another_persons_spawn_mark_on_a_card_is_refused`).
   - The **new** `boards2_test::another_persons_card_is_never_spawned_on_your_side` turns spawning on for both sides of a space. It checks that each side lists only its own person's card, and that a spawn request for the other person's card is refused from the sweep, from an agent, and by sync.
-- **A merge desk can't live on a shared board** (`desk.rs:289-292`).
+- **A merge desk can't live on a shared board** (`desk.rs:309-311`).
 
 ### 3.2 What doesn't hold
 

@@ -1,6 +1,6 @@
 //! Merge desk slice 2 on a real Core: after a poll, each trusted PR shows
 //! its author card (linked by Irori) or gets a "PR #n" card; an untrusted
-//! login is an Outside PR with no card and no wake.
+//! login's PR isn't ours (card #625): not listed, no card and no wake.
 
 use crate::common;
 
@@ -18,6 +18,11 @@ struct FakeGh(Mutex<Vec<DeskPr>>);
 impl PrLister for FakeGh {
     fn list(&self, _repo: &str, _limit: usize) -> Result<Vec<DeskPr>, String> {
         Ok(self.0.lock().unwrap().clone())
+    }
+
+    /// The repo's owner: it is the person's repo (card #625).
+    fn viewer(&self) -> Result<String, String> {
+        Ok("StephenSHorton".into())
     }
 }
 
@@ -103,10 +108,10 @@ fn a_poll_maps_each_pr_to_its_author_card() {
         linked(&r, 3).iter().map(|t| &t.id).collect::<Vec<_>>(),
         vec![&c3.id]
     );
-    // 4 and 5: a stranger's login is an Outside PR, even on our branch name:
-    // no card, no link.
-    assert_eq!(v[&4], Verdict::Outside);
-    assert_eq!(v[&5], Verdict::Outside);
+    // 4 and 5: a stranger's PR isn't ours, even on our branch name: no
+    // card, no link (card #625).
+    assert_eq!(v[&4], Verdict::NotOurs);
+    assert_eq!(v[&5], Verdict::NotOurs);
     assert!(linked(&r, 4).is_empty() && linked(&r, 5).is_empty());
     // The page's read-only view agrees, and writes nothing.
     let n = co.list_tasks(&coord::TaskFilter::default()).len();
@@ -121,9 +126,9 @@ fn a_poll_maps_each_pr_to_its_author_card() {
     assert_eq!(authors[&1].card_ref, c1.short_ref());
     assert_eq!(authors[&1].agent, r.key_a);
     assert_eq!(authors[&3].card, c3.id);
-    assert!(!authors[&2].outside && !authors[&2].card.is_empty());
-    assert!(authors[&4].outside && authors[&4].card.is_empty());
-    assert!(authors[&5].outside);
+    assert!(!authors[&2].card.is_empty());
+    // A PR that isn't ours isn't listed at all.
+    assert_eq!(authors.keys().copied().collect::<Vec<_>>(), [1, 2, 3]);
     // Only PR 2's card is new, and a second pass makes no more.
     assert_eq!(
         co.list_tasks(&coord::TaskFilter::default()).len(),
@@ -134,7 +139,7 @@ fn a_poll_maps_each_pr_to_its_author_card() {
         co.list_tasks(&coord::TaskFilter::default()).len(),
         before + 1
     );
-    // No wake for the Outside PRs: nobody heard about 4 or 5.
+    // No wake for PRs that aren't ours: nobody heard about 4 or 5.
     for k in [&r.key_a, &r.key_b] {
         assert!(
             r.notices_to(k)

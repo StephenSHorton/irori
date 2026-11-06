@@ -5,7 +5,10 @@
 //! settings (on, nobody holding it so nothing merges, polled from the
 //! device whose `repo.seen` is the latest). The person's `repo.desk` row,
 //! once written, replaces the default: it turns the desk off, names a
-//! holder or sets check lines. One device, `pollDevice`, asks GitHub for the repo's
+//! holder or sets check lines. Only the person's own repos count (card
+//! #625): the Core tells the fold which those are ([`Fold::desk_repos`]),
+//! and a desk on any other repo is stray: off, whatever its settings say.
+//! One device, `pollDevice`, asks GitHub for the repo's
 //! open PRs (`gh pr list`, the Core's desk poller) and hands the list to
 //! [`Fold::record_desk_prs`], which writes a `desk.prs` snapshot only when
 //! the list changed. coord never shells out.
@@ -14,7 +17,8 @@
 //! `repo.desk`, `desk.hold`, `desk.pause` and `desk.ok` are the person's
 //! alone: the fold ignores them from anyone else, so an agent can never
 //! change the check command, the holder or whom the desk trusts (§7).
-//! `desk.prs` is Irori's; `desk.run` the desk holder's (slice 4).
+//! `desk.ok` is legacy: nothing writes it since card #625, and old rows
+//! still fold. `desk.prs` is Irori's; `desk.run` the desk holder's (slice 4).
 
 use std::collections::BTreeMap;
 
@@ -64,6 +68,7 @@ crate::go_struct! {
         pub trusted: Vec<String> = "trusted" "omit",
         pub checks: Vec<DeskCheck> = "checks" "omit",
         pub merge_method: String = "mergeMethod" "omit",
+        /// Kept so rows round-trip; nothing reads it (§10 question 12).
         pub per_pr_ok: bool = "perPrOk" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
@@ -140,7 +145,9 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
-    /// `desk.ok`: the person's OK on an Outside PR at one head (§5).
+    /// `desk.ok`: the person's OK on an Outside PR at one head. Legacy:
+    /// card #625 removed Outside PR and its OK, so nothing writes it; old
+    /// rows still decode and fold.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct DeskOkRow {
         pub repo_key: String = "repoKey",
@@ -192,7 +199,8 @@ pub struct Desk {
     pub holds: BTreeMap<i64, DeskHoldRow>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pause: Option<DeskPauseRow>,
-    /// The person's OKs on Outside PRs, by PR number (latest wins).
+    /// Old `desk.ok` rows by PR number (latest wins). Nothing reads them
+    /// since card #625 removed Outside PR; folded so old logs replay.
     pub oks: BTreeMap<i64, DeskOkRow>,
     /// The latest run row.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -295,7 +303,9 @@ impl Fold {
             kinds::REPO_SEEN => {
                 // Every GitHub repo an agent works in has a desk, on by
                 // default, polled from the device that saw it last (card
-                // #521). Desks live in the person's own log, never a board's.
+                // #521); it stays off unless it is one of the person's
+                // repos (#625, desk_ours). Desks live in the person's own
+                // log, never a board's.
                 if self.on_board {
                     return;
                 }
@@ -462,10 +472,15 @@ impl Fold {
         }
         let Some(d) = self.desk_by_lease(name) else {
             return Err(not_allowed(format!(
-                "{name} is a merge desk lease, and that repo has no merge desk: a GitHub repo gets one once an agent works in it"
+                "{name} is a merge desk lease, and that repo has no merge desk: a GitHub repo gets one once you or someone in your spaces opens a PR there and an agent works in it"
             )));
         };
-        if !d.on() || !self.desk_ours(&d.settings.repo_key) {
+        if !self.desk_ours(&d.settings.repo_key) {
+            return Err(not_allowed(format!(
+                "{name}: nobody in your spaces opens PRs in this repo, so its merge desk is off"
+            )));
+        }
+        if !d.on() {
             return Err(not_allowed(format!(
                 "{name}: the merge desk is off (the person turns it on in Merge desk settings)"
             )));
@@ -569,9 +584,10 @@ impl Fold {
     /// Whether `repo_key` is one of the person's repos, as the Core last
     /// said (card #625); every repo until it has said.
     pub(crate) fn desk_ours(&self, repo_key: &str) -> bool {
+        let k = ledger::canonical_repo_key(repo_key);
         self.desk_repos
             .as_ref()
-            .is_none_or(|r| r.contains(&ledger::canonical_repo_key(repo_key)))
+            .is_none_or(|r| r.contains(&k) || !self.desk_judged.contains(&k))
     }
 
     /// Whether `repo_key` has a desk that is on and one of the person's.
