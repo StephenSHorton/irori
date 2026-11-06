@@ -20,6 +20,7 @@ import {
   MaxBoardName,
   suggestTag,
   validTag,
+  MaxBoardTag,
   type BoardSettings,
   type InviteStatus,
 } from "@/lib/boards"
@@ -130,7 +131,7 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
             setTypedTag(true)
             setTag(e.target.value.toLowerCase())
           }}
-          maxLength={16}
+          maxLength={MaxBoardTag}
           placeholder="tag"
           aria-label="New board's tag, the short name in card refs like tag#12"
           className="h-8 w-24 font-mono text-[13px]"
@@ -143,7 +144,7 @@ export function NewBoard({ taken, onMade }: { taken: string[]; onMade: () => Pro
         {clash
           ? `Another board is tagged ${t} already.`
           : t && !validTag(t)
-            ? "A tag is a lowercase letter, then letters, digits or '-' (16 at most)."
+            ? `A tag is a lowercase letter, then letters, digits or '-' (${MaxBoardTag} at most).`
             : `Its cards are ${t || "tag"}#1, ${t || "tag"}#2, …`}
       </p>
       {error && <p className="text-xs text-destructive">{error}</p>}
