@@ -117,10 +117,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Card #654: a call's microphone service and audio mode on the phone.
     #[cfg(target_os = "android")]
     let call_slot: call_android::Slot = Arc::default();
-    // #654: handed to the call service
+    // Handed to the Core's call service (#654); desktops need none.
     #[cfg(target_os = "android")]
-    let _call_platform: Arc<dyn call::Platform> =
-        Arc::new(call_android::Phone::new(call_slot.clone()));
+    let call_platform: Option<Arc<dyn call::Platform>> =
+        Some(Arc::new(call_android::Phone::new(call_slot.clone())));
+    #[cfg(not(target_os = "android"))]
+    let call_platform: Option<Arc<dyn call::Platform>> = None;
     let notifier = notify::Notifier::new(notify::Config {
         dir: Some(data.clone()),
         headless: probe::Probe::from_env().on(),
@@ -279,6 +281,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                             data,
                             Started {
                                 notifier,
+                                call_platform,
                                 updater,
                                 keep: Keep {
                                     keeper,
@@ -421,6 +424,8 @@ type Running = (host::Hosted, Arc<Window>);
 /// What [`start_core`] wires once the Core is up.
 struct Started {
     notifier: notify::Notifier,
+    /// The phone's microphone service for calls (#654).
+    call_platform: Option<Arc<dyn call::Platform>>,
     updater: Arc<::update::Updater>,
     keep: Keep,
     probe: probe::Probe,
@@ -446,7 +451,11 @@ fn start_core(
     data: std::path::PathBuf,
     s: Started,
 ) -> Result<Running, String> {
-    let hosted = match host::start(rt, data.clone(), false, Some(s.notifier.clone())) {
+    let hosted = match host::options(rt, data.clone(), false, Some(s.notifier.clone()))
+        .and_then(|mut o| {
+            o.call_platform = s.call_platform.clone();
+            host::start_with(rt, o)
+        }) {
         Ok(h) => h,
         Err(e) => return Err(format!("start: {e}")),
     };
