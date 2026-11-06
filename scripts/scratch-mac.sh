@@ -3,8 +3,8 @@
 # its data dir, and stops it alone (architecture.md 3.2, card #611).
 #
 #   scripts/scratch-mac.sh start [--exe <irori>] [--from <data dir>] [--fresh]
-#                                [--offset N] [--offline] [--env K=V]...
-#   scripts/scratch-mac.sh stop <scratch dir>
+#                                [--offset N] [--online] [--env K=V]...
+#   scripts/scratch-mac.sh stop <scratch dir> [--rm]
 #
 # start copies the live data dir (default ~/.irori) into a new scratch dir:
 # every .db with sqlite3 .backup (they are WAL; a cp can tear them), plus
@@ -15,8 +15,12 @@
 # `cargo build -p irori-app`) runs with
 #   IRORI_HOME=<scratch>/home  CLAUDE_CONFIG_DIR=<scratch>/claude (empty)
 #   IRORI_DEV_PORT_OFFSET=N    IRORI_DEV_KEK_DIR=<from> (a copy only)
-#   IRORI_DEV_OFFLINE=1        with --offline
-# and each --env K=V. It prints the scratch dir, `pid=<pid>` and the stop
+#   IRORI_DEV_OFFLINE=1        on a copy, unless --online
+# and each --env K=V. A copy holds this device's real key: online it would
+# join the mesh as this device and fork its history (core offline.rs), so
+# --online is for a --fresh dir. --fresh with a debug build makes a new
+# device and an "Irori device key" item in the login Keychain for the
+# scratch dir; remove it in Keychain Access after. It prints the scratch dir, `pid=<pid>` and the stop
 # command. stop kills only that pid (after checking it is still this exe),
 # then says whether the live app's irori.log got a line from the test.
 #
@@ -42,7 +46,7 @@ backup_db() {
 }
 
 cmd_start() {
-  local exe="" from="$HOME/.irori" fresh=0 offset="" offline=0
+  local exe="" from="$HOME/.irori" fresh=0 offset="" online=0
   local -a extra=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,7 +54,8 @@ cmd_start() {
       --from) from="$2"; shift 2 ;;
       --fresh) fresh=1; shift ;;
       --offset) offset="$2"; shift 2 ;;
-      --offline) offline=1; shift ;;
+      --online) online=1; shift ;;
+      --offline) online=0; shift ;;
       --env) [[ "$2" == *=* ]] || die "--env wants K=V, got $2"; extra+=("$2"); shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
@@ -116,7 +121,10 @@ cmd_start() {
   # The copy's keys are sealed under the Keychain item named after the
   # data dir they came from (identity keystore.rs, debug builds only).
   [[ $fresh == 1 ]] || envs+=("IRORI_DEV_KEK_DIR=$from")
-  [[ $offline == 0 ]] || envs+=("IRORI_DEV_OFFLINE=1")
+  [[ $online == 1 ]] || envs+=("IRORI_DEV_OFFLINE=1")
+  if [[ $online == 1 && $fresh == 0 ]]; then
+    echo "scratch-mac: warning: --online on a copy of $from joins the mesh as this device" >&2
+  fi
   envs+=("${extra[@]+"${extra[@]}"}")
   printf '%s\n' "${envs[@]}" >"$dir/env"
 
@@ -142,7 +150,8 @@ cmd_start() {
 }
 
 cmd_stop() {
-  local dir="${1:-}"
+  local dir="${1:-}" rm=0
+  [[ "${2:-}" != "--rm" ]] || rm=1
   [[ -n "$dir" && -f "$dir/pid" && -f "$dir/scratch.env" ]] || die "usage: $0 stop <scratch dir> (the scratch= line start printed)"
   local pid exe live_log live_lines
   pid="$(cat "$dir/pid")"
@@ -191,13 +200,19 @@ cmd_stop() {
     if [[ $new -lt 0 ]]; then
       echo "live_log=rotated since start; check $live_log.1 by hand"
     else
-      hits="$(tail -n "$new" "$live_log" | grep -cF "$dir" || true)"
-      echo "live_log=$live_log gained $new lines, $hits mention this scratch"
-      [[ "$hits" == 0 ]] || { tail -n "$new" "$live_log" | grep -F "$dir" >&2; exit 3; }
+      # Its data path, or the start line a build writes ("pid=<pid> ").
+      hits="$(tail -n "$new" "$live_log" | grep -cF -e "$dir" -e "pid=$pid " || true)"
+      echo "live_log=$live_log gained $new lines, $hits from this scratch"
+      [[ "$hits" == 0 ]] || { tail -n "$new" "$live_log" | grep -F -e "$dir" -e "pid=$pid " >&2; exit 3; }
     fi
   fi
-  echo "scratch dir kept: $dir (rm -rf it when done)"
   [[ "${LIVE_HELD:-0}" == 0 ]] || exit 3
+  if [[ "$rm" == 1 ]] && ! kill -0 "$pid" 2>/dev/null; then
+    rm -rf "$dir"
+    echo "removed $dir"
+  else
+    echo "scratch dir kept: $dir (rm -rf it, or stop with --rm)"
+  fi
 }
 
 case "${1:-}" in
