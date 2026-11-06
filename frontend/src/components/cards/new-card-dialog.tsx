@@ -93,9 +93,12 @@ export function NewCardDialog({
   // A member belongs to their space: a pick doesn't outlive the dialog or
   // follow it to another board (card #573).
   const boardId = board?.boardId ?? ""
-  useEffect(() => {
+  const pickScope = `${open}:${boardId}`
+  const [pickedIn, setPickedIn] = useState(pickScope)
+  if (pickedIn !== pickScope) {
+    setPickedIn(pickScope)
     setAssignTo("")
-  }, [open, boardId])
+  }
 
   useEffect(() => {
     if (!open) return

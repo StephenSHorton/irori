@@ -707,6 +707,7 @@ impl Fold {
                     return;
                 }
                 let gave = self.gave_to_person(ev, &p);
+                let back = self.takes_back(ev, &p);
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -718,7 +719,14 @@ impl Fold {
                         person,
                         by: p.by.clone(),
                         asker: String::new(),
+                        question: String::new(),
                     });
+                    t.given_said = None;
+                } else if back {
+                    // Its author takes it back: the way out when the person
+                    // it went to is away for good.
+                    super::cards::close_given_question(&mut t, at(p.at));
+                    t.given = None;
                     t.given_said = None;
                 }
                 let engaged = is_holder(&t, &p.to) && !contains(&t.assigned, &p.to);
@@ -2105,6 +2113,10 @@ impl Fold {
                 let Some(dp) = &self.dev_person else {
                     return false;
                 };
+                // Ahead of the give that lets it in: it waits beside it.
+                if self.ahead_of_give(ev) {
+                    return true;
+                }
                 self.tasks.get(&p.task_id).is_some_and(|t| {
                     let serves = self.serving_person(t);
                     !serves.is_empty()

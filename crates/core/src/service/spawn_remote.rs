@@ -155,6 +155,9 @@ pub(crate) struct RemoteState {
     /// Requests started on this device, by (card, generation): the name it
     /// was started with. Dropped once bound, or ended when superseded.
     started: Mutex<HashMap<(String, i64), String>>,
+    /// Board requests this device started, for a given card whose yes went
+    /// before its agent showed (card #573).
+    pub(super) board_started: Mutex<std::collections::HashSet<(String, i64)>>,
     /// Request rows (end, start, trust) already acted on, by (device, seq).
     seen: Mutex<HashSet<(String, i64)>>,
     /// Cards another device asked this one to trust the repo of, and which

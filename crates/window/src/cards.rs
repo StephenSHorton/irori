@@ -2298,6 +2298,9 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        d.summary.given_no = raw
+            .as_ref()
+            .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));
         if let Some(raw) = &raw
             && !d.summary.board.is_empty()
         {
