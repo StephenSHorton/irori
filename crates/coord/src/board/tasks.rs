@@ -1045,9 +1045,6 @@ impl Fold {
         if evs.is_empty() {
             return;
         }
-        // Walks wait for the page's end (card #563), so a page of thousands
-        // of rows walks once, not once per row, under coord's lock.
-        self.batching = true;
         for ev in evs {
             if ev.seq <= self.last.get(&ev.device_id).copied().unwrap_or(0) {
                 continue;
@@ -1058,10 +1055,6 @@ impl Fold {
                 self.relink();
             }
             self.holder_duties();
-        }
-        self.batching = false;
-        if std::mem::take(&mut self.batch_dirty) {
-            self.renumber();
         }
         self.relink();
     }

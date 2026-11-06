@@ -207,13 +207,9 @@ impl Fold {
         self.settle(&key);
     }
 
-    /// Walks now, or at the end of a catch-up; a replay walks when it ends.
+    /// Walks now; a replay walks once, when it ends.
     fn walk(&mut self) {
         if self.replaying {
-            return;
-        }
-        if self.batching {
-            self.batch_dirty = true;
             return;
         }
         self.renumber();

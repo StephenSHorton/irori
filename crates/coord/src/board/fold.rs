@@ -358,10 +358,6 @@ pub struct Fold {
     /// How far the last walk went: a claim past it can't change what the
     /// walk gave.
     pub(crate) walked_to: Option<RowPos>,
-    /// During a catch-up: walks wait for its end, so a pull of thousands of
-    /// rows walks once, not once per row, under coord's lock.
-    pub(crate) batching: bool,
-    pub(crate) batch_dirty: bool,
     pub(crate) short_moved: HashMap<String, GoTime>,
 
     pub(crate) subs: Vec<Sub>,
@@ -529,8 +525,6 @@ impl Fold {
             moved_ids: HashSet::new(),
             moved_rows: HashSet::new(),
             walked_to: None,
-            batching: false,
-            batch_dirty: false,
             short_moved: HashMap::new(),
             subs: Vec::new(),
             pending: Vec::new(),
