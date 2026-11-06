@@ -246,6 +246,14 @@ html[data-ds="irori"]
   --popover: var(--glass-tint);
 }
 
+/* A panel dense with small figures (the hardware meters, card #599) is
+   solid anywhere: the page's own text would bleed through it where the
+   webview skips the blur. */
+html[data-ds="irori"] .glass-solid {
+  --glass-bg: var(--glass-tint);
+  --popover: var(--glass-tint);
+}
+
 /* The dot grid (card #325, from agility-platform's glass theme): 1px dots
    on a 22px grid over the theme's glows, under the glass. The dots take the
    text colour, so they follow light and dark; --dot-alpha sets how strong. */

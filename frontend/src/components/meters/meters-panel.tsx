@@ -54,7 +54,7 @@ export function MetersPanel({
   return (
     <PopoverContent
       align="end"
-      className="max-h-[min(85vh,44rem)] w-[22rem] gap-0 overflow-y-auto p-0"
+      className="glass-solid max-h-[min(85vh,44rem)] w-[22rem] gap-0 overflow-y-auto p-0"
     >
       <UsageSection usage={usage} now={now} />
       <PopoverTitle className="border-t border-border/70 px-3 pt-2.5 pb-1.5 text-xs font-medium text-muted-foreground">
