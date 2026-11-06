@@ -3,6 +3,7 @@
 // cards copy the shape of the Irori Cards prototype. Add ?empty to the URL
 // for the empty state.
 
+import type { LaterBack, OrderState, OrderStep } from "@/lib/later"
 import {
   AgentRef,
   CardActivity,
@@ -703,6 +704,22 @@ export function sampleCards(now: Date): CardDetail[] {
       ]
     : []
 
+  // Card #570: ?later=1 shows an order of four cards and four parked ones,
+  // one for each thing that brings a card back (PREVIEW.md).
+  const later = new URLSearchParams(window.location.search).has("later")
+    ? laterSample(card, at, heron, waitOn, otter)
+    : []
+  // ?later=only leaves just these on Home; ?later=board puts them on MLG.
+  const laterMode = new URLSearchParams(window.location.search).get("later")
+  if (laterMode === "only") return later
+  if (laterMode === "board")
+    return later.map((c) => ({
+      ...c,
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "mlg",
+    }))
   // Card #586: ?refs puts agility#1234 among Home's Working rows, and the
   // ref column widens to fit it whole; ?refs=long adds a very long tag,
   // cut at 10rem with its full ref on hover. The titles stay lined up.
@@ -748,6 +765,7 @@ export function sampleCards(now: Date): CardDetail[] {
     ...longRefs,
     ...spawn,
     ...loop,
+    ...later,
     ...gone,
     longWait,
     idleUnnamed,
@@ -2131,4 +2149,158 @@ export function sampleCards(now: Date): CardDetail[] {
         ],
       }) as CardDetail
   )
+}
+
+// laterSample is ?later=1's cards (card #570).
+function laterSample(
+  card: (c: Partial<CardDetail>) => CardDetail,
+  at: (min: number) => string,
+  heron: CardBlocker["raisedBy"],
+  waitOn: (id: string, short: string, title: string, q: string) => CardBlocker,
+  otter: CardDetail["working"][number]
+): CardDetail[] {
+  const step = (
+    short: string,
+    title: string,
+    state: OrderState
+  ): OrderStep => ({
+    id: `sample-card-order-${short}`,
+    short,
+    tag: "",
+    title,
+    state,
+  })
+  // The order as the host reads it: every card of it carries the whole
+  // run, and the cards either side of it.
+  const run = [
+    step("80", "Talk 4: Spaces", "done"),
+    step("81", "Talk 5: threads across a space", "working"),
+    step("82", "Talk 6: person-to-person DMs", "waiting"),
+    step("83", "Talk 8: release Talk", "waiting"),
+  ]
+  const order = (short: string) => {
+    const i = run.findIndex((x) => x.short === short)
+    return {
+      steps: run,
+      previous: run[i - 1] ?? null,
+      next: run[i + 1] ?? null,
+    }
+  }
+  const park = (
+    short: string,
+    title: string,
+    goal: string,
+    why: string,
+    back: LaterBack,
+    line: string
+  ) => {
+    const id = `sample-card-later-${short}`
+    return card({
+      id,
+      short,
+      title,
+      goal,
+      later: {
+        why,
+        back,
+        line,
+        by: "heron",
+        card: back === "card" ? "sample-card-order-83" : undefined,
+      },
+      state: TaskState.Blocked,
+      working: [],
+      blockers: [
+        CardBlocker({
+          id: "b1",
+          question: why,
+          raisedBy: heron,
+          at: at(300),
+          resolved: null,
+          state: "open",
+          waitsOn: { kind: "agent", label: "Irori" },
+        }),
+      ],
+      updatedAt: at(400),
+    })
+  }
+  return [
+    card({
+      id: "sample-card-order-81",
+      short: "81",
+      order: order("81"),
+      title: "Talk 5: threads across a space",
+      goal: "A thread is seen by the whole space.",
+      state: TaskState.Working,
+      working: [otter],
+      updatedAt: at(4),
+    }),
+    card({
+      id: "sample-card-order-82",
+      short: "82",
+      order: order("82"),
+      title: "Talk 6: person-to-person DMs",
+      goal: "DMs over a hidden two-person space.",
+      state: TaskState.Blocked,
+      working: [],
+      blockers: [
+        waitOn(
+          "sample-card-order-81",
+          "81",
+          "Talk 5: threads across a space",
+          "After #81: Talk 5"
+        ),
+      ],
+      updatedAt: at(60),
+    }),
+    card({
+      id: "sample-card-order-83",
+      short: "83",
+      order: order("83"),
+      title: "Talk 8: release Talk",
+      goal: "Cut the Talk release once the rest are done.",
+      state: TaskState.Blocked,
+      working: [],
+      blockers: [
+        waitOn(
+          "sample-card-order-82",
+          "82",
+          "Talk 6: person-to-person DMs",
+          "After #82: Talk 6"
+        ),
+      ],
+      updatedAt: at(61),
+    }),
+    park(
+      "90",
+      "Voice calls and screen sharing",
+      "Huddles, stored transcripts and shared screens.",
+      "You said after the Talk work",
+      "card",
+      "when #83 is done"
+    ),
+    park(
+      "91",
+      "Tidy the phone's Settings page",
+      "Group the settings the way the desktop does.",
+      "Not before the December release",
+      "date",
+      "on 1 Dec"
+    ),
+    park(
+      "92",
+      "Drop the old board log reader",
+      "Remove the reader once no device needs it.",
+      "An older Irori still reads it",
+      "version",
+      "when this Mac runs v0.13.0"
+    ),
+    park(
+      "93",
+      "Try a timeline view of a board",
+      "An idea from a thread, to think about later.",
+      "An idea to come back to",
+      "word",
+      "when you say"
+    ),
+  ]
 }

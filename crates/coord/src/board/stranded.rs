@@ -139,8 +139,12 @@ impl Fold {
     /// it, on a card nobody holds. A question or done check already counts
     /// as a decision, and a wait on a PR's merge as #509's merge row, so
     /// those are left out and nothing shows twice. On a shared board only
-    /// the person's own agents' waits.
+    /// the person's own agents' waits. A held card has none (card #570,
+    /// finding 14): it isn't the person's until it comes back.
     pub(crate) fn gone_waits_in(&self, t: &Task, rs: &RosterStatus) -> Vec<Stranded> {
+        if t.parked().is_some() {
+            return Vec::new();
+        }
         let st = self.stranded_in(t, rs);
         if st.is_empty() {
             return st;
@@ -208,7 +212,9 @@ impl Fold {
     /// would refuse), said before anything is written; "" when it can.
     /// Home's Needs you row (card #520) says it instead of offering it.
     pub(crate) fn hand_on_refusal(&self, t: &Task) -> &'static str {
-        if t.shared || self.on_board {
+        if t.parked().is_some() {
+            "it is held as Not yet; bring it back first"
+        } else if t.shared || self.on_board {
             "a card in a shared space isn't handed out; take it with an agent of yours (board_join)"
         } else if t.open_ask().is_some() {
             "it has an open ask"

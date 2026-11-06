@@ -42,10 +42,15 @@ fn key(k: &str) -> String {
     .to_string()
 }
 
-/// Masks ids (ULIDs, with or without msg_/dlv_/wake_) by first appearance.
+/// Masks ids (ULIDs, with or without msg_/dlv_/wake_) by first appearance,
+/// and the random part of hold and after item ids (card #570: b2-k7q2xm,
+/// or b3-x9y8z7-k7q2xm for a hold that carries an older one's) the same
+/// way, so the same item must recur where it did.
 struct Masker {
     re: regex::Regex,
+    item: regex::Regex,
     seen: HashMap<String, usize>,
+    items: HashMap<String, usize>,
 }
 
 impl Masker {
@@ -55,10 +60,27 @@ impl Masker {
                 r"(?:msg_|dlv_|wake_)?(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9A-HJKMNP-TV-Z]{11,25}…)",
             )
             .unwrap(),
+            item: regex::Regex::new(r"\b(b[0-9]+)-([0-9a-z]{6}(?:-[0-9a-z]{6})?)\b").unwrap(),
             seen: HashMap::new(),
+            items: HashMap::new(),
         }
     }
     fn mask(&mut self, s: &str) -> String {
+        let s = self.mask_ids(s);
+        let mut out = String::new();
+        let mut last = 0;
+        for c in self.item.captures_iter(&s) {
+            let m = c.get(0).unwrap();
+            out.push_str(&s[last..m.start()]);
+            let n = self.items.len() + 1;
+            let k = *self.items.entry(c[2].to_string()).or_insert(n);
+            out.push_str(&format!("{}-<item {k}>", &c[1]));
+            last = m.end();
+        }
+        out.push_str(&s[last..]);
+        out
+    }
+    fn mask_ids(&mut self, s: &str) -> String {
         let mut out = String::new();
         let mut last = 0;
         for m in self.re.find_iter(s) {
