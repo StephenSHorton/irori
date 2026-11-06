@@ -109,8 +109,8 @@ pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
-    NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrNews, PrState,
+    DESK_PR_CARD_MARK, NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN,
+    PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
@@ -2017,6 +2017,14 @@ impl Coord {
     pub fn refold_if_cut(&self, vec: &store::Vector) -> Result<()> {
         let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
         self.lock().refold_if_cut(vec)
+    }
+
+    /// Rebuilds the fold from the store as a replay, quietly: for rows this
+    /// device wrote straight to the store (card #640's move), which the
+    /// fold otherwise never sees until a restart.
+    pub fn refold(&self) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        self.lock().refold()
     }
 
     /// Whether a card's short ref moved at or after `since` (search

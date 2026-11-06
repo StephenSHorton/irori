@@ -586,6 +586,112 @@ impl Inbox {
                 .unwrap_or_default()
         })
     }
+
+    /// Agents a Talk post woke since `since` (a DM to them, or an @mention)
+    /// that are still on it: woken and not started yet, or in the turn
+    /// the wake started (card #645). The newest wake per conversation and
+    /// agent; held, deferred, skipped, moved and finished ones are gone.
+    /// Whether the agent has posted since is the caller's to check.
+    pub fn talk_wakes(&self, since: GoTime) -> Vec<TalkWake> {
+        self.read(|b| {
+            let mut seen = std::collections::HashSet::new();
+            let mut out = vec![];
+            for id in b.order.iter().rev() {
+                let Some(d) = b.dels.get(id) else { continue };
+                if d.d.mode != mode::WAKE {
+                    continue;
+                }
+                let Some(m) = b.msgs.get(&d.d.message_id) else {
+                    continue;
+                };
+                let Some(conv) = m.ref_.strip_prefix(TALK_REF) else {
+                    continue;
+                };
+                if conv.is_empty()
+                    || (m.notice && m.reason != crate::REASON_MENTIONED)
+                    || crate::tm::before(&m.sent_at, &since)
+                    || !seen.insert((conv.to_string(), d.d.to.clone()))
+                {
+                    continue;
+                }
+                let on = match d.d.state.as_str() {
+                    st::QUEUED | st::DELIVERED => Some(On::Waiting),
+                    st::ENGAGED => Some(b.turn_of(d)),
+                    // A notice closes as skipped "notice" when its turn starts.
+                    st::SKIPPED if d.d.note == "notice" => Some(b.turn_of(d)),
+                    _ => None,
+                };
+                let on = match on {
+                    Some(On::Gone) | None => continue,
+                    Some(on) => on,
+                };
+                out.push(TalkWake {
+                    conv: conv.to_string(),
+                    agent: d.d.to.clone(),
+                    from: m.from.key.clone(),
+                    message_id: m.id.clone(),
+                    woken_at: m.sent_at,
+                    waiting: on == On::Waiting,
+                    no_turn_rows: on == On::Unknown,
+                });
+            }
+            out
+        })
+    }
+}
+
+/// A Talk wake's `ref` is `talk:<conv>`.
+const TALK_REF: &str = "talk:";
+
+/// One agent a Talk post woke, still on it ([`Inbox::talk_wakes`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TalkWake {
+    /// The conversation: a channel or DM id.
+    pub conv: String,
+    pub agent: String,
+    /// Who posted the message that woke it.
+    pub from: String,
+    /// The waking message (a DM's post has this id).
+    pub message_id: String,
+    pub woken_at: GoTime,
+    /// Woken but its turn hasn't started (it may be finishing another).
+    pub waiting: bool,
+    /// Taken up with no turn rows to tell when it ends (the channel path):
+    /// the caller decides from the agent's own status.
+    pub no_turn_rows: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum On {
+    Waiting,
+    Running,
+    Unknown,
+    Gone,
+}
+
+impl Inner {
+    /// Whether d's engaged wake is still in a turn.
+    fn turn_of(&self, d: &Drec) -> On {
+        let wid = &d.d.wake_id;
+        let cur = self.running.get(&d.d.to);
+        if wid.is_empty() {
+            return On::Unknown;
+        }
+        if cur.is_some_and(|r| &r.wake_id == wid) {
+            return On::Running;
+        }
+        // A wake that never started a turn of its own was appended to
+        // another: it is on while that one runs. That turn was already
+        // running when it engaged; one that started later is another.
+        // Both times are the host device's.
+        let appended =
+            !self.turned.contains(wid) || self.wakes.get(wid).is_some_and(|w| w.is_append());
+        if appended && cur.is_some_and(|r| !crate::tm::before(&d.d.updated_at, &r.at)) {
+            On::Running
+        } else {
+            On::Gone
+        }
+    }
 }
 
 /// The first line of a stop's prompt (card #207): the agent must not read it

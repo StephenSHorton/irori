@@ -135,6 +135,8 @@ export type TalkMember = B.TalkMember
 export type TalkMemberRef = B.TalkMemberRef
 export type TalkPerson = B.TalkPerson
 export type TalkPost = B.TalkPost
+export type TalkReplier = B.TalkReplier
+export type TalkReplying = B.TalkReplying
 export type Target = B.Target
 export type Task = B.Task
 export type TaskResult = B.TaskResult
@@ -747,6 +749,16 @@ export function TalkPerson(p: Partial<B.TalkPerson> = {}): B.TalkPerson {
 /** TalkPost with Go's zero values for every field left out. */
 export function TalkPost(p: Partial<B.TalkPost> = {}): B.TalkPost {
   return { "postId": "", "convId": "", "by": "", "text": "", "mentions": [], "agentsNow": false, "at": "", ...p } as B.TalkPost
+}
+
+/** TalkReplier with Go's zero values for every field left out. */
+export function TalkReplier(p: Partial<B.TalkReplier> = {}): B.TalkReplier {
+  return { "key": "", "name": "", "since": "", ...p } as B.TalkReplier
+}
+
+/** TalkReplying with Go's zero values for every field left out. */
+export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
+  return { "convId": "", "agents": [], ...p } as B.TalkReplying
 }
 
 /** Target with Go's zero values for every field left out. */

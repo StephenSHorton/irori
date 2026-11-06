@@ -41,7 +41,7 @@ use store::{Event, kinds};
 use super::error::{Result, invalid, not_found};
 use super::fold::Fold;
 use super::links::pr_link;
-use super::rows::{PrStateRow, TaskStateRow, row};
+use super::rows::{PrStateRow, TaskCommentRow, TaskStateRow, row};
 use super::types::*;
 use super::util::{SWEEPER, deeper};
 use gocompat::quote::quote;
@@ -73,6 +73,10 @@ pub struct PrState {
     pub review: String,
     #[serde(skip_serializing_if = "GoTime::is_zero")]
     pub merged_at: GoTime,
+    /// The commit the merge made on the base branch (GitHub's
+    /// mergeCommit), once a device heard it (card #421).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub merge_sha: String,
     /// Why GitHub couldn't be asked (no gh, no access); empty when it was.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
@@ -98,6 +102,7 @@ pub struct PrHeard {
     state: String,
     review: String,
     merged_at: GoTime,
+    merge_sha: String,
     over_closed: bool,
 }
 
@@ -208,6 +213,8 @@ pub struct PrCheck {
     pub state: String,
     pub review: String,
     pub merged_at: GoTime,
+    /// GitHub's mergeCommit oid, for a merged PR (card #421); "" unknown.
+    pub merge_sha: String,
     pub error: String,
 }
 
@@ -250,6 +257,19 @@ fn certainty(state: &str) -> u8 {
     }
 }
 
+/// Whether `t` is a "PR #n" card the merge desk made for a PR with no
+/// author card (merge desk §3 rule 4): Irori made it, and its title and
+/// objective say so. Only such a card completes itself on its merge.
+pub fn desk_pr_card(t: &Task) -> bool {
+    t.created_by == SWEEPER
+        && t.title.starts_with("PR #")
+        && t.objective.contains(DESK_PR_CARD_MARK)
+}
+
+/// The words a "PR #n" card's objective carries (the desk poller writes
+/// them, `map_desk`), which [`desk_pr_card`] looks for.
+pub const DESK_PR_CARD_MARK: &str = "has no author card";
+
 impl Fold {
     pub(crate) fn fold_pr_state(&mut self, ev: &Event) {
         let Some(p) = row::<PrStateRow>(&ev.payload) else {
@@ -263,7 +283,13 @@ impl Fold {
             pr: p.pr.clone(),
             ..PrState::default()
         });
-        let shown = (st.state.clone(), st.review.clone(), st.error.clone(), st.at);
+        let shown = (
+            st.state.clone(),
+            st.review.clone(),
+            st.error.clone(),
+            st.at,
+            st.merge_sha.clone(),
+        );
         if p.error.is_empty() && !p.state.is_empty() {
             st.note_heard(PrHeard {
                 at: p.at,
@@ -271,6 +297,7 @@ impl Fold {
                 state: p.state.clone(),
                 review: p.review.clone(),
                 merged_at: p.merged_at,
+                merge_sha: p.merge_sha.clone(),
                 over_closed: p.over_closed,
             });
             // Card #542: a merge wins whatever the times, else the newest
@@ -286,6 +313,14 @@ impl Fold {
             if let Some((state, review, merged_at, at)) = won {
                 (st.state, st.review, st.merged_at, st.at) = (state, review, merged_at, at);
             }
+            // Card #421: the first merged row that carries the sha, by the
+            // sorted rows, so any arrival order ends on the same one.
+            st.merge_sha = st
+                .heard
+                .iter()
+                .find(|h| h.state == PR_MERGED && !h.merge_sha.is_empty())
+                .map(|h| h.merge_sha.clone())
+                .unwrap_or_default();
         } else if !crate::gotime::before(&p.at, &st.error_at) {
             // An error says nothing of the PR, so it changes nothing known.
             st.last_error = p.error;
@@ -302,7 +337,15 @@ impl Fold {
         } else {
             String::new()
         };
-        if shown == (st.state.clone(), st.review.clone(), st.error.clone(), st.at) {
+        if shown
+            == (
+                st.state.clone(),
+                st.review.clone(),
+                st.error.clone(),
+                st.at,
+                st.merge_sha.clone(),
+            )
+        {
             return;
         }
         // A phone hears a merge only through this row: Needs you must redraw.
@@ -410,6 +453,40 @@ impl Fold {
         linked > 0 && states.len() == linked && states.iter().all(|p| p.state == PR_MERGED)
     }
 
+    /// Puts "Merged as <sha>" on `t` as Irori (merge desk §6, card #421),
+    /// once per sha: a card that already says it, from another device
+    /// that heard the merge too, gets nothing more. A log that refuses the
+    /// comment (a board's writer rules) loses only the comment: the
+    /// pr.state row carrying the sha is written already. Two devices that
+    /// hear the merge at once both write it, under one id made from the
+    /// card, PR, sha and GitHub's merge time, so the card shows it once.
+    fn say_merge_sha(&mut self, t: &Task, pr: &str, sha: &str, merged_at: GoTime) {
+        if t.withdrawn {
+            return;
+        }
+        let said = self
+            .comments
+            .values()
+            .any(|c| c.task_id == t.id && c.by == SWEEPER && c.text.contains(sha));
+        if said {
+            return;
+        }
+        let short: String = sha.chars().take(8).collect();
+        let at = self.stamp();
+        let id_at = if merged_at.is_zero() { at } else { merged_at };
+        let _ = self.write_comment(
+            SWEEPER,
+            TaskCommentRow {
+                task_id: t.id.clone(),
+                comment_id: super::util::fixed_id(&id_at, &format!("{} {pr} {sha}", t.id)),
+                by: SWEEPER.into(),
+                text: format!("Merged as {short} ({sha}): {pr}"),
+                at,
+                ..TaskCommentRow::default()
+            },
+        );
+    }
+
     /// Records what the poller heard about PR `c.pr` on card `id` and acts
     /// on what changed (module doc). Nothing is written when nothing
     /// changed, when GitHub still can't be asked (that is said once), or
@@ -444,16 +521,23 @@ impl Fold {
             .unwrap_or_default();
         // What the fold wouldn't take isn't written: it would only repeat.
         let beside_open = !c.error.is_empty() && old.state == PR_OPEN;
-        let unchanged = !beside_open && certainty(&c.state) < certainty(&old.state)
-            || if c.error.is_empty() {
-                old.error.is_empty()
-                    && old.state == c.state
-                    && old.review == c.review
-                    && !old.at.is_zero()
-            } else {
-                // Said once: a later failure stays quiet until it is heard again.
-                !old.error.is_empty()
-            };
+        // Card #421: a merge heard before without its sha (an older device,
+        // or one that didn't ask for it) is heard again with it.
+        let new_sha = c.error.is_empty()
+            && c.state == PR_MERGED
+            && !c.merge_sha.is_empty()
+            && old.merge_sha.is_empty();
+        let unchanged = !new_sha
+            && (!beside_open && certainty(&c.state) < certainty(&old.state)
+                || if c.error.is_empty() {
+                    old.error.is_empty()
+                        && old.state == c.state
+                        && old.review == c.review
+                        && !old.at.is_zero()
+                } else {
+                    // Said once: a later failure stays quiet until it is heard again.
+                    !old.error.is_empty()
+                });
         if unchanged {
             return Ok((t, Vec::new()));
         }
@@ -475,6 +559,11 @@ impl Fold {
                 state: c.state.clone(),
                 review: c.review.clone(),
                 merged_at: c.merged_at,
+                merge_sha: if c.state == PR_MERGED {
+                    c.merge_sha.clone()
+                } else {
+                    String::new()
+                },
                 error: c.error.clone(),
                 by: SWEEPER.into(),
                 at,
@@ -495,10 +584,45 @@ impl Fold {
                 quote(&c.pr)
             )));
         }
+        if new_sha {
+            self.say_merge_sha(&t, &c.pr, &c.merge_sha, c.merged_at);
+        }
         if !c.error.is_empty() || is_terminal(&t.state) {
             return Ok((self.tasks[id].clone(), Vec::new()));
         }
         let newly = |s: &str| c.state == s && old.state != s;
+        // Card #421: a "PR #n" card Irori made for a PR with no author card
+        // completes itself once its PRs are merged, held or not. A merge an
+        // older device heard first (no sha, no such rule) completes it when
+        // the sha comes.
+        if (newly(PR_MERGED) || new_sha) && desk_pr_card(&t) && self.all_prs_merged(&self.tasks[id])
+        {
+            let sha = self
+                .pr_states
+                .get(id)
+                .and_then(|m| m.get(&c.pr))
+                .map(|p| p.merge_sha.clone())
+                .unwrap_or_default();
+            let note = if sha.is_empty() {
+                format!("{} was merged on GitHub", c.pr)
+            } else {
+                format!("{} was merged on GitHub as {sha}", c.pr)
+            };
+            let at = self.stamp();
+            self.write_as(
+                SWEEPER,
+                kinds::TASK_STATUS,
+                &TaskStateRow {
+                    task_id: id.into(),
+                    state: COMPLETED.into(),
+                    note,
+                    by: SWEEPER.into(),
+                    at,
+                    ..TaskStateRow::default()
+                },
+            )?;
+            return Ok((self.tasks[id].clone(), Vec::new()));
+        }
         let change = if newly(PR_MERGED) {
             Some(PrChange::Merged)
         } else if newly(PR_CLOSED) {

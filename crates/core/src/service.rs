@@ -61,12 +61,14 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
 pub mod notes;
 mod notifications;
+pub mod space_move;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_agents;
@@ -82,6 +84,7 @@ pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod talk_replying;
 pub mod trees;
 
 use boards::Boards;
@@ -259,6 +262,9 @@ struct Services {
     /// Card #415: who lists merge desks' PRs, and each desk's polling.
     desk_lister: Option<Arc<dyn crate::deskwatch::PrLister>>,
     desk_watch: crate::deskwatch::DeskWatch,
+    /// Card #421: merged PRs the desk already settled, and the newest
+    /// `gh pr merge` heard.
+    desk_merges: crate::deskmerge::MergeHeard,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -1429,6 +1435,7 @@ impl Core {
             pr_watch: Default::default(),
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
+            desk_merges: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -2033,6 +2040,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
+                    s.desk_merge_heard();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -2500,7 +2508,9 @@ impl Core {
     /// (card #98).
     pub fn known_agent_names(&self) -> std::collections::BTreeMap<String, String> {
         self.s.note_agent_names();
-        self.s.agent_names.all()
+        let mut names = self.s.agent_names.all();
+        self.s.card_key_names(&mut names);
+        names
     }
 
     /// Gives the Core the desktop app's Revive, which a revive ask answered
@@ -3363,7 +3373,13 @@ impl Services {
         if !live.trim().is_empty() {
             return live;
         }
-        self.agent_names.get(key)
+        let known = self.agent_names.get(key);
+        if known.is_empty() && key.starts_with(kinds::AGENT_ACTOR_PREFIX) {
+            let mut names = self.agent_names.all();
+            self.card_key_names(&mut names);
+            return names.remove(key).unwrap_or_default();
+        }
+        known
     }
 
     /// See [`Core::device_labels`].
@@ -3782,8 +3798,9 @@ impl Services {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
                         objective: format!(
-                            "PR #{} on {repo} has no author card; this is its thread on the merge desk.",
-                            p.number
+                            "PR #{} on {repo} {}; this is its thread on the merge desk.",
+                            p.number,
+                            coord::DESK_PR_CARD_MARK
                         ),
                         repo_key: repo_key.into(),
                         ..coord::NewTask::default()
@@ -4039,6 +4056,9 @@ impl Services {
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
                     self.wake_desk_holder(repo_key, &v);
+                    self.post_desk(repo_key, &v);
+                    // Card #421: a PR that left the list may have merged.
+                    self.settle_gone_prs(repo_key);
                 }
                 wrote
             }
@@ -4049,6 +4069,200 @@ impl Services {
                 Err(e)
             }
         }
+    }
+
+    /// Irori's posts on each mapped PR's author card after a desk poll
+    /// (merge desk slice 6, card #420; [`crate::deskpost`]). What was
+    /// already said is read from the card's own Irori comments. A PR with
+    /// no card of ours yet (not ours, or a "PR #n" card made this pass)
+    /// waits for the next poll.
+    fn post_desk(&self, repo_key: &str, verdicts: &[(i64, crate::deskmap::Verdict)]) {
+        use crate::deskpost::{self, IRORI, Post};
+        let Some(desk) = self.coord.desk(repo_key) else {
+            return;
+        };
+        let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
+            return;
+        };
+        let (_, home) = self.desk_cards(false);
+        for (n, v) in verdicts {
+            let crate::deskmap::Verdict::Card(m) = v else {
+                continue;
+            };
+            let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
+                continue;
+            };
+            let co = home
+                .get(&m.task_id)
+                .cloned()
+                .unwrap_or_else(|| self.coord.clone());
+            let said: Vec<String> = co
+                .comments(&m.task_id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| c.by == IRORI)
+                .map(|c| c.text)
+                .collect();
+            let said: Vec<&str> = said.iter().map(String::as_str).collect();
+            for post in deskpost::due(p, &said) {
+                if self.desk_watch.fell_back(&m.task_id, &post.tag(p)) {
+                    continue;
+                }
+                let (text, files) = if post == Post::ChecksFailed {
+                    let got = match self.desk_lister.as_ref() {
+                        Some(l) => l.failed_checks(&repo, p.number),
+                        None => Ok(Vec::new()),
+                    };
+                    // The log is what lets the author fix it from the post
+                    // alone: a fetch that fell short waits a poll or two.
+                    let whole = got.as_ref().is_ok_and(|cs| {
+                        !cs.is_empty()
+                            && cs.iter().take(deskpost::MAX_LOGS).all(|c| {
+                                deskpost::actions_job(&c.url).is_none() || !c.log.trim().is_empty()
+                            })
+                    });
+                    if whole {
+                        self.desk_watch.fetched(repo_key, p.number, &p.head_ref_oid);
+                    } else if self
+                        .desk_watch
+                        .fetch_again(repo_key, p.number, &p.head_ref_oid)
+                    {
+                        if let Err(e) = &got {
+                            logf(format_args!("desk: PR #{} checks: {e}", p.number));
+                        }
+                        continue;
+                    }
+                    let checks = got.unwrap_or_default();
+                    let files = self.desk_logs(p, &checks);
+                    (deskpost::failed_text(p, &checks, !files.is_empty()), files)
+                } else {
+                    (deskpost::text(post, p), Vec::new())
+                };
+                if !self.desk_post(&co, &m.task_id, p.number, &text, post.wakes(), files) {
+                    self.desk_watch.fall_back(&m.task_id, &post.tag(p));
+                }
+            }
+        }
+    }
+
+    /// Puts one of Irori's posts on card `id` in `co`, and wakes its
+    /// holders when `wake`. When the card's board refuses Irori's comment,
+    /// its holders get the same text as an inbox notice instead, so the
+    /// author still hears it. False when the comment didn't go up.
+    fn desk_post(
+        &self,
+        co: &Arc<Coord>,
+        id: &str,
+        pr: i64,
+        text: &str,
+        wake: bool,
+        files: Vec<coord::FileRef>,
+    ) -> bool {
+        let from = inbox::system_sender();
+        match co.add_comment_with(crate::deskpost::IRORI, id, text, wake, files.clone()) {
+            Ok((_, n)) => {
+                // Opened and pushed are the thread's record: nobody is told.
+                if wake && let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                }
+                true
+            }
+            Err(e) => {
+                logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                let Some(t) = co.get_task(id) else {
+                    return false;
+                };
+                let to: Vec<String> = t
+                    .holders
+                    .iter()
+                    .chain(&t.co_holders)
+                    .filter(|h| !h.starts_with("user:") && *h != crate::deskpost::IRORI)
+                    .cloned()
+                    .collect();
+                if to.is_empty() {
+                    return false;
+                }
+                let n = Notice {
+                    kind: coord::NOTICE_COMMENT.into(),
+                    task_id: id.into(),
+                    reference: format!("task:{id}"),
+                    title: t.title.clone(),
+                    to,
+                    by: crate::deskpost::IRORI.into(),
+                    text: format!(
+                        "Irori, about PR #{pr} on {} ({}); its board didn't take this as a comment:\n{text}",
+                        gocompat::quote::quote(&t.title),
+                        t.short_ref()
+                    ),
+                    wake,
+                    attachments: files,
+                    ..Notice::default()
+                };
+                if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} notice for {id}: {e}"));
+                }
+                false
+            }
+        }
+    }
+
+    /// The failing checks' full logs as files for the post, best effort:
+    /// a log that can't be stored is only left out.
+    fn desk_logs(
+        &self,
+        p: &coord::DeskPr,
+        checks: &[crate::deskpost::FailedCheck],
+    ) -> Vec<coord::FileRef> {
+        /// The most of one log kept: its end, where the failure is.
+        const MAX_LOG: usize = 1 << 20;
+        let head = crate::deskpost::short(&p.head_ref_oid);
+        let mut out = Vec::new();
+        for (i, c) in checks.iter().enumerate() {
+            if c.log.trim().is_empty() {
+                continue;
+            }
+            let log = c.log.as_bytes();
+            let log = &log[log.len().saturating_sub(MAX_LOG)..];
+            let tmp = std::env::temp_dir().join(format!(
+                "irori-desk-{}-{}-{head}-{i}.log",
+                self.device.id, p.number
+            ));
+            let r = std::fs::write(&tmp, log)
+                .map_err(|e| e.to_string())
+                .and_then(|_| {
+                    self.files
+                        .put_file(&tmp.to_string_lossy())
+                        .map_err(|e| e.to_string())
+                });
+            let _ = std::fs::remove_file(&tmp);
+            let mut r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                    continue;
+                }
+            };
+            let name: String = c
+                .name
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .take(60)
+                .collect();
+            r.name = blob::safe_name(&format!("pr-{}-{head}-{name}.log", p.number), &r.sha256);
+            r.device = self.device.id.clone();
+            if let Err(e) = self.mesh.node.offer(&r) {
+                logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                continue;
+            }
+            out.push(coord::FileRef {
+                sha256: r.sha256,
+                name: r.name,
+                size: r.size,
+                mime: r.mime,
+                device: r.device,
+            });
+        }
+        out
     }
 
     /// Waits on shared boards' cards (card #574): the wait is in this log

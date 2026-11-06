@@ -59,6 +59,7 @@ pub use messages::clip_show;
 pub use pr::normalize_pr;
 pub use progress::{ProgressBy, progress_of};
 pub use state::{Inbox, Subscription, decode_message};
+pub use wake::TalkWake;
 
 // ---- errors ---------------------------------------------------------------
 

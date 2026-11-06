@@ -11,6 +11,7 @@
 //! | `devices:pairing` | [`PairStatus`] | pairing change (M7) |
 //! | `devices:changed` | `{}` | a device renamed, here or synced (#184) |
 //! | `talk:changed` | `{}` | coalesced, 250 ms: a `talk.*` row folded, or a message sent (#389) |
+//! | `talk:replying` | `TalkReplying[]` | coalesced, 250 ms, only when it changed (#645) |
 //! | `notifications:changed` | `{}` | a notification kept or read, here or synced (#377) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
@@ -46,6 +47,8 @@ pub const EVENT_CAPTURE_CHANGED: &str = "capture:changed";
 pub const EVENT_DEVICES_PAIRING: &str = "devices:pairing";
 pub const EVENT_DEVICES_CHANGED: &str = "devices:changed";
 pub const EVENT_TALK_CHANGED: &str = "talk:changed";
+/// Who is replying in Talk changed (card #645); the payload is the list.
+pub const EVENT_TALK_REPLYING: &str = "talk:replying";
 pub const EVENT_APP_OPEN: &str = "app:open";
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
@@ -232,6 +235,30 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_TALK_CHANGED, &Empty {});
+            });
+        }));
+    }
+    {
+        // Talk's replying row (card #645): a wake, a turn starting or
+        // ending, a post, or an agent going busy, gone or offline, here or
+        // synced, may change who is replying. Sent only when it did.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[
+            Topic::Inbox,
+            Topic::Talk,
+            Topic::Presence,
+            Topic::Roster,
+            Topic::Devices,
+        ]);
+        out.push(spawn("irori-window-talk-replying", move || {
+            let q = feed.queue().clone();
+            let mut last = w.talk_replying();
+            coalesce(&q, INBOX_EMIT_EVERY, &stop, |_| {
+                let now = w.talk_replying();
+                if now != last {
+                    w.emit(EVENT_TALK_REPLYING, &now);
+                    last = now;
+                }
             });
         }));
     }
