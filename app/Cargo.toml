@@ -25,6 +25,9 @@ irori-attach = { workspace = true }
 irori-core = { workspace = true }
 irori-gocompat = { workspace = true }
 irori-home = { workspace = true }
+# Keep this device up to date (card #578): whether an agent is working.
+irori-presence = { workspace = true }
+irori-coord = { workspace = true }
 irori-pair = { workspace = true }
 irori-sys = { workspace = true }
 irori-store = { workspace = true }
