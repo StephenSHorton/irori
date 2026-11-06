@@ -451,8 +451,8 @@ impl Services {
     }
 
     /// Lifts the "no copy" blockers this device raised once a copy is here
-    /// (a Where, a checkout, or a folder the person named), and asks for
-    /// the agent.
+    /// (a Where, a checkout, or a folder the person named): the card then
+    /// starts as any other does.
     pub(crate) fn lift_no_copy(&self, sp: &super::spawn::Spawner) {
         let me = self.device.id.clone();
         let open = self.coord.list_tasks(&TaskFilter {
@@ -472,11 +472,12 @@ impl Services {
                 continue;
             };
             // Not trusted: the request fails as such and Needs you offers
-            // Trust and start.
+            // Trust and start. Resolving moves the card on past its failed
+            // request, so the sweep asks again without waiting out the
+            // retry; it isn't the person's ask, so the daily limit and the
+            // queue order still hold (card #576).
             let trusted = (sp.trusted)(Path::new(&folder));
-            if self.resolve_no_copy(&t, &folder, trusted) {
-                self.coord.spawn_now(&t.id);
-            }
+            self.resolve_no_copy(&t, &folder, trusted);
         }
     }
 }

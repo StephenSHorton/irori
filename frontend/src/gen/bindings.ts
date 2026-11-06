@@ -320,6 +320,11 @@ export const commands = {
 	/**  The person sets a device's cap: the app only, never a tool. */
 	agentsCapSet: (device: string, cap: number) => __TAURI_INVOKE<AgentsLimits>("agents_cap_set", { device, cap }),
 	/**
+	 *  The person ends this device's usage hold (card #576): the app only,
+	 *  never a tool.
+	 */
+	agentsUsageRelease: () => __TAURI_INVOKE<AgentsLimits>("agents_usage_release"),
+	/**
 	 *  The person's "Offer it cards" on one of their terminal agents (card
 	 *  #453): the app only, never a tool. Spawned agents are refused.
 	 */

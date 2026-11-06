@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { ordinal, queued, spawnLine, usageResets } from "./spawn-line"
+import {
+  ordinal,
+  queued,
+  spawnLine,
+  startPastLimit,
+  usageResets,
+} from "./spawn-line"
 
 describe("spawnLine (card #448)", () => {
   test("nothing to say", () => {
@@ -85,5 +91,20 @@ describe("spawnLine (card #448)", () => {
       text: "waiting: Macbook Pro (this one) is at its cap",
       tone: "quiet",
     })
+  })
+})
+
+describe("startPastLimit (card #576)", () => {
+  test("only a limit offers it", () => {
+    expect(startPastLimit({})).toBe("")
+    expect(startPastLimit({ atCap: "the PC", queuePlace: 2 })).toBe("")
+    expect(startPastLimit({ dailyLimit: 20 })).toContain("past today's limit")
+    expect(startPastLimit({ usageLimit: "2026-11-05T16:30:00Z" })).toContain(
+      "Tries now"
+    )
+  })
+  test("not while one is starting or can't", () => {
+    expect(startPastLimit({ dailyLimit: 20, starting: "the PC" })).toBe("")
+    expect(startPastLimit({ dailyLimit: 20, cantStart: "no copy" })).toBe("")
   })
 })

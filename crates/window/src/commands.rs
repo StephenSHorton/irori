@@ -1376,6 +1376,14 @@ pub async fn agents_cap_set(w: W<'_>, device: String, cap: u32) -> R<AgentsLimit
     blocking(&w, move |w| w.agents_cap_set(&device, cap)).await
 }
 
+/// The person ends this device's usage hold (card #576): the app only,
+/// never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_usage_release(w: W<'_>) -> R<AgentsLimits> {
+    blocking(&w, move |w| Ok(w.agents_usage_release())).await
+}
+
 /// The person's "Offer it cards" on one of their terminal agents (card
 /// #453): the app only, never a tool. Spawned agents are refused.
 #[tauri::command]
@@ -1741,6 +1749,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_set,
             agents_limits,
             agents_cap_set,
+            agents_usage_release,
             agents_offer_set,
             agents_end,
             agents_logs,

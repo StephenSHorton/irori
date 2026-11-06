@@ -168,6 +168,11 @@ pub(crate) struct RemoteState {
     /// the restart, and one from before an absence is the card's device's
     /// to replace with the next generation).
     held_at_start: Mutex<Option<HashSet<(String, i64)>>>,
+    /// Cards the person asked for that this device sent to another one, by
+    /// the request's generation (card #576): writing the request spent
+    /// `spawn_now`, so if a usage limit stops it there, this puts it back.
+    /// In memory, as `spawn_now` is.
+    asked_elsewhere: Mutex<HashMap<String, i64>>,
 }
 
 fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
@@ -481,6 +486,16 @@ impl Services {
     /// Asks device `dev` to start card t's agent: the request names it,
     /// and that device does the rest ([`Self::start_requested`]).
     pub(crate) fn request_on(&self, t: &Task, dev: &str) -> Result<bool, String> {
+        // Read before the request spends it. A stale request of his that is
+        // asked again stays his.
+        let asked = self.coord.spawn_asked_now(&t.id)
+            || self
+                .spawn
+                .remote
+                .asked_elsewhere
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains_key(&t.id);
         let generation = t.spawn_request().map_or(0, |s| s.generation) + 1;
         let name = self.spawn_name(t, generation);
         let setting = self.spawn_setting("");
@@ -524,15 +539,50 @@ impl Services {
             .coord
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
-        if out.is_some() {
+        if let Some(g) = out {
             self.note_tried(&t.id, dev);
             self.spawn
                 .answers
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&t.id);
+            if asked {
+                self.spawn
+                    .remote
+                    .asked_elsewhere
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(t.id.clone(), g);
+            }
         }
         Ok(out.is_some())
+    }
+
+    /// The person's "Start an agent" still stands after a usage limit
+    /// (card #576): a request of his that ended on one on another device
+    /// asks again here, as a local start does. Run before the queue is
+    /// walked. One bound, failed otherwise or replaced is forgotten.
+    pub(crate) fn renew_asks_sent_elsewhere(&self) {
+        self.spawn
+            .remote
+            .asked_elsewhere
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|id, g| {
+                let t = self.coord.get_task(id);
+                let Some(s) = t
+                    .as_ref()
+                    .and_then(|t| t.spawn_request())
+                    .filter(|s| s.generation == *g)
+                else {
+                    return false;
+                };
+                if coord::usage_limited(s) {
+                    self.coord.spawn_now(id);
+                    return false;
+                }
+                s.pending()
+            });
     }
 
     // ---- The device a request names ----------------------------------
@@ -862,6 +912,7 @@ impl Services {
                 self.set_brief_answer(&t.id, &r.note);
             }
             self.coord.spawn_now(&t.id);
+            self.release_usage_hold();
             self.asks_kick.kick();
         }
     }

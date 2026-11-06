@@ -15,9 +15,11 @@
 //!
 //! The hold is this device's, in memory: after a restart the first spawn
 //! hits the limit again and holds again. Its `spawn.host` row carries the
-//! hold, so the person's other devices don't ask this one meanwhile.
+//! hold, so the person's other devices don't ask this one meanwhile. The
+//! person can end it early (card #576): Start an agent, or Settings ›
+//! Agents' Try now. A limit still in force holds again at the first spawn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::time::Duration;
 
@@ -209,6 +211,9 @@ pub struct SpawnQueue {
     /// The spawned agents live here and starting, and the cap.
     pub running: i64,
     pub cap: i64,
+    /// This person's cards on shared boards that this device would start
+    /// but for the hold or the daily limit (card #576), by id.
+    pub on_boards: HashSet<String>,
 }
 
 impl Services {
@@ -248,6 +253,23 @@ impl Services {
         until
     }
 
+    /// Ends the usage hold now, for the person (card #576): they asked for
+    /// an agent, or they know the limit changed. If it still stands, the
+    /// next spawn fails on it and holds again.
+    pub(crate) fn release_usage_hold(&self) {
+        let was = self
+            .spawn
+            .usage_hold
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if was.is_some() {
+            logf(format_args!("spawn: the person ended the usage hold"));
+            self.republish_host();
+            self.asks_kick.kick();
+        }
+    }
+
     /// The agents Irori started today for the private board, every
     /// device's (the daily limit and Settings › Agents count them).
     pub(crate) fn spawned_today(&self) -> Vec<(String, coord::Spawned)> {
@@ -270,14 +292,19 @@ impl Services {
                 .count()
         };
         // Shared boards' too: bound, their marks are in the private log.
+        // Only this person's cards: Irori starts no other, and another
+        // member's agents count toward that member's limit.
+        let person = self.person_id();
         let on_boards: usize = self
             .shown_boards()
             .iter()
             .map(|b| {
-                waiting(&b.coord().list_tasks(&coord::TaskFilter {
+                let mut cards = b.coord().list_tasks(&coord::TaskFilter {
                     open: true,
                     ..coord::TaskFilter::default()
-                }))
+                });
+                cards.retain(|t| b.verifier.key_person(&t.created_by) == person);
+                waiting(&cards)
             })
             .sum();
         (self.spawned_today().len() + waiting(&self.open_cards()) + on_boards) as i64
@@ -350,7 +377,37 @@ impl Services {
             place += 1;
             q.places.insert(t.id.clone(), place);
         }
+        if held || q.daily_reached.is_some() {
+            q.on_boards = self.board_cards_held(held);
+        }
         q
+    }
+
+    /// The cards on shared boards that the hold (`held`), else the daily
+    /// limit, stops here: what [`Self::sweep_board_spawns`] would start,
+    /// less a card the person already asked for or whose last start failed
+    /// here (it says "can't start" instead).
+    fn board_cards_held(&self, held: bool) -> HashSet<String> {
+        let person = self.person_id();
+        let mut out = HashSet::new();
+        for b in self.shown_boards() {
+            let co = b.coord();
+            if !co.spawning() {
+                continue;
+            }
+            for t in co.cards_to_spawn() {
+                if b.verifier.key_person(&t.created_by) != person
+                    || t.open_ask().is_some_and(|a| !a.thread)
+                    || (!held && co.spawn_asked_now(&t.id))
+                    || t.spawn_request()
+                        .is_some_and(|s| s.op == SPAWN_FAILED && !coord::usage_limited(s))
+                {
+                    continue;
+                }
+                out.insert(t.id);
+            }
+        }
+        out
     }
 
     /// Spawned agents here that stopped on a usage limit (card #450): their
@@ -406,33 +463,35 @@ impl Services {
         }
     }
 
-    /// Whether spawned agent `key` is working its card or ask: it holds an
-    /// open card that is working or waiting for an agent, or has taken an
-    /// open ask.
+    /// Whether spawned agent `key` is working its card or ask, on the
+    /// private board or a shared one: it holds an open card that is working
+    /// or waiting for an agent, or has taken an open ask.
     fn works_its_card(&self, key: &str) -> bool {
-        let Some(t) = self
-            .coord
-            .spawned(key)
-            .and_then(|m| self.coord.get_task(&m.task_id))
-        else {
+        let Some((_, t, k)) = self.spawn_card_of(key) else {
             return false;
         };
         if let Some(a) = t.open_ask() {
-            return a.taker == key;
+            return a.taker == k;
         }
-        t.holders.iter().any(|h| h == key)
-            && (t.state == coord::WORKING || t.state == coord::SUBMITTED)
+        t.holders.contains(&k) && (t.state == coord::WORKING || t.state == coord::SUBMITTED)
     }
 
     /// Ends spawned agent `key`, stopped on a usage limit held until
     /// `until`: a line on its card, its `agent.gone` as not a crash (no
     /// hand-off is asked: it can't answer), then `claude stop` and `rm`.
     fn end_usage_limited(&self, key: &str, until: &GoTime) -> Result<(), String> {
-        if let Some(m) = self.coord.spawned(key) {
+        let card = self.spawn_card_of(key);
+        if let Some((co, t, _)) = &card {
             let line = format!("{USAGE_STOPPED} ({}).", until.format_short());
-            self.coord
-                .add_comment(super::spawn::SWEEPER, &m.task_id, &line, false)
+            co.add_comment(super::spawn::SWEEPER, &t.id, &line, false)
                 .map_err(|e| e.to_string())?;
+        }
+        // On a shared board its agent:<cardId> leaves the card the same
+        // way, as end_now's does (card #576).
+        if let Some((co, _, k)) = &card
+            && k != key
+        {
+            co.mark_usage_limited(k, (self.now)());
         }
         #[derive(Serialize)]
         struct Gone<'a> {

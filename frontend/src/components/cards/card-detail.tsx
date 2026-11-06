@@ -104,6 +104,7 @@ import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard, useMissed } from "@/lib/mentions"
 import { useBoards, type BoardSummary } from "@/lib/boards"
 import { previewFlag } from "@/lib/preview"
+import { StartPastLimit } from "./start-past-limit"
 import { ShareButton, TransferButton, WithdrawButton } from "./share-dialog"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
@@ -584,11 +585,10 @@ function WorkingRow({ card }: { card: CardSummary }) {
 
 // QueueRow is the card page's top line while nobody is on it and Irori is
 // getting it an agent (spawned-agents §10, card #450): starting, its place
-// in a device's queue, held on a usage limit until its reset, waiting past
-// the daily limit (with Start an agent), or why one can't start. Nothing
-// otherwise.
+// in a device's queue, held on a usage limit until its reset or waiting
+// past the daily limit (each with Start an agent), or why one can't start.
+// Nothing otherwise.
 function QueueRow({ card }: { card: CardSummary }) {
-  const [asked, setAsked] = useState("")
   const line = spawnLine(card)
   if (!line) return null
   const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
@@ -606,24 +606,7 @@ function QueueRow({ card }: { card: CardSummary }) {
         {line.text.charAt(0).toUpperCase() + line.text.slice(1)}
         {resets && ` (${resets})`}
       </span>
-      {!!card.dailyLimit && !card.starting && (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!!asked}
-          title="Starts this card's agent now, past today's limit"
-          onClick={() => {
-            setAsked("Starting…")
-            cards.startAgent(card.id, "").then(
-              () => setAsked("Asked: an agent starts in a moment."),
-              (e: Error) => setAsked(errorText(e))
-            )
-          }}
-        >
-          Start an agent
-        </Button>
-      )}
-      {asked && <span className="text-muted-foreground">{asked}</span>}
+      <StartPastLimit id={card.id} state={card} />
     </p>
   )
 }

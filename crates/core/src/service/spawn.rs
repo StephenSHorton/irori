@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use coord::roster::Agents;
-use coord::{BLOCKED, Notice, SPAWN_CANCELED, SPAWN_FAILED, SpawnAsk, Task, TaskFilter};
+use coord::{BLOCKED, Coord, Notice, SPAWN_CANCELED, SPAWN_FAILED, SpawnAsk, Task, TaskFilter};
 use gocompat::time::GoTime;
 use serde::{Deserialize, Serialize};
 use store::{Filter, Store, kinds};
@@ -1329,6 +1329,7 @@ impl Services {
         self.lift_no_copy(&sp);
         self.publish_host(&sp);
         self.serve_start_requests();
+        self.renew_asks_sent_elsewhere();
         let me = self.device.id.clone();
         let cap = self.spawn_cap(&me);
         let mut running = self.spawned_here();
@@ -1382,19 +1383,13 @@ impl Services {
     /// the thread says it rather than waiting in silence (an open ask can't
     /// carry a card's crash question). The person asking it again starts
     /// the count over. A card already past a limit he lowered asks him now
-    /// rather than wait unsaid (card #576).
+    /// rather than wait unsaid (card #576), on shared boards too.
     fn say_ask_crashes(&self) {
         let me = self.device.id.as_str();
         let limit = self.coord.crash_limit();
         for t in self.open_cards() {
             let Some(a) = t.open_ask() else {
-                if t.spawn_crashes >= limit
-                    && t.holders.is_empty()
-                    && !t.spawn_request().is_some_and(|s| s.pending())
-                    && let Err(e) = self.coord.stop_crashed(&t.id)
-                {
-                    logf(format_args!("spawn {}: {e}", t.short_ref()));
-                }
+                self.ask_past_crash_limit(&self.coord, &t);
                 continue;
             };
             if a.owner != me || t.spawn_crashes < limit {
@@ -1412,6 +1407,34 @@ impl Services {
             ) {
                 logf(format_args!("spawn {}: {e}", t.short_ref()));
             }
+        }
+        let person = self.person_id();
+        for b in self.shown_boards() {
+            let co = b.coord();
+            if !co.spawning() {
+                continue;
+            }
+            for t in co.list_tasks(&TaskFilter {
+                open: true,
+                ..TaskFilter::default()
+            }) {
+                if t.open_ask().is_none() && b.verifier.key_person(&t.created_by) == person {
+                    self.ask_past_crash_limit(co, &t);
+                }
+            }
+        }
+    }
+
+    /// Asks the person about card t of `co` if its crashes reached the
+    /// limit and nothing is on its way. Asked only on the device that hands
+    /// it out ([`Coord::stop_crashed`]), whose number governs it.
+    fn ask_past_crash_limit(&self, co: &Coord, t: &Task) {
+        if t.spawn_crashes >= co.crash_limit()
+            && t.holders.is_empty()
+            && !t.spawn_request().is_some_and(|s| s.pending())
+            && let Err(e) = co.stop_crashed(&t.id)
+        {
+            logf(format_args!("spawn {}: {e}", t.short_ref()));
         }
     }
 
@@ -2575,12 +2598,13 @@ impl Services {
 
     /// The person asks for an agent on card `id` now, with `note` in its
     /// brief ("Start an agent with this", §4): the card goes back on the
-    /// Board if nobody holds it, and the next sweep starts its agent.
+    /// Board if nobody holds it, and the next sweep starts its agent. His
+    /// ask goes past the daily limit and ends a usage hold here (card
+    /// #576).
     pub(crate) fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
-        let t = self
-            .coord
-            .get_task(id)
-            .ok_or_else(|| format!("no card {id}"))?;
+        let Some(t) = self.coord.get_task(id) else {
+            return self.start_board_agent(id);
+        };
         if !t.holders.is_empty() {
             return Err(format!("{} has an agent on it", t.short_ref()));
         }
@@ -2591,6 +2615,9 @@ impl Services {
         }
         // His ask skips a failed spawn's wait (card #464).
         self.coord.spawn_now(id);
+        if self.coord.hands_out_here(id) {
+            self.release_usage_hold();
+        }
         let person = format!("user:{}", self.device.id);
         if t.state != coord::SUBMITTED {
             self.coord

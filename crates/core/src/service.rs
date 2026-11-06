@@ -2506,6 +2506,13 @@ impl Core {
         self.s.spawn_queue()
     }
 
+    /// The person ends this device's usage hold now (card #576): if the
+    /// limit still stands, the next spawn fails on it and holds again. App
+    /// only.
+    pub fn release_usage_hold(&self) {
+        self.s.release_usage_hold()
+    }
+
     /// The agents Irori started today for the private board, every
     /// device's, oldest first: their keys and marks (card #450).
     pub fn spawned_today(&self) -> Vec<(String, coord::Spawned)> {

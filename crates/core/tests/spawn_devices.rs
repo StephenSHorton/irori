@@ -833,3 +833,343 @@ fn a_device_held_on_a_usage_limit_is_not_asked() {
     assert_eq!(t2.fb.started(), 0);
     t2.close();
 }
+
+/// A person's Start an agent, sent to another device, still stands when a
+/// usage limit stops it there (card #576): writing the request spent it,
+/// so the device that hands the card out takes it back.
+#[test]
+fn a_start_sent_to_a_device_on_a_usage_limit_still_stands() {
+    let t2 = Two::new();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    *t2.fb.fail.lock().unwrap() =
+        Some("Claude usage limit reached. Your limit will reset at 3pm".into());
+    let asked = t2.card("He asked for this one");
+    t2.a.core.start_agent(&asked.id, "").unwrap();
+    let co = t2.a.core.coord();
+    assert!(co.spawn_asked_now(&asked.id));
+    t2.spawning_on_a();
+    wait_for(WAIT, "the request ended on the usage limit", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.on_a(&asked.id)
+            .spawn_request()
+            .is_some_and(coord::usage_limited)
+    });
+    wait_for(WAIT, "his ask stands again on A", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        co.spawn_asked_now(&asked.id)
+    });
+    t2.close();
+}
+
+/// The crash limit is each device's own and the count is shared: the
+/// device that hands a card out governs it, even when its agent ran
+/// elsewhere (card #576). The Mac's lower number doesn't stop the PC's
+/// card; the PC lowering its own does.
+#[test]
+fn only_the_device_handing_a_card_out_stops_it_on_crashes() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    let limits = |crash_limit| SpawnSetting {
+        on: true,
+        crash_limit,
+        ..SpawnSetting::default()
+    };
+    t2.b.core.set_spawn_setting(limits(1)).unwrap();
+    t2.a.core.set_spawn_setting(limits(5)).unwrap();
+    let t = t2.card("Kills its agent on the Mac");
+    let held = || !t2.on_a(&t.id).holders.is_empty();
+    wait_for(WAIT, "its agent runs on the Mac", held);
+    // No slot for a next agent, so the card sits with nobody on it.
+    t2.a.core.set_spawn_cap_of(&b_id, 0).unwrap();
+    wait_for(WAIT, "the Mac has its cap of 0", || {
+        t2.b.core.set_spawn_cap_of("nobody", 1).unwrap();
+        t2.b.core.spawn_cap() == 0
+    });
+    std::fs::remove_file(t2.b.claude.join("sessions").join("900003.json")).unwrap();
+    wait_for(WAIT, "the crash reaches the PC", || {
+        t2.skew_a
+            .fetch_add(coord::HOLDER_GRACE.as_secs() as i64, Ordering::SeqCst);
+        t2.skew_b
+            .fetch_add(coord::HOLDER_GRACE.as_secs() as i64, Ordering::SeqCst);
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.b.core.set_spawn_cap_of("nobody", 1).unwrap();
+        std::thread::sleep(Duration::from_secs(1));
+        let c = t2.on_a(&t.id);
+        c.spawn_crashes == 1 && c.holders.is_empty()
+    });
+    t2.kick();
+    let asks = |c: &Task| {
+        c.blockers
+            .iter()
+            .any(|b| b.open() && coord::is_crash_question(b))
+    };
+    let got = t2.on_a(&t.id);
+    assert!(!asks(&got), "the Mac's 1 stopped the PC's card: {got:?}");
+    assert_eq!(got.state, coord::SUBMITTED);
+
+    t2.a.core.set_spawn_setting(limits(1)).unwrap();
+    wait_for(WAIT, "the PC asks at its own lower limit", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        asks(&t2.on_a(&t.id))
+    });
+    t2.close();
+}
+
+/// Stephen and Bob on a shared board, Stephen's spawner on and his clock
+/// `skew` ahead.
+struct OnBoard {
+    s: Dev,
+    b: Dev,
+    board: String,
+    fake: Arc<Fake>,
+    skew: Arc<AtomicI64>,
+    co: Arc<coord::Coord>,
+    _checkout: tempfile::TempDir,
+}
+
+impl OnBoard {
+    fn new() -> OnBoard {
+        let skew = Arc::new(AtomicI64::new(0));
+        let sk = skew.clone();
+        let mut st = person_with("stephen", 1, |_| Some(skewed(sk.clone())));
+        let mut bo = person("bob", 1);
+        let (s, b) = (st.remove(0), bo.remove(0));
+        let board = invited(&s, &b);
+        let checkout = tempfile::tempdir().unwrap();
+        s.core
+            .capture()
+            .emit_row(
+                "irori",
+                capture::KIND_REPO_SEEN,
+                &capture::RepoSeen {
+                    repo_key: REPO.into(),
+                    root: checkout.path().to_string_lossy().into_owned(),
+                    at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                },
+            )
+            .unwrap();
+        let fake = Arc::new(Fake::default());
+        s.core
+            .set_spawner(Some(spawner(&fake, s.claude.join("sessions"), SESS_A)));
+        s.core
+            .set_spawn_setting(SpawnSetting {
+                board_id: board.clone(),
+                on: true,
+                ..SpawnSetting::default()
+            })
+            .unwrap();
+        let co = s.core.board_coord(&board).unwrap();
+        OnBoard {
+            s,
+            b,
+            board,
+            fake,
+            skew,
+            co,
+            _checkout: checkout,
+        }
+    }
+
+    fn card(&self, title: &str) -> Task {
+        self.co
+            .create_task(
+                &self.s.person_actor(),
+                NewTask {
+                    title: title.into(),
+                    repo_key: REPO.into(),
+                    ..NewTask::default()
+                },
+            )
+            .unwrap()
+    }
+
+    fn kick(&self) {
+        self.s.core.set_spawn_cap(self.s.core.spawn_cap()).unwrap();
+    }
+
+    fn get(&self, id: &str) -> Task {
+        self.co.get_task(id).unwrap()
+    }
+
+    fn held(&self, id: &str) -> String {
+        wait_for(WAIT, "the card held on the board", || {
+            !self.get(id).holders.is_empty()
+        });
+        self.get(id).holders[0].clone()
+    }
+
+    fn session(&self) -> String {
+        format!("{}/{SESS_A}", self.s.core.device_id())
+    }
+
+    fn close(self) {
+        self.s.core.close().unwrap();
+        self.b.core.close().unwrap();
+    }
+}
+
+/// An agent on a shared board's card that stops on a usage limit ends like
+/// a private card's (card #576): a line on the card, no crash, off the card
+/// and queued; the person's Start tries at once, ending the hold.
+#[test]
+fn a_shared_board_agent_on_a_usage_limit_is_ended_and_requeued() {
+    let o = OnBoard::new();
+    let t = o.card("Works until the limit");
+    let key = o.held(&t.id);
+    o.co.set_task_state(&key, &t.id, "working", "on it")
+        .unwrap();
+
+    let resets = gocompat::time::GoTime::from_system(std::time::SystemTime::now()).secs + 3600;
+    let proj = o.s.claude.join("projects").join("C--work");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::write(
+        proj.join(format!("{SESS_A}.jsonl")),
+        format!(
+            r#"{{"type":"assistant","timestamp":"2026-11-04T19:01:00Z","isSidechain":false,"message":{{"id":"m1","role":"assistant","model":"<synthetic>","content":[{{"type":"text","text":"You've hit your 5-hour limit · resets 4:30pm (America/Denver)"}}]}},"apiError":"usage_limit_reached","apiErrorParams":{{"rate_limit_info":{{"status":"rejected","resetsAt":{resets},"rateLimitType":"five_hour"}}}},"isApiErrorMessage":true}}"#
+        ) + "\n",
+    )
+    .unwrap();
+    let session = o.session();
+    wait_for(WAIT, "Irori ends it on the usage limit", || {
+        o.kick();
+        o.s.core.coord().ended_by_irori(&session)
+    });
+    assert!(o.co.ended_by_irori(&key), "its board key ended too");
+    assert_eq!(o.fake.ended(), vec![SESS_A.to_string()]);
+    wait_for(WAIT, "it comes off the card", || {
+        o.skew
+            .fetch_add(coord::ENDED_GRACE.as_secs() as i64, Ordering::SeqCst);
+        o.kick();
+        std::thread::sleep(Duration::from_millis(500));
+        let c = o.get(&t.id);
+        c.holders.is_empty() && c.state == coord::SUBMITTED
+    });
+    let now = o.get(&t.id);
+    assert_eq!(now.spawn_crashes, 0, "a usage limit is no crash");
+    let said = o.co.comments(&t.id).unwrap();
+    assert!(
+        said.iter()
+            .any(|c| c.text.starts_with(irori_core::spawn_limits::USAGE_STOPPED)),
+        "{said:?}"
+    );
+    let bco = o.b.core.board_coord(&o.board).unwrap();
+    wait_for(WAIT, "the other member reads the line too", || {
+        bco.comments(&t.id)
+            .unwrap_or_default()
+            .iter()
+            .any(|c| c.by == "irori" && c.text.starts_with(irori_core::spawn_limits::USAGE_STOPPED))
+    });
+    let q = o.s.core.spawn_queue();
+    assert!(q.held_until.is_some());
+    assert!(q.on_boards.contains(&t.id), "{:?}", q.on_boards);
+    assert_eq!(o.fake.started(), 1, "no fresh agent while held");
+
+    o.s.core.start_agent(&t.id, "").unwrap();
+    assert_eq!(o.s.core.spawn_queue().held_until, None, "his Start ends it");
+    wait_for(WAIT, "a fresh agent", || {
+        o.kick();
+        o.fake.started() == 2
+    });
+    o.close();
+}
+
+/// The daily limit counts this person's agents, not another member's
+/// (card #576), and past it the person can still start their own board
+/// card, which says it waits.
+#[test]
+fn the_daily_limit_on_a_shared_board_counts_mine_and_can_be_passed() {
+    let o = OnBoard::new();
+    let bco = o.b.core.board_coord(&o.board).unwrap();
+    let theirs = bco
+        .create_task(
+            &o.b.person_actor(),
+            NewTask {
+                title: "Bob's card".into(),
+                repo_key: REPO.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    bco.request_spawn(
+        &o.b.person_actor(),
+        coord::SpawnAsk {
+            task_id: theirs.id.clone(),
+            device: o.b.core.device_id().to_string(),
+            repo_key: REPO.into(),
+            permission_mode: "acceptEdits".into(),
+            name: "heron".into(),
+            ..coord::SpawnAsk::default()
+        },
+    )
+    .unwrap();
+    wait_for(WAIT, "Stephen has Bob's starting card", || {
+        o.co.get_task(&theirs.id).is_some_and(|t| t.spawn_pending())
+    });
+    assert_eq!(o.s.core.spawn_queue().today, 0, "Bob's isn't counted");
+
+    o.s.core
+        .set_spawn_setting(SpawnSetting {
+            daily_limit: 1,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let first = o.card("Today's one");
+    o.held(&first.id);
+    let second = o.card("Past the limit");
+    for _ in 0..5 {
+        o.kick();
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(o.fake.started(), 1, "the limit stopped the second");
+    let q = o.s.core.spawn_queue();
+    assert_eq!((q.today, q.daily_reached), (1, Some(1)));
+    assert!(q.on_boards.contains(&second.id), "{:?}", q.on_boards);
+
+    let bob_says = o.s.core.start_agent(&theirs.id, "");
+    assert!(bob_says.is_err(), "another member's card: {bob_says:?}");
+    o.s.core.start_agent(&second.id, "").unwrap();
+    wait_for(WAIT, "his Start goes past the limit", || {
+        o.kick();
+        o.fake.started() == 2
+    });
+    o.close();
+}
+
+/// A shared board's card already past a crash limit the person lowers asks
+/// them, rather than drop out of the queue unsaid (card #576).
+#[test]
+fn a_crash_limit_lowered_under_a_shared_board_card_asks() {
+    let o = OnBoard::new();
+    let t = o.card("Kills its agent");
+    o.held(&t.id);
+    o.s.core.set_spawn_cap(0).unwrap();
+    std::fs::remove_file(o.s.claude.join("sessions").join("900003.json")).unwrap();
+    wait_for(WAIT, "the crash is counted", || {
+        o.skew
+            .fetch_add(coord::HOLDER_GRACE.as_secs() as i64, Ordering::SeqCst);
+        o.kick();
+        std::thread::sleep(Duration::from_secs(1));
+        let c = o.get(&t.id);
+        c.spawn_crashes == 1 && c.holders.is_empty()
+    });
+    o.s.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            crash_limit: 1,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    wait_for(WAIT, "the board card asks", || {
+        o.kick();
+        o.get(&t.id)
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.question == coord::crash_question(1))
+    });
+    o.close();
+}

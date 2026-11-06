@@ -412,7 +412,8 @@ function sampleLimits(): AgentsLimits {
 }
 
 // useLimits loads Settings › Agents' caps and today's count and cost,
-// refreshed every few seconds while open, and sets a device's cap.
+// refreshed every few seconds while open, sets a device's cap, and ends a
+// usage hold here early.
 export function useLimits(open: boolean) {
   const [l, setL] = useState<AgentsLimits | null>(() =>
     inWails() ? null : sampleLimits()
@@ -452,7 +453,17 @@ export function useLimits(open: boolean) {
       (e: Error) => setError(e.message)
     )
   }, [])
-  return { limits: l, error, setCap }
+  const releaseHold = useCallback(() => {
+    if (!inWails()) {
+      setL((x) => (x ? { ...x, heldUntil: undefined } : x))
+      return
+    }
+    AgentsService.UsageRelease().then(
+      (v) => (setL(v), setError("")),
+      (e: Error) => setError(e.message)
+    )
+  }, [])
+  return { limits: l, error, setCap, releaseHold }
 }
 
 // runningSince says how long ago an agent was asked for: "just now",

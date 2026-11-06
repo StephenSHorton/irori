@@ -14,6 +14,7 @@ import { FolderIcon, ShieldAlertIcon, ShieldCheckIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { PermissionsSection } from "@/components/settings/agent-permissions"
+import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -165,7 +166,7 @@ function LimitsSection({
   settings: AgentsSettings
   set: (c: Omit<AgentsChange, "boardId">) => void
 }) {
-  const { limits: l, error, setCap } = useLimits(open)
+  const { limits: l, error, setCap, releaseHold } = useLimits(open)
   return (
     <section className="grid gap-2">
       <h3 className="text-sm font-medium text-ink">Limits</h3>
@@ -184,15 +185,25 @@ function LimitsSection({
             {l.queued > 0 && ` ${l.queued} queued for a slot.`}
           </p>
           {l.heldUntil != null && (
-            <p
+            <div
               role="status"
-              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-ink"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12.5px] text-ink"
             >
-              A Claude usage limit is holding new agents (
-              {usageResets(new Date(l.heldUntil).toISOString())}). Queued cards
-              start then; agents that stopped on it aren&apos;t counted as
-              crashes.
-            </p>
+              <span className="min-w-0 flex-1 basis-56">
+                A Claude usage limit is holding new agents on this computer (
+                {usageResets(new Date(l.heldUntil).toISOString())}). Queued
+                cards start then; agents that stopped on it aren&apos;t counted
+                as crashes.
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                title="Starts queued cards now. If the limit still stands, Irori holds again at the first one."
+                onClick={releaseHold}
+              >
+                Try now
+              </Button>
+            </div>
           )}
           <ul className="grid divide-y divide-border rounded-md border border-border">
             {l.devices.map((d) => (
@@ -286,7 +297,7 @@ function LimitsSection({
         </LimitRow>
         <LimitRow
           title="Crashes in a row"
-          hint="After this many of a card's agents go away before finishing, Irori asks you before starting another."
+          hint="After this many of a card's agents go away before finishing, Irori asks you before starting another. Each computer has its own number, for the cards it hands out."
         >
           <ChoiceSelect
             label="Crashes in a row"

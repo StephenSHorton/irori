@@ -1331,8 +1331,10 @@ impl Coord {
     pub fn crash_limit(&self) -> u32 {
         self.lock().crash_limit()
     }
-    /// Asks the person about card `id` if its crashes reached the limit
-    /// and it doesn't ask yet: the limit was lowered under it (card #576).
+    /// Asks the person about card `id` if its crashes reached the limit,
+    /// it doesn't ask yet and this device hands it out: the limit was
+    /// lowered under it, or its agent crashed on another device (card
+    /// #576).
     pub fn stop_crashed(&self, id: &str) -> Result<()> {
         let mut f = self.lock();
         let now = f.stamp();

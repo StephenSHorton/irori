@@ -1126,6 +1126,7 @@ impl Window {
                         .collect();
                 }
                 p.waiting.extend(p.queue.places.keys().cloned());
+                p.waiting.extend(p.queue.on_boards.iter().cloned());
             }
         }
         let mut live = 0;

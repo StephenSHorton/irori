@@ -61,6 +61,17 @@ export function spawnLine(c: SpawnState): SpawnLine | null {
   return null
 }
 
+// startPastLimit says what Start an agent does for a card a limit keeps
+// waiting (a usage limit or the daily limit), for its button's title; ""
+// when no limit is what it waits on.
+export function startPastLimit(c: SpawnState): string {
+  if (c.starting || c.cantStart) return ""
+  if (c.usageLimit) {
+    return "Tries now instead of waiting for the reset. If the limit still stands, Irori holds again."
+  }
+  return c.dailyLimit ? "Starts this card's agent now, past today's limit" : ""
+}
+
 // queued is whether a card waits in the spawn queue (a place, a usage
 // limit or the daily limit), for the roster's "N queued".
 export function queued(c: SpawnState): boolean {

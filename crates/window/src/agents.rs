@@ -441,6 +441,12 @@ impl Window {
         Ok(self.agents_limits())
     }
 
+    /// The person ends this device's usage hold (card #576): the app only.
+    pub fn agents_usage_release(&self) -> AgentsLimits {
+        self.core.release_usage_hold();
+        self.agents_limits()
+    }
+
     /// The person changes a board's switch, model or effort.
     pub fn agents_set(&self, c: AgentsChange) -> Result<AgentsSettings, String> {
         valid_idle(&c)?;

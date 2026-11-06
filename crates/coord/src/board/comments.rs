@@ -1830,7 +1830,10 @@ impl Fold {
     /// the crash limit allows, stops its spawning by asking the person (§2 "Crash", card
     /// #447): a card that kills its agent doesn't loop. Their answer puts
     /// it back on the Board (back_on_board) and clears the run, even one
-    /// sent as a resolve, as the window does (card #540).
+    /// sent as a resolve, as the window does (card #540). Only on the
+    /// device that hands the card out: the limit is each device's own
+    /// (#492) and the count is shared, so its number governs the card
+    /// wherever the agent ran, and the Core's sweep asks there (card #576).
     pub(crate) fn stop_crashed_spawns(&mut self, id: &str, now: &GoTime) -> Result<()> {
         let Some(t) = self.tasks.get(id).cloned() else {
             return Ok(());
@@ -1838,6 +1841,7 @@ impl Fold {
         let limit = self.crash_limit();
         if t.spawn_crashes < limit
             || is_terminal(&t.state)
+            || !self.hands_out(&t)
             || t.blockers
                 .iter()
                 .any(|b| b.open() && super::spawn::is_crash_text(&b.question))

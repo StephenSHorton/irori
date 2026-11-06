@@ -572,3 +572,40 @@ fn an_agent_cant_change_a_limit() {
     let set = s.r.core.spawn_setting("");
     assert_eq!((set.daily_limit, set.agents_per_card), (0, 0));
 }
+
+/// A usage hold isn't only the reset's to end (card #576): the person can
+/// end it, and a limit still standing holds again at the first start.
+#[test]
+fn the_person_can_end_a_usage_hold() {
+    let s = Setup::new();
+    let co = s.r.core.coord();
+    *s.fake.fail.lock().unwrap() = Some("You've hit your 5-hour limit · resets 4:30pm".into());
+    let a = s.card(&s.person, "hits the limit");
+    s.install();
+    wait_for(60, "held", || {
+        s.kick();
+        s.r.core.spawn_queue().held_until.is_some()
+    });
+    // Still limited: it tries once and holds again.
+    s.r.core.release_usage_hold();
+    wait_for(60, "it holds again", || {
+        s.kick();
+        s.r.core.spawn_queue().held_until.is_some()
+    });
+    assert!(
+        co.get_task(&a.id)
+            .unwrap()
+            .spawn_request()
+            .unwrap()
+            .generation
+            >= 2
+    );
+    // He bought more: the next try starts.
+    *s.fake.fail.lock().unwrap() = None;
+    s.r.core.release_usage_hold();
+    wait_for(60, "it starts", || {
+        s.kick();
+        s.started() == vec![a.id.clone()]
+    });
+    assert_eq!(s.r.core.spawn_queue().held_until, None);
+}

@@ -2072,6 +2072,18 @@ impl Fold {
             // A spawned agent's request and mark (card #455): from a device
             // of the card's author, which spawn_writer_ok checks itself.
             kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            // Irori's line on a card about its spawned agent (ended on a
+            // usage limit, no hand-off, a kept worktree; card #576): from a
+            // device of the card's author, the only one that runs its agent.
+            kinds::TASK_COMMENT => {
+                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                    return false;
+                };
+                self.tasks.get(&p.task_id).is_some_and(|t| {
+                    let author = kp(&t.created_by);
+                    !author.is_empty() && author == dp(&ev.device_id)
+                })
+            }
             // Binding a spawned agent assigns the card to it: from a device
             // of the card's author, and only to the agent marked as started
             // for this card in this log.

@@ -309,6 +309,39 @@ impl Services {
         ))
     }
 
+    /// The person's Start an agent on their own waiting card or thread on
+    /// a shared board (card #576): past the daily limit it is the only way
+    /// to start one. The window offers it on the card's waiting line, on
+    /// the device that made the card, which is the device its agent starts
+    /// on; the card is waiting for an agent already, and takes no note.
+    pub(crate) fn start_board_agent(&self, id: &str) -> Result<(), String> {
+        let (b, t) = self
+            .shown_boards()
+            .into_iter()
+            .find_map(|b| {
+                let t = b.coord().get_task(id)?;
+                Some((b, t))
+            })
+            .ok_or_else(|| format!("no card {id}"))?;
+        let co = b.coord();
+        if b.verifier.key_person(&t.created_by) != self.person_id() {
+            return Err(format!("{} is another member's card", t.short_ref()));
+        }
+        if !t.holders.is_empty() {
+            return Err(format!("{} has an agent on it", t.short_ref()));
+        }
+        if !co.hands_out_here(id) {
+            return Err(format!(
+                "{} starts on the computer that made it: start it there",
+                t.short_ref()
+            ));
+        }
+        co.spawn_now(id);
+        self.release_usage_hold();
+        self.asks_kick.kick();
+        Ok(())
+    }
+
     /// Whether every member device of board b reads the spawn rows
     /// (`spawns` in its board hello, card #455). No mesh for it (stopped,
     /// or no network): not ready.
