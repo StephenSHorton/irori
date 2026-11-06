@@ -32,23 +32,31 @@ impl Services {
                 .unwrap_or(&self.coord)
                 .pr_state(id, url)
         };
-        for (id, url) in crate::deskmerge::gone_prs(&tasks, &repo, &open, &known) {
+        let (gone, listed) = crate::deskmerge::gone_prs(&tasks, &repo, &open, &known);
+        // Back in the list (reopened): asked again once it leaves.
+        for (id, url) in listed {
+            self.desk_merges.forget(&id, &url);
+        }
+        for (id, url) in gone {
             if self.desk_merges.settled(&id, &url) {
                 continue;
             }
             let c = checker.check(&url);
             // What the desk can't ask, or what is still open, is the
             // holder's poller's to say: nothing is written for it here.
-            if !c.error.is_empty() || c.state.is_empty() || c.state == coord::PR_OPEN {
+            if !c.error.is_empty() || c.state.is_empty() {
+                self.desk_merges.failed(&id, &url);
                 continue;
             }
-            let merged = c.state == coord::PR_MERGED;
+            if c.state == coord::PR_OPEN {
+                continue;
+            }
             let co = home.get(&id).cloned().unwrap_or_else(|| self.coord.clone());
             match co.record_pr_state(&id, c) {
                 Ok((_, ns)) => {
-                    if merged {
-                        self.desk_merges.settle(&id, &url);
-                    }
+                    // Merged or closed: asked again only if it is listed
+                    // again (a reopen) or Irori restarts.
+                    self.desk_merges.settle(&id, &url);
                     for n in ns {
                         if let Some(e) =
                             notice::notice_err(&self.route_notice(&inbox::system_sender(), &n))

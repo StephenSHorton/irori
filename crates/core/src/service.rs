@@ -3788,8 +3788,9 @@ impl Services {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
                         objective: format!(
-                            "PR #{} on {repo} has no author card; this is its thread on the merge desk.",
-                            p.number
+                            "PR #{} on {repo} {}; this is its thread on the merge desk.",
+                            p.number,
+                            coord::DESK_PR_CARD_MARK
                         ),
                         repo_key: repo_key.into(),
                         ..coord::NewTask::default()

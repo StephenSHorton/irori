@@ -23,6 +23,13 @@ struct FakeGh {
     /// What `gh pr view` says: state and mergeCommit.
     view: Mutex<(String, String)>,
     viewed: Mutex<Vec<String>>,
+    asks: Mutex<usize>,
+}
+
+impl FakeGh {
+    fn asks(&self) -> usize {
+        *self.asks.lock().unwrap()
+    }
 }
 
 impl PrLister for FakeGh {
@@ -36,7 +43,14 @@ impl PrLister for FakeGh {
 
 impl PrChecker for FakeGh {
     fn check(&self, url: &str) -> PrCheck {
-        self.viewed.lock().unwrap().push(url.to_string());
+        // Each URL once: the desks loop's own tick may ask in step with a
+        // test's poll_desk. `asks` counts every call.
+        let mut v = self.viewed.lock().unwrap();
+        if !v.iter().any(|u| u == url) {
+            v.push(url.to_string());
+        }
+        drop(v);
+        *self.asks.lock().unwrap() += 1;
         let (state, sha) = self.view.lock().unwrap().clone();
         PrCheck {
             pr: url.into(),
@@ -70,12 +84,19 @@ fn rig() -> (Rig, Arc<FakeGh>) {
         o.desk_lister = Some(l);
         o.pr_checker = Some(c);
     });
-    let d = new_desk(REPO, r.core.device_id());
-    r.core
-        .coord()
-        .set_desk(&format!("user:{}", r.core.device_id()), d)
-        .unwrap();
     (r, gh)
+}
+
+/// Turns the desk on, polled from `core`'s device. Tests call it once
+/// their cards and the fake's answers are set, so the desks loop's own
+/// tick never polls a half-made scene.
+fn desk_on(core: &irori_core::Core) {
+    core.coord()
+        .set_desk(
+            &format!("user:{}", core.device_id()),
+            new_desk(REPO, core.device_id()),
+        )
+        .unwrap();
 }
 
 fn merged(gh: &FakeGh, sha: &str) {
@@ -98,6 +119,7 @@ fn an_unheld_pr_card_hears_its_merge_says_the_sha_and_completes() {
     let (r, gh) = rig();
     let co = r.core.coord();
     *gh.open.lock().unwrap() = vec![pr(7)];
+    desk_on(&r.core);
     r.core.poll_desk(REPO).unwrap();
     // The desk made a "PR #7" card for it; nobody holds it.
     let card = co
@@ -121,8 +143,9 @@ fn an_unheld_pr_card_hears_its_merge_says_the_sha_and_completes() {
     assert_eq!(co.get_task(&card.id).unwrap().state, coord::COMPLETED);
 
     // The next poll asks nothing and says nothing again.
+    let asks = gh.asks();
     r.core.poll_desk(REPO).unwrap();
-    assert_eq!(gh.viewed.lock().unwrap().len(), 1);
+    assert_eq!(gh.asks(), asks);
     assert_eq!(sha_comments(&r, &card.id, SHA), 1);
 }
 
@@ -136,13 +159,6 @@ fn a_card_held_on_another_device_hears_its_merge_from_the_desk() {
         o.desk_lister = Some(l);
         o.pr_checker = Some(c);
     });
-    a.core
-        .coord()
-        .set_desk(
-            &format!("user:{}", a.core.device_id()),
-            new_desk(REPO, a.core.device_id()),
-        )
-        .unwrap();
     let cb = b.core.coord();
     let t = cb
         .create_task(
@@ -162,6 +178,7 @@ fn a_card_held_on_another_device_hears_its_merge_from_the_desk() {
             .is_some_and(|t| t.links.iter().any(|l| l.reference == url(9)))
     });
     *gh.open.lock().unwrap() = vec![pr(9)];
+    desk_on(&a.core);
     a.core.poll_desk(REPO).unwrap();
     // A's own PR poller never asks: no agent on A holds it.
     a.core.check_prs();
@@ -228,6 +245,7 @@ fn a_merge_heard_without_its_sha_gets_the_sha_once() {
     assert_eq!(sha_comments(&r, &t.id, SHA), 0);
 
     merged(&gh, SHA);
+    desk_on(&r.core);
     r.core.poll_desk(REPO).unwrap();
     assert_eq!(co.pr_state(&t.id, &url(11)).unwrap().merge_sha, SHA);
     assert_eq!(sha_comments(&r, &t.id, SHA), 1);
@@ -265,6 +283,38 @@ fn a_pr_of_another_repo_or_still_open_is_not_asked() {
     co.add_link(OTHER, &t.id, "https://github.com/someone/else/pull/4")
         .unwrap();
     *gh.open.lock().unwrap() = vec![pr(3)];
+    desk_on(&r.core);
     r.core.poll_desk(REPO).unwrap();
     assert!(gh.viewed.lock().unwrap().is_empty());
+}
+
+/// A PR the desk heard closed, reopened and merged while the desk wasn't
+/// looking, is still asked about and settled.
+#[test]
+fn a_closed_pr_reopened_and_merged_is_heard() {
+    let (r, gh) = rig();
+    let co = r.core.coord();
+    *gh.open.lock().unwrap() = vec![pr(6)];
+    desk_on(&r.core);
+    r.core.poll_desk(REPO).unwrap();
+    let card = co
+        .list_tasks(&coord::TaskFilter::default())
+        .into_iter()
+        .find(|t| t.links.iter().any(|l| l.reference == url(6)))
+        .expect("a PR #6 card");
+    // Closed: the desk hears it.
+    gh.open.lock().unwrap().clear();
+    *gh.view.lock().unwrap() = (coord::PR_CLOSED.into(), String::new());
+    r.core.poll_desk(REPO).unwrap();
+    assert_eq!(co.pr_state(&card.id, &url(6)).unwrap().state, coord::PR_CLOSED);
+    // Reopened and merged between two polls.
+    merged(&gh, SHA);
+    *gh.open.lock().unwrap() = vec![pr(6)];
+    r.core.poll_desk(REPO).unwrap();
+    gh.open.lock().unwrap().clear();
+    r.core.poll_desk(REPO).unwrap();
+    let st = co.pr_state(&card.id, &url(6)).unwrap();
+    assert_eq!((st.state.as_str(), st.merge_sha.as_str()), (PR_MERGED, SHA));
+    assert_eq!(sha_comments(&r, &card.id, SHA), 1);
+    assert_eq!(co.get_task(&card.id).unwrap().state, coord::COMPLETED);
 }

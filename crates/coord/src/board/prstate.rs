@@ -592,8 +592,13 @@ impl Fold {
         }
         let newly = |s: &str| c.state == s && old.state != s;
         // Card #421: a "PR #n" card Irori made for a PR with no author card
-        // completes itself once its PRs are merged, held or not.
-        if newly(PR_MERGED) && desk_pr_card(&t) && self.all_prs_merged(&self.tasks[id]) {
+        // completes itself once its PRs are merged, held or not. A merge an
+        // older device heard first (no sha, no such rule) completes it when
+        // the sha comes.
+        if (newly(PR_MERGED) || new_sha)
+            && desk_pr_card(&t)
+            && self.all_prs_merged(&self.tasks[id])
+        {
             let sha = self
                 .pr_states
                 .get(id)
