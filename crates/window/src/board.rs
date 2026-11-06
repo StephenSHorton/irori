@@ -929,6 +929,15 @@ pub fn repo_label(key: &str) -> String {
     }
 }
 
+/// Whether item `id` of `t` is resolved after an answer: closed, or gone
+/// from the card (only the newest resolved items are kept).
+fn item_resolved(t: &Task, id: &str) -> bool {
+    t.blockers
+        .iter()
+        .find(|b| b.id == id)
+        .is_none_or(|b| b.resolved.is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -953,13 +962,4 @@ mod tests {
             "tell is next_turn, wake, stop or none, not \"loud\""
         );
     }
-}
-
-/// Whether item `id` of `t` is resolved after an answer: closed, or gone
-/// from the card (only the newest resolved items are kept).
-fn item_resolved(t: &Task, id: &str) -> bool {
-    t.blockers
-        .iter()
-        .find(|b| b.id == id)
-        .is_none_or(|b| b.resolved.is_some())
 }
