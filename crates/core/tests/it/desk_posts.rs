@@ -136,7 +136,10 @@ fn a_pr_is_posted_on_its_card_once_then_each_push() {
     r.core.poll_desk(REPO).unwrap();
     assert_eq!(posts(&co, &id).len(), 2);
     std::thread::sleep(Duration::from_millis(300));
-    assert!(told(&r, &r.key_a, "PR #1").is_empty(), "opened and pushed tell nobody");
+    assert!(
+        told(&r, &r.key_a, "PR #1").is_empty(),
+        "opened and pushed tell nobody"
+    );
 
     // Nothing about the stranger's PR anywhere.
     for t in co.list_tasks(&coord::TaskFilter::default()) {
@@ -168,7 +171,8 @@ fn a_conflict_wakes_the_author_once_per_head() {
     let c = posts(&co, &id);
     assert_eq!(c.len(), 2, "{c:?}");
     assert!(
-        c[1].text.starts_with("PR #1 conflicts with `main` at `aaaaaaa`"),
+        c[1].text
+            .starts_with("PR #1 conflicts with `main` at `aaaaaaa`"),
         "{}",
         c[1].text
     );
@@ -216,7 +220,10 @@ fn failed_checks_post_the_log_and_wake_the_author() {
     p.checks = "pending".into();
     set_pr(&gh, p.clone());
     r.core.poll_desk(REPO).unwrap();
-    assert!(gh.asked.lock().unwrap().is_empty(), "no fetch while pending");
+    assert!(
+        gh.asked.lock().unwrap().is_empty(),
+        "no fetch while pending"
+    );
 
     p.checks = "failure".into();
     set_pr(&gh, p.clone());
@@ -225,22 +232,35 @@ fn failed_checks_post_the_log_and_wake_the_author() {
     assert_eq!(c.len(), 2, "{c:?}");
     let f = &c[1];
     assert!(
-        f.text.starts_with("GitHub checks failed on PR #1 at `aaaaaaa`:"),
+        f.text
+            .starts_with("GitHub checks failed on PR #1 at `aaaaaaa`:"),
         "{}",
         f.text
     );
     assert!(
-        f.text.contains("- CI / test: https://github.com/StephenSHorton/ww-multiplayer/actions/runs/11/job/22"),
+        f.text.contains(
+            "- CI / test: https://github.com/StephenSHorton/ww-multiplayer/actions/runs/11/job/22"
+        ),
         "{}",
         f.text
     );
-    assert!(f.text.contains("error[E0308]: mismatched types"), "{}", f.text);
+    assert!(
+        f.text.contains("error[E0308]: mismatched types"),
+        "{}",
+        f.text
+    );
     assert!(f.wake);
     assert_eq!(f.attachments.len(), 1, "{:?}", f.attachments);
-    assert!(f.attachments[0].name.ends_with(".log"), "{:?}", f.attachments);
+    assert!(
+        f.attachments[0].name.ends_with(".log"),
+        "{:?}",
+        f.attachments
+    );
     assert!(f.attachments[0].size > 0);
     wait_for(30, "the author's wake", || {
-        told(&r, &r.key_a, "GitHub checks failed").iter().any(|(_, w)| *w)
+        told(&r, &r.key_a, "GitHub checks failed")
+            .iter()
+            .any(|(_, w)| *w)
     });
 
     // Asked once: the same head failing again posts and fetches nothing.
@@ -338,7 +358,8 @@ fn live_posts_on_a_real_pr() {
     let r = Rig::with(|o| o.desk_lister = Some(Arc::new(irori_core::deskwatch::GhLister)));
     let co = r.core.coord();
     let me = format!("user:{}", r.core.device_id());
-    co.set_desk(&me, new_desk(&key, r.core.device_id())).unwrap();
+    co.set_desk(&me, new_desk(&key, r.core.device_id()))
+        .unwrap();
     let t = co
         .create_task(
             &r.key_a,
@@ -349,8 +370,12 @@ fn live_posts_on_a_real_pr() {
         )
         .unwrap();
     co.claim_task(&r.key_a, &t.id).unwrap();
-    co.add_link(&r.key_a, &t.id, &format!("https://github.com/{repo}/pull/{n}"))
-        .unwrap();
+    co.add_link(
+        &r.key_a,
+        &t.id,
+        &format!("https://github.com/{repo}/pull/{n}"),
+    )
+    .unwrap();
     let mut shown = 0;
     for i in 0..polls {
         if i > 0 {
@@ -378,7 +403,14 @@ fn live_posts_on_a_real_pr() {
                     .read_to_string(&mut s)
                     .unwrap();
                 println!("--- attached {} ({} bytes), last lines:", f.name, f.size);
-                for l in s.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev() {
+                for l in s
+                    .lines()
+                    .rev()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                {
                     println!("{l}");
                 }
             }

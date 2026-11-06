@@ -228,7 +228,11 @@ pub fn failed_text(p: &DeskPr, checks: &[FailedCheck], attached: bool) -> String
     }
     for c in checks {
         let name = clean(&c.name, 120);
-        let name = if name.is_empty() { "a check".into() } else { name };
+        let name = if name.is_empty() {
+            "a check".into()
+        } else {
+            name
+        };
         if c.url.is_empty() {
             s.push_str(&format!("\n- {name}"));
         } else {
@@ -361,7 +365,10 @@ mod tests {
         p.mergeable = "CONFLICTING".into();
         assert_eq!(due(&p, &[&opened]), vec![Post::Conflicts]);
         let c = text(Post::Conflicts, &p);
-        assert!(c.starts_with("PR #3 conflicts with `main` at `aaaaaaa`"), "{c}");
+        assert!(
+            c.starts_with("PR #3 conflicts with `main` at `aaaaaaa`"),
+            "{c}"
+        );
         assert_eq!(due(&p, &[&opened, &c]), vec![]);
         // A new head that still conflicts: posted again, after the push.
         p.head_ref_oid = "bbbbbbb999".into();
@@ -375,7 +382,10 @@ mod tests {
         p.checks = "failure".into();
         assert_eq!(due(&p, &[]), vec![Post::Opened, Post::ChecksFailed]);
         let f = failed_text(&p, &[], false);
-        assert!(f.starts_with("GitHub checks failed on PR #7 at `ccccccc`"), "{f}");
+        assert!(
+            f.starts_with("GitHub checks failed on PR #7 at `ccccccc`"),
+            "{f}"
+        );
         let opened = text(Post::Opened, &p);
         assert_eq!(due(&p, &[&opened, &f]), vec![]);
         p.checks = "pending".into();
@@ -395,7 +405,9 @@ mod tests {
             ));
         }
         log.push_str("test\tRun tests\t2026-11-06T17:01:00.0000000Z \u{1b}[31merror: assertion failed ``` boom\u{1b}[0m\n");
-        log.push_str("test\tRun tests\t\u{feff}2026-11-06T17:01:00.1000000Z ##[group]Run sh check.sh\n");
+        log.push_str(
+            "test\tRun tests\t\u{feff}2026-11-06T17:01:00.1000000Z ##[group]Run sh check.sh\n",
+        );
         log.push_str("test\tRun tests\t2026-11-06T17:01:00.2000000Z ##[endgroup]\n");
         log.push_str("test\tRun tests\t2026-11-06T17:01:00.3000000Z ##[error]Process completed with exit code 1.\n");
         let checks = vec![
@@ -411,18 +423,28 @@ mod tests {
             },
         ];
         let t = failed_text(&p, &checks, true);
-        assert!(t.contains("\n- CI / test: https://github.com/o/r/actions/runs/1/job/2"), "{t}");
-        assert!(t.contains("\n- deploypreview: https://example.com/x"), "{t}");
+        assert!(
+            t.contains("\n- CI / test: https://github.com/o/r/actions/runs/1/job/2"),
+            "{t}"
+        );
+        assert!(
+            t.contains("\n- deploypreview: https://example.com/x"),
+            "{t}"
+        );
         assert!(t.contains("Last lines of CI / test's log:"), "{t}");
         assert!(
-            t.contains("error: assertion failed ''' boom\nError: Process completed with exit code 1.\n```"),
+            t.contains(
+                "error: assertion failed ''' boom\nError: Process completed with exit code 1.\n```"
+            ),
             "{t}"
         );
         assert!(!t.contains("##[") && !t.contains('\u{feff}'), "{t}");
         assert!(!t.contains("line 30\n"), "only the tail: {t}");
         assert!(t.contains("line 49"), "{t}");
         assert!(!t.contains('\u{1b}') && !t.contains("2026-11-06T"), "{t}");
-        assert!(t.ends_with("The full logs are attached. Fix it and push: Irori posts the new sha here."));
+        assert!(t.ends_with(
+            "The full logs are attached. Fix it and push: Irori posts the new sha here."
+        ));
         assert!(t.chars().count() <= MAX_TEXT);
     }
 

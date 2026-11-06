@@ -110,7 +110,15 @@ impl PrLister for GhLister {
         let n = number.to_string();
         let v = run_gh(
             &gh,
-            &["pr", "view", &n, "--repo", repo, "--json", "statusCheckRollup"],
+            &[
+                "pr",
+                "view",
+                &n,
+                "--repo",
+                repo,
+                "--json",
+                "statusCheckRollup",
+            ],
             "gh couldn't read this PR's checks",
         )?;
         let mut checks = crate::deskpost::failing_checks(&v["statusCheckRollup"]);
