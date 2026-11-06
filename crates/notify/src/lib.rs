@@ -32,6 +32,7 @@
 //!   [`Notifier::on_options`]), `settings_test_notification`
 //!   [`Notifier::post_test`].
 
+pub mod look;
 mod settings;
 pub mod thumb;
 pub mod watch;
@@ -46,7 +47,8 @@ pub use inbox::watch::{
     Level, SeenStore, TAB_BOARD, TAB_HELD, TAB_INBOX, TAB_TALK, Target, WAITING_ID, ask_id,
     held_id, message_id, needs_id, parse_level, returned_id, talk_conv, talk_id, unclaimed_id,
 };
-pub use settings::{SEEN_FILE, SETTINGS_FILE, SeenFile, load, save};
+pub use look::{CardColors, CardLook};
+pub use settings::{SEEN_FILE, SETTINGS_FILE, SeenFile, load, load_look, save, save_look};
 pub use thumb::{attachment_thumbnail, thumbnail};
 pub use watch::{
     AskSource, BoardSource, FileFn, InboxFeed, RoomSource, Sources, WatchHandle, hold_reason,
@@ -220,6 +222,15 @@ fn from_toast(o: toast::Options) -> Options {
     }
 }
 
+/// The cards' setup for a look (none: [`look::base_config`]).
+fn config_for(l: Option<&CardLook>, capture_exclude: bool) -> toast::Config {
+    let base = look::base_config(capture_exclude);
+    match l {
+        Some(l) => l.apply(base),
+        None => base,
+    }
+}
+
 fn kind_of(l: Level) -> toast::Kind {
     match l {
         Level::Success => toast::Kind::Success,
@@ -296,6 +307,10 @@ type OptionsFn = Arc<dyn Fn(&Options) + Send + Sync>;
 
 struct State {
     opts: Options,
+    /// The cards' look the window last sent (or the saved one).
+    look: Option<CardLook>,
+    /// `look` is what settings.json holds.
+    look_saved: bool,
     live: HashMap<String, Entry>,
     generation: u64,
     opener: Option<Opener>,
@@ -307,6 +322,8 @@ struct Inner {
     /// `None` when headless.
     t: Option<Arc<dyn Toaster>>,
     dir: Option<PathBuf>,
+    /// Cards are hidden from screen capture.
+    capture_exclude: bool,
     st: Mutex<State>,
 }
 
@@ -325,23 +342,20 @@ impl fmt::Debug for Notifier {
 }
 
 impl Notifier {
-    /// Loads the saved options and, unless headless, configures the cards:
-    /// app name "Irori", the Dark palette, square corners (Toru's look, as
-    /// the window), hidden from screen capture (see [`CAPTURE_ENV`]).
+    /// Loads the saved options and look and, unless headless, configures
+    /// the cards: app name "Irori", the person's theme, light/dark and
+    /// glass as the window last sent them ([`Notifier::set_look`]; dark,
+    /// solid and rounded before it ever has), hidden from screen capture
+    /// (see [`CAPTURE_ENV`]).
     pub fn new(c: Config) -> Notifier {
         let opts = c.dir.as_deref().map(load).unwrap_or_default();
+        let look = c.dir.as_deref().and_then(load_look);
+        let capture = c.capture_visible || std::env::var(CAPTURE_ENV).as_deref() == Ok("1");
         let t = if c.headless {
             None
         } else {
             let t = c.toaster.clone().unwrap_or_else(|| Arc::new(Cards));
-            let capture = c.capture_visible || std::env::var(CAPTURE_ENV).as_deref() == Ok("1");
-            t.configure(toast::Config {
-                app_name: "Irori".into(),
-                palette: toast::DARK,
-                corner_radius: 0.0,
-                capture_exclude: !capture,
-                ..toast::Config::default()
-            });
+            t.configure(config_for(look.as_ref(), !capture));
             t.set_options(to_toast(&opts));
             Some(t)
         };
@@ -349,8 +363,11 @@ impl Notifier {
             inner: Arc::new(Inner {
                 t,
                 dir: c.dir,
+                capture_exclude: !capture,
                 st: Mutex::new(State {
                     opts,
+                    look_saved: look.is_some(),
+                    look,
                     live: HashMap::new(),
                     generation: 0,
                     opener: None,
@@ -410,6 +427,38 @@ impl Notifier {
             f(&o);
         }
         (o, err)
+    }
+
+    /// The cards' look in effect (`None`: the window hasn't sent one).
+    pub fn look(&self) -> Option<CardLook> {
+        self.lock().look.clone()
+    }
+
+    /// Restyles the cards, those on screen too, to the person's
+    /// appearance and saves it so the next start shows it at once (card
+    /// #527). The window sends it at startup and on every change; an
+    /// unchanged look neither reconfigures nor writes.
+    pub fn set_look(&self, l: CardLook) -> Result<(), String> {
+        // Configured and saved under the lock, so two sends land in the
+        // same order on screen and in settings.json.
+        let mut st = self.lock();
+        if st.look.as_ref() == Some(&l) && st.look_saved {
+            return Ok(());
+        }
+        if st.look.as_ref() != Some(&l)
+            && let Some(t) = &self.inner.t
+        {
+            t.configure(config_for(Some(&l), self.inner.capture_exclude));
+        }
+        let saved = match &self.inner.dir {
+            Some(d) => save_look(d, &l),
+            None => Ok(()),
+        };
+        // A failed save keeps the live look but is tried again on the
+        // next send of it.
+        st.look_saved = saved.is_ok();
+        st.look = Some(l);
+        saved
     }
 
     /// Registers f for every [`Notifier::set_options`] (the window
