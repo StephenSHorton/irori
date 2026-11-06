@@ -547,8 +547,7 @@ impl Boards {
 
     /// [`Boards::list`] without waiting (card #422): `None` while another
     /// thread holds the list. A coord's busy hook reads it under that
-    /// coord's lock, and [`Services::route`] holds the list while it reads
-    /// board coords.
+    /// coord's lock.
     fn try_list(&self) -> Option<Vec<Arc<BoardLog>>> {
         let inner = match self.inner.try_lock() {
             Ok(g) => g,
@@ -878,9 +877,8 @@ impl Services {
     /// that may be waiting on that coord. A board coord may wait on the
     /// private one (as `outside_leases` does), so a board asks the private
     /// coord outright. Everything else is tried without waiting: the
-    /// private coord never waits on a board's, two boards never wait on
-    /// each other, and the boards list is held while `route` reads board
-    /// coords. A log busy at that instant counts as not busy, i.e. as
+    /// private coord never waits on a board's and two boards never wait on
+    /// each other. A log busy at that instant counts as not busy, i.e. as
     /// before #422: the next hand-out or join reads it again.
     pub(crate) fn busy_outside(&self, agent: &str, from: Option<&str>) -> Option<String> {
         if agent.is_empty() {
@@ -1354,9 +1352,10 @@ impl Services {
                             ),
                         }
                     })),
-                    // Under the board coord's lock: takes the inbox's, which
-                    // never waits on a board coord (its stale hook reads
-                    // only the private one).
+                    // Under the board coord's lock: takes the inbox's, whose
+                    // hooks never wait on a board coord (the stale hook reads
+                    // only the private one, the notes hook tries the boards:
+                    // coord::with_inbox_lock_held).
                     hop_of: Some({
                         let s = Arc::downgrade(self);
                         Arc::new(move |actor: &str| s.upgrade().map_or(0, |s| s.board_hop(actor)))
@@ -1656,6 +1655,11 @@ impl Services {
     /// The one routing function from a taskId to its log (§2.1): "" and the
     /// private coord for a card on the private board, else the board whose
     /// log holds its task.created row. An id in no log is NotFound.
+    ///
+    /// Never holds the boards list while it reads a board coord (card
+    /// #561): a coord's holder may wait on the list (`private_key` in the
+    /// hop read, `device_presence` in the roster), and the inbox's notes
+    /// hook waits on it under the inbox lock.
     pub(crate) fn route(
         &self,
         task_id: &str,
@@ -1663,24 +1667,25 @@ impl Services {
         if self.coord.get_task(task_id).is_some() {
             return Ok((String::new(), self.coord.clone()));
         }
-        let mut inner = lock(&self.boards.inner);
-        if let Some(id) = inner.task_of.get(task_id)
-            && let Some(b) = inner.logs.get(id)
-        {
-            return Ok((id.clone(), b.coord().clone()));
-        }
+        let logs: Vec<Arc<BoardLog>> = {
+            let inner = lock(&self.boards.inner);
+            if let Some(id) = inner.task_of.get(task_id)
+                && let Some(b) = inner.logs.get(id)
+            {
+                return Ok((id.clone(), b.coord().clone()));
+            }
+            inner.logs.values().cloned().collect()
+        };
         // A row this device just appended reaches the follower a moment
         // later; its coord already has it.
-        let hit = inner
-            .logs
-            .iter()
-            .find(|(_, b)| b.coord().get_task(task_id).is_some())
-            .map(|(id, b)| (id.clone(), b.coord().clone()));
-        if let Some((id, co)) = hit {
-            inner.task_of.insert(task_id.into(), id.clone());
-            return Ok((id, co));
+        if let Some(b) = logs.iter().find(|b| b.coord().get_task(task_id).is_some()) {
+            let mut inner = lock(&self.boards.inner);
+            // Not for a board dropped meanwhile.
+            if inner.logs.contains_key(&b.id) {
+                inner.task_of.insert(task_id.into(), b.id.clone());
+            }
+            return Ok((b.id.clone(), b.coord().clone()));
         }
-        drop(inner);
         // A card on a board still opening after the start (card #232).
         if self.boards.wait_opened() {
             return self.route(task_id);
@@ -2611,6 +2616,13 @@ impl super::Core {
     #[doc(hidden)]
     pub fn reconcile_boards(&self) {
         self.s.reconcile_boards();
+    }
+
+    /// Holds the boards list until the guard drops (tests: nothing may
+    /// keep it while waiting on a board coord).
+    #[doc(hidden)]
+    pub fn hold_boards_list(&self) -> impl Sized + '_ {
+        lock(&self.s.boards.inner)
     }
 }
 
