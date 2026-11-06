@@ -39,6 +39,7 @@ mod prefetch;
 mod prwatch;
 mod search;
 mod space_boards;
+mod space_to_personal;
 mod spawn;
 mod spawn_capable;
 mod spawn_checkout;

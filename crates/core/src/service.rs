@@ -68,6 +68,7 @@ mod liveness;
 mod mirror;
 pub mod notes;
 mod notifications;
+pub mod space_move;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_agents;
@@ -2507,7 +2508,9 @@ impl Core {
     /// (card #98).
     pub fn known_agent_names(&self) -> std::collections::BTreeMap<String, String> {
         self.s.note_agent_names();
-        self.s.agent_names.all()
+        let mut names = self.s.agent_names.all();
+        self.s.card_key_names(&mut names);
+        names
     }
 
     /// Gives the Core the desktop app's Revive, which a revive ask answered
@@ -3370,7 +3373,13 @@ impl Services {
         if !live.trim().is_empty() {
             return live;
         }
-        self.agent_names.get(key)
+        let known = self.agent_names.get(key);
+        if known.is_empty() && key.starts_with(kinds::AGENT_ACTOR_PREFIX) {
+            let mut names = self.agent_names.all();
+            self.card_key_names(&mut names);
+            return names.remove(key).unwrap_or_default();
+        }
+        known
     }
 
     /// See [`Core::device_labels`].

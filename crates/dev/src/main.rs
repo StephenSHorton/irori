@@ -29,6 +29,12 @@
 //!       with spaces does (card #392), so the move can be checked on real
 //!       data first.
 //!
+//!   irori-dev space-to-personal --home <copy> --claude <empty dir> --space <id> ...
+//!                               [--allow-missing-files]
+//!       card #640: moves each one-person space into Personal on the copy,
+//!       offline, and checks every card, comment, step and ref
+//!       (space_move.rs).
+//!
 //!   irori-dev spawn-fold --home <copy> --person <id> --root <device> --out <dir> --now <rfc3339>
 //!   irori-dev compact-spawn --home <copy> --floor <device>=<seq|top> ... [--dry-run] [--no-vacuum]
 //!       card #467: time the Board fold, and delete the superseded
@@ -41,6 +47,7 @@ mod boards_live;
 mod http;
 mod probe;
 mod replay;
+mod space_move;
 mod spawn_rows;
 mod verify;
 
@@ -54,6 +61,7 @@ const USAGE: &str = "usage: irori-dev verify --home <copy of a data dir> [--go-h
        irori-dev boards-live host --home <empty dir> --claude <empty dir> [--link-out <file>] [--step-wait <secs>]
        irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]
        irori-dev migrate-spaces --home <copy of a data dir>
+       irori-dev space-to-personal --home <copy of a data dir> --claude <empty dir> --space <id> ... [--allow-missing-files]
        irori-dev spawn-fold --home <copy of a data dir> --person <personId> --root <rootDeviceId> --out <dir> --now <rfc3339>
        irori-dev compact-spawn --home <copy of a data dir> --floor <device>=<seq|top> ... [--dry-run] [--no-vacuum]";
 
@@ -83,6 +91,13 @@ fn main() -> ExitCode {
             }
             _ => {
                 eprintln!("irori-dev: migrate-spaces needs --home <copy>\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
+        Some("space-to-personal") => match space_move::Opts::parse(&args[1..]) {
+            Ok(o) => space_move::run(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
                 ExitCode::from(2)
             }
         },

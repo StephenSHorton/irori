@@ -71,6 +71,7 @@ pub use crate::service::boards::{
 };
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
+pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{
     CALLS_TOLERANT, PERSONAL_BOARD, SpaceBoard, SpaceTolerance, fold_space_boards,
 };

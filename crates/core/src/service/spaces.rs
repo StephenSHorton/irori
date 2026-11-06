@@ -1102,6 +1102,16 @@ impl super::Core {
         self.s.create_personal_board(name, tag)
     }
 
+    /// Moves a space nobody else is in into Personal as a board, every
+    /// card with it, then forgets the space on every device (card #640).
+    pub fn move_space_to_personal(
+        &self,
+        space_id: &str,
+        o: &super::space_move::MoveOpts,
+    ) -> Result<super::space_move::SpaceMove> {
+        self.s.move_space_to_personal(space_id, o)
+    }
+
     /// Renames one of Personal's boards, its default ([`PERSONAL_BOARD`])
     /// too.
     pub fn rename_personal_board(&self, board_id: &str, name: &str) -> Result<()> {
