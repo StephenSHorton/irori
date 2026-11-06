@@ -8,7 +8,7 @@ mod common;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use common::*;
 use coord::*;
@@ -133,7 +133,8 @@ impl Log {
         let mut offers = Vec::new();
         for t in &tasks {
             for to in [ALICE, BOB] {
-                offers.push(c.stale_offer(&format!("task:{}", t.id), to));
+                let why = c.stale_offer(&format!("task:{}", t.id), to);
+                offers.push((t.id.clone(), to.to_string(), why));
             }
         }
         let mut notices: Vec<String> = c
@@ -172,7 +173,7 @@ impl Log {
 #[derive(Debug, PartialEq)]
 struct Outcome {
     tasks: Vec<u8>,
-    offers: Vec<String>,
+    offers: Vec<(String, String, String)>,
     notices: Vec<String>,
     changes: BTreeSet<(String, String)>,
     written: Vec<(String, Vec<u8>)>,
@@ -194,6 +195,13 @@ fn same_as_live(setup: &[Row], rows: &[Row]) -> Outcome {
         assert_eq!(l.outcome(), want, "page of {page}");
     }
     want
+}
+
+/// Why a hand-out notice to `to` about card `id` would close; "" while it
+/// still goes to them.
+fn closes(o: &Outcome, id: &str, to: &str) -> String {
+    let at = o.offers.iter().find(|(i, t, _)| i == id && t == to);
+    at.expect("the card is listed").2.clone()
 }
 
 fn woke(o: &Outcome, who: &str) -> bool {
@@ -245,15 +253,21 @@ fn a_new_sibling_keeps_the_old_subtask_from_being_the_last() {
 #[test]
 fn a_card_that_becomes_a_parent_stops_being_handed_out() {
     let setup = vec![created("P", ""), offered("P", ALICE)];
+    let live = same_as_live(&setup, &[touched("P")]);
+    assert_eq!(
+        closes(&live, "P", ALICE),
+        "",
+        "it is handed out to begin with"
+    );
     let o = same_as_live(&setup, &[created("K", "P"), touched("P")]);
-    assert!(o.offers.iter().any(|s| !s.is_empty()), "{:?}", o.offers);
+    assert_eq!(closes(&o, "P", ALICE), "it is no longer handed out");
 }
 
 #[test]
 fn a_card_whose_last_subtask_went_is_handed_out_again() {
     let setup = vec![created("P", ""), created("K", "P"), offered("P", ALICE)];
     let o = same_as_live(&setup, &[deleted("K"), touched("P")]);
-    assert!(o.offers.iter().any(|s| s.is_empty()), "{:?}", o.offers);
+    assert_eq!(closes(&o, "P", ALICE), "");
 }
 
 /// A rollup moves on a plain state row, and its relink is the page's.
@@ -279,14 +293,44 @@ fn a_page_of_plain_rows_still_moves_the_rollup_and_says_so() {
     );
 }
 
+/// A reader gets in between pages, so each page ends relinked: the rollup a
+/// reader sees there is current, not the pass's end.
 #[test]
 fn a_rollup_is_current_at_every_page_end() {
     let setup = vec![created("P", ""), created("K1", "P"), created("K2", "P")];
     let mut l = Log::new(&setup);
-    l.insert(&status("K1", COMPLETED));
-    l.e.c.catch_up_by(1).unwrap();
-    let p = l.e.c.get_task("P").unwrap();
-    assert_eq!(p.rollup.unwrap().done, 1);
+    for (id, done) in [("K1", 1), ("K2", 2)] {
+        let ev = l.insert(&status(id, COMPLETED));
+        l.e.c.fold_pages(std::slice::from_ref(&ev), 1);
+        assert_eq!(l.e.c.get_task("P").unwrap().rollup.unwrap().done, done);
+    }
+}
+
+/// The point of the card: the lock goes between pages, whichever way in.
+#[test]
+fn a_catch_up_lets_go_of_the_lock_between_pages() {
+    for resync in [false, true] {
+        let mut l = Log::new(&lead());
+        let rows = 40;
+        for i in 0..rows {
+            l.insert(&status("P", if i % 2 == 0 { BLOCKED } else { WORKING }));
+        }
+        let holds = Arc::new(AtomicUsize::new(0));
+        let n = holds.clone();
+        l.e.c.set_on_unlock(move || {
+            n.fetch_add(1, Ordering::Relaxed);
+        });
+        if resync {
+            // Pages of the store's limit: 40 rows are one, so this checks
+            // only that a resync runs outside the lock it would wait on.
+            l.e.c.handle(&Event::default()).unwrap();
+            assert_eq!(l.e.c.folded_to(DEV), l.seq);
+        } else {
+            l.e.c.catch_up_by(4).unwrap();
+            let held = holds.load(Ordering::Relaxed);
+            assert!(held >= rows / 4, "{held} holds for {} pages", rows / 4);
+        }
+    }
 }
 
 #[test]
@@ -301,10 +345,10 @@ fn a_catch_up_moves_past_the_unfollowed_rows_at_a_devices_tail() {
     assert_eq!(l.e.c.get_task("P").unwrap().state, WORKING);
 }
 
-/// Unfollowed rows cut from the tail read as a cut: the fold rebuilds, and
-/// the next pass ends where it should, without doing it again.
+/// Unfollowed rows cut from the tail read as a cut: the fold rebuilds, the
+/// next pass ends where it should, and the one after has nothing to rebuild.
 #[test]
-fn a_cut_of_unfollowed_rows_refolds_once() {
+fn a_cut_of_unfollowed_rows_refolds_and_settles() {
     let mut l = Log::new(&[created("P", "")]);
     l.insert(&unfollowed());
     l.e.c.catch_up().unwrap();
@@ -316,11 +360,14 @@ fn a_cut_of_unfollowed_rows_refolds_once() {
     l.e.c.catch_up().unwrap();
     assert_eq!(l.e.c.folded_to(DEV), 2);
     assert!(l.e.c.get_task("P").is_some());
+    while matches!(l.q.try_recv(), TryRecv::Item(_)) {}
+    l.e.c.catch_up().unwrap();
+    assert!(matches!(l.q.try_recv(), TryRecv::Empty), "no second refold");
 }
 
 /// A resync row takes the catch-up lock before coord's, like every other
-/// way in: two passes, a reader and live rows run through each other and
-/// end with everything folded once.
+/// way in, so a pass and a resync can't wait on each other. A deadlock
+/// hangs this test; it checks nothing finer.
 #[test]
 fn passes_readers_and_resyncs_run_through_each_other() {
     let mut l = Log::new(&lead());

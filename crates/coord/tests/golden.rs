@@ -185,30 +185,37 @@ fn live_fold_matches_replay() {
     }
 }
 
-/// A catch-up's pages end where one row at a time does, whatever the page
-/// size (card #567): a page of one is [`Coord::handle`]'s fold.
+/// A catch-up's pages end where the live fold does, and say the same at any
+/// page size (card #567). These rows include the coord's own, which a real
+/// catch-up never folds: `catchup_test.rs` holds it against
+/// [`Coord::handle`] on a store.
 #[test]
 fn pages_of_any_size_fold_the_same() {
+    let mut said_something = false;
     for c in &golden() {
         let name = s(&c["name"]);
         let paged = |n: usize| {
             let co = coord_of_empty(c);
             co.fold_pages(&rows(c), n);
             let notices: Vec<String> = co
-                .sweep_notices()
-                .unwrap_or_default()
+                .sweep_notices_partial()
+                .0
                 .iter()
                 .map(|x| format!("{:?} {} {} {}", x.to, x.task_id, x.wake, x.text))
                 .collect();
             (json(&co.list_tasks(&TaskFilter::default())), notices)
         };
         let (want, heard) = paged(1);
+        said_something |= !heard.is_empty();
+        let live = json(&coord_of_live(c).list_tasks(&TaskFilter::default()));
+        assert!(live == want, "{name} live: {}", diff(&live, &want));
         for n in [2, 7, 1000] {
             let (got, said) = paged(n);
             assert!(want == got, "{name} by {n}: {}", diff(&want, &got));
             assert_eq!(heard, said, "{name} by {n}");
         }
     }
+    assert!(said_something, "the goldens gave no notices to compare");
 }
 
 fn coord_of_live(c: &Value) -> Coord {
