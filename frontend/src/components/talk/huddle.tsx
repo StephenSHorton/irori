@@ -546,6 +546,7 @@ export function RingBanner({
       <span className="min-w-0 flex-1 text-ink-2">
         <span className="font-medium text-ink">{personWord(ring.by)}</span>{" "}
         started a huddle {where}
+        {ring.byDevice && ` on ${ring.byDevice}`}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         <Button size="xs" disabled={busy} onClick={onJoin}>
