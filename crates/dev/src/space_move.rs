@@ -156,6 +156,54 @@ fn raw_rows(core: &Core, id: &str) -> BTreeMap<String, usize> {
     }
 }
 
+/// The spaces the switcher lists, and every open space log.
+fn spaces_line(core: &Core) -> String {
+    let listed: Vec<String> = core
+        .board_list()
+        .into_iter()
+        .map(|s| format!("{} ({})", s.name, s.tag))
+        .collect();
+    format!(
+        "listed [{}], open logs {}",
+        listed.join(", "),
+        core.boards().len()
+    )
+}
+
+/// The private rows this device wrote after `seq0` that aren't copies or
+/// the move's own board and forget rows: the move's side effects.
+fn other_rows(core: &Core, me: &str, seq0: i64) -> String {
+    let mut out: BTreeMap<String, usize> = BTreeMap::new();
+    let mut f = Filter {
+        device_id: me.to_string(),
+        after_seq: seq0,
+        limit: store::MAX_LIST_LIMIT,
+        ..Filter::default()
+    };
+    loop {
+        let Ok(evs) = core.store().list(&f) else {
+            break;
+        };
+        for ev in &evs {
+            let moved = String::from_utf8_lossy(&ev.payload).contains(irori_core::MOVED_FIELD);
+            if !moved && ev.kind != kinds::BOARD_FORGOT {
+                *out.entry(ev.kind.clone()).or_default() += 1;
+            }
+        }
+        if (evs.len() as i64) < f.limit {
+            break;
+        }
+        f.after = evs[evs.len() - 1].cursor();
+    }
+    if out.is_empty() {
+        return "none".into();
+    }
+    out.iter()
+        .map(|(k, n)| format!("{k} {n}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Personal's fold of a space's cards, compared with `b`; returns the
 /// lines that differ.
 fn check_after(core: &Core, b: &Before, when: &str) -> Vec<String> {
@@ -204,6 +252,14 @@ pub fn run(o: &Opts) -> ExitCode {
     };
     let mut before = Vec::new();
     let mut bad: Vec<String> = Vec::new();
+    println!("spaces before: {}", spaces_line(&core));
+    let me = core.device_id().to_string();
+    let seq0 = core
+        .store()
+        .vector()
+        .ok()
+        .and_then(|v| v.get(&me).copied())
+        .unwrap_or(0);
     for id in &o.spaces {
         let co = match core.board_coord(id) {
             Ok(c) => c,
@@ -287,12 +343,11 @@ pub fn run(o: &Opts) -> ExitCode {
         }
         bad.extend(check_after(&core, b, &format!("{} after the move", b.tag)));
     }
-    let tags: Vec<String> = core
-        .board_list()
-        .into_iter()
-        .map(|s| format!("{} ({})", s.name, s.tag))
-        .collect();
-    println!("spaces left: {}", tags.join(", "));
+    println!("spaces after: {}", spaces_line(&core));
+    println!(
+        "other rows the move wrote here: {}",
+        other_rows(&core, &me, seq0)
+    );
     if let Ok(ps) = core.personal_boards() {
         let names: Vec<String> = ps.iter().map(|p| format!("{}:{}", p.tag, p.name)).collect();
         println!("Personal's boards: {}", names.join(", "));

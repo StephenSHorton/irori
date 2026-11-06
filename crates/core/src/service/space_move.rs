@@ -38,6 +38,10 @@ const RENAMED: &[(&str, &str)] = &[
     (kinds::BOARD_ASK_MOVED, kinds::ASK_MOVED),
 ];
 
+/// The families of a card's rows, copied but for [`LEFT_OUT`]. A store
+/// filter reads a kind ending in `.` as a prefix.
+const COPIED_PREFIXES: &[&str] = &["task.", "blocker.", "review."];
+
 /// Card kinds that are hand-out state or the space's own, never the card.
 const LEFT_OUT: &[&str] = &[kinds::TASK_OFFERED, kinds::TASK_OWNER];
 
@@ -304,9 +308,23 @@ impl Services {
             &self.store,
             Filter {
                 device_id: self.device.id.clone(),
+                // Only the kinds a move writes, so it doesn't read every
+                // row this device ever wrote.
+                kinds: COPIED_PREFIXES
+                    .iter()
+                    .map(|k| k.to_string())
+                    .chain(RENAMED.iter().map(|(_, k)| k.to_string()))
+                    .chain([
+                        kinds::PR_STATE.to_string(),
+                        kinds::SPACE_BOARD_CREATED.to_string(),
+                    ])
+                    .collect(),
                 ..Filter::default()
             },
             |ev| {
+                if !String::from_utf8_lossy(&ev.payload).contains(MOVED_FIELD) {
+                    return;
+                }
                 let Ok(v) = serde_json::from_slice::<Value>(&ev.payload) else {
                     return;
                 };
@@ -489,10 +507,10 @@ fn copied_kind(ev: &Event, newest_pr: &HashSet<(String, i64)>) -> Option<String>
     if LEFT_OUT.contains(&ev.kind.as_str()) {
         return None;
     }
-    let card = ev.kind.starts_with("task.")
-        || ev.kind.starts_with("blocker.")
-        || ev.kind.starts_with("review.");
-    card.then(|| ev.kind.clone())
+    COPIED_PREFIXES
+        .iter()
+        .any(|p| ev.kind.starts_with(p))
+        .then(|| ev.kind.clone())
 }
 
 /// The newest `pr.state` row of each (card, PR), by row.

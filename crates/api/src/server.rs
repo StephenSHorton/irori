@@ -323,7 +323,8 @@ fn precheck(s: &Arc<Shared>, port: u16, r: &Req) -> Option<Resp> {
     }
     let post = crate::v02::post_route(&r.path)
         || crate::pair::pair_post(&r.path)
-        || crate::slots::post_route(&r.path);
+        || crate::slots::post_route(&r.path)
+        || r.path == MOVE_TO_PERSONAL;
     if r.method != "GET" && !(post && r.method == "POST") {
         let allow = if post { "GET, POST" } else { "GET" };
         return Some(http::error(405, "method not allowed").with_header("Allow", allow));
@@ -375,7 +376,32 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
         "/v1/events/stream" => crate::events::stream(&h),
         "/v1/devices" => devices(s, r),
         "/v1/boards" => boards(s, r),
+        MOVE_TO_PERSONAL => move_to_personal(s, r),
         _ => http::error(404, "no such route"),
+    }
+}
+
+/// Card #640's one-off move, made by an agent on the person's own device:
+/// nothing in the window or the agent tools reaches it.
+const MOVE_TO_PERSONAL: &str = "/v1/spaces/move-to-personal";
+
+/// `POST /v1/spaces/move-to-personal?space=<id>[&keep=1]`: moves a space
+/// nobody else is in into Personal as a board, every card with it, and
+/// forgets it on every device (`keep=1` copies and checks, and keeps it).
+/// 409 with the reason when the move refuses.
+fn move_to_personal(s: &Arc<Shared>, r: &Req) -> Resp {
+    if r.method != "POST" {
+        return http::error(405, "method not allowed").with_header("Allow", "POST");
+    }
+    let space = r.query.get("space");
+    if space.is_empty() {
+        return http::error(400, "space=<id> is required");
+    }
+    let keep = matches!(r.query.get("keep").as_str(), "1" | "true");
+    match s.b.move_space_to_personal(&space, keep) {
+        Some(Ok(v)) => http::json(200, &v),
+        Some(Err(e)) => http::error(409, &e),
+        None => http::error(503, "this Core has no spaces"),
     }
 }
 

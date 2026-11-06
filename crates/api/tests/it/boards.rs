@@ -70,3 +70,40 @@ fn the_core_serves_its_boards_with_set_aside_counts_under_detail() {
         assert_eq!(no_detail, plain, "{q}");
     }
 }
+
+/// Card #640's one-off move: a POST with the space's id moves it into
+/// Personal; a GET, a missing id or an unknown space is refused.
+#[test]
+fn a_one_person_space_moves_into_personal_by_post() {
+    let rig = common::Rig::new();
+    let call = |m: &str, q: &str| {
+        rig.rt.block_on(rig.client.call(
+            m,
+            &format!("/v1/spaces/move-to-personal{q}"),
+            &[],
+            None,
+        ))
+    };
+    let c = &rig.core;
+    let id = c.create_board("Wind Waker", "wind").unwrap();
+    let co = c.board_coord(&id).unwrap();
+    let me = c.board_key(&id, &c.user_sender().key).unwrap();
+    let t = co
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "Sea chart".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(call("GET", &format!("?space={id}")).is_err());
+    assert!(call("POST", "").is_err());
+    assert!(call("POST", "?space=nope").is_err());
+    let b = call("POST", &format!("?space={id}")).unwrap();
+    let got: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(got["cards"], json!(1), "{got}");
+    assert_eq!(got["forgotten"], json!(true), "{got}");
+    assert_eq!(c.task_ref("wind#1").unwrap(), t.id);
+    assert!(!c.boards().contains(&id));
+}
