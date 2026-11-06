@@ -16,6 +16,7 @@ mod boardlog_test;
 mod boards2_test;
 mod card_mention_test;
 mod cards_test;
+mod catchup_test;
 mod comment_edit_test;
 mod common;
 mod coord_test;
