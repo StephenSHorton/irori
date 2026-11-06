@@ -1,7 +1,7 @@
 //! `spike-call`: does a voice call, and a screen share, fit on iroh between the
 //! real devices? (#571, #653)
 //!
-//!   spike-call listen [--home-relay-port P]
+//!   spike-call listen [--home-relay-port P | --home-relay https://HOST:P/ --relay-pub <id>]
 //!   spike-call dial <endpointId> [--secs N] [--size BYTES] [--relay-only] [--label TEXT]
 //!                   [--home-relay https://HOST:P/ [--relay-pub <id>]]
 //!                   [--share [--kbps 2500] [--fps 10] [--gop-secs 2] [--key-kb 200]]
@@ -24,7 +24,9 @@
 //! (docs/design/public-relays.md). `listen --home-relay-port P` also runs an
 //! embedded Irori home relay (`irori_net::relay`, the home server's code, open
 //! to any client) on 0.0.0.0:P with its own pinned key, and homes the listener
-//! on it; `dial --home-relay https://HOST:P/` goes through it. Throwaway keys
+//! on it; `dial --home-relay https://HOST:P/` goes through it. A listener on
+//! another machine can home on that relay too (`listen --home-relay URL
+//! --relay-pub <relay key>`), so either end can be the sharer. Throwaway keys
 //! either way: it never touches an Irori data dir or the live app's keys.
 
 use std::collections::HashMap;
@@ -55,7 +57,7 @@ async fn main() -> Result<()> {
         Some("dial") => dial(&argv[1..]).await,
         _ => {
             eprintln!(
-                "usage:\n  spike-call listen [--home-relay-port P]\n  spike-call dial <endpointId> [--secs N] [--size BYTES] [--relay-only] [--label TEXT]\n                  [--home-relay https://HOST:P/ [--relay-pub <id>]]\n                  [--share [--kbps 2500] [--fps 10] [--gop-secs 2] [--key-kb 200]]"
+                "usage:\n  spike-call listen [--home-relay-port P | --home-relay https://HOST:P/ --relay-pub <id>]\n  spike-call dial <endpointId> [--secs N] [--size BYTES] [--relay-only] [--label TEXT]\n                  [--home-relay https://HOST:P/ [--relay-pub <id>]]\n                  [--share [--kbps 2500] [--fps 10] [--gop-secs 2] [--key-kb 200]]"
             );
             std::process::exit(2)
         }
@@ -124,20 +126,44 @@ async fn bind_home(
 
 async fn listen(args: &[String]) -> Result<()> {
     let mut home_port: Option<u16> = None;
+    let mut remote: Option<RelayUrl> = None;
+    let mut remote_pub: Option<EndpointId> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--home-relay-port" => {
                 home_port = Some(it.next().context("--home-relay-port")?.parse()?)
             }
+            "--home-relay" => {
+                remote = Some(
+                    it.next()
+                        .context("--home-relay")?
+                        .parse()
+                        .map_err(|e| anyhow!("--home-relay: {e}"))?,
+                )
+            }
+            "--relay-pub" => {
+                remote_pub = Some(
+                    it.next()
+                        .context("--relay-pub")?
+                        .parse()
+                        .map_err(|e| anyhow!("--relay-pub: {e}"))?,
+                )
+            }
             other => bail!("unknown argument {other}"),
         }
     }
     // Kept alive for the life of the listener.
     let mut _relay = None;
-    let ep = match home_port {
-        None => bind_n0(false).await?,
-        Some(p) => {
+    let ep = match (home_port, &remote) {
+        (Some(_), Some(_)) => bail!("give --home-relay-port or --home-relay, not both"),
+        (None, Some(url)) => {
+            // Home on another machine's spike home relay.
+            let pubk = remote_pub.context("--home-relay on listen needs --relay-pub")?;
+            bind_home(&throwaway_identity(), url.clone(), pubk, false).await?
+        }
+        (None, None) => bind_n0(false).await?,
+        (Some(p), None) => {
             let id = throwaway_identity();
             let r = relay::spawn_with(&id, IpAddr::V4(Ipv4Addr::UNSPECIFIED), p, OpenAccess)
                 .await
@@ -162,12 +188,17 @@ async fn listen(args: &[String]) -> Result<()> {
             .collect::<Vec<_>>()
             .join(" ")
     );
-    match home_port {
-        None => println!("listen   dial with: spike-call dial {}", ep.id()),
-        Some(p) => println!(
+    match (home_port, &remote) {
+        (Some(p), _) => println!(
             "listen   dial with: spike-call dial {} --home-relay https://<this machine's IP>:{p}/",
             ep.id()
         ),
+        (None, Some(url)) => println!(
+            "listen   dial with: spike-call dial {} --home-relay {url} --relay-pub {}",
+            ep.id(),
+            remote_pub.map(|k| k.to_string()).unwrap_or_default()
+        ),
+        (None, None) => println!("listen   dial with: spike-call dial {}", ep.id()),
     }
     while let Some(inc) = ep.accept().await {
         tokio::spawn(async move {
