@@ -2648,6 +2648,12 @@ export type ThreadSummary = {
 	queuePlace?: number,
 	/**  While a Claude usage limit holds spawns, when they start again. */
 	usageLimit?: string | null,
+	/**
+	 *  The agent that opened it (card #631); absent for the person's own.
+	 *  Until the person writes in it, it waits on them and no agent is
+	 *  started for it.
+	 */
+	openedBy?: AgentRef | null,
 };
 
 /**  Who an action's notice went to. */

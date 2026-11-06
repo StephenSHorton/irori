@@ -122,7 +122,7 @@ export function AskBox({
         <div className="flex items-start gap-2 p-1.5 glass-panel">
           <MentionTextarea
             autoSize
-            voice
+            voice="main"
             rows={1}
             value={text}
             mentions={mentions}
