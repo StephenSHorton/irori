@@ -193,7 +193,11 @@ export function useConversations(): {
   error: string | null
 } {
   const load = useCallback(() => talkApi.conversations(), [])
-  const { value, error, reload } = useLatest<Conversation[]>(load, [])
+  const { value, error, reload } = useLatest<Conversation[]>(
+    load,
+    [],
+    "conversations"
+  )
   useTalkFresh(reload)
   return { conversations: value, error }
 }

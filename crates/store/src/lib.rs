@@ -42,8 +42,8 @@ pub use db::{Store, Subscription, schema_version};
 pub use error::{Error, ErrorKind, Result};
 pub use hlc::{Clock, Timestamp};
 pub use kinds::{
-    Board, Side, board_accepted, board_actor_ok, is_board_identity_kind, is_local, is_person_kind,
-    kind_board, kind_side,
+    Board, Side, board_accepted, board_actor_ok, board_tolerated, is_board_identity_kind, is_local,
+    is_person_kind, kind_board, kind_side,
 };
 
 /// One log row; `(device_id, seq)` is the primary key.

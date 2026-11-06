@@ -23,6 +23,7 @@ cd "$(dirname "$0")/.."
   bun run lint
   bun test
 )
+sh scripts/one-test-binary.sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 temp_clean cargo test --workspace
