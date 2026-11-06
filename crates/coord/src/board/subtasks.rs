@@ -201,9 +201,7 @@ impl Fold {
         // before the person until it is answered and acted on, and keeps
         // it where a fresh lead can be started and bound for that answer.
         let own_wait = t.state == BLOCKED || t.state == INPUT_REQUIRED;
-        r.state = if is_terminal(&t.state) {
-            t.state.clone()
-        } else if all && own_wait {
+        r.state = if is_terminal(&t.state) || (all && own_wait) {
             t.state.clone()
         } else if all && completed > 0 {
             COMPLETED.into()
