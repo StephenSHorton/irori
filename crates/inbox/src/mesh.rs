@@ -47,6 +47,7 @@ impl Inner {
         self.known = BTreeMap::new();
         self.pol = Policy::default();
         self.running = BTreeMap::new();
+        self.turned = HashSet::new();
         self.pairs = HashMap::new();
         self.receive = BTreeMap::new();
         self.autonomy = BTreeMap::new();

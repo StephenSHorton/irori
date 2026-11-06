@@ -201,11 +201,8 @@ export const commands = {
 	boardsSetAutonomy: (boardId: string, preset: string) => __TAURI_INVOKE<BoardSettings>("boards_set_autonomy", { boardId, preset }),
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
-	notesList: (scope: string, removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { scope, removed }),
-	/**  The sidebar's Notes count: notes waiting on the person's look (card #468). */
-	notesWaiting: () => __TAURI_INVOKE<number>("notes_waiting"),
+	notesList: (removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { removed }),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
-	noteAccept: (id: string) => __TAURI_INVOKE<NoteView>("note_accept", { id }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
 	noteRemove: (id: string, why: string) => __TAURI_INVOKE<NoteView>("note_remove", { id, why }),
 	/**
@@ -336,6 +333,11 @@ export const commands = {
 	talkDm: (member: TalkMemberRef) => __TAURI_INVOKE<string>("talk_dm", { member }),
 	/**  Everyone the person can DM (card #538). */
 	talkDmPeople: () => __TAURI_INVOKE<TalkPerson[]>("talk_dm_people"),
+	/**
+	 *  Who is replying in each channel and DM (card #645); `talk:replying`
+	 *  carries the same list when it changes.
+	 */
+	talkReplying: () => __TAURI_INVOKE<TalkReplying[]>("talk_replying"),
 	/**  Leaves a DM with another person (card #538). */
 	talkDmLeave: (convId: string) => __TAURI_INVOKE<null>("talk_dm_leave", { convId }),
 	talkJoin: (convId: string, member: TalkMemberRef) => __TAURI_INVOKE<null>("talk_join", { convId, member }),
@@ -1979,19 +1981,6 @@ export type NewCardInput = {
 	files?: UploadFile[],
 };
 
-/**  A pending agent change to a live note, waiting for a person's accept. */
-export type NoteChangeView = {
-	by: string,
-	at: string,
-	/**  The proposed kind, text or tags; empty or absent when unchanged. */
-	kind: string,
-	text: string,
-	tags: string[] | null,
-	/**  The proposal is to remove the note. */
-	remove: boolean,
-	why: string,
-};
-
 /**  An edit: each given field replaces the note's. */
 export type NoteEditInput = {
 	kind?: string | null,
@@ -2001,7 +1990,7 @@ export type NoteEditInput = {
 
 /**  One step of a note's history. */
 export type NoteEventView = {
-	/**  proposed, accepted, edited, edit_proposed, removal_proposed, removed. */
+	/**  proposed (written), edited or removed. */
 	what: string,
 	by: string,
 	at: string,
@@ -2010,8 +1999,6 @@ export type NoteEventView = {
 
 /**  What New note writes. */
 export type NoteInput = {
-	/**  `mine` (the default), or a board's tag or id. */
-	scope?: string,
 	kind?: string,
 	text?: string,
 	tags?: string[],
@@ -2021,10 +2008,6 @@ export type NoteInput = {
 export type NoteView = {
 	/**  The bare id; refs are `note:<id>`. */
 	id: string,
-	/**  `mine`, or the board's tag. */
-	scope: string,
-	/**  `""` for Mine. */
-	boardId: string,
 	/**  rule, gotcha, decision, pointer or preference. */
 	kind: string,
 	text: string,
@@ -2032,20 +2015,16 @@ export type NoteView = {
 	/**  `task:<id>`, `comment:<id>`, `blocker:<taskId>/<b1>`, `proof:<taskId>`, or "". */
 	source: string,
 	taskId: string,
-	/**
-	 *  The author's key: the person (`user:…`, or `person:…` on a board)
-	 *  or an agent.
-	 */
+	/**  The author's key: the person (`user:…`) or an agent. */
 	by: string,
-	/**  Whether the author is a person (a person's note is live at once). */
+	/**  Whether the author is the person, not one of their agents. */
 	byPerson: boolean,
 	at: string,
-	/**  proposed, accepted or removed. */
+	/**  accepted (live) or removed. */
 	state: string,
 	acceptedBy: string,
 	acceptedAt: string,
 	updated: string,
-	pending: NoteChangeView | null,
 	history: NoteEventView[],
 	/**
 	 *  Still true? (v1): why the note may be out of date, else "". A
@@ -2516,6 +2495,26 @@ export type TalkPost = {
 	at: string,
 };
 
+/**  One agent replying. */
+export type TalkReplier = {
+	key: string,
+	/**  Its name, never its key. */
+	name: string,
+	/**  When the post that woke it was sent: the row drops it 30 minutes on. */
+	since: string,
+};
+
+/**
+ *  The agents replying in one channel or DM (card #645): woken by a post
+ *  there and not answered yet. The row reads "jasmine and kestrel are
+ *  replying…".
+ */
+export type TalkReplying = {
+	convId: string,
+	/**  The earliest woken first. */
+	agents: TalkReplier[],
+};
+
 /**
  *  Where a notification's Open goes (Go `notify.Target`); the app:open
  *  payload.
@@ -2682,6 +2681,12 @@ export type ThreadSummary = {
 	queuePlace?: number,
 	/**  While a Claude usage limit holds spawns, when they start again. */
 	usageLimit?: string | null,
+	/**
+	 *  The agent that opened it (card #631); absent for the person's own.
+	 *  Until the person writes in it, it waits on them and no agent is
+	 *  started for it.
+	 */
+	openedBy?: AgentRef | null,
 };
 
 /**  Who an action's notice went to. */

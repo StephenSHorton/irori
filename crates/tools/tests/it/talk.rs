@@ -264,6 +264,85 @@ fn threads_read_and_post_as_comments() {
     h.failsj(&a, "talk_join", json!({"conv": r}), &["only channels"]);
 }
 
+/// Card #631: an agent opens a thread with talk_thread and holds it; the
+/// agents it names are woken, never as the person; a channel it's about
+/// gets a pointer; the person's reply comes back to it.
+#[test]
+fn an_agent_opens_a_thread_it_holds() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    let out = h.okj(
+        &a,
+        "talk_thread",
+        json!({"text": "Two ways to fix sync: which do you want, @gamma?", "conv": "#general"}),
+    );
+    has(
+        &out,
+        &[
+            "Opened thread #",
+            "You hold it",
+            "no other agent is started for it",
+        ],
+    );
+    let t =
+        h.b.co
+            .list_tasks(&coord::TaskFilter::default())
+            .into_iter()
+            .find(|t| t.ask.as_ref().is_some_and(|a| a.thread))
+            .expect("the thread");
+    let ask = t.ask.clone().unwrap();
+    assert_eq!(ask.opener, KEY_A);
+    assert_eq!(ask.taker, KEY_A);
+    assert_eq!(ask.channel, ch.id);
+    assert!(!ask.unclaimed && !ask.handed, "{ask:?}");
+    // Gamma is woken, by Irori, not as the person.
+    let ns: Vec<_> = h
+        .notices(KEY_C)
+        .into_iter()
+        .filter(|d| d.mode == WAKE)
+        .collect();
+    assert_eq!(ns.len(), 1, "{ns:?}");
+    has(
+        &ns[0].message.text,
+        &[
+            "started a thread",
+            "Two ways to fix sync",
+            "Its opener holds it",
+        ],
+    );
+    assert_eq!(ns[0].message.from.key, KEY_A);
+    assert_eq!(ns[0].message.trust, "untrusted");
+    // The channel has the pointer, which wakes nobody.
+    let ps = h.b.talk.posts(&ch.id);
+    assert_eq!(ps.len(), 1, "{ps:?}");
+    has(&ps[0].text, &["Started a thread", &t.short_ref()]);
+    // It's on the opener's own list.
+    assert!(
+        tools::talk::conversations(&*h.b, KEY_A)
+            .unwrap()
+            .iter()
+            .any(|x| x.conv_id == t.id)
+    );
+    // The person's reply goes to it.
+    let (_, ns) =
+        h.b.co
+            .person_comment(USER, &t.id, "The first one.", true, &[], None)
+            .unwrap();
+    assert!(
+        ns.iter()
+            .any(|n| n.wake && n.to.contains(&KEY_A.to_string())),
+        "{ns:?}"
+    );
+    // A DM or a thread isn't somewhere to open one.
+    h.failsj(
+        &a,
+        "talk_thread",
+        json!({"text": "hi", "conv": t.short_ref()}),
+        &["channel the thread is about"],
+    );
+}
+
 /// The next-turn reading (card #391): every agent in a channel but the
 /// poster and the woken hears what it hasn't read there, at most five
 /// lines and a count, a reply optional; a newer reading replaces one still

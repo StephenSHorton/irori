@@ -19,7 +19,7 @@
 use std::collections::BTreeMap;
 
 use coord::ErrorKind as CK;
-use mesh::boardmesh::{DeviceWords, SPACES_PROTOCOL};
+use mesh::boardmesh::{BoardReads, DeviceWords, SPACES_PROTOCOL};
 use serde::{Deserialize, Serialize};
 use store::{Filter, kinds};
 
@@ -272,7 +272,19 @@ impl Services {
     /// What's known of each other member device of space `b` (no-server.md
     /// §5): its latest word is a live hello, else the newer of a saved hello
     /// and its `board.server` row. All but the live hello need no mesh.
+    /// Too old is below [`SPACES_PROTOCOL`].
     pub(crate) fn space_readers(&self, b: &BoardLog) -> Result<SpaceReaders> {
+        self.space_readers_at(b, ReadsLevel::Spaces, SPACES_PROTOCOL)
+    }
+
+    /// [`Services::space_readers`] for any level: too old is a latest word
+    /// whose `level` is below `need`.
+    pub(crate) fn space_readers_at(
+        &self,
+        b: &BoardLog,
+        level: ReadsLevel,
+        need: i64,
+    ) -> Result<SpaceReaders> {
         let ms = b.verifier.membership();
         let me = self.device.id.clone();
         let mesh = self.mesh.board(&b.id);
@@ -297,17 +309,43 @@ impl Services {
                 })
                 .collect(),
         };
-        let live = mesh.map(|m| m.live_spaces()).unwrap_or_default();
+        let live = mesh.map(|m| m.live_reads()).unwrap_or_default();
         let words = DeviceWords::read(&b.store).map_err(|e| Error::other(e.0))?;
         let mut out = SpaceReaders::default();
         for (person, dev) in devices {
-            match live.get(&dev).copied().or_else(|| words.spaces(&dev)) {
+            let word = live.get(&dev).cloned().or_else(|| words.reads(&dev));
+            match word.map(|r| level.of(&r)) {
                 None => out.unheard.push((person, dev)),
-                Some(level) if level < SPACES_PROTOCOL => out.too_old.push((person, dev)),
+                Some(l) if l < need => out.too_old.push((person, dev)),
                 Some(_) => {}
             }
         }
         Ok(out)
+    }
+
+    /// Whether every other member device of space `space_id` is known to
+    /// store an unknown `call.*` or `talk.*` row it pulls instead of
+    /// stalling on it (card #652, hello `tolerant` >= [`CALLS_TOLERANT`]).
+    /// Unlike the space gate, a device nobody has any word from counts
+    /// against it: calls have somewhere else to put what they'd write (a
+    /// `talk.post` marker, a file), so this gate fails closed
+    /// (irori-fit.md §2, "Recommended path").
+    pub(crate) fn space_tolerance(&self, space_id: &str) -> Result<SpaceTolerance> {
+        let b = self.board(space_id)?;
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(&b, ReadsLevel::Tolerant, CALLS_TOLERANT)?;
+        let name = |(p, d): (String, String)| {
+            let who = b
+                .verifier
+                .profile(&p)
+                .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                .unwrap_or_else(|| short(&p).to_string());
+            format!("{who}/{}", short(&d))
+        };
+        Ok(SpaceTolerance {
+            too_old: r.too_old.into_iter().map(name).collect(),
+            unheard: r.unheard.into_iter().map(name).collect(),
+        })
     }
 
     /// The member devices of space `space_id` known to be too old for space
@@ -645,10 +683,56 @@ fn tag_taken(tag: &str, other: &str) -> Error {
 /// aren't known to read space rows, as (person, device).
 #[derive(Debug, Default)]
 pub(crate) struct SpaceReaders {
-    /// Their latest word is below [`SPACES_PROTOCOL`]: they block.
+    /// Their latest word is below [`SPACES_PROTOCOL`] (or the level
+    /// [`Services::space_readers_at`] was given): they block.
     pub(crate) too_old: Vec<(String, String)>,
-    /// No word at all: they don't block, and get a warning line.
+    /// No word at all: they don't block the space gate, and get a warning
+    /// line.
     pub(crate) unheard: Vec<(String, String)>,
+}
+
+/// Which level of a device's word [`Services::space_readers_at`] checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReadsLevel {
+    /// The hello's `spaces`.
+    Spaces,
+    /// The hello's `tolerant` (card #652).
+    Tolerant,
+}
+
+impl ReadsLevel {
+    fn of(self, r: &BoardReads) -> i64 {
+        match self {
+            ReadsLevel::Spaces => r.spaces,
+            ReadsLevel::Tolerant => r.tolerant,
+        }
+    }
+}
+
+/// The `tolerant` level that stores unknown `call.*` and `talk.*` rows
+/// (card #652). Fixed at 2: [`mesh::boardmesh::TOLERANT_PROTOCOL`] rises
+/// when a later family joins, and calls must not wait on that.
+pub const CALLS_TOLERANT: i64 = 2;
+
+/// The calls gate's answer for one space ([`super::Core::space_tolerance`]):
+/// the other member devices not known to be at [`CALLS_TOLERANT`], as
+/// `person/device` (short ids).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceTolerance {
+    /// Their latest word says a lower `tolerant`: an Irori before this one,
+    /// which would stall on a `call.*` row.
+    pub too_old: Vec<String>,
+    /// Nobody has any word from them, so they may be that old.
+    pub unheard: Vec<String>,
+}
+
+impl SpaceTolerance {
+    /// Every other device in the space is known to be at
+    /// [`CALLS_TOLERANT`]: the space may take `call.*` rows.
+    pub fn ready(&self) -> bool {
+        self.too_old.is_empty() && self.unheard.is_empty()
+    }
 }
 
 /// The version gate's answer (card #392, spaces.md §4): why a space may
@@ -982,6 +1066,14 @@ impl super::Core {
     /// The member devices of `space_id` that don't read space rows yet.
     pub fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
         self.s.space_not_ready(space_id)
+    }
+
+    /// The calls gate (card #652): whether every other device in space
+    /// `space_id` is known to store an unknown `call.*` or `talk.*` row
+    /// (hello `tolerant` >= [`CALLS_TOLERANT`]), and which aren't.
+    /// [`SpaceTolerance::ready`] says the space may take `call.*` rows.
+    pub fn space_tolerance(&self, space_id: &str) -> Result<SpaceTolerance> {
+        self.s.space_tolerance(space_id)
     }
 
     /// Whether space `space_id` may take a space-only row now: the gate's

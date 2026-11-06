@@ -960,31 +960,18 @@ pub async fn boards_set_reviewer(
     w.boards_set_reviewer(&board_id, &agent, &repo)
 }
 
-// ---- Notes (card #401) ------------------------------------------------------------
+// ---- Notes (card #401; Mine only since #616) ------------------------------------
 
 #[tauri::command]
 #[specta::specta]
-pub async fn notes_list(w: W<'_>, scope: String, removed: bool) -> R<Vec<crate::notes::NoteView>> {
-    blocking(&w, move |w| w.notes_list(&scope, removed)).await
-}
-
-/// The sidebar's Notes count: notes waiting on the person's look (card #468).
-#[tauri::command]
-#[specta::specta]
-pub async fn notes_waiting(w: W<'_>) -> R<u32> {
-    blocking(&w, move |w| w.notes_waiting().map(|n| n as u32)).await
+pub async fn notes_list(w: W<'_>, removed: bool) -> R<Vec<crate::notes::NoteView>> {
+    blocking(&w, move |w| w.notes_list(removed)).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn note_new(w: W<'_>, note: crate::notes::NoteInput) -> R<crate::notes::NoteView> {
     blocking(&w, move |w| w.note_new(note)).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn note_accept(w: W<'_>, id: String) -> R<crate::notes::NoteView> {
-    blocking(&w, move |w| w.note_accept(&id)).await
 }
 
 #[tauri::command]
@@ -1700,6 +1687,14 @@ pub async fn talk_dm(w: W<'_>, member: TalkMemberRef) -> R<String> {
     w.talk_dm(&member)
 }
 
+/// Who is replying in each channel and DM (card #645); `talk:replying`
+/// carries the same list when it changes.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_replying(w: W<'_>) -> R<Vec<crate::talk::TalkReplying>> {
+    Ok(w.talk_replying())
+}
+
 /// Everyone the person can DM (card #538).
 #[tauri::command]
 #[specta::specta]
@@ -1860,9 +1855,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
-            notes_waiting,
             note_new,
-            note_accept,
             note_edit,
             note_remove,
             agents_trust_need,
@@ -1936,6 +1929,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             talk_channel_create,
             talk_dm,
             talk_dm_people,
+            talk_replying,
             talk_dm_leave,
             talk_join,
             talk_leave,

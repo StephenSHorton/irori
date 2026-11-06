@@ -69,8 +69,9 @@ pub use crate::service::boards::{
 };
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
-pub use crate::service::notes::{SCOPE_MINE, ScopedNote};
-pub use crate::service::spaces::{PERSONAL_BOARD, SpaceBoard, fold_space_boards};
+pub use crate::service::spaces::{
+    CALLS_TOLERANT, PERSONAL_BOARD, SpaceBoard, SpaceTolerance, fold_space_boards,
+};
 pub use crate::service::spawn;
 pub use crate::service::spawn_agents;
 pub use crate::service::spawn_limits;
@@ -78,6 +79,7 @@ pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::spawn_why;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
+pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};
 pub use crate::service::trees;
 pub use crate::service::{
     BoardReviewer, Core, HomeEdit, NO_HOME_SERVER, NowFn, Options, ReviveFn, StartError,

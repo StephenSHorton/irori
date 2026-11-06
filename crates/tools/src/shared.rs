@@ -558,6 +558,73 @@ pub(crate) fn create_on_board(
     }
 }
 
+// --- talk_thread in a space ---
+
+/// talk_thread in space `space`'s own log (card #631): scrubbed like any
+/// write there, and only where the agent may write without asking. The
+/// agents it names, by the log's keys, are woken; this person's own hear
+/// it from the returned notice, the others' from their devices' bridge.
+pub(crate) fn thread_on_board(
+    s: &Inner,
+    c: &Caller,
+    space: &str,
+    text: &str,
+    given: &[String],
+    channel: &str,
+) -> Result<(Task, String), String> {
+    let b = s.find_board(space)?;
+    let reasons = reasons_in(&[text]);
+    if !reasons.is_empty() {
+        return Err(refusal(&b, &reasons));
+    }
+    if s.b.inbox().autonomy(&b.board_id) == inbox::autonomy::ASK {
+        return Err(err_text(&format!(
+            "your autonomy on {} is Ask me, so you can't open a thread there yourself: open it in Personal (leave out space), or ask your person.",
+            b.label()
+        )));
+    }
+    let sb = s
+        .shared()
+        .ok_or_else(|| err_text("shared spaces aren't on here"))?;
+    let mut agents = crate::mention::cards(s);
+    agents.extend(sb.board_mentionables(&b.board_id));
+    let res = coord::mentions::resolve(&agents, &c.sender.key, text, given);
+    let mut keys = vec![c.sender.key.clone()];
+    keys.extend(res.mentions.iter().map(|m| m.key.clone()));
+    let (co, logk) = sb
+        .board_coord(&b.board_id, &keys)
+        .map_err(|e| err_text(map_err(e).trim_start_matches("Error: ")))?;
+    let mentions = res
+        .mentions
+        .iter()
+        .zip(logk.iter().skip(1))
+        .map(|(m, k)| coord::Mention {
+            key: k.clone(),
+            ..m.clone()
+        })
+        .collect();
+    let (t, n) = co
+        .post_agent_thread(
+            &logk[0],
+            coord::NewAsk {
+                text: text.to_string(),
+                thread: true,
+                mentions,
+                channel: channel.to_string(),
+                ..coord::NewAsk::default()
+            },
+        )
+        .map_err(|e| err_text(map_err(e).trim_start_matches("Error: ")))?;
+    let names = s.roster();
+    let mut out = String::new();
+    if let Some(n) = n {
+        out += &s.told(&s.tell(&c.sender, n), &names);
+    }
+    out += &crate::mention::mention_line(&[], &res.misses, &names);
+    out += &format!("\n{}", b.visible_to());
+    Ok((t, out))
+}
+
 // --- board_share ---
 
 const SHARE_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("board", Ty::Str)];
