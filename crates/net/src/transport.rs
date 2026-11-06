@@ -206,7 +206,7 @@ pub(crate) struct Inner {
     /// and [`home_relay_watch`]'s re-inserts), so a re-insert never brings
     /// back a relay that was just removed.
     relay_ops: tokio::sync::Mutex<()>,
-    book: Mutex<BTreeMap<String, PeerAddr>>,
+    pub(crate) book: Mutex<BTreeMap<String, PeerAddr>>,
     rooms: Mutex<HashMap<i64, Arc<RoomState>>>,
     /// Board rooms (stage 2, `irori/board/1`), by (board, board epoch).
     pub(crate) board_rooms: Mutex<HashMap<(String, i64), Arc<RoomState>>>,
@@ -216,6 +216,9 @@ pub(crate) struct Inner {
     pub(crate) board_book: Mutex<BTreeMap<String, BTreeMap<String, PeerAddr>>>,
     /// The `board.server` relays of every board held here (B1).
     pub(crate) board_relays: Mutex<Vec<crate::board::BoardRelays>>,
+    /// The calls joined here (`irori/call/1`, #654), by call id. Kept out of
+    /// the rooms: a call's connections carry media, not the mesh's streams.
+    pub(crate) calls: Mutex<HashMap<String, Arc<crate::call::CallState>>>,
     /// (board or "" for the private mesh, epoch, peer) dials in flight.
     dialing: Mutex<HashSet<(String, i64, String)>>,
     pub(crate) dial_errors: Mutex<BTreeMap<String, String>>,
@@ -393,6 +396,16 @@ pub(crate) fn closed_error(conn: &Connection, fallback: impl Into<String>) -> Co
     }
 }
 
+/// Of two live connections between this device and `peer`, whether the new
+/// one stays: the newer of two the same side dialed, else the one the lower
+/// id dialed. The other closes `replaced`. Rooms and calls (#654) share it.
+pub(crate) fn keep_new(self_id: &str, peer: &str, new_dialer: &str, old_dialer: &str) -> bool {
+    if new_dialer == old_dialer {
+        return true;
+    }
+    new_dialer == std::cmp::min(self_id, peer)
+}
+
 pub(crate) fn close_conn(conn: &Connection, why: &str) {
     conn.close(VarInt::from_u32(reason::code(why)), why.as_bytes());
 }
@@ -412,6 +425,7 @@ impl IrohNet {
                 board_rooms: Mutex::new(HashMap::new()),
                 board_book: Mutex::new(BTreeMap::new()),
                 board_relays: Mutex::new(Vec::new()),
+                calls: Mutex::new(HashMap::new()),
                 dialing: Mutex::new(HashSet::new()),
                 dial_errors: Mutex::new(BTreeMap::new()),
                 gossip: OnceCell::new(),
@@ -579,7 +593,7 @@ impl IrohNet {
     /// it on every person row). New connections from them are already
     /// refused. Board rooms are their board mesh's to recheck
     /// (`mesh::BoardMesh::recheck`), which tells the peer its last vector
-    /// before closing.
+    /// before closing. Calls re-run their own `accept` here too (#654).
     pub fn recheck(&self) {
         for room in self.inner.rooms_snapshot() {
             let conns: Vec<_> = room
@@ -595,15 +609,21 @@ impl IrohNet {
                 }
             }
         }
+        for call in self.inner.calls_snapshot() {
+            call.recheck();
+        }
     }
 
-    /// Close every connection to `device_id` with `why`.
+    /// Close every connection to `device_id` with `why`, calls' included.
     pub fn drop_device(&self, device_id: &str, why: &str) {
         for room in self.inner.all_rooms() {
             let c = room.conns.lock().expect("conns").get(device_id).cloned();
             if let Some(c) = c {
                 c.close(why);
             }
+        }
+        for call in self.inner.calls_snapshot() {
+            call.drop_peer(device_id, why);
         }
     }
 
@@ -711,6 +731,9 @@ impl IrohNet {
         for room in self.inner.all_rooms() {
             self.inner.close_room(&room, reason::SHUTTING_DOWN);
         }
+        for call in self.inner.calls_snapshot() {
+            self.inner.close_call(&call, reason::SHUTTING_DOWN);
+        }
         if let Some(g) = self.inner.gossip.get() {
             let _ = g.shutdown().await;
         }
@@ -732,6 +755,11 @@ impl Inner {
             .iter()
             .filter_map(|d| book.get(d).map(|p| p.id))
             .collect()
+    }
+
+    /// Whether [`IrohNet::close`] ran.
+    pub(crate) fn closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
     }
 
     fn lan(&self) -> Option<irori_lan::LanLookup> {
@@ -793,7 +821,13 @@ impl Inner {
     /// Where to dial `peer` for `room`: a board room's own book first (the
     /// other members' devices), then the private book (own devices).
     fn peer_addr(&self, room: &RoomState, peer: &str) -> Option<PeerAddr> {
-        if let Some(b) = &room.board
+        self.addr_of(room.board.as_deref(), peer)
+    }
+
+    /// Where to dial `peer`: board `board`'s book first, then the private
+    /// book.
+    pub(crate) fn addr_of(&self, board: Option<&str>, peer: &str) -> Option<PeerAddr> {
+        if let Some(b) = board
             && let Some(p) = self
                 .board_book
                 .lock()
@@ -884,6 +918,7 @@ impl Inner {
             PAIR_ALPN.to_vec(),
             crate::board::BOARD_ALPN.to_vec(),
             crate::board::INVITE_ALPN.to_vec(),
+            crate::call::CALL_ALPN.to_vec(),
         ];
         if self.cfg.gossip {
             alpns.push(GOSSIP_ALPN.to_vec());
@@ -1188,13 +1223,7 @@ impl Inner {
             if let Some(old) = conns.get(&peer)
                 && !old.done.is_cancelled()
             {
-                let lower = std::cmp::min(self.cfg.self_id.as_str(), peer.as_str());
-                let keep_new = if c.dialer == old.dialer {
-                    true
-                } else {
-                    c.dialer == lower
-                };
-                if keep_new {
+                if keep_new(&self.cfg.self_id, &peer, &c.dialer, &old.dialer) {
                     old.close(reason::REPLACED);
                 } else {
                     c.close(reason::REPLACED);
@@ -1331,6 +1360,8 @@ async fn accept_loop(inner: Weak<Inner>, ep: Endpoint) {
                 inner.handle_pair(conn).await;
             } else if conn.alpn() == crate::board::INVITE_ALPN {
                 inner.handle_invite(conn).await;
+            } else if conn.alpn() == crate::call::CALL_ALPN {
+                inner.handle_call(conn).await;
             } else if conn.alpn() == GOSSIP_ALPN
                 && let Some(g) = inner.gossip.get()
             {

@@ -82,7 +82,7 @@ async fn listen() -> Result<()> {
                     break;
                 }
                 n += 1;
-                if n % 250 == 0 {
+                if n.is_multiple_of(250) {
                     println!(
                         "listen   {} t={:>4}s reflected={n} {}",
                         rid.fmt_short(),
@@ -170,7 +170,10 @@ async fn dial(args: &[String]) -> Result<()> {
         .map_err(|_| anyhow!("connect timed out after 30 s"))?
         .context("connect")?;
     let connect_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    println!("dial     connected in {connect_ms:.0}ms {}", path::report(&conn));
+    println!(
+        "dial     connected in {connect_ms:.0}ms {}",
+        path::report(&conn)
+    );
     if let Some(max) = conn.max_datagram_size() {
         println!("dial     max datagram {max} bytes");
         if max < o.size {
@@ -256,9 +259,15 @@ async fn dial(args: &[String]) -> Result<()> {
     println!(
         "SUMMARY label={:?} mode={} connect={:.0}ms first_direct={} sent={sent} lost={lost} ({:.2}%) late>300ms={late} rtt p50={:.1} p95={:.1} p99={:.1} max={:.1}ms jitter={:.1}ms one_way~{:.0}ms paths=[{}]",
         o.label,
-        if o.relay_only { "relay-only" } else { "direct-allowed" },
+        if o.relay_only {
+            "relay-only"
+        } else {
+            "direct-allowed"
+        },
         connect_ms,
-        first_direct.map(|s| format!("{s:.0}s")).unwrap_or_else(|| "never".into()),
+        first_direct
+            .map(|s| format!("{s:.0}s"))
+            .unwrap_or_else(|| "never".into()),
         100.0 * lost as f64 / sent.max(1) as f64,
         pct(&mut a, 0.5),
         pct(&mut a, 0.95),
