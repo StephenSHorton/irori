@@ -37,5 +37,6 @@ mod spawn_checkout;
 mod spawn_devices;
 mod spawn_helpers;
 mod spawn_paths;
+mod spawn_queue;
 mod spawn_settings_devices;
 mod talk_notify;

@@ -5,14 +5,12 @@
 //! the agent stops on it, queues the card without counting as a crash and
 //! holds new spawns until the reset.
 
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::*;
+use crate::common::*;
 use coord::{NewTask, Task, Where};
 use gocompat::time::GoTime;
 use irori_core::spawn::{SpawnCap, SpawnReq, SpawnSetting, SpawnStarted, Spawner};
