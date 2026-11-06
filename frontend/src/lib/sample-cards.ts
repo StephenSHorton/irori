@@ -3,7 +3,7 @@
 // cards copy the shape of the Irori Cards prototype. Add ?empty to the URL
 // for the empty state.
 
-import { sampleChain, sampleLater, type LaterBack, type OrderState } from "@/lib/later"
+import type { LaterBack, OrderState, OrderStep } from "@/lib/later"
 import {
   AgentRef,
   CardActivity,
@@ -2072,18 +2072,32 @@ function laterSample(
   waitOn: (id: string, short: string, title: string, q: string) => CardBlocker,
   otter: CardDetail["working"][number]
 ): CardDetail[] {
-  const step = (short: string, title: string, state: OrderState) => ({
+  const step = (
+    short: string,
+    title: string,
+    state: OrderState
+  ): OrderStep => ({
     id: `sample-card-order-${short}`,
     short,
     title,
     state,
   })
-  sampleChain([
+  // The order as the host reads it: every card of it carries the whole
+  // run, and the cards either side of it.
+  const run = [
     step("80", "Talk 4: Spaces", "done"),
     step("81", "Talk 5: threads across a space", "working"),
     step("82", "Talk 6: person-to-person DMs", "waiting"),
     step("83", "Talk 8: release Talk", "waiting"),
-  ])
+  ]
+  const order = (short: string) => {
+    const i = run.findIndex((x) => x.short === short)
+    return {
+      steps: run,
+      previous: run[i - 1] ?? null,
+      next: run[i + 1] ?? null,
+    }
+  }
   const park = (
     short: string,
     title: string,
@@ -2093,12 +2107,18 @@ function laterSample(
     line: string
   ) => {
     const id = `sample-card-later-${short}`
-    sampleLater(id, { why, back, line, by: "sample-heron" })
     return card({
       id,
       short,
       title,
       goal,
+      later: {
+        why,
+        back,
+        line,
+        by: "heron",
+        card: back === "card" ? "sample-card-order-83" : undefined,
+      },
       state: TaskState.Blocked,
       working: [],
       blockers: [
@@ -2119,6 +2139,7 @@ function laterSample(
     card({
       id: "sample-card-order-81",
       short: "81",
+      order: order("81"),
       title: "Talk 5: threads across a space",
       goal: "A thread is seen by the whole space.",
       state: TaskState.Working,
@@ -2128,6 +2149,7 @@ function laterSample(
     card({
       id: "sample-card-order-82",
       short: "82",
+      order: order("82"),
       title: "Talk 6: person-to-person DMs",
       goal: "DMs over a hidden two-person space.",
       state: TaskState.Blocked,
@@ -2145,6 +2167,7 @@ function laterSample(
     card({
       id: "sample-card-order-83",
       short: "83",
+      order: order("83"),
       title: "Talk 8: release Talk",
       goal: "Cut the Talk release once the rest are done.",
       state: TaskState.Blocked,
@@ -2165,7 +2188,7 @@ function laterSample(
       "Huddles, stored transcripts and shared screens.",
       "You said after the Talk work",
       "card",
-      "Back when #83 finishes"
+      "when #83 is done"
     ),
     park(
       "91",
@@ -2173,7 +2196,7 @@ function laterSample(
       "Group the settings the way the desktop does.",
       "Not before the December release",
       "date",
-      "Back on 1 Dec"
+      "on 1 Dec"
     ),
     park(
       "92",
@@ -2181,7 +2204,7 @@ function laterSample(
       "Remove the reader once no device needs it.",
       "An older Irori still reads it",
       "version",
-      "Back when the Mac runs v0.13.0"
+      "when this Mac runs v0.13.0"
     ),
     park(
       "93",
@@ -2189,7 +2212,7 @@ function laterSample(
       "An idea from a thread, to think about later.",
       "An idea to come back to",
       "word",
-      "Back when you say"
+      "when you say"
     ),
   ]
 }

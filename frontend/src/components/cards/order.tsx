@@ -11,9 +11,17 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import type { CardSummary } from "@/lib/cards"
+import { cards, over, type CardSummary } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
-import { chainOf, laterOf, type OrderStep } from "@/lib/later"
+import {
+  around,
+  laterOf,
+  whenLater,
+  type HasLater,
+  type HasOrder,
+  type OrderStep,
+} from "@/lib/later"
+import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
 // NotYetFold is the end of a list: one quiet line until it is opened.
@@ -70,28 +78,13 @@ export function WhenLine({
   card,
   onOpen,
 }: {
-  card: { id: string }
+  card: HasLater & HasOrder
   onOpen?: (id: string) => void
 }) {
   const l = laterOf(card)
-  if (l)
-    return (
-      <p className="text-sm text-muted-foreground">
-        Not yet: {l.line.charAt(0).toLowerCase() + l.line.slice(1)}.{" "}
-        {plainLine(l.why)}.{" "}
-        <button
-          type="button"
-          className="text-ink underline underline-offset-2"
-        >
-          Start now
-        </button>
-      </p>
-    )
-  const ch = chainOf(card)
-  if (!ch) return null
-  const i = ch.findIndex((s) => s.id === card.id)
-  const before = ch[i - 1]
-  const after = ch[i + 1]
+  if (l) return <HeldLine card={card} line={whenLater(l)} />
+  const { before, after } = around(card)
+  if (!before && !after) return null
   return (
     <p className="text-sm text-muted-foreground">
       {before && (
@@ -110,14 +103,66 @@ export function WhenLine({
   )
 }
 
+// HeldLine is a held card's line with its Start now.
+function HeldLine({ card, line }: { card: { id: string }; line: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <p className="text-sm text-muted-foreground">
+      {plainLine(line)}{" "}
+      <button
+        type="button"
+        className="text-ink underline underline-offset-2 disabled:opacity-60"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await cards.startNow(card.id)
+          } catch (err) {
+            setError(errorText(err))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        Start now
+      </button>
+      {error && <span className="block text-xs text-destructive">{error}</span>}
+    </p>
+  )
+}
+
 // NotYetButton holds a card back from the agents: one box takes a card, a
 // date or a version, and left empty it waits for the person's word.
 export function NotYetButton({ card }: { card: CardSummary }) {
   const url = new URLSearchParams(window.location.search)
   const [open, setOpen] = useState(url.get("later") === "hold")
-  if (laterOf(card)) return null
+  const [until, setUntil] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (laterOf(card) || over(card) || card.ask) return null
+  const hold = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await cards.notYet(card.id, until)
+      setUntil("")
+      setOpen(false)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (!o) setError(null)
+      }}
+    >
       <PopoverTrigger
         render={
           <Button variant="ghost" size="sm" className="h-7 text-xs">
@@ -126,22 +171,36 @@ export function NotYetButton({ card }: { card: CardSummary }) {
         }
       />
       <PopoverContent align="end">
-        <p className="text-[13px] text-ink">Hold it back until</p>
-        <Input
-          aria-label="Until"
-          placeholder="#83, 1 Dec or v0.13.0"
-          className="h-8"
-        />
-        <p className="text-xs text-muted-foreground">
-          Leave it empty to hold it until you say. No agent gets it before then.
-        </p>
-        <Button
-          size="sm"
-          className="h-7 justify-self-end text-xs"
-          onClick={() => setOpen(false)}
+        <form
+          className="contents"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void hold()
+          }}
         >
-          Hold back
-        </Button>
+          <p className="text-[13px] text-ink">Hold it back until</p>
+          <Input
+            aria-label="Until"
+            placeholder="#83, 1 Dec or v0.13.0"
+            className="h-8"
+            value={until}
+            disabled={busy}
+            onChange={(e) => setUntil(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Leave it empty to hold it until you say. No agent gets it before
+            then.
+          </p>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <Button
+            type="submit"
+            size="sm"
+            className="h-7 justify-self-end text-xs"
+            disabled={busy}
+          >
+            Hold back
+          </Button>
+        </form>
       </PopoverContent>
     </Popover>
   )

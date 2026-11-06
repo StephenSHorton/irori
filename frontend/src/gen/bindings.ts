@@ -1949,7 +1949,10 @@ export type OrderState = "done" | "working" | "waiting" | "later";
 /**  One card of an order. */
 export type OrderStep = {
 	id: string,
-	/**  The short ref without its #: "12", "mlg#12" keeps its tag. */
+	/**
+	 *  Its number on its board, as the card's own `short`: "12". Order
+	 *  stays on one log, so the card around it says which board.
+	 */
 	short: string,
 	title: string,
 	state: OrderState,

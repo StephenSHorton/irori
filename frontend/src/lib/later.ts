@@ -1,60 +1,66 @@
-// Not yet and order (card #570). A parked card is out of the way until its
-// condition comes; an order is a run of cards each waiting on the last.
-// MOCK-UP: read from the ?later=1 sample, to become fields on CardSummary.
+// Not yet and order (card #570). A held card is out of the way until what
+// brings it back comes; an order is a run of cards each after the last.
+// Both are fields on the card the host reads from coord: later and order.
 
-export type LaterBack = "card" | "date" | "version" | "word"
+import type {
+  CardLater,
+  CardOrder,
+  LaterBack,
+  OrderState,
+  OrderStep,
+} from "./models"
 
-export type Later = {
-  // why is the line the card was parked with.
-  why: string
-  back: LaterBack
-  // line says what brings it back, in the person's words.
-  line: string
-  by: string
+export type { LaterBack, OrderState, OrderStep }
+export type Later = CardLater
+export type Order = CardOrder
+
+// What these helpers read off a card: a summary, a page, or a sample.
+export type HasLater = { id: string; later?: CardLater | null }
+export type HasOrder = { id: string; order?: CardOrder | null }
+
+export function laterOf(c: HasLater): Later | undefined {
+  return c.later ?? undefined
 }
 
-export type OrderState = "done" | "working" | "waiting" | "later"
-
-export type OrderStep = {
-  id: string
-  short: string
-  title: string
-  state: OrderState
-}
-
-const parked = new Map<string, Later>()
-const chains: OrderStep[][] = []
-
-export function sampleLater(id: string, l: Later) {
-  parked.set(id, l)
-}
-
-export function sampleChain(c: OrderStep[]) {
-  if (!chains.some((x) => x[0].id === c[0].id)) chains.push(c)
-}
-
-export function laterOf(c: { id: string }): Later | undefined {
-  return parked.get(c.id)
-}
-
-export function chainOf(c: { id: string }): OrderStep[] | undefined {
-  return chains.find((ch) => ch.some((s) => s.id === c.id))
+export function chainOf(c: HasOrder): OrderStep[] | undefined {
+  const steps = c.order?.steps
+  return steps && steps.length > 1 ? steps : undefined
 }
 
 // headOf is the card a chain hangs under: its first not done.
-function headOf(ch: OrderStep[]): OrderStep | undefined {
+export function headOf(ch: OrderStep[]): OrderStep | undefined {
   return ch.find((s) => s.state !== "done")
 }
 
 // followsOf is the cards that hang under c in a list, in order.
-export function followsOf(c: { id: string }): OrderStep[] {
+export function followsOf(c: HasOrder): OrderStep[] {
   const ch = chainOf(c)
   if (!ch || headOf(ch)?.id !== c.id) return []
   return ch.slice(ch.findIndex((s) => s.id === c.id) + 1)
 }
 
 // follows reports whether c hangs under another card.
-export function follows(c: { id: string }): boolean {
+export function follows(c: HasOrder): boolean {
   const ch = chainOf(c)
   return !!ch && headOf(ch)?.id !== c.id
+}
+
+// whenLater is a held card's line under its title, its parts in order:
+// "Not yet: on 1 Dec. Not before the release." Start now follows it.
+export function whenLater(l: Later): string {
+  const line = l.line.charAt(0).toLowerCase() + l.line.slice(1)
+  const why = l.why.trim().replace(/[.!?]+$/, "")
+  return why ? `Not yet: ${line}. ${why}.` : `Not yet: ${line}.`
+}
+
+// around is the card before c in its order and the one after it.
+export function around(c: HasOrder): {
+  before?: OrderStep
+  after?: OrderStep
+} {
+  const ch = chainOf(c)
+  if (!ch) return {}
+  const i = ch.findIndex((s) => s.id === c.id)
+  if (i < 0) return {}
+  return { before: ch[i - 1], after: ch[i + 1] }
 }

@@ -63,7 +63,8 @@ pub enum OrderState {
 #[serde(rename_all = "camelCase")]
 pub struct OrderStep {
     pub id: String,
-    /// The short ref without its #: "12", "mlg#12" keeps its tag.
+    /// Its number on its board, as the card's own `short`: "12". Order
+    /// stays on one log, so the card around it says which board.
     pub short: String,
     pub title: String,
     pub state: OrderState,
@@ -248,10 +249,9 @@ fn step_of(t: &Task) -> OrderStep {
     } else {
         OrderState::Waiting
     };
-    let r = t.short_ref();
     OrderStep {
         id: t.id.clone(),
-        short: r.strip_prefix('#').unwrap_or(&r).to_string(),
+        short: t.short.clone(),
         title: t.title.clone(),
         state,
     }
@@ -428,10 +428,8 @@ fn parse_day(s: &str, now: &GoTime, offset: &dyn Fn(i64) -> i32) -> Option<(i64,
                 && day.is_none()
             {
                 day = num.parse::<u32>().ok();
-            } else if let Some(mo) = month_of(w).filter(|_| month.is_none()) {
-                month = Some(mo);
             } else {
-                return None;
+                month = Some(month_of(w).filter(|_| month.is_none())?);
             }
         }
         let (d, m) = (day?, month?);
