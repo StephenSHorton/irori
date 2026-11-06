@@ -12,8 +12,30 @@
 //! the engine's lock and post `WM_SYNC` to the thread's message-only host
 //! window. With `capture_exclude` the cards are left out of screen capture
 //! (`WDA_EXCLUDEFROMCAPTURE`, Windows 10 2004+).
+//!
+//! Cards follow the person's Settings > Appearance through the engine's
+//! [`Look`]: every colour comes from `look.palette` (already resolved for
+//! light or dark), the corners from `look.radius`. When the theme, radius,
+//! glass or light/dark changes the engine calls [`Surface::draw`] again for
+//! the cards already on screen, which re-cuts the window region and
+//! repaints. With the scheme on System, the OS mode is read from the
+//! registry (`AppsUseLightTheme`); a card hears the `ImmersiveColorSet`
+//! setting change when it flips and asks the host to sync, so cards restyle
+//! at once.
+//!
+//! A solid card's corners are a window region (`SetWindowRgn`), at the
+//! look's radius. Glass ([`apply_backdrop`], Windows 11) is the acrylic
+//! accent on the same layered window: it blurs while the window is inactive,
+//! which a card always is, and `LWA_ALPHA` fades it with the card.
+//! DWMSBT_TRANSIENTWINDOW doesn't: an inactive window gets a flat grey. The
+//! accent ignores window regions and per-pixel alpha, so glass takes DWM's
+//! rounded corners instead, at DWM's fixed radius (about 8px), with its
+//! shadow and a border in the palette's colour. GDI leaves alpha 0, which
+//! the accent shows as additive light (dark text vanishes), so a glass card
+//! is painted through [`paint_glass`], which recovers real alpha. Older
+//! Windows and "Transparency effects" off get the solid card.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -21,28 +43,34 @@ use std::sync::{Arc, Mutex, Once};
 use std::time::Instant;
 
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{
+    DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT,
+    DWMWCP_DONOTROUND, DWMWCP_ROUND, DwmSetWindowAttribute,
+};
 use windows_sys::Win32::Graphics::Gdi::{
-    AC_SRC_ALPHA, AC_SRC_OVER, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION, BeginPaint,
-    BitBlt, CLEARTYPE_QUALITY, CreateCompatibleBitmap, CreateCompatibleDC, CreateDIBSection,
-    CreateFontIndirectW, CreatePen, CreateRoundRectRgn, CreateSolidBrush, DIB_RGB_COLORS,
-    DT_CALCRECT, DT_CENTER, DT_EDITCONTROL, DT_END_ELLIPSIS, DT_NOCLIP, DT_NOPREFIX, DT_SINGLELINE,
-    DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, FrameRect,
-    GetDC, GetMonitorInfoW, GetStockObject, HALFTONE, HBITMAP, HDC, HGDIOBJ, InvalidateRect,
-    LOGFONTW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect,
-    MonitorFromWindow, NULL_BRUSH, PAINTSTRUCT, PS_SOLID, ReleaseDC, RoundRect, SRCCOPY,
-    SelectClipRgn, SelectObject, SetBkMode, SetBrushOrgEx, SetStretchBltMode, SetTextColor,
-    SetWindowRgn, StretchDIBits, TRANSPARENT,
+    AC_SRC_ALPHA, AC_SRC_OVER, ANTIALIASED_QUALITY, BI_RGB, BITMAPINFO, BITMAPINFOHEADER,
+    BLENDFUNCTION, BeginPaint, BitBlt, CAPTUREBLT, CLEARTYPE_QUALITY, CreateCompatibleBitmap,
+    CreateCompatibleDC, CreateDIBSection, CreateFontIndirectW, CreatePen, CreateRoundRectRgn,
+    CreateSolidBrush, DIB_RGB_COLORS, DT_CALCRECT, DT_CENTER, DT_EDITCONTROL, DT_END_ELLIPSIS,
+    DT_NOCLIP, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, DT_WORDBREAK, DeleteDC, DeleteObject,
+    DrawTextW, EndPaint, FillRect, FrameRect, GdiFlush, GetDC, GetMonitorInfoW, GetStockObject,
+    HALFTONE, HBITMAP, HDC, HGDIOBJ, InvalidateRect, LOGFONTW, MONITOR_DEFAULTTONEAREST,
+    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromRect, MonitorFromWindow, NULL_BRUSH,
+    PAINTSTRUCT, PS_SOLID, ReleaseDC, RoundRect, SRCCOPY, SelectClipRgn, SelectObject, SetBkMode,
+    SetBrushOrgEx, SetStretchBltMode, SetTextColor, SetWindowRgn, StretchDIBits, TRANSPARENT,
 };
 use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
-    GetForegroundWindow, GetMessageW, HWND_MESSAGE, HWND_TOPMOST, IDC_ARROW, IDC_HAND, KillTimer,
-    LWA_ALPHA, LoadCursorW, MA_NOACTIVATE, MSG, PostMessageW, RegisterClassExW,
+    GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowRect, HWND_MESSAGE, HWND_TOPMOST,
+    IDC_ARROW, IDC_HAND, KillTimer, LWA_ALPHA, LoadCursorW, MA_NOACTIVATE, MSG, PostMessageW,
+    RegisterClassExW, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     SPI_GETCLIENTAREAANIMATION, SPI_SETWORKAREA, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOZORDER,
     SetCursor, SetLayeredWindowAttributes, SetTimer, SetWindowDisplayAffinity, SetWindowPos,
     ShowWindow, SystemParametersInfoW, TranslateMessage, ULW_ALPHA, UpdateLayeredWindow,
@@ -58,10 +86,10 @@ use crate::config::{Color, Config, Kind};
 use crate::engine::{Look, Mouse, Surface, TICK_MS};
 use crate::layout::{
     BODY_GAP_DIP, BODY_LINE_DIP, BODY_SIZE_DIP, BUTTON_SIZE_DIP, ICON_LEFT_DIP, ICON_SIZE_DIP,
-    PAD_TOP_DIP, Part, Rect, STRIPE_DIP, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP,
-    TITLE_SIZE_DIP, px,
+    PAD_TOP_DIP, Part, Rect, TEXT_LEFT_DIP, TEXT_RIGHT_DIP, TITLE_DIP, TITLE_RIGHT_DIP,
+    TITLE_SIZE_DIP, px, stripe_rect,
 };
-use crate::note::Image;
+use crate::note::{FULL_ALPHA, Image};
 
 /// The platform draws cards.
 pub const DRAWS: bool = true;
@@ -69,6 +97,8 @@ pub const DRAWS: bool = true;
 const WM_SYNC: u32 = WM_APP + 1;
 /// A display or work-area change: re-place the stack.
 const WM_REHOME: u32 = WM_APP + 2;
+/// Transparency effects or the OS mode changed: redo the cards' backdrops.
+const WM_BACKDROP: u32 = WM_APP + 3;
 const TIMER_TICK: usize = 1;
 /// The confetti overlay's frames.
 const TIMER_CONFETTI: usize = 2;
@@ -224,7 +254,23 @@ struct Win {
     key: u64,
     look: Option<Look>,
     tracking: bool,
-    rgn: (i32, i32),
+    /// The region the window has: (w, h, radius) px, or all zero for none.
+    rgn: (i32, i32, i32),
+    /// The glass the window has; `None` is a solid card.
+    backdrop: Option<Backdrop>,
+    /// The fade the engine last set.
+    alpha: u8,
+}
+
+/// What [`apply_backdrop`] gave a window, so a redraw doesn't redo it.
+#[derive(Clone, Copy, PartialEq)]
+struct Backdrop {
+    /// The accent's colour: 0xAABBGGRR, the tint at the look's opacity.
+    tint: u32,
+    /// DWM's border, a COLORREF.
+    border: COLORREF,
+    /// DWM rounds the corners.
+    round: bool,
 }
 
 thread_local! {
@@ -232,6 +278,61 @@ thread_local! {
     static RUN_CFG: RefCell<Option<Config>> = const { RefCell::new(None) };
     static WINS: RefCell<HashMap<isize, Win>> = RefCell::new(HashMap::new());
     static BY_KEY: RefCell<HashMap<u64, isize>> = RefCell::new(HashMap::new());
+    /// The OS's dark mode as last read; cleared when a card hears it change.
+    static OS_DARK: Cell<Option<bool>> = const { Cell::new(None) };
+    /// Text is drawn greyscale: paint_glass reads coverage from it, and
+    /// ClearType's per-channel coverage would fringe.
+    static GRAY_TEXT: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A DWORD from HKCU\..\Themes\Personalize, or `None` when it's missing.
+fn personalize(value: &str) -> Option<u32> {
+    let key = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+    let name = wide(value);
+    let mut v: u32 = 0;
+    let mut n = std::mem::size_of::<u32>() as u32;
+    let r = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_DWORD,
+            null_mut(),
+            (&mut v as *mut u32).cast(),
+            &mut n,
+        )
+    };
+    (r == 0).then_some(v)
+}
+
+/// Whether Windows' app mode is dark: `AppsUseLightTheme` is 0 (missing, as
+/// before Windows 10 1809, is light).
+fn read_os_dark() -> bool {
+    personalize("AppsUseLightTheme") == Some(0)
+}
+
+/// Settings > Personalization > Colors > Transparency effects (missing is
+/// on, Windows' default). Read at each draw, so a change made while no card
+/// was up to hear it still counts.
+fn transparency_on() -> bool {
+    personalize("EnableTransparency") != Some(0)
+}
+
+/// Whether lp (a WM_SETTINGCHANGE lParam) is the wide string s. It may be
+/// null; it is read only up to its terminator or the first mismatch.
+fn lparam_is(lp: LPARAM, s: &str) -> bool {
+    let p = lp as *const u16;
+    if p.is_null() {
+        return false;
+    }
+    for (i, want) in s.encode_utf16().chain(std::iter::once(0)).enumerate() {
+        // SAFETY: every earlier unit matched a non-zero unit of s, so the
+        // string goes on at least to i.
+        if unsafe { *p.add(i) } != want {
+            return false;
+        }
+    }
+    true
 }
 
 fn hwnd_of(key: u64) -> HWND {
@@ -251,6 +352,10 @@ unsafe extern "system" fn host_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
         WM_REHOME => {
             ENGINE.rehome();
             sync();
+            0
+        }
+        WM_BACKDROP => {
+            redo_backdrops();
             0
         }
         WM_TIMER if wp == TIMER_CONFETTI => {
@@ -281,6 +386,14 @@ unsafe extern "system" fn card_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -
         || (msg == WM_SETTINGCHANGE && wp == SPI_SETWORKAREA as usize)
     {
         post_host(WM_REHOME);
+    }
+    // The OS light/dark mode or transparency effects changed: re-read them
+    // and restyle the cards. The engine sees only the mode (and only with
+    // the scheme on System), so the backdrops get their own message.
+    if msg == WM_SETTINGCHANGE && lparam_is(lp, "ImmersiveColorSet") {
+        OS_DARK.with(|c| c.set(None));
+        post_host(WM_SYNC);
+        post_host(WM_BACKDROP);
     }
     let key = WINS.with(|w| w.borrow().get(&(h as isize)).map(|w| w.key));
     let Some(key) = key else {
@@ -402,7 +515,11 @@ fn new_font(face: &str, size_dip: f64, weight: i32, scale: f64) -> HGDIOBJ {
     let mut lf: LOGFONTW = unsafe { std::mem::zeroed() };
     lf.lfHeight = -((size_dip * scale + 0.5) as i32);
     lf.lfWeight = weight;
-    lf.lfQuality = CLEARTYPE_QUALITY;
+    lf.lfQuality = if GRAY_TEXT.with(Cell::get) {
+        ANTIALIASED_QUALITY
+    } else {
+        CLEARTYPE_QUALITY
+    };
     for (i, u) in face
         .encode_utf16()
         .take(lf.lfFaceName.len() - 1)
@@ -523,7 +640,9 @@ impl Surface for Win32Surface {
                     key,
                     look: None,
                     tracking: false,
-                    rgn: (0, 0),
+                    rgn: (0, 0, 0),
+                    backdrop: None,
+                    alpha: 0,
                 },
             )
         });
@@ -537,22 +656,51 @@ impl Surface for Win32Surface {
         if h.is_null() {
             return;
         }
+        // Called again for a card on screen when its look changes (theme,
+        // radius, glass, light/dark), so the backdrop and region follow.
+        let glass = apply_backdrop(h, look);
         let rgn = WINS.with(|m| {
             let mut m = m.borrow_mut();
             let w = m.get_mut(&(h as isize))?;
             w.look = Some(look.clone());
-            let want = (look.w, look.h);
-            if look.radius > 0 && w.rgn != want {
+            let want = if look.radius > 0 && !glass {
+                (look.w, look.h, look.radius)
+            } else {
+                (0, 0, 0)
+            };
+            if w.rgn != want {
                 w.rgn = want;
                 return Some(want);
             }
             None
         });
-        if let Some((w, ht)) = rgn {
-            let r = look.radius;
-            unsafe { SetWindowRgn(h, CreateRoundRectRgn(0, 0, w + 1, ht + 1, 2 * r, 2 * r), 1) };
+        // The window owns the region once set: it is not deleted here. It
+        // gives a solid card the look's radius on any Windows (the
+        // trade-off: slightly jagged corners); glass has DWM's corners.
+        match rgn {
+            Some((0, 0, 0)) => unsafe {
+                SetWindowRgn(h, null_mut(), 1);
+            },
+            Some((w, ht, r)) => unsafe {
+                SetWindowRgn(h, CreateRoundRectRgn(0, 0, w + 1, ht + 1, 2 * r, 2 * r), 1);
+            },
+            None => {}
         }
         unsafe { InvalidateRect(h, null(), 0) };
+    }
+
+    fn os_dark(&mut self) -> bool {
+        // Read afresh when no card is up (none heard a change) or after one
+        // heard ImmersiveColorSet; asked only while the scheme is System.
+        let fresh = WINS.with(|w| w.borrow().is_empty());
+        OS_DARK.with(|c| match c.get() {
+            Some(d) if !fresh => d,
+            _ => {
+                let d = read_os_dark();
+                c.set(Some(d));
+                d
+            }
+        })
     }
 
     fn place(&mut self, key: u64, x: i32, y: i32, w: i32, h: i32, raise: bool, placed: bool) {
@@ -566,7 +714,14 @@ impl Surface for Win32Surface {
     }
 
     fn alpha(&mut self, key: u64, a: u8) {
-        unsafe { SetLayeredWindowAttributes(hwnd_of(key), 0, a, LWA_ALPHA) };
+        let h = hwnd_of(key);
+        let glass = WINS.with(|m| {
+            let mut m = m.borrow_mut();
+            let w = m.get_mut(&(h as isize))?;
+            w.alpha = a;
+            Some(w.backdrop.is_some())
+        });
+        set_fade(h, a, glass.unwrap_or(false));
     }
 
     fn show(&mut self, key: u64) {
@@ -609,6 +764,153 @@ impl Surface for Win32Surface {
             return;
         }
         throw_confetti(card);
+    }
+}
+
+/// SetWindowCompositionAttribute's WCA_ACCENT_POLICY payload. Undocumented,
+/// but the only backdrop that blurs behind an inactive window; looked up at
+/// run time, so a Windows without it gets the solid card.
+#[repr(C)]
+struct AccentPolicy {
+    state: u32,
+    flags: u32,
+    gradient: u32,
+    animation: u32,
+}
+
+#[repr(C)]
+struct CompositionData {
+    attribute: u32,
+    data: *mut core::ffi::c_void,
+    size: usize,
+}
+
+const WCA_ACCENT_POLICY: u32 = 19;
+const ACCENT_DISABLED: u32 = 0;
+const ACCENT_ENABLE_ACRYLICBLURBEHIND: u32 = 4;
+
+/// Sets the window's accent; false when this Windows can't.
+fn set_accent(h: HWND, state: u32, gradient: u32) -> bool {
+    type Set = unsafe extern "system" fn(HWND, *mut CompositionData) -> i32;
+    unsafe {
+        let user32 = GetModuleHandleW(wide("user32.dll").as_ptr());
+        if user32.is_null() {
+            return false;
+        }
+        let Some(f) = GetProcAddress(user32, c"SetWindowCompositionAttribute".as_ptr().cast())
+        else {
+            return false;
+        };
+        // SAFETY: the export has this signature on every Windows that has it.
+        let set: Set = std::mem::transmute(f);
+        let mut policy = AccentPolicy {
+            state,
+            flags: 0,
+            gradient,
+            animation: 0,
+        };
+        let mut data = CompositionData {
+            attribute: WCA_ACCENT_POLICY,
+            data: (&mut policy as *mut AccentPolicy).cast(),
+            size: size_of::<AccentPolicy>(),
+        };
+        set(h, &mut data) != 0
+    }
+}
+
+/// Sets a DWORD window attribute; false when this Windows refuses it.
+fn dwm_set(h: HWND, attribute: i32, value: u32) -> bool {
+    let v = (&value as *const u32).cast();
+    unsafe { DwmSetWindowAttribute(h, attribute as u32, v, 4) == 0 }
+}
+
+/// Turns glass on. The corner preference goes first: DWM refuses it before
+/// Windows 11, which is what keeps Windows 10 (where acrylic would be square
+/// and lags) on the solid card.
+fn set_glass(h: HWND, b: Backdrop) -> bool {
+    let corners = if b.round {
+        DWMWCP_ROUND
+    } else {
+        DWMWCP_DONOTROUND
+    };
+    if !dwm_set(h, DWMWA_WINDOW_CORNER_PREFERENCE, corners as u32) {
+        return false;
+    }
+    if !set_accent(h, ACCENT_ENABLE_ACRYLICBLURBEHIND, b.tint) {
+        dwm_set(h, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT as u32);
+        return false;
+    }
+    dwm_set(h, DWMWA_BORDER_COLOR, b.border);
+    true
+}
+
+fn clear_glass(h: HWND) {
+    set_accent(h, ACCENT_DISABLED, 0);
+    dwm_set(h, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT as u32);
+    dwm_set(h, DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT);
+}
+
+/// The accent's gradient: the tint as 0xAABBGGRR at opacity (never 0, which
+/// some builds draw as nothing at all).
+fn accent_color(tint: Color, opacity: f64) -> u32 {
+    let a = (opacity * 255.0).round().clamp(1.0, 255.0) as u32;
+    a << 24 | tint.colorref()
+}
+
+/// Gives the window the backdrop its look wants and says whether it is
+/// glass. `look.glass` is `None` for a solid card; with `Some` (the tint's
+/// opacity) the card gets the acrylic accent, or stays solid (it paints
+/// `palette.background`) when transparency effects are off or the OS can't.
+/// The tint is the accent's own, so what paint_glass adds is only the
+/// card's content. With effects off the accent alone would still be
+/// readable: DWM draws the tint opaque (and should for Energy Saver, which
+/// has no setting to read), but `palette.background` is the look's real
+/// solid.
+fn apply_backdrop(h: HWND, look: &Look) -> bool {
+    let want = look.glass.filter(|_| transparency_on()).map(|o| Backdrop {
+        tint: accent_color(look.palette.tint, o),
+        border: cref(look.palette.border),
+        round: look.radius > 0,
+    });
+    let have = WINS.with(|m| m.borrow().get(&(h as isize)).and_then(|w| w.backdrop));
+    if want == have {
+        return want.is_some();
+    }
+    let got = want.filter(|b| set_glass(h, *b));
+    if got.is_none() && have.is_some() {
+        clear_glass(h);
+    }
+    let alpha = WINS.with(|m| {
+        let mut m = m.borrow_mut();
+        let w = m.get_mut(&(h as isize))?;
+        w.backdrop = got;
+        Some(w.alpha)
+    });
+    if let Some(a) = alpha {
+        set_fade(h, a, got.is_some());
+    }
+    got.is_some()
+}
+
+/// Sets the window's fade. The engine's full is [`FULL_ALPHA`], a solid
+/// card's slight see-through; glass is see-through already, and any of that
+/// would show the sharp windows behind through the blur, so a glass card's
+/// full is opaque.
+fn set_fade(h: HWND, a: u8, glass: bool) {
+    let a = if glass {
+        (a as u32 * 255 / FULL_ALPHA as u32).min(255) as u8
+    } else {
+        a
+    };
+    unsafe { SetLayeredWindowAttributes(h, 0, a, LWA_ALPHA) };
+}
+
+/// Redraws every card with the backdrop it should have now.
+fn redo_backdrops() {
+    let looks: Vec<Look> =
+        WINS.with(|m| m.borrow().values().filter_map(|w| w.look.clone()).collect());
+    for l in &looks {
+        Win32Surface.draw(l);
     }
 }
 
@@ -820,17 +1122,25 @@ fn confetti_frame() {
 /// Draws the card into an off-screen bitmap and copies it in, so a hover
 /// repaint doesn't flicker.
 fn paint(h: HWND) {
-    let look = WINS.with(|m| m.borrow().get(&(h as isize)).and_then(|w| w.look.clone()));
+    let (look, glass) = WINS.with(|m| {
+        m.borrow()
+            .get(&(h as isize))
+            .map_or((None, false), |w| (w.look.clone(), w.backdrop.is_some()))
+    });
     let mut ps: PAINTSTRUCT = unsafe { std::mem::zeroed() };
     let dc = unsafe { BeginPaint(h, &mut ps) };
-    if let Some(look) = look {
+    if let Some(look) = look.as_ref().filter(|_| glass) {
+        // Without its bitmaps it keeps the last frame: the solid paint has
+        // no alpha, which over a live accent is the blown-out additive look.
+        paint_glass(dc, look);
+    } else if let Some(look) = look {
         unsafe {
             let mem = CreateCompatibleDC(dc);
             if !mem.is_null() {
                 let bmp = CreateCompatibleBitmap(dc, look.w, look.h);
                 if !bmp.is_null() {
                     let old = SelectObject(mem, bmp);
-                    draw_card(mem, &look);
+                    draw_card(mem, &look, None);
                     BitBlt(dc, 0, 0, look.w, look.h, mem, 0, 0, SRCCOPY);
                     SelectObject(mem, old);
                     DeleteObject(bmp);
@@ -840,6 +1150,112 @@ fn paint(h: HWND) {
         }
     }
     unsafe { EndPaint(h, &ps) };
+}
+
+/// A 32-bit top-down bitmap selected into its own DC.
+struct Dib {
+    dc: HDC,
+    bmp: HBITMAP,
+    old: HGDIOBJ,
+    bits: *mut u32,
+    len: usize,
+}
+
+impl Dib {
+    /// w x h, all zero.
+    fn new(w: i32, h: i32) -> Option<Dib> {
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        unsafe {
+            let dc = CreateCompatibleDC(null_mut());
+            if dc.is_null() {
+                return None;
+            }
+            let mut bi: BITMAPINFO = std::mem::zeroed();
+            bi.bmiHeader = BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h, // top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB,
+                ..std::mem::zeroed()
+            };
+            let mut bits: *mut core::ffi::c_void = null_mut();
+            let bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &mut bits, null_mut(), 0);
+            if bmp.is_null() || bits.is_null() {
+                DeleteDC(dc);
+                return None;
+            }
+            let old = SelectObject(dc, bmp);
+            Some(Dib {
+                dc,
+                bmp,
+                old,
+                bits: bits.cast(),
+                len: w as usize * h as usize,
+            })
+        }
+    }
+
+    fn pixels(&mut self) -> &mut [u32] {
+        // SAFETY: the section is len 32-bit pixels and lives as long as self.
+        unsafe { std::slice::from_raw_parts_mut(self.bits, self.len) }
+    }
+}
+
+impl Drop for Dib {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.old);
+            DeleteObject(self.bmp);
+            DeleteDC(self.dc);
+        }
+    }
+}
+
+/// Recovers a premultiplied image, in `black`, from the same content drawn
+/// over black and over white. GDI leaves the alpha byte alone, but a pixel
+/// with coverage a shows c*a over black and about c*a + 255*(1-a) over
+/// white, so the two differ by what the content let through, and the black
+/// one is already premultiplied. Only about: GDI's greyscale text blends
+/// weaker over white, which reads as too little coverage on a saturated
+/// glyph's edge. The black pass is exact, and no premultiplied channel can
+/// exceed alpha, so its brightest channel is alpha's floor.
+fn premultiply(black: &mut [u32], white: &[u32]) {
+    for (b, w) in black.iter_mut().zip(white) {
+        let through = (0..3)
+            .map(|i| {
+                let (cb, cw) = ((*b >> (8 * i)) & 255, (*w >> (8 * i)) & 255);
+                cw.saturating_sub(cb)
+            })
+            .max()
+            .unwrap_or(0);
+        let c = |i: u32| (*b >> (8 * i)) & 255;
+        let a = (255 - through).max(c(0)).max(c(1)).max(c(2));
+        *b = a << 24 | (*b & 0x00FF_FFFF);
+    }
+}
+
+/// Paints a glass card: its content, with real alpha, over the accent. It
+/// draws nothing when the bitmaps can't be had. The window's `LWA_ALPHA`
+/// fade applies on top as it does to a solid card.
+fn paint_glass(dc: HDC, look: &Look) {
+    let (Some(mut black), Some(mut white)) = (Dib::new(look.w, look.h), Dib::new(look.w, look.h))
+    else {
+        return;
+    };
+    white.pixels().fill(0x00FF_FFFF);
+    GRAY_TEXT.with(|g| g.set(true));
+    draw_card(black.dc, look, Some(crate::rgb(0, 0, 0)));
+    draw_card(white.dc, look, Some(crate::rgb(255, 255, 255)));
+    GRAY_TEXT.with(|g| g.set(false));
+    // GDI batches: its drawing must land before the bits are read.
+    unsafe { GdiFlush() };
+    let over_white = white.pixels().to_vec();
+    premultiply(black.pixels(), &over_white);
+    unsafe { BitBlt(dc, 0, 0, look.w, look.h, black.dc, 0, 0, SRCCOPY) };
 }
 
 fn cref(c: Color) -> COLORREF {
@@ -920,8 +1336,9 @@ fn rect_of(r: Rect) -> RECT {
     win_rect(r)
 }
 
-/// img's pixels as top-down BGRX for a DIB, blended over bg (the card's
-/// window is opaque: its fade is whole-window alpha, not per pixel).
+/// img's pixels as top-down BGRX for a DIB, blended over bg: the card's
+/// background, or on glass the pass's colour, so paint_glass recovers the
+/// image's own alpha.
 fn bgrx_over(img: &Image, bg: Color) -> Vec<u8> {
     let (br, bgg, bb) = bg.rgb();
     let mix = |c: u8, b: u8, a: u32| ((c as u32 * a + b as u32 * (255 - a) + 127) / 255) as u8;
@@ -993,7 +1410,12 @@ fn draw_thumb(dc: HDC, img: &Image, r: RECT, bg: Color, border: Color, radius: i
     boxed(dc, r, Color(0), border, radius);
 }
 
-fn draw_card(dc: HDC, cw: &Look) {
+/// Draws the card. `pass` is a glass pass's colour, what the bitmap is
+/// filled with: glass leaves the background alone (the accent is the
+/// background) and the edge to DWM's border, which only a rounded window
+/// has.
+fn draw_card(dc: HDC, cw: &Look, pass: Option<Color>) {
+    let glass = pass.is_some();
     let sc = cw.scale;
     let pal = cw.palette;
     let p = |dip: f64| px(dip, sc);
@@ -1006,23 +1428,30 @@ fn draw_card(dc: HDC, cw: &Look) {
         right: w,
         bottom: h,
     };
-    let stripe = RECT {
-        left: 0,
-        top: 0,
-        right: p(STRIPE_DIP),
-        bottom: h,
-    };
+    let (sr, sradius) = stripe_rect(h, cw.radius, sc);
+    let stripe = rect_of(sr);
     let accent = pal.accent.for_kind(cw.kind);
-    if cw.radius <= 0 {
+    // The soft greys are flattened over the solid background. Behind glass
+    // is anything, and light glass over a dark window goes mid-grey, where
+    // they fade out, so each steps up one.
+    let (body, x_idle, x_hover) = if glass {
+        (pal.foreground, pal.muted, pal.foreground)
+    } else {
+        (pal.muted, pal.faint, pal.muted)
+    };
+    if !glass {
         fill(dc, all, pal.background);
+    }
+    if cw.radius <= 0 {
         frame(dc, all, pal.border);
         fill(dc, stripe, accent);
     } else {
-        // The window region clips the corners; the stripe goes under the
-        // rounded border so the curve stays clean.
-        fill(dc, all, pal.background);
-        fill(dc, stripe, accent);
-        boxed(dc, all, Color(0), pal.border, cw.radius);
+        // The window's corners clip the card; a rounded card's stripe is
+        // an inset pill (layout::stripe_rect).
+        boxed(dc, stripe, accent, accent, sradius);
+        if !glass {
+            boxed(dc, all, Color(0), pal.border, cw.radius);
+        }
     }
 
     let top = p(PAD_TOP_DIP);
@@ -1068,7 +1497,7 @@ fn draw_card(dc: HDC, cw: &Look) {
             "Segoe UI",
             BODY_SIZE_DIP,
             400,
-            pal.muted,
+            body,
             RECT {
                 left: p(TEXT_LEFT_DIP),
                 top: bt,
@@ -1084,14 +1513,15 @@ fn draw_card(dc: HDC, cw: &Look) {
     // smaller radius.
     let inner = cw.radius * 6 / 10;
     if let Some((img, r)) = &cw.image {
-        draw_thumb(dc, img, rect_of(*r), pal.background, pal.border, inner);
+        let under = pass.unwrap_or(pal.background);
+        draw_thumb(dc, img, rect_of(*r), under, pal.border, inner);
     }
-    let mut xc = pal.faint;
+    let mut xc = x_idle;
     if cw.hot == Part::Close {
         boxed(dc, rect_of(cw.close), pal.hover, Color(0), inner);
         xc = pal.foreground;
     } else if cw.hovered {
-        xc = pal.muted;
+        xc = x_hover;
     }
     text(
         dc,
@@ -1171,6 +1601,52 @@ pub const MSG_MOUSEMOVE: u32 = WM_MOUSEMOVE;
 pub const MSG_LBUTTONDOWN: u32 = WM_LBUTTONDOWN;
 pub const MSG_LBUTTONUP: u32 = WM_LBUTTONUP;
 
+/// The screen around the cards, as top-down RGBA with its width and height:
+/// their bounding box plus margin px, kept on the screen (test programs; a
+/// card left out of capture shows as what is behind it). `None` with no card
+/// up or the screen unreadable (locked, or a secure desktop).
+pub fn capture_cards(margin: i32) -> Option<(u32, u32, Vec<u8>)> {
+    let rects: Vec<RECT> = card_windows()
+        .into_iter()
+        .filter_map(|h| {
+            let mut r: RECT = unsafe { std::mem::zeroed() };
+            (unsafe { GetWindowRect(h as HWND, &mut r) } != 0).then_some(r)
+        })
+        .collect();
+    let (sl, st, sw, sh) = unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN),
+        )
+    };
+    let l = (rects.iter().map(|r| r.left).min()? - margin).max(sl);
+    let t = (rects.iter().map(|r| r.top).min()? - margin).max(st);
+    let w = (rects.iter().map(|r| r.right).max()? + margin).min(sl + sw) - l;
+    let h = (rects.iter().map(|r| r.bottom).max()? + margin).min(st + sh) - t;
+    let mut d = Dib::new(w, h)?;
+    let ok = unsafe {
+        let screen = GetDC(null_mut());
+        if screen.is_null() {
+            return None;
+        }
+        let ok = BitBlt(d.dc, 0, 0, w, h, screen, l, t, SRCCOPY | CAPTUREBLT) != 0;
+        ReleaseDC(null_mut(), screen);
+        GdiFlush();
+        ok
+    };
+    if !ok {
+        return None;
+    }
+    let rgba = d
+        .pixels()
+        .iter()
+        .flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255])
+        .collect();
+    Some((w as u32, h as u32, rgba))
+}
+
 /// The foreground window (smoke tests check focus never moves).
 pub fn foreground() -> isize {
     unsafe { GetForegroundWindow() as isize }
@@ -1184,4 +1660,44 @@ pub fn set_dpi_aware() {
         DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
     };
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn premultiply_recovers_coverage_and_colour() {
+        // Untouched, opaque red, and white text at half coverage.
+        let mut black = [0x0000_0000, 0x00FF_0000, 0x0080_8080];
+        let white = [0x00FF_FFFF, 0x00FF_0000, 0x00FF_FFFF];
+        premultiply(&mut black, &white);
+        assert_eq!(black[0], 0x0000_0000);
+        assert_eq!(black[1], 0xFFFF_0000);
+        assert_eq!(black[2], 0x8080_8080);
+    }
+
+    #[test]
+    fn premultiply_keeps_a_saturated_glyph_edge() {
+        // A blue icon's edge as GDI really draws it: over white it nearly
+        // vanishes, but the black pass holds its true coverage.
+        let mut black = [0x001F_4667];
+        premultiply(&mut black, &[0x00F5_FAFE]);
+        assert_eq!(black[0], 0x671F_4667);
+    }
+
+    #[test]
+    fn premultiply_keeps_dark_content() {
+        // Black text is what additive drawing loses: over white it shows.
+        let mut black = [0x0000_0000];
+        premultiply(&mut black, &[0x0000_0000]);
+        assert_eq!(black[0], 0xFF00_0000);
+    }
+
+    #[test]
+    fn accent_colour_is_abgr_and_never_clear() {
+        let tint = crate::rgb(0x11, 0x22, 0x33);
+        assert_eq!(accent_color(tint, 0.5), 0x8033_2211);
+        assert_eq!(accent_color(tint, 0.0) >> 24, 1);
+    }
 }

@@ -498,6 +498,15 @@ impl Fold {
                 b.push('\n');
             }
         }
+        // Card #555: what the person says on a subtask stays in view on its
+        // parent, so a slice doesn't carry on with an old premise.
+        let subs = self.said_on_subtasks(&t.id);
+        if !subs.is_empty() {
+            b.push_str("\nthe person, on its subtasks (newest; show a comment for all of it):\n");
+            for s in subs {
+                let _ = writeln!(b, "- {} comment:{}: {}", s.card, s.comment_id, s.text);
+            }
+        }
         let mut related = vec![];
         if let Some(bb) = &t.blocked_by
             && t.state == BLOCKED
