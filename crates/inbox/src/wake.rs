@@ -681,10 +681,12 @@ impl Inner {
             return On::Running;
         }
         // A wake that never started a turn of its own was appended to
-        // another: it is on while that one runs.
-        let appended = !self.turned.contains(wid)
-            || self.wakes.get(wid).is_some_and(|w| w.is_append());
-        if appended && cur.is_some() {
+        // another: it is on while that one runs. That turn was already
+        // running when it engaged; one that started later is another.
+        // Both times are the host device's.
+        let appended =
+            !self.turned.contains(wid) || self.wakes.get(wid).is_some_and(|w| w.is_append());
+        if appended && cur.is_some_and(|r| !crate::tm::before(&d.d.updated_at, &r.at)) {
             On::Running
         } else {
             On::Gone

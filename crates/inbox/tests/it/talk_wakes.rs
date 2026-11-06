@@ -23,13 +23,12 @@ fn mention(conv: &str) -> SendOptions {
 }
 
 fn on(h: &Harness, conv: &str) -> Vec<String> {
-    let mut v: Vec<String> = h
-        .ib
-        .talk_wakes(t0())
-        .into_iter()
-        .filter(|w| w.conv == conv)
-        .map(|w| w.agent)
-        .collect();
+    let mut v: Vec<String> =
+        h.ib.talk_wakes(t0())
+            .into_iter()
+            .filter(|w| w.conv == conv)
+            .map(|w| w.agent)
+            .collect();
     v.sort();
     v
 }
@@ -116,6 +115,11 @@ fn an_appended_wake_is_on_while_the_turn_it_joined_runs() {
     h.ib.mark_appended_engaged(KEY_B, &w2.token, "t1").unwrap();
     assert_eq!(on(&h, "ch_1"), vec![KEY_B]);
     h.ib.turn_ended(KEY_B, &w1.token, "t1").unwrap();
+    assert!(on(&h, "ch_1").is_empty());
+    // A later turn about something else doesn't bring it back.
+    h.clk.advance(secs(1));
+    h.send(&person(), &to("beta"), "other work");
+    h.deliver_engage(KEY_B, "t2");
     assert!(on(&h, "ch_1").is_empty());
 }
 

@@ -303,16 +303,28 @@ export function useReplying(convId: string): Replier[] {
   useEffect(() => {
     if (!inWails()) return
     let live = true
-    const read = () =>
+    // An event beats any read sent before it: the read may have counted an
+    // agent the event has since dropped.
+    let ver = 0
+    const read = () => {
+      const v = ver
       TalkService.Replying()
         .then((rs) => {
-          if (live) setAll(rs)
+          if (live && v === ver) setAll(rs)
         })
         .catch(() => {})
-    void read()
-    const off = Events.On<TalkReplying[]>(EventTalkReplying, (ev) => {
-      if (live) setAll(ev.data ?? [])
-    })
+    }
+    read()
+    const off = Events.On<TalkReplying[]>(
+      EventTalkReplying,
+      (ev) => {
+        if (!live) return
+        ver++
+        setAll(ev.data ?? [])
+      },
+      // Read again once listening: a change before then sent no event here.
+      read
+    )
     const onFocus = () => void read()
     window.addEventListener("focus", onFocus)
     return () => {

@@ -64,7 +64,7 @@ impl Core {
             };
             if !coord::roster::answers(&card.status)
                 || card.device_state == coord::roster::OFFLINE
-                || (w.no_turn_rows && card.status != "busy")
+                || done_by_status(&w, card)
             {
                 continue;
             }
@@ -103,22 +103,49 @@ impl Core {
     }
 }
 
+/// Whether the agent's own status says it is done with `w` though its
+/// inbox doesn't: taken up on the channel path (no turn rows), it is on
+/// only while busy or waiting on a prompt, except a Grok member, whose card
+/// always says idle; with turn rows, a turn its session never reported
+/// ending (it crashed) is over once the agent went idle after the wake.
+fn done_by_status(w: &inbox::TalkWake, card: &coord::roster::AgentCard) -> bool {
+    if w.waiting {
+        return false;
+    }
+    if w.no_turn_rows {
+        return card.session_kind != "member"
+            && !matches!(card.status.as_str(), "busy" | "waiting");
+    }
+    card.status == "idle"
+        && !card.status_since.is_zero()
+        && ns(&card.status_since) > ns(&add(&w.woken_at, WAKE_SLACK))
+}
+
 /// Whether the agent of `w` has posted in its conversation since the post
 /// that woke it. Posts are in the log's order, so the agent's device's
 /// clock doesn't matter once the waking post is found: a DM's post has
-/// the message's id; a mention's is the poster's latest naming the agent
-/// by the wake's time. Without it, the agent's posts are timed.
+/// the message's id; a mention's is the poster's post naming the agent
+/// nearest the wake's time. Without it, the agent's posts are timed.
 fn posted_since(posts: &[Post], w: &inbox::TalkWake) -> bool {
     let by_agent = |p: &Post| coord::talk::canon(&p.by) == w.agent;
     let from = coord::talk::canon(&w.from);
-    let late = add(&w.woken_at, WAKE_SLACK);
-    let waking = posts.iter().rposition(|p| p.post_id == w.message_id).or_else(|| {
-        posts.iter().rposition(|p| {
-            coord::talk::canon(&p.by) == from
-                && p.mentions.iter().any(|m| m == &w.agent)
-                && ns(&p.at) <= ns(&late)
-        })
-    });
+    let (early, late) = (sub(&w.woken_at, WAKE_SLACK), add(&w.woken_at, WAKE_SLACK));
+    let waking = posts
+        .iter()
+        .rposition(|p| p.post_id == w.message_id)
+        .or_else(|| {
+            posts
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    coord::talk::canon(&p.by) == from
+                        && p.mentions.iter().any(|m| m == &w.agent)
+                        && ns(&p.at) >= ns(&early)
+                        && ns(&p.at) <= ns(&late)
+                })
+                .min_by_key(|(_, p)| (ns(&p.at) - ns(&w.woken_at)).abs())
+                .map(|(i, _)| i)
+        });
     match waking {
         Some(i) => posts[i + 1..].iter().any(by_agent),
         None => posts
