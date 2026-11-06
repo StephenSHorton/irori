@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use coord::{Coord, ErrorKind as CK};
+use store::kinds::AGENT_ACTOR_PREFIX;
 
 use super::Services;
 use super::boards::{Error, trim};
@@ -382,7 +383,8 @@ impl Services {
         let me = self.roster.agents().into_iter().rfind(|a| a.key == agent);
         // The card, and the board log it is on (None: the private log).
         let mut card: Option<(coord::Task, Option<NoteLog>)> = None;
-        for r in refs {
+        // A comment: ref is for the person's words below, not for notes.
+        for r in refs.iter().filter(|r| r.starts_with("task:")) {
             let id = r.strip_prefix("task:").unwrap_or(r);
             if let Some(t) = self.coord.get_task(id) {
                 card = Some((t, None));
@@ -499,6 +501,7 @@ impl Services {
                 text: m.note.text,
             })
             .collect();
+        let (said_for, said) = self.wake_said(agent, refs);
         inbox::WakeNotes {
             task: if notes.is_empty() {
                 String::new()
@@ -507,7 +510,48 @@ impl Services {
                     .unwrap_or_default()
             },
             notes,
+            said_for,
+            said,
         }
+    }
+
+    /// What the person said lately around `agent`'s card, for a wake (card
+    /// #555), and that card's short ref. Its card is the one the wake is
+    /// about when that is the agent's own, else the card it works now: a
+    /// wake about a card it only watches says nothing about that card's
+    /// neighbours. Runs under the inbox lock, so it never waits on a board:
+    /// a board coord's write takes the inbox lock under its own (`hop_of`).
+    /// A busy board is skipped, and its words go in a later wake.
+    fn wake_said(&self, agent: &str, refs: &[String]) -> (String, Vec<inbox::WakeSaid>) {
+        let boards = self.shown_boards();
+        let read = |working: bool| {
+            self.coord.said_for(agent, refs, working).or_else(|| {
+                boards.iter().find_map(|b| {
+                    // Board logs hold agent:<cardId>, not the session key.
+                    let id = b
+                        .maps
+                        .try_lock()
+                        .ok()?
+                        .keys
+                        .get(agent.strip_prefix("api:").unwrap_or(agent))?
+                        .clone();
+                    let key = format!("{AGENT_ACTOR_PREFIX}{id}");
+                    b.coord().try_said_for(&key, refs, working).flatten()
+                })
+            })
+        };
+        let Some((card, said)) = read(false).or_else(|| read(true)) else {
+            return Default::default();
+        };
+        let said = said
+            .into_iter()
+            .map(|s| inbox::WakeSaid {
+                id: s.comment_id,
+                card: s.card,
+                text: s.text,
+            })
+            .collect();
+        (card, said)
     }
 
     /// This device's name as the person sees it (`machine:` tags).
@@ -517,50 +561,5 @@ impl Services {
             .remove(&self.device.id)
             .filter(|n| !n.trim().is_empty())
             .unwrap_or_else(|| self.device.name.clone())
-    }
-}
-
-/// One note a card's agent got on wake (card #412, for the card page,
-/// Notes 4).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardWakeNote {
-    pub note_id: String,
-    pub text: String,
-    pub kind: String,
-    /// The tag that matched.
-    pub tag: String,
-    /// The agent's key.
-    pub agent: String,
-    /// When the wake went out.
-    pub at: gocompat::time::GoTime,
-}
-
-impl super::Core {
-    /// The notes card `task` (`#12`, `task:<id>` or an id) gave its agents
-    /// on wake: each agent's latest wake that carried notes for it, newest
-    /// first. Read from this device's private log (wake.issued rows), so
-    /// only this person's agents show.
-    pub fn card_wake_notes(&self, task: &str) -> Vec<CardWakeNote> {
-        let id = self
-            .s
-            .task_ref(task)
-            .unwrap_or_else(|_| trim(task).to_string());
-        let id = id.strip_prefix("task:").unwrap_or(&id).to_string();
-        self.s
-            .inbox
-            .task_note_wakes(&id)
-            .into_iter()
-            .flat_map(|(agent, at, notes)| {
-                notes.into_iter().map(move |n| CardWakeNote {
-                    note_id: n.id,
-                    text: n.text,
-                    kind: n.kind,
-                    tag: n.why,
-                    agent: agent.clone(),
-                    at,
-                })
-            })
-            .collect()
     }
 }

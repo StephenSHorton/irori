@@ -87,10 +87,20 @@ impl Fold {
             let kind = b.on.as_ref().map(|on| on.kind.as_str()).unwrap_or("");
             if kind == BLOCKED_ON_AGENT {
                 let k = &b.on.as_ref().unwrap().reference;
-                if self.key_gone_in(k, rs) {
+                // A part waiting on a gone lead goes to the next lead.
+                // One waiting on Irori when none is coming (the switch went
+                // off, or its agents crashed) has nobody, and says so.
+                let part = b.question == super::parts::PART_QUESTION;
+                let led = part && (self.lead_coming(t) || !self.lead_of(t).is_empty());
+                let no_lead = part && k == SWEEPER;
+                if !led && (no_lead || self.key_gone_in(k, rs)) {
                     out.push(Stranded {
                         blocker_id: b.id.clone(),
-                        agent: k.clone(),
+                        agent: if no_lead {
+                            super::parts::NO_LEAD.into()
+                        } else {
+                            k.clone()
+                        },
                         waited_on: true,
                     });
                 }

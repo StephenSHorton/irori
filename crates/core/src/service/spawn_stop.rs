@@ -60,10 +60,10 @@ fn is_start_failed(b: &Blocker) -> bool {
 }
 
 /// Whether Irori itself acts on an answer to b (card #531): its "no copy"
-/// and "couldn't start" asks, which the sweep reads. Its crash question is
-/// left out: answered in the window, it starts nothing yet.
+/// and "couldn't start" asks, which the sweep reads, and its crash question,
+/// whose answer lets the next agent start (card #540).
 pub fn irori_acts_on(b: &Blocker) -> bool {
-    is_no_copy(b) || is_start_failed(b)
+    is_no_copy(b) || is_start_failed(b) || coord::is_crash_question(b)
 }
 
 /// The folder a person's reply names: its first line that isn't a code

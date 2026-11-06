@@ -22,6 +22,7 @@ pub struct Flags {
     pub session: String,
     pub cwd: String,
     pub mod_version: String,
+    pub standby: bool,
 }
 
 const USAGE: &str = "Usage of attach:
@@ -31,6 +32,8 @@ const USAGE: &str = "Usage of attach:
     \tthe Irori mod's version
   -session string
     \tClaude Code session id (required)
+  -standby
+    \twait for the session to come free instead of taking it from a live attach
 ";
 
 /// Go `flag.FlagSet.Parse` over the three string flags. An error is what
@@ -61,6 +64,10 @@ pub fn parse(args: &[String]) -> Result<Flags, String> {
         };
         if name == "help" || name == "h" {
             return Err("flag: help requested".into());
+        }
+        if name == "standby" {
+            f.standby = value.is_none_or(|v| v == "true" || v == "1");
+            continue;
         }
         let slot = match name {
             "session" => &mut f.session,
@@ -141,6 +148,7 @@ pub fn main(args: &[String]) -> Result<(), String> {
             session: f.session,
             cwd: f.cwd,
             mod_version: f.mod_version,
+            standby: f.standby,
             data_dir: dir,
             stdout: Box::new(std::io::stdout()),
             log: Box::new(log_line),
@@ -283,6 +291,7 @@ mod tests {
             session: "s1".into(),
             cwd: "C:/work".into(),
             mod_version: "0.4.1".into(),
+            standby: false,
         };
         // The mod's own argv (register.tsx).
         assert_eq!(
@@ -310,8 +319,19 @@ mod tests {
                 session: "s1".into(),
                 cwd: "C:/work".into(),
                 mod_version: "0.4.1".into(),
+                standby: false,
             }
         );
+        // A bool flag takes no argument: the next word is still a flag.
+        assert_eq!(
+            parse(&args(&["--standby", "--session", "s1"])),
+            Ok(Flags {
+                session: "s1".into(),
+                standby: true,
+                ..Flags::default()
+            })
+        );
+        assert_eq!(parse(&args(&["--standby=false"])), Ok(Flags::default()));
         assert_eq!(parse(&args(&["--", "-x"])), Ok(Flags::default()));
         assert_eq!(
             parse(&args(&["-x"])),

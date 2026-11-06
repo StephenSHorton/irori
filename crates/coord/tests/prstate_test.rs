@@ -138,6 +138,40 @@ fn no_gh_is_said_once_and_falls_back() {
     e.c.set_task_state(ALICE, &t.id, COMPLETED, "done").unwrap();
 }
 
+fn failed() -> PrCheck {
+    PrCheck {
+        pr: PR.into(),
+        error: "gh is not installed".into(),
+        ..PrCheck::default()
+    }
+}
+
+/// Card #542: a device that can't ask GitHub says nothing about a PR whose
+/// state is known, so no row is written and the two sides can't keep
+/// rewriting each other.
+#[test]
+fn an_error_over_a_known_state_writes_nothing() {
+    for state in [PR_OPEN, PR_MERGED, PR_CLOSED] {
+        let e = Env::new();
+        let t = held_with_pr(&e);
+        e.c.record_pr_state(&t.id, check(state, "APPROVED"))
+            .unwrap();
+        let before = e.c.pr_states(&t.id);
+        let rows = e.rows("pr.").len();
+
+        e.clk.add(secs(60));
+        let (_, ns) = e.c.record_pr_state(&t.id, failed()).unwrap();
+        assert!(ns.is_empty(), "{state}");
+        assert_eq!(e.c.pr_states(&t.id), before, "{state}");
+        assert_eq!(e.rows("pr.").len(), rows, "{state}");
+
+        // The next good answer is no change either.
+        e.c.record_pr_state(&t.id, check(state, "APPROVED"))
+            .unwrap();
+        assert_eq!(e.rows("pr.").len(), rows, "{state}");
+    }
+}
+
 #[test]
 fn only_a_linked_pr_is_recorded() {
     let e = Env::new();

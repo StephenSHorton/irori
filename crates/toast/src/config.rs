@@ -159,6 +159,9 @@ pub struct Palette {
     /// Text on the first button; default whichever of background and
     /// foreground contrasts more with primary.
     pub on_primary: Color,
+    /// The glass's colour, drawn at [`Config::glass`] over the blurred
+    /// desktop; default background. Unused by solid cards.
+    pub tint: Color,
 }
 
 /// Toru's palette: near-black cards with a blue accent. Success is the
@@ -182,6 +185,7 @@ pub const DARK: Palette = Palette {
     primary: hx(0x4cabfd),
     primary_hover: hx(0x6fbcff),
     on_primary: hx(0x060a13),
+    tint: hx(0x111213),
 };
 
 /// White cards with slate text. Pair it with a corner radius of about 10.
@@ -202,6 +206,7 @@ pub const LIGHT: Palette = Palette {
     primary: Color(0),
     primary_hover: Color(0),
     on_primary: Color(0),
+    tint: Color(0),
 };
 
 impl Palette {
@@ -235,13 +240,26 @@ impl Palette {
             p.background
         };
         fill(&mut p.on_primary, on);
+        fill(&mut p.tint, p.background);
         p
     }
 }
 
-/// The app-level setup, set once at startup with [`crate::configure`]
-/// before the first post. Start from [`Config::default`]: its
-/// `capture_exclude` is true.
+/// Which of the two palettes the cards use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum Scheme {
+    Light,
+    /// Toru's and the old default.
+    #[default]
+    Dark,
+    /// Follows the OS's light or dark mode, flipping with it.
+    System,
+}
+
+/// The app-level setup, set with [`crate::configure`]. Set it again at
+/// any time: the cards on screen restyle at once (the app name and window
+/// classes are fixed when the first card opens). Start from
+/// [`Config::default`]: its `capture_exclude` is true.
 ///
 /// Not ported: go-toast's `IgnoreInput` and `HoldClickThrough` (Toru's
 /// auto clicker); Irori never set them (inbox.md §3.13).
@@ -252,23 +270,35 @@ pub struct Config {
     /// The window classes: the cards are `class_prefix`, the hidden host
     /// `class_prefix + "Host"`. Empty derives it from the app name.
     pub class_prefix: String,
-    /// The zero palette is Dark.
-    pub palette: Palette,
-    /// In dip; 0 is square (Toru, and Irori).
+    /// The light palette (a zero one is [`LIGHT`]).
+    pub light: Palette,
+    /// The dark palette (a zero one is [`DARK`]).
+    pub dark: Palette,
+    /// Which palette shows.
+    pub scheme: Scheme,
+    /// In dip; 0 is square (Toru).
     pub corner_radius: f64,
+    /// Real glass where the OS has it (macOS NSVisualEffectView, Windows
+    /// acrylic): the palette's `tint` at this opacity over the blurred
+    /// desktop. 1 (or more), NaN or 0 is no glass: the cards are a solid
+    /// `background`, which is also the fallback where there is no blur.
+    pub glass: f64,
     /// Keeps the cards out of screenshots and recordings
     /// (WDA_EXCLUDEFROMCAPTURE, NSWindowSharingNone).
     pub capture_exclude: bool,
 }
 
 impl Default for Config {
-    /// App name "Toast", Dark, square, excluded from capture.
+    /// App name "Toast", Dark, square, solid, excluded from capture.
     fn default() -> Self {
         Config {
             app_name: "Toast".into(),
             class_prefix: String::new(),
-            palette: DARK,
+            light: LIGHT,
+            dark: DARK,
+            scheme: Scheme::Dark,
             corner_radius: 0.0,
+            glass: 1.0,
             capture_exclude: true,
         }
     }
@@ -286,13 +316,40 @@ impl Config {
         if self.class_prefix.is_empty() {
             self.class_prefix = class_prefix_for(&self.app_name);
         }
-        self.palette = self.palette.resolved();
+        self.light = if self.light == Palette::default() {
+            LIGHT.resolved()
+        } else {
+            self.light.resolved()
+        };
+        self.dark = self.dark.resolved();
         if self.corner_radius.is_nan() || self.corner_radius < 0.0 {
             self.corner_radius = 0.0;
         } else if self.corner_radius > MAX_CORNER_RADIUS {
             self.corner_radius = MAX_CORNER_RADIUS;
         }
+        if !(self.glass > 0.0 && self.glass < 1.0) {
+            self.glass = 1.0;
+        }
         self
+    }
+
+    /// The palette for a light (false) or dark (true) look.
+    pub fn palette(&self, dark: bool) -> Palette {
+        if dark { self.dark } else { self.light }
+    }
+
+    /// Whether the cards are dark, given whether the OS is.
+    pub fn is_dark(&self, os_dark: bool) -> bool {
+        match self.scheme {
+            Scheme::Light => false,
+            Scheme::Dark => true,
+            Scheme::System => os_dark,
+        }
+    }
+
+    /// The glass tint's opacity, or `None` for solid cards.
+    pub fn glass_alpha(&self) -> Option<f64> {
+        (self.glass > 0.0 && self.glass < 1.0).then_some(self.glass)
     }
 
     pub fn host_class_name(&self) -> String {
