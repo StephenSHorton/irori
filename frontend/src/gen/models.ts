@@ -95,7 +95,6 @@ export type MentionOutcome = B.MentionOutcome
 export type Message = B.Message
 export type Mode = B.Mode
 export type NewCardInput = B.NewCardInput
-export type NoteChangeView = B.NoteChangeView
 export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
 export type NoteInput = B.NoteInput
@@ -567,11 +566,6 @@ export function NewCardInput(p: Partial<B.NewCardInput> = {}): B.NewCardInput {
   return { ...p } as B.NewCardInput
 }
 
-/** NoteChangeView with Go's zero values for every field left out. */
-export function NoteChangeView(p: Partial<B.NoteChangeView> = {}): B.NoteChangeView {
-  return { "by": "", "at": "", "kind": "", "text": "", "tags": null, "remove": false, "why": "", ...p } as B.NoteChangeView
-}
-
 /** NoteEditInput with Go's zero values for every field left out. */
 export function NoteEditInput(p: Partial<B.NoteEditInput> = {}): B.NoteEditInput {
   return { ...p } as B.NoteEditInput
@@ -589,7 +583,7 @@ export function NoteInput(p: Partial<B.NoteInput> = {}): B.NoteInput {
 
 /** NoteView with Go's zero values for every field left out. */
 export function NoteView(p: Partial<B.NoteView> = {}): B.NoteView {
-  return { "id": "", "scope": "", "boardId": "", "kind": "", "text": "", "tags": [], "source": "", "taskId": "", "by": "", "byPerson": false, "at": "", "state": "", "acceptedBy": "", "acceptedAt": "", "updated": "", "pending": null, "history": [], "stale": "", ...p } as B.NoteView
+  return { "id": "", "kind": "", "text": "", "tags": [], "source": "", "taskId": "", "by": "", "byPerson": false, "at": "", "state": "", "acceptedBy": "", "acceptedAt": "", "updated": "", "history": [], "stale": "", ...p } as B.NoteView
 }
 
 /** Notification with Go's zero values for every field left out. */
