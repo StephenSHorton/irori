@@ -1361,6 +1361,62 @@ fn a_wait_on_a_card_is_never_a_question() {
 /// Card #481: #392 waited on #396, #396 on #394 and #394 on #392. Each
 /// card's summary names the same loop, none of it counts as a decision,
 /// and it's gone once one of the cards is done.
+/// A wait on a card from another device of the person's, which couldn't
+/// see the rest of the loop: this device refuses one itself (card #570).
+fn wait_from_afar(r: &Rig, id: &str, on: &coord::Task) {
+    let core = &r.w.core;
+    let now = || gocompat::time::GoTime::from_system(std::time::SystemTime::now());
+    let dev = "dev-far";
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+    let add = core
+        .identity()
+        .cert_for(
+            dev,
+            &hex::encode(key.verifying_key().to_bytes()),
+            "laptop",
+            irori_identity::ROLE_DESKTOP,
+            now(),
+        )
+        .unwrap();
+    core.store()
+        .append("irori", store::kinds::PERSON_DEVICE_ADDED, &add)
+        .unwrap();
+
+    let bb = coord::BlockedBy {
+        kind: coord::BLOCKED_ON_TASK.into(),
+        reference: on.id.clone(),
+    };
+    let by = format!("user:{dev}");
+    let row = coord::rows::TaskStateRow {
+        task_id: id.into(),
+        state: coord::BLOCKED.into(),
+        reason: "after it".into(),
+        blocked_by: Some(bb.clone()),
+        blocker: Some(coord::rows::BlockerRow {
+            id: "b1".into(),
+            question: "after it".into(),
+            on: Some(bb),
+            ..Default::default()
+        }),
+        by: by.clone(),
+        at: now(),
+        ..Default::default()
+    };
+    let mut ev = store::Event {
+        device_id: dev.into(),
+        seq: 1,
+        hlc: store::Timestamp::from_unix_ms(unix_ms() + 1),
+        actor: by,
+        kind: store::kinds::TASK_STATUS.into(),
+        payload: gocompat::json::marshal(&row).unwrap(),
+        sig: Vec::new(),
+    };
+    use ed25519_dalek::Signer as _;
+    ev.sig = key.sign(&store::signing_bytes(&ev)).to_bytes().to_vec();
+    core.store().insert(&ev).unwrap();
+    core.coord().handle(&ev).unwrap();
+}
+
 #[test]
 fn cards_that_wait_on_each_other_name_the_loop() {
     let r = Rig::new();
@@ -1395,7 +1451,9 @@ fn cards_that_wait_on_each_other_name_the_loop() {
     wait_on(&t4.id, &t8.id);
     wait_on(&t8.id, &t6.id);
     assert!(summary(&t4.id).wait_loop.is_empty());
-    wait_on(&t6.id, &t4.id);
+    // This device refuses the closing wait, so another device that
+    // couldn't see the rest writes it (card #570).
+    wait_from_afar(&r, &t6.id, &t4);
 
     let ids =
         |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
