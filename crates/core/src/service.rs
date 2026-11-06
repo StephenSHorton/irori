@@ -61,7 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
-mod calls;
+pub(crate) mod calls;
 mod dm_spaces;
 pub mod freshness;
 mod liveness;
