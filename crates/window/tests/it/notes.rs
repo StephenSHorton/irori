@@ -5,12 +5,11 @@ use crate::common;
 use common::*;
 use irori_window::notes::{NoteEditInput, NoteInput};
 
-fn input(scope: &str, text: &str) -> NoteInput {
+fn input(text: &str, tags: &[&str]) -> NoteInput {
     NoteInput {
-        scope: scope.into(),
         kind: "rule".into(),
         text: text.into(),
-        tags: vec!["everywhere".into()],
+        tags: tags.iter().map(|t| t.to_string()).collect(),
     }
 }
 
@@ -19,12 +18,11 @@ fn notes_in_the_window() {
     let r = Rig::new();
     let w = &r.w;
 
-    // An agent proposes a Mine note: it waits, from an agent.
+    // An agent writes a note: live at once (card #616), from an agent.
     let p = w
         .core
         .propose_note(
             &r.key_a,
-            "mine",
             coord::NewNote {
                 kind: "gotcha".into(),
                 text: "Load 20 makes presence tests time out.".into(),
@@ -33,24 +31,18 @@ fn notes_in_the_window() {
             },
         )
         .unwrap();
-    let list = w.notes_list("", false).unwrap();
+    let list = w.notes_list(false).unwrap();
     assert_eq!(list.len(), 1);
     let v = &list[0];
-    assert_eq!((v.state.as_str(), v.scope.as_str()), ("proposed", "mine"));
+    assert_eq!((v.state.as_str(), v.accepted_by.as_str()), ("accepted", ""));
     assert!(!v.by_person, "{v:?}");
     assert_eq!(v.stale, "");
 
-    // Keep: live, accepted by the person.
-    let k = w.note_accept(&format!("note:{}", p.note.id)).unwrap();
-    assert_eq!(k.state, "accepted");
-    assert_eq!(k.accepted_by, w.core.user_sender().key);
-
-    // The agent proposes an edit: shown as pending; the person's edit
-    // applies at once and drops it.
+    // The agent's edit applies at once, and so does the person's.
     w.core
         .edit_note(
             &r.key_a,
-            &p.note.id,
+            &p.id,
             coord::NoteEdit {
                 text: Some("Load 20 times presence tests out.".into()),
                 ..Default::default()
@@ -58,23 +50,23 @@ fn notes_in_the_window() {
             "shorter",
         )
         .unwrap();
-    let v = &w.notes_list("mine", false).unwrap()[0];
-    let pend = v.pending.as_ref().expect("pending edit");
-    assert_eq!((pend.why.as_str(), pend.remove), ("shorter", false));
+    assert_eq!(
+        w.notes_list(false).unwrap()[0].text,
+        "Load 20 times presence tests out."
+    );
     let e = w
         .note_edit(
-            &p.note.id,
+            &p.id,
             NoteEditInput {
                 text: Some("Under load, rerun presence tests alone.".into()),
                 ..NoteEditInput::default()
             },
         )
         .unwrap();
-    assert!(e.pending.is_none());
     assert_eq!(e.text, "Under load, rerun presence tests alone.");
 
-    // An agent's note from a card, kept: once the card goes, it asks
-    // Still true?
+    // An agent's note from a card: once the card goes, it asks Still
+    // true?
     let t = w
         .core
         .coord()
@@ -90,7 +82,6 @@ fn notes_in_the_window() {
         .core
         .propose_note(
             &r.key_a,
-            "mine",
             coord::NewNote {
                 kind: "decision".into(),
                 text: "Answers on this card are decisions.".into(),
@@ -101,151 +92,28 @@ fn notes_in_the_window() {
             },
         )
         .unwrap();
-    let kept = w
-        .note_accept(&format!("note:{}", from_card.note.id))
-        .unwrap();
-    assert_eq!(
-        (kept.state.as_str(), kept.scope.as_str()),
-        ("accepted", "mine")
-    );
-    assert_eq!(kept.task_id, t.id);
+    assert_eq!(from_card.task_id, t.id);
     w.delete_card(&t.id).unwrap();
     let kept = w
-        .notes_list("mine", false)
+        .notes_list(false)
         .unwrap()
         .into_iter()
-        .find(|n| n.id == kept.id)
+        .find(|n| n.id == from_card.id)
         .unwrap();
     assert_eq!(kept.stale, "its source card is gone");
 
     // Removed: gone from the list, kept in the history view.
     w.note_remove(&kept.id, "card gone").unwrap();
-    assert_eq!(w.notes_list("mine", false).unwrap().len(), 1);
-    assert_eq!(w.notes_list("mine", true).unwrap().len(), 2);
+    assert_eq!(w.notes_list(false).unwrap().len(), 1);
+    assert_eq!(w.notes_list(true).unwrap().len(), 2);
 
-    // Alone on a board nothing waits (#392's gate): a board note shows
-    // under its board, made by the person, so it's live at once. (The
-    // wait for another device is tested in core's boards.rs.)
+    // New note about a shared space (card #616): the person's own, live at
+    // once, in the one list.
     w.boards_create("MLG", "mlg").unwrap();
-    let on_board = w.note_new(input("mlg", "Ship to the repo.")).unwrap();
-    assert_eq!(on_board.scope, "mlg");
-    assert_eq!(on_board.state, "accepted");
-    assert!(on_board.by_person);
-    assert_eq!(w.notes_list("mlg", false).unwrap().len(), 1);
-}
-
-/// Card #468: the sidebar's count, without notes_list's views and Still
-/// true? checks: an agent's proposal and an agent's pending edit of a
-/// live note wait; a person's note and a kept one don't.
-#[test]
-fn notes_waiting_counts_what_new_shows() {
-    let r = Rig::new();
-    let w = &r.w;
-    assert_eq!(w.notes_waiting().unwrap(), 0);
-    let p = w
-        .core
-        .propose_note(
-            &r.key_a,
-            "mine",
-            coord::NewNote {
-                kind: "gotcha".into(),
-                text: "An agent's proposal waits.".into(),
-                tags: vec!["everywhere".into()],
-                ..Default::default()
-            },
-        )
+    let about = w
+        .note_new(input("Ship to the repo.", &["board:mlg"]))
         .unwrap();
-    w.note_new(input("mine", "A person's note is live at once."))
-        .unwrap();
-    assert_eq!(w.notes_waiting().unwrap(), 1);
-    w.note_accept(&format!("note:{}", p.note.id)).unwrap();
-    assert_eq!(w.notes_waiting().unwrap(), 0);
-    w.core
-        .edit_note(
-            &r.key_a,
-            &p.note.id,
-            coord::NoteEdit {
-                text: Some("A pending edit waits too.".into()),
-                ..Default::default()
-            },
-            "clearer",
-        )
-        .unwrap();
-    assert_eq!(w.notes_waiting().unwrap(), 1);
-    // The same count the Notes page's New shows from notes_list.
-    let listed = w.notes_list("", false).unwrap();
-    let waiting = listed
-        .iter()
-        .filter(|n| n.state == "proposed" || (n.state == "accepted" && n.pending.is_some()))
-        .count();
-    assert_eq!(waiting, 1);
-}
-
-/// Card #468's numbers: what the sidebar's count cost per board:changed
-/// before (notes_list(""): every note's view and its Still true? checks,
-/// each path: tag a stat in every checkout) and after (notes_waiting).
-/// `cargo test -p irori-window --test it -- --ignored --nocapture notes::`
-#[test]
-#[ignore]
-fn notes_waiting_against_notes_list_timing() {
-    let r = Rig::new();
-    let w = &r.w;
-    let root = tempfile::tempdir().unwrap();
-    let repo = "remote:example.com/perf/repo";
-    w.core
-        .capture()
-        .emit_row(
-            "irori",
-            capture::KIND_REPO_SEEN,
-            &capture::RepoSeen {
-                repo_key: repo.into(),
-                root: root.path().to_string_lossy().into(),
-                at: gocompat::time::GoTime::default(),
-            },
-        )
-        .unwrap();
-    assert_eq!(w.core.capture().repo_roots(repo).len(), 1);
-    const N: usize = 300;
-    for i in 0..N {
-        let p = root.path().join(format!("src/f{i}.rs"));
-        if i % 2 == 0 {
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(&p, "").unwrap();
-        }
-        w.core
-            .propose_note(
-                &r.key_a,
-                "mine",
-                coord::NewNote {
-                    kind: "gotcha".into(),
-                    text: format!("Note {i} about src/f{i}.rs."),
-                    tags: vec![format!("path:{repo}:src/f{i}.rs"), "topic:perf".into()],
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-    }
-    let list = w.notes_list("", false).unwrap();
-    assert_eq!(list.len(), N);
-    assert_eq!(list.iter().filter(|n| !n.stale.is_empty()).count(), N / 2);
-    let best = |f: &dyn Fn() -> usize| {
-        let mut best = std::time::Duration::MAX;
-        for _ in 0..20 {
-            let t = std::time::Instant::now();
-            std::hint::black_box(f());
-            best = best.min(t.elapsed());
-        }
-        best
-    };
-    // What the IPC reply carried: the views as JSON.
-    let before = best(&|| {
-        serde_json::to_vec(&w.notes_list("", false).unwrap())
-            .unwrap()
-            .len()
-    });
-    let bytes = serde_json::to_vec(&list).unwrap().len();
-    let after = best(&|| w.notes_waiting().unwrap());
-    eprintln!(
-        "card #468, {N} notes with path: tags: notes_list(\"\") + JSON {before:?} ({bytes} bytes); notes_waiting {after:?} (a number)"
-    );
+    assert_eq!(about.state, "accepted");
+    assert!(about.by_person);
+    assert_eq!(w.notes_list(false).unwrap().len(), 2);
 }
