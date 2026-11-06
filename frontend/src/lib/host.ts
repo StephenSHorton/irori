@@ -321,6 +321,8 @@ export const TalkService = {
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
   // Everyone the person can DM, and leaving a DM with one of them (#538).
   DmPeople: () => call(commands.talkDmPeople()),
+  // Who is replying in each channel and DM (#645).
+  Replying: () => call(commands.talkReplying()),
   DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),

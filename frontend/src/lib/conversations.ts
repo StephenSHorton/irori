@@ -4,7 +4,7 @@
 // only channels and DMs. In a plain browser everything runs on the sample
 // below, and posting changes it in memory so the page can be tried.
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { Events, TalkService } from "./host"
 import {
@@ -13,10 +13,13 @@ import {
   type TalkMember,
   type TalkMemberRef,
   type TalkPerson,
+  type TalkReplying,
 } from "./models"
-import { inWails } from "./irori"
+import { inWails, plainLine } from "./irori"
+import { isKeyLike } from "./names"
 import { useLatest } from "./talk"
-import { threads } from "./cards"
+import { namesLine, threads } from "./cards"
+import { previewFlag } from "./preview"
 
 export type Conversation = TalkConversation
 export type Post = TalkPost
@@ -26,6 +29,13 @@ export type Person = TalkPerson
 
 // EventTalkChanged fires on every talk.* row the Core folds.
 export const EventTalkChanged = "talk:changed"
+
+// EventTalkReplying carries who is replying, whenever that changes (#645).
+export const EventTalkReplying = "talk:replying"
+
+// ReplyingCap is the longest an agent shows as replying after its wake; the
+// Core drops it then too, but no event fires when time just passes.
+export const ReplyingCap = 30 * 60 * 1000
 
 // PostsPage is how many posts a conversation loads at a time.
 export const PostsPage = 100
@@ -258,12 +268,87 @@ export function usePosts(convId: string): {
   return { posts: value, loading, error }
 }
 
+export type Replier = { key: string; name: string; since: string }
+
+// replyingLine is the row under a conversation's posts (#645): "heron is
+// replying…", "heron and otter are replying…". Agents past ReplyingCap
+// drop off; null when nobody is left.
+export function replyingLine(
+  agents: readonly Replier[],
+  now: number
+): { who: string; verb: string; text: string } | null {
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const a of agents) {
+    const at = Date.parse(a.since)
+    if (Number.isFinite(at) && now - at > ReplyingCap) continue
+    // Never a key on the row (#478): a name that is one is left out.
+    const name = plainLine(a.name)
+    if (!name || isKeyLike(name) || seen.has(a.key)) continue
+    seen.add(a.key)
+    names.push(name)
+  }
+  if (names.length === 0) return null
+  const who = namesLine(names)
+  const verb = names.length > 1 ? "are" : "is"
+  return { who, verb, text: `${who} ${verb} replying…` }
+}
+
+// useReplying is who is replying in `convId`: read once, then kept by
+// talk:replying, which carries every conversation's list.
+export function useReplying(convId: string): Replier[] {
+  const [all, setAll] = useState<TalkReplying[]>(() =>
+    inWails() ? [] : sampleReplying()
+  )
+  useEffect(() => {
+    if (!inWails()) return
+    let live = true
+    const read = () =>
+      TalkService.Replying()
+        .then((rs) => {
+          if (live) setAll(rs)
+        })
+        .catch(() => {})
+    void read()
+    const off = Events.On<TalkReplying[]>(EventTalkReplying, (ev) => {
+      if (live) setAll(ev.data ?? [])
+    })
+    const onFocus = () => void read()
+    window.addEventListener("focus", onFocus)
+    return () => {
+      live = false
+      off()
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [])
+  return all.find((r) => r.convId === convId)?.agents ?? []
+}
+
 // ---------- the browser preview's sample ----------
 
 const me = "user"
 const heron = "sample-device/sample02-synthetic-session"
 const otter = "sample-device/sample01-synthetic-session"
 const badger = "sample-device/sample03-synthetic-session"
+
+// ?replying shows heron and otter replying in #suzuri and heron in its DM.
+function sampleReplying(): TalkReplying[] {
+  if (previewFlag("replying") === null) return []
+  const since = new Date(Date.now() - 20_000).toISOString()
+  return [
+    {
+      convId: "sample-ch-suzuri",
+      agents: [
+        { key: heron, name: "sample-heron", since },
+        { key: otter, name: "sample-otter", since },
+      ],
+    },
+    {
+      convId: "sample-dm-heron",
+      agents: [{ key: heron, name: "sample-heron", since }],
+    },
+  ]
+}
 
 const sampleListeners = new Set<() => Promise<void>>()
 function sampleChanged() {
