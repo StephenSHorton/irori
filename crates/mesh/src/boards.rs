@@ -210,6 +210,12 @@ pub fn insert_board_rows(st: &Store, evs: Vec<Event>) -> Result<(), String> {
     }
 }
 
+/// A kind a newer Irori could name: dotted words, at least two, none empty.
+/// `task.` or `task` is a writer's bug, which no update heals.
+fn well_formed(kind: &str) -> bool {
+    kind.contains('.') && kind.split('.').all(|p| !p.is_empty())
+}
+
 fn insert_runs(st: &Store, evs: Vec<Event>) -> Pulled {
     let mut out = Pulled {
         rows: evs.len(),
@@ -252,7 +258,8 @@ fn insert_runs(st: &Store, evs: Vec<Event>) -> Pulled {
                         kind: row.kind.clone(),
                         reason: e.to_string(),
                         unread: e.is(ErrorKind::NotBoardKind)
-                            && store::kind_side(&row.kind) == store::Side::Unclassified,
+                            && store::kind_side(&row.kind) == store::Side::Unclassified
+                            && well_formed(&row.kind),
                         past_cut: e.is(ErrorKind::PastCut),
                     });
                 }
@@ -264,4 +271,67 @@ fn insert_runs(st: &Store, evs: Vec<Event>) -> Pulled {
         order = wait;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A board log on dev-a, and another device's unsigned row (no
+    /// verifier: the rules under test are the kind's).
+    fn board() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let st = Store::open_with(
+            dir.path().join("boards").join("b.db"),
+            "dev-a",
+            Arc::new(store::Clock::new()),
+            store::OpenOptions {
+                board: true,
+                ..store::OpenOptions::default()
+            },
+        )
+        .unwrap();
+        (dir, st)
+    }
+
+    fn row(dev: &str, kind: &str) -> Event {
+        Event {
+            device_id: dev.into(),
+            seq: 1,
+            hlc: store::Clock::new().now(),
+            actor: "irori".into(),
+            kind: kind.into(),
+            payload: br#"{"resource":"gpu/1"}"#.to_vec(),
+            sig: Vec::new(),
+        }
+    }
+
+    /// Card #579: rows land beside a refusal and are counted, and a
+    /// refusal says an update heals it only for a well-formed kind this
+    /// build doesn't know.
+    #[test]
+    fn insert_runs_counts_what_landed_and_what_an_update_heals() {
+        let (_dir, st) = board();
+        let got = insert_runs(
+            &st,
+            vec![
+                row("dev-b", "board.future"),
+                row("dev-c", store::kinds::LEASE_ACQUIRED),
+                row("dev-d", "task.shared"),
+                row("dev-e", "task."),
+                row("dev-f", "task.future"),
+            ],
+        );
+        assert_eq!((got.rows, got.landed), (5, 2), "{got:?}");
+        let unread: Vec<(&str, bool)> = got
+            .refused
+            .iter()
+            .map(|r| (r.device_id.as_str(), r.unread))
+            .collect();
+        assert_eq!(
+            unread,
+            [("dev-b", true), ("dev-d", false), ("dev-e", false)]
+        );
+        assert!(well_formed("a.b.c") && !well_formed("task") && !well_formed("a..b"));
+    }
 }

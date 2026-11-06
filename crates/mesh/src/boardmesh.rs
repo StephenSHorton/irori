@@ -412,6 +412,96 @@ struct Hold {
     past_cut: bool,
 }
 
+/// The writers on hold, by (writer, peer).
+#[derive(Debug, Default)]
+struct Holds(BTreeMap<(String, String), Hold>);
+
+impl Holds {
+    /// The writers to skip on a pull from `peer` at `now`, given this
+    /// device's `vector`. A hold ends once its row is held, however it got
+    /// here.
+    fn skip(
+        &mut self,
+        peer: &str,
+        vector: &BTreeMap<String, i64>,
+        now: std::time::Instant,
+    ) -> Vec<String> {
+        self.0
+            .retain(|(dev, _), h| vector.get(dev).copied().unwrap_or(0) < h.seq);
+        self.0
+            .iter()
+            .filter(|((_, from), h)| from == peer && h.until > now)
+            .map(|((dev, _), _)| dev.clone())
+            .collect()
+    }
+
+    /// Puts each writer `peer` sent a refused row of on hold: one `tick`
+    /// the first time, twice as long each time after, up to [`HOLD_MAX`].
+    /// A new row refused starts over.
+    fn hold(
+        &mut self,
+        peer: &str,
+        refused: &[RefusedRow],
+        tick: std::time::Duration,
+        now: std::time::Instant,
+        now_ms: i64,
+    ) {
+        for r in refused {
+            let e = self
+                .0
+                .entry((r.device_id.clone(), peer.to_string()))
+                .or_insert(Hold {
+                    seq: r.seq,
+                    tries: 0,
+                    until: now,
+                    since_ms: now_ms,
+                    unread: r.unread,
+                    past_cut: r.past_cut,
+                });
+            if e.seq != r.seq {
+                e.seq = r.seq;
+                e.tries = 0;
+                e.since_ms = now_ms;
+            }
+            e.unread = r.unread;
+            e.past_cut = r.past_cut;
+            let wait = tick
+                .saturating_mul(2u32.saturating_pow(e.tries))
+                .min(HOLD_MAX);
+            e.tries = e.tries.saturating_add(1);
+            e.until = now + wait;
+        }
+    }
+
+    /// One line per writer stopped short of `vector`'s next rows. A row a
+    /// revoked device wrote past its cut isn't a stall: it's refused for
+    /// good, and rightly. Nor is a row `written` says nobody has: a junk row
+    /// past a stream's end, or one a revoke has since cut off (a vector
+    /// stops at the cut), would otherwise show for good.
+    fn stalled(
+        &self,
+        vector: &BTreeMap<String, i64>,
+        written: impl Fn(&str, i64) -> bool,
+    ) -> Vec<SelfStall> {
+        let mut out: BTreeMap<&str, SelfStall> = BTreeMap::new();
+        for ((dev, _), h) in &self.0 {
+            if h.past_cut || vector.get(dev).copied().unwrap_or(0) >= h.seq || !written(dev, h.seq)
+            {
+                continue;
+            }
+            let s = out.entry(dev).or_insert(SelfStall {
+                device_id: dev.clone(),
+                seq: h.seq,
+                since_ms: h.since_ms,
+                unread: false,
+            });
+            s.since_ms = s.since_ms.min(h.since_ms);
+            s.unread |= h.unread;
+        }
+        out.into_values().collect()
+    }
+}
+
 /// One board connection.
 struct Peer {
     conn: Arc<dyn Conn>,
@@ -462,7 +552,7 @@ struct Shared {
     rt: std::sync::OnceLock<tokio::runtime::Handle>,
     heard: Mutex<BTreeMap<String, PeerHeard>>,
     /// Refused writers, by (writer, peer).
-    holds: Mutex<BTreeMap<(String, String), Hold>>,
+    holds: Mutex<Holds>,
 }
 
 /// One board's mesh: a board room per held epoch (current and previous
@@ -506,7 +596,7 @@ impl BoardMesh {
                 last_dial: Mutex::new(None),
                 rt: std::sync::OnceLock::new(),
                 heard: Mutex::new(BTreeMap::new()),
-                holds: Mutex::new(BTreeMap::new()),
+                holds: Mutex::new(Holds::default()),
             }),
         }
     }
@@ -1408,7 +1498,7 @@ impl Shared {
                         )),
                         &h.vector,
                     );
-                    if self.behind(&h.vector) {
+                    if self.behind(p.conn.id(), &h.vector) {
                         p.wake.notify_one();
                     }
                     self.share_secrets(&p).await;
@@ -1427,7 +1517,7 @@ impl Shared {
                 }
                 Wire::Vector { vector } => {
                     self.hear(p.conn.id(), None, &vector);
-                    if self.behind(&vector) {
+                    if self.behind(p.conn.id(), &vector) {
                         p.wake.notify_one();
                     }
                 }
@@ -1474,78 +1564,48 @@ impl Shared {
     /// The writers to skip on a pull from `peer` now, given this device's
     /// `vector`. A hold ends once its row is held, however it got here.
     fn on_hold(&self, peer: &str, vector: &BTreeMap<String, i64>) -> Vec<String> {
-        let now = std::time::Instant::now();
-        let mut holds = self.holds.lock().expect("holds");
-        holds.retain(|(dev, _), h| vector.get(dev).copied().unwrap_or(0) < h.seq);
-        holds
-            .iter()
-            .filter(|((_, from), h)| from == peer && h.until > now)
-            .map(|((dev, _), _)| dev.clone())
-            .collect()
+        self.holds
+            .lock()
+            .expect("holds")
+            .skip(peer, vector, std::time::Instant::now())
     }
 
-    /// Puts each writer `peer` sent a refused row of on hold: one vector
-    /// tick the first time, twice as long each time after, up to
-    /// [`HOLD_MAX`].
+    /// Puts each writer `peer` sent a refused row of on hold ([`Holds::hold`]).
     fn hold(&self, peer: &str, refused: &[RefusedRow]) {
         let tick = self.iv.lock().expect("iv").vector;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
-        let mut holds = self.holds.lock().expect("holds");
-        for r in refused {
-            let e = holds
-                .entry((r.device_id.clone(), peer.to_string()))
-                .or_insert(Hold {
-                    seq: r.seq,
-                    tries: 0,
-                    until: std::time::Instant::now(),
-                    since_ms: now_ms,
-                    unread: r.unread,
-                    past_cut: r.past_cut,
-                });
-            if e.seq != r.seq {
-                e.seq = r.seq;
-                e.tries = 0;
-                e.since_ms = now_ms;
-            }
-            e.unread = r.unread;
-            e.past_cut = r.past_cut;
-            let wait = tick
-                .saturating_mul(2u32.saturating_pow(e.tries))
-                .min(HOLD_MAX);
-            e.tries += 1;
-            e.until = std::time::Instant::now() + wait;
-        }
+        self.holds.lock().expect("holds").hold(
+            peer,
+            refused,
+            tick,
+            std::time::Instant::now(),
+            now_ms,
+        );
     }
 
-    /// One line per writer stopped short of `vector`'s next rows. A row a
-    /// revoked device wrote past its cut isn't a stall: it's refused for
-    /// good, and rightly.
+    /// [`Holds::stalled`], a row counting as written when some peer's last
+    /// vector says so.
     fn stalled(&self, vector: &BTreeMap<String, i64>) -> Vec<SelfStall> {
         let holds = self.holds.lock().expect("holds");
-        let mut out: BTreeMap<&str, SelfStall> = BTreeMap::new();
-        for ((dev, _), h) in holds.iter() {
-            if h.past_cut || vector.get(dev).copied().unwrap_or(0) >= h.seq {
-                continue;
-            }
-            let s = out.entry(dev).or_insert(SelfStall {
-                device_id: dev.clone(),
-                seq: h.seq,
-                since_ms: h.since_ms,
-                unread: false,
-            });
-            s.since_ms = s.since_ms.min(h.since_ms);
-            s.unread |= h.unread;
-        }
-        out.into_values().collect()
+        let heard = self.heard.lock().expect("heard");
+        holds.stalled(vector, |dev, seq| {
+            heard
+                .values()
+                .any(|p| p.vector.get(dev).copied().unwrap_or(0) >= seq)
+        })
     }
 
-    /// Whether `theirs` holds a row this device's board log lacks.
-    fn behind(&self, theirs: &BTreeMap<String, i64>) -> bool {
+    /// Whether `theirs`, peer `peer`'s vector, holds a row this device's
+    /// board log lacks, leaving out the writers on hold from that peer: a
+    /// pull wouldn't ask for them, so waking for them only spins.
+    fn behind(&self, peer: &str, theirs: &BTreeMap<String, i64>) -> bool {
         let ours = self.opts.log.vector().unwrap_or_default();
+        let skip = self.on_hold(peer, &ours);
         theirs
             .iter()
+            .filter(|(d, _)| !skip.contains(d))
             .any(|(d, s)| ours.get(d).copied().unwrap_or(0) < *s)
     }
 
@@ -1673,6 +1733,7 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn board_secret_seals_to_one_recipient_and_epoch() {
@@ -1755,5 +1816,83 @@ mod tests {
         assert_eq!(ours["v"], 1);
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("tolerant").is_none(), "0 isn't sent");
+    }
+
+    fn refused(dev: &str, seq: i64, unread: bool, past_cut: bool) -> RefusedRow {
+        RefusedRow {
+            device_id: dev.into(),
+            seq,
+            kind: "board.future".into(),
+            reason: "no".into(),
+            unread,
+            past_cut,
+        }
+    }
+
+    fn vec_of(pairs: &[(&str, i64)]) -> BTreeMap<String, i64> {
+        pairs.iter().map(|(d, s)| (d.to_string(), *s)).collect()
+    }
+
+    /// Card #579: a hold is per peer, waits one tick then twice as long
+    /// each time up to an hour, starts over on a new row, and ends once
+    /// the row is held.
+    #[test]
+    fn holds_back_off_per_peer_and_end_when_the_row_lands() {
+        let tick = Duration::from_millis(300);
+        let t0 = std::time::Instant::now();
+        let mut h = Holds::default();
+        let v = vec_of(&[("w", 4)]);
+        h.hold("p1", &[refused("w", 5, true, false)], tick, t0, 1_000);
+        // Another peer still sends w's rows.
+        assert!(h.skip("p2", &v, t0).is_empty());
+        assert_eq!(h.skip("p1", &v, t0), ["w"]);
+        assert!(h.skip("p1", &v, t0 + tick).is_empty(), "one tick, then try");
+        // Each refusal of the same row waits twice as long, capped.
+        let mut want = tick;
+        for i in 0..20 {
+            let now = t0 + Duration::from_secs(i * 10_000);
+            h.hold("p1", &[refused("w", 5, true, false)], tick, now, 2_000);
+            want = (want * 2).min(HOLD_MAX);
+            let until = h.0[&("w".to_string(), "p1".to_string())].until;
+            assert_eq!(until - now, want, "try {}", i + 2);
+        }
+        assert_eq!(want, HOLD_MAX);
+        // The stall dates from the first refusal of the row.
+        let all = |_: &str, _: i64| true;
+        assert_eq!(h.stalled(&v, all)[0].since_ms, 1_000);
+        // A new row starts over.
+        h.hold("p1", &[refused("w", 6, false, false)], tick, t0, 3_000);
+        let e = &h.0[&("w".to_string(), "p1".to_string())];
+        assert_eq!((e.until - t0, e.since_ms), (tick, 3_000));
+        // Holding the row ends the hold and the stall.
+        let v = vec_of(&[("w", 6)]);
+        assert!(h.stalled(&v, all).is_empty());
+        assert!(h.skip("p1", &v, t0).is_empty());
+        assert!(h.0.is_empty(), "the hold is gone");
+    }
+
+    /// Card #579: what the stalled device says. One line per writer across
+    /// peers, unread if any peer's refusal was, and nothing for a row past
+    /// a revoke's cut or a row no peer says the writer wrote.
+    #[test]
+    fn stalled_says_only_what_is_backed() {
+        let (tick, t0) = (Duration::from_millis(300), std::time::Instant::now());
+        let mut h = Holds::default();
+        h.hold("p1", &[refused("w", 5, false, false)], tick, t0, 2_000);
+        h.hold("p2", &[refused("w", 5, true, false)], tick, t0, 1_000);
+        h.hold("p1", &[refused("cut", 9, false, true)], tick, t0, 1_000);
+        let v = vec_of(&[("w", 4), ("cut", 8)]);
+        let got = h.stalled(&v, |_, _| true);
+        assert_eq!(
+            got,
+            [SelfStall {
+                device_id: "w".into(),
+                seq: 5,
+                since_ms: 1_000,
+                unread: true,
+            }]
+        );
+        // Junk past the stream's end, or cut off since: nobody has row 5.
+        assert!(h.stalled(&v, |_, seq| seq < 5).is_empty());
     }
 }
