@@ -13,8 +13,9 @@
 # Signing follows the environment (scripts/release-mac.sh passes it on):
 #   MACOS_CODESIGN_IDENTITY  empty or "-": ad-hoc signature, no notarization.
 #                            "Developer ID Application: ...": hardened
-#                            runtime + secure timestamp, then notarization
-#                            when credentials are set (see notarize.sh).
+#                            runtime + secure timestamp + entitlements.plist,
+#                            then notarization when credentials are set (see
+#                            notarize.sh).
 #   IRORI_NOTARIZE=0         skip notarization even with Developer ID.
 set -euo pipefail
 
@@ -68,11 +69,13 @@ if [[ "$IDENTITY" == "-" ]]; then
 else
   # Inside out: the executable, then the bundle (which seals Info.plist and
   # Resources). Hardened runtime + timestamp are what notarization requires.
+  # entitlements.plist is required: without its audio-input key voice records
+  # silence and nothing else fails, so a build that lost it must not pass.
   # WKWebView under the hardened runtime needs no entitlement for a page
-  # served from the app itself; if notarization or the WebView asks for one,
-  # add app/macos/entitlements.plist and it is passed on here.
-  args=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --timestamp --options runtime)
-  if [[ -f "$HERE/entitlements.plist" ]]; then args+=(--entitlements "$HERE/entitlements.plist"); fi
+  # served from the app itself.
+  ENTITLEMENTS="$HERE/entitlements.plist"
+  [[ -f "$ENTITLEMENTS" ]] || { echo "error: no $ENTITLEMENTS" >&2; exit 1; }
+  args=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --timestamp --options runtime --entitlements "$ENTITLEMENTS")
   codesign "${args[@]}" "$APP/Contents/MacOS/irori"
   codesign "${args[@]}" "$APP"
 fi

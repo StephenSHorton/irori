@@ -135,7 +135,7 @@ fake of the GitHub API (serve `repos/StephenSHorton/irori/releases/latest`
 plus the APK and `SHA256SUMS`, then `adb reverse tcp:9250 tcp:9250`). Release
 builds never set `IRORI_UPDATE_API`.
 
-`crates/update/tests/release_names.rs` reads the names out of the three
+`crates/update/tests/it/release_names.rs` reads the names out of the three
 scripts and fails if they drift from the matchers or from each other.
 
 ## What the installer does
@@ -178,14 +178,30 @@ com.stephenshorton.irori`, `CFBundleExecutable irori`,
 the bare `X.Y.Z` and zips with `ditto -c -k --keepParent`, so the zip holds
 exactly one `Irori.app` at its top, which is what the updater requires.
 
-Signing: without `MACOS_CODESIGN_IDENTITY` the bundle is signed ad hoc, as
-the Go releases are. With a Developer ID identity, executable and bundle are
-signed with the hardened runtime and a timestamp, then notarized and stapled
-(`notarize.sh`, `xcrun notarytool submit --wait`) when notarization
-credentials are set: `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` and
-`APPLE_API_KEY_P8` (a path), or `APPLE_ID`, `APPLE_TEAM_ID` and
-`APPLE_APP_SPECIFIC_PASSWORD`. Once a release is Developer ID signed, keep
-signing: the updater refuses an unsigned update over a signed app.
+Signing: a Mac release is always Developer ID signed. `release-mac.sh` uses
+the `Developer ID Application` identity in the login keychain (with several,
+name one in `MACOS_CODESIGN_IDENTITY`) and stops if there is none or the name
+is anything else. It never falls back to ad hoc, for two reasons: the updater
+refuses an update that isn't Developer ID signed over one that is, and macOS
+keeps a permission (Screen Recording, the mic, folders) against the app's
+designated requirement. A Developer ID build's names the Team ID, so a grant
+lasts across updates; an ad hoc build's is its own cdhash, so every update
+loses them. Executable and bundle are signed with the hardened runtime, a
+timestamp and `app/macos/entitlements.plist`, whose one key,
+`com.apple.security.device.audio-input`, voice needs: without it the mic
+gives silence and no error. `app/macos/check-signed.sh` then checks all of
+that on the zip that ships. `package.sh` called directly still signs ad hoc
+with no identity, for scratch builds and `tools/rehearse`. The updater's
+signing paths have a test that needs the identity, so it is ignored by
+default: `mac_update_developer_id_paths` in `crates/update/tests/mac.rs`.
+
+Notarization (`notarize.sh`, `xcrun notarytool submit --wait`, then stapled)
+uses the login keychain's `irori-notary` profile, made once with `xcrun
+notarytool store-credentials irori-notary --apple-id <id> --team-id
+GP6632G333` and an app-specific password from https://account.apple.com. The
+environment credentials `notarize.sh` lists work too. Without any the build
+is signed but not notarized, with a warning: updates and permissions work,
+and a fresh DMG download gets Gatekeeper's warning.
 
 ## Android
 

@@ -13,7 +13,10 @@
 //!   `vector` (the sender's board vector; one ahead of ours pulls now),
 //!   `ping`/`pong`, and `board.secret` ([`BoardSecretFrame`], a newer
 //!   epoch's secret sealed under this connection's epoch key).
-//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]).
+//! - Rows move on `board/<boardId>` pull streams ([`crate::boards`]). A
+//!   writer whose row this device refused goes on hold from that peer, with
+//!   a wait that doubles, and [`BoardMesh::stalled`] says so; the vector
+//!   frames and hello keep saying where this device really is.
 //! - Files on the board's cards move on `blob/<16 hex>` streams, as on the
 //!   private mesh (v0.5 §5.5): served only to a counted member device, and
 //!   only a hash this person's devices offered in this board's log
@@ -57,7 +60,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
-use crate::boards::{BOARD_LABEL_PREFIX, pull_board, serve_pull};
+use crate::boards::{BOARD_LABEL_PREFIX, RefusedRow, pull_board, serve_pull};
 use crate::files::{
     BLOB_LABEL_PREFIX, FetchError, FileOffer, check_ref, fetch_over, holders_in, serve_blob,
 };
@@ -82,6 +85,16 @@ pub const SPACES_PROTOCOL: i64 = 1;
 /// writer's stream then waits on the gap, so a device starts agents for a
 /// board's cards only once every member device has said at least this.
 pub const SPAWNS_PROTOCOL: i64 = 1;
+
+/// This build's tolerant reader (no-server.md §3.5): a board hello's
+/// `tolerant`. A device saying at least this stores a pulled `task.*` or
+/// `space.*` kind it doesn't know instead of stalling on it, so once a
+/// space's devices are past it a new kind of those needs no gate.
+pub const TOLERANT_PROTOCOL: i64 = 1;
+
+/// The longest a refused writer waits before it's tried again from a peer
+/// (no-server.md §4.3). The first wait is one vector tick, then it doubles.
+const HOLD_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// The frame that hands a board secret to a device: on the private mesh
 /// `sync` channel to your own devices (sealed under the mesh epoch's
@@ -121,6 +134,10 @@ pub struct BoardHello {
     /// (absent) from an Irori before them.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub spawns: i64,
+    /// Whether the sender stores kinds it doesn't know
+    /// ([`TOLERANT_PROTOCOL`]); 0 (absent) from an Irori before it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tolerant: i64,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -362,6 +379,127 @@ pub struct PeerHeard {
     pub spaces: i64,
     /// The `spawns` its last hello said (card #455).
     pub spawns: i64,
+    /// The `tolerant` its last hello said (card #579).
+    pub tolerant: i64,
+}
+
+/// A writer this device has stopped taking rows from: what the device says
+/// about itself (no-server.md §4.3). Others see the same stall from its
+/// vector, as [`PeerHeard`]'s lag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelfStall {
+    /// The writer.
+    pub device_id: String,
+    /// The row it stopped at.
+    pub seq: i64,
+    /// Unix milliseconds of the first refusal of that row.
+    pub since_ms: i64,
+    /// This build doesn't know the row's kind, so updating heals it.
+    pub unread: bool,
+}
+
+/// A writer on hold from one peer: its stream stopped at `seq`, so pulls
+/// from that peer skip it until `until`. Per peer, so a bad row one peer
+/// sends can't hold up the same writer's rows from another. In memory: a
+/// restart, which is how an update lands, tries again at once.
+#[derive(Debug, Clone)]
+struct Hold {
+    seq: i64,
+    tries: u32,
+    until: std::time::Instant,
+    since_ms: i64,
+    unread: bool,
+    past_cut: bool,
+}
+
+/// The writers on hold, by (writer, peer).
+#[derive(Debug, Default)]
+struct Holds(BTreeMap<(String, String), Hold>);
+
+impl Holds {
+    /// The writers to skip on a pull from `peer` at `now`, given this
+    /// device's `vector`. A hold ends once its row is held, however it got
+    /// here.
+    fn skip(
+        &mut self,
+        peer: &str,
+        vector: &BTreeMap<String, i64>,
+        now: std::time::Instant,
+    ) -> Vec<String> {
+        self.0
+            .retain(|(dev, _), h| vector.get(dev).copied().unwrap_or(0) < h.seq);
+        self.0
+            .iter()
+            .filter(|((_, from), h)| from == peer && h.until > now)
+            .map(|((dev, _), _)| dev.clone())
+            .collect()
+    }
+
+    /// Puts each writer `peer` sent a refused row of on hold: one `tick`
+    /// the first time, twice as long each time after, up to [`HOLD_MAX`].
+    /// A new row refused starts over.
+    fn hold(
+        &mut self,
+        peer: &str,
+        refused: &[RefusedRow],
+        tick: std::time::Duration,
+        now: std::time::Instant,
+        now_ms: i64,
+    ) {
+        for r in refused {
+            let e = self
+                .0
+                .entry((r.device_id.clone(), peer.to_string()))
+                .or_insert(Hold {
+                    seq: r.seq,
+                    tries: 0,
+                    until: now,
+                    since_ms: now_ms,
+                    unread: r.unread,
+                    past_cut: r.past_cut,
+                });
+            if e.seq != r.seq {
+                e.seq = r.seq;
+                e.tries = 0;
+                e.since_ms = now_ms;
+            }
+            e.unread = r.unread;
+            e.past_cut = r.past_cut;
+            let wait = tick
+                .saturating_mul(2u32.saturating_pow(e.tries))
+                .min(HOLD_MAX);
+            e.tries = e.tries.saturating_add(1);
+            e.until = now + wait;
+        }
+    }
+
+    /// One line per writer stopped short of `vector`'s next rows. A row a
+    /// revoked device wrote past its cut isn't a stall: it's refused for
+    /// good, and rightly. Nor is a row `written` says nobody has: a junk row
+    /// past a stream's end, or one a revoke has since cut off (a vector
+    /// stops at the cut), would otherwise show for good.
+    fn stalled(
+        &self,
+        vector: &BTreeMap<String, i64>,
+        written: impl Fn(&str, i64) -> bool,
+    ) -> Vec<SelfStall> {
+        let mut out: BTreeMap<&str, SelfStall> = BTreeMap::new();
+        for ((dev, _), h) in &self.0 {
+            if h.past_cut || vector.get(dev).copied().unwrap_or(0) >= h.seq || !written(dev, h.seq)
+            {
+                continue;
+            }
+            let s = out.entry(dev).or_insert(SelfStall {
+                device_id: dev.clone(),
+                seq: h.seq,
+                since_ms: h.since_ms,
+                unread: false,
+            });
+            s.since_ms = s.since_ms.min(h.since_ms);
+            s.unread |= h.unread;
+        }
+        out.into_values().collect()
+    }
 }
 
 /// One board connection.
@@ -413,6 +551,12 @@ struct Shared {
     /// spawns on it.
     rt: std::sync::OnceLock<tokio::runtime::Handle>,
     heard: Mutex<BTreeMap<String, PeerHeard>>,
+    /// Refused writers, by (writer, peer).
+    holds: Mutex<Holds>,
+    /// Each connected peer's vector as its last frame said it. Unlike
+    /// [`PeerHeard::vector`] it can go down (a revoke's cut), and it goes
+    /// when the connection does.
+    latest: Mutex<BTreeMap<String, BTreeMap<String, i64>>>,
 }
 
 /// One board's mesh: a board room per held epoch (current and previous
@@ -456,6 +600,8 @@ impl BoardMesh {
                 last_dial: Mutex::new(None),
                 rt: std::sync::OnceLock::new(),
                 heard: Mutex::new(BTreeMap::new()),
+                holds: Mutex::new(Holds::default()),
+                latest: Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -617,6 +763,12 @@ impl BoardMesh {
             .values()
             .cloned()
             .collect()
+    }
+
+    /// The writers this device has stopped taking rows from, by writer.
+    pub fn stalled(&self) -> Vec<SelfStall> {
+        let vector = self.s.opts.log.vector().unwrap_or_default();
+        self.s.stalled(&vector)
     }
 
     /// Re-checks live connections against the verifier (a revoke, removal
@@ -1270,6 +1422,7 @@ impl Shared {
             schema: 1,
             spaces: SPACES_PROTOCOL,
             spawns: SPAWNS_PROTOCOL,
+            tolerant: TOLERANT_PROTOCOL,
             vector: self.opts.log.vector().unwrap_or_default(),
             wall_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1309,6 +1462,8 @@ impl Shared {
         if peers.get(&key).is_some_and(|x| Arc::ptr_eq(x, &p)) {
             peers.remove(&key);
         }
+        // Another connection to it, if any, says its vector again soon.
+        self.latest.lock().expect("latest").remove(p.conn.id());
     }
 
     async fn read(self: Arc<Self>, p: Arc<Peer>, ctx: CancellationToken) {
@@ -1341,10 +1496,16 @@ impl Shared {
                     p.hello.store(true, Ordering::SeqCst);
                     self.hear(
                         p.conn.id(),
-                        Some((&h.person_id, &h.core_version, h.spaces, h.spawns)),
+                        Some((
+                            &h.person_id,
+                            &h.core_version,
+                            h.spaces,
+                            h.spawns,
+                            h.tolerant,
+                        )),
                         &h.vector,
                     );
-                    if self.behind(&h.vector) {
+                    if self.behind(p.conn.id(), &h.vector) {
                         p.wake.notify_one();
                     }
                     self.share_secrets(&p).await;
@@ -1363,7 +1524,7 @@ impl Shared {
                 }
                 Wire::Vector { vector } => {
                     self.hear(p.conn.id(), None, &vector);
-                    if self.behind(&vector) {
+                    if self.behind(p.conn.id(), &vector) {
                         p.wake.notify_one();
                     }
                 }
@@ -1381,17 +1542,22 @@ impl Shared {
     fn hear(
         &self,
         dev: &str,
-        hello: Option<(&str, &str, i64, i64)>,
+        hello: Option<(&str, &str, i64, i64, i64)>,
         vector: &BTreeMap<String, i64>,
     ) {
+        self.latest
+            .lock()
+            .expect("latest")
+            .insert(dev.to_string(), vector.clone());
         let mut heard = self.heard.lock().expect("heard");
         let h = heard.entry(dev.to_string()).or_default();
         h.device_id = dev.to_string();
-        if let Some((person, version, spaces, spawns)) = hello {
+        if let Some((person, version, spaces, spawns, tolerant)) = hello {
             h.person_id = person.to_string();
             h.core_version = version.to_string();
             h.spaces = spaces;
             h.spawns = spawns;
+            h.tolerant = tolerant;
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1406,11 +1572,51 @@ impl Shared {
         h.at_ms = now;
     }
 
-    /// Whether `theirs` holds a row this device's board log lacks.
-    fn behind(&self, theirs: &BTreeMap<String, i64>) -> bool {
+    /// The writers to skip on a pull from `peer` now, given this device's
+    /// `vector`. A hold ends once its row is held, however it got here.
+    fn on_hold(&self, peer: &str, vector: &BTreeMap<String, i64>) -> Vec<String> {
+        self.holds
+            .lock()
+            .expect("holds")
+            .skip(peer, vector, std::time::Instant::now())
+    }
+
+    /// Puts each writer `peer` sent a refused row of on hold ([`Holds::hold`]).
+    fn hold(&self, peer: &str, refused: &[RefusedRow]) {
+        let tick = self.iv.lock().expect("iv").vector;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        self.holds.lock().expect("holds").hold(
+            peer,
+            refused,
+            tick,
+            std::time::Instant::now(),
+            now_ms,
+        );
+    }
+
+    /// [`Holds::stalled`], a row counting as written when a connected
+    /// peer's last vector says so.
+    fn stalled(&self, vector: &BTreeMap<String, i64>) -> Vec<SelfStall> {
+        let holds = self.holds.lock().expect("holds");
+        let latest = self.latest.lock().expect("latest");
+        holds.stalled(vector, |dev, seq| {
+            latest
+                .values()
+                .any(|v| v.get(dev).copied().unwrap_or(0) >= seq)
+        })
+    }
+
+    /// Whether `theirs`, peer `peer`'s vector, holds a row this device's
+    /// board log lacks, leaving out the writers on hold from that peer: a
+    /// pull wouldn't ask for them, so waking for them only spins.
+    fn behind(&self, peer: &str, theirs: &BTreeMap<String, i64>) -> bool {
         let ours = self.opts.log.vector().unwrap_or_default();
+        let skip = self.on_hold(peer, &ours);
         theirs
             .iter()
+            .filter(|(d, _)| !skip.contains(d))
             .any(|(d, s)| ours.get(d).copied().unwrap_or(0) < *s)
     }
 
@@ -1429,22 +1635,28 @@ impl Shared {
         let mut pings = tokio::time::interval_at(tokio::time::Instant::now() + ping, ping);
         loop {
             let vector = self.opts.log.vector().unwrap_or_default();
+            let skip = self.on_hold(p.conn.id(), &vector);
             if self.send(&p, &Wire::Vector { vector }).await.is_err() {
                 return;
             }
             let r = tokio::select! {
                 _ = ctx.cancelled() => return,
-                r = pull_board(p.conn.as_ref(), &self.opts.board_id, self.opts.log.clone()) => r,
+                r = pull_board(p.conn.as_ref(), &self.opts.board_id, self.opts.log.clone(), &skip) => r,
             };
             match r {
-                Ok(0) => {}
-                Ok(_) => {
-                    // Rows landed: membership may have moved (a removal, a
-                    // new member, a revoked device).
-                    self.recheck_conns();
-                    let f = self.on_rows.lock().expect("on_rows").clone();
-                    if let Some(f) = f {
-                        f();
+                Ok(got) => {
+                    for row in &got.refused {
+                        self.logf(&format!("pull from {}: {}", p.conn.id(), row.reason));
+                    }
+                    self.hold(p.conn.id(), &got.refused);
+                    if got.landed > 0 {
+                        // Rows landed: membership may have moved (a removal,
+                        // a new member, a revoked device).
+                        self.recheck_conns();
+                        let f = self.on_rows.lock().expect("on_rows").clone();
+                        if let Some(f) = f {
+                            f();
+                        }
                     }
                 }
                 Err(e) => self.logf(&format!("pull from {}: {e}", p.conn.id())),
@@ -1532,6 +1744,7 @@ impl Shared {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn board_secret_seals_to_one_recipient_and_epoch() {
@@ -1590,5 +1803,107 @@ mod tests {
         assert_eq!(ours["v"], 1, "v stays 1: older Irori keeps syncing");
         let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
         assert!(none.get("spaces").is_none(), "0 isn't sent");
+    }
+
+    /// Card #579: an older hello parses as 0, ours says the level, and `v`
+    /// stays 1 so older Irori keeps syncing.
+    #[test]
+    fn hello_says_it_stores_unknown_kinds() {
+        let old: Wire = serde_json::from_str(
+            r#"{"type":"hello","v":1,"deviceId":"d","personId":"p","boardId":"b","boardEpoch":1,"coreVersion":"0.12.4","schema":1,"vector":{},"wallMs":0,"spaces":1,"spawns":1}"#,
+        )
+        .unwrap();
+        let Wire::Hello(h) = old else {
+            panic!("not a hello")
+        };
+        assert_eq!(h.tolerant, 0);
+        let ours = serde_json::to_value(Wire::Hello(BoardHello {
+            v: BOARD_PROTOCOL,
+            tolerant: TOLERANT_PROTOCOL,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert_eq!(ours["tolerant"], TOLERANT_PROTOCOL);
+        assert_eq!(ours["v"], 1);
+        let none = serde_json::to_value(Wire::Hello(BoardHello::default())).unwrap();
+        assert!(none.get("tolerant").is_none(), "0 isn't sent");
+    }
+
+    fn refused(dev: &str, seq: i64, unread: bool, past_cut: bool) -> RefusedRow {
+        RefusedRow {
+            device_id: dev.into(),
+            seq,
+            kind: "board.future".into(),
+            reason: "no".into(),
+            unread,
+            past_cut,
+        }
+    }
+
+    fn vec_of(pairs: &[(&str, i64)]) -> BTreeMap<String, i64> {
+        pairs.iter().map(|(d, s)| (d.to_string(), *s)).collect()
+    }
+
+    /// Card #579: a hold is per peer, waits one tick then twice as long
+    /// each time up to an hour, starts over on a new row, and ends once
+    /// the row is held.
+    #[test]
+    fn holds_back_off_per_peer_and_end_when_the_row_lands() {
+        let tick = Duration::from_millis(300);
+        let t0 = std::time::Instant::now();
+        let mut h = Holds::default();
+        let v = vec_of(&[("w", 4)]);
+        h.hold("p1", &[refused("w", 5, true, false)], tick, t0, 1_000);
+        // Another peer still sends w's rows.
+        assert!(h.skip("p2", &v, t0).is_empty());
+        assert_eq!(h.skip("p1", &v, t0), ["w"]);
+        assert!(h.skip("p1", &v, t0 + tick).is_empty(), "one tick, then try");
+        // Each refusal of the same row waits twice as long, capped.
+        let mut want = tick;
+        for i in 0..20 {
+            let now = t0 + Duration::from_secs(i * 10_000);
+            h.hold("p1", &[refused("w", 5, true, false)], tick, now, 2_000);
+            want = (want * 2).min(HOLD_MAX);
+            let until = h.0[&("w".to_string(), "p1".to_string())].until;
+            assert_eq!(until - now, want, "try {}", i + 2);
+        }
+        assert_eq!(want, HOLD_MAX);
+        // The stall dates from the first refusal of the row.
+        let all = |_: &str, _: i64| true;
+        assert_eq!(h.stalled(&v, all)[0].since_ms, 1_000);
+        // A new row starts over.
+        h.hold("p1", &[refused("w", 6, false, false)], tick, t0, 3_000);
+        let e = &h.0[&("w".to_string(), "p1".to_string())];
+        assert_eq!((e.until - t0, e.since_ms), (tick, 3_000));
+        // Holding the row ends the hold and the stall.
+        let v = vec_of(&[("w", 6)]);
+        assert!(h.stalled(&v, all).is_empty());
+        assert!(h.skip("p1", &v, t0).is_empty());
+        assert!(h.0.is_empty(), "the hold is gone");
+    }
+
+    /// Card #579: what the stalled device says. One line per writer across
+    /// peers, unread if any peer's refusal was, and nothing for a row past
+    /// a revoke's cut or a row no peer says the writer wrote.
+    #[test]
+    fn stalled_says_only_what_is_backed() {
+        let (tick, t0) = (Duration::from_millis(300), std::time::Instant::now());
+        let mut h = Holds::default();
+        h.hold("p1", &[refused("w", 5, false, false)], tick, t0, 2_000);
+        h.hold("p2", &[refused("w", 5, true, false)], tick, t0, 1_000);
+        h.hold("p1", &[refused("cut", 9, false, true)], tick, t0, 1_000);
+        let v = vec_of(&[("w", 4), ("cut", 8)]);
+        let got = h.stalled(&v, |_, _| true);
+        assert_eq!(
+            got,
+            [SelfStall {
+                device_id: "w".into(),
+                seq: 5,
+                since_ms: 1_000,
+                unread: true,
+            }]
+        );
+        // Junk past the stream's end, or cut off since: nobody has row 5.
+        assert!(h.stalled(&v, |_, seq| seq < 5).is_empty());
     }
 }

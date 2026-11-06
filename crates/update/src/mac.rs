@@ -3,7 +3,7 @@
 //! does, so the bundle checks are the ones the Go updater runs on the Rust
 //! `.app.zip` (surface.md §7.3). The live bundle is passed in (the
 //! updater's `running_app` seam, Go `macPlatform(s, app, pid)`), so
-//! tests/mac.rs drives a fake Irori.app. Not yet built or run on the Mac.
+//! tests/it/mac.rs drives a fake Irori.app. Not yet built or run on the Mac.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -638,6 +638,15 @@ impl Store {
         self.inner.missing(v, limit)
     }
 
+    /// [`Self::missing`], taking turns between writers instead of walking
+    /// them in byte order, so a writer with a long run can't use up `limit`
+    /// and starve the ones that sort after it (no-server.md §4.3). Each
+    /// writer's rows stay in seq order with no gap past `v`; writers are
+    /// interleaved.
+    pub fn missing_by_turns(&self, v: &Vector, limit: i64) -> Result<Vec<Event>> {
+        self.inner.missing_by_turns(v, limit)
+    }
+
     /// Rows matching `f`, by `(hlc, device_id, seq)`.
     pub fn list(&self, f: &Filter) -> Result<Vec<Event>> {
         self.inner.list(f)
@@ -1314,8 +1323,8 @@ impl Inner {
         self.check_row(ev)?;
         if let Some(b) = &self.board {
             // The allow-list and actor shape hold for forwarded rows too;
-            // closure doesn't.
-            b.check_shape(&ev.actor, &ev.kind, &ev.payload)
+            // closure doesn't. A newer Irori's task.* or space.* kind passes.
+            b.check_pulled(&ev.actor, &ev.kind, &ev.payload)
                 .map_err(|e| e.context(format!("{}/{}: ", ev.device_id, ev.seq)))?;
         }
         let last = max_seq(tx, "events", &ev.device_id)?;
@@ -1546,6 +1555,62 @@ impl Inner {
                     ],
                 )?;
                 out.extend(evs);
+            }
+            Ok(out)
+        })
+    }
+
+    fn missing_by_turns(&self, v: &Vector, limit: i64) -> Result<Vec<Event>> {
+        let mut left = if limit <= 0 {
+            DEFAULT_MISSING_LIMIT
+        } else {
+            limit
+        }
+        .min(MAX_MISSING_LIMIT);
+        // Each writer still owed rows: the last seq sent, and its top.
+        let mut turns: Vec<(String, i64, i64)> = self
+            .vector()?
+            .into_iter()
+            .map(|(d, top)| {
+                let from = v.get(&d).copied().unwrap_or(0);
+                (d, from, top)
+            })
+            .filter(|(_, from, top)| top > from)
+            .collect();
+        self.read(move |c| {
+            let mut out = Vec::new();
+            while left > 0 && !turns.is_empty() {
+                // An even share of what's left. A writer with less than its
+                // share leaves the rest to the others next round.
+                let share = (left / turns.len() as i64).max(1);
+                let mut next = Vec::with_capacity(turns.len());
+                for (dev, from, top) in std::mem::take(&mut turns) {
+                    let take = share.min(left);
+                    if take == 0 {
+                        break;
+                    }
+                    let evs = query_events(
+                        c,
+                        &format!(
+                            "SELECT {COLS} FROM events
+			 WHERE device_id = ?1 AND seq > ?2 AND seq <= ?3 ORDER BY seq LIMIT ?4"
+                        ),
+                        &[
+                            Value::Text(dev.clone()),
+                            Value::Integer(from),
+                            Value::Integer(top),
+                            Value::Integer(take),
+                        ],
+                    )?;
+                    let n = evs.len() as i64;
+                    let last = evs.last().map_or(from, |e| e.seq);
+                    out.extend(evs);
+                    left -= n;
+                    if n == take && last < top {
+                        next.push((dev, last, top));
+                    }
+                }
+                turns = next;
             }
             Ok(out)
         })
