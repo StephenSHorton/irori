@@ -7,6 +7,7 @@
 import { cardTone, type Tone } from "@/components/cards/bits"
 import { Face } from "@/components/cards/faces"
 import { Button } from "@/components/ui/button"
+import { Loading } from "@/components/ui/loading"
 import { useBoards, useInvite, type BoardSummary } from "@/lib/boards"
 import { AllSpaces, Personal, boardsInSpace } from "@/lib/spaces"
 import { TaskState, type CardSummary } from "@/lib/cards"
@@ -19,6 +20,7 @@ import { InvitePanel, NewBoardDialog } from "./parts"
 
 export function BoardsPage({
   cards,
+  cardsLoading = false,
   now,
   newBoard,
   onNewBoard,
@@ -27,13 +29,16 @@ export function BoardsPage({
   // The sidebar's space (card #393): only its boards show.
   space?: string
   cards: CardSummary[]
+  // cardsLoading: the cards' first read hasn't landed (the tiles' bars).
+  cardsLoading?: boolean
   now: Date
   // The header's New board dialog is open (card #126).
   newBoard: boolean
   onNewBoard: (open: boolean) => void
 }) {
-  const { boards: all, error, reload } = useBoards()
+  const { boards: all, error, loaded, reload } = useBoards()
   const boards = boardsInSpace(all, space)
+  const first = !loaded || cardsLoading
   const { invite, setInvite } = useInvite(true)
   const inviting = !!invite && invite.state !== ""
   return (
@@ -65,25 +70,33 @@ export function BoardsPage({
           Personal holds no shared boards: your own cards are on Home. Pick
           All spaces or a shared space in the sidebar to see its boards.
         </p>
-      ) : boards.length > 0 ? (
-        <ul
-          className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
-          aria-label="Your boards"
-        >
-          {boards.map((b) => (
-            <BoardTile key={b.boardId} board={b} cards={cards} now={now} />
-          ))}
-        </ul>
       ) : (
-        <div className="grid justify-items-start gap-2">
-          <p className="text-[13px] text-muted-foreground">
-            No boards yet. Make one for a project, then invite people to it;
-            or join one with an invite link someone sent you.
-          </p>
-          <Button size="sm" onClick={() => onNewBoard(true)}>
-            + New board
-          </Button>
-        </div>
+        // Until the first reads of the boards and the cards land (card
+        // #598), the tiles' shape: not "No boards yet", nor empty bars.
+        <Loading loading={first} label="Loading the boards" className="min-w-0">
+          {first ? (
+            <BoardTilesShape />
+          ) : boards.length > 0 ? (
+            <ul
+              className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]"
+              aria-label="Your boards"
+            >
+              {boards.map((b) => (
+                <BoardTile key={b.boardId} board={b} cards={cards} now={now} />
+              ))}
+            </ul>
+          ) : (
+            <div className="grid justify-items-start gap-2">
+              <p className="text-[13px] text-muted-foreground">
+                No boards yet. Make one for a project, then invite people to it;
+                or join one with an invite link someone sent you.
+              </p>
+              <Button size="sm" onClick={() => onNewBoard(true)}>
+                + New board
+              </Button>
+            </div>
+          )}
+        </Loading>
       )}
       <NewBoardDialog
         open={newBoard}
@@ -95,6 +108,54 @@ export function BoardsPage({
         onJoined={setInvite}
       />
     </div>
+  )
+}
+
+// BoardTilesShape is the boards' skeleton: tiles in BoardTile's frame,
+// plain markup with no hooks.
+function BoardTilesShape() {
+  const tiles = [
+    ["MLG", "mlg", "Stephen, Blake, Casey"],
+    ["Netcode", "net", "Stephen, Casey"],
+    ["Irori", "irori", "Stephen"],
+  ]
+  return (
+    <ul className="grid [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))] gap-3">
+      {tiles.map(([name, tag, people]) => (
+        <li key={tag} className="grid content-start gap-2 p-3 glass-panel">
+          <span className="flex items-center gap-2">
+            <span className="block size-2 shrink-0 rounded-full" />
+            <span className="text-sm font-medium text-ink">{name}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {tag}#
+            </span>
+          </span>
+          <span className="text-xs text-muted-foreground">{people}</span>
+          <span className="grid gap-1">
+            <span className="block h-1.5 w-full rounded-full bg-muted" />
+            <span className="text-[11px] text-muted-foreground">
+              2 working · 1 open · 3 done this week
+            </span>
+          </span>
+          <span className="grid gap-1">
+            {["Tune the boost pads", "Lobby sync for the boat race"].map(
+              (t) => (
+                <span key={t} className="flex items-center gap-2 text-[12.5px]">
+                  <span className="block size-5 shrink-0" />
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {tag}#3
+                  </span>
+                  <span className="text-ink-2">{t}</span>
+                </span>
+              )
+            )}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Active 4 min ago
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 

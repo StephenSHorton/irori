@@ -80,8 +80,10 @@ function toStatus(raw: unknown): Status {
  * useUpdater mirrors the backend update state machine. The backend
  * (internal/update) owns the policy: at startup it checks, downloads and
  * verifies a newer release in the background, then stops at "ready" and
- * announces it. It never installs or quits on its own: the user restarts when
- * they like (banner or tray), or the installer runs when Irori quits.
+ * announces it. The user restarts when they like (banner or tray), or the
+ * installer runs when Irori quits. With Keep this device up to date on
+ * (card #578, useKeepUpToDate), it also checks every few hours and restarts
+ * by itself when no agent is working.
  *
  * This hook reads GetStatus() on mount, follows update:status events, and
  * exposes the manual check / restart / dismiss actions. It does not start a

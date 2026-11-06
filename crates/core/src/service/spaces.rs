@@ -8,17 +8,18 @@
 //!
 //! An Irori before spaces refuses a kind it doesn't know, and every later
 //! row of the writer's stream then waits on the gap. So a space writes no
-//! space-only row until every member device has said, in its board hello,
-//! that it reads them (`irori_mesh::boardmesh::SPACES_PROTOCOL`).
+//! space-only row while a member device is known to read less than
+//! `irori_mesh::boardmesh::SPACES_PROTOCOL` (docs/design/no-server.md §5).
 
 use std::collections::BTreeMap;
 
 use coord::ErrorKind as CK;
+use mesh::boardmesh::{DeviceWords, SPACES_PROTOCOL};
 use serde::{Deserialize, Serialize};
 use store::{Filter, kinds};
 
 use super::Services;
-use super::boards::{Error, Result};
+use super::boards::{BoardLog, Error, Result};
 
 /// One board of a space.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,21 +133,20 @@ impl Services {
         Ok(fold_space_boards(own, &rows))
     }
 
-    /// The member devices of space `space_id` not yet heard to read space
-    /// rows, as `person/device` (short ids). Empty: it may write them.
-    pub(crate) fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
-        let b = self.board(space_id)?;
+    /// What's known of each other member device of space `b` (no-server.md
+    /// §5): its latest word is a live hello, else the newer of a saved hello
+    /// and its `board.server` row. All but the live hello need no mesh.
+    pub(crate) fn space_readers(&self, b: &BoardLog) -> Result<SpaceReaders> {
         let ms = b.verifier.membership();
         let me = self.device.id.clone();
-        let mesh = self.mesh.board(space_id);
+        let mesh = self.mesh.board(&b.id);
         let devices: Vec<(String, String)> = match &mesh {
             Some(m) => m
-                .not_ready_for_spaces()
+                .member_devices()
                 .into_iter()
                 .map(|d| (d.person_id, d.device_id))
                 .collect(),
-            // No mesh for it (stopped, or a test without a network): every
-            // other member device counts as unheard.
+            // No mesh for it (stopped, or a test without a network).
             None => ms
                 .members
                 .iter()
@@ -161,6 +161,27 @@ impl Services {
                 })
                 .collect(),
         };
+        let live = mesh.map(|m| m.live_spaces()).unwrap_or_default();
+        let words = DeviceWords::read(&b.store).map_err(|e| Error::other(e.0))?;
+        let mut out = SpaceReaders::default();
+        for (person, dev) in devices {
+            match live.get(&dev).copied().or_else(|| words.spaces(&dev)) {
+                None => out.unheard.push((person, dev)),
+                Some(level) if level < SPACES_PROTOCOL => out.too_old.push((person, dev)),
+                Some(_) => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The member devices of space `space_id` known to be too old for space
+    /// rows, as `person/device` (short ids). Empty: it may write them. One
+    /// nobody has any word from doesn't count: it gets a warning line
+    /// instead ([`SpaceReaders::unheard`]).
+    pub(crate) fn space_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
+        let b = self.board(space_id)?;
+        let ms = b.verifier.membership();
+        let devices = self.space_readers(&b)?.too_old;
         let name = |person: &str| {
             b.verifier
                 .profile(person)
@@ -195,7 +216,10 @@ impl Services {
         if !irori_identity::membership::valid_board_tag(tag) {
             return Err(Error::coord(
                 CK::Invalid,
-                "a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'",
+                format_args!(
+                    "a board tag is a lowercase letter, then lowercase letters, digits or '-', {} characters at most",
+                    irori_identity::membership::MAX_BOARD_TAG
+                ),
             ));
         }
         let b = self.board(space_id)?;
@@ -242,7 +266,7 @@ impl Services {
         if !own.is_empty() {
             return Some(own);
         }
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             if let Ok(bs) = self.space_boards(&b.id)
                 && let Some(x) = bs.iter().skip(1).find(|x| x.tag == tag)
             {
@@ -257,9 +281,19 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
 }
 
+/// [`Services::space_readers`]: the other member devices of a space that
+/// aren't known to read space rows, as (person, device).
+#[derive(Debug, Default)]
+pub(crate) struct SpaceReaders {
+    /// Their latest word is below [`SPACES_PROTOCOL`]: they block.
+    pub(crate) too_old: Vec<(String, String)>,
+    /// No word at all: they don't block, and get a warning line.
+    pub(crate) unheard: Vec<(String, String)>,
+}
+
 /// The version gate's answer (card #392, spaces.md §4): why a space may
-/// not take a space-only row yet, given the member devices not yet heard
-/// to read them (`space_not_ready`); None when it may.
+/// not take a space-only row yet, given the member devices known to be too
+/// old for them (`space_not_ready`); None when it may.
 ///
 /// One gate covers `space.board.*` and a space's `talk.*` rows alike. The
 /// hello's `spaces` (SPACES_PROTOCOL 1) came after Talk 1 marked `talk.*`
@@ -316,16 +350,34 @@ impl Services {
     /// A space log's talk.* row as this device's Talk folds it: keys back
     /// in this device's form, and a channel in the space whose log holds
     /// it whatever its row says. None: not a row Talk folds.
+    ///
+    /// A hidden space's row folds only into its pair's DM: it gets a
+    /// fold-only `dmConv` when every rule of talk-dms.md §4 holds, and any
+    /// other is dropped here (card #538). No row keeps a `dmConv` it
+    /// arrived with, from any log: that field is the one door into a DM.
     pub(crate) fn space_talk_row(&self, space_id: &str, ev: &store::Event) -> Option<store::Event> {
         if !SPACE_TALK_KINDS.contains(&ev.kind.as_str()) {
             return None;
         }
         let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
+        let dm_conv = match self.dm_spaces.get(space_id) {
+            Some(d) => {
+                let m = self.board(space_id).ok()?.verifier.membership();
+                let me = self.person_id();
+                let conv = super::dm_spaces::dm_conv_of(&me, &d, &m, &ev.actor, &ev.kind, &v)?;
+                Some(conv)
+            }
+            None => None,
+        };
         map_talk_keys(&mut v, |k| Some(self.private_key(k))).ok()?;
         // Every row says which space carried it: a channel is made there,
         // and the rest may only touch that space's channels (card #461).
         if let Some(o) = v.as_object_mut() {
+            o.remove("dmConv");
             o.insert("spaceId".into(), space_id.into());
+            if let Some(conv) = dm_conv {
+                o.insert("dmConv".into(), conv.into());
+            }
         }
         let mut out = ev.clone();
         out.payload = serde_json::to_vec(&v).ok()?;
@@ -352,9 +404,47 @@ impl Services {
         }
     }
 
+    /// What a row of hidden space `d` may not be, checked before anything
+    /// else (card #538): `space_talk_row` runs after the append, and a row
+    /// refused there would stay in the log. `board_key` would mint a card
+    /// for an agent's key, so this runs before it too.
+    fn dm_refusal(
+        &self,
+        by: &str,
+        kind: &str,
+        payload: &mut serde_json::Value,
+    ) -> std::result::Result<(), String> {
+        if !coord::talk::is_person_key(by) || !self.chain.is_owner(by) {
+            return Err("only the person writes in a DM with a person".into());
+        }
+        match kind {
+            kinds::TALK_POST => {}
+            kinds::TALK_MEMBER => {
+                if payload.get("op").and_then(|o| o.as_str()) != Some(coord::talk::JOIN) {
+                    return Err("a DM with a person has no leave row".into());
+                }
+                let key = payload
+                    .pointer("/member/key")
+                    .and_then(|k| k.as_str())
+                    .unwrap_or_default();
+                if !coord::talk::is_person_key(key) && !key.starts_with(kinds::PERSON_ACTOR_PREFIX)
+                {
+                    return Err("only the two people are in a DM with a person".into());
+                }
+            }
+            _ => return Err(format!("{kind} never goes in a DM's log")),
+        }
+        // Nobody is woken through one, and no card is minted for a mention.
+        if let Some(m) = payload.get_mut("mentions") {
+            *m = serde_json::Value::Array(Vec::new());
+        }
+        Ok(())
+    }
+
     /// Appends a talk.* row to space `space_id`'s log as `by` (a key on this
     /// device): refused unless the person is an active member and every
-    /// device in the space reads space rows (the version gate).
+    /// device in the space reads space rows (the version gate). A hidden
+    /// space takes only what folds into its DM.
     fn append_space_talk(
         &self,
         space_id: &str,
@@ -364,6 +454,10 @@ impl Services {
     ) -> std::result::Result<store::Event, String> {
         if !SPACE_TALK_KINDS.contains(&kind) {
             return Err(format!("{kind} never goes in a space's log"));
+        }
+        let hidden = self.dm_spaces.get(space_id);
+        if hidden.is_some() {
+            self.dm_refusal(by, kind, &mut payload)?;
         }
         let b = self.board(space_id).map_err(|e| e.to_string())?;
         if !b.verifier.membership().active(&self.person_id()) {
@@ -383,6 +477,21 @@ impl Services {
             }
         })
         .map_err(|e| bad.clone().unwrap_or(e))?;
+        if let Some(d) = &hidden {
+            let (m, me) = (b.verifier.membership(), self.person_id());
+            if super::dm_spaces::dm_conv_of(&me, d, &m, &actor, kind, &payload).is_none() {
+                return Err("that row wouldn't fold into this DM".into());
+            }
+            // An offer carries the whole log, so a pending one stops
+            // growing where a frame stops carrying it.
+            if self.dm_pending(&b, d)
+                && Services::dm_offer_size(&b)? > super::dm_spaces::MAX_PENDING_LOG
+            {
+                return Err(
+                    "this DM hasn't reached them yet, and can't hold more until it does".into(),
+                );
+            }
+        }
         // A post carries the writer's hop, as a board row does (§7.1): the
         // other person's Core wakes their agent at it, so MAX_HOP stops two
         // people's agents naming each other back and forth (card #461).
@@ -471,6 +580,19 @@ impl coord::talk::SpaceLogs for SpaceTalk {
             });
         }
         out
+    }
+
+    fn person_id(&self) -> Option<String> {
+        Some(self.0.upgrade()?.person_id())
+    }
+
+    fn dm_for(&self, other: &str) -> std::result::Result<String, String> {
+        let s = self.0.upgrade().ok_or("the Core is closing")?;
+        s.dm_for(other)
+    }
+
+    fn dm_route(&self, conv: &str) -> Option<String> {
+        self.0.upgrade()?.dm_route(conv)
     }
 }
 

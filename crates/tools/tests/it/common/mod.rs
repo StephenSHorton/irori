@@ -136,6 +136,8 @@ pub struct TestBackend {
     pub talk: Arc<coord::talk::Talk>,
     /// Other members' agents on shared boards (card #478); empty: none.
     pub board_agents: Mutex<Vec<tools::BoardAgent>>,
+    /// Names for keys nothing else names (card #538).
+    pub known: Mutex<BTreeMap<String, String>>,
 }
 
 impl TestBackend {
@@ -190,14 +192,25 @@ impl Backend for TestBackend {
     fn board_agents(&self) -> Vec<tools::BoardAgent> {
         self.board_agents.lock().unwrap().clone()
     }
+    fn known_names(&self) -> BTreeMap<String, String> {
+        self.known.lock().unwrap().clone()
+    }
 }
 
 pub struct Harness {
-    pub _dir: tempfile::TempDir,
     pub clk: Clock,
     pub b: Arc<TestBackend>,
     pub set: Set,
     pub owners: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    pub _dir: tempfile::TempDir,
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.b.st.close();
+    }
 }
 
 pub fn card(key: &str, name: &str, repo: &str, mode: &str) -> presence::AgentCard {
@@ -350,6 +363,7 @@ pub fn new_harness_setup(
         roster,
         talk,
         board_agents: Mutex::new(Vec::new()),
+        known: Mutex::new(BTreeMap::new()),
         st,
         ib,
         co,

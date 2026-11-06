@@ -87,6 +87,8 @@ import {
 } from "@/lib/spaces"
 import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
+import { Loading } from "@/components/ui/loading"
+import { HomeShape, NeedsYouShape } from "@/components/common/loading-shapes"
 import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
 import {
   CommandPalette,
@@ -164,6 +166,13 @@ export function App() {
   )
   const { gone } = useGone()
   const { cards, loading, error } = useCards()
+  // Home and a board's page show their skeleton until the first read of
+  // the cards lands (card #598). The skeleton leaves the tree when they
+  // come, so ?slow in the preview has to hold it here; not with
+  // ?filter=done, so the Closed tab's own skeleton can be seen.
+  const cardsFirst =
+    (loading && cards.length === 0) ||
+    (previewFlag("slow") !== null && previewFlag("filter") !== "done")
   // Home's idle line (card #341): a work shortage or a dispatch gap.
   const idle = useIdleReport(roster.agents)
   const { boards } = useBoards()
@@ -273,9 +282,11 @@ export function App() {
   const [newBoard, setNewBoard] = useState(false)
   // Threads (card #116) live on the Talk page (card #390): a new thread
   // from Home's ask box opens there, as does a thread's #ref.
-  const { threads: threadList } = useThreads(threadsSpace(space))
+  const { threads: threadList, loading: threadsLoading } = useThreads(
+    threadsSpace(space)
+  )
   // Channels and DMs (Talk 1, #389): Talk's list, and its count.
-  const { conversations } = useConversations()
+  const { conversations, loading: conversationsLoading } = useConversations()
   const startedThread = (id: string) => go({ kind: "talk", id })
   const held = useHeld(heldOpen && heldTab === "history")
   // Home's Needs you (card #261): the agents' messages to the person.
@@ -838,6 +849,9 @@ export function App() {
                 <TalkPage
                   threads={threadList}
                   conversations={conversations}
+                  threadsLoading={threadsLoading}
+                  conversationsLoading={conversationsLoading}
+                  desksLoading={!desks.loaded}
                   agents={roster.agents.map((a) => ({
                     key: a.key,
                     name: a.name,
@@ -889,6 +903,7 @@ export function App() {
                   <BoardsPage
                     space={space}
                     cards={cards}
+                    cardsLoading={cardsFirst}
                     now={now}
                     newBoard={newBoard}
                     onNewBoard={setNewBoard}
@@ -908,6 +923,7 @@ export function App() {
                   key={section.id}
                   boardId={section.id}
                   cards={cards}
+                  cardsLoading={cardsFirst}
                   done={done}
                   filter={boardFilter}
                   onFilter={setBoardFilter}
@@ -919,10 +935,16 @@ export function App() {
                   onOpen={openCard}
                   now={now}
                 />
-              ) : loading && cards.length === 0 ? (
-                <p className="px-1 text-sm text-muted-foreground">
-                  Loading cards…
-                </p>
+              ) : cardsFirst ? (
+                // Only the skeleton sits in Loading: around BoardView it
+                // would break the column's scroll (min-h-0 flex-1 chain).
+                <Loading
+                  loading
+                  label="Loading the cards"
+                  className="min-h-0 flex-1"
+                >
+                  <HomeShape />
+                </Loading>
               ) : (
                 <BoardView
                   key={homeScope}
@@ -959,13 +981,21 @@ export function App() {
                     </>
                   }
                   lead={
-                    <NeedsYou
-                      needs={needs}
-                      now={now}
-                      name={name}
-                      onOpenCard={openCard}
-                      onHeld={() => openHeld("")}
-                    />
+                    // Held messages read apart from the cards: until they
+                    // land, "Nothing waits on you" could be false.
+                    !shared && held.loading && needs.length === 0 ? (
+                      <Loading loading label="Loading what needs you">
+                        <NeedsYouShape rows={1} />
+                      </Loading>
+                    ) : (
+                      <NeedsYou
+                        needs={needs}
+                        now={now}
+                        name={name}
+                        onOpenCard={openCard}
+                        onHeld={() => openHeld("")}
+                      />
+                    )
                   }
                   rows
                   listed={needCards}

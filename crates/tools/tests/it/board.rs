@@ -471,7 +471,7 @@ fn test_board_edit() {
         &a,
         "board_edit",
         json!({"task_id": id}),
-        &["title, objective or done_when"],
+        &["title, objective, done_when or repo"],
     );
     h.failsj(
         &a,
@@ -2440,4 +2440,106 @@ fn test_board_block_on_a_version() {
     );
     let board = h.okj(&a, "board", json!({}));
     has(&board, &["Update to v0.11.0"]);
+}
+
+/// Card #600: board_edit sets a card's repo, in the checkout's spelling,
+/// and tells the agent holding it whether it can work it where it is.
+#[test]
+fn test_board_edit_sets_a_cards_repo() {
+    let h = new_harness();
+    let (a, c) = (call_a(), call_c());
+    let co = h.b.co.clone();
+    let id = h.new_card(&grok_caller(), json!({"title": "Sort the board by age"}));
+    assert!(co.get_task(&id).unwrap().repo_key.is_empty());
+    let r = h.short(&id);
+    h.failsj(
+        &c,
+        "board_edit",
+        json!({"task_id": id, "repo": "not a key"}),
+        &["bad repoKey"],
+    );
+    // Gamma works in acme/other; the card is acme/app's: it hands it on.
+    co.claim_task(KEY_C, &id).unwrap();
+    let out = h.okj(
+        &c,
+        "board_edit",
+        json!({"task_id": id, "repo": "remote:github.com/Acme/App"}),
+    );
+    has(
+        &out,
+        &[
+            &format!("Edited {r}"),
+            "You are in another repo",
+            &format!("board_leave {r}"),
+            "a checkout of app",
+        ],
+    );
+    let t = co.get_task(&id).unwrap();
+    assert_eq!(t.repo_key, "remote:github.com/acme/app");
+    let log = format!("{:?}", co.activity(&id).unwrap());
+    has(&log, &["set its repo to app"]);
+    // The same repo again is no change, and no error.
+    h.okj(
+        &c,
+        "board_edit",
+        json!({"task_id": id, "repo": "remote:github.com/acme/app"}),
+    );
+
+    // Alpha works in acme/app: it works it here.
+    let id2 = h.new_card(&grok_caller(), json!({"title": "Thumbnails"}));
+    co.claim_task(KEY_A, &id2).unwrap();
+    let out = h.okj(
+        &a,
+        "board_edit",
+        json!({"task_id": id2, "repo": "remote:github.com/acme/app"}),
+    );
+    has(&out, &["You are in app: work it here, in a worktree."]);
+    assert!(!out.contains("board_leave"), "{out}");
+}
+
+/// Card #600: a card made with no repo takes its parent's, else its
+/// thread's, else the caller's; with none of those it has none.
+#[test]
+fn test_board_create_repo_defaults() {
+    let h = new_harness();
+    let (a, c) = (call_a(), call_c());
+    let co = h.b.co.clone();
+    let repo = |id: &str| co.get_task(id).unwrap().repo_key;
+    // The caller's own.
+    let mine = h.new_card(&c, json!({"title": "In other"}));
+    assert_eq!(repo(&mine), "remote:github.com/acme/other");
+    // A caller with no repo: none, and its agent works it out.
+    let none = h.new_card(&grok_caller(), json!({"title": "Nowhere"}));
+    assert_eq!(repo(&none), "");
+    // A subtask: its parent's, not the caller's.
+    let sub = h.new_card(&a, json!({"title": "A part", "parent": h.short(&mine)}));
+    assert_eq!(repo(&sub), "remote:github.com/acme/other");
+    // From a thread that names a repo: the thread's.
+    let (th, _) =
+        h.b.co
+            .post_ask(
+                "user:dev1",
+                coord::NewAsk {
+                    text: "the parser drops tabs".into(),
+                    repo_key: "remote:github.com/acme/parser".into(),
+                    thread: true,
+                    ..Default::default()
+                },
+                &[],
+            )
+            .unwrap();
+    let tr = h.short(&th.id);
+    h.okj(
+        &a,
+        "board_comment",
+        json!({"task_id": tr, "text": "I'll make a card"}),
+    );
+    let made = h.new_card(&a, json!({"title": "Keep tabs", "from": tr}));
+    assert_eq!(repo(&made), "remote:github.com/acme/parser");
+    // A repo given wins.
+    let given = h.new_card(
+        &a,
+        json!({"title": "Given", "from": tr, "repo": "remote:github.com/acme/app"}),
+    );
+    assert_eq!(repo(&given), "remote:github.com/acme/app");
 }

@@ -89,10 +89,14 @@ export const ThreadsModes = [
 // MaxBoardName mirrors identity.MaxBoardName.
 export const MaxBoardName = 60
 
-// validTag is identity.ValidBoardTag: a lowercase letter, then up to 15
-// lowercase letters, digits or '-'.
+// MaxBoardTag mirrors identity.MAX_BOARD_TAG (card #590): a new board's
+// tag is this long at most, so refs like agility#1234 stay short.
+export const MaxBoardTag = 8
+
+// validTag is identity.valid_board_tag: a lowercase letter, then
+// lowercase letters, digits or '-', MaxBoardTag at most.
 export function validTag(tag: string): boolean {
-  return /^[a-z][a-z0-9-]{0,15}$/.test(tag)
+  return tag.length <= MaxBoardTag && /^[a-z][a-z0-9-]*$/.test(tag)
 }
 
 // suggestTag is a tag from a board's name: its first word, lowercased,
@@ -103,7 +107,7 @@ export function suggestTag(name: string): string {
     .replace(/[^a-z0-9-\s]/g, "")
     .trim()
     .split(/\s+/)[0]
-  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, 16)
+  const t = (word ?? "").replace(/^[^a-z]+/, "").slice(0, MaxBoardTag)
   return validTag(t) ? t : ""
 }
 
@@ -225,7 +229,7 @@ export const boards = {
       throw new Error(`coord: invalid input: a board name is 1 to ${MaxBoardName} characters`)
     if (!validTag(t))
       throw new Error(
-        "coord: invalid input: a board tag is a lowercase letter, then up to 15 lowercase letters, digits or '-'"
+        `coord: invalid input: a board tag is a lowercase letter, then lowercase letters, digits or '-', ${MaxBoardTag} characters at most`
       )
     if (boardsState().some((b) => b.tag === t))
       throw new Error(`coord: invalid input: the tag "${t}" is already a board's`)
@@ -495,10 +499,12 @@ export const boards = {
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.
 
-export type BoardsList = { boards: BoardSummary[]; error: string | null }
+// loaded is false until the window's first read ends, either way (card
+// #598): before it, an empty list is not yet "no boards".
+export type BoardsList = { boards: BoardSummary[]; error: string | null; loaded: boolean }
 
 const listState = {
-  value: { boards: [], error: null } as BoardsList,
+  value: { boards: [], error: null, loaded: false } as BoardsList,
   readers: new Set<() => void>(),
   off: null as (() => void) | null,
   req: 0,
@@ -520,9 +526,9 @@ export async function reloadBoards(): Promise<void> {
   const n = ++listState.req
   let next: BoardsList
   try {
-    next = { boards: await boards.list(), error: null }
+    next = { boards: await boards.list(), error: null, loaded: true }
   } catch (err) {
-    next = { ...listState.value, error: errorText(err) }
+    next = { ...listState.value, error: errorText(err), loaded: true }
   }
   if (n !== listState.req) return
   listState.value = next
@@ -554,10 +560,12 @@ export function boardsNow(): BoardsList {
 export function useBoards(): {
   boards: BoardSummary[]
   error: string | null
+  // loaded: the first read has ended.
+  loaded: boolean
   reload: () => Promise<void>
 } {
-  const { boards: value, error } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
-  return { boards: value, error, reload: reloadBoards }
+  const { boards: value, error, loaded } = useSyncExternalStore(subscribeBoards, boardsNow, boardsNow)
+  return { boards: value, error, loaded, reload: reloadBoards }
 }
 
 // useInvite follows the open (or last) invite while active. An invite that

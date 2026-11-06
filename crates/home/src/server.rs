@@ -443,6 +443,7 @@ impl Server {
             device_id: self.inner.self_id(),
             port,
             public,
+            ..Default::default()
         })
     }
 

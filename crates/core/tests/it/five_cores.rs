@@ -17,6 +17,10 @@ use std::time::Duration;
 
 use common::mesh::{Dev, invited, person, restart};
 use common::wait_for;
+use mesh::boardmesh::{
+    BoardReads, BoardServer, KIND_BOARD_HELLO, KIND_BOARD_SERVER, SPACES_PROTOCOL, SavedHello,
+    saved_hellos,
+};
 use store::Filter;
 use store::kinds;
 
@@ -27,6 +31,30 @@ fn new_task(title: &str) -> coord::NewTask {
         title: title.into(),
         ..Default::default()
     }
+}
+
+/// Whether `d`'s warnings on `board` say a device starting `dev` is unheard.
+fn warned_of(d: &Dev, board: &str, dev: &str) -> bool {
+    d.core
+        .board_list()
+        .iter()
+        .find(|s| s.board_id == board)
+        .is_some_and(|s| {
+            s.warnings
+                .iter()
+                .any(|w| w.starts_with("Nothing heard yet") && w.contains(dev))
+        })
+}
+
+/// Whether `d` has heard a hello from `other` on `board` (saved, so it
+/// holds across restarts) and nothing is too old for spaces. The space
+/// gate no longer waits for an unheard device (card #577), so tests that
+/// need them connected wait on this.
+fn hears(d: &Dev, board: &str, other: &Dev) -> bool {
+    d.core
+        .board_store(board)
+        .is_some_and(|log| saved_hellos(&log).is_ok_and(|h| h.contains_key(other.core.device_id())))
+        && d.core.space_not_ready(board).is_ok_and(|v| v.is_empty())
 }
 
 fn card_on(d: &Dev, board: &str, id: &str) -> Option<coord::Task> {
@@ -493,7 +521,7 @@ fn a_non_member_is_refused() {
     rc.block_on(c1.core.open_board_net(irori_core::BoardParts {
         board_id: board.clone(),
         person_id: pin.person_id.clone(),
-        log,
+        log: log.clone(),
         verifier,
         secrets,
     }))
@@ -512,6 +540,8 @@ fn a_non_member_is_refused() {
         "carol got a board connection to alice"
     );
     assert!(a1.core.net().conns().iter().all(|c| c.peer != c_dev));
+    // Opened by hand, so Carol's Core doesn't close it.
+    log.close().unwrap();
     close(alice.drain(..).chain(bob.drain(..)).chain(carol.drain(..)));
 }
 
@@ -1144,7 +1174,7 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        hears(a1, &space, b1)
     });
 
     // A second board, and a card on it.
@@ -1321,29 +1351,114 @@ fn a_second_board_and_a_channel_in_a_space_reach_bob() {
         .store()
         .append("irori", kinds::PERSON_DEVICE_ADDED, &add)
         .unwrap();
-    wait_for(WAIT, "alice's space waits on bob's old device", || {
-        a1.core
-            .space_not_ready(&space)
-            .unwrap()
-            .iter()
-            .any(|d| d.ends_with("/phanto"))
+    // Nobody has any word from it: it refuses nothing, and shows as a line.
+    wait_for(WAIT, "alice is warned of bob's unheard device", || {
+        warned_of(a1, &space, "phanto")
     });
-    let e = a1
+    assert!(a1.core.space_not_ready(&space).unwrap().is_empty());
+    let unheard = a1
         .core
-        .talk_channel_create_in(&a1.user(), "later", "", &space)
-        .unwrap_err();
-    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
-    let e = a1
-        .core
-        .talk_post(&a1.core.user_sender(), &ch.id, "too soon", &[], false, None)
-        .unwrap_err();
-    assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
-    assert_eq!(a1.core.talk().posts(&ch.id).len(), 2, "nothing written");
+        .talk_channel_create_in(&a1.user(), "unheard", "", &space)
+        .unwrap();
+    assert_eq!(unheard.name, "unheard");
+
+    // Heard too old, it blocks, and it's named.
+    a1.core
+        .board_store(&space)
+        .unwrap()
+        .append_local(
+            "irori",
+            KIND_BOARD_HELLO,
+            &SavedHello {
+                device_id: "phantom-old".into(),
+                core_version: "0.10.2".into(),
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let refused = |d: &Dev| {
+        let e = d
+            .core
+            .talk_channel_create_in(&d.user(), "later", "", &space)
+            .unwrap_err();
+        assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+        let e = d
+            .core
+            .talk_post(&d.core.user_sender(), &ch.id, "too soon", &[], false, None)
+            .unwrap_err();
+        assert!(e.contains("waiting on") && e.contains("phanto"), "{e}");
+        let e = d
+            .core
+            .create_space_board(&space, "Later", "later")
+            .unwrap_err();
+        assert!(e.to_string().contains("phanto"), "{e}");
+        assert_eq!(d.core.talk().posts(&ch.id).len(), 2, "nothing written");
+    };
+    refused(a1);
+    assert!(!warned_of(a1, &space, "phanto"), "known, so not unheard");
     // Personal channels are never gated.
     a1.core
         .talk_channel_create(&a1.user(), "notes", "")
         .unwrap();
-    close(alice.drain(..).chain(bob.drain(..)));
+
+    // A restart forgets nothing it was told.
+    let a1 = restart(alice.remove(0));
+    wait_for(WAIT, "alice's space opens again", || {
+        a1.core.board_store(&space).is_some()
+    });
+    refused(&a1);
+    close(std::iter::once(a1).chain(bob.drain(..)));
+}
+
+/// Card #577: alice's device saves the hello it heard from bob's, so after
+/// a restart, with bob's device off, it knows that device reads spaces and
+/// warns of nothing. Bob's device's own row carries the same word.
+#[test]
+fn a_restart_remembers_a_sleeping_device_and_nothing_refuses() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let space = invited(&alice[0], &bob[0]);
+    let bob_dev = bob[0].core.device_id().to_string();
+    let log = alice[0].core.board_store(&space).unwrap();
+    wait_for(WAIT, "alice saves bob's hello", || {
+        saved_hellos(&log).unwrap().contains_key(&bob_dev)
+    });
+    let saved = saved_hellos(&log).unwrap().remove(&bob_dev).unwrap();
+    assert_eq!(saved.spaces, SPACES_PROTOCOL);
+    assert!(!saved.core_version.is_empty());
+    drop(log);
+    bob[0].core.kick_board(&space);
+    wait_for(WAIT, "bob's row reaches alice", || {
+        let log = alice[0].core.board_store(&space).unwrap();
+        log.list(&Filter {
+            kinds: vec![KIND_BOARD_SERVER.into()],
+            ..Default::default()
+        })
+        .unwrap()
+        .iter()
+        .filter_map(|ev| serde_json::from_slice::<BoardServer>(&ev.payload).ok())
+        .any(|s| s.device_id == bob_dev && s.reads == Some(BoardReads::ours()))
+    });
+
+    close(bob.drain(..));
+    let a1 = restart(alice.remove(0));
+    wait_for(WAIT, "alice's space opens again", || {
+        a1.core.board_store(&space).is_some()
+    });
+    assert!(a1.core.space_not_ready(&space).unwrap().is_empty());
+    assert!(!warned_of(&a1, &space, &bob_dev[..6]), "her word is saved");
+    a1.core
+        .create_space_board(&space, "Netcode", "net")
+        .unwrap();
+    let ch = a1
+        .core
+        .talk_channel_create_in(&a1.user(), "netcode", "", &space)
+        .unwrap();
+    a1.core
+        .talk_post(&a1.core.user_sender(), &ch.id, "hi", &[], false, None)
+        .unwrap();
+    close([a1]);
 }
 
 /// Card #461: Alice's post in her space's channel naming Bob's agent wakes
@@ -1358,7 +1473,7 @@ fn alices_space_post_mentioning_bobs_agent_wakes_it_once() {
     let (a1, b1) = (&alice[0], &bob[0]);
     let space = invited(a1, b1);
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        hears(a1, &space, b1)
     });
     let ch = a1
         .core
@@ -1603,7 +1718,7 @@ fn space_with_a_channel(a1: &Dev, bobs: &[&Dev]) -> (String, String) {
         d.core.kick_board(&space);
     }
     wait_for(WAIT, "alice hears bob read spaces", || {
-        a1.core.space_not_ready(&space).unwrap().is_empty()
+        bobs.iter().all(|d| hears(a1, &space, d))
     });
     let ch = a1
         .core
@@ -1722,4 +1837,922 @@ fn forgetting_a_space_drops_its_channels_at_once() {
         assert!(!talk_lists(a1, &ch.id), "the channel stayed in Talk");
     }
     close(alice.drain(..));
+}
+
+// ---- person-to-person DMs (card #538, docs/design/talk-dms.md) ---------------
+
+/// The spaces `d`'s switcher lists.
+fn in_switcher(d: &Dev) -> Vec<String> {
+    d.core
+        .board_list()
+        .into_iter()
+        .map(|s| s.board_id)
+        .collect()
+}
+
+/// `d`'s DM with `other`, opened: nothing is written.
+fn dm_with(d: &Dev, other: &Dev) -> String {
+    d.core
+        .talk_open_dm(
+            &coord::talk::Member::of(&d.user()),
+            &coord::talk::Member::of(&other.person_actor()),
+            &d.user(),
+        )
+        .unwrap()
+}
+
+fn dm_post(d: &Dev, conv: &str, text: &str) {
+    d.core
+        .talk_post(&d.core.user_sender(), conv, text, &[], false, None)
+        .unwrap();
+}
+
+fn dm_holds(d: &Dev, conv: &str, text: &str) -> bool {
+    d.core
+        .talk_posts(&d.user(), conv, None, 50)
+        .is_ok_and(|ps| ps.iter().any(|p| p.text == text))
+}
+
+fn board_linked(a: &Dev, b: &Dev, board: &str) {
+    let peer = b.core.device_id().to_string();
+    wait_for(WAIT, "the two devices connect on their space", || {
+        a.core
+            .net()
+            .board_conns(board)
+            .iter()
+            .any(|c| c.peer == peer)
+    });
+}
+
+/// §8: Bob is connected before the DM exists, so no hello will come; making
+/// the space walks the live peers of the space they share.
+#[test]
+fn a_dm_starts_with_bob_already_connected() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm, dm_with(b1, a1), "both sides name one conversation");
+    assert_eq!(a1.core.boards().len(), 1, "opening a DM writes nothing");
+    assert!(
+        a1.core
+            .talk_conversations(&a1.user())
+            .unwrap()
+            .iter()
+            .any(|c| c.conv_id == dm && c.name == b1.core.person().name),
+        "an opened DM is listed, by the other person's name"
+    );
+
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads alice's DM", || dm_holds(b1, &dm, "hi bob"));
+    dm_post(b1, &dm, "hi alice");
+    wait_for(WAIT, "alice reads bob's reply", || {
+        dm_holds(a1, &dm, "hi alice")
+    });
+
+    // One space, the two of them, and nothing of it on the space they share.
+    let spaces = a1.core.dm_spaces_with(&b1.core.person().id);
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert_eq!(b1.core.dm_spaces_with(&a1.core.person().id), spaces);
+    assert!(!a1.core.dm_pending(&spaces[0]));
+    assert_eq!(a1.core.board_info(&spaces[0]).unwrap().members.len(), 2);
+    assert!(a1.core.board_rows(&board, kinds::TALK_POST).is_empty());
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: Bob is away when Alice writes. Her post waits in a pending log, and
+/// the hand-off runs when he comes back: his hello on the space they share.
+#[test]
+fn a_dm_to_an_offline_friend_lands_later() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "when you're back");
+    dm_post(a1, &dm, "no rush");
+    let bob_id = b1.core.person().id.clone();
+    let spaces = a1.core.dm_spaces_with(&bob_id);
+    assert_eq!(spaces.len(), 1, "{spaces:?}");
+    assert!(a1.core.dm_pending(&spaces[0]));
+    assert!(
+        dm_holds(a1, &dm, "no rush"),
+        "her own posts read back at once"
+    );
+
+    b1.core.reopen_board_net(&board).unwrap();
+    wait_for(WAIT, "bob's device gets the waiting posts", || {
+        dm_holds(b1, &dm, "when you're back") && dm_holds(b1, &dm, "no rush")
+    });
+    wait_for(WAIT, "the space stops being pending", || {
+        !a1.core.dm_pending(&spaces[0])
+    });
+    dm_post(b1, &dm, "back");
+    wait_for(WAIT, "alice reads him", || dm_holds(a1, &dm, "back"));
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: a device of Alice's that is asleep can't hold a DM's first row
+/// back: the hidden log counts only devices heard to be too old.
+#[test]
+fn a_two_device_person_can_start_a_dm_with_a_phone_asleep() {
+    let mut alice = person("alice", 2);
+    let mut bob = person("bob", 1);
+    let board = invited(&alice[0], &bob[0]);
+    wait_for(WAIT, "the phone opens the space", || {
+        alice[1].core.boards().contains(&board)
+    });
+    let phone = alice.pop().unwrap();
+    phone.core.close().unwrap();
+
+    let (a1, b1) = (&alice[0], &bob[0]);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "the phone can sleep");
+    wait_for(WAIT, "bob reads it", || {
+        dm_holds(b1, &dm, "the phone can sleep")
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: once one of Bob's devices holds the space, the other follows on the
+/// marker and `dm.secret`, is certified, and reads and writes the DM too.
+#[test]
+fn a_second_device_gets_the_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 2);
+    let (a1, b1, b2) = (&alice[0], &bob[0], &bob[1]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "to both of bob");
+    wait_for(WAIT, "b1 reads it", || dm_holds(b1, &dm, "to both of bob"));
+    wait_for(WAIT, "b2 reads it", || dm_holds(b2, &dm, "to both of bob"));
+
+    let alice_id = a1.core.person().id.clone();
+    let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
+    wait_for(WAIT, "b2 has the space's secret", || {
+        b2.core.board_secrets(&id).is_some_and(|s| s.epoch() >= 1)
+    });
+    let b2_dev = b2.core.device_id().to_string();
+    wait_for(WAIT, "the space certifies b2", || {
+        b2.core
+            .board_verifier(&id)
+            .is_some_and(|v| v.cert(&b2_dev).is_some())
+    });
+    assert!(b2.core.is_dm_space(&id), "b2 knows what the space is");
+    assert!(!in_switcher(b2).contains(&id), "and doesn't list it");
+
+    dm_post(b2, &dm, "from the other device");
+    wait_for(WAIT, "alice reads b2", || {
+        dm_holds(a1, &dm, "from the other device")
+    });
+    wait_for(WAIT, "b1 reads b2", || {
+        dm_holds(b1, &dm, "from the other device")
+    });
+    assert_eq!(b2.core.dm_spaces_with(&alice_id), vec![id]);
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8: both write before either hears the other. Two logs, one
+/// conversation, and from then on both write to the same log.
+#[test]
+fn both_first_messages_make_one_conversation() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    a1.core.close_board_net(&board);
+    b1.core.close_board_net(&board);
+
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm_with(b1, a1), dm);
+    dm_post(a1, &dm, "alice first");
+    dm_post(b1, &dm, "bob first");
+    a1.core.reopen_board_net(&board).unwrap();
+    b1.core.reopen_board_net(&board).unwrap();
+    for d in [a1, b1] {
+        wait_for(WAIT, "each side reads both", || {
+            dm_holds(d, &dm, "alice first") && dm_holds(d, &dm, "bob first")
+        });
+    }
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let spaces = a1.core.dm_spaces_with(&bob_id);
+    assert_eq!(spaces.len(), 2, "{spaces:?}");
+    assert_eq!(b1.core.dm_spaces_with(&alice_id), spaces);
+    for d in [a1, b1] {
+        let listed = d.core.talk_conversations(&d.user()).unwrap();
+        assert_eq!(listed.iter().filter(|c| c.conv_id == dm).count(), 1);
+    }
+    wait_for(WAIT, "both spaces stop being pending", || {
+        spaces
+            .iter()
+            .all(|id| !a1.core.dm_pending(id) && !b1.core.dm_pending(id))
+    });
+    let from = |d: &Dev, text: &str| {
+        d.core
+            .talk_post(&d.core.user_sender(), &dm, text, &[], false, None)
+            .unwrap()
+            .post
+            .space
+    };
+    assert_eq!(from(a1, "settled"), spaces[0], "the lowest counted log");
+    assert_eq!(from(b1, "settled too"), spaces[0]);
+    wait_for(WAIT, "each reads the other", || {
+        dm_holds(a1, &dm, "settled too") && dm_holds(b1, &dm, "settled")
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §8, the done test: a DM comes back from disk on both sides and carries
+/// on, and its space is in neither switcher, before or after.
+#[test]
+fn a_dm_survives_a_restart_with_nothing_in_either_switcher() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let board = invited(&alice[0], &bob[0]);
+    board_linked(&alice[0], &bob[0], &board);
+    let dm = dm_with(&alice[0], &bob[0]);
+    dm_post(&alice[0], &dm, "before the restart");
+    wait_for(WAIT, "bob reads it", || {
+        dm_holds(&bob[0], &dm, "before the restart")
+    });
+    let bob_id = bob[0].core.person().id.clone();
+    let id = alice[0].core.dm_spaces_with(&bob_id)[0].clone();
+    assert_eq!(in_switcher(&alice[0]), vec![board.clone()]);
+    assert_eq!(in_switcher(&bob[0]), vec![board.clone()]);
+
+    let a1 = restart(alice.pop().unwrap());
+    let b1 = restart(bob.pop().unwrap());
+    // At once: the markers load before any space opens.
+    assert!(!in_switcher(&a1).contains(&id) && !in_switcher(&b1).contains(&id));
+    wait_for(WAIT, "the DM is back on both sides", || {
+        dm_holds(&a1, &dm, "before the restart") && dm_holds(&b1, &dm, "before the restart")
+    });
+    assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
+    // This harness has no relay: only the invite's addresses cross people,
+    // and those moved with the restart.
+    let direct = |d: &Dev| {
+        let rt = d.core.pairing_runtime().clone();
+        rt.block_on(d.core.net().invite_addr()).unwrap().direct
+    };
+    b1.core.board_addr_hint(a1.core.device_id(), direct(&a1));
+    dm_post(&b1, &dm, "after the restart");
+    wait_for(WAIT, "alice reads it", || {
+        dm_holds(&a1, &dm, "after the restart")
+    });
+    assert_eq!(in_switcher(&a1), vec![board.clone()]);
+    assert_eq!(in_switcher(&b1), vec![board]);
+    assert_eq!(a1.core.dm_spaces_with(&bob_id), vec![id]);
+    close([a1, b1]);
+}
+
+/// §5: Bob founds a DM and writes into it all a space can hold: a card, an
+/// ask, a note, his agent's card, a board inside. Alice's and his own
+/// lists, tools, feeds and refs show none of it, though each log holds it.
+#[test]
+fn nothing_of_a_dm_space_shows_anywhere() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        a1.core.space_not_ready(&board).unwrap().is_empty()
+    });
+    let dm = dm_with(b1, a1);
+    dm_post(b1, &dm, "hello alice");
+    wait_for(WAIT, "alice reads it", || dm_holds(a1, &dm, "hello alice"));
+    let alice_id = a1.core.person().id.clone();
+    let id = b1.core.dm_spaces_with(&alice_id)[0].clone();
+    assert!(a1.core.is_dm_space(&id) && b1.core.is_dm_space(&id));
+    let changes = a1.core.subscribe_boards();
+
+    let co = b1.core.board_coord(&id).unwrap();
+    let bob_key = b1.person_actor();
+    let card = co.create_task(&bob_key, new_task("HIDDEN card")).unwrap();
+    let (ask, _) = b1
+        .core
+        .board_ask(
+            &id,
+            coord::NewAsk {
+                text: "HIDDEN ask".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let note = coord::NewNote {
+        kind: "rule".into(),
+        text: "HIDDEN note".into(),
+        tags: vec!["everywhere".into()],
+        ..Default::default()
+    };
+    co.propose_note(&bob_key, note).unwrap();
+    let agent = b1.core.board_key(&id, &b1.agent).unwrap();
+    let inside = irori_core::new_board_id().unwrap();
+    b1.core
+        .board_store(&id)
+        .unwrap()
+        .append(
+            &bob_key,
+            kinds::SPACE_BOARD_CREATED,
+            &serde_json::json!({"boardId": inside, "name": "HIDDEN", "tag": "inner", "by": bob_key}),
+        )
+        .unwrap();
+    b1.core.kick_board(&id);
+    wait_for(WAIT, "alice's log holds all of it", || {
+        b1.core.kick_board(&id);
+        card_on(a1, &id, &card.id).is_some()
+            && card_on(a1, &id, &ask.id).is_some()
+            && !a1.core.board_rows(&id, kinds::AGENT_CARD).is_empty()
+            && a1.core.space_boards(&id).is_ok_and(|bs| bs.len() == 2)
+            && !a1.core.board_coord(&id).unwrap().notes(false).is_empty()
+    });
+
+    // A card on the shared space is what the same paths do show.
+    let seen = b1
+        .core
+        .board_coord(&board)
+        .unwrap()
+        .create_task(&bob_key, new_task("SEEN card"))
+        .unwrap();
+    b1.core.kick_board(&board);
+    let mut heard = Vec::new();
+    wait_for(WAIT, "the window hears the shared card", || {
+        b1.core.kick_board(&board);
+        while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
+            heard.push(ch.task_id);
+        }
+        heard.contains(&seen.id)
+    });
+    a1.core.sweep_coord().unwrap();
+    while let Ok(Some(ch)) = changes.recv_timeout(Duration::from_millis(100)) {
+        heard.push(ch.task_id);
+    }
+    assert!(
+        !heard.contains(&card.id) && !heard.contains(&ask.id),
+        "{heard:?}"
+    );
+    assert!(
+        a1.core
+            .board_views(&Default::default())
+            .iter()
+            .any(|v| format!("{v:?}").contains("SEEN card")),
+        "the shared card shows"
+    );
+
+    for d in [a1, b1] {
+        assert_eq!(in_switcher(d), vec![board.clone()]);
+        assert!(d.core.board_of(&card.id).is_none());
+        assert!(d.core.route(&card.id).is_err());
+        let (co, _) = d.core.task_coord(&card.id, &[]).unwrap();
+        assert!(co.get_task(&card.id).is_none());
+        assert!(d.core.task_ref("inner#1").is_err());
+        assert_ne!(d.core.task_ref("#1").ok(), Some(card.id.clone()));
+        assert!(d.core.board_roster(&id).is_empty());
+        assert!(d.core.board_agents().iter().all(|a| a.board_id != id));
+        assert!(d.core.board_people().iter().all(|p| p.board_id != id));
+        assert!(d.core.search_notes("HIDDEN", false).is_empty());
+        assert!(d.core.notes(&id, false).is_err());
+        for got in [
+            format!("{:?}", d.core.board_views(&Default::default())),
+            format!("{:?}", d.core.idle_report()),
+            format!("{:?}", d.core.notes("", false)),
+            d.tool("board", serde_json::json!({})),
+            d.tool("overview", serde_json::json!({})),
+            d.tool("agents", serde_json::json!({})),
+        ] {
+            assert!(
+                !got.contains("HIDDEN") && !got.contains(&id) && !got.contains(&agent),
+                "{got}"
+            );
+        }
+        // Nor can an agent name it.
+        for board in [id.as_str(), "inner", "~dm"] {
+            let args = serde_json::json!({"title": "in there", "board": board});
+            let got = d.core.tools().call(
+                &tools::Caller {
+                    sender: inbox::Sender::new(&d.agent, "agent", "claude"),
+                    path: String::new(),
+                },
+                "board_create",
+                &serde_json::to_vec(&args).unwrap(),
+            );
+            let text = format!("{got:?}");
+            assert!(text.contains("no board") || text.contains("Err"), "{text}");
+        }
+        assert!(
+            d.core
+                .board_coord(&id)
+                .unwrap()
+                .list_tasks(&coord::TaskFilter::default())
+                .iter()
+                .all(|t| t.title != "in there")
+        );
+    }
+
+    // Alice's agent hears no ask from it and gets no card on it.
+    let cards = a1.core.board_rows(&id, kinds::AGENT_CARD);
+    assert!(cards.iter().all(|e| e.device_id == b1.core.device_id()));
+    assert!(
+        a1.core
+            .inbox()
+            .list(0)
+            .iter()
+            .all(|d| !d.message.text.contains("HIDDEN")),
+    );
+    // A tag used in there is free out here.
+    a1.core
+        .create_space_board(&board, "Mine", "inner")
+        .expect("a hidden space holds no tag");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// The Core's boards for `bundle::admit` in a test.
+struct TestBoards<'a>(&'a Dev);
+
+impl irori_invite::InviteBoards for TestBoards<'_> {
+    fn open_board(&self, _: &str, _: Option<irori_identity::MemberPin>) -> Result<(), String> {
+        Ok(())
+    }
+    fn board_store(&self, id: &str) -> Option<Arc<store::Store>> {
+        self.0.core.board_store(id)
+    }
+    fn board_verifier(&self, id: &str) -> Option<Arc<irori_identity::BoardVerifier>> {
+        self.0.core.board_verifier(id)
+    }
+    fn board_secrets(&self, id: &str) -> Option<Arc<irori_identity::BoardSecrets>> {
+        self.0.core.board_secrets(id)
+    }
+}
+
+/// `d` as a connection shows it, S saying it is `person`.
+fn live(d: &Dev, person: &str) -> mesh::boardmesh::LivePeer {
+    mesh::boardmesh::LivePeer {
+        device_id: d.core.device_id().to_string(),
+        device_pub: hex::encode(d.core.identity().device_pub()),
+        person_id: person.to_string(),
+        dms: mesh::boardmesh::DMS_PROTOCOL,
+    }
+}
+
+fn frame(id: &str, step: &str, body: serde_json::Value) -> mesh::boardmesh::DmFrame {
+    mesh::boardmesh::DmFrame {
+        board_id: id.to_string(),
+        step: step.to_string(),
+        body,
+    }
+}
+
+/// The proof of `d`'s current key.
+fn proof_of(d: &Dev) -> irori_identity::KeyProof {
+    let pin = d.core.identity().board_pin();
+    d.core
+        .chain()
+        .key_proof(pin.person_epoch, &pin.person_pub)
+        .unwrap()
+}
+
+/// `signer`'s cert for `d`'s device.
+fn cert_by(signer: &Dev, d: &Dev) -> irori_identity::MemberDeviceAdded {
+    let pin = signer.core.identity().board_pin();
+    signer
+        .core
+        .identity()
+        .member_cert_for(
+            pin.person_epoch,
+            d.core.device_id(),
+            &hex::encode(d.core.identity().device_pub()),
+            irori_identity::ROLE_DESKTOP,
+            presence::now_local(),
+        )
+        .unwrap()
+}
+
+/// §8: M, an owner of some space, lists a device of hers as "Bob" there, so
+/// S's word says that device is Bob. Neither her own key nor a replay of
+/// Bob's real pin and chain gets her added; and listed as Alice, her offer
+/// opens nothing on Bob's side.
+#[test]
+fn a_hostile_owner_cant_read_or_forge_a_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut mallory = person("mallory", 1);
+    let (a1, b1, m1) = (&alice[0], &bob[0], &mallory[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "for bob only");
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+
+    let as_bob = live(m1, &bob_id);
+    let real_pin = b1.core.identity().board_pin();
+    let re_rooted = irori_identity::MemberPin {
+        root_device_id: m1.core.device_id().to_string(),
+        ..real_pin.clone()
+    };
+    let m_pin = irori_identity::MemberPin {
+        person_id: bob_id.clone(),
+        ..m1.core.identity().board_pin()
+    };
+    let mut m_cert_as_bob = cert_by(m1, m1);
+    m_cert_as_bob.cert.person_id = bob_id.clone();
+    let mut sig_replayed = cert_by(b1, b1);
+    sig_replayed.cert.device_id = as_bob.device_id.clone();
+    sig_replayed.cert.device_pub = as_bob.device_pub.clone();
+    let tries = [
+        // Her own key, under Bob's id.
+        (m_pin, proof_of(m1), m_cert_as_bob),
+        // Bob's real pin and chain, replayed whole.
+        (real_pin, proof_of(b1), cert_by(b1, b1)),
+        // Re-rooted at her device: the cert still names Bob's.
+        (re_rooted.clone(), proof_of(b1), cert_by(b1, b1)),
+        // Bob's signature moved onto a cert for her device.
+        (re_rooted, proof_of(b1), sig_replayed),
+    ];
+    for (pin, proof, cert) in tries {
+        a1.core.dm_take_frame(
+            &board,
+            &as_bob,
+            frame(
+                &id,
+                "pin",
+                serde_json::json!({"pin": pin, "proof": proof, "cert": cert}),
+            ),
+        );
+        assert!(
+            a1.core
+                .board_rows(&id, kinds::BOARD_MEMBER_ADDED)
+                .is_empty(),
+            "a forged pin was added"
+        );
+    }
+    // Bob's own device, with the same pin, is what those were missing.
+    let good = serde_json::json!({
+        "pin": b1.core.identity().board_pin(),
+        "proof": proof_of(b1),
+        "cert": cert_by(b1, b1),
+    });
+    a1.core
+        .dm_take_frame(&board, &live(b1, &bob_id), frame(&id, "pin", good.clone()));
+    assert_eq!(a1.core.board_rows(&id, kinds::BOARD_MEMBER_ADDED).len(), 1);
+    let sent = a1.core.dm_offers_sent();
+    assert!(sent >= 1, "bob's pin got no offer");
+
+    // After the add, before Bob's `done`: her device claims Bob's own
+    // device id. A device id is only a claim, so the retry wants the key
+    // proven again, and nothing she can send proves it.
+    let mut at_bobs_id = live(m1, &bob_id);
+    at_bobs_id.device_id = b1.core.device_id().to_string();
+    let bobs_pin = b1.core.identity().board_pin();
+    for (proof, cert) in [
+        (proof_of(b1), cert_by(b1, b1)),
+        (proof_of(m1), cert_by(m1, m1)),
+        (proof_of(b1), cert_by(m1, m1)),
+    ] {
+        let body = serde_json::json!({"pin": bobs_pin, "proof": proof, "cert": cert});
+        a1.core
+            .dm_take_frame(&board, &at_bobs_id, frame(&id, "pin", body));
+    }
+    assert_eq!(a1.core.dm_offers_sent(), sent, "an impostor got the offer");
+    // Bob's own device, proving it again, gets the offer rebuilt.
+    a1.core
+        .dm_take_frame(&board, &live(b1, &bob_id), frame(&id, "pin", good));
+    assert_eq!(a1.core.dm_offers_sent(), sent + 1, "the retry sent nothing");
+    assert_eq!(a1.core.board_rows(&id, kinds::BOARD_MEMBER_ADDED).len(), 1);
+
+    // A space M founded, Bob on it, offered with S saying M's device is
+    // Alice: its creator isn't the sender S names.
+    let hers = m1.core.create_board("friendly", "dm-ish").unwrap();
+    let boards = TestBoards(m1);
+    let pin = b1.core.identity().board_pin();
+    let offer =
+        irori_invite::bundle::admit(&boards, m1.core.identity(), &hers, &pin, "bob").unwrap();
+    b1.core.dm_take_frame(
+        &board,
+        &live(m1, &alice_id),
+        frame(
+            &hers,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(m1)}),
+        ),
+    );
+    assert!(!b1.core.boards().contains(&hers), "bob opened a forged DM");
+    assert!(!b1.core.is_dm_space(&hers));
+    assert!(!dm_holds(b1, &dm, "for bob only"));
+    close(
+        alice
+            .drain(..)
+            .chain(bob.drain(..))
+            .chain(mallory.drain(..)),
+    );
+}
+
+/// §8: an offer that fails a check touches nothing: no marker, no log, no
+/// secret. The same offer with the proof it needs goes through, so it is
+/// the check that stopped it.
+#[test]
+fn a_refused_offer_leaves_nothing_on_disk() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut mallory = person("mallory", 1);
+    let (a1, b1, m1) = (&alice[0], &bob[0], &mallory[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "an offer");
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+    let boards = TestBoards(a1);
+    let pin = b1.core.identity().board_pin();
+    let offer = irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "bob").unwrap();
+    let from_alice = live(a1, &alice_id);
+
+    let files = |b: &Dev| {
+        std::fs::read_dir(b.data.join("spaces"))
+            .map(|d| {
+                d.flatten()
+                    .filter(|e| e.file_name().to_string_lossy().starts_with(&id))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    let refused = |body: serde_json::Value| {
+        b1.core
+            .dm_take_frame(&board, &from_alice, frame(&id, "offer", body));
+        assert_eq!(files(b1), 0, "a refused offer left a file");
+        assert!(!b1.core.boards().contains(&id));
+        assert!(!b1.core.is_dm_space(&id), "a refused offer left a marker");
+    };
+    // Another person's proof, no proof, and a secret cut short.
+    refused(serde_json::json!({"bundle": offer, "proof": proof_of(m1)}));
+    refused(serde_json::json!({"bundle": offer}));
+    let mut short = serde_json::to_value(&offer).unwrap();
+    short["secret"] = "c2hvcnQ=".into();
+    refused(serde_json::json!({"bundle": short, "proof": proof_of(a1)}));
+    // Sent by a device this space doesn't certify, though S says it's Alice.
+    b1.core.dm_take_frame(
+        &board,
+        &live(m1, &alice_id),
+        frame(
+            &id,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(a1)}),
+        ),
+    );
+    assert_eq!(files(b1), 0);
+
+    b1.core.dm_take_frame(
+        &board,
+        &from_alice,
+        frame(
+            &id,
+            "offer",
+            serde_json::json!({"bundle": offer, "proof": proof_of(a1)}),
+        ),
+    );
+    assert!(b1.core.boards().contains(&id), "the good offer didn't open");
+    assert!(b1.core.is_dm_space(&id));
+    wait_for(WAIT, "bob reads the post the offer carried", || {
+        dm_holds(b1, &dm, "an offer")
+    });
+    close(
+        alice
+            .drain(..)
+            .chain(bob.drain(..))
+            .chain(mallory.drain(..)),
+    );
+}
+
+/// §8: Alice owns the space, so she can add someone to it. That breaks the
+/// pair: the space's rows stop folding on both sides, whoever writes them,
+/// and the next DM goes in a new space.
+#[test]
+fn a_third_member_cant_touch_a_dm() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let mut carol = person("carol", 1);
+    let (a1, b1, c1) = (&alice[0], &bob[0], &carol[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "just us");
+    wait_for(WAIT, "bob reads it", || dm_holds(b1, &dm, "just us"));
+    let bob_id = b1.core.person().id.clone();
+    let id = a1.core.dm_spaces_with(&bob_id)[0].clone();
+
+    let boards = TestBoards(a1);
+    let pin = c1.core.identity().board_pin();
+    irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "carol").unwrap();
+    wait_for(WAIT, "alice's side stops folding it", || {
+        !dm_holds(a1, &dm, "just us")
+    });
+    wait_for(WAIT, "bob's side stops folding it", || {
+        !dm_holds(b1, &dm, "just us")
+    });
+    let t = b1.core.talk_post(
+        &b1.core.user_sender(),
+        &dm,
+        "this goes elsewhere",
+        &[],
+        false,
+        None,
+    );
+    let t = t.unwrap();
+    assert_ne!(t.post.space, id, "the broken space took a post");
+    close(alice.drain(..).chain(bob.drain(..)).chain(carol.drain(..)));
+}
+
+/// §4: what wouldn't fold is refused before the append, so nothing stays
+/// in the log: an agent's post, a leave, an agent as a member.
+#[test]
+fn a_dm_refuses_what_wouldnt_fold_before_it_writes() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "hello");
+    let id = a1.core.dm_spaces_with(&b1.core.person().id)[0].clone();
+    let count = || {
+        let rows = |k| a1.core.board_rows(&id, k).len();
+        (
+            rows(kinds::TALK_POST),
+            rows(kinds::TALK_MEMBER),
+            rows(kinds::AGENT_CARD),
+        )
+    };
+    let before = count();
+    let user = a1.user();
+    let bob_key = coord::talk::Member::of(&b1.person_actor());
+    let agent = coord::talk::Member::of(&a1.agent);
+    assert!(a1.core.talk_leave(&dm, &bob_key, &user).is_err(), "a leave");
+    assert!(
+        a1.core.talk_join(&dm, &agent, &user).is_err(),
+        "an agent as a member"
+    );
+    let as_agent = inbox::Sender::new(&a1.agent, "agent", "claude");
+    assert!(
+        a1.core
+            .talk_post(&as_agent, &dm, "psst", &[], false, None)
+            .is_err(),
+        "an agent's post"
+    );
+    let out = a1.tool("talk_post", serde_json::json!({"conv": dm, "text": "psst"}));
+    assert!(out.starts_with("Error"), "the tool: {out}");
+    assert_eq!(count(), before, "a refused row stayed in the log");
+
+    // A mention is dropped, and mints no card for the agent it names.
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &dm,
+            "see this",
+            std::slice::from_ref(&a1.agent),
+            true,
+            None,
+        )
+        .unwrap();
+    assert_eq!(count().2, before.2, "a mention minted a card");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §2: an offer carries the whole log, so a pending log stops at what a
+/// frame can carry; the hand-off still goes through with what it holds.
+#[test]
+fn a_pending_dm_stops_at_what_an_offer_can_carry() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    b1.core.close_board_net(&board);
+    let dm = dm_with(a1, b1);
+    let long = "x".repeat(coord::MAX_PERSON_TEXT);
+    let me = a1.core.user_sender();
+    let mut sent = 0;
+    let why = loop {
+        match a1.core.talk_post(&me, &dm, &long, &[], false, None) {
+            Ok(_) => sent += 1,
+            Err(e) => break e,
+        }
+        assert!(sent < 1000, "a pending log took everything");
+    };
+    assert!(why.contains("can't hold more"), "{why}");
+    assert!(sent > 0);
+    b1.core.reopen_board_net(&board).unwrap();
+    wait_for(WAIT, "the big offer lands", || {
+        b1.core
+            .talk_posts(&b1.user(), &dm, None, 200)
+            .is_ok_and(|ps| ps.len() == sent)
+    });
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+/// §2: one person holds at most 4 live DM spaces with another, so the
+/// members of a space can't fill a disk. A space it already holds can be
+/// offered again; a fifth new one can't.
+#[test]
+fn a_person_holds_at_most_four_dm_spaces_with_one_other() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let (alice_id, bob_id) = (a1.core.person().id.clone(), b1.core.person().id.clone());
+    let from_alice = live(a1, &alice_id);
+    let boards = TestBoards(a1);
+    let pin = b1.core.identity().board_pin();
+    let creator = a1.core.identity().board_pin();
+    let offer_one = |n: usize| {
+        let id = a1
+            .core
+            .create_board(&format!("dm {n}"), &format!("dm-{n}"))
+            .unwrap();
+        a1.core.write_dm_marker(&id, &creator, &bob_id).unwrap();
+        let offer =
+            irori_invite::bundle::admit(&boards, a1.core.identity(), &id, &pin, "bob").unwrap();
+        let body = serde_json::json!({"bundle": offer, "proof": proof_of(a1)});
+        b1.core
+            .dm_take_frame(&board, &from_alice, frame(&id, "offer", body.clone()));
+        (id, body)
+    };
+    let mut first = None;
+    for n in 0..4 {
+        let (id, body) = offer_one(n);
+        assert!(b1.core.boards().contains(&id), "offer {n} was refused");
+        first.get_or_insert((id, body));
+    }
+    let (id, _) = offer_one(4);
+    assert!(!b1.core.boards().contains(&id), "a fifth space was taken");
+    assert!(!b1.core.is_dm_space(&id));
+    assert_eq!(b1.core.dm_spaces_with(&alice_id).len(), 4);
+
+    let (id, body) = first.unwrap();
+    b1.core
+        .dm_take_frame(&board, &from_alice, frame(&id, "offer", body));
+    assert!(b1.core.boards().contains(&id), "a held space was dropped");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
+
+#[derive(Default)]
+struct Cards(std::sync::Mutex<Vec<toast::Note>>);
+
+impl notify::Toaster for Cards {
+    fn configure(&self, _: toast::Config) {}
+    fn set_options(&self, _: toast::Options) {}
+    fn post(&self, n: toast::Note) {
+        self.0.lock().unwrap().push(n);
+    }
+    fn close(&self, _: &str) {}
+}
+
+/// §4: a post from the other person rings, once, from the space's own
+/// follower; the person's own post doesn't.
+#[test]
+fn a_dm_from_bob_rings_once_on_alices_device() {
+    let cards = Arc::new(Cards::default());
+    let notes = notify::Notifier::new(notify::Config {
+        toaster: Some(cards.clone()),
+        ..notify::Config::default()
+    });
+    let mut alice = common::mesh::person_with("alice", 1, |_| {
+        let notes = notes.clone();
+        Some(Arc::new(move |o: &mut irori_core::Options| {
+            o.notifier = Some(notes.clone());
+        }) as common::mesh::Edit)
+    });
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    board_linked(a1, b1, &board);
+    let dm = dm_with(a1, b1);
+    assert_eq!(dm_with(b1, a1), dm);
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads it", || dm_holds(b1, &dm, "hi bob"));
+    dm_post(b1, &dm, "hi alice");
+    wait_for(WAIT, "alice reads it", || dm_holds(a1, &dm, "hi alice"));
+    let talk = || -> Vec<String> {
+        let cards = cards.0.lock().unwrap();
+        cards
+            .iter()
+            .filter(|n| n.id.starts_with("talk:"))
+            .map(|n| n.body.clone())
+            .collect()
+    };
+    wait_for(WAIT, "the DM's card", || !talk().is_empty());
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(talk(), ["hi alice"]);
+    close(alice.drain(..).chain(bob.drain(..)));
 }

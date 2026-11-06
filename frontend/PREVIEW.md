@@ -53,8 +53,9 @@ unchanged.
 | `/?gone=1` | items whose agent is gone on cards nobody holds (card #485): `&open=board:task:sample-card-gone-73` shows an amber "Waiting on kestrel (gone)" wait with Hand to an agent beside Stop waiting; `sample-card-gone-74` shows piranha's done check with the amber "Waiting on piranha (gone)" line and Hand to an agent. Home's Needs you (card #520) has a Gone row for #73 ("#73 waits on kestrel (gone)") and #75 (an outside wait piranha raised), each with Hand to an agent and Open #N; #74 shows once, as its done check |
 | `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
 | `/?winddown` | a finished Wind down (card #484): Home's one line "Wound down 43 agents, 23 confirmed · Pause all is on", which opens the dialog with each agent's answer; × dismisses it until the next run. No DM is opened per agent |
+| `/?settings=agents&spawn=limit` | Settings › Agents with a Claude usage limit holding the queue (card #450): caps per device, today's count and cost, then the idle limit, crashes and failed starts in a row (card #576) |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
-| `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on Macbook Pro (this one)", #66 "Waiting: Macbook Pro (this one) is at its cap", #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
+| `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on Macbook Pro (this one)", #66 and #68 "Queued: 1st/2nd for Macbook Pro (this one)" (card #450; the card page leads with it, the sidebar says "2 queued"), #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
 | `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt, with Attach, Logs and Add to allow-list; #62 "Crashed", its agents crashed twice, with Start another agent |
 | `/?spawn=states&open=board:task:sample-card-spawn-on` | Who's on it for an agent Irori started (card #456, sa-2): Attach, Logs, Stop, End, no Revive |
 | `/?newcard` | New card (card #456, sa-5): "A fresh agent" by default on your own board, with the model and effort it starts with; `?newcard&spawn=off` shows "Any free agent" instead |
@@ -93,10 +94,11 @@ unchanged.
 | `/?open=board:task:sample-ask-2` | an ask (the person's prompt to the room) an agent took: status line, Close, the thread |
 | `/?open=board:task:sample-ask-1` | an ask the agents heard and nobody has taken yet |
 | `/?filter=done` | the Done tab: closed cards, the latest first (a closed ask shows what it became) |
-| `/?slow#card/sample-card-1` | a card's page while the card loads |
+| `/?slow#card/sample-card-1` | a card's page while the card loads: the header from the grid's tile, the body a skeleton in the page's shape (card #598) |
+| `?slow` on any row | every loading spot on its skeleton (card #598): Home, the Closed tab, Notifications, Notes, Boards, Talk's lists, a thread's answers and a channel's posts, and the Settings panes. Skeletons follow the theme in light and dark, and hold still under Reduce Motion |
 | `/#card/sample-card-gone` | a card's page for a card that isn't there |
 
-`?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts`. An open
+`?devices`, `?boards`, `?share`, `?settings`, `?update`, `?from` and `?filter` live in `src/lib/preview.ts`; `?slow` in `src/lib/cards.ts` (the card never arrives) and `src/components/ui/loading.tsx` (every `Loading` stays on its skeleton). An open
 card's page is `#card/<id>` in the address (`/#card/sample-card-4` opens it
 too); its Back, Esc and the browser's back return to the grid.
 
@@ -118,6 +120,12 @@ the width through DevTools' device emulation and fails if the page doesn't
 see 390.
 
 ## Screenshots
+
+With the preview running, `bun scripts/loading-shots.ts` saves each loading
+skeleton (card #598) in dark and light, with and without Reduce Motion, to
+`frontend/preview-shots/loading/`; `SHOT_LOADED=1` shoots the loaded pages
+to compare, `SHOT_FRAMES=25` adds frames for a GIF of the shimmer.
+
 
 With the preview running, `sh scripts/preview-shots.sh` (Git Bash) saves
 PNGs of every row above to `frontend/preview-shots/` (gitignored) using the

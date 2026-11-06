@@ -71,6 +71,7 @@ pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::notes::{SCOPE_MINE, ScopedNote};
 pub use crate::service::spaces::{SpaceBoard, fold_space_boards};
 pub use crate::service::spawn;
+pub use crate::service::spawn_limits;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};

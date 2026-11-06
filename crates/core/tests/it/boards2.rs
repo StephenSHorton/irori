@@ -305,6 +305,9 @@ fn two_peoples_cores_sync_a_shared_board_on_its_own_connection() {
     });
     a.close().unwrap();
     b.close().unwrap();
+    // Opened by hand, so the Cores don't close them.
+    ba.log.close().unwrap();
+    bb.log.close().unwrap();
 }
 
 /// Card #580: Alice writes to the shared board and closes at once;
@@ -534,4 +537,7 @@ fn a_gossip_announcement_pulls_through_a_members_relay() {
     });
     a.close().unwrap();
     b.close().unwrap();
+    // Opened by hand, so the Cores don't close them.
+    ba.log.close().unwrap();
+    bb.log.close().unwrap();
 }

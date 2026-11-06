@@ -144,3 +144,16 @@
         transform: translateX(410%);
     }
 }
+
+/* Loading skeletons (components/ui/loading.tsx, card #598): drawn from the
+   theme's own ink, so every theme and both modes get theirs. The shimmer is
+   a soft sheen of the page colour in light, of the ink in dark. */
+:root {
+    --skullet-base: color-mix(in oklab, var(--foreground) 8%, transparent);
+    --skullet-highlight: color-mix(in oklab, var(--background) 60%, transparent);
+    --skullet-radius: 5px;
+}
+:root.dark {
+    --skullet-base: color-mix(in oklab, var(--foreground) 9%, transparent);
+    --skullet-highlight: color-mix(in oklab, var(--foreground) 7%, transparent);
+}

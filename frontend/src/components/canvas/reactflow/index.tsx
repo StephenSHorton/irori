@@ -1,10 +1,15 @@
 // The Board's canvas on React Flow (@xyflow/react; picked on card #80,
-// shipped on #93). Nodes are React components, so a card here is the
-// grid's own card body (StatePill, Faces, ProgressBar). Pan, zoom, drag,
-// minimap and controls come built in. A dragged card keeps its spot in
-// coord (onPlace) and its blockers move with it; each group is a box drawn
-// behind its cards, sized to them as they move. Agents can be moved for a
-// look, but their spots aren't kept.
+// shipped on #93, made a map of who's doing what on #587). Nodes are React
+// components, so a card here is the grid's own card body (StatePill, Faces,
+// ProgressBar) with its markers on top. Pan, zoom, drag, minimap and
+// controls come built in. A dragged card keeps its spot in coord (onPlace)
+// and its blockers move with it; each area (an agent's hub, the cards
+// nobody is on, done) is a box drawn behind its members, sized to them as
+// they move. Agents can be moved for a look, but their spots aren't kept.
+//
+// Motion (card #587): a working agent pulses, its holder lines flow, talk
+// lines between agents flow, and a card that changes hands flashes once.
+// None of it runs under Reduce Motion.
 
 import "@xyflow/react/dist/style.css"
 import "./flow.css"
@@ -31,10 +36,13 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { useMedia, useNarrow } from "@/lib/media"
+import { useReducedMotion } from "@/lib/motion"
+import { cn } from "@/lib/utils"
 
 import {
   followers,
   groupRects,
+  handOffs,
   type AgentNode,
   type BlockerNode,
   type CanvasProps,
@@ -44,8 +52,9 @@ import {
   type GroupNode,
   type Layout,
   type Point,
+  type Rect,
 } from "../data"
-import { AgentBody, BlockerBody, CardBody, openTarget, toneVar } from "../node"
+import { AgentBody, BlockerBody, CardBody, CardMarkers, openTarget, toneVar } from "../node"
 
 type CardData = { n: CardNode }
 type BlockerData = { n: BlockerNode }
@@ -59,7 +68,8 @@ function CardNodeView({ data, selected }: NodeProps<Node<CardData>>) {
     <>
       <Handle type="target" position={Position.Top} id="top" className={hidden} />
       <Handle type="target" position={Position.Left} id="left" className={hidden} />
-      <Handle type="target" position={Position.Right} id="right" className={hidden} />
+      <Handle type="target" position={Position.Bottom} id="below" className={hidden} />
+      <CardMarkers n={data.n} />
       <CardBody n={data.n} selected={selected} />
       <Handle type="source" position={Position.Bottom} id="bottom" className={hidden} />
     </>
@@ -70,7 +80,7 @@ function BlockerNodeView({ data }: NodeProps<Node<BlockerData>>) {
   return (
     <>
       <BlockerBody n={data.n} />
-      <Handle type="source" position={Position.Left} id="left" className={hidden} />
+      <Handle type="source" position={Position.Top} id="top" className={hidden} />
     </>
   )
 }
@@ -78,16 +88,33 @@ function BlockerNodeView({ data }: NodeProps<Node<BlockerData>>) {
 function AgentNodeView({ data }: NodeProps<Node<AgentData>>) {
   return (
     <>
+      <Handle type="target" position={Position.Left} id="talk-in" className={hidden} />
       <AgentBody n={data.n} />
+      <Handle type="source" position={Position.Bottom} id="bottom" className={hidden} />
       <Handle type="source" position={Position.Right} id="right" className={hidden} />
     </>
   )
 }
 
+// An area's box: an agent's hub plain, the cards nobody is on in amber
+// (what nobody is working shows from across the canvas), done faint.
+const areaLook: Record<GroupNode["by"], { box: string; label: string }> = {
+  agent: { box: "border-border/70 bg-foreground/[0.02]", label: "text-muted-foreground" },
+  unheld: { box: "border-warning/60 bg-warning/[0.04]", label: "text-warning" },
+  others: { box: "border-border/40 bg-transparent", label: "text-muted-foreground" },
+  done: { box: "border-border/40 bg-transparent opacity-70", label: "text-muted-foreground/70" },
+}
+
 function GroupNodeView({ data }: NodeProps<Node<GroupData>>) {
+  const look = areaLook[data.n.by]
   return (
-    <div className="h-full w-full border border-dashed border-border/70 bg-foreground/[0.02]">
-      <span className="absolute top-2 left-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+    <div className={cn("h-full w-full border border-dashed", look.box)}>
+      <span
+        className={cn(
+          "absolute top-2 left-3 text-xs font-medium tracking-wide uppercase",
+          look.label
+        )}
+      >
         {data.n.label}
       </span>
     </div>
@@ -103,8 +130,8 @@ const nodeTypes = {
   group: GroupNodeView,
 }
 
-// toNodes is every card, blocker and agent at its spot (groups are drawn
-// from these on each render, see groupNodes).
+// toNodes is every card, blocker and agent at its spot (areas are drawn
+// from these on each render, see groupNodes). Done cards are faded.
 function toNodes(graph: Graph, layout: Layout): Node[] {
   const out: Node[] = []
   for (const n of graph.nodes) {
@@ -112,11 +139,12 @@ function toNodes(graph: Graph, layout: Layout): Node[] {
     const p = layout.pos[n.id]
     const s = layout.size[n.id]
     if (!p || !s) continue
+    const faded = n.kind === "card" && n.done
     out.push({
       id: n.id,
       type: n.kind,
       position: p,
-      style: { width: s.w, height: s.h },
+      style: { width: s.w, height: s.h, ...(faded ? { opacity: 0.45 } : {}) },
       data: { n },
       // A blocker follows its card.
       draggable: n.kind !== "blocker",
@@ -125,11 +153,11 @@ function toNodes(graph: Graph, layout: Layout): Node[] {
   return out
 }
 
-// groupNodes is a box behind each group's cards, where they sit now.
-function groupNodes(graph: Graph, layout: Layout, nodes: Node[]): Node[] {
+// groupNodes is a box behind each area's members, where they sit now.
+function groupNodes(graph: Graph, layout: Layout, anchor: Record<string, Rect>, nodes: Node[]): Node[] {
   const pos: Record<string, Point> = {}
   for (const n of nodes) pos[n.id] = n.position
-  const rects = groupRects(graph, pos, layout)
+  const rects = groupRects(graph, pos, layout, anchor)
   const out: Node[] = []
   for (const g of graph.nodes) {
     if (g.kind !== "group") continue
@@ -155,33 +183,101 @@ function groupNodes(graph: Graph, layout: Layout, nodes: Node[]): Node[] {
   return out
 }
 
-const edgeStyle: Record<GraphEdge["kind"], { stroke: string; dash?: string; animated?: boolean }> = {
-  subtask: { stroke: "var(--muted-foreground)" },
-  blocker: { stroke: "var(--destructive)", dash: "4 4" },
-  holder: { stroke: "var(--primary)", animated: true },
-  watcher: { stroke: "var(--border)", dash: "2 4" },
+const edgeStyle: Record<GraphEdge["kind"], { stroke: string; dash?: string; opacity: number }> = {
+  subtask: { stroke: "var(--muted-foreground)", opacity: 0.8 },
+  blocker: { stroke: "var(--destructive)", dash: "4 4", opacity: 0.9 },
+  holder: { stroke: "var(--primary)", opacity: 0.55 },
+  watcher: { stroke: "var(--muted-foreground)", dash: "2 4", opacity: 0.2 },
+  talk: { stroke: "var(--info)", dash: "6 4", opacity: 0.9 },
 }
 
-function toEdges(graph: Graph): Edge[] {
+const handlesFor: Record<GraphEdge["kind"], { sourceHandle: string; targetHandle: string }> = {
+  subtask: { sourceHandle: "bottom", targetHandle: "left" },
+  blocker: { sourceHandle: "top", targetHandle: "below" },
+  holder: { sourceHandle: "bottom", targetHandle: "top" },
+  watcher: { sourceHandle: "right", targetHandle: "left" },
+  talk: { sourceHandle: "right", targetHandle: "talk-in" },
+}
+
+// toEdges is every line. still: Reduce Motion is on, so nothing flows.
+// A holder line flows while its agent works; a talk line always flows.
+// A holder line inside its agent's hub (the box says it) and a watcher
+// line wait for a hover (see Canvas), so the map isn't a web.
+export function toEdges(graph: Graph, still: boolean): Edge[] {
+  const working = new Set(
+    graph.nodes
+      .filter((n): n is AgentNode => n.kind === "agent" && (n.tone === "working" || n.tone === "job"))
+      .map((n) => n.id)
+  )
   return graph.edges.map((e) => {
     const s = edgeStyle[e.kind]
-    const handles =
-      e.kind === "subtask"
-        ? { sourceHandle: "bottom", targetHandle: "left" }
-        : e.kind === "blocker"
-          ? { sourceHandle: "left", targetHandle: "right" }
-          : { sourceHandle: "right", targetHandle: "left" }
+    const flows =
+      !still && (e.kind === "talk" || (e.kind === "holder" && working.has(e.source)))
     return {
       id: e.id,
       source: e.source,
       target: e.target,
-      ...handles,
-      type: e.kind === "subtask" ? "smoothstep" : "default",
-      animated: s.animated,
-      style: { stroke: s.stroke, strokeDasharray: s.dash, strokeWidth: 1.5 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: s.stroke, width: 16, height: 16 },
+      ...handlesFor[e.kind],
+      type: e.kind === "subtask" || e.kind === "holder" ? "smoothstep" : "default",
+      animated: flows,
+      hidden: e.kind === "watcher" || !!e.inHub,
+      label: e.label,
+      labelStyle: e.label ? { fill: "var(--info)", fontSize: 11 } : undefined,
+      labelBgStyle: e.label ? { fill: "var(--card)" } : undefined,
+      zIndex: e.kind === "talk" ? 5 : 0,
+      style: {
+        stroke: s.stroke,
+        strokeDasharray: s.dash,
+        strokeWidth: e.kind === "talk" ? 2 : 1.5,
+        opacity: s.opacity,
+      },
+      markerEnd:
+        e.kind === "talk"
+          ? undefined
+          : { type: MarkerType.ArrowClosed, color: s.stroke, width: 16, height: 16 },
     }
   })
+}
+
+function holders(graph: Graph): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const n of graph.nodes) if (n.kind === "card") m.set(n.id, n.group)
+  return m
+}
+
+// useFlash is the cards that just changed hands, for a moment (card
+// #587); none under Reduce Motion.
+function useFlash(graph: Graph, still: boolean): ReadonlySet<string> {
+  const last = useRef<Map<string, string> | null>(null)
+  const [flash, setFlash] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    const prev = last.current
+    last.current = holders(graph)
+    if (!prev || still) return
+    const moved = handOffs(prev, graph)
+    if (moved.length) setFlash(new Set(moved))
+  }, [graph, still])
+  // Cleared on its own clock, so a graph change in the meantime can't
+  // leave a card flashing.
+  useEffect(() => {
+    if (!flash.size) return
+    const t = window.setTimeout(() => setFlash(new Set()), 1600)
+    return () => window.clearTimeout(t)
+  }, [flash])
+  return flash
+}
+
+// FitWhileUntouched fits the whole map again as areas come and go (the
+// cards arrive in more than one load, so the first fit can catch only a
+// few), until the person pans or zooms: from then on the view is theirs.
+function FitWhileUntouched({ areas, touched }: { areas: string; touched: { current: boolean } }) {
+  const { fitView } = useReactFlow()
+  useEffect(() => {
+    if (touched.current) return
+    const t = window.setTimeout(() => void fitView({ padding: 0.08 }), 50)
+    return () => window.clearTimeout(t)
+  }, [areas, fitView, touched])
+  return null
 }
 
 // KeepCenter holds the middle of the view still when the canvas changes
@@ -239,30 +335,48 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
     [graph, onPlace]
   )
 
-  // Agent lines cross the whole board, so they stay faint until you hover
-  // an agent or a card it is on.
+  const still = useReducedMotion()
+  const flash = useFlash(graph, still)
+
+  // Hover an agent or a card to bring its lines to the front, full
+  // strength, and fade the rest a little.
   const [hover, setHover] = useState<string | null>(null)
-  const base = useMemo(() => toEdges(graph), [graph])
+  const base = useMemo(() => toEdges(graph, still), [graph, still])
   const edges = useMemo(
     () =>
-      base.map((e) => {
-        const agentLine = e.source.startsWith("agent:")
-        const lit = hover !== null && (e.source === hover || e.target === hover)
-        if (!agentLine && !lit) return e
-        return {
-          ...e,
-          animated: lit && e.animated,
-          zIndex: lit ? 10 : 0,
-          style: { ...e.style, opacity: lit ? 1 : 0.1 },
-        }
-      }),
+      hover === null
+        ? base
+        : base.map((e) => {
+            const lit = e.source === hover || e.target === hover
+            const o = Number(e.style?.opacity ?? 1)
+            return {
+              ...e,
+              hidden: lit ? false : e.hidden,
+              zIndex: lit ? 10 : e.zIndex,
+              style: { ...e.style, opacity: lit ? 1 : o * 0.5 },
+            }
+          }),
     [base, hover]
   )
+  const shown = useMemo(
+    () =>
+      flash.size
+        ? nodes.map((n) => (flash.has(n.id) ? { ...n, className: "irori-handoff" } : n))
+        : nodes,
+    [nodes, flash]
+  )
   const all = useMemo(
-    () => [...groupNodes(graph, layout, nodes), ...nodes],
-    [graph, layout, nodes]
+    () => [...groupNodes(graph, layout, auto.groups, nodes), ...shown],
+    [graph, layout, auto.groups, nodes, shown]
   )
   const placed = graph.nodes.some((n) => n.kind === "card" && n.card.pos)
+  const touched = useRef(false)
+  // What the map is made of: its areas and how many cards each holds.
+  const areas = useMemo(() => {
+    const count = new Map<string, number>()
+    for (const n of graph.nodes) if (n.kind === "card") count.set(n.group, (count.get(n.group) ?? 0) + 1)
+    return [...count].sort().map(([g, c]) => `${g}:${c}`).join(",")
+  }, [graph])
   // A touch screen (card #227): a finger pans and pinches, so nodes don't
   // drag (a pan that starts on a card would move it), and a phone has no
   // room for the minimap.
@@ -276,8 +390,13 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
-        onNodeMouseEnter={(_, n) => setHover(n.id)}
+        onNodeMouseEnter={(_, n) => setHover(n.type === "group" ? null : n.id)}
         onNodeMouseLeave={() => setHover(null)}
+        // An event means the person moved the view (fitView moves it too,
+        // without one).
+        onMoveStart={(e) => {
+          if (e) touched.current = true
+        }}
         onNodeClick={(_, node) => {
           const n = (node.data as { n: { kind: string; id: string; card?: string } }).n
           const id = openTarget(n)
@@ -285,8 +404,8 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         }}
         colorMode="dark"
         fitView
-        fitViewOptions={{ padding: 0.12 }}
-        minZoom={0.15}
+        fitViewOptions={{ padding: 0.08 }}
+        minZoom={0.1}
         maxZoom={1.75}
         nodesConnectable={false}
         nodesDraggable={!touch}
@@ -310,6 +429,7 @@ export default function Canvas({ graph, layout, auto, onOpen, onPlace, full, onF
         )}
         <Controls showInteractive={false} />
         <KeepCenter />
+        <FitWhileUntouched areas={areas} touched={touched} />
       </ReactFlow>
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
       {placed && (

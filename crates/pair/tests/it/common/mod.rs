@@ -32,7 +32,6 @@ pub const HELLO: Duration = Duration::from_millis(30);
 
 pub struct Dev {
     pub name: String,
-    _tmp: tempfile::TempDir,
     pub dir: PathBuf,
     pub net: FakeNet,
     pub ident: Arc<Identity>,
@@ -45,6 +44,8 @@ pub struct Dev {
     window: Duration,
     stop: Option<CancellationToken>,
     task: Option<JoinHandle<()>>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: tempfile::TempDir,
 }
 
 impl Dev {
@@ -138,6 +139,8 @@ impl Drop for Dev {
         if let Some(c) = self.stop.take() {
             c.cancel();
         }
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.st.close();
     }
 }
 

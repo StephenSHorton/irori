@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 struct Host {
     port: u16,
     stop: CancellationToken,
+    core: Arc<irori_core::Core>,
 }
 
 impl Host {
@@ -33,13 +34,15 @@ impl Host {
         let stop = CancellationToken::new();
         let s = stop.clone();
         tokio::spawn(async move { server.serve(ln, s).await });
-        Host { port, stop }
+        Host { port, stop, core }
     }
 }
 
 impl Drop for Host {
     fn drop(&mut self) {
         self.stop.cancel();
+        // Tasks and threads may still hold the store: close it so its files can go.
+        let _ = self.core.close();
     }
 }
 

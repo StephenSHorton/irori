@@ -727,6 +727,13 @@ impl Capture {
         v
     }
 
+    /// The repo key of the repo folder `dir` is in ("" outside one or when
+    /// git can't tell), by the same resolver the rest of capture uses
+    /// (card #600: is a card's Where in the card's repo?).
+    pub fn repo_key_of(&self, dir: &str) -> String {
+        (self.inner.opts.repo_key)(dir)
+    }
+
     /// The worktree roots other linked devices have seen for `repo_key`,
     /// as (device id, root), sorted (card #493: never spawned in here).
     pub fn roots_elsewhere(&self, repo_key: &str) -> Vec<(String, String)> {

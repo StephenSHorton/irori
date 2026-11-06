@@ -366,6 +366,7 @@ impl Dev {
             transport: Arc::new(self.net.clone()),
             own_devices: None,
             files: Some(self.files.clone()),
+            dms: None,
         });
         m.set_intervals(iv);
         hook(&m);
@@ -682,6 +683,67 @@ async fn after_a_removal_the_old_topic_closes_once_every_member_moved() {
         d.net.close().await;
     }
     let _ = (&alice.dir, &bob.dir, &carol.dir);
+}
+
+/// Card #577 (no-server.md §5): a hello is saved, so a mesh opened again
+/// with the other device gone still counts it for spawns; a device nobody
+/// heard still holds spawns up, and a live hello is a word for spaces.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_saved_hello_counts_for_spawns_and_an_unheard_device_still_waits() {
+    let alice_p = Person::new("a-alice-pc");
+    let creator = alice_p.pin();
+    let mut alice = Dev::with_person(alice_p, &creator);
+    let mut bob = Dev::new("b-bob-mac", &creator);
+
+    let a_cert = alice.self_cert();
+    let created = alice.create_board();
+    let added = alice.add_member(&bob.person);
+    let b_cert = bob.self_cert();
+    bob.take(&[a_cert, created, added]);
+    alice.take(std::slice::from_ref(&b_cert));
+
+    let mut secret = [0u8; 32];
+    getrandom::fill(&mut secret).unwrap();
+    alice.secrets.add(1, &alice.id, &secret).unwrap();
+    bob.secrets.add(1, &alice.id, &secret).unwrap();
+
+    alice.open().await;
+    assert_eq!(
+        alice.mesh().not_ready_for_spawns().len(),
+        1,
+        "bob isn't heard yet"
+    );
+    assert!(alice.mesh().live_spaces().is_empty());
+
+    let (pa, pb) = (alice.peer_addr().await, bob.peer_addr().await);
+    alice.net.set_board_peers(BOARD, vec![pb.clone()]);
+    bob.net.set_board_peers(BOARD, vec![pa]);
+    bob.open().await;
+    alice.mesh().recheck();
+    eventually("alice hears bob", || {
+        alice.mesh().not_ready_for_spawns().is_empty()
+    })
+    .await;
+    assert_eq!(
+        alice.mesh().live_spaces().get(&bob.id),
+        Some(&mesh::boardmesh::SPACES_PROTOCOL)
+    );
+    let saved = mesh::boardmesh::saved_hellos(&alice.log).unwrap();
+    assert_eq!(saved[&bob.id].core_version, "0.6.0-test");
+    assert_eq!(saved[&bob.id].spawns, mesh::boardmesh::SPAWNS_PROTOCOL);
+
+    // Bob goes away and Alice's mesh opens again: nothing live, the hello
+    // is still known.
+    bob.mesh().close();
+    bob.net.close().await;
+    alice.mesh().close();
+    alice.open().await;
+    assert!(alice.mesh().heard().is_empty(), "nothing heard this time");
+    assert!(alice.mesh().live_spaces().is_empty());
+    assert!(alice.mesh().not_ready_for_spawns().is_empty());
+
+    alice.mesh().close();
+    alice.net.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

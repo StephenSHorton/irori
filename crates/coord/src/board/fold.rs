@@ -246,8 +246,8 @@ pub struct Fold {
     pub(crate) spawning: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// See [`super::Options::offers`].
     pub(crate) offers: Option<super::OffersFn>,
-    /// See [`super::Options::agents_per_card`].
-    pub(crate) agents_per_card: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
+    /// See [`super::Options::crash_limit`].
+    pub(crate) crash_limit: Option<Arc<dyn Fn() -> i64 + Send + Sync>>,
     /// See [`super::Options::outside_leases`].
     pub(crate) outside_leases: Option<Arc<dyn Fn() -> Vec<String> + Send + Sync>>,
     /// See [`super::Options::device_version`].
@@ -293,6 +293,8 @@ pub struct Fold {
     /// Spawned agents Irori ended itself (End, or done): they leave their
     /// card as finished, not gone (a crash).
     pub(crate) ended_by_irori: HashSet<String>,
+    /// Of those, the ones it ended on a Claude usage limit (card #450).
+    pub(crate) usage_limited: HashSet<String>,
     /// (agent, card) pairs already told that the agent isn't answering
     /// (card #110), while it still isn't.
     pub(crate) mute_told: HashSet<(String, String)>,
@@ -343,6 +345,11 @@ pub struct Fold {
     pub(crate) asks: AskBook,
     pub(crate) stale: Arc<RwLock<StaleMap>>,
     pub(crate) links: Vec<ParentLink>,
+    /// A row changed what [`Fold::relink`] derives parents and subtasks
+    /// from: the link rows, which cards exist, or an ask's being open. The
+    /// next rows of a catch-up page read those fields, so such a row relinks
+    /// at once (card #567). A plain row only moves rollups.
+    pub(crate) links_moved: bool,
     pub(crate) pins: HashMap<String, PinRec>,
     /// Done cards the person cleared from the window (card #138), by id,
     /// with the row that last set it. Any id: a board card's too.
@@ -366,6 +373,15 @@ pub struct Fold {
     pub(crate) review_before_block: HashSet<String>,
     /// Each card's linked PRs as GitHub last said they stand (card #208).
     pub(crate) pr_states: super::prstate::PrStates,
+    /// pr.state rows waiting on their card's holder or wait (card #548).
+    pub(crate) pr_ahead: Vec<Event>,
+    /// Who a card's pr.state rows count from, ever (card #548): each
+    /// holder's key, for any PR, and each merge wait's raiser, for its PR
+    /// (empty PR: any). It only grows, so a row is taken in any order
+    /// against the holder's leave or the wait's answer.
+    pub(crate) pr_vouchers: HashMap<String, Vec<(String, String)>>,
+    /// `pr_vouchers` grew since kept rows were last looked at.
+    pub(crate) pr_vouched: bool,
     /// Merge desks by repo key (card #415).
     pub(crate) desks: BTreeMap<String, super::desk::Desk>,
 }
@@ -424,7 +440,7 @@ impl Fold {
             sides: crate::sides::Sides::new(),
             spawning: o.spawning,
             offers: o.offers,
-            agents_per_card: o.agents_per_card,
+            crash_limit: o.crash_limit,
             outside_leases: o.outside_leases,
             device_version: o.device_version,
             outside_waits: Default::default(),
@@ -449,6 +465,7 @@ impl Fold {
             spawned: HashMap::new(),
             spawned_keys: Arc::new(RwLock::new(HashSet::new())),
             ended_by_irori: HashSet::new(),
+            usage_limited: HashSet::new(),
             mute_told: HashSet::new(),
             idle_told: HashMap::new(),
             comments: HashMap::new(),
@@ -481,6 +498,7 @@ impl Fold {
             asks: AskBook::default(),
             stale: Arc::new(RwLock::new(StaleMap::default())),
             links: Vec::new(),
+            links_moved: false,
             pins: HashMap::new(),
             archived: HashMap::new(),
             paused: HashMap::new(),
@@ -491,6 +509,9 @@ impl Fold {
             deleted: HashSet::new(),
             review_before_block: HashSet::new(),
             pr_states: Default::default(),
+            pr_ahead: Vec::new(),
+            pr_vouchers: HashMap::new(),
+            pr_vouched: false,
             desks: BTreeMap::new(),
         }
     }
@@ -560,6 +581,10 @@ impl Fold {
                 }
                 if ev.kind == kinds::AGENT_GONE && r.reason == "finished" {
                     self.ended_by_irori.insert(k.clone());
+                }
+                if ev.kind == kinds::AGENT_GONE && r.reason == super::spawn::GONE_USAGE_LIMIT {
+                    self.ended_by_irori.insert(k.clone());
+                    self.usage_limited.insert(k.clone());
                 }
                 if ev.kind == kinds::AGENT_GONE {
                     self.gone_rows.insert(k, gotime::hlc_wall(ev.hlc));
@@ -631,20 +656,31 @@ impl Fold {
     /// Folds one row, then any rows the take lock and the board's
     /// references kept back that it lets through now.
     pub(crate) fn apply(&mut self, ev: &Event) {
+        self.apply_row(ev);
+        if !self.replaying {
+            self.relink();
+        }
+    }
+
+    /// [`Fold::apply`] short of the relink.
+    pub(crate) fn apply_row(&mut self, ev: &Event) {
         self.fold(ev);
         if let Some(p) = row::<TaskIdRow>(&ev.payload) {
             self.sync_offer_stale(&p.task_id);
         }
         self.fold_deferred();
         self.retry_aside();
-        if !self.replaying {
-            self.relink();
-        }
+        // After both: a claim either let through may be the holder a kept
+        // pr.state row waited for (card #548), and replay has no tick.
+        self.retry_pr_ahead();
     }
 
     pub(crate) fn fold(&mut self, ev: &Event) {
         if !self.writer_ok(ev) {
-            self.ignore(&ev.device_id);
+            // A kept pr.state row isn't refused yet (card #548).
+            if !self.hold_pr_row(ev) {
+                self.ignore(&ev.device_id);
+            }
             return;
         }
         if !self.aside_gate(ev) {
@@ -657,6 +693,14 @@ impl Fold {
             }
             return;
         }
+        self.fold_kind(ev);
+        if let Some(p) = row::<TaskIdRow>(&ev.payload) {
+            self.note_pr_vouchers(&p.task_id);
+        }
+    }
+
+    /// Folds one row the writer rules, the aside and the take lock let in.
+    fn fold_kind(&mut self, ev: &Event) {
         let wall = gotime::hlc_wall(ev.hlc);
         let at = |t: GoTime| if t.is_zero() { wall } else { t };
         match ev.kind.as_str() {
@@ -1148,7 +1192,6 @@ impl Fold {
             side: crate::sides::clean(&p.side),
             own_side: crate::sides::clean(&p.side),
             from: p.from.clone(),
-            agents: p.agents.clamp(0, super::MAX_AGENTS_PER_CARD),
             ..Task::default()
         };
         self.fold_ask_created(&mut task, p.ask.as_ref(), ev, &p.by);
@@ -1165,6 +1208,7 @@ impl Fold {
                 .is_some_and(|pt| self.may_spawn_on(pt, &ev.device_id));
         self.sync_pin(&mut task);
         self.tasks.insert(p.task_id.clone(), task);
+        self.links_moved = true;
         if !p.parent.is_empty() {
             self.fold_parent(&p.task_id, &p.parent, ev);
         }
@@ -1247,6 +1291,7 @@ impl Fold {
                 a.outcome = None;
             }
             self.asks.closed_at.remove(&t.id);
+            self.links_moved = true;
         } else if t.open_ask().is_some() {
             let o = p.outcome.clone().unwrap_or_else(|| Outcome {
                 kind: super::asks::OUTCOME_NONE.into(),
@@ -2018,7 +2063,7 @@ impl Fold {
         p == kp(&t.created_by) || self.board_owner.as_ref().is_some_and(|f| f(&p, at))
     }
 
-    fn sweeper_ok(&self, ev: &Event) -> bool {
+    pub(crate) fn sweeper_ok(&self, ev: &Event) -> bool {
         let Some(p) = row::<TaskIdRow>(&ev.payload) else {
             return false;
         };
@@ -2039,17 +2084,19 @@ impl Fold {
             // whoever holds the card.
             // A row ahead of its card waits beside it (card #542): rows come
             // device by device, and nothing writes a settled PR's row again.
-            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|t| {
-                t.holders
-                    .iter()
-                    .chain(&t.co_holders)
-                    .any(|h| self.may_write(h, &ev.device_id))
-                    || row::<PrStateRow>(&ev.payload).is_some_and(|r| {
-                        t.blockers.iter().any(|b| {
-                            b.merge_wait().as_deref() == Some(r.pr.as_str())
-                                && self.may_write(&b.raised_by, &ev.device_id)
-                        })
+            // One ahead of the card's holder or wait is kept and looked at
+            // again (card #548, `hold_pr_row`).
+            // Card #548: anyone who ever held it or raised the wait, so the
+            // row counts whether it folds before or after they went.
+            kinds::PR_STATE => self.tasks.get(&p.task_id).is_none_or(|_| {
+                let pr = row::<PrStateRow>(&ev.payload)
+                    .map(|r| r.pr)
+                    .unwrap_or_default();
+                self.pr_vouchers.get(&p.task_id).is_some_and(|vs| {
+                    vs.iter().any(|(for_pr, key)| {
+                        (for_pr.is_empty() || *for_pr == pr) && self.may_write(key, &ev.device_id)
                     })
+                })
             }),
             // A wait that ended by itself (a lease released, card #339)
             // closes from a device of the person whose agent raised it:
@@ -2062,6 +2109,18 @@ impl Fold {
             // A spawned agent's request and mark (card #455): from a device
             // of the card's author, which spawn_writer_ok checks itself.
             kinds::TASK_SPAWN | kinds::TASK_SPAWNED => true,
+            // Irori's line on a card about its spawned agent (ended on a
+            // usage limit, no hand-off, a kept worktree; card #576): from a
+            // device of the card's author, the only one that runs its agent.
+            kinds::TASK_COMMENT => {
+                let (Some(kp), Some(dp)) = (&self.key_person, &self.dev_person) else {
+                    return false;
+                };
+                self.tasks.get(&p.task_id).is_some_and(|t| {
+                    let author = kp(&t.created_by);
+                    !author.is_empty() && author == dp(&ev.device_id)
+                })
+            }
             // Binding a spawned agent assigns the card to it: from a device
             // of the card's author, and only to the agent marked as started
             // for this card in this log.

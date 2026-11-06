@@ -14,6 +14,9 @@
 //!   home relay isn't connected either.
 //! - **Removed**: an owner took this person off; their copy stays here
 //!   and nothing they write counts.
+//! - **Nothing heard** (no-server.md §5): a member device nobody here has
+//!   any word from. It doesn't hold up a write, so it could wake too old
+//!   to read one.
 //!
 //! [`board_warnings`] is pure; [`Services::board_status`] gathers its
 //! input from the board, its mesh and the endpoint.
@@ -59,6 +62,8 @@ pub struct BoardStatusInput {
     pub settled: bool,
     /// What each member device last said ([`mesh::BoardMesh::heard`]).
     pub heard: Vec<PeerHeard>,
+    /// The member devices with no word on what they read.
+    pub unheard: Vec<String>,
     /// This device's board vector.
     pub vector: BTreeMap<String, i64>,
     /// The writers this device stopped taking ([`mesh::BoardMesh::stalled`]).
@@ -172,6 +177,14 @@ pub fn board_warnings(i: &BoardStatusInput) -> Vec<String> {
         }
     }
 
+    // Devices nobody has word from.
+    for d in &i.unheard {
+        out.push(format!(
+            "Nothing heard yet from {}: if its Irori is old, it may stall until it updates",
+            i.device(d)
+        ));
+    }
+
     // This device, stalled. One line per person, after the same wait as
     // the line others show about it, so a passing refusal doesn't flash.
     let stall = STALL_AFTER.as_millis() as i64;
@@ -267,6 +280,10 @@ impl Services {
         let mesh = self.mesh.board(&b.id);
         let heard = mesh.as_ref().map(|x| x.heard()).unwrap_or_default();
         let stalled = mesh.as_ref().map(|x| x.stalled()).unwrap_or_default();
+        let unheard = self
+            .space_readers(b)
+            .map(|r| r.unheard.into_iter().map(|(_, d)| d).collect())
+            .unwrap_or_default();
         board_warnings(&BoardStatusInput {
             tag: m.tag.clone(),
             version: self.version.clone(),
@@ -283,6 +300,7 @@ impl Services {
             public: net.public_relays(),
             settled: b.opened.elapsed() >= REACH_GRACE,
             heard,
+            unheard,
             vector: b.store.vector().unwrap_or_default(),
             stalled,
             now_ms: std::time::SystemTime::now()
@@ -340,6 +358,7 @@ mod tests {
             spaces: 0,
             spawns: 0,
             synced_ms: 0,
+            dms: 0,
             tolerant: 0,
         }
     }
@@ -433,6 +452,21 @@ mod tests {
         b.at_ms = NOW - 300_000;
         i.heard = vec![b, c];
         assert!(board_warnings(&i).is_empty());
+    }
+
+    /// Card #577: a device with no word gets a line naming it, whoever's
+    /// it is.
+    #[test]
+    fn a_device_nobody_has_heard_gets_a_line() {
+        let mut i = base();
+        i.unheard = vec!["b1".into(), "a1".into()];
+        assert_eq!(
+            board_warnings(&i),
+            [
+                "Nothing heard yet from Blake's device b1: if its Irori is old, it may stall until it updates",
+                "Nothing heard yet from your device a1: if its Irori is old, it may stall until it updates",
+            ]
+        );
     }
 
     #[test]

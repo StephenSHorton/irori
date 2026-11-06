@@ -114,8 +114,9 @@ const SINCE_GO: [&str; 24] = [
 /// cursors, card #389; agents' faces, card #407; the merge desk's rows,
 /// card #415; the person's picture, card #393; the notification
 /// history, card #377; spawned agents, card #446; the sides a device
-/// runs, card #494; spawning across the person's devices, card #455).
-const SINCE_GO_REFUSED: [&str; 23] = [
+/// runs, card #494; spawning across the person's devices, card #455; a
+/// hidden DM space's marker, card #538).
+const SINCE_GO_REFUSED: [&str; 24] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -139,7 +140,12 @@ const SINCE_GO_REFUSED: [&str; 23] = [
     kinds::NOTIFICATION_POSTED,
     kinds::NOTIFICATION_READ,
     kinds::DEVICE_SIDES,
+    kinds::DM_SPACE_JOINED,
 ];
+
+/// Device-local kinds added after the Go port: the last hello this device
+/// heard from each other device on a board (card #577).
+const SINCE_GO_LOCAL: [&str; 1] = [kinds::BOARD_HELLO];
 
 #[test]
 fn kinds_registry_matches_go() {
@@ -152,7 +158,14 @@ fn kinds_registry_matches_go() {
         assert_eq!(store::kind_side(k), Side::Replicated, "{k}");
         assert!(!store::board_accepted(k), "{k}");
     }
-    let since_go = |k: &str| SINCE_GO.contains(&k) || SINCE_GO_REFUSED.contains(&k);
+    for k in SINCE_GO_LOCAL {
+        assert_eq!(store::kind_side(k), Side::Local, "{k}");
+        assert!(store::is_local(k), "{k}");
+        assert!(!store::board_accepted(k), "{k}");
+    }
+    let since_go = |k: &str| {
+        SINCE_GO.contains(&k) || SINCE_GO_REFUSED.contains(&k) || SINCE_GO_LOCAL.contains(&k)
+    };
     let sides: BTreeMap<String, String> = REGISTRY
         .iter()
         .filter(|e| !since_go(e.kind))
@@ -294,11 +307,12 @@ fn v3_migration_matches_go() {
 // ------------------------------------------------------------ script replay
 
 struct Replay {
-    dir: tempfile::TempDir,
     rel: &'static str,
     board: bool,
     ver: Arc<FakeVerifier>,
     s: Option<Store>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    dir: tempfile::TempDir,
 }
 
 impl Replay {

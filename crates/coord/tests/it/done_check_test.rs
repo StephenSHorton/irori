@@ -683,3 +683,26 @@ fn done_after_not_done_withdraws_the_reason() {
     assert_eq!(e.c.get_task(&t.id).unwrap().state, COMPLETED);
     assert!(e.c.sent_back(&t.id).is_none());
 }
+
+/// Card #548: a card waiting on the person's Done is past hearing its PR
+/// merged: the agent has already completed it.
+#[test]
+fn a_card_waiting_on_done_is_no_pr_news() {
+    const PR: &str = "https://github.com/a/b/pull/7";
+    let e = env();
+    let t = claimed(&e);
+    e.c.add_link(ALICE, &t.id, PR).unwrap();
+    e.c.record_pr_state(
+        &t.id,
+        PrCheck {
+            pr: PR.into(),
+            state: PR_MERGED.into(),
+            ..PrCheck::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(e.c.pr_news().len(), 1);
+    e.c.set_task_state(ALICE, &t.id, COMPLETED, "landed")
+        .unwrap();
+    assert!(e.c.pr_news().is_empty());
+}
