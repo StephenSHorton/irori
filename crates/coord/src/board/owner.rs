@@ -125,7 +125,7 @@ impl Fold {
     ) -> Result<(Task, Blocker)> {
         let by = trim_space(by).to_string();
         if !self.on_board {
-            return Err(invalid("only a card on a shared board changes owner"));
+            return Err(invalid("only a card in a shared space changes owner"));
         }
         if !self.is_owner(&by) {
             return Err(not_allowed("only a person offers a card or asks for it"));
@@ -146,7 +146,7 @@ impl Fold {
         let to = to.strip_prefix(kinds::PERSON_ACTOR_PREFIX).unwrap_or(to);
         let (op, person, decides, q, cx) = if me == owner {
             if to.is_empty() || to == owner {
-                return Err(invalid("offer the card to another member of the board"));
+                return Err(invalid("offer the card to another member of the space"));
             }
             (
                 OP_OFFER,

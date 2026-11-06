@@ -98,7 +98,7 @@ export function PermissionsSection({
           className="text-[13px]"
         />
         <p className="text-[12.5px] text-muted-foreground">
-          On a shared board, or when a card quotes someone else, an agent never
+          In a shared space, or when a card quotes someone else, an agent never
           runs without asking: it gets the checks, git and Irori rules instead.
           {choice !== BYPASS && (
             <>
@@ -209,7 +209,7 @@ function PermissionsShape() {
       <span className="text-sm font-medium text-ink">Permissions</span>
       <span skullet-block="" className="block h-7 w-[220px] rounded-lg" />
       <p className="text-[12.5px] text-muted-foreground">
-        On a shared board, or when a card quotes someone else, an agent never
+        In a shared space, or when a card quotes someone else, an agent never
         runs without asking: it gets the checks, git and Irori rules instead.
       </p>
       <div className="grid gap-1.5">

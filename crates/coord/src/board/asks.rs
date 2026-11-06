@@ -260,10 +260,11 @@ impl Fold {
             } else {
                 a.board.clone()
             },
-            channel: if self.on_board || !a.thread {
-                String::new()
-            } else {
+            // A space's thread names its channel too (card #558).
+            channel: if a.thread {
                 clean_channel(&a.channel)
+            } else {
+                String::new()
             },
             ..Ask::default()
         });
@@ -816,7 +817,7 @@ impl Fold {
         }
         let at = self.stamp();
         let id = new_id(&at);
-        let num = self.next_short();
+        let num = self.next_short("");
         // A device with no agents of its own (the phone) leaves the ask to
         // one of the person's computers (card #408): its roster may be
         // hours old when it posts, and it sleeps right after.
@@ -850,10 +851,10 @@ impl Fold {
                         input.board.trim().to_string()
                     },
                     owner: if delegated { owner } else { String::new() },
-                    channel: if self.on_board || !input.thread {
-                        String::new()
-                    } else {
+                    channel: if input.thread {
                         clean_channel(&input.channel)
+                    } else {
+                        String::new()
                     },
                 }),
                 side,

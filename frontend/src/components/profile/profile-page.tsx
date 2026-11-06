@@ -217,7 +217,7 @@ export function ProfilePage({
               ) : (
                 <>
                   Others see your name, colour and picture everywhere you
-                  share: boards, channels, DMs. Your agents wear the colour as
+                  share: spaces, channels, DMs. Your agents wear the colour as
                   a stripe.
                   {!color && " With no pick, each friend's screen picks one none of their devices wear."}
                 </>
@@ -230,7 +230,7 @@ export function ProfilePage({
           <div className="glass-panel grid gap-1 p-3">
             {friends.length === 0 ? (
               <p className="px-1 text-xs text-muted-foreground">
-                Nobody yet. Invite someone to a board and they show here.
+                Nobody yet. Invite someone to a space and they show here.
               </p>
             ) : (
               friends.map((f) => (
@@ -297,7 +297,7 @@ export function ProfilePage({
               note={
                 b.members.length > 1
                   ? `Shared ${withLine(b.members.filter((m) => !m.me).map((m) => plainLine(m.name)))}. Who's in, and what reaches your agents from them, is set once here, not per board.`
-                  : "Only you so far. Invite someone from its board page."
+                  : "Only you so far. Invite someone from Space settings."
               }
             />
           ))}

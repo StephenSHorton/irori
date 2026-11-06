@@ -89,13 +89,10 @@ impl Fold {
         };
         let mut seen = BTreeSet::new();
         for (tag, n) in card_refs(text) {
-            let mut hits = self.tasks.values().filter(|t| {
-                t.short == n && tag.as_ref().is_none_or(|g| *g == t.tag) && t.ask.is_none()
-            });
-            let (Some(t), None) = (hits.next(), hits.next()) else {
+            let [t] = self.short_hits(tag.as_deref().unwrap_or(""), &n)[..] else {
                 continue;
             };
-            if is_terminal(&t.state) || !seen.insert(t.id.clone()) {
+            if t.ask.is_some() || is_terminal(&t.state) || !seen.insert(t.id.clone()) {
                 continue;
             }
             for h in t.holders.iter().chain(&t.co_holders) {

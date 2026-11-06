@@ -938,6 +938,41 @@ fn a_space_row_only_touches_its_own_spaces_channels() {
     assert!(t.posts("ch_mine")[0].card.is_none());
 }
 
+/// Two people make a card from one post while apart (card #558): the later
+/// row is the link on every device, whichever order the rows arrive in.
+#[test]
+fn a_posts_card_link_follows_row_order_not_arrival() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "general", "").unwrap();
+    let p = post(&t, &c.id, USER, "worth a card");
+    let link = |dev: &str, hlc: u64, task: &str| store::Event {
+        device_id: dev.into(),
+        seq: 1,
+        hlc: hlc::Timestamp(hlc),
+        actor: USER.into(),
+        kind: kinds::TALK_CARD.into(),
+        payload: serde_json::to_vec(
+            &serde_json::json!({"postId": p.post_id, "taskId": task, "by": USER}),
+        )
+        .unwrap(),
+        sig: Vec::new(),
+    };
+    let t0 = hlc_at(fixed_now()) + (1 << 30);
+    let (early, late) = (
+        link("dev-b", t0, "t-early"),
+        link("dev-c", t0 + 1, "t-late"),
+    );
+    assert!(t.apply(&late));
+    assert!(!t.apply(&early), "an earlier row doesn't take the link");
+    assert_eq!(t.posts(&c.id)[0].card.as_deref(), Some("t-late"));
+
+    let other = talk(&e);
+    assert!(other.apply(&early));
+    assert!(other.apply(&late));
+    assert_eq!(other.posts(&c.id)[0].card.as_deref(), Some("t-late"));
+}
+
 /// Space logs for person DMs (card #538): the Core's side, as far as Talk
 /// sees it. `dm_for` picks `space`; each row comes back with the spaceId
 /// and dmConv the Core stamps, keys as written.

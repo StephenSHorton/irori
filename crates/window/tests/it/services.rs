@@ -280,7 +280,7 @@ fn ask_with_a_file_lands_on_the_card() {
     let e =
         r.w.ask("Anyone?", "", false, &[], "no-such-board", &[])
             .unwrap_err();
-    assert!(e.contains("no such board"), "{e}");
+    assert!(e.contains("no such space"), "{e}");
     let res =
         r.w.ask("See the picture", "", false, &[f], "", &[])
             .unwrap();
