@@ -370,6 +370,7 @@ impl Services {
                 | Why::AtCap { .. }
                 | Why::Elsewhere { .. }
                 | Why::NoDevice { .. }
+                | Why::NoComputer(_)
                 | Why::AgentStartsFull { .. },
             ) => {}
             Some(w) => return Err(w.to_string()),
@@ -405,7 +406,12 @@ impl Services {
         self.asks_kick.kick();
         logf(format_args!("spawn {r}: {caller} asked for an agent"));
         let next = match &why {
-            Some(w @ (Why::AtCap { .. } | Why::NoDevice { .. } | Why::Elsewhere { .. })) => {
+            Some(
+                w @ (Why::AtCap { .. }
+                | Why::NoDevice { .. }
+                | Why::NoComputer(_)
+                | Why::Elsewhere { .. }),
+            ) => {
                 format!(" {w}.")
             }
             _ => String::new(),

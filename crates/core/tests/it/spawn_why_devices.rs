@@ -372,6 +372,22 @@ fn a_card_for_an_offline_device_waits_for_it() {
         assert_eq!(a.core.why_no_agent(&t.id, true), offline);
         std::thread::sleep(Duration::from_millis(50));
     }
+    // An agent asking for one (card #575) is queued, not refused, and told
+    // what it waits on.
+    let c = tools::Caller {
+        sender: inbox::Sender::new(&a.agent, "alpha", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    let args = serde_json::json!({ "task_id": t.id });
+    let out = a
+        .core
+        .tools()
+        .call(&c, "agent_start", &serde_json::to_vec(&args).unwrap())
+        .unwrap();
+    assert!(
+        out.contains("Asked for an agent") && out.contains(&format!("{b_name} is offline")),
+        "{out}"
+    );
 }
 
 /// A has one slot and nothing running. An older card goes to B (A
