@@ -2134,6 +2134,8 @@ impl Services {
         // colour (card #385) or an avatar (card #393): the board shows the
         // newest of each. The GitHub login (card #625) once this device's gh
         // has said it: members' merge desks show this person's PRs by it.
+        // A profile that has one keeps it, so two devices signed in to
+        // different accounts don't take turns rewriting it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
         let had = v.profile_github_login(&me.id);
@@ -2142,12 +2144,12 @@ impl Services {
             .is_none_or(|n| n != self.ident.current().name)
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
-            || (!login.is_empty() && !login.eq_ignore_ascii_case(&had))
+            || (had.is_empty() && !login.is_empty())
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
-            prof.github_login = if login.is_empty() { had } else { login };
+            prof.github_login = if had.is_empty() { login } else { had };
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
         }
         Ok(())

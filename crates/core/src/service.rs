@@ -3996,7 +3996,9 @@ impl Services {
 
     /// The GitHub logins whose PRs are ours (card #625): the person's own
     /// and each active member's of the spaces they are active in, as each
-    /// member's profile says. Lower case, once each.
+    /// member's profile says. Lower case, once each. A hidden DM space's
+    /// rows reach nobody here (card #538), so its other member doesn't
+    /// count through it.
     fn people_logins(&self) -> Vec<String> {
         let mut out = std::collections::BTreeSet::new();
         let own = self.own_github_login();
@@ -4004,7 +4006,7 @@ impl Services {
             out.insert(own.to_ascii_lowercase());
         }
         let me = self.person_id();
-        for b in self.shown_boards() {
+        for b in self.visible_boards() {
             let m = b.verifier.membership();
             if !m.active(&me) {
                 continue;
@@ -4037,7 +4039,10 @@ impl Services {
     /// What says which repos are the person's (card #625). `lister` also
     /// searches GitHub for each login's PRs, at most every
     /// [`crate::deskwatch::AUTHORED_EVERY`].
-    fn desk_evidence(&self, lister: Option<&dyn crate::deskwatch::PrLister>) -> crate::deskmap::RepoEvidence {
+    fn desk_evidence(
+        &self,
+        lister: Option<&dyn crate::deskwatch::PrLister>,
+    ) -> crate::deskmap::RepoEvidence {
         let logins = self.people_logins();
         let mut pr_repos: Vec<String> = Vec::new();
         // The ledger: PRs the person's agents opened (gh pr create).

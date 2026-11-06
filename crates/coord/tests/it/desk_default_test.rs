@@ -263,9 +263,6 @@ fn a_desk_the_core_has_not_judged_yet_counts() {
     let d = e.c.desk(new).unwrap();
     assert!(d.on() && !d.stray, "not judged yet: it counts");
     // Its next pass judges both.
-    assert!(!e.c.judge_desk_repos(
-        [REPO_A.to_string(), new.to_string()],
-        Vec::<String>::new()
-    ));
+    assert!(!e.c.judge_desk_repos([REPO_A.to_string(), new.to_string()], Vec::<String>::new()));
     assert!(e.c.desk(new).unwrap().stray);
 }

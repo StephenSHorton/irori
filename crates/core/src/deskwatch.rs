@@ -297,14 +297,20 @@ impl DeskWatch {
     /// The person's GitHub login as `lister` says, asked once per run.
     /// "" while it can't be learned.
     pub(crate) fn viewer(&self, lister: &dyn PrLister) -> String {
-        let mut v = self.viewer.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(login) = v.as_ref() {
+        if let Some(login) = self
+            .viewer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             return login.clone();
         }
+        // gh runs unlocked: it may take its whole timeout, and the desk page
+        // and the profile writer read [`Self::known_viewer`] meanwhile.
         match lister.viewer() {
             Ok(login) if !login.trim().is_empty() => {
                 let login = login.trim().to_string();
-                *v = Some(login.clone());
+                *self.viewer.lock().unwrap_or_else(|e| e.into_inner()) = Some(login.clone());
                 login
             }
             _ => String::new(),
