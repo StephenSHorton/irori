@@ -761,6 +761,18 @@ impl Fold {
         )
     }
 
+    /// An item id another device can't pick too (card #570): `b3-k7q2xm`.
+    /// Old folds read its number as 0, so the counter, which also names
+    /// reason-only items, stays the same on every device.
+    pub(crate) fn fresh_blocker_id(&self, task_id: &str) -> String {
+        let r = super::util::new_id(&self.stamp());
+        format!(
+            "{}-{}",
+            self.next_blocker_id(task_id),
+            r[r.len() - 6..].to_ascii_lowercase()
+        )
+    }
+
     /// Folds the cards' own rows.
     pub(crate) fn apply_card(&mut self, ev: &Event, at: &dyn Fn(GoTime) -> GoTime) {
         let task_id;
@@ -1446,6 +1458,11 @@ impl Fold {
             return Err(invalid(format!(
                 "that asks the same question with the same options: answer the person on the blocker (board_comment blocker_id={bid}), then resolve it (board_unblock) or revise it with options that fit what you know now, or none"
             )));
+        }
+        // A hold is reworded as a new item, never a replace: one crossing
+        // the hold's close would leave the card blocked with nothing open.
+        if !b.later.is_empty() {
+            return self.reword_hold(&by, &t, &b, q, cx);
         }
         self.write(
             &by,

@@ -90,11 +90,7 @@ VERIFIED by running probe f1. A parent with two subtasks is parked on Back::Word
 
 VERIFIED by running probes b1 and b2. A parent has two subtasks. One is canceled, so parking skips it as terminal, and then the parent is parked on Back::Word. The person reopens the canceled subtask from the window. reopen_locked only looks at a terminal parent, so the subtask is state=submitted with no hold. sweep_asks makes 1 offer (b1) and cards_to_spawn lists it (b2), although doc section 3 says subtasks of a held parent carry the hold. waits_for_lead doesn't help, because the parent's holders were dropped. Only a person can trigger this: there is no reopen in tools/src/board.rs, tools/src/lib.rs or api/src. Fix: run inherit_park after the reopen row.
 
-## 19. A park replace crossing a close of the same id leaves one device BLOCKED with nothing open, and ends the new hold on the other (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/cards.rs:667`
-
-VERIFIED by running probe g1 on two_people. This is doc section 4 limit 4 reached through the spec's 'replace with the same id' rule, but the stuck state below isn't in the doc. A date hold b1 passes on dev-a, whose sweep closes it. Offline, p2 on dev-b changes the same hold to Back::Word, which is a replace on b1. After sync, dev-a shows state=blocked, open=[], parked=false: fold_status sets BLOCKED (fold.rs:1266) before fold_blocked drops the row at :667. That card has no open item and no later, so no sweep touches it and it isn't offered (the last is read, not run). dev-b shows state=submitted, because the resolved row for b1 closed the new word hold. So one device is stuck and the other lost the person's word. Fix options: a replace onto a closed item raises a new item, or park gets a fresh id with the old item closed.
+## 19. A park replace crossing a close of the same id leaves one device BLOCKED with nothing open, and ends the new hold on the other — fixed: changing a hold closes the old item per item and raises a fresh id, so no replace crosses its close.
 
 ## 20. A hold on a parent finished by rollup, or on a deleted card, never returns (known section 5 bugs 2 and 3) (low)
 
@@ -108,21 +104,7 @@ VERIFIED by running probes h1 and h2. These are doc section 5 bugs 3 and 2, left
 
 VERIFIED by running probe l1. A parent is parked on Back::Word. BOB claims an ask and closes it with outcome card, parent=P. asks.rs writes state working with BOB as holder, and inherit_park returns silently because held_by_someone is true. The result is state=working, holders=[bob], parked=false, parent=P: a working subtask under a held parent, which the park path refuses for a held subtask. No hand-out happens, since BOB already had the ask. There is no write-time refusal or notice. Fix: refuse a held parent as the outcome's parent, or take the taker off and hold the card.
 
-## 22. Changing a hold races its close: the card sticks BLOCKED with no open item and the devices disagree (high)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/later.rs:604`
-
-Ran on a temp copy of HEAD with the two_people harness. Card parked until a date and synced. dev-a passes the date and its sweep writes blocker.resolved b1. dev-b has not heard that and calls park(P2, id, 'later still', Word), which writes a replace row on the same b1 (later.rs:604, write_park). fold_status sets t.state = BLOCKED first (fold.rs:1266). fold_blocked then finds b1 closed and returns none (cards.rs:667), so the state sticks with no item.
-
-Replace stamped after the close: live A is blocked with open=[], live B is submitted. After a restart both are blocked with open=[] in lane blocked, the sweep doesn't heal it, and the person's new hold is lost. The card is not parked, not offered and has nothing to close.
-
-Replace stamped before the close: live A is blocked with open=[], live B is submitted, and both are submitted after a restart. So a device also disagrees with its own restart.
-
-The same return sits at v0.10.2, v0.11.0 and v0.12.3 (cards.rs:597, 598, 643), so a fold change can't cure it without diverging. This is not an old/new split. The mechanism predates #570, but section 3's 'replace row with the same id' puts it on a routine path against timed closes, and known limit 4 doesn't cover it (it says 'until restart').
-
-Worth checking: change a hold by closing b1 per item and raising a fresh id instead of replace, and/or a write-time sweep heal of BLOCKED with zero open items.
-
-Context for the rest of this review: rows from a #570 build replayed on the real store and fold at all three tags, private and board, as a third device. 0 refused, 0 ignored, task state identical to HEAD at every row, no needs_you lane, and own sweep past every date wrote nothing. The only differences from HEAD were the later lane read as blocked and the accepted parent rollup.
+## 22. Changing a hold races its close: the card sticks BLOCKED with no open item and the devices disagree — fixed: park and a hold's revise close the old item and raise a new one with a fresh id, never a replace; no sweep heal, see later-order.md section 4.
 
 ## 23. A board park by anyone but the card author's person leaves the pending spawn, and the agent binds onto the held card (medium)
 
@@ -136,19 +118,7 @@ The builder noted only that the spawn isn't really ended, not that the agent lan
 
 Fix at write time, never in the fold: bind_spawn skips or ends a parked card's request on the author's device, or park refuses while another person's spawn is pending.
 
-## 24. Two devices raising on one card share a blocker id: one row is dropped, and a date close can end a word hold (medium)
-
-`/Users/stephenhorton/projects/irori/.claude/worktrees/card-570-later-order/crates/coord/src/board/later.rs:441`
-
-The id scheme is pre-existing: next_blocker_id (cards.rs:757) is a per-card local counter, and the fold drops a row whose id exists (cards.rs:667). #570 adds park, add_after and inherit_park as new raisers, and the item now carries later.
-
-Ran on a temp copy of HEAD, unsynced devices.
-
-(1) dev-a park(date) and dev-b add_after(other) on one card, both as b1. After sync, live A is parked with the date item and live B is not parked and shows the After item. After a restart both show only the park, so the after wait is lost.
-
-(2) dev-a park(date) and dev-b park(word), both b1. Each keeps its own item. When dev-a's sweep passes the date it writes blocker.resolved b1, and dev-b's word hold closes to submitted with no person's word, against 'word only by person'.
-
-The doc's two-device section covers half circles on different cards, which do converge. This same-card case isn't in section 4.
+## 24. Two devices raising on one card share a blocker id: one row is dropped, and a date close can end a word hold — fixed: hold and after items take a b<n>-<random> id no other device picks; plain questions keep the counter, see later-order.md section 4.
 
 ## 25. v0.12.3's answered_left sweep ends a hold, a word hold included, after a person replies on its thread (medium)
 

@@ -19,10 +19,20 @@ pub const CARD2: &str = "agent:c2";
 pub type Owners = Arc<Mutex<Vec<String>>>;
 
 pub struct Side {
-    pub _dir: tempfile::TempDir,
-    pub st: Arc<Store>,
     pub clk: Clk,
+    person: String,
+    owners: Owners,
+    pub st: Arc<Store>,
     pub c: Coord,
+    // Last: the store holds files open in it.
+    pub _dir: tempfile::TempDir,
+}
+
+impl Side {
+    /// A new coord over the same store, as after a restart.
+    pub fn restart(&mut self) {
+        self.c = coord_for(&self.st, &self.clk, &self.person, &self.owners);
+    }
 }
 
 fn key_person(k: &str) -> String {
@@ -58,6 +68,18 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
         )
         .unwrap(),
     );
+    let c = coord_for(&st, &clk, person, owners);
+    Side {
+        clk,
+        person: person.into(),
+        owners: owners.clone(),
+        st,
+        c,
+        _dir: dir,
+    }
+}
+
+fn coord_for(st: &Arc<Store>, clk: &Clk, person: &str, owners: &Owners) -> Coord {
     let me = person.to_string();
     let who = owners.clone();
     let o = Options {
@@ -73,13 +95,7 @@ fn side(dev: &str, person: &str, owners: &Owners) -> Side {
         })),
         ..Options::default()
     };
-    let c = Coord::new(st.clone(), None, o).unwrap();
-    Side {
-        _dir: dir,
-        st,
-        clk,
-        c,
-    }
+    Coord::new(st.clone(), None, o).unwrap()
 }
 
 fn raw(s: &str) -> RawJson {

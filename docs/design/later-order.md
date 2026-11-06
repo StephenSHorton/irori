@@ -62,7 +62,7 @@ Park on a date (version and word have the same shape):
 {"kind":"task.status","payload":{"taskId":"01M…","state":"blocked",
  "reason":"Later: voice calls, not before December",
  "blockedBy":{"kind":"agent","ref":"irori"},
- "blocker":{"id":"b2","question":"Later: voice calls, not before December",
+ "blocker":{"id":"b2-k7q2xm","question":"Later: voice calls, not before December",
   "context":"Comes back on 1 Dec","on":{"kind":"agent","ref":"irori"},
   "later":"date 2026-12-01T05:00:00Z"},
  "by":"dev/heron","at":"…"}}
@@ -75,7 +75,7 @@ Return is always a per-item `blocker.resolved`, never `blocker.closed`, which
 isn't tied to an item and could close a newer park when it arrives late:
 
 ```json
-{"kind":"blocker.resolved","payload":{"taskId":"01M…","blockerId":"b2",
+{"kind":"blocker.resolved","payload":{"taskId":"01M…","blockerId":"b2-k7q2xm",
  "answer":"1 Dec came","option":-1,"closed":true,"restored":"submitted",
  "by":"irori","at":"…"}}
 ```
@@ -85,12 +85,18 @@ isn't tied to an item and could close a newer park when it arrives late:
 ```json
 {"state":"blocked","reason":"After #12: Spaces",
  "blockedBy":{"kind":"task","ref":"01M…12"},
- "blocker":{"id":"b1","question":"After #12: Spaces",
+ "blocker":{"id":"b1-3fzq0d","question":"After #12: Spaces",
   "on":{"kind":"task","ref":"01M…12"}}}
 ```
 
 Field rules:
 
+- Hold and after items take an id no other device picks: the card's next
+  `b<n>` plus six random characters. Every tag accepts any id string (the
+  store keys `taskId/blockerId`, the window `blocker:<card>:<id>`, so no `/`
+  or `:`), and `seq_of` reads it as 0 there and here, so the counter that
+  names reason-only items stays the same on every device. Plain questions
+  keep the bare counter.
 - The replace fold sets `later` only when the row carries one: an old device's
   revise rewrites the row without it, and that must not clear it.
 - After items are not `reasonOnly`. Today's `waits_on` is, and a later
@@ -110,7 +116,14 @@ Field rules:
 - Refused while a person's question, done check, transfer, merge wait or
   `INPUT_REQUIRED` is open: those stay Needs you, and raising would swallow
   them.
-- One park per card. Changing the condition is a `replace` row with the same id.
+- One park per card. Changing it closes the old item with a per-item
+  `blocker.resolved` and raises a new item with a fresh id, on the card and
+  on the subtasks that took it. A revise of a hold's words does the same on
+  the card. Close first: the fold merges a raise into an open item with the
+  same question. Never a `replace`: one crossing a close of the same id
+  leaves the card `BLOCKED` with nothing open, on every tag.
+- Two devices can each park a card apart. It then has two holds and stays
+  held until the last one closes.
 - A block or question with the hold's own words is refused: the fold's
   same-question merge would rewrite the hold's `on`. A hold takes no options
   through revise either.
@@ -204,6 +217,15 @@ devices.
    reason, or "Waiting on #N".
 8. **v0.10.2 keeps `heard`** on return, so an agent that already passed may not
    hear the card again.
+9. **A replace crossing a close still sticks.** An older build's revise of a
+   hold, or any build's revise of a plain question or reason-only block, can
+   cross that item's close and leave the card `BLOCKED` with nothing open.
+   No sweep heals it: the heal would be a status row, which closes every
+   open item on a device whose fold disagrees, and would send out a card
+   whose hold was lost.
+10. **Plain question ids still collide.** Two devices raising questions on
+   one card apart both pick `b<n>`, and one is dropped. Pre-existing; holds
+   and after items no longer do this.
 
 ## 5. Bugs found on the way
 

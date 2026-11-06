@@ -765,7 +765,7 @@ fn a_wait_on_work_stays_beside_a_park() {
 }
 
 #[test]
-fn one_park_per_card_changing_it_replaces_the_same_item() {
+fn one_park_per_card_changing_it_closes_the_old_item_and_raises_a_new_one() {
     let mut e = Env::new();
     let first = make(&e, "first");
     let t = parked(&e, "Voice calls", tomorrow());
@@ -780,16 +780,19 @@ fn one_park_per_card_changing_it_replaces_the_same_item() {
         .unwrap();
     assert_eq!(got.open_blockers().len(), 1);
     let b = got.parked().unwrap();
-    assert_eq!(b.id, bid);
+    assert_ne!(b.id, bid);
     assert_eq!(b.later, "card");
     assert_eq!(b.on, Some(on_task(&first.id)));
     assert_eq!(b.question, "Not yet: after the first");
 
+    // The old item is closed per item, and the new row is no replace.
+    let closed: BlockerResolvedRow = payload(e.rows(kinds::BLOCKER_RESOLVED).last().unwrap());
+    assert_eq!(closed.blocker_id, bid);
     let rows = e.rows(kinds::TASK_STATUS);
     let r: TaskStateRow = payload(rows.last().unwrap());
     let br = r.blocker.unwrap();
-    assert!(br.replace && !br.revise);
-    assert_eq!(br.id, bid);
+    assert!(!br.replace && !br.revise);
+    assert_eq!(br.id, b.id);
 
     // The old date no longer brings it back.
     e.clk.add(hours(48));
@@ -1079,7 +1082,8 @@ fn changing_a_parents_hold_changes_what_its_subtasks_took() {
     let k = e.c.get_task(&ks[0].id).unwrap();
     assert_eq!(k.open_blockers().len(), 1);
     let b = k.parked().unwrap();
-    assert_eq!((b.id.as_str(), b.later.as_str()), (was.as_str(), "card"));
+    assert_ne!(b.id, was);
+    assert_eq!(b.later, "card");
     assert_eq!(b.on, Some(on_task(&first.id)));
 }
 

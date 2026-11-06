@@ -254,3 +254,145 @@ fn a_card_hold_stays_an_edge_after_a_revise() {
     let got = e.c.add_after(ALICE, &x.id, std::slice::from_ref(&t.id));
     assert!(got.is_err(), "{got:?}");
 }
+
+// ---- findings 19, 22, 24: changing a hold, and ids across devices ----
+
+mod hold_ids {
+    use super::*;
+    use crate::common::two_people::*;
+
+    fn hours(n: u64) -> Duration {
+        Duration::from_secs(3600 * n)
+    }
+
+    fn open_items(t: &Task) -> usize {
+        t.blockers.iter().filter(|b| b.open()).count()
+    }
+
+    /// Both sides, live and after a restart, pass `check`.
+    fn on_both(a: &mut Side, b: &mut Side, id: &str, check: impl Fn(&str, &Task)) {
+        for round in ["live", "restarted"] {
+            for (name, s) in [("dev-a", &*a), ("dev-b", &*b)] {
+                let t = s.c.get_task(id).unwrap();
+                check(&format!("{name} {round}"), &t);
+                assert_eq!(s.c.ignored_rows(), 0, "{name} {round}");
+            }
+            a.restart();
+            b.restart();
+        }
+    }
+
+    fn held_on_word(at: &str, t: &Task) {
+        assert_eq!(t.state, BLOCKED, "{at}");
+        assert_eq!(open_items(t), 1, "{at}: {:?}", t.blockers);
+        let p = t.parked().unwrap_or_else(|| panic!("{at}: not held"));
+        assert_eq!(p.back(), Some(Back::Word), "{at}");
+    }
+
+    /// Finding 19: a date hold passes on dev-a while p2 on dev-b changes
+    /// it to the person's word. The word hold stands on both.
+    #[test]
+    fn changing_a_hold_while_its_date_passes_elsewhere_keeps_the_new_hold() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("Voice calls")).unwrap();
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        sync(&a, &b);
+        a.clk.add(hours(24));
+        a.c.sweep_notices().unwrap();
+        assert_eq!(a.c.get_task(&t.id).unwrap().state, SUBMITTED);
+        b.c.park(P2, &t.id, "later still", Back::Word).unwrap();
+        sync(&a, &b);
+        on_both(&mut a, &mut b, &t.id, held_on_word);
+    }
+
+    /// Finding 22: the change stamped after the close, and before it.
+    /// Neither leaves the card blocked with nothing open.
+    #[test]
+    fn changing_a_hold_across_its_close_never_sticks_blocked() {
+        for b_later in [true, false] {
+            let (mut a, mut b, _) = two_people();
+            let t = a.c.create_task(P1, nt("Voice calls")).unwrap();
+            a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+            sync(&a, &b);
+            if !b_later {
+                b.c.park(P2, &t.id, "later still", Back::Word).unwrap();
+            }
+            a.clk.add(hours(24));
+            a.c.sweep_notices().unwrap();
+            if b_later {
+                b.clk.add(hours(25));
+                b.c.park(P2, &t.id, "later still", Back::Word).unwrap();
+            }
+            sync(&a, &b);
+            on_both(&mut a, &mut b, &t.id, held_on_word);
+        }
+    }
+
+    /// Finding 22, by revise: rewording a date hold while it closes
+    /// elsewhere leaves both devices agreeing, and not stuck.
+    #[test]
+    fn rewording_a_hold_across_its_close_never_sticks_blocked() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("Voice calls")).unwrap();
+        let later = Back::Date(plus(fixed_now(), hours(48)));
+        let (t, _) = a.c.park(P1, &t.id, "not now", later.clone()).unwrap();
+        let bid = t.parked().unwrap().id.clone();
+        sync(&a, &b);
+        a.clk.add(hours(48));
+        a.c.sweep_notices().unwrap();
+        b.c.revise(
+            P2,
+            &t.id,
+            &bid,
+            BlockerRevision {
+                question: "Not yet: not before the trip".into(),
+                ..BlockerRevision::default()
+            },
+        )
+        .unwrap();
+        let got = b.c.get_task(&t.id).unwrap();
+        assert_eq!(got.parked().unwrap().back(), Some(later));
+        sync(&a, &b);
+        on_both(&mut a, &mut b, &t.id, |at, t| {
+            assert_eq!(t.state == BLOCKED, open_items(t) > 0, "{at}: {t:?}");
+        });
+    }
+
+    /// Finding 24, case 1: a hold on dev-a and an after on dev-b, made
+    /// apart on one card, both stand.
+    #[test]
+    fn a_hold_and_an_after_made_apart_both_stand() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        let x = a.c.create_task(P1, nt("first")).unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        b.c.add_after(P2, &t.id, std::slice::from_ref(&x.id))
+            .unwrap();
+        sync(&a, &b);
+        let xid = x.id.clone();
+        on_both(&mut a, &mut b, &t.id, move |at, t| {
+            assert_eq!(open_items(t), 2, "{at}: {:?}", t.blockers);
+            assert!(t.parked().is_some(), "{at}");
+            assert!(task_waits(t).contains(&xid), "{at}");
+        });
+    }
+
+    /// Finding 24, case 2: two holds made apart on one card. The date
+    /// one passing doesn't end the person's word.
+    #[test]
+    fn a_date_close_doesnt_end_a_word_hold_made_apart() {
+        let (mut a, mut b, _) = two_people();
+        let t = a.c.create_task(P1, nt("card")).unwrap();
+        sync(&a, &b);
+        a.c.park(P1, &t.id, "not now", tomorrow()).unwrap();
+        b.c.park(P2, &t.id, "for later", Back::Word).unwrap();
+        sync(&a, &b);
+        a.clk.add(hours(24));
+        b.clk.add(hours(24));
+        a.c.sweep_notices().unwrap();
+        b.c.sweep_notices().unwrap();
+        sync(&a, &b);
+        on_both(&mut a, &mut b, &t.id, held_on_word);
+    }
+}

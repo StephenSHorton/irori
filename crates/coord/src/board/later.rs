@@ -170,12 +170,14 @@ fn after_question(o: &Task) -> String {
 
 /// One Not yet item, ready to write on a card.
 #[derive(Debug, Clone, Default)]
-struct Park {
-    reason: String,
-    question: String,
-    context: String,
-    on: BlockedBy,
-    later: String,
+pub(crate) struct Park {
+    pub(crate) reason: String,
+    pub(crate) question: String,
+    pub(crate) context: String,
+    pub(crate) on: BlockedBy,
+    pub(crate) later: String,
+    pub(crate) links: Vec<Link>,
+    pub(crate) attachments: Vec<FileRef>,
 }
 
 impl Park {
@@ -187,6 +189,7 @@ impl Park {
             context: b.context.clone(),
             on: b.on.clone().unwrap_or_default(),
             later: b.later.clone(),
+            ..Park::default()
         }
     }
 }
@@ -337,7 +340,7 @@ impl Fold {
         if held_by_someone(&kt) || kt.parked().is_some() || its_own {
             return Ok(());
         }
-        self.write_park(by, k, &kt.note, &Park::of(&item), None)?;
+        self.write_park(by, k, &kt.note, &Park::of(&item))?;
         self.end_pending_spawns(by, k, "the card is Not yet")
     }
 
@@ -439,23 +442,22 @@ impl Fold {
             context,
             on: back.on(),
             later: back.encode(),
+            ..Park::default()
         }
     }
 
-    /// Writes item p on card `id`: over open item `replace`, else as a new
-    /// one. Not reason-only: a later plain block would replace that.
-    fn write_park(
+    /// Writes item p on card `id` as a new item, with an id no other
+    /// device picks. Never a replace: one crossing a close of the same id
+    /// leaves the card blocked with nothing open. Not reason-only: a later
+    /// plain block would replace that. Returns the item's id.
+    pub(crate) fn write_park(
         &mut self,
         by: &str,
         id: &str,
         note: &str,
         p: &Park,
-        replace: Option<&str>,
-    ) -> Result<()> {
-        let bid = match replace {
-            Some(b) => b.to_string(),
-            None => self.next_blocker_id(id),
-        };
+    ) -> Result<String> {
+        let bid = self.fresh_blocker_id(id);
         let at = self.stamp();
         self.write(
             by,
@@ -467,19 +469,21 @@ impl Fold {
                 reason: p.reason.clone(),
                 blocked_by: Some(p.on.clone()),
                 blocker: Some(BlockerRow {
-                    id: bid,
+                    id: bid.clone(),
                     question: p.question.clone(),
                     context: p.context.clone(),
-                    replace: replace.is_some(),
                     on: Some(p.on.clone()),
                     later: p.later.clone(),
+                    links: p.links.clone(),
+                    attachments: p.attachments.clone(),
                     ..BlockerRow::default()
                 }),
                 by: by.into(),
                 at,
                 ..TaskStateRow::default()
             },
-        )
+        )?;
+        Ok(bid)
     }
 
     /// Takes everyone off card t, after its blocker row: `leave` writes
@@ -519,14 +523,9 @@ impl Fold {
         Ok(())
     }
 
-    /// The subtasks a hold on t goes on, each with the item it replaces.
-    /// A subtask with a hold of its own keeps it.
-    fn kids_to_park(
-        &self,
-        t: &Task,
-        old: Option<&Blocker>,
-        back: &Back,
-    ) -> Result<Vec<(Task, Option<String>)>> {
+    /// The subtasks a hold on t goes on. One that took t's `old` hold
+    /// gets the new one; one with a hold of its own keeps it.
+    fn kids_to_park(&self, t: &Task, old: Option<&Blocker>, back: &Back) -> Result<Vec<Task>> {
         let mut out = Vec::new();
         for k in t.subtasks.iter().filter_map(|id| self.tasks.get(id)) {
             if is_terminal(&k.state) {
@@ -542,13 +541,8 @@ impl Fold {
             if matches!(back, Back::Card(c) if *c == k.id) {
                 continue;
             }
-            let same = old.and_then(|o| {
-                k.blockers
-                    .iter()
-                    .find(|b| b.open() && same_hold(b, o))
-                    .map(|b| b.id.clone())
-            });
-            if same.is_none() {
+            let same = old.is_some_and(|o| k.blockers.iter().any(|b| b.open() && same_hold(b, o)));
+            if !same {
                 if k.parked().is_some() {
                     continue;
                 }
@@ -558,7 +552,7 @@ impl Fold {
             if matches!(back, Back::Card(_)) {
                 self.check_blocker(Some(&back.on()), &k.id)?;
             }
-            out.push((k.clone(), same));
+            out.push(k.clone());
         }
         Ok(out)
     }
@@ -617,11 +611,18 @@ impl Fold {
             .cloned()
             .collect();
 
-        self.write_park(&by, id, &t.note, &item, old.as_ref().map(|o| o.id.as_str()))?;
+        // A change closes the old item and raises a new one: a replace
+        // crossing the old item's close would leave nothing open.
+        if let Some(o) = &old {
+            let answer = format!("held again: {}", self.back_line(&back));
+            self.close_items(&by, id, std::slice::from_ref(&o.id), &answer)?;
+            self.close_kid_parks(&by, &t, std::slice::from_ref(o), &answer)?;
+        }
+        self.write_park(&by, id, &t.note, &item)?;
         self.drop_holders(&by, &t)?;
         self.end_pending_spawns(&by, id, "the card is Not yet")?;
-        for (k, same) in kids {
-            self.write_park(&by, &k.id, &k.note, &item, same.as_deref())?;
+        for k in kids {
+            self.write_park(&by, &k.id, &k.note, &item)?;
             self.end_pending_spawns(&by, &k.id, "the card is Not yet")?;
         }
 
@@ -648,6 +649,43 @@ impl Fold {
             });
         }
         Ok((nt, ns))
+    }
+
+    /// Revise of hold b on t: closes it and raises the same hold with
+    /// question q and context cx under a new id.
+    pub(crate) fn reword_hold(
+        &mut self,
+        by: &str,
+        t: &Task,
+        b: &Blocker,
+        q: String,
+        cx: String,
+    ) -> Result<(Task, Blocker)> {
+        if q != b.question && open_with_question(t, &q).is_some() {
+            return Err(invalid(format!(
+                "{} already has an item with that question",
+                t.short_ref()
+            )));
+        }
+        let p = Park {
+            reason: q.clone(),
+            question: q,
+            context: cx,
+            on: b.on.clone().unwrap_or_default(),
+            later: b.later.clone(),
+            links: b.links.clone(),
+            attachments: b.attachments.clone(),
+        };
+        self.close_items(by, &t.id, std::slice::from_ref(&b.id), "reworded")?;
+        let bid = self.write_park(by, &t.id, &t.note, &p)?;
+        let nt = self.tasks[&t.id].clone();
+        let out = nt
+            .blockers
+            .iter()
+            .find(|x| x.id == bid)
+            .cloned()
+            .unwrap_or_default();
+        Ok((nt, out))
     }
 
     /// Closes items of card `id` one by one: `blocker.closed` names no item,
@@ -839,7 +877,7 @@ impl Fold {
         question: &str,
         on: &BlockedBy,
     ) -> Result<()> {
-        let bid = self.next_blocker_id(id);
+        let bid = self.fresh_blocker_id(id);
         let at = self.stamp();
         self.write(
             by,
@@ -1024,7 +1062,7 @@ impl Fold {
             self.write_after(by, id, "", q, on)?;
         }
         if let Some(p) = &w.park {
-            self.write_park(by, id, "", p, None)?;
+            self.write_park(by, id, "", p)?;
         }
         Ok(())
     }
