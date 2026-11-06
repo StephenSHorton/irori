@@ -66,7 +66,7 @@ import {
   HuddleButton,
   HuddleEnded,
   HuddleStarted,
-  useCall,
+  useCallPart,
 } from "./huddle"
 import {
   joinHuddle,
@@ -184,9 +184,16 @@ export function ConversationView({
   // only.
   const mock = conv.convId === callChannel ? callMock() : null
   // Huddles (#654): this conversation's, and whether this device is in it.
-  const calls = useCall()
-  const mine = calls.mine?.convId === conv.convId ? calls.mine : null
-  const liveHere = liveIn(calls, conv.convId)
+  // Only the parts this page shows, so another conversation's huddle (or
+  // its health) doesn't render it again.
+  const mine = useCallPart((s) =>
+    s.mine?.convId === conv.convId ? s.mine : null
+  )
+  const liveCallId = useCallPart((s) => liveIn(s, conv.convId)?.callId ?? "")
+  const livePeople = useCallPart(
+    (s) => liveIn(s, conv.convId)?.people.length ?? 0
+  )
+  const liveHere = liveCallId ? { callId: liveCallId } : undefined
   const [huddleBusy, setHuddleBusy] = useState(false)
   const [huddleError, setHuddleError] = useState("")
   const huddle = async (f: () => Promise<void>) => {
@@ -351,7 +358,7 @@ export function ConversationView({
               )}
               <HuddleButton
                 mine={mine}
-                live={liveHere?.people.length ?? 0}
+                live={livePeople}
                 busy={huddleBusy}
                 onStart={() =>
                   void huddle(() =>

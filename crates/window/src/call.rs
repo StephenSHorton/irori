@@ -153,6 +153,8 @@ struct Names<'a> {
     me: String,
     people: HashMap<String, String>,
     devices: std::collections::BTreeMap<String, String>,
+    /// The snapshot's conversations (mine, ringing): kind and name.
+    convs: HashMap<String, (String, String)>,
 }
 
 impl<'a> Names<'a> {
@@ -175,12 +177,50 @@ impl<'a> Names<'a> {
                 keys.push(k);
             }
         }
-        let people = keys.iter().cloned().zip(w.core.talk_names(&keys)).collect();
+        // The conversations' names: a DM's other person is named in the
+        // same single lookup as the call's people.
+        let talk = w.core.talk();
+        let mut convs: HashMap<String, (String, String)> = HashMap::new();
+        let mut dms: Vec<(String, String)> = Vec::new();
+        let conv_ids = s
+            .mine
+            .iter()
+            .map(|m| m.conv_id.as_str())
+            .chain(s.ringing.iter().map(|r| r.conv_id.as_str()));
+        for conv in conv_ids {
+            if convs.contains_key(conv) || dms.iter().any(|(c, _)| c == conv) {
+                continue;
+            }
+            if coord::talk::is_channel(conv) {
+                let name = talk.channel(conv).map(|c| c.name).unwrap_or_default();
+                convs.insert(conv.to_string(), ("channel".into(), name));
+            } else if let Some(k) = talk.pair_other(conv) {
+                if !keys.contains(&k) {
+                    keys.push(k.clone());
+                }
+                dms.push((conv.to_string(), k));
+            } else {
+                convs.insert(
+                    conv.to_string(),
+                    ("dm".into(), tools::talk::UNKNOWN_PERSON.into()),
+                );
+            }
+        }
+        let people: HashMap<String, String> =
+            keys.iter().cloned().zip(w.core.talk_names(&keys)).collect();
+        for (conv, k) in dms {
+            let name = people
+                .get(&k)
+                .cloned()
+                .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into());
+            convs.insert(conv, ("dm".into(), name));
+        }
         Names {
             w,
             me,
             people,
             devices: w.core.device_labels(),
+            convs,
         }
     }
 
@@ -207,16 +247,7 @@ impl<'a> Names<'a> {
     /// Conversation `conv`'s kind and name: a channel's name, a DM's other
     /// person.
     fn conv(&self, conv: &str) -> (String, String) {
-        let talk = self.w.core.talk();
-        if coord::talk::is_channel(conv) {
-            let name = talk.channel(conv).map(|c| c.name).unwrap_or_default();
-            return ("channel".into(), name);
-        }
-        let name = talk
-            .pair_other(conv)
-            .and_then(|k| self.w.core.talk_names(&[k]).into_iter().next())
-            .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into());
-        ("dm".into(), name)
+        self.convs.get(conv).cloned().unwrap_or_default()
     }
 
     fn mine(&self, m: MyCall) -> CallMineView {

@@ -75,16 +75,36 @@ export function startCallState(): () => void {
   }
 }
 
+// Whoever holds the mic for something else (dictation's MicButton) lets go
+// of it here before a huddle opens it, so the two never hold it at once.
+const micHolders = new Set<() => Promise<void> | void>()
+
+// onHuddleMic registers `release`, run before a huddle takes the mic.
+export function onHuddleMic(release: () => Promise<void> | void): () => void {
+  micHolders.add(release)
+  return () => {
+    micHolders.delete(release)
+  }
+}
+
+async function releaseMic(): Promise<void> {
+  await Promise.all(
+    [...micHolders].map((f) => Promise.resolve(f()).catch(() => {}))
+  )
+}
+
 // startHuddle starts one in channel or person DM `convId` (`name` is what
-// the preview's stand-in calls it). It opens the mic, so Android's prompt
-// comes first.
+// the preview's stand-in calls it). It opens the mic, so dictation lets go
+// of it and Android's prompt come first.
 export async function startHuddle(convId: string, name = ""): Promise<void> {
+  await releaseMic()
   if (!inWails()) return previewStart(convId, name)
   await allowMic()
   await CallService.Start(convId)
 }
 
 export async function joinHuddle(callId: string): Promise<void> {
+  await releaseMic()
   if (!inWails()) return previewJoin(callId)
   await allowMic()
   await CallService.Join(callId)

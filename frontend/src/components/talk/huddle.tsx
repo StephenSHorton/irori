@@ -47,9 +47,13 @@ import { nameOr } from "@/lib/names"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-// useCall is the call picture now (lib/call.ts's store).
-export function useCall(): CallView {
-  return useSyncExternalStore(subscribeCall, sharedCall, sharedCall)
+// useCallPart is one part of the call picture (lib/call.ts's store): the
+// component renders again only when that part changes, not on every
+// call:state. `pick` must give a
+// primitive or a piece of the picture itself (never a new object).
+export function useCallPart<T>(pick: (s: CallView) => T): T {
+  const get = () => pick(sharedCall())
+  return useSyncExternalStore(subscribeCall, get, get)
 }
 
 // Elapsed is a huddle's running time, ticking each second.
@@ -566,26 +570,40 @@ export function RingBanner({
   )
 }
 
+// newestRing is the latest ring here for a huddle this device isn't in.
+function newestRing(s: CallView): CallRingView | undefined {
+  let best: CallRingView | undefined
+  for (const r of s.ringing) {
+    if (r.callId === s.mine?.callId) continue
+    if (!best || r.atMs > best.atMs) best = r
+  }
+  return best
+}
+
 // Ringing is the newest huddle ringing here, as a banner over the page;
 // `onJoined` opens its conversation once you're in.
 export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
-  const calls = useCall()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
-  const ring = calls.ringing.find((r) => r.callId !== calls.mine?.callId)
+  const ring = useCallPart(newestRing)
+  // A Join's progress and failure belong to the ring it was for, so the
+  // next ring starts clean.
+  const [busy, setBusy] = useState("")
+  const [error, setError] = useState({ callId: "", text: "" })
   if (!ring) return null
   return (
     <RingBanner
       ring={ring}
-      busy={busy}
-      error={error}
+      busy={busy === ring.callId}
+      error={error.callId === ring.callId ? error.text : ""}
       onJoin={() => {
-        setBusy(true)
-        setError("")
-        joinHuddle(ring.callId)
+        const id = ring.callId
+        setBusy(id)
+        setError({ callId: "", text: "" })
+        joinHuddle(id)
           .then(() => onJoined(ring.convId))
-          .catch((err: unknown) => setError(errorText(err)))
-          .finally(() => setBusy(false))
+          .catch((err: unknown) =>
+            setError({ callId: id, text: errorText(err) })
+          )
+          .finally(() => setBusy((b) => (b === id ? "" : b)))
       }}
       onDismiss={() => void dismissRing(ring.callId).catch(() => {})}
     />
@@ -602,7 +620,7 @@ export function PhoneCallBar({
   here: string
   onOpen: (convId: string) => void
 }) {
-  const mine = useCall().mine
+  const mine = useCallPart((s) => s.mine)
   if (!mine || mine.convId === here) return null
   return (
     <div className="pt-2">

@@ -338,7 +338,7 @@ function sampleState(): SampleConv[] {
             callId: "sample-call-1",
             op: "end",
             durationMs: 18 * 60_000,
-            people: ["you", "sample-otter"],
+            people: ["you", "Spencer"],
           }),
         }),
         post(

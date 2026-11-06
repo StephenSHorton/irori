@@ -260,8 +260,15 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         let feed = w.core.feed(&[Topic::Call]);
         out.push(spawn("irori-window-call", move || {
             let q = feed.queue().clone();
+            // During a call the Core publishes about twice a second; send
+            // the picture only when it changed.
+            let mut last: Option<crate::call::CallView> = None;
             coalesce(&q, CALL_EMIT_EVERY, &stop, |_| {
-                w.emit(EVENT_CALL_STATE, &w.call_state());
+                let v = w.call_state();
+                if last.as_ref() != Some(&v) {
+                    w.emit(EVENT_CALL_STATE, &v);
+                    last = Some(v);
+                }
             });
         }));
     }

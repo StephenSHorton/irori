@@ -73,7 +73,7 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
-import { HuddleLine, useCall } from "./huddle"
+import { HuddleLine, useCallPart } from "./huddle"
 import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
@@ -752,7 +752,7 @@ export function ConvItem({
       (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
   // A huddle on here (#654): who's in it.
-  const huddle = huddleNames(useCall(), c.convId).join(", ")
+  const huddle = useCallPart((s) => huddleNames(s, c.convId).join(", "))
   const sub =
     c.kind === "channel"
       ? c.topic

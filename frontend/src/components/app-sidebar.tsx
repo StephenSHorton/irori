@@ -33,7 +33,7 @@ import {
 
 import { Face } from "@/components/profile/face"
 import { SettingsMenu } from "@/components/settings/settings-menu"
-import { CallBar, useCall } from "@/components/talk/huddle"
+import { CallBar, useCallPart } from "@/components/talk/huddle"
 import { leaveHuddle, setMuted } from "@/lib/call"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
@@ -125,7 +125,7 @@ export function AppSidebar({
 }) {
   const narrow = useNarrow()
   // The huddle this device is in (#654); a phone shows it above its tabs.
-  const huddle = useCall().mine
+  const huddle = useCallPart((s) => s.mine)
   const [foldedPref, setFolded] = useState(readFolded)
   const [width, setWidth] = useState(readWidth)
   // A drag of the right edge in progress; the width transition is off
