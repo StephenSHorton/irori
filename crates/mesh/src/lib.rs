@@ -12,6 +12,7 @@
 //! | [`files`] | `files.go` | attachment offers and fetches over `blob/` streams |
 //! | [`boards`] | `boards.go` | board-log pulls over `board/` streams |
 //! | [`boardmesh`] | (stage 2) | one board's mesh on `irori/board/1`: hello, pulls, `board.secret`, `dm` hand-off frames |
+//! | [`owncalls`] | (card #663) | huddle ringing between the person's own devices: `call` frames on `sync` |
 //! | [`devices`] | `devices.go`, `node.go` | liveness, `Status`, device rows and their warnings |
 //! | [`servers`] | `servers.go` | the `node.addr` fold and `hub-addrs.json` |
 //! | [`peers`] | `peers.go` | `mesh-peers.json` |
@@ -32,6 +33,7 @@ pub mod frames;
 mod fsutil;
 pub mod node;
 pub mod ownboards;
+pub mod owncalls;
 pub mod peers;
 pub mod relay;
 pub mod secret;

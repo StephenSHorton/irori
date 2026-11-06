@@ -902,6 +902,12 @@ export type CallRingView = {
 	convKind: string,
 	/**  Who started it. */
 	by: string,
+	/**
+	 *  The device that rang, by name, when it is one of the person's own
+	 *  (a Personal channel's huddle, #663, or one started on another of
+	 *  their devices); "" otherwise.
+	 */
+	byDevice: string,
 	/**  When it rang, Unix ms. */
 	atMs: number,
 };

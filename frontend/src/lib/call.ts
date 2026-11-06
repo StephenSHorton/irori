@@ -305,6 +305,7 @@ function previewSeed(flag: string | null) {
           convName: "netcode",
           convKind: "channel",
           by: "Spencer",
+          byDevice: "",
           atMs: Date.now() - 20_000,
         },
       ],
