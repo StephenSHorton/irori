@@ -739,7 +739,16 @@ pub(crate) fn build_brief(
     }
     let hand = t.handover_lines();
     if !hand.trim().is_empty() {
-        fence(&mut b, "Where the work is", "irori", hand.trim());
+        // Irori's lines, unless another member wrote them (card #573).
+        let by = [
+            t.left_off.as_ref().map(|l| l.by.as_str()),
+            t.where_.as_ref().map(|w| w.who.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        .find(|k| others(k).is_some())
+        .unwrap_or("irori");
+        fence(&mut b, "Where the work is", by, hand.trim());
     }
     if !more.parts.is_empty() {
         b.push_str(&format!(

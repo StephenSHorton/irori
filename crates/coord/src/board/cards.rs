@@ -906,7 +906,7 @@ impl Fold {
                 }
                 // Steps go in the brief: someone else's change asks again,
                 // as a change to its words does (card #573).
-                let edited = self.edited_by_another(&p.task_id, &p.by);
+                let edited = self.edited_by_another(ev, &p.task_id, &p.by);
                 if edited && let Some(t) = self.tasks.get_mut(&p.task_id) {
                     close_given_question(t, at(p.at));
                     t.given_said = None;
@@ -937,6 +937,9 @@ impl Fold {
                 let Some(p) = row::<TaskStepRow>(&ev.payload) else {
                     return;
                 };
+                // Left off goes in the brief too: someone else's asks again.
+                let edited = !trim_space(&p.left_off).is_empty()
+                    && self.edited_by_another(ev, &p.task_id, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -956,6 +959,10 @@ impl Fold {
                     t.steps[i].owner = trim_space(o).to_string();
                 }
                 let lo = trim_space(&p.left_off);
+                if edited {
+                    close_given_question(t, at(p.at));
+                    t.given_said = None;
+                }
                 if !lo.is_empty() {
                     t.left_off = Some(LeftOff {
                         text: lo.to_string(),

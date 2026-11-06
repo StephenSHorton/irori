@@ -360,6 +360,9 @@ pub struct Fold {
     pub(crate) notes: BTreeMap<String, (super::notes::Note, RowPos)>,
     /// Cards the person deleted (card #57): never folded again.
     pub(crate) deleted: HashSet<String>,
+    /// Cards that have been given to someone on a shared board (card
+    /// #573), even if they were taken back since.
+    pub(crate) given_ever: HashSet<String>,
     /// Cards that were in_review when they were blocked (card #191): an
     /// unblock restores in_review, not working. Not part of the Task's
     /// Go shape.
@@ -489,6 +492,7 @@ impl Fold {
             reviewers: BTreeMap::new(),
             notes: BTreeMap::new(),
             deleted: HashSet::new(),
+            given_ever: HashSet::new(),
             review_before_block: HashSet::new(),
             pr_states: Default::default(),
             desks: BTreeMap::new(),
@@ -709,6 +713,7 @@ impl Fold {
                     return;
                 };
                 if let Some(person) = gave {
+                    self.given_ever.insert(p.task_id.clone());
                     // A say and a question were about the last give.
                     super::cards::close_given_question(&mut t, at(p.at));
                     t.given = Some(Given {
@@ -967,6 +972,8 @@ impl Fold {
                 let Some(p) = row::<TaskWhereRow>(&ev.payload) else {
                     return;
                 };
+                // Where goes in the brief: someone else's asks again (#573).
+                let edited = self.edited_by_another(ev, &p.task_id, &p.who);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -984,6 +991,10 @@ impl Fold {
                     .is_none_or(|o| !crate::gotime::after(&o.at, &w.at))
                 {
                     t.where_ = Some(w);
+                    if edited {
+                        super::cards::close_given_question(t, at(p.at));
+                        t.given_said = None;
+                    }
                     let holder = t.holder.clone();
                     self.note(Change {
                         kind: TASK_CHANGED.into(),
@@ -2124,17 +2135,38 @@ impl Fold {
             kinds::BLOCKER_RESOLVED if self.raiser_closes(ev) => true,
             kinds::TASK_STATUS | kinds::BLOCKER_RESOLVED => match self.tasks.get(&p.task_id) {
                 None => true,
-                // Or a given card's person's device: their agent left it,
-                // and it goes back to them (card #573).
+                // Or a given card's person's device putting it back when
+                // their agent left it (card #573): a state that isn't an
+                // end, or closing a blocker they or their agent raised.
+                // Never the giver's card's end or the giver's questions.
                 Some(t) => {
                     self.may_cancel(t, &ev.device_id, Some(&RowPos::of(ev)))
-                        || t.given.as_ref().is_some_and(|g| {
-                            self.dev_person
-                                .as_ref()
-                                .is_some_and(|dp| dp(&ev.device_id) == g.person)
-                        })
+                        || self.given_puts_back(t, ev)
                 }
             },
+            _ => false,
+        }
+    }
+
+    /// Whether ev, Irori's row from a device of the person card t was
+    /// given to, is one that puts the card back after their agent left.
+    fn given_puts_back(&self, t: &Task, ev: &Event) -> bool {
+        let (Some(g), Some(kp), Some(dp)) = (&t.given, &self.key_person, &self.dev_person) else {
+            return false;
+        };
+        if dp(&ev.device_id) != g.person {
+            return false;
+        }
+        match ev.kind.as_str() {
+            kinds::TASK_STATUS => {
+                row::<TaskStateRow>(&ev.payload).is_some_and(|p| !is_terminal(&p.state))
+            }
+            kinds::BLOCKER_RESOLVED => row::<BlockerResolvedRow>(&ev.payload).is_some_and(|p| {
+                p.closed
+                    && t.blockers
+                        .iter()
+                        .any(|b| b.id == p.blocker_id && kp(&b.raised_by) == g.person)
+            }),
             _ => false,
         }
     }
@@ -2175,14 +2207,18 @@ impl Fold {
         format!("user:{}", self.dev)
     }
 
-    fn unresolved(&self, ev: &Event) -> bool {
-        self.st.as_ref().is_some_and(|s| s.unresolved(ev).is_err()) || self.ahead_of_give(ev)
+    /// Whether ev can't fold yet; `earlier` are the rows already waiting
+    /// that came before it.
+    fn unresolved(&self, ev: &Event, earlier: &[Event]) -> bool {
+        self.st.as_ref().is_some_and(|s| s.unresolved(ev).is_err())
+            || self.ahead_of_give(ev)
+            || self.behind_held(ev, earlier)
     }
 
     /// Sets ev aside when it names something the board log doesn't hold
     /// yet; true means fold it now.
     pub(crate) fn aside_gate(&mut self, ev: &Event) -> bool {
-        if !self.on_board || !self.unresolved(ev) {
+        if !self.on_board || !self.unresolved(ev, &self.aside) {
             return true;
         }
         if self.aside.len() >= MAX_ASIDE {
@@ -2200,7 +2236,7 @@ impl Fold {
             let mut keep = Vec::new();
             let mut folded = false;
             for ev in rows {
-                if self.unresolved(&ev) {
+                if self.unresolved(&ev, &keep) {
                     keep.push(ev);
                     continue;
                 }

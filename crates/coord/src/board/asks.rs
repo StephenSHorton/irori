@@ -474,7 +474,7 @@ impl Fold {
                     .tasks
                     .get(&p.from)
                     .is_some_and(|f| f.ask.as_ref().is_some_and(|a| a.thread));
-                let another = self.edited_by_another(&p.task_id, &p.by);
+                let another = self.edited_by_another(ev, &p.task_id, &p.by);
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
