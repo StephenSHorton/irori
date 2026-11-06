@@ -2011,6 +2011,16 @@ impl Fold {
         ev.actor == "user" && self.is_owner(by)
     }
 
+    /// See [`super::Coord::written_as`].
+    pub(crate) fn written_as(&self, by: &str, dev: &str) -> Option<String> {
+        let (true, Some(kp), Some(dp)) = (self.on_board, &self.key_person, &self.dev_person) else {
+            return None;
+        };
+        let p = dp(dev);
+        (!p.is_empty() && by != SWEEPER && kp(by) != p)
+            .then(|| format!("{}{p}", kinds::PERSON_ACTOR_PREFIX))
+    }
+
     /// The owner rule for an owner-only row.
     pub(crate) fn may_write(&self, owner_key: &str, writer: &str) -> bool {
         match (self.on_board, &self.key_person, &self.dev_person) {
@@ -2070,6 +2080,11 @@ impl Fold {
         let Some(p) = row::<TaskIdRow>(&ev.payload) else {
             return false;
         };
+        // A row that waits beside the one that lets it in is checked when
+        // it folds from there, not dropped now (card #573).
+        if self.ahead_of_give(ev) || self.behind_held(ev, &self.aside) {
+            return true;
+        }
         match ev.kind.as_str() {
             kinds::LEASE_RELEASED => true,
             // The take lock: its fold counts only the asking device's.
@@ -2121,10 +2136,6 @@ impl Fold {
                 let Some(dp) = &self.dev_person else {
                     return false;
                 };
-                // Ahead of the give that lets it in: it waits beside it.
-                if self.ahead_of_give(ev) {
-                    return true;
-                }
                 self.tasks.get(&p.task_id).is_some_and(|t| {
                     let serves = self.serving_person(t);
                     !serves.is_empty()
@@ -2233,10 +2244,23 @@ impl Fold {
     pub(crate) fn retry_aside(&mut self) {
         while !self.aside.is_empty() {
             let rows = std::mem::take(&mut self.aside);
+            // Which rows waited for a give as this pass began: a give that
+            // folds mid-pass mustn't let a device's later row past its
+            // earlier ones, so those wait for the next pass (card #573).
+            let held: Vec<bool> = rows.iter().map(|ev| self.ahead_of_give(ev)).collect();
+            let mut behind: Vec<(String, String)> = Vec::new();
             let mut keep = Vec::new();
             let mut folded = false;
-            for ev in rows {
-                if self.unresolved(&ev, &keep) {
+            for (ev, held) in rows.into_iter().zip(held) {
+                let card = row::<TaskIdRow>(&ev.payload)
+                    .map(|p| (ev.device_id.clone(), p.task_id))
+                    .filter(|(_, id)| !id.is_empty());
+                let after = ev.kind != kinds::TASK_CREATED
+                    && card.as_ref().is_some_and(|c| behind.contains(c));
+                if after || self.unresolved(&ev, &keep) {
+                    if held && let Some(c) = card {
+                        behind.push(c);
+                    }
                     keep.push(ev);
                     continue;
                 }

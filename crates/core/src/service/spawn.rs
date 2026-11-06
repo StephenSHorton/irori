@@ -1620,7 +1620,19 @@ impl Services {
             }
             None => self.checkout_here(&repo_key),
         };
-        let comments = log.co.comments(&t.id).unwrap_or_default();
+        // A line goes in the brief as whoever's device wrote it (#573).
+        let comments: Vec<coord::Comment> = log
+            .co
+            .comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut c| {
+                if let Some(k) = log.co.written_as(&c.by, &c.device) {
+                    c.by = k;
+                }
+                c
+            })
+            .collect();
         let named = |k: &str| (log.named)(k);
         // The person's words: kept here, or carried on the request from
         // the card's own device (card #455), or their answer on the card.

@@ -940,6 +940,10 @@ impl Fold {
                 // Left off goes in the brief too: someone else's asks again.
                 let edited = !trim_space(&p.left_off).is_empty()
                     && self.edited_by_another(ev, &p.task_id, &p.by);
+                // Kept by who wrote it, not who it says (card #573).
+                let lo_by = self
+                    .written_as(&p.by, &ev.device_id)
+                    .unwrap_or_else(|| p.by.clone());
                 let Some(t) = self.tasks.get_mut(&p.task_id) else {
                     return;
                 };
@@ -966,7 +970,7 @@ impl Fold {
                 if !lo.is_empty() {
                     t.left_off = Some(LeftOff {
                         text: lo.to_string(),
-                        by: p.by.clone(),
+                        by: lo_by.clone(),
                         at: at(p.at),
                     });
                 }
