@@ -266,19 +266,18 @@ impl Inner {
                 .map(|w| format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until)))
                 .collect();
             // A wait on a shared card is in the waiter's own log (card #574).
-            let on_it: Vec<String> = on_it
-                .into_iter()
-                .chain(
-                    (!Arc::ptr_eq(&co, self.b.coord()))
-                        .then(|| self.b.coord().waits(""))
-                        .unwrap_or_default()
-                        .iter()
-                        .filter(|w| w.task_id == t.id)
-                        .map(|w| {
-                            format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until))
-                        }),
-                )
-                .collect();
+            let kept = if Arc::ptr_eq(&co, self.b.coord()) {
+                Vec::new()
+            } else {
+                self.b.coord().waits("")
+            };
+            let on_it: Vec<String> =
+                on_it
+                    .into_iter()
+                    .chain(kept.iter().filter(|w| w.task_id == t.id).map(|w| {
+                        format!("{} (until {})", n.who(&w.by), coord::until_text(&w.until))
+                    }))
+                    .collect();
             if !on_it.is_empty() {
                 b += &format!("; waited on by {}", on_it.join(", "));
             }
