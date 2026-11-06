@@ -128,8 +128,12 @@ impl Services {
             }
             let host = hosts.get(id);
             let phone = r.os == ANDROID || host.is_some_and(|h| h.os == ANDROID);
-            // This device knows what it can do; of another, its role says.
-            let computer = *id == me || r.role.is_empty() || r.role == ROLE_DESKTOP;
+            // What a device says of itself wins; its role speaks only for
+            // one that never said, and this one knows.
+            let computer = *id == me
+                || host.is_some()
+                || r.role.is_empty()
+                || r.role == ROLE_DESKTOP;
             if phone || !computer {
                 cant.insert(id.clone());
                 continue;
