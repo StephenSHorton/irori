@@ -294,7 +294,9 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         layer: &mut layer,
         dark,
     };
-    let page = if s.nav.card.is_some() {
+    let page = if s.text.demo {
+        crate::text::view(s, &mut f)
+    } else if s.nav.card.is_some() {
         crate::card::view(s, &mut f)
     } else {
         match &s.nav.route {
@@ -335,6 +337,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         }
     }
     crate::call::overlay(s, &mut f);
+    crate::text::overlay(s, &mut f);
     notes(s, &mut f);
     rune_kit::root(body, layer)
 }
