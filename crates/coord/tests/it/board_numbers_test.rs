@@ -18,9 +18,10 @@ const NET: &str = "b-net";
 const ART: &str = "b-art";
 
 struct Space {
-    _dir: tempfile::TempDir,
     st: Arc<Store>,
     clk: Clk,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _dir: tempfile::TempDir,
 }
 
 fn space(dev: &str) -> Space {
