@@ -12,6 +12,7 @@ mod host;
 mod mcp_cmd;
 mod node_cmd;
 mod pair_cmd;
+mod permission_hook;
 mod serve;
 mod shell;
 
@@ -34,6 +35,7 @@ pub fn run_main() -> ExitCode {
         "events" => events::main(rest),
         "pair" => pair_cmd::run(rest),
         "node" => node_cmd::run(rest),
+        "permission-hook" => permission_hook::main(rest),
         "version" => {
             println!("irori {}", commands::version());
             Ok(())

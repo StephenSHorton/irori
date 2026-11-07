@@ -12,6 +12,7 @@ mod boards;
 mod common;
 mod gone_live;
 mod pair;
+mod permission;
 mod slots;
 mod usage;
 mod v03;

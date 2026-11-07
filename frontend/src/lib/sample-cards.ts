@@ -13,6 +13,7 @@ import {
   CardDetail,
   CardHolder,
   CardOption,
+  CardPermission,
   CardPR,
   CardRef,
   CardResolution,
@@ -200,6 +201,7 @@ export function sampleCards(now: Date): CardDetail[] {
       waitQuestion: c.waitQuestion ?? wait?.question,
       waitTask: c.waitTask ?? wait?.waitsOn?.taskId,
       blockerQuestion: needs[0]?.question ?? "",
+      permissionWait: needs.some((b) => !!b.permission) || undefined,
       ready: needs.some((b) => b.doneCheck) || undefined,
     })
   }
@@ -474,24 +476,127 @@ export function sampleCards(now: Date): CardDetail[] {
               }),
             ],
             blockers: [
+              // Card #682: its hook waits on the prompt, so the card
+              // answers it.
               CardBlocker({
                 id: "b-perm",
                 question:
-                  "Waiting for your permission: sample-thyme is stopped on a prompt",
+                  "Waiting for your permission: sample-thyme wants to use Bash: cargo test -p irori-net --test it board_iroh -- --test-threads=1",
                 context:
-                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the space's allow list in Settings › Agents and start a fresh agent.",
+                  "sample-thyme, the agent Irori started for #58, is stopped on a permission prompt. Allow once or Deny answers it from here; Always allow also adds the rule to the board's allow list. Or attach to it and answer in its terminal.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",
                   status: "person",
                 }),
                 at: at(2),
-                options: [],
+                options: [
+                  CardOption({
+                    answer: "Allow once",
+                    why: "Lets the agent run it this time; it asks again next time.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                  CardOption({
+                    answer: "Always allow",
+                    why: "Also adds Bash(cargo test -p irori-net --test it board_iroh -- --test-threads=1) to the board's allow list in Settings › Agents.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                  CardOption({
+                    answer: "Deny",
+                    why: "Tells the agent no; it goes on without it.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                ],
                 resolved: null,
                 state: "open",
+                permission: CardPermission({
+                  agent: AgentRef({
+                    ...agent(
+                      "sample06-synthetic-session",
+                      "sample-thyme",
+                      "waiting"
+                    ),
+                    spawned: true,
+                  }),
+                  tool: "Bash",
+                  input:
+                    "cargo test -p irori-net --test it board_iroh -- --test-threads=1",
+                  rule: "Bash(cargo test -p irori-net --test it board_iroh -- --test-threads=1)",
+                  answerable: true,
+                }),
               }),
             ],
             updatedAt: at(2),
+          }),
+          // Card #682, as on #675: a bypass agent stopped on one of Claude
+          // Code's safety checks (rm on a target it can't resolve). No rule
+          // skips it, so no Always allow, and Claude Code denies it by
+          // itself 2 minutes after asking.
+          card({
+            id: "sample-card-spawn-safety",
+            short: "59",
+            title: "Flaky net test on the PC",
+            goal: "Find the race in the stall assertion.",
+            working: [
+              AgentRef({
+                ...agent(
+                  "sample07-synthetic-session",
+                  "sample-woodruff",
+                  "waiting"
+                ),
+                spawned: true,
+              }),
+            ],
+            blockers: [
+              CardBlocker({
+                id: "b-safety",
+                question:
+                  'Waiting for your permission: sample-woodruff wants to use Bash: for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                context:
+                  "sample-woodruff, the agent Irori started for #59, is stopped on a permission prompt. Allow once or Deny answers it from here. Or attach to it and answer in its terminal. It is one of Claude Code's safety checks, which it asks even in bypass mode and no allow rule skips; it denies the call by itself 2 minutes after asking.",
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
+                at: at(0),
+                options: [
+                  CardOption({
+                    answer: "Allow once",
+                    why: "Lets the agent run it this time; it asks again next time.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                  CardOption({
+                    answer: "Deny",
+                    why: "Tells the agent no; it goes on without it.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                ],
+                resolved: null,
+                state: "open",
+                permission: CardPermission({
+                  agent: AgentRef({
+                    ...agent(
+                      "sample07-synthetic-session",
+                      "sample-woodruff",
+                      "waiting"
+                    ),
+                    spawned: true,
+                  }),
+                  tool: "Bash",
+                  input:
+                    'TMPW=$(cygpath -u "$TEMP"); for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                  answerable: true,
+                  expires: new Date(Date.now() + 100_000).toISOString(),
+                }),
+              }),
+            ],
+            updatedAt: at(0),
           }),
           // #71 was given by Spencer: nothing starts without the yes.
           card({
