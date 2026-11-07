@@ -77,8 +77,8 @@ pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
 pub use shared::{
-    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW, PersonInfo,
-    REQUEST_WAIT, SharedBoards,
+    BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW,
+    PERSONAL_DEFAULT, PersonInfo, PersonalBoard, REQUEST_WAIT, SharedBoards,
 };
 pub use specs::{
     ASK_INSTRUCTIONS, BOARD_INSTRUCTIONS, INSTRUCTIONS, Spec, compact_value, fallback_specs,
@@ -325,6 +325,12 @@ pub trait Backend: Send + Sync {
     /// Shared boards with other people (v0.5 §7.3); `None`: private only.
     fn shared_boards(&self) -> Option<&dyn SharedBoards> {
         None
+    }
+    /// Personal's boards (card #558), its default first (card #698: an
+    /// agent's board_create and board_share take one by its tag). Empty:
+    /// Personal has only its default.
+    fn personal_boards(&self) -> Vec<PersonalBoard> {
+        Vec::new()
     }
     /// Talk's channels, DMs and read cursors (card #389); `None`: the
     /// talk_* tools answer that Talk is off.

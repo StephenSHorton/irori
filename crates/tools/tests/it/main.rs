@@ -13,6 +13,7 @@ mod later;
 mod mention;
 mod no_limit_tools;
 mod notify;
+mod personal_boards;
 mod ported;
 mod shared;
 mod sides;

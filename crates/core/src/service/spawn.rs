@@ -1150,6 +1150,8 @@ pub(crate) fn build_ask_brief(
 #[derive(Default)]
 pub(crate) struct SpawnState {
     pub spawner: Mutex<Option<Spawner>>,
+    /// Permission prompts' hooks and what presence saw (card #682).
+    pub perm: super::spawn_waiting::PermState,
     /// Whether this device knows what it can run: a spawner is installed,
     /// or it said it runs none. Before that, and as it closes, it speaks
     /// for nobody (card #541).
@@ -2196,6 +2198,11 @@ impl Services {
             }
         };
         let mut settings = perms.settings.clone();
+        // Its permission prompts reach the card (card #682).
+        if let Some(hook) = self.permission_hook() {
+            let v = settings.get_or_insert_with(|| serde_json::json!({}));
+            v["hooks"] = hook["hooks"].clone();
+        }
         let mut env = Vec::new();
         if let Some(tree) = &tree {
             self.note_tree(tree, &t.id);
@@ -2352,23 +2359,9 @@ impl Services {
     /// it is in as this one; true when the card names no repo or git
     /// can't tell.
     fn in_repo(&self, dir: &str, repo_key: &str) -> bool {
-        if repo_key.is_empty() {
-            return true;
-        }
-        let main = |d: &str| crate::helpertree::main_root(Path::new(d));
-        let mine = main(dir);
-        if mine.is_some()
-            && self
-                .capture
-                .repo_roots(repo_key)
-                .iter()
-                .filter(|r| Path::new(r).is_dir())
-                .any(|r| main(r) == mine)
-        {
-            return true;
-        }
-        let k = self.capture.repo_key_of(dir);
-        k.is_empty() || coord::same_repo_key(&k, repo_key)
+        repo_key.is_empty()
+            || self.checkout_of(dir, repo_key)
+            || self.capture.repo_key_of(dir).is_empty()
     }
 
     /// The repo card t's agent works in when it starts in `folder`: the
