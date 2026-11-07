@@ -19,6 +19,8 @@ mod held;
 mod message;
 mod page;
 
+pub use page::tone_badge;
+
 use std::collections::{HashMap, HashSet};
 
 use irori_window::cards::CardDetail;

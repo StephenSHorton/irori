@@ -110,7 +110,14 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
         );
     }
 
-    let mut body = col().key("inbox-held-body").w_full().px(16.0).pb(16.0).gap(10.0).child(bar);
+    // The kit Dialog's description doesn't wrap: this one is long.
+    let desc = text("Messages Irori is holding back until you say, and why. Release delivers one; Dismiss drops it, and History can still release it.")
+        .key("inbox-held-desc")
+        .font(k.ty.ui)
+        .color(k.c.text_muted)
+        .w_full()
+        .wrap();
+    let mut body = col().key("inbox-held-body").w_full().px(16.0).pb(16.0).gap(10.0).mt(-8.0).child(desc).child(bar);
     if !h.loaded {
         body = body.child(line(k, "inbox-held-loading", "Loading…", false));
     } else if shown.is_empty() {
@@ -150,9 +157,6 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
     }
     KitDialog::new("inbox-held", "Held messages")
         .open(true)
-        .description(
-            "Messages Irori is holding back until you say, and why. Release delivers one; Dismiss drops it, and History can still release it.",
-        )
         .width(672.0)
         .fit()
         .child(body)

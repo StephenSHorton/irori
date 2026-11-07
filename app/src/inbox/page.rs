@@ -55,7 +55,7 @@ pub(super) fn small_button(
 /// A tinted badge in a tone (the React Badge's success, destructive,
 /// warning, info and secondary; rune-kit's Badge has only neutral,
 /// accent and subtle).
-pub(super) fn tone_badge(k: &Kit, key: impl Into<String>, label: &str, tone: Tone) -> El {
+pub fn tone_badge(k: &Kit, key: impl Into<String>, label: &str, tone: Tone) -> El {
     let (bg, fg) = match tone {
         Tone::Success => (k.c.success.bg, k.c.success.fg),
         Tone::Destructive => (k.c.danger.bg, k.c.danger.fg),

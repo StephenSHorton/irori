@@ -116,7 +116,15 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         desc.push_str(&format!(" · {}", d.state));
     }
 
-    let mut body = col().key("inbox-msg-body").w_full().px(16.0).pb(16.0).gap(10.0);
+    // The kit Dialog's description doesn't wrap: a hold's reason can be long.
+    let mut body = col()
+        .key("inbox-msg-body")
+        .w_full()
+        .px(16.0)
+        .pb(16.0)
+        .gap(10.0)
+        .mt(-8.0)
+        .child(text(desc).key("inbox-msg-desc").font(k.ty.ui).color(k.c.text_muted).w_full().wrap());
     // An agent's message whose recipient had ended came to the person
     // instead; a reply goes to its sender.
     if d.for_.starts_with("recipient gone") {
@@ -210,7 +218,6 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
     }
     KitDialog::new("inbox-msg", title)
         .open(true)
-        .description(desc)
         .width(512.0)
         .fit()
         .child(body)
