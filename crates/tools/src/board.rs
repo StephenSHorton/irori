@@ -1007,8 +1007,19 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     };
     let ordered = !after.is_empty() || later.is_some();
     let board = trim(a.str("board"));
+    // Card #708: one of Personal's boards keeps the card private, on that
+    // board; a shared space's goes through the space's rules.
+    let mut placed: Option<crate::personal::PersonalBoard> = None;
     if !board.is_empty() {
-        return crate::shared::create_on_board(s, c, &a, board, repo, to, waits, after, later);
+        match s.find_any_board(board) {
+            Ok(crate::personal::Target::Shared) => {
+                return crate::shared::create_on_board(
+                    s, c, &a, board, repo, to, waits, after, later,
+                );
+            }
+            Ok(crate::personal::Target::Personal(pb)) => placed = Some(pb),
+            Err(m) => return m,
+        }
     }
     // A subtask goes in its parent's log, with the caller and assignee as
     // that log knows them.
@@ -1023,6 +1034,21 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         match s.on(&parent, &keys) {
             Ok((c2, k2)) => (co, keys) = (c2, k2),
             Err(e) => return map_err(e),
+        }
+        // A subtask sits on its parent's board (card #563): a board that
+        // isn't the parent's is refused, not quietly dropped.
+        if let Some(pb) = &placed {
+            let on = co.get_task(&parent);
+            let same = Arc::ptr_eq(&co, s.b.coord())
+                && on.as_ref().is_some_and(|p| p.board == pb.coord_id());
+            if !same {
+                return err_text(&format!(
+                    "a subtask goes on its parent's board, and {} isn't on {}: leave board out.",
+                    on.map(|p| p.short_ref())
+                        .unwrap_or_else(|| s.short_of(&parent)),
+                    pb.label()
+                ));
+            }
         }
     }
     let private = Arc::ptr_eq(&co, s.b.coord());
@@ -1045,6 +1071,10 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             blocked_by: waits.as_ref().map(|w| w.1.clone()),
             after,
             later: later.map(|l| l.0),
+            board: placed
+                .as_ref()
+                .map(|pb| pb.coord_id().to_string())
+                .unwrap_or_default(),
             ..NewTask::default()
         },
     ) {
@@ -1052,15 +1082,26 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return map_err(e),
     };
     let n = s.roster();
+    // Which of Personal's boards it went on, when not the default (a card
+    // from a thread on a board goes there too).
+    let on = if private && !t.board.is_empty() {
+        s.personal_boards()
+            .into_iter()
+            .find(|b| b.board_id == t.board)
+            .map(|b| format!(" on {}", b.label()))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
     let mut out = if !t.parent.is_empty() {
         format!(
-            "Created {} (task:{}), a subtask of {}.",
+            "Created {} (task:{}){on}, a subtask of {}.",
             t.short_ref(),
             t.id,
             s.short_of(&t.parent)
         )
     } else {
-        format!("Created {} (task:{}).", t.short_ref(), t.id)
+        format!("Created {} (task:{}){on}.", t.short_ref(), t.id)
     };
     if !t.from.is_empty() {
         out += &format!(
@@ -2539,6 +2580,7 @@ const EDIT_ARGS: &[(&str, Ty)] = &[
     ("from", Ty::Str),
     ("after", Ty::Strs),
     ("not_after", Ty::Strs),
+    ("board", Ty::Str),
 ];
 
 /// A list of card refs, blanks dropped.
@@ -2571,15 +2613,26 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let (after, not_after) = (refs_in(a.strs("after")), refs_in(a.strs("not_after")));
     let words =
         e.title.is_some() || e.objective.is_some() || e.done_when.is_some() || e.repo.is_some();
-    if !words && after.is_empty() && not_after.is_empty() {
+    let board = trim(a.str("board"));
+    if !words && after.is_empty() && not_after.is_empty() && board.is_empty() {
         return err_text(
-            "give title, objective, done_when or repo (what the card is for now), or after or not_after (its order).",
+            "give title, objective, done_when or repo (what the card is for now), after or not_after (its order), or board (where it goes).",
         );
     }
     let repo_set = e.repo.is_some();
     let (co, as_) = match s.on(&id, std::slice::from_ref(&c.sender.key)) {
         Ok(v) => v,
         Err(e) => return map_err(e),
+    };
+    // Card #708: a move goes only between Personal's boards, checked
+    // before anything is written.
+    let to_board = if board.is_empty() {
+        None
+    } else {
+        match move_target(s, &co, &id, board) {
+            Ok(pb) => Some(pb),
+            Err(m) => return m,
+        }
     };
     let mut done: Vec<String> = Vec::new();
     let mut t = None;
@@ -2617,6 +2670,30 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
         }
     }
+    if let Some(pb) = &to_board {
+        let was = co.get_task(&id).map(|x| x.short_ref()).unwrap_or_default();
+        match co.move_task(&as_[0], &id, pb.coord_id()) {
+            Ok(nt) => {
+                let kids = nt.subtasks.len();
+                done.push(if was == nt.short_ref() {
+                    format!("it was on {} already", pb.label())
+                } else {
+                    format!(
+                        "it moved to {} as {}{} (its old ref {was} still finds it)",
+                        pb.label(),
+                        nt.short_ref(),
+                        match kids {
+                            0 => String::new(),
+                            1 => ", with its subtask".to_string(),
+                            k => format!(", with its {k} subtasks"),
+                        }
+                    )
+                });
+                t = Some(nt);
+            }
+            Err(e) => return format!("{}{}", map_err(e), so_far(&done)),
+        }
+    }
     let Some(t) = t else {
         return need_task_id();
     };
@@ -2635,6 +2712,43 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     format!("{out}\n{}", s.line(&t))
+}
+
+/// The Personal board board_edit's `board` moves card `id` to (card
+/// #708). Only a private card moves, and only between Personal's boards:
+/// a shared card's number changes for everyone in its space, so the person
+/// moves it in the window.
+fn move_target(
+    s: &Inner,
+    co: &Arc<coord::Coord>,
+    id: &str,
+    board: &str,
+) -> Result<crate::personal::PersonalBoard, String> {
+    let pb = match s.find_any_board(board)? {
+        crate::personal::Target::Personal(pb) => pb,
+        crate::personal::Target::Shared => {
+            return Err(err_text(
+                "board moves a card only between Personal's boards. To put a private card in a shared space, use board_share; the person moves a shared card between its space's boards in the window.",
+            ));
+        }
+    };
+    if !Arc::ptr_eq(co, s.b.coord()) {
+        return Err(err_text(
+            "this card is in a shared space, and board moves only a private card between Personal's boards; the person moves a shared card in the window.",
+        ));
+    }
+    if let Some(t) = co.get_task(id)
+        && !t.parent.is_empty()
+    {
+        return Err(err_text(&format!(
+            "{} is a subtask of {}: move its parent (board_edit task_id={} board={}) and its subtasks go along.",
+            t.short_ref(),
+            s.short_of(&t.parent),
+            s.short_of(&t.parent),
+            board
+        )));
+    }
+    Ok(pb)
 }
 
 /// Refs as the caller gave them, for a result line.

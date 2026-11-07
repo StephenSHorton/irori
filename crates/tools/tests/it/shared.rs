@@ -578,7 +578,7 @@ fn the_board_tool_lists_shared_boards() {
         &call_a(),
         "board_create",
         json!({"title": "x", "board": "nope"}),
-        &["no board \"nope\" in a shared space", "Yours: mlg."],
+        &["no board \"nope\" here", "Shared spaces': mlg."],
     );
 }
 

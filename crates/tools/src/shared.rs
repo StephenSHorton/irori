@@ -226,6 +226,13 @@ fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
     ))
 }
 
+/// Whether `v` is shared board `b`'s tag or boardId.
+fn names(b: &BoardInfo, v: &str) -> bool {
+    (b.space_board.is_empty() && b.board_id == v)
+        || (!b.space_board.is_empty() && b.space_board == v)
+        || b.tag.eq_ignore_ascii_case(v)
+}
+
 impl Inner {
     fn shared(&self) -> Option<&dyn SharedBoards> {
         self.b.shared_boards()
@@ -240,14 +247,7 @@ impl Inner {
         };
         let v = trim(v).trim_start_matches('#');
         let all = sb.boards();
-        let hits: Vec<&BoardInfo> = all
-            .iter()
-            .filter(|b| {
-                (b.space_board.is_empty() && b.board_id == v)
-                    || (!b.space_board.is_empty() && b.space_board == v)
-                    || b.tag.eq_ignore_ascii_case(v)
-            })
-            .collect();
+        let hits: Vec<&BoardInfo> = all.iter().filter(|b| names(b, v)).collect();
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
             [] => {
@@ -277,6 +277,21 @@ impl Inner {
         }
     }
 
+    /// The shared boards `v` names, by tag or boardId (none when shared
+    /// spaces aren't on here).
+    pub(crate) fn shared_hits(&self, v: &str) -> Vec<BoardInfo> {
+        self.shared().map_or_else(Vec::new, |sb| {
+            sb.boards().into_iter().filter(|b| names(b, v)).collect()
+        })
+    }
+
+    /// Every shared board's tag.
+    pub(crate) fn shared_tags(&self) -> Vec<String> {
+        self.shared().map_or_else(Vec::new, |sb| {
+            sb.boards().into_iter().map(|b| b.tag).collect()
+        })
+    }
+
     /// The shared board a call's `task_id` names a card on.
     fn target_board(&self, args: &serde_json::Value) -> Option<BoardInfo> {
         let sb = self.shared()?;
@@ -295,15 +310,19 @@ impl Inner {
         args: &[u8],
         run: impl FnOnce() -> String,
     ) -> String {
+        if name == "board" {
+            // Personal's boards (card #708), then the spaces'.
+            let mut out = run();
+            for s in [self.personal_section(), self.boards_section()]
+                .into_iter()
+                .flatten()
+            {
+                out = format!("{out}\n{s}");
+            }
+            return out;
+        }
         if self.shared().is_none() {
             return run();
-        }
-        if name == "board" {
-            let out = run();
-            return match self.boards_section() {
-                Some(s) => format!("{out}\n{s}"),
-                None => out,
-            };
         }
         if !CARD_WRITES.contains(&name) {
             return run();

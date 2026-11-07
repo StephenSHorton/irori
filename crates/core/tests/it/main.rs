@@ -38,6 +38,7 @@ mod notes;
 mod notifications;
 mod offline;
 mod pair;
+mod personal_board_tools;
 mod personal_boards;
 mod prefetch;
 mod prwatch;

@@ -58,6 +58,7 @@ mod notes;
 pub mod notice;
 pub mod notify;
 mod observe;
+mod personal;
 mod room;
 mod shared;
 mod specs;
@@ -76,6 +77,7 @@ pub use format::{clip, clip_mcp, one_line};
 pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
+pub use personal::{PERSONAL_DEFAULT, PersonalBoard};
 pub use shared::{
     BoardInfo, CHOICE_CREATE, CHOICE_NO, CHOICE_REVIEW, CHOICE_SHARE, CHOICE_WITHDRAW, PersonInfo,
     REQUEST_WAIT, SharedBoards,
@@ -321,6 +323,11 @@ pub trait Backend: Send + Sync {
     }
     fn board_viewer(&self) -> Option<&dyn BoardViewer> {
         None
+    }
+    /// Personal's boards (card #708), its default first; empty when the
+    /// backend keeps none, so only the default board is known.
+    fn personal_boards(&self) -> Vec<PersonalBoard> {
+        Vec::new()
     }
     /// Shared boards with other people (v0.5 §7.3); `None`: private only.
     fn shared_boards(&self) -> Option<&dyn SharedBoards> {
