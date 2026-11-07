@@ -369,6 +369,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
 /// The headless scenes: one per page (`irori --snap x.png --scene talk`).
 const SCENES: &[(&str, fn(&mut State))] = &[
     ("home", crate::home::scene),
+    ("home-needs", crate::home::sample::needs_scene),
+    ("wind-down", crate::home::sample::wind_down_scene),
     ("board", crate::board::scene),
     ("card", crate::card::scene),
     // The spike's name for the card scene.
