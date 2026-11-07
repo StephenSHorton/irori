@@ -73,6 +73,13 @@ fn rig(now: Option<Arc<dyn Fn() -> GoTime + Send + Sync>>) -> Rig {
     }
 }
 
+// Book::start's thread keeps the store: close it so the dir can go.
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let _ = self.st.close();
+    }
+}
+
 impl Rig {
     fn row<P: serde::Serialize>(&mut self, dev: &str, actor: &str, kind: &str, payload: &P) {
         let seq = self.seq.entry(dev.to_string()).or_default();

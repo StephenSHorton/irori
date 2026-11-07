@@ -482,6 +482,9 @@ fn the_core_removes_a_settled_tree_and_says_why_it_kept_another() {
     let main = git_repo(&d.path().join("repo"));
     let (clean, dirty) = (git_tree(&main, "clean"), git_tree(&main, "dirty"));
     fs::write(dirty.join("notes.txt"), "mine\n").unwrap();
+    // Its build going is the pass's last step: wait for it, or the pass's
+    // git still runs in the tree when the temp folder goes.
+    git_target(&dirty);
     let r = Rig::with(|o| o.clear_builds = Some(Duration::ZERO));
     r.core.set_spawner(Some(lister()));
     settled_card(&r, "Clean", Some(&clean));
@@ -489,6 +492,9 @@ fn the_core_removes_a_settled_tree_and_says_why_it_kept_another() {
     r.core.sweep_coord().unwrap();
     wait_for(45, "the clean tree to go", || !clean.exists());
     wait_for(45, "the kept line", || kept_lines(&r, &kept.id) == 1);
+    wait_for(45, "the kept tree's build to go", || {
+        !dirty.join("target").exists() && !dirty.join(irori_core::buildclean::CLEARING).exists()
+    });
     assert!(dirty.join("notes.txt").is_file());
     let cs = r.core.coord().comments(&kept.id).unwrap_or_default();
     assert!(cs.iter().any(|c| c.text.contains("uncommitted")), "{cs:?}");
