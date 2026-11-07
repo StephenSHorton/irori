@@ -3,8 +3,8 @@
 //! can't start yet folds away at the end. [`when_line`] and
 //! [`not_yet_button`] are for the card page.
 
-// when_line and not_yet_button are the card page's: unused
-// here until it lands.
+// when_line and not_yet_button are the card page's (card/), which the
+// card integrator wires; nothing in board/ calls them.
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};

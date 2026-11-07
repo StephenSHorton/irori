@@ -124,12 +124,6 @@ pub fn boards_need_you(cards: &[CardSummary]) -> Vec<(String, usize)> {
     by
 }
 
-/// Home's scope: the private cards and every shared board's card one of
-/// the person's agents holds or watches.
-pub fn on_home(c: &CardSummary) -> bool {
-    c.scope != "board" || c.ours
-}
-
 // ---- Agents answer now (agents-now.ts) ----------------------------------
 
 /// A picked mention is a person, not an agent.
@@ -373,8 +367,10 @@ mod tests {
             }),
         ];
         assert_eq!(boards_need_you(&cards), vec![("b1".to_string(), 2), ("b2".to_string(), 1)]);
-        assert!(on_home(&cards[3]));
-        assert!(!on_home(&cards[0]));
-        assert!(on_home(&cards[5]));
+        // Home's own scope is the board list's (board::filter::in_scope).
+        let own = crate::board::SCOPE_OWN;
+        assert!(crate::board::filter::in_scope(&cards[3], own));
+        assert!(!crate::board::filter::in_scope(&cards[0], own));
+        assert!(crate::board::filter::in_scope(&cards[5], own));
     }
 }

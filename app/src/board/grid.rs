@@ -517,53 +517,7 @@ fn subtask_row(s: &State, f: &mut Frame, c: &CardSummary, dim: bool) -> El {
     r
 }
 
-/// A tile with no live state: ref and state, title, question, progress,
-/// who holds it (what `board::card` draws).
-#[allow(dead_code)] // Home's and Spaces' API
-pub fn simple_tile(c: &CardSummary, f: &Frame) -> El {
-    let k = f.k;
-    let p = format!("board-card-{}", c.id);
-    let id = c.id.clone();
-    let mut chips = row().key(format!("{p}/chips")).w_full().gap(6.0).center_y().flex_wrap();
-    if let Some(r) = short_ref(f, &format!("{p}/ref"), c) {
-        chips = chips.child(r);
-    }
-    chips = chips.child(state_pill(f, &format!("{p}/state"), c));
-    let mut body = col()
-        .key(p.clone())
-        .role("button")
-        .label(c.title.clone())
-        .focusable(true)
-        .w(300.0)
-        .padding(14.0)
-        .gap(10.0)
-        .radius(12.0)
-        .fill(k.c.layer_01)
-        .border(1.0, k.c.border_muted)
-        .hover(k.c.hover)
-        .cursor(rune::Cursor::Pointer)
-        .on_press(move |s: &mut State| s.open_card(&id))
-        .child(chips)
-        .child(text(plain_line(&c.title)).font(rune::tok::TextStyle::new(14.0, 500.0)).color(k.c.text_base).w_full().max_lines(3));
-    if c.open_blockers > 0 && !c.blocker_question.is_empty() {
-        body = body.child(dot_line(format!("{p}/q"), status::failed(), plain_line(&c.blocker_question)));
-    }
-    if let Some(b) = progress_bar(f, &format!("{p}/bar"), c) {
-        body = body.child(b);
-    }
-    let who = &c.holder.who;
-    let held = if who.name.is_empty() {
-        "nobody on it yet".to_string()
-    } else if c.holder.others > 0 {
-        format!("{} +{}", display_name(who), c.holder.others)
-    } else {
-        display_name(who)
-    };
-    body.child(text(held).font(tiny()).color(k.c.text_muted).max_lines(1))
-}
-
 /// Where cards come from, when there are none (EmptyCards).
-#[allow(dead_code)] // Home's and Spaces' API
 pub fn empty_cards(f: &Frame) -> El {
     let k = f.k;
     col()

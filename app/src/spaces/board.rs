@@ -3,7 +3,7 @@
 //! `SpaceBoards`, `ListHeaderBar`, `PersonalList`, `PersonalHeaderBar`,
 //! `ListHeader`): `Route::Board { space, board }`.
 
-use rune::{El, ScrollSpec, col, el, icon, row, text};
+use rune::{El, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, IconButton, IconButtonVariant, Menu, MenuItem, Placement, TextInput};
 
 use irori_window::boards::{BoardSummary, SpaceBoard};
@@ -13,7 +13,7 @@ use super::logic::{self, PERSONAL, boards_of, plain_line};
 use super::page::{add_board, board_tile, clamp, tile_width};
 use super::ui::{self as u, t12, t125};
 use super::{Ask, Header, parts};
-use crate::ui::{Frame, Route, State, icons};
+use crate::ui::{Dialog, Frame, Route, State, icons};
 
 /// What a header's rename and delete act on.
 #[derive(Clone, Debug)]
@@ -131,44 +131,75 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
         top = top.child(off);
         any = true;
     }
-    let body = match &open {
-        Some(x) => {
-            let cards = logic::cards_on_board(b, &s.data.cards, &x.board_id);
-            if cards.is_empty() {
-                empty_list(
-                    f,
-                    "No cards on this board yet. Make one with New card, or move one here from its page.",
-                )
-            } else {
-                crate::board::cards_list(s, f, &cards)
-            }
-        }
-        None => col()
-            .key("spaces-space-scroll")
-            .w_full()
-            .scroll(ScrollSpec { stick_bottom: false })
-            .child(space_boards(s, f, b)),
+    // The same board list as Home (card #161), over this board's cards,
+    // with who is on it beside them; a space's own page is plain: its
+    // boards as tiles, and its Threads panel.
+    let empty = match &open {
+        Some(_) => muted(
+            f,
+            "No cards on this board yet. Make one with New card, or move one here from its page.",
+        ),
+        None => space_boards(s, f, b),
     };
+    let cards = match &open {
+        Some(x) => logic::cards_on_board(b, &s.data.cards, &x.board_id),
+        None => vec![],
+    };
+    let ask = crate::home::ask::ask_box(s, f);
+    let list = crate::board::board_view(
+        s,
+        f,
+        crate::board::Opts {
+            scope: b.board_id.clone(),
+            cards,
+            header: Some(ask),
+            empty: Some(empty),
+            nothing_decide: Some("Nothing on this board waits on you.".into()),
+            threads: Some(b.board_id.clone()),
+            plain: open.is_none(),
+            ..Default::default()
+        },
+    );
+    let new_on = Some(open.as_ref().map_or_else(|| b.board_id.clone(), |x| x.board_id.clone()));
     parts::settings_dialog(s, f, b);
     let mut page = col()
         .key("spaces-board-page")
         .w_full()
         .h_full()
         .min_h(0.0)
-        .child(head);
+        .child(head.child(new_card(f, new_on)));
     if any {
         page = page.child(top.pb(4.0));
     }
-    page.child(body.grow(1.0).min_h(0.0).w_full())
+    page.child(body(list))
 }
 
-fn empty_list(f: &Frame, msg: &str) -> El {
+/// The board list under a page's header, inset as the header is.
+fn body(list: El) -> El {
     col()
-        .key("spaces-list-empty")
+        .key("spaces-board-body")
         .w_full()
-        .px(24.0)
-        .pt(12.0)
-        .child(u::line(msg, t125(f.k), f.k.c.text_muted))
+        .grow(1.0)
+        .min_h(0.0)
+        .px(20.0)
+        .pt(8.0)
+        .child(list.grow(1.0).min_h(0.0))
+}
+
+/// New card, on the open board (or the space's first board, or
+/// Personal's default when `board` is None).
+fn new_card(f: &Frame, board: Option<String>) -> El {
+    Button::new("New card")
+        .variant(ButtonVariant::Outline)
+        .icon(&icons::PLUS)
+        .on_press(move |s: &mut State| s.open_dialog(Dialog::NewCard { board: board.clone() }))
+        .build(f.k)
+        .key("spaces-new-card")
+}
+
+/// What an empty board says.
+fn muted(f: &Frame, msg: &str) -> El {
+    u::line(msg, t125(f.k), f.k.c.text_muted).key("spaces-list-empty")
 }
 
 /// What the page says about the space under its header: when it last
@@ -223,9 +254,7 @@ fn space_boards(s: &State, f: &Frame, b: &BoardSummary) -> El {
         .key("spaces-space-boards")
         .w_full()
         .gap(8.0)
-        .px(24.0)
-        .pt(12.0)
-        .pb(24.0)
+        .pt(4.0)
         .label("Boards in this space")
         .child(head)
         .child(tiles)
@@ -257,18 +286,25 @@ fn personal_page(s: &State, f: &mut Frame, list: &str) -> El {
         }
     };
     let cards: Vec<&CardSummary> = logic::cards_on_personal(&s.data.cards, list);
-    let body = if cards.is_empty() {
-        empty_list(f, "No cards on this board yet. Make one with New card.")
-    } else {
-        crate::board::cards_list(s, f, &cards)
-    };
+    let empty = muted(f, "No cards on this board yet. Make one with New card.");
+    let lst = crate::board::board_view(
+        s,
+        f,
+        crate::board::Opts {
+            scope: crate::board::SCOPE_OWN.into(),
+            cards,
+            empty: Some(empty),
+            ..Default::default()
+        },
+    );
+    let new_on = (list != PERSONAL).then(|| list.to_string());
     col()
         .key("spaces-board-page")
         .w_full()
         .h_full()
         .min_h(0.0)
-        .child(head)
-        .child(body.grow(1.0).min_h(0.0).w_full())
+        .child(head.child(new_card(f, new_on)))
+        .child(body(lst))
 }
 
 // ---- renaming -----------------------------------------------------------------

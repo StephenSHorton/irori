@@ -4,7 +4,7 @@
 //! Also the small text helpers lib/irori.ts had (`plainLine`,
 //! `relativeTime`, `shortRepo`), which notes/ uses too.
 
-use irori_window::boards::{BoardSummary, SpaceBoard, SummaryMember};
+use irori_window::boards::SummaryMember;
 use irori_window::cards::CardSummary;
 use irori_window::devices::HomeServerView;
 use irori_window::freshness::LogFreshness;
@@ -249,8 +249,6 @@ pub fn suggest_tag(name: &str) -> String {
     if valid_tag(&t) { t } else { String::new() }
 }
 
-/// (The board package's member chips read it: card-grid.tsx.)
-#[allow(dead_code)]
 /// How a member is on a board (card #371): "online", "seen 5m ago" or
 /// "offline · seen 2h ago", then how many of their agents are working.
 pub fn presence_line(m: &SummaryMember, now_ms: i64) -> String {
@@ -324,174 +322,13 @@ pub fn error_text(e: &str) -> String {
 
 // ---- spaces (lib/spaces.ts) ------------------------------------------------
 
-/// The two picks that aren't a shared space.
-pub const ALL_SPACES: &str = "";
-pub const PERSONAL: &str = "personal";
+// The pick's pure half is shared (crate::logic::spaces); Talk reads it too.
+pub use crate::logic::spaces::{
+    ALL_SPACES, PERSONAL, Space, boards_in_space, boards_of, cards_on_personal, known, spaces_of, with_line,
+};
 
-// The switcher's: read once the sidebar mounts `spaces::switcher`.
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Space {
-    /// ALL_SPACES, PERSONAL, or a shared space's id.
-    pub id: String,
-    pub name: String,
-    /// The other people in it, for "with Blake".
-    pub others: Vec<String>,
-}
-
-/// The switcher's list: All spaces, Personal, then each shared space by
-/// name.
-#[allow(dead_code)]
-pub fn spaces_of(boards: &[BoardSummary]) -> Vec<Space> {
-    let mut shared: Vec<&BoardSummary> = boards.iter().filter(|b| !b.leaving).collect();
-    shared.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    let mut out = vec![
-        Space { id: ALL_SPACES.into(), name: "All spaces".into(), others: vec![] },
-        Space { id: PERSONAL.into(), name: "Personal".into(), others: vec![] },
-    ];
-    out.extend(shared.into_iter().map(|b| Space {
-        id: b.board_id.clone(),
-        name: [&b.name, &b.tag]
-            .into_iter()
-            .find(|s| !s.is_empty())
-            .cloned()
-            .unwrap_or_else(|| "(unnamed)".into()),
-        others: b.members.iter().filter(|m| !m.me).map(|m| m.name.clone()).collect(),
-    }));
-    out
-}
-
-/// A space's boards, its default board first (card #558); the first
-/// board's empty fields fall back to the space's.
-pub fn boards_of(s: &BoardSummary) -> Vec<SpaceBoard> {
-    if s.boards.is_empty() {
-        return vec![SpaceBoard {
-            board_id: s.board_id.clone(),
-            name: s.name.clone(),
-            tag: s.tag.clone(),
-        }];
-    }
-    s.boards
-        .iter()
-        .enumerate()
-        .map(|(i, x)| {
-            if i > 0 {
-                return x.clone();
-            }
-            SpaceBoard {
-                board_id: x.board_id.clone(),
-                name: if x.name.is_empty() { s.name.clone() } else { x.name.clone() },
-                tag: if x.tag.is_empty() { s.tag.clone() } else { x.tag.clone() },
-            }
-        })
-        .collect()
-}
-
-/// "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.
-pub fn with_line(others: &[String]) -> String {
-    match others.len() {
-        0 => String::new(),
-        1 => format!("with {}", others[0]),
-        2 => format!("with {} and {}", others[0], others[1]),
-        n => format!("with {} +{}", others[0], n - 1),
-    }
-}
-
-/// Keeps a pick that still names a space; one the person left (or a
-/// stale id) falls back to All spaces.
-pub fn known(id: &str, boards: &[BoardSummary]) -> String {
-    if id == ALL_SPACES || id == PERSONAL {
-        return id.into();
-    }
-    if boards.iter().any(|b| b.board_id == id && !b.leaving) {
-        id.into()
-    } else {
-        ALL_SPACES.into()
-    }
-}
-
-/// Personal's cards on one of its boards (card #558): a card with no inner
-/// board is on the default board.
-pub fn cards_on_personal<'a>(cards: &'a [CardSummary], board_id: &str) -> Vec<&'a CardSummary> {
-    cards
-        .iter()
-        .filter(|c| {
-            c.board.is_empty()
-                && (if c.space_board.is_empty() { PERSONAL } else { c.space_board.as_str() }) == board_id
-        })
-        .collect()
-}
-
-/// Whether a card shows in the picked space.
-pub fn card_in_space(c: &CardSummary, space: &str) -> bool {
-    match space {
-        ALL_SPACES => true,
-        PERSONAL => c.board.is_empty(),
-        _ => c.board == space,
-    }
-}
-
-/// A conversation's space, for [`conv_in_space`].
-pub struct ConvSpace<'a> {
-    pub space_id: &'a str,
-    pub kind: &'a str,
-    /// (kind, key) of each member.
-    pub members: Vec<(&'a str, &'a str)>,
-}
-
-/// Whether a channel, DM or thread shows in the picked space (card #461,
-/// #558, #538).
-pub fn conv_in_space(c: &ConvSpace, space: &str) -> bool {
-    if space == ALL_SPACES {
-        return true;
-    }
-    if c.kind == "dm"
-        && !c.members.is_empty()
-        && c.members.iter().all(|(k, _)| *k == "person")
-        && c.members.iter().any(|(_, key)| key.starts_with("person:"))
-    {
-        return true;
-    }
-    if space == PERSONAL {
-        return c.space_id.is_empty();
-    }
-    c.space_id == space
-}
-
-/// The Spaces page in the picked space.
-pub fn boards_in_space<'a>(boards: &'a [BoardSummary], space: &str) -> Vec<&'a BoardSummary> {
-    match space {
-        ALL_SPACES => boards.iter().collect(),
-        PERSONAL => vec![],
-        _ => boards.iter().filter(|b| b.board_id == space).collect(),
-    }
-}
-
-/// The board id a new thread or channel starts on.
-pub fn threads_space(space: &str) -> &str {
-    if space == ALL_SPACES || space == PERSONAL { "" } else { space }
-}
-
-/// The space's cards on one of its boards: a card with no inner board (or
-/// the space's own id) is on the first board.
-pub fn cards_on_board<'a>(
-    b: &BoardSummary,
-    cards: &'a [CardSummary],
-    board_id: &str,
-) -> Vec<&'a CardSummary> {
-    let first = boards_of(b)[0].board_id.clone();
-    cards
-        .iter()
-        .filter(|c| {
-            let on = if c.space_board.is_empty() || c.space_board == b.board_id {
-                first.as_str()
-            } else {
-                c.space_board.as_str()
-            };
-            c.board == b.board_id && on == board_id
-        })
-        .collect()
-}
+/// The space's cards on one of its boards (the board list's copy).
+pub use crate::board::filter::cards_on_board;
 
 /// A board's newest few cards.
 pub fn recent<'a>(cards: &[&'a CardSummary], n: usize) -> Vec<&'a CardSummary> {
@@ -620,6 +457,7 @@ pub const STALE_TAIL: &str = ": newer changes from other devices may not be here
 #[cfg(test)]
 mod tests {
     use super::*;
+    use irori_window::boards::{BoardSummary, SpaceBoard};
     use gocompat::time::GoTime;
     use irori_window::cards::AgentRef;
 
@@ -754,52 +592,9 @@ mod tests {
         assert_eq!(known(PERSONAL, &[]), PERSONAL);
     }
 
-    #[test]
-    fn cards_personal_is_the_private_ones_a_space_its_own() {
-        let private = card("a");
-        let on = CardSummary { board: "b-mlg".into(), ..card("b") };
-        assert!(card_in_space(&private, ALL_SPACES) && card_in_space(&on, ALL_SPACES));
-        assert!(card_in_space(&private, PERSONAL));
-        assert!(!card_in_space(&on, PERSONAL));
-        assert!(card_in_space(&on, "b-mlg"));
-        assert!(!card_in_space(&private, "b-mlg"));
-    }
 
-    #[test]
-    fn boards_and_threads_follow_the_pick() {
-        let all = [mlg(), board("b-iro", "Irori", "iro")];
-        assert_eq!(boards_in_space(&all, ALL_SPACES).len(), 2);
-        assert!(boards_in_space(&all, PERSONAL).is_empty());
-        assert_eq!(boards_in_space(&all, "b-iro")[0].board_id, "b-iro");
-        assert_eq!(threads_space(ALL_SPACES), "");
-        assert_eq!(threads_space(PERSONAL), "");
-        assert_eq!(threads_space("b-mlg"), "b-mlg");
-    }
 
-    #[test]
-    fn channels_and_dms_follow_the_pick() {
-        let c = |space_id, kind| ConvSpace { space_id, kind, members: vec![] };
-        let all = [("c1", c("", "channel")), ("c2", c("b-mlg", "channel")), ("d1", c("", "dm"))];
-        let ids = |space: &str| {
-            all.iter().filter(|(_, x)| conv_in_space(x, space)).map(|(id, _)| *id).collect::<Vec<_>>()
-        };
-        assert_eq!(ids(ALL_SPACES), ["c1", "c2", "d1"]);
-        assert_eq!(ids(PERSONAL), ["c1", "d1"]);
-        assert_eq!(ids("b-mlg"), ["c2"]);
-        assert!(ids("b-iro").is_empty());
-    }
 
-    #[test]
-    fn a_dm_with_another_person_shows_under_every_pick() {
-        let bob = ConvSpace {
-            space_id: "",
-            kind: "dm",
-            members: vec![("person", "user"), ("person", "person:bob")],
-        };
-        for space in [ALL_SPACES, PERSONAL, "b-mlg", "b-iro"] {
-            assert!(conv_in_space(&bob, space));
-        }
-    }
 
     #[test]
     fn cards_on_personal_boards() {
