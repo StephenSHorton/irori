@@ -131,7 +131,11 @@ impl Services {
             };
         }
         let name = self.agent_names.get(by);
-        if name.is_empty() { by.to_string() } else { name }
+        if name.is_empty() {
+            by.to_string()
+        } else {
+            name
+        }
     }
 
     /// Agent `caller` pauses or unpauses agent starts (the `agents_pause`

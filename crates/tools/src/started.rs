@@ -148,10 +148,12 @@ pub(crate) fn agents_pause(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         None => match s.b.agents_paused() {
             Some(p) if p.on => format!(
                 "Pause agents is on (since {}, by {}): Irori starts no agent on any of the person's devices. Give on = false to turn it off.\n",
-                p.since,
-                p.by
+                p.since, p.by
             ),
-            Some(_) => "Pause agents is off: Irori starts agents as usual. Give on = true to pause.\n".into(),
+            Some(_) => {
+                "Pause agents is off: Irori starts agents as usual. Give on = true to pause.\n"
+                    .into()
+            }
             None => err_text("Pause agents isn't kept here."),
         },
     }

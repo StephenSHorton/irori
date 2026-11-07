@@ -53,7 +53,9 @@ export function PauseAgentsButton() {
             · {ago === "just now" ? "just now" : `${ago}`}
           </span>
         </span>
-        <span className="sm:hidden">Paused</span>
+        <span className="sm:hidden">
+          Paused<span className="ml-1 font-normal opacity-80">· {ago}</span>
+        </span>
       </Button>
     )
   }
