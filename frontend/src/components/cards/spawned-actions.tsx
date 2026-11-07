@@ -198,7 +198,9 @@ function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
   useLayoutEffect(() => {
     const el = pre.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [text])
+    // error too: a Refresh that fails and then brings the same text back
+    // leaves text as it was, but the pre held only the error between.
+  }, [text, error])
   useEffect(() => {
     let live = true
     agentLogs(who.key).then(
@@ -223,7 +225,9 @@ function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
           className="max-h-[60vh] min-h-32 overflow-auto rounded-md border border-border bg-background/60 p-3 font-mono text-[12px] leading-snug whitespace-pre text-ink-2"
         >
           {error ? (
-            <span className="text-destructive">{error}</span>
+            <span className="whitespace-pre-wrap text-destructive">
+              {error}
+            </span>
           ) : text === null ? (
             "Loading…"
           ) : (

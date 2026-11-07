@@ -40,53 +40,131 @@ pub fn replay_text(bytes: &[u8]) -> String {
 }
 
 /// A screen at least as big as the one the stream was drawn on. The stream
-/// doesn't say its size, so it is read off the cursor moves: an absolute
-/// `ESC[r;cH` or `ESC[r;cf`, and the relative moves a repaint makes from
-/// home (`ESC[nB` down, `ESC[nC` right, `ESC[nG` to a column). Too small
-/// and moves clamp at the edge, painting lines over each other; too big is
-/// harmless, as the replay trims the blanks it leaves.
+/// doesn't say its size, so this follows the cursor through it (absolute
+/// and relative moves, printed text, CR, LF, tab, backspace) and takes the
+/// furthest cell it reaches. Too small and the replay wraps long rows or
+/// clamps moves at the edge, painting lines over each other; too big is
+/// harmless, as the replay trims the blanks it leaves. So it errs big: a
+/// non-ASCII character counts two cells when it may be wide, and every LF
+/// moves down, though the session's own screen scrolled instead.
 fn geometry(b: &[u8]) -> (u16, u16) {
+    let (mut col, mut row) = (0u32, 0u32);
+    // The furthest cell reached, as a count (one past its index).
     let (mut cols, mut rows) = (0u32, 0u32);
     let mut i = 0;
-    while i + 1 < b.len() {
-        if b[i] != 0x1b || b[i + 1] != b'[' {
-            i += 1;
-            continue;
-        }
-        let mut j = i + 2;
-        let mut params = [0u32; 2];
-        let mut n = 0;
-        while j < b.len() && (b[j].is_ascii_digit() || b[j] == b';') {
-            if b[j] == b';' {
-                n += 1;
-            } else if n < 2 {
-                params[n] = params[n]
-                    .saturating_mul(10)
-                    .saturating_add(u32::from(b[j] - b'0'));
-            }
-            j += 1;
-        }
-        if j < b.len() {
-            match b[j] {
-                b'H' | b'f' => {
-                    rows = rows.max(params[0]);
-                    cols = cols.max(params[1]);
+    while i < b.len() {
+        let c = b[i];
+        i += 1;
+        match c {
+            0x1b => {
+                let Some(&k) = b.get(i) else { break };
+                i += 1;
+                match k {
+                    b'[' => {
+                        let (n, end) = csi(b, i);
+                        i = end;
+                        let Some(f) = n.final_byte else { continue };
+                        if n.private {
+                            continue;
+                        }
+                        let p0 = n.params[0].max(1);
+                        match f {
+                            b'H' | b'f' => {
+                                row = p0 - 1;
+                                col = n.params[1].max(1) - 1;
+                            }
+                            b'A' => row = row.saturating_sub(p0),
+                            b'B' | b'e' => row = row.saturating_add(p0),
+                            b'C' | b'a' => col = col.saturating_add(p0),
+                            b'D' => col = col.saturating_sub(p0),
+                            b'E' => (row, col) = (row.saturating_add(p0), 0),
+                            b'F' => (row, col) = (row.saturating_sub(p0), 0),
+                            b'G' | b'`' => col = p0 - 1,
+                            b'd' => row = p0 - 1,
+                            _ => continue,
+                        }
+                        cols = cols.max(col.saturating_add(1));
+                        rows = rows.max(row.saturating_add(1));
+                    }
+                    // OSC, DCS, SOS, PM, APC: a string up to BEL or ST.
+                    b']' | b'P' | b'X' | b'^' | b'_' => {
+                        while i < b.len()
+                            && b[i] != 0x07
+                            && !(b[i] == 0x1b && b.get(i + 1) == Some(&b'\\'))
+                        {
+                            i += 1;
+                        }
+                        i += if b.get(i) == Some(&0x07) { 1 } else { 2 };
+                    }
+                    // ESC ( B and friends: intermediates, then a final byte.
+                    0x20..=0x2f => {
+                        while i < b.len() && (0x20..=0x2f).contains(&b[i]) {
+                            i += 1;
+                        }
+                        i += 1;
+                    }
+                    _ => {}
                 }
-                b'B' | b'E' => rows = rows.max(params[0].saturating_add(1)),
-                b'C' => cols = cols.max(params[0].saturating_add(1)),
-                b'G' | b'`' => cols = cols.max(params[0]),
-                b'd' => rows = rows.max(params[0]),
-                _ => {}
+            }
+            b'\r' => col = 0,
+            b'\n' | 0x0b | 0x0c => row = row.saturating_add(1),
+            0x08 => col = col.saturating_sub(1),
+            b'\t' => col = (col / 8 + 1).saturating_mul(8),
+            0x00..=0x1f | 0x7f => {}
+            // A UTF-8 continuation byte belongs to the character before.
+            0x80..=0xbf => {}
+            _ => {
+                col = col.saturating_add(if c < 0x80 { 1 } else { 2 });
+                cols = cols.max(col);
+                rows = rows.max(row.saturating_add(1));
             }
         }
-        i = j;
     }
-    // Room for the text after the furthest move.
-    let cols = cols
-        .saturating_add(80)
-        .clamp(MIN_COLS as u32, MAX_COLS as u32) as u16;
+    let cols = cols.clamp(MIN_COLS as u32, MAX_COLS as u32) as u16;
     let rows = rows.clamp(MIN_ROWS as u32, MAX_ROWS as u32) as u16;
     (cols, rows)
+}
+
+/// A CSI sequence's parsed head: its first two parameters, whether it is a
+/// private one (`ESC[?25h`, `ESC[>c`), and its final byte if the stream
+/// holds it.
+struct Csi {
+    params: [u32; 2],
+    private: bool,
+    final_byte: Option<u8>,
+}
+
+/// Parses the CSI whose parameters start at `b[i]`; gives it and where the
+/// bytes after it start.
+fn csi(b: &[u8], mut i: usize) -> (Csi, usize) {
+    let mut n = Csi {
+        params: [0; 2],
+        private: false,
+        final_byte: None,
+    };
+    let mut k = 0;
+    while i < b.len() {
+        match b[i] {
+            d @ b'0'..=b'9' => {
+                if k < 2 {
+                    n.params[k] = n.params[k]
+                        .saturating_mul(10)
+                        .saturating_add(u32::from(d - b'0'));
+                }
+            }
+            b';' | b':' => k += 1,
+            b'<'..=b'?' => n.private = true,
+            0x20..=0x2f => {}
+            f @ 0x40..=0x7e => {
+                n.final_byte = Some(f);
+                return (n, i + 1);
+            }
+            // Not a CSI after all: leave the byte to the main loop.
+            _ => return (n, i),
+        }
+        i += 1;
+    }
+    (n, i)
 }
 
 #[cfg(test)]
@@ -142,6 +220,32 @@ mod tests {
     fn colours_and_an_open_sync_are_no_trouble() {
         let s = b"\x1b[?2026h\x1b[H\r\x1b[38;2;215;119;87mhi\x1b[39m \x1b[1mthere\x1b[22m";
         assert_eq!(replay_text(s), "hi there");
+    }
+
+    #[test]
+    fn plain_text_sizes_the_screen_too() {
+        // A full-width rule printed from column 0 with no moves past it
+        // (review of #741): a screen narrower than it would wrap the rule
+        // and scroll the bottom row away.
+        let rule = "─".repeat(192);
+        let status = "s".repeat(192);
+        let s = format!("\x1b[H\r{rule}\x1b[50;1H{status}");
+        let text = replay_text(s.as_bytes());
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 50, "{text}");
+        assert_eq!(lines[0], rule);
+        assert_eq!(lines[49], status);
+    }
+
+    #[test]
+    fn cursor_is_followed_through_relative_moves() {
+        assert_eq!(geometry(b"\x1b[100;1H\x1b[A\x1b[3B"), (MIN_COLS, 102));
+        assert_eq!(geometry(b"\x1b[1;300Hx"), (300, MIN_ROWS));
+        // Private modes and strings move nothing.
+        assert_eq!(
+            geometry(b"\x1b[?2026h\x1b[>999C\x1b]0;\x1b[999C\x07"),
+            (MIN_COLS, MIN_ROWS)
+        );
     }
 
     #[test]
