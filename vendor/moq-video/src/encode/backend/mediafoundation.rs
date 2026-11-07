@@ -24,7 +24,7 @@ use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 use windows::Win32::Media::MediaFoundation::{
 	CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize,
 	CODECAPI_AVEncVideoForceKeyFrame, CODECAPI_AVLowLatencyMode, ICodecAPI, IMFDXGIDeviceManager, IMFMediaBuffer,
-	IMFMediaEvent, IMFMediaEventGenerator, IMFMediaType, IMFSample, IMFTransform, METransformDrainComplete,
+	IMFMediaEvent, IMFMediaEventGenerator, IMFMediaType, IMFSample, IMFShutdown, IMFTransform, METransformDrainComplete,
 	METransformHaveOutput, METransformNeedInput, MF_E_NO_EVENTS_AVAILABLE, MF_E_TRANSFORM_NEED_MORE_INPUT,
 	MF_E_TRANSFORM_STREAM_CHANGE, MF_EVENT_FLAG_NO_WAIT, MF_EVENT_FLAG_NONE, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
 	MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_MPEG2_PROFILE, MF_MT_SUBTYPE,
@@ -33,6 +33,7 @@ use windows::Win32::Media::MediaFoundation::{
 	MFCreateMemoryBuffer, MFCreateSample, MFMediaType_Video, MFNominalRange_0_255, MFNominalRange_16_235,
 	MFSampleExtension_Discontinuity, MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE, MFT_ENUM_FLAG_SORTANDFILTER,
 	MFT_MESSAGE_COMMAND_DRAIN, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, MFT_MESSAGE_NOTIFY_END_OF_STREAM,
+	MFT_MESSAGE_NOTIFY_END_STREAMING,
 	MFT_MESSAGE_NOTIFY_START_OF_STREAM, MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER,
 	MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MFT_REGISTER_TYPE_INFO, MFTEnumEx, MFVideoFormat_H264, MFVideoFormat_HEVC,
 	MFVideoFormat_NV12, MFVideoInterlace_Progressive, MFVideoPrimaries_BT709, MFVideoPrimaries_SMPTE170M,
@@ -579,6 +580,33 @@ impl MediaFoundation {
 				self.last_timestamp.unwrap_or(Timestamp::ZERO)
 			}
 		}
+	}
+}
+
+/// How long a dropped encoder waits after shutting its MFT down before
+/// releasing it. See the `Drop` below.
+const RELEASE_GRACE: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Shut the async MFT down, then give its worker a moment before the last
+/// reference goes. NVIDIA's H.264 MFT (nvEncMFTH264x.dll) parks a worker on
+/// Media Foundation's work queue; shutting the MFT down wakes it, and
+/// releasing the MFT straight away freed the object before that worker took
+/// its lock again: an access violation on an RTWorkQ thread, at a write to
+/// 0x24 (irori #671). It needs only load to show: an encoder opened, fed one
+/// frame and dropped crashed within a few cycles on a busy PC, and with a 20 ms
+/// pause it ran 600 cycles clean. Draining first did not help, so the pause is
+/// for that worker, not for frames still inside.
+impl Drop for MediaFoundation {
+	fn drop(&mut self) {
+		unsafe {
+			if self.started {
+				let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+			}
+			if let Ok(shutdown) = self.transform.cast::<IMFShutdown>() {
+				let _ = shutdown.Shutdown();
+			}
+		}
+		std::thread::sleep(RELEASE_GRACE);
 	}
 }
 

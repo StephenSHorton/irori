@@ -941,13 +941,8 @@ fn a_huddles_end_wakes_the_channels_agents_once() {
 /// gets a decoder config, then AVCC access units starting at a keyframe.
 /// Bob sharing replaces Alice's, and she is told who took over; Bob stops
 /// and the share is gone for both.
-///
-/// Ignored until #671: on the PC (NVIDIA) the test binary crashes, alone
-/// or beside the other huddle tests (about 1 run in 4), in NVIDIA's H.264
-/// encoder (nvEncMFTH264x.dll) on a Media Foundation work-queue thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[test]
-#[ignore = "#671: crashes in the NVIDIA H.264 encoder on Windows"]
 fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
     use irori_net::share::{VIEW_CHUNK, VIEW_CONFIG};
 
