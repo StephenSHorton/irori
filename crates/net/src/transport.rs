@@ -289,6 +289,16 @@ impl RoomState {
     }
 }
 
+/// Whether [`Inner::setup_as`] needs the peer still in the address book.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Booked {
+    /// A mesh dial: it was made from the book, so it lands only while the
+    /// peer is still there.
+    Yes,
+    /// Anything else (an accepted connection, pairing, invites, boards).
+    Any,
+}
+
 /// The endpoint gate. On `irori/pair/1` it also admits ids it doesn't
 /// know, but only while a pairing room or a pairing guest window is open
 /// here (an invite window never opens pairing to strangers); on
@@ -1131,13 +1141,14 @@ impl Inner {
             close_conn(&conn, reason::REFUSED);
             return Err(ConnError::Local(reason::REFUSED.into()));
         }
-        self.setup(
+        self.setup_as(
             conn,
             room,
             peer.to_string(),
             self.cfg.self_id.clone(),
             send,
             recv,
+            Booked::Yes,
         )
     }
 
@@ -1206,6 +1217,30 @@ impl Inner {
         send: SendStream,
         recv: RecvStream,
     ) -> Result<(), ConnError> {
+        self.setup_as(conn, room, peer, dialer, send, recv, Booked::Any)
+    }
+
+    /// [`Inner::setup`], and with [`Booked::Yes`] (a mesh dial) only while
+    /// the peer is still in the address book. A dial that read the peer's
+    /// address before [`IrohNet::set_peers`] took it out, and is still in
+    /// `connect` or the epoch-open exchange when [`IrohNet::drop_device`]
+    /// closes the pair's connections, is in no room for that close to find:
+    /// without this it lands afterwards and joins two devices the book had
+    /// just parted (#683). The check runs under the room's `conns` lock,
+    /// which `drop_device` takes too, so a book change made before a
+    /// `drop_device` either stops this connection here or is followed by
+    /// that close.
+    #[allow(clippy::too_many_arguments)]
+    fn setup_as(
+        self: &Arc<Self>,
+        conn: Connection,
+        room: &Arc<RoomState>,
+        peer: String,
+        dialer: String,
+        send: SendStream,
+        recv: RecvStream,
+        booked: Booked,
+    ) -> Result<(), ConnError> {
         let sas = ekm(&conn, EKM_SAS)?;
         let (handler, _) = watch::channel(None);
         let c = Arc::new(IrohConn {
@@ -1224,7 +1259,9 @@ impl Inner {
         });
         {
             let mut conns = room.conns.lock().expect("conns");
-            if room.closed.load(Ordering::SeqCst) {
+            if room.closed.load(Ordering::SeqCst)
+                || (booked == Booked::Yes && self.peer_addr(room, &peer).is_none())
+            {
                 c.close(reason::LEAVING);
                 return Err(ConnError::Local(reason::LEAVING.into()));
             }
