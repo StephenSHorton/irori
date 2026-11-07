@@ -281,6 +281,7 @@ export const BoardService = {
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   ThreadsAll: () => call(commands.boardThreadsAll()),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
+  ReadThread: (id: string) => done(commands.boardReadThread(id)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
   CommentModify: (id: string, commentId: string) =>

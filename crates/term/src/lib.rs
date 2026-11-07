@@ -29,6 +29,19 @@ mod stub;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use stub::Terms;
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod replay;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub use replay::replay_text;
+
+/// The text a recorded terminal stream leaves on screen (card #741). A
+/// phone has no VT engine and no `claude` to record from; it gives the
+/// bytes back as text.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn replay_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
 /// A terminal's id on this device.
 pub type TermId = u32;
 
