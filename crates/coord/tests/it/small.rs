@@ -16,8 +16,11 @@ use store::{Event, Store, kinds};
 #[test]
 fn test_words_are_distinct_and_plain() {
     let mut seen = std::collections::HashSet::new();
-    // Card #224 grew the list from Go's 127.
-    assert_eq!(WORDS.len(), 1021);
+    // Card #224 grew the list from Go's 127 to 1021; card #702's themes
+    // added to it.
+    assert_eq!(WORDS.len(), names::THEMES.iter().map(|t| t.words.len()).sum::<usize>());
+    assert!(WORDS.len() > 1021, "{}", WORDS.len());
+    assert_eq!(&WORDS[..1021], names::THEMES[0].words, "card #224's words first");
     for w in WORDS {
         assert!(seen.insert(*w), "{w:?} twice");
         assert!(
@@ -32,9 +35,10 @@ fn test_pick_is_deterministic() {
     let a = names::pick("0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0", None);
     assert_eq!(a, names::pick("0f1e2d3c-4b5a-4978-8796-a5b4c3d2e1f0", None));
     // coord.md §3.13's vectors were "lemur" and "mesa" over Go's 127
-    // words; card #224's longer list moves a new session's first choice.
-    assert_eq!(a, "mira");
-    assert_eq!(names::pick("s1", None), "antares");
+    // words; card #224's longer list, and card #702's themes after it,
+    // move a new session's first choice.
+    assert_eq!(a, "daikon");
+    assert_eq!(names::pick("s1", None), "verdandi");
 }
 
 #[test]

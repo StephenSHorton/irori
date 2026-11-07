@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
-use coord::names::{fold, pick, pick_free};
+use coord::names::{fold, pick, pick_free, pick_free_in};
 use coord::roster::AgentCard;
 use gocompat::json::lenient::{self, Out, Schema};
 use gocompat::time::GoTime;
@@ -51,6 +51,7 @@ type CardsFn = Arc<dyn Fn() -> Vec<AgentCard> + Send + Sync>;
 /// Every agent name remembered lately, any device: (key, name, last seen).
 type SeenFn = Arc<dyn Fn() -> Vec<(String, String, GoTime)> + Send + Sync>;
 type NowFn = Arc<dyn Fn() -> GoTime + Send + Sync>;
+type ThemeFn = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// Gives sessions a name ([`presence::Namer`]) and settles clashes with
 /// other devices' agents.
@@ -66,6 +67,9 @@ pub struct Namer {
     others: RwLock<Option<CardsFn>>,
     /// The agent names remembered on this device (agent-names.json).
     seen: RwLock<Option<SeenFn>>,
+    /// The person's names theme (card #702): a `coord::names::THEMES` id,
+    /// or `""` for every theme mixed.
+    theme: RwLock<Option<ThemeFn>>,
     m: Mutex<BTreeMap<String, NameEntry>>,
 }
 
@@ -94,6 +98,7 @@ impl Namer {
             mesh: RwLock::new(None),
             others: RwLock::new(None),
             seen: RwLock::new(None),
+            theme: RwLock::new(None),
             m: Mutex::new(m),
         }
     }
@@ -113,6 +118,12 @@ impl Namer {
     /// name, when last seen with it), e.g. agent-names.json.
     pub fn set_seen(&self, f: impl Fn() -> Vec<(String, String, GoTime)> + Send + Sync + 'static) {
         *self.seen.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
+    }
+
+    /// Sets where the person's names theme comes from (card #702): new
+    /// names come from that theme's words while one is free.
+    pub fn set_theme(&self, f: impl Fn() -> String + Send + Sync + 'static) {
+        *self.theme.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
     }
 
     /// Replaces the clock (tests).
@@ -144,6 +155,14 @@ impl Namer {
     fn seen(&self) -> Vec<(String, String, GoTime)> {
         let f = self.seen.read().unwrap_or_else(|e| e.into_inner()).clone();
         f.map(|f| f()).unwrap_or_default()
+    }
+
+    /// The words of the person's theme; `None` for every theme mixed (or
+    /// a theme this build doesn't know).
+    fn theme_words(&self) -> Option<&'static [&'static str]> {
+        let f = self.theme.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let id = f.map(|f| f()).unwrap_or_default();
+        coord::names::theme(&id).map(|t| t.words)
     }
 
     fn cards(&self) -> Vec<AgentCard> {
@@ -233,6 +252,8 @@ impl Namer {
     /// the remembered past (30 days: names.json, agent-names.json, gone
     /// agents still on the roster), then one nobody went by in
     /// [`NAMES_RECENT`], and only then any free word or a numbered name.
+    /// With a names theme (card #702) it first tries that theme's words
+    /// the same two ways, then every theme's.
     fn pick_locked(
         &self,
         m: &BTreeMap<String, NameEntry>,
@@ -309,10 +330,18 @@ impl Namer {
         }
         let taken = |s: &str| taken.contains(s) || extra(s);
         let fresh = |s: &str| taken(s) || recent.contains(s) || known.contains(s);
+        let not_recent = |s: &str| taken(s) || recent.contains(s);
+        if let Some(words) = self.theme_words() {
+            if let Some(n) = pick_free_in(words, id, &fresh) {
+                return n;
+            }
+            if let Some(n) = pick_free_in(words, id, &not_recent) {
+                return n;
+            }
+        }
         if let Some(n) = pick_free(id, &fresh) {
             return n;
         }
-        let not_recent = |s: &str| taken(s) || recent.contains(s);
         if let Some(n) = pick_free(id, &not_recent) {
             return n;
         }

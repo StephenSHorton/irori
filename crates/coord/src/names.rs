@@ -5,12 +5,92 @@
 use gocompat::fnv::fnv32a;
 
 /// The list names come from (card #224: about a thousand, so a name comes
-/// back weeks later, not the next day). Every word is 3-8 lowercase
-/// letters, and none is the start of another, so an @mention of one never
-/// reads as another. Append only: a new session's first choice is its
+/// back weeks later, not the next day): every theme's words, in
+/// [`THEMES`] order. Every word is 3-8 lowercase letters, and none is the
+/// start of another, so an @mention of one never reads as another. Append
+/// only, a new theme at the end: a new session's first choice is its
 /// session id's hash over this list. A session keeps the name it was given
 /// (names.json), so a longer list never renames a running agent.
-pub const WORDS: &[&str] = &[
+pub const WORDS: &[&str] = &ALL;
+
+/// One theme of words (card #702): Settings can narrow new names to one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Theme {
+    /// What the setting stores.
+    pub id: &'static str,
+    /// What Settings shows.
+    pub label: &'static str,
+    pub words: &'static [&'static str],
+}
+
+/// The themes, in the order their words sit in [`WORDS`]. Append only.
+pub const THEMES: &[Theme] = &[
+    Theme {
+        id: "nature",
+        label: "Nature",
+        words: NATURE,
+    },
+    Theme {
+        id: "produce",
+        label: "Produce and things",
+        words: PRODUCE,
+    },
+    Theme {
+        id: "movies",
+        label: "Movie characters",
+        words: MOVIES,
+    },
+    Theme {
+        id: "anime",
+        label: "Anime characters",
+        words: ANIME,
+    },
+    Theme {
+        id: "presidents",
+        label: "US presidents",
+        words: PRESIDENTS,
+    },
+    Theme {
+        id: "myth",
+        label: "Mythology",
+        words: MYTH,
+    },
+];
+
+/// The theme with this id; `None` for `""` (every theme mixed, the
+/// default) or an id this build doesn't know.
+pub fn theme(id: &str) -> Option<&'static Theme> {
+    THEMES.iter().find(|t| t.id == id)
+}
+
+const N_WORDS: usize = {
+    let mut n = 0;
+    let mut i = 0;
+    while i < THEMES.len() {
+        n += THEMES[i].words.len();
+        i += 1;
+    }
+    n
+};
+
+const ALL: [&str; N_WORDS] = {
+    let mut out = [""; N_WORDS];
+    let (mut k, mut i) = (0, 0);
+    while i < THEMES.len() {
+        let w = THEMES[i].words;
+        let mut j = 0;
+        while j < w.len() {
+            out[k] = w[j];
+            k += 1;
+            j += 1;
+        }
+        i += 1;
+    }
+    out
+};
+
+/// Card #224's words: nature, gems, tools, instruments and colours.
+const NATURE: &[&str] = &[
     "acorn", "alder", "amber", "anchor", "aspen", "aster", "badger", "basil", "beacon", "birch",
     "bison", "bramble", "brook", "cedar", "cinder", "clover", "comet", "coral", "cove", "crane",
     "cricket", "cypress", "dahlia", "delta", "dune", "eagle", "ember", "fennel", "fern", "finch",
@@ -125,6 +205,120 @@ pub const WORDS: &[&str] = &[
     "russet", "sepia", "sienna", "taupe", "viridian",
 ];
 
+/// Card #702: produce, pantry foods and everyday things; words that
+/// read as code or app terms (thread, fork, string) are left out.
+const PRODUCE: &[&str] = &[
+    "abacus", "allspice", "almond", "apple", "apron", "arugula", "balloon", "barley", "barrel",
+    "basket", "bauble", "bean", "berry", "blanket", "blender", "blini", "bobbin", "bokchoy",
+    "bolt", "bonbon", "bookend", "bottle", "bowl", "bread", "brooch", "broom", "brush", "bubble",
+    "buckle", "bulgur", "burrito", "cabbage", "candle", "canvas", "caper", "carrot", "cassava",
+    "celery", "cereal", "chai", "chalk", "chapati", "checkers", "cheese", "cherry", "chess",
+    "chickpea", "chili", "chowder", "churro", "ciabatta", "cider", "cinnamon", "clock", "coaster",
+    "colander", "confetti", "conker", "cookie", "cork", "couscous", "cradle", "crayon", "crostini",
+    "crouton", "cruet", "cucumber", "cushion", "daikon", "dice", "doily", "domino", "doorknob",
+    "doughnut", "durian", "duvet", "endive", "envelope", "eraser", "espresso", "falafel", "fig",
+    "flour", "focaccia", "freezer", "fridge", "funnel", "fusilli", "garland", "globe", "glove",
+    "gourd", "grater", "gravy", "griddle", "gumdrop", "habanero", "hamper", "hinge", "honey",
+    "hummus", "inkwell", "jalapeno", "jam", "jelly", "jicama", "jigsaw", "jug", "ketchup",
+    "kettle", "keyring", "kiwi", "knight", "kohlrabi", "ladle", "lamp", "lasagna", "latch",
+    "lemon", "lettuce", "lime", "lollipop", "longan", "magnet", "maize", "marzipan", "meringue",
+    "mesclun", "mint", "mitten", "mixer", "mocha", "mop", "mortar", "muesli", "mustard", "naan",
+    "nacho", "napkin", "needle", "noodle", "oats", "onion", "orange", "oven", "padlock", "paella",
+    "pakora", "pawn", "peach", "pecan", "peeler", "pencil", "penne", "pestle", "pickle", "pillow",
+    "pimento", "pinata", "pinwheel", "pita", "pitcher", "placemat", "plantain", "platter",
+    "pliers", "pocket", "pogo", "pompom", "porridge", "postcard", "potato", "pudding", "purse",
+    "puzzle", "quilt", "radish", "rambutan", "ramekin", "rattle", "relish", "rhubarb", "ribbon",
+    "rice", "romaine", "rook", "roti", "ruler", "rutabaga", "salsa", "samosa", "satsuma", "saucer",
+    "scarf", "scissors", "scooter", "shaker", "shallot", "sherbet", "shovel", "sieve", "skates",
+    "skillet", "sled", "slipper", "slushie", "smoothie", "soba", "sock", "soda", "soup", "spatula",
+    "spool", "spoon", "sprinkle", "squash", "stamp", "stapler", "steamer", "stew", "sticker",
+    "sugar", "sundae", "syrup", "taco", "tangelo", "tape", "taro", "tassel", "teacake", "teacup",
+    "teaspoon", "tinsel", "tomato", "tongs", "tortilla", "tricycle", "trifle", "trivet", "trowel",
+    "tureen", "twine", "umbrella", "vanilla", "vinegar", "wagon", "wallet", "wellie", "wheat",
+    "whisk", "whistle", "wok", "yarn", "yoyo", "zipper", "zucchini",
+];
+
+/// Card #702: film characters, by the names people call them; names a
+/// franchise coined and polices are left out.
+const MOVIES: &[&str] = &[
+    "adrian", "agnes", "aladdin", "alfred", "alice", "amadeus", "amelie", "annie", "astrid",
+    "atticus", "bagheera", "baloo", "bambi", "bastian", "bella", "belle", "benhur", "bishop",
+    "bourne", "brody", "buddy", "cameron", "carl", "clarice", "cooper", "dallas", "deckard",
+    "dolly", "dorothy", "eames", "effie", "eliza", "ellie", "elliott", "elsa", "elwood", "emmett",
+    "ferris", "forrest", "gatsby", "genie", "gigi", "gilda", "glinda", "gomez", "gustave",
+    "hiccup", "higgins", "hooper", "iceman", "ilsa", "indy", "inigo", "jessie", "joel", "jules",
+    "kane", "lara", "lawrence", "lebowski", "leon", "liesl", "lilo", "logan", "lois", "louise",
+    "luke", "lydia", "mame", "margot", "marion", "marty", "mathilda", "mattie", "maude",
+    "maverick", "maximus", "merida", "mia", "mikey", "mulan", "murph", "nala", "nemo", "neo",
+    "neville", "norma", "olaf", "poe", "poppins", "rachael", "rapunzel", "remy", "rey", "rhett",
+    "rick", "ringo", "ripley", "rocky", "rooster", "roxie", "roy", "rudy", "russell", "sabrina",
+    "salieri", "sally", "sandy", "scarlett", "scout", "scrooge", "selina", "shane", "sloane",
+    "sully", "sundance", "suzy", "tevye", "thelma", "thumper", "tiana", "timon", "tinman", "toto",
+    "travis", "tuco", "velma", "vontrapp", "wallace", "wendy", "westley", "zhivago",
+];
+
+/// Card #702: anime and manga characters, romanised; names a franchise
+/// coined and polices are left out.
+const ANIME: &[&str] = &[
+    "gohan", "zoro", "nami", "sanji", "chopper", "sasuke", "sakura", "kakashi", "itachi",
+    "chihiro", "haku", "nausicaa", "ashitaka", "sophie", "howl", "satsuki", "mei", "pazu",
+    "sheeta", "arrietty", "spike", "jet", "faye", "ein", "levi", "eren", "mikasa", "armin",
+    "hange", "ichigo", "rukia", "renji", "urahara", "edward", "alphonse", "winry", "riza",
+    "shinji", "asuka", "kaworu", "misato", "usagi", "ami", "makoto", "minako", "tanjiro", "nezuko",
+    "zenitsu", "inosuke", "giyu", "shinobu", "deku", "ochaco", "shoto", "saitama", "genos",
+    "reigen", "yuji", "megumi", "nobara", "gojo", "maki", "denji", "anya", "loid", "yor", "himmel",
+    "kenshin", "kaoru", "kagome", "sango", "shippo", "yusuke", "kurama", "hiei", "misty", "brock",
+    "tetsuo", "akira", "motoko", "batou", "vash", "alucard", "suzaku", "asuna", "holo", "emilia",
+    "subaru", "kazuma", "haruhi", "kyon", "nagato", "mugen", "jin", "fuu", "hitagi", "araragi",
+    "okabe", "kurisu", "mayuri", "tohru", "yuki", "shoyo", "kageyama", "mitsuha", "hodaka",
+    "suzume", "violet", "taiga", "kaguya", "chika", "miyuki", "bocchi", "nijika", "yotsuba",
+    "chiyo", "osaka", "yui", "mio", "ritsu", "mugi", "azusa", "nanami", "tomoe", "ginko",
+    "natsume", "nyanko", "madoka", "homura", "sayaka", "kyoko", "amuro", "char", "astro", "nobita",
+    "shizuka", "conan", "heiji", "jigen", "goemon", "fujiko", "zenigata", "kenshiro", "jotaro",
+    "josuke", "giorno", "joseph", "senku", "gintoki", "kagura", "sadaharu", "ryoma", "sena",
+    "rukawa", "mitsui", "tsubasa", "nezumi", "shion", "hajime", "ippo", "yoh", "mononoke",
+    "kodama", "yubaba", "kamaji", "moro", "eboshi", "nanoha",
+];
+
+/// Card #702: US presidents by surname, or a well-known short name when
+/// the surname is over 8 letters (george, teddy, ike). Living presidents
+/// are left out.
+const PRESIDENTS: &[&str] = &[
+    "george", "adams", "madison", "monroe", "jackson", "vanburen", "harrison", "tyler", "polk",
+    "taylor", "fillmore", "pierce", "buchanan", "lincoln", "grant", "hayes", "garfield", "arthur",
+    "mckinley", "teddy", "taft", "wilson", "harding", "coolidge", "hoover", "truman", "ike",
+    "kennedy", "carter",
+];
+
+/// Card #702: gods, heroes and creatures of the world's myths; deities of
+/// living major religions are left out.
+const MYTH: &[&str] = &[
+    "zeus", "athena", "odin", "thor", "loki", "anubis", "horus", "thoth", "raijin", "maui",
+    "freya", "apollo", "artemis", "hermes", "ares", "hera", "poseidon", "hades", "demeter",
+    "hestia", "dionysus", "gaia", "kronos", "rhea", "helios", "selene", "eos", "nyx", "nike",
+    "hecate", "psyche", "atlas", "hercules", "theseus", "jason", "achilles", "odysseus", "orpheus",
+    "eurydice", "medusa", "icarus", "daedalus", "ariadne", "hector", "ajax", "penelope", "calypso",
+    "circe", "chiron", "minotaur", "cerberus", "sphinx", "griffin", "nemesis", "tyche", "morpheus",
+    "hypnos", "juno", "minerva", "mars", "venus", "vulcan", "vesta", "diana", "ceres", "bacchus",
+    "janus", "faunus", "flora", "romulus", "remus", "aeneas", "frigg", "baldur", "heimdall", "tyr",
+    "freyr", "njord", "idun", "bragi", "sif", "skadi", "fenrir", "valkyrie", "mimir", "ymir",
+    "sleipnir", "huginn", "muninn", "ratatosk", "osiris", "bastet", "sekhmet", "hathor", "ptah",
+    "amun", "atum", "geb", "tefnut", "sobek", "khonsu", "maat", "nephthys", "khepri", "susanoo",
+    "inari", "fujin", "izanagi", "izanami", "hachiman", "benten", "ebisu", "daikoku", "kitsune",
+    "tanuki", "tengu", "kappa", "ryujin", "momotaro", "kintaro", "dagda", "lugh", "brigid",
+    "morrigan", "finn", "oisin", "epona", "manannan", "aengus", "banshee", "selkie", "gwydion",
+    "rhiannon", "taliesin", "enlil", "enki", "ishtar", "inanna", "marduk", "tiamat", "ninurta",
+    "shamash", "tlaloc", "xolotl", "kukulkan", "itzamna", "chac", "tonatiuh", "ixchel", "inti",
+    "perun", "veles", "mokosh", "svarog", "dazhbog", "stribog", "babayaga", "domovoi", "rusalka",
+    "kupala", "tangaroa", "tane", "hina", "rangi", "kanaloa", "lono", "rongo", "tawhiri", "nuwa",
+    "fuxi", "houyi", "wukong", "nezha", "pangu", "zhongkui", "qilin", "baku", "hotei", "jurojin",
+    "helen", "leda", "danae", "ganymede", "nereus", "thetis", "galatea", "pandora", "atalanta",
+    "hyperion", "oceanus", "themis", "clio", "thalia", "erato", "urania", "calliope", "euterpe",
+    "pomona", "fortuna", "sigyn", "ullr", "vidar", "vali", "forseti", "norn", "skuld", "verdandi",
+    "mani", "aegir", "jord", "sigurd", "beowulf", "brunhild", "gudrun", "surtr", "thrud", "magni",
+    "bennu", "seshat", "wadjet", "nekhbet", "taweret", "aten", "imhotep", "neith",
+];
+
 /// The name for `seed` (a session id): the word its hash lands on, else the
 /// next word along that `taken` refuses, wrapping round; when every word is
 /// taken, the same probe with `2`, then `3`, ... appended. `taken` is asked
@@ -152,10 +346,19 @@ pub fn pick(seed: &str, taken: Option<&dyn Fn(&str) -> bool>) -> String {
 /// once from the word its hash lands on; `None` when every word is taken
 /// (then [`pick`] goes on to numbered names).
 pub fn pick_free(seed: &str, taken: &dyn Fn(&str) -> bool) -> Option<String> {
-    let n_words = WORDS.len();
+    pick_free_in(WORDS, seed, taken)
+}
+
+/// [`pick_free`] over `words` alone (one theme's, card #702): the hash
+/// lands among them.
+pub fn pick_free_in(words: &[&str], seed: &str, taken: &dyn Fn(&str) -> bool) -> Option<String> {
+    let n_words = words.len();
+    if n_words == 0 {
+        return None;
+    }
     let start = (fnv32a(seed.as_bytes()) % n_words as u32) as usize;
     (0..n_words)
-        .map(|i| WORDS[(start + i) % n_words])
+        .map(|i| words[(start + i) % n_words])
         .find(|w| !taken(w))
         .map(str::to_string)
 }
@@ -198,6 +401,40 @@ mod tests {
                 pair[1]
             );
         }
+    }
+
+    #[test]
+    fn themes_make_up_the_words_in_order() {
+        let joined: Vec<&str> = THEMES
+            .iter()
+            .flat_map(|t| t.words.iter().copied())
+            .collect();
+        assert_eq!(joined, WORDS);
+        assert_eq!(THEMES[0].id, "nature", "card #224's words come first");
+        assert_eq!(
+            NATURE.len(),
+            1021,
+            "card #224's words are kept as they were"
+        );
+        let mut ids = HashSet::new();
+        for t in THEMES {
+            assert!(ids.insert(t.id), "{} twice", t.id);
+            assert!(!t.id.is_empty() && !t.label.is_empty());
+            assert_eq!(theme(t.id), Some(t));
+        }
+        assert_eq!(theme(""), None, "every theme mixed");
+        assert_eq!(theme("nope"), None);
+    }
+
+    #[test]
+    fn pick_free_in_stays_in_its_theme() {
+        let t = theme("myth").unwrap();
+        let first = pick_free_in(t.words, "s1", &|_| false).unwrap();
+        assert!(t.words.contains(&first.as_str()), "{first}");
+        let second = pick_free_in(t.words, "s1", &|w| w == first).unwrap();
+        assert!(t.words.contains(&second.as_str()) && second != first);
+        assert_eq!(pick_free_in(t.words, "s1", &|w| t.words.contains(&w)), None);
+        assert_eq!(pick_free_in(&[], "s1", &|_| false), None);
     }
 
     #[test]

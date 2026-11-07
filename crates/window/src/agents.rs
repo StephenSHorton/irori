@@ -101,6 +101,28 @@ pub struct AgentsPauseView {
     pub by: String,
 }
 
+/// One names theme Settings › Agents offers (card #702).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NamesThemeChoice {
+    pub id: String,
+    pub label: String,
+    /// How many words it has.
+    pub words: u32,
+    /// A few of them, for the hint.
+    pub sample: Vec<String>,
+}
+
+/// The theme new agents' names come from (card #702): the person's, on all
+/// their devices, set here and never by a tool.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NamesThemeView {
+    /// A choice's id, or `""` for every theme mixed (the default).
+    pub theme: String,
+    pub themes: Vec<NamesThemeChoice>,
+}
+
 /// The idle limits offered, in minutes; 30 is the default.
 pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
@@ -395,6 +417,35 @@ impl Window {
             since: if p.on { p.since.unix_milli_value() } else { 0 },
             by: self.core.agents_pause_by(&p.by),
         }
+    }
+
+    /// The theme new agents' names come from (card #702). A theme this
+    /// build doesn't know (a newer device's) shows as every theme mixed,
+    /// which is what it picks from.
+    pub fn names_theme(&self) -> NamesThemeView {
+        let theme = self.core.names_theme();
+        NamesThemeView {
+            theme: if coord::names::theme(&theme).is_some() {
+                theme
+            } else {
+                String::new()
+            },
+            themes: coord::names::THEMES
+                .iter()
+                .map(|t| NamesThemeChoice {
+                    id: t.id.into(),
+                    label: t.label.into(),
+                    words: t.words.len() as u32,
+                    sample: t.words.iter().take(4).map(|w| (*w).into()).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The person picks it: the app only, never a tool.
+    pub fn names_theme_set(&self, theme: &str) -> Result<NamesThemeView, String> {
+        self.core.set_names_theme(crate::trim(theme))?;
+        Ok(self.names_theme())
     }
 
     /// The person turns Pause agents on or off for this device.

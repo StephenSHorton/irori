@@ -16,7 +16,8 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, RunningAgent,
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemeView,
+    RunningAgent,
 };
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
@@ -1691,6 +1692,21 @@ pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsVie
     w.agents_starts_set(on, max)
 }
 
+/// The theme new agents' names come from (card #702).
+#[tauri::command]
+#[specta::specta]
+pub async fn names_theme(w: W<'_>) -> R<NamesThemeView> {
+    blocking(&w, |w| Ok(w.names_theme())).await
+}
+
+/// The person picks it, `""` for every theme mixed: the app only, never a
+/// tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_theme_set(w: W<'_>, theme: String) -> R<NamesThemeView> {
+    blocking(&w, move |w| w.names_theme_set(&theme)).await
+}
+
 /// The person changes them: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
@@ -2189,6 +2205,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            names_theme,
+            names_theme_set,
             agents_starts,
             agents_starts_set,
             agents_pause,
