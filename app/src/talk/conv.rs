@@ -842,6 +842,7 @@ pub fn overlays(s: &State, f: &mut Frame) {
     let mut body = col()
         .key("talk-make-body")
         .w_full()
+        .px(22.0)
         .gap(10.0)
         .child(text("Title").font(ts(12.0, 500.0)).color(k.c.text_muted))
         .child(
