@@ -122,14 +122,7 @@ The loader rules that bite (research/v02/mod.md §9):
 - atoms take a literal `plugin` and `key`;
 - the bearer token goes in `headers.authorization`, never `auth`.
 
-`mod/dev/` is a separate Go module with a fake Core (`fakecore`) and a fake `irori attach` (`fakeirori`) for live checks without the real Core:
-
-```
-cd mod/dev && go build -o bin/fakecore.exe ./fakecore && go build -o bin/irori.exe ./fakeirori
-bin/fakecore.exe                                   # logs every request to fakecore.log
-# set iroriPath to mod/dev/bin/irori.exe, start a session with --plugin-dir mod, then:
-curl -X POST "http://127.0.0.1:47811/ctl/deliver?text=hello"
-```
+For a live check without your own Irori, run a scratch `irori serve --headless` on a copy (`IRORI_HOME=<copy>`, `IRORI_DEV_OFFLINE=1`) and set `iroriPath` to that binary. The Go fakes that used to live in `mod/dev/` are gone (rune-ui spike, #674): the Rust half of the contract is the real `irori attach` exe against the real API server (`app/tests/it/attach_exe.rs`).
 
 ### Verified live (Windows 11, Claude Code 2.1.311, `claude --bg`)
 
@@ -139,4 +132,4 @@ curl -X POST "http://127.0.0.1:47811/ctl/deliver?text=hello"
 - `$.tool.register` after `session.start` has returned (once `hello` arrives) works. The model found `mcp__irori__echo` through ToolSearch and called it, and the `tool.call` hook with the matcher `{ tool: /^mcp__irori__/ }` served it.
 - When the child is killed, it restarts after 1 s. After `superseded`, no restart (since changed: GitHub #57, and not re-run live).
 
-These checks ran against `mod/dev/fakeirori`, which never reads stdin. The real `irori attach` doesn't read it either now (the runner's `Stdin` is nil for it), so a session stays attached with the real `irori.exe`.
+These checks ran against the old Go `fakeirori` (since removed), which never reads stdin. The real `irori attach` doesn't read it either now (the runner's `Stdin` is nil for it), so a session stays attached with the real `irori.exe`.

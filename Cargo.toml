@@ -10,6 +10,7 @@ members = [
   "crates/capture",
   "crates/coord",
   "crates/core",
+  "crates/roles",
   "crates/dev",
   "crates/gocompat",
   "crates/hlc",
@@ -63,6 +64,7 @@ irori-attach = { path = "crates/attach" }
 irori-blob = { path = "crates/blob" }
 irori-coord = { path = "crates/coord" }
 irori-core = { path = "crates/core" }
+irori-roles = { path = "crates/roles" }
 irori-gocompat = { path = "crates/gocompat" }
 irori-hlc = { path = "crates/hlc" }
 irori-home = { path = "crates/home" }

@@ -1,0 +1,42 @@
+[package]
+name = "irori-roles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The irori binary's roles without a window: role dispatch, serve, mcp, node, attach, events, pair and the Core host. Both desktop shells (Tauri, Rune) start from it."
+
+[lib]
+name = "irori_roles"
+
+[dependencies]
+irori-api = { workspace = true }
+irori-attach = { workspace = true }
+irori-core = { workspace = true }
+irori-gocompat = { workspace = true }
+irori-home = { workspace = true }
+irori-presence = { workspace = true }
+irori-coord = { workspace = true }
+irori-pair = { workspace = true }
+irori-sys = { workspace = true }
+irori-store = { workspace = true }
+irori-mcp = { workspace = true }
+irori-notify = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+irori-capture = { workspace = true }
+irori-identity = { workspace = true }
+irori-inbox = { workspace = true }
+irori-net = { workspace = true }
+irori-lan = { workspace = true }
+iroh = "1.4.1"
