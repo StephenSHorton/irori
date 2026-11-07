@@ -31,7 +31,14 @@ fn tone(s: RowState) -> Tone {
 }
 
 /// The rows of `cards` (grouped by state when `grouped`), in a panel each.
-pub fn progress_rows(s: &State, f: &mut Frame, key: &str, label: &str, cards: &[&CardSummary], grouped: bool) -> El {
+pub fn progress_rows(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    label: &str,
+    cards: &[&CardSummary],
+    grouped: bool,
+) -> El {
     if cards.is_empty() {
         return el().key(key.to_string());
     }
@@ -54,15 +61,29 @@ pub fn progress_rows(s: &State, f: &mut Frame, key: &str, label: &str, cards: &[
             (*c, r)
         })
         .collect();
-    let by_id: HashMap<&str, usize> = all.iter().enumerate().map(|(i, (c, _))| (c.id.as_str(), i)).collect();
+    let by_id: HashMap<&str, usize> = all
+        .iter()
+        .enumerate()
+        .map(|(i, (c, _))| (c.id.as_str(), i))
+        .collect();
     let under = |id: &str| -> Vec<usize> {
-        let Some(&i) = by_id.get(id) else { return vec![] };
-        follows_of(id, all[i].0.order.as_ref()).iter().filter_map(|st| by_id.get(st.id.as_str()).copied()).collect()
+        let Some(&i) = by_id.get(id) else {
+            return vec![];
+        };
+        follows_of(id, all[i].0.order.as_ref())
+            .iter()
+            .filter_map(|st| by_id.get(st.id.as_str()).copied())
+            .collect()
     };
     let hung: HashSet<usize> = (0..all.len()).flat_map(|i| under(&all[i].0.id)).collect();
     let rows: Vec<usize> = (0..all.len()).filter(|i| !hung.contains(i)).collect();
     // The ref column fits the widest ref (4.5 to 10rem).
-    let ref_w = all.iter().map(|(c, _)| card_ref(c).chars().count() + 2).max().unwrap_or(4) as f32 * 7.2;
+    let ref_w = all
+        .iter()
+        .map(|(c, _)| card_ref(c).chars().count() + 2)
+        .max()
+        .unwrap_or(4) as f32
+        * 7.2;
     let ref_w = ref_w.clamp(72.0, 160.0);
 
     let list = |f: &mut Frame, name: &str, rs: &[usize], quiet: bool| -> El {
@@ -94,20 +115,34 @@ pub fn progress_rows(s: &State, f: &mut Frame, key: &str, label: &str, cards: &[
         ul
     };
     if !grouped {
-        return col().key(key.to_string()).w_full().child(list(f, label, &rows, false));
+        return col()
+            .key(key.to_string())
+            .w_full()
+            .child(list(f, label, &rows, false));
     }
     let mut out = col().key(key.to_string()).w_full().min_w(0.0).gap(12.0);
     for (st, rs) in group_rows(&rows, |&i| all[i].1.state) {
         if st == RowState::Later {
             let g = list(f, "Not yet", &rs, true);
-            out = out.child(super::order::not_yet_fold(s, f, &format!("{key}-notyet"), rs.len(), g));
+            out = out.child(super::order::not_yet_fold(
+                s,
+                f,
+                &format!("{key}-notyet"),
+                rs.len(),
+                g,
+            ));
         } else {
             out = out.child(
                 col()
                     .key(format!("{key}-group-{}", st.label()))
                     .w_full()
                     .gap(6.0)
-                    .child(heading(f, &format!("{key}-h-{}", st.label()), st.label(), Some(rs.len())))
+                    .child(heading(
+                        f,
+                        &format!("{key}-h-{}", st.label()),
+                        st.label(),
+                        Some(rs.len()),
+                    ))
                     .child(list(f, st.label(), &rs, false)),
             );
         }
@@ -115,23 +150,45 @@ pub fn progress_rows(s: &State, f: &mut Frame, key: &str, label: &str, cards: &[
     out
 }
 
-fn progress_row(s: &State, f: &mut Frame, c: &CardSummary, r: &RowLine, ref_w: f32, quiet: bool, hangs: bool) -> El {
+fn progress_row(
+    s: &State,
+    f: &mut Frame,
+    c: &CardSummary,
+    r: &RowLine,
+    ref_w: f32,
+    quiet: bool,
+    hangs: bool,
+) -> El {
     let k = f.k;
     let p = format!("board-row-{}", c.id);
     let line = if hangs { String::new() } else { r.line.clone() };
     let pct = percent(c.progress.done, c.progress.total);
-    let space = if c.scope == "board" { plain_line(&c.scope_label) } else { String::new() };
+    let space = if c.scope == "board" {
+        plain_line(&c.scope_label)
+    } else {
+        String::new()
+    };
     let selected = s.board.selected == c.id;
     let title = plain_line(&c.title);
     let warn = matches!(r.state, RowState::Idle | RowState::Stuck);
-    let mut why = row().key(format!("{p}/why")).w(256.0).shrink().min_w(0.0).gap(6.0).center_y();
+    let mut why = row()
+        .key(format!("{p}/why"))
+        .w(256.0)
+        .shrink()
+        .min_w(0.0)
+        .gap(6.0)
+        .center_y();
     if r.spin {
         why = why.child(spinner(f, &format!("{p}/spin")));
     }
     why = why.child(
         text(line.clone())
             .font(rune::tok::TextStyle::new(12.5, 400.0))
-            .color(if warn { status::decide() } else { k.c.text_muted })
+            .color(if warn {
+                status::decide()
+            } else {
+                k.c.text_muted
+            })
             .max_lines(1)
             .shrink()
             .help(line),
@@ -146,14 +203,32 @@ fn progress_row(s: &State, f: &mut Frame, c: &CardSummary, r: &RowLine, ref_w: f
         .gap(8.0)
         .center_y()
         .help(title.clone())
-        .child(text(title.clone()).font(rune::tok::TextStyle::new(14.0, 500.0)).color(k.c.text_base).max_lines(1).shrink());
+        .child(
+            text(title.clone())
+                .font(rune::tok::TextStyle::new(14.0, 500.0))
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink(),
+        );
     if !space.is_empty() {
-        ttl = ttl.child(text(space).font(k.ty.text_xsmall).color(k.c.text_muted).max_lines(1));
+        ttl = ttl.child(
+            text(space)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .max_lines(1),
+        );
     }
     let badge_el = if quiet {
         el()
     } else {
-        badge(f, &format!("{p}/state"), r.state.label(), tone(r.state), false, "")
+        badge(
+            f,
+            &format!("{p}/state"),
+            r.state.label(),
+            tone(r.state),
+            false,
+            "",
+        )
     };
     let bar = match pct {
         Some(pc) => el()
@@ -164,7 +239,11 @@ fn progress_row(s: &State, f: &mut Frame, c: &CardSummary, r: &RowLine, ref_w: f
             .h(4.0)
             .radius(2.0)
             .clip_rounded(2.0)
-            .fill(if quiet { rune::Color::TRANSPARENT } else { k.c.layer_03 })
+            .fill(if quiet {
+                rune::Color::TRANSPARENT
+            } else {
+                k.c.layer_03
+            })
             .child(el().w_frac(pc as f32 / 100.0).h_full().fill(match r.state {
                 RowState::Waiting | RowState::Later => k.c.text_muted,
                 st => tone_solid(f, tone(st)),
@@ -184,18 +263,26 @@ fn progress_row(s: &State, f: &mut Frame, c: &CardSummary, r: &RowLine, ref_w: f
         .px(16.0)
         .py(if hangs { 6.0 } else { 10.0 })
         .center_y()
-        .fill(if selected { k.c.hover } else { rune::Color::TRANSPARENT })
+        .fill(if selected {
+            k.c.hover
+        } else {
+            rune::Color::TRANSPARENT
+        })
         .hover(k.c.hover)
         .opacity(if quiet { 0.7 } else { 1.0 })
         .cursor(rune::Cursor::Pointer)
         .on_press(move |s: &mut State| s.open_card(&id))
         .child(
-            text(if hangs { format!("└ {reff}") } else { reff.clone() })
-                .font(k.ty.text_xsmall.mono())
-                .color(k.c.text_muted)
-                .w(ref_w)
-                .max_lines(1)
-                .help(reff),
+            text(if hangs {
+                format!("└ {reff}")
+            } else {
+                reff.clone()
+            })
+            .font(k.ty.text_xsmall.mono())
+            .color(k.c.text_muted)
+            .w(ref_w)
+            .max_lines(1)
+            .help(reff),
         )
         .child(ttl)
         .child(why)

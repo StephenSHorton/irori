@@ -28,7 +28,11 @@ pub fn search_box(s: &State, f: &Frame) -> El {
             .center()
             .radius(3.0)
             .border(1.0, k.c.border_base)
-            .child(text("/").font(rune::tok::TextStyle::new(10.0, 500.0)).color(k.c.text_muted))
+            .child(
+                text("/")
+                    .font(rune::tok::TextStyle::new(10.0, 500.0))
+                    .color(k.c.text_muted),
+            )
             .a11y_hidden()
     } else {
         row()

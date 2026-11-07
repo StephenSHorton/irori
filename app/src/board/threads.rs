@@ -76,7 +76,9 @@ pub fn reload_all(s: &mut State) {
 /// Whether "Resolved" is unfolded: the person's pick, or a resolved
 /// thread open (a #ref to one unfolds it, card #144).
 pub fn resolved_shown(pick: bool, open: &str, threads: &[ThreadSummary]) -> bool {
-    pick || threads.iter().any(|t| t.id == open && t.state == "resolved")
+    pick || threads
+        .iter()
+        .any(|t| t.id == open && t.state == "resolved")
 }
 
 /// A click on "Resolved" (card #194): the pick it sets, and whether to
@@ -85,12 +87,21 @@ pub fn resolved_toggle(pick: bool, open: &str, threads: &[ThreadSummary]) -> (bo
     if !resolved_shown(pick, open, threads) {
         return (true, false);
     }
-    (false, threads.iter().any(|t| t.id == open && t.state == "resolved"))
+    (
+        false,
+        threads
+            .iter()
+            .any(|t| t.id == open && t.state == "resolved"),
+    )
 }
 
 /// The thread to keep open once `id` is resolved (cards #194, #200).
 pub fn open_after_resolve(open: &str, id: &str) -> String {
-    if open == id { String::new() } else { open.to_string() }
+    if open == id {
+        String::new()
+    } else {
+        open.to_string()
+    }
 }
 
 /// A thread's state on its title line.
@@ -111,7 +122,9 @@ pub fn state_line(t: &ThreadSummary, why: &str) -> String {
     }
     match t.state.as_str() {
         "answered" => match &t.last_by {
-            Some(by) if !t.last_text.is_empty() => format!("{}: {}", display_name(by), plain_line(&t.last_text)),
+            Some(by) if !t.last_text.is_empty() => {
+                format!("{}: {}", display_name(by), plain_line(&t.last_text))
+            }
             _ => "Answered".into(),
         },
         "handed" => match t.told.last() {
@@ -128,7 +141,13 @@ pub fn state_line(t: &ThreadSummary, why: &str) -> String {
                 cant_start: t.cant_start.clone(),
                 no_agent: t.no_agent.clone(),
             };
-            spawn_line(&sp).map(|l| l.text).unwrap_or_else(|| if why.is_empty() { "Waiting for an agent".into() } else { why.to_string() })
+            spawn_line(&sp).map(|l| l.text).unwrap_or_else(|| {
+                if why.is_empty() {
+                    "Waiting for an agent".into()
+                } else {
+                    why.to_string()
+                }
+            })
         }
     }
 }
@@ -168,15 +187,31 @@ pub fn thread_cards(f: &Frame, key: &str, cards: &[ThreadCard]) -> El {
                 .max_w(320.0)
                 .min_w(0.0)
                 .cursor(rune::Cursor::Pointer)
-                .help(format!("{} ({})", plain_line(&c.title), c.state.replace('_', " ")))
+                .help(format!(
+                    "{} ({})",
+                    plain_line(&c.title),
+                    c.state.replace('_', " ")
+                ))
                 .on_press(move |s: &mut State| s.open_card(&id))
-                .child(badge(f, &format!("{key}/{}/b", c.id), &label, card_tone(&c.state), false, "")),
+                .child(badge(
+                    f,
+                    &format!("{key}/{}/b", c.id),
+                    &label,
+                    card_tone(&c.state),
+                    false,
+                    "",
+                )),
         );
     }
     r
 }
 
-fn set_busy(s: &mut State, what: &'static str, work: impl FnOnce(&irori_window::Window) -> Result<(), String> + Send + 'static, after: impl FnOnce(&mut State) + Send + 'static) {
+fn set_busy(
+    s: &mut State,
+    what: &'static str,
+    work: impl FnOnce(&irori_window::Window) -> Result<(), String> + Send + 'static,
+    after: impl FnOnce(&mut State) + Send + 'static,
+) {
     if s.board.threads.busy {
         return;
     }
@@ -218,9 +253,13 @@ pub fn panel(s: &State, f: &mut Frame, board: &str, threads: &[ThreadSummary]) -
                 .w_full()
                 .center_y()
                 .child(
-                    text(if live.is_empty() { "THREADS".to_string() } else { format!("THREADS · {} OPEN", live.len()) })
-                        .font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.6))
-                        .color(k.c.text_muted),
+                    text(if live.is_empty() {
+                        "THREADS".to_string()
+                    } else {
+                        format!("THREADS · {} OPEN", live.len())
+                    })
+                    .font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.6))
+                    .color(k.c.text_muted),
                 )
                 .child(el().grow(1.0))
                 .child(
@@ -266,14 +305,32 @@ pub fn panel(s: &State, f: &mut Frame, board: &str, threads: &[ThreadSummary]) -
                     .center_y()
                     .cursor(rune::Cursor::Pointer)
                     .on_press(move |s: &mut State| {
-                        let (pick, close) = resolved_toggle(s.board.threads.show_resolved, &s.board.threads.open, &all);
+                        let (pick, close) = resolved_toggle(
+                            s.board.threads.show_resolved,
+                            &s.board.threads.open,
+                            &all,
+                        );
                         s.board.threads.show_resolved = pick;
                         if close {
                             s.board.threads.open.clear();
                         }
                     })
-                    .child(icon(if shown { &icons::CHEVRON_DOWN } else { &icons::CHEVRON_RIGHT }, 14.0).color(k.c.text_muted))
-                    .child(text(format!("Resolved ({})", resolved.len())).font(k.ty.text_xsmall).color(k.c.text_muted)),
+                    .child(
+                        icon(
+                            if shown {
+                                &icons::CHEVRON_DOWN
+                            } else {
+                                &icons::CHEVRON_RIGHT
+                            },
+                            14.0,
+                        )
+                        .color(k.c.text_muted),
+                    )
+                    .child(
+                        text(format!("Resolved ({})", resolved.len()))
+                            .font(k.ty.text_xsmall)
+                            .color(k.c.text_muted),
+                    ),
             );
         if shown {
             for t in &resolved {
@@ -307,7 +364,11 @@ fn told_chip(s: &State, f: &mut Frame, key: &str, w: &AgentRef) -> El {
         .radius(4.0)
         .fill(k.c.layer_03)
         .child(fc)
-        .child(text(display_name(w)).font(rune::tok::TextStyle::new(10.5, 500.0)).color(k.c.text_base))
+        .child(
+            text(display_name(w))
+                .font(rune::tok::TextStyle::new(10.5, 500.0))
+                .color(k.c.text_base),
+        )
 }
 
 fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
@@ -318,7 +379,11 @@ fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
     let id = t.id.clone();
     let mut head = row().key(format!("{p}/title")).w_full().gap(8.0).center_y();
     if !t.short.is_empty() {
-        head = head.child(text(thread_ref(&t.tag, &t.short)).font(rune::tok::TextStyle::new(11.0, 400.0)).color(k.c.text_muted));
+        head = head.child(
+            text(thread_ref(&t.tag, &t.short))
+                .font(rune::tok::TextStyle::new(11.0, 400.0))
+                .color(k.c.text_muted),
+        );
     }
     head = head.child(
         text(plain_line(&t.title))
@@ -341,7 +406,11 @@ fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
     if let Some((label, tone)) = state_badge(&t.state) {
         head = head.child(badge(f, &format!("{p}/state"), label, tone, false, ""));
     }
-    head = head.child(text(relative_time(ms(&t.updated_at).unwrap_or(0), now_ms())).font(rune::tok::TextStyle::new(11.0, 400.0)).color(k.c.text_muted));
+    head = head.child(
+        text(relative_time(ms(&t.updated_at).unwrap_or(0), now_ms()))
+            .font(rune::tok::TextStyle::new(11.0, 400.0))
+            .color(k.c.text_muted),
+    );
     let mut btn = col()
         .key(format!("{p}/btn"))
         .role("button")
@@ -352,7 +421,11 @@ fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
         .gap(2.0)
         .cursor(rune::Cursor::Pointer)
         .on_press(move |s: &mut State| {
-            s.board.threads.open = if s.board.threads.open == id { String::new() } else { id.clone() };
+            s.board.threads.open = if s.board.threads.open == id {
+                String::new()
+            } else {
+                id.clone()
+            };
             s.board.threads.error = None;
         })
         .child(head);
@@ -360,7 +433,11 @@ fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
         btn = btn.child(
             text(state_line(t, why))
                 .font(k.ty.text_xsmall)
-                .color(if waiting { status::decide() } else { k.c.text_muted })
+                .color(if waiting {
+                    status::decide()
+                } else {
+                    k.c.text_muted
+                })
                 .w_full()
                 .max_lines(2),
         );
@@ -374,7 +451,14 @@ fn thread_row(s: &State, f: &mut Frame, t: &ThreadSummary, why: &str) -> El {
         .py(10.0)
         .radius(10.0)
         .fill(k.c.bg_base.alpha(0.4))
-        .border(1.0, if open { k.c.icon_accent } else { k.c.border_muted })
+        .border(
+            1.0,
+            if open {
+                k.c.icon_accent
+            } else {
+                k.c.border_muted
+            },
+        )
         .child(btn);
     if !t.cards.is_empty() {
         sec = sec.child(thread_cards(f, &format!("{p}/cards"), &t.cards));
@@ -405,7 +489,9 @@ fn thread_view(s: &State, f: &mut Frame, p: &str, t: &ThreadSummary) -> El {
             .w_full()
             .max_h(200.0)
             .min_h(0.0)
-            .scroll(rune::ScrollSpec { stick_bottom: false })
+            .scroll(rune::ScrollSpec {
+                stick_bottom: false,
+            })
             .child(crate::text::rich_text(s, f, &format!("{p}/qt"), &t.text)),
     );
     if !t.told.is_empty() {
@@ -415,7 +501,15 @@ fn thread_view(s: &State, f: &mut Frame, p: &str, t: &ThreadSummary) -> El {
             .gap(4.0)
             .center_y()
             .flex_wrap()
-            .child(text(if t.state == "waiting" { "Asked first:" } else { "Told:" }).font(k.ty.text_xsmall).color(k.c.text_muted));
+            .child(
+                text(if t.state == "waiting" {
+                    "Asked first:"
+                } else {
+                    "Told:"
+                })
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted),
+            );
         for (i, w) in t.told.iter().enumerate() {
             r = r.child(told_chip(s, f, &format!("{p}/told/{i}"), w));
         }
@@ -432,23 +526,42 @@ fn thread_view(s: &State, f: &mut Frame, p: &str, t: &ThreadSummary) -> El {
                     .radius(8.0)
                     .fill(k.c.layer_02)
                     .child(
-                        text(format!("{} · {} {}", display_name(by), t.replies, if t.replies == 1 { "reply" } else { "replies" }))
-                            .font(k.ty.text_xsmall_medium)
-                            .color(k.c.text_muted),
+                        text(format!(
+                            "{} · {} {}",
+                            display_name(by),
+                            t.replies,
+                            if t.replies == 1 { "reply" } else { "replies" }
+                        ))
+                        .font(k.ty.text_xsmall_medium)
+                        .color(k.c.text_muted),
                     )
-                    .child(crate::text::rich_text(s, f, &format!("{p}/lastt"), &t.last_text)),
+                    .child(crate::text::rich_text(
+                        s,
+                        f,
+                        &format!("{p}/lastt"),
+                        &t.last_text,
+                    )),
             );
         }
         _ => {
             c = c.child(
-                text(if resolved { "No answer." } else { "No answer yet." })
-                    .font(k.ty.text_xsmall)
-                    .color(k.c.text_muted),
+                text(if resolved {
+                    "No answer."
+                } else {
+                    "No answer yet."
+                })
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted),
             );
         }
     }
     let id = t.id.clone();
-    let mut acts = row().key(format!("{p}/acts")).w_full().gap(8.0).center_y().flex_wrap();
+    let mut acts = row()
+        .key(format!("{p}/acts"))
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .flex_wrap();
     let open_id = t.id.clone();
     acts = acts.child(
         Button::new("Open the thread")
@@ -482,19 +595,39 @@ fn thread_view(s: &State, f: &mut Frame, p: &str, t: &ThreadSummary) -> El {
                 .on_press(move |s: &mut State| {
                     let id = id.clone();
                     let gone = id.clone();
-                    set_busy(s, "Resolve", move |w| w.resolve_thread(&id), move |s| {
-                        s.board.threads.open = open_after_resolve(&s.board.threads.open, &gone);
-                    });
+                    set_busy(
+                        s,
+                        "Resolve",
+                        move |w| w.resolve_thread(&id),
+                        move |s| {
+                            s.board.threads.open = open_after_resolve(&s.board.threads.open, &gone);
+                        },
+                    );
                 })
                 .build(k),
         );
-        acts = acts.child(agents_now_toggle(f, &format!("{p}/now"), t.agents_now, busy, move |s: &mut State, on| {
-            let id = id2.clone();
-            set_busy(s, "Agents answer now", move |w| w.set_agents_now(&id, on), |_| {});
-        }));
+        acts = acts.child(agents_now_toggle(
+            f,
+            &format!("{p}/now"),
+            t.agents_now,
+            busy,
+            move |s: &mut State, on| {
+                let id = id2.clone();
+                set_busy(
+                    s,
+                    "Agents answer now",
+                    move |w| w.set_agents_now(&id, on),
+                    |_| {},
+                );
+            },
+        ));
     }
     if let Some(e) = &s.board.threads.error {
-        acts = acts.child(text(e.clone()).font(k.ty.text_xsmall).color(status::failed()));
+        acts = acts.child(
+            text(e.clone())
+                .font(k.ty.text_xsmall)
+                .color(status::failed()),
+        );
     }
     c.child(acts)
 }

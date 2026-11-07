@@ -16,7 +16,11 @@ use super::data::{AGENT, AgentNode, BLOCKER, BlockerNode, By, CARD, CardNode, Gr
 
 /// "2/5 steps", or "" for a card without steps.
 pub fn steps_text(done: i64, total: i64) -> String {
-    if total > 0 { format!("{done}/{total} steps") } else { String::new() }
+    if total > 0 {
+        format!("{done}/{total} steps")
+    } else {
+        String::new()
+    }
 }
 
 /// One of a card's at-a-glance flags.
@@ -129,16 +133,34 @@ pub fn card_body(s: &State, f: &mut Frame, key: &str, n: &CardNode) -> El {
 
     let mut foot = row().w_full().gap(8.0).center_y().min_w(0.0);
     if !c.working.is_empty() {
-        foot = foot.child(faces::faces(s, f, &format!("{key}/working"), &c.working, false, Some(faces::FACES_MAX)));
+        foot = foot.child(faces::faces(
+            s,
+            f,
+            &format!("{key}/working"),
+            &c.working,
+            false,
+            Some(faces::FACES_MAX),
+        ));
     }
     if !c.watching.is_empty() {
-        foot = foot.child(faces::faces(s, f, &format!("{key}/watching"), &c.watching, true, Some(faces::FACES_MAX)));
+        foot = foot.child(faces::faces(
+            s,
+            f,
+            &format!("{key}/watching"),
+            &c.watching,
+            true,
+            Some(faces::FACES_MAX),
+        ));
     }
     if n.subtasks > 0 {
         foot = foot.child(
-            text(format!("{} subtask{}", n.subtasks, if n.subtasks == 1 { "" } else { "s" }))
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_muted),
+            text(format!(
+                "{} subtask{}",
+                n.subtasks,
+                if n.subtasks == 1 { "" } else { "s" }
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted),
         );
     }
     foot = foot.child(el().grow(1.0)).child(
@@ -187,7 +209,11 @@ pub fn card_markers(f: &Frame, key: &str, n: &CardNode) -> Option<El> {
         return None;
     }
     let k = f.k;
-    let mut r = row().key(format!("{key}/markers")).gap(4.0).pin(None, Some(-10.0), Some(8.0), None);
+    let mut r =
+        row()
+            .key(format!("{key}/markers"))
+            .gap(4.0)
+            .pin(None, Some(-10.0), Some(8.0), None);
     for m in ms {
         let bg = match m {
             Marker::Needs => status::failed(),
@@ -202,7 +228,11 @@ pub fn card_markers(f: &Frame, key: &str, n: &CardNode) -> Option<El> {
                 .fill(bg)
                 .help(m.title())
                 .label(m.text())
-                .child(text(m.text().to_uppercase()).font(small(10.0, 650.0)).color(k.c.bg_base)),
+                .child(
+                    text(m.text().to_uppercase())
+                        .font(small(10.0, 650.0))
+                        .color(k.c.bg_base),
+                ),
         );
     }
     Some(r)
@@ -213,7 +243,11 @@ pub fn card_markers(f: &Frame, key: &str, n: &CardNode) -> Option<El> {
 pub fn blocker_body(f: &Frame, n: &BlockerNode) -> El {
     let k = f.k;
     let person = n.state == blocker::OPEN;
-    let c = if person { status::failed() } else { status::decide() };
+    let c = if person {
+        status::failed()
+    } else {
+        status::decide()
+    };
     col()
         .w(BLOCKER.w)
         .h(BLOCKER.h)
@@ -224,9 +258,13 @@ pub fn blocker_body(f: &Frame, n: &BlockerNode) -> El {
         .border(1.0, c.alpha(0.6))
         .fill(k.c.bg_base.mix(c, 0.1))
         .child(
-            text(if person { "NEEDS YOU" } else { "ANSWERED, WAITING ON AGENT" })
-                .font(small(10.0, 650.0))
-                .color(c),
+            text(if person {
+                "NEEDS YOU"
+            } else {
+                "ANSWERED, WAITING ON AGENT"
+            })
+            .font(small(10.0, 650.0))
+            .color(c),
         )
         .child(
             text(n.label.clone())
@@ -268,7 +306,11 @@ pub fn agent_body(s: &State, f: &Frame, key: &str, n: &AgentNode) -> El {
     let dot = status_dot(f, n.tone);
     let working = matches!(n.tone, StatusTone::Working | StatusTone::Job);
     let tip = [
-        if n.person { "you".to_string() } else { n.label.clone() },
+        if n.person {
+            "you".to_string()
+        } else {
+            n.label.clone()
+        },
         n.status.clone(),
         n.agent.where_.clone(),
     ]
@@ -305,8 +347,19 @@ pub fn agent_body(s: &State, f: &Frame, key: &str, n: &AgentNode) -> El {
     }
     if n.person {
         pill = pill
-            .child(el().size(8.0, 8.0).radius(4.0).fill(status::working()).a11y_hidden())
-            .child(text("you").font(k.ty.text_xsmall_medium).color(tint).max_lines(1).shrink());
+            .child(
+                el().size(8.0, 8.0)
+                    .radius(4.0)
+                    .fill(status::working())
+                    .a11y_hidden(),
+            )
+            .child(
+                text("you")
+                    .font(k.ty.text_xsmall_medium)
+                    .color(tint)
+                    .max_lines(1)
+                    .shrink(),
+            );
     } else {
         pill = pill
             .child(faces::identicon(&n.agent.key, 16.0, tint))
@@ -336,10 +389,22 @@ pub fn agent_body(s: &State, f: &Frame, key: &str, n: &AgentNode) -> El {
 pub fn group_body(f: &Frame, n: &GroupNode, w: f32, h: f32) -> El {
     let k = f.k;
     let (border, fill, label) = match n.by {
-        By::Agent => (k.c.border_base.alpha(0.7), k.c.text_base.alpha(0.02), k.c.text_muted),
-        By::Unheld => (status::decide().alpha(0.6), status::decide().alpha(0.04), status::decide()),
+        By::Agent => (
+            k.c.border_base.alpha(0.7),
+            k.c.text_base.alpha(0.02),
+            k.c.text_muted,
+        ),
+        By::Unheld => (
+            status::decide().alpha(0.6),
+            status::decide().alpha(0.04),
+            status::decide(),
+        ),
         By::Others => (k.c.border_base.alpha(0.4), Color::default(), k.c.text_muted),
-        By::Done => (k.c.border_base.alpha(0.3), Color::default(), k.c.text_muted.alpha(0.7)),
+        By::Done => (
+            k.c.border_base.alpha(0.3),
+            Color::default(),
+            k.c.text_muted.alpha(0.7),
+        ),
     };
     el().w(w)
         .h(h)
@@ -415,7 +480,12 @@ mod tests {
         let marks: Vec<Vec<Marker>> = g.cards().map(markers_of).collect();
         assert_eq!(
             marks,
-            vec![vec![Marker::Needs], vec![Marker::Nobody], vec![Marker::Stale], vec![]]
+            vec![
+                vec![Marker::Needs],
+                vec![Marker::Nobody],
+                vec![Marker::Stale],
+                vec![]
+            ]
         );
     }
 

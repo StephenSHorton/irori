@@ -479,6 +479,11 @@ pub fn state_pill(c: &CardSummary, now: i64) -> Pill {
         Holding::Assigned => return p("Offered", Tone::Slate, "", true),
         _ => {}
     }
+    // Card #699: offered to an agent that is gone, not answering or
+    // offline, nobody is working it; the holder line says which.
+    if c.holder.who.assigned && matches!(c.holder.state, Holding::Gone | Holding::Silent | Holding::Offline) {
+        return p("Not taken up", Tone::Warning, "", true);
+    }
     if idle_unnamed(c, now) {
         return p(
             "Idle, no reason given",
@@ -506,7 +511,9 @@ pub fn holder_text(h: &CardHolder, since: Option<i64>, status: &str, now: i64) -
             format!("{who}{more} · {}", agent_status(&Who::status(st), since, now).text)
         }
         Holding::Offline => format!("{who}{more} · its device is offline"),
-        Holding::Gone if h.who.spawned => format!("{who}{more} · agent finished"),
+        // An agent Irori started ends when its work is done: finished, not
+        // lost. One that ended before it took the card up died (card #699).
+        Holding::Gone if h.who.spawned && !h.who.assigned => format!("{who}{more} · agent finished"),
         Holding::Gone => format!("{who}{more} · gone"),
     }
 }
@@ -524,7 +531,7 @@ pub struct HolderLine {
 /// roster's status and when it began.
 pub fn holder_line(h: &CardHolder, returned: Option<&AgentRef>, live: Option<(&str, Option<i64>)>, now: i64) -> HolderLine {
     let (status, since) = live.unwrap_or(("", None));
-    let finished = h.state == Holding::Gone && h.who.spawned;
+    let finished = h.state == Holding::Gone && h.who.spawned && !h.who.assigned;
     let tone = matches!(h.state, Holding::Active | Holding::Idle | Holding::Silent).then(|| {
         let st = if status.is_empty() { h.who.status.as_str() } else { status };
         agent_status(&Who::status(st), None, now).tone
@@ -1026,6 +1033,8 @@ pub(crate) mod tests {
         assert_eq!(holder_text(&g, None, "", 0), "oak · gone");
         g.who.spawned = true;
         assert_eq!(holder_text(&g, None, "", 0), "oak · agent finished");
+        g.who.assigned = true;
+        assert_eq!(holder_text(&g, None, "", 0), "oak · gone");
         let l = holder_line(&h(Holding::Active, "busy"), None, None, 0);
         assert!(l.dot && !l.warn);
         let r = with(agent("gone"), |a| a.name = "elm".into());
@@ -1065,5 +1074,11 @@ pub(crate) mod tests {
         });
         assert_eq!((p.label.as_str(), p.round), ("Waiting on kestrel +1", true));
         assert_eq!(c(&|c| c.holder.state = Holding::Assigned).label, "Offered");
+        // Card #699: offered to an agent that died: Not taken up.
+        let dead = c(&|c| {
+            c.holder.state = Holding::Gone;
+            c.holder.who.assigned = true
+        });
+        assert_eq!((dead.label.as_str(), dead.tone), ("Not taken up", Tone::Warning));
     }
 }

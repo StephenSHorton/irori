@@ -101,7 +101,11 @@ pub fn matches(c: &CardSummary, f: &Filter) -> bool {
 /// The grid under filter `f` and the search box's `query` (card #171). A
 /// subtask that matches brings its parent's tile along, before it, so it
 /// is seen in context; `context` holds the ids shown only for that.
-pub fn shown_cards<'a>(cards: &[&'a CardSummary], f: &Filter, query: &str) -> (Vec<&'a CardSummary>, HashSet<String>) {
+pub fn shown_cards<'a>(
+    cards: &[&'a CardSummary],
+    f: &Filter,
+    query: &str,
+) -> (Vec<&'a CardSummary>, HashSet<String>) {
     let keep: HashSet<&str> = cards
         .iter()
         .filter(|c| matches(c, f) && card_matches(c, query))
@@ -129,7 +133,11 @@ pub fn shown_cards<'a>(cards: &[&'a CardSummary], f: &Filter, query: &str) -> (V
 /// pinned cards lead in their pin order, each with its subtasks after it.
 /// `s.data.cards` comes newest first, so the Board puts it back.
 pub fn board_order<'a>(cards: &[&'a CardSummary]) -> Vec<&'a CardSummary> {
-    let open_ask = |c: &CardSummary| c.ask.as_ref().is_some_and(|a| a.state != crate::logic::cards::ask::CLOSED);
+    let open_ask = |c: &CardSummary| {
+        c.ask
+            .as_ref()
+            .is_some_and(|a| a.state != crate::logic::cards::ask::CLOSED)
+    };
     let mut out: Vec<&CardSummary> = cards.to_vec();
     out.sort_by(|a, b| {
         open_ask(b)
@@ -139,7 +147,11 @@ pub fn board_order<'a>(cards: &[&'a CardSummary]) -> Vec<&'a CardSummary> {
             .then(b.id.cmp(&a.id))
     });
     let mut pins: Vec<&CardSummary> = out.iter().copied().filter(|c| c.pinned).collect();
-    pins.sort_by(|a, b| a.pin_rank.partial_cmp(&b.pin_rank).unwrap_or(std::cmp::Ordering::Equal));
+    pins.sort_by(|a, b| {
+        a.pin_rank
+            .partial_cmp(&b.pin_rank)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut lead: Vec<&CardSummary> = Vec::new();
     let mut used: HashSet<&str> = HashSet::new();
     for p in pins {
@@ -147,7 +159,11 @@ pub fn board_order<'a>(cards: &[&'a CardSummary]) -> Vec<&'a CardSummary> {
             continue;
         }
         lead.push(p);
-        for k in out.iter().copied().filter(|k| !k.pinned && k.parent.as_ref().is_some_and(|x| x.id == p.id)) {
+        for k in out
+            .iter()
+            .copied()
+            .filter(|k| !k.pinned && k.parent.as_ref().is_some_and(|x| x.id == p.id))
+        {
             if used.insert(k.id.as_str()) {
                 lead.push(k);
             }
@@ -187,7 +203,10 @@ pub fn home_boards(cards: &[&CardSummary], spaces: &[BoardSummary]) -> Vec<RowBo
         let s = spaces.iter().find(|x| x.board_id == c.board);
         out.push(RowBoard {
             board_id: c.board.clone(),
-            name: s.map(|s| s.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.scope_label.clone()),
+            name: s
+                .map(|s| s.name.clone())
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| c.scope_label.clone()),
             tag: s.map(|s| s.tag.clone()).unwrap_or_default(),
         });
     }
@@ -198,7 +217,12 @@ pub fn home_boards(cards: &[&CardSummary], spaces: &[BoardSummary]) -> Vec<RowBo
 /// cards left, or Mine, fall back to All. Private and a board chip are
 /// Home's (`boards`: its row), kept while that board has cards there. A
 /// member chip holds only on a board that member is on.
-pub fn active_filter(f: &Filter, chips: &[String], boards: Option<&[RowBoard]>, members: Option<&[SummaryMember]>) -> Filter {
+pub fn active_filter(
+    f: &Filter,
+    chips: &[String],
+    boards: Option<&[RowBoard]>,
+    members: Option<&[SummaryMember]>,
+) -> Filter {
     match f {
         Filter::Owner(p) => {
             let ms = members.unwrap_or(&[]);
@@ -239,7 +263,10 @@ pub fn hidden_by_filter(cards: &[&CardSummary], f: &Filter, query: &str) -> Opti
     if hidden.is_empty() {
         return None;
     }
-    Some((hidden.len(), hidden.iter().filter(|c| c.open_blockers > 0).count()))
+    Some((
+        hidden.len(),
+        hidden.iter().filter(|c| c.open_blockers > 0).count(),
+    ))
 }
 
 /// Home remembers its last board pick (card #199) under this pref.
@@ -253,20 +280,35 @@ pub fn remembered_filter(f: &Filter) -> bool {
 /// The pick Home starts on from what was saved.
 pub fn saved_home_filter(saved: Option<&str>) -> Filter {
     let f = as_filter(saved);
-    if remembered_filter(&f) { f } else { Filter::All }
+    if remembered_filter(&f) {
+        f
+    } else {
+        Filter::All
+    }
 }
 
 /// The grid's families: each subtask whose parent is in the list joins
 /// its parent, in list order, at the parent's place; any other card is a
 /// family of its own.
-pub fn family_groups<'a>(cards: &[&'a CardSummary]) -> Vec<(&'a CardSummary, Vec<&'a CardSummary>)> {
+pub fn family_groups<'a>(
+    cards: &[&'a CardSummary],
+) -> Vec<(&'a CardSummary, Vec<&'a CardSummary>)> {
     let ids: HashSet<&str> = cards.iter().map(|c| c.id.as_str()).collect();
-    let parent_in = |c: &CardSummary| c.parent.as_ref().filter(|p| p.id != c.id && ids.contains(p.id.as_str())).map(|p| p.id.clone());
+    let parent_in = |c: &CardSummary| {
+        c.parent
+            .as_ref()
+            .filter(|p| p.id != c.id && ids.contains(p.id.as_str()))
+            .map(|p| p.id.clone())
+    };
     cards
         .iter()
         .filter(|c| parent_in(c).is_none())
         .map(|h| {
-            let kids = cards.iter().copied().filter(|c| parent_in(c).as_deref() == Some(h.id.as_str())).collect();
+            let kids = cards
+                .iter()
+                .copied()
+                .filter(|c| parent_in(c).as_deref() == Some(h.id.as_str()))
+                .collect();
             (*h, kids)
         })
         .collect()
@@ -302,14 +344,24 @@ impl Outcome {
 
 /// The closed cards that ended as `o`.
 pub fn of_outcome<'a>(cs: &[&'a CardSummary], o: Outcome) -> Vec<&'a CardSummary> {
-    cs.iter().copied().filter(|c| o == Outcome::Any || c.state == o.state()).collect()
+    cs.iter()
+        .copied()
+        .filter(|c| o == Outcome::Any || c.state == o.state())
+        .collect()
 }
 
 /// A space's cards on one of its boards: a card with no inner board (or
 /// the space's own id) is on the first board (space-boards.tsx
 /// cardsOnBoard).
-pub fn cards_on_board<'a>(b: &BoardSummary, cards: &'a [CardSummary], board_id: &str) -> Vec<&'a CardSummary> {
-    let first = boards_of(b).first().map(|x| x.board_id.clone()).unwrap_or_else(|| b.board_id.clone());
+pub fn cards_on_board<'a>(
+    b: &BoardSummary,
+    cards: &'a [CardSummary],
+    board_id: &str,
+) -> Vec<&'a CardSummary> {
+    let first = boards_of(b)
+        .first()
+        .map(|x| x.board_id.clone())
+        .unwrap_or_else(|| b.board_id.clone());
     cards
         .iter()
         .filter(|c| {
@@ -388,10 +440,16 @@ mod tests {
         assert!(in_scope(&theirs, "b-wind"));
         assert!(!in_scope(&horton, "b-wind"));
         assert!(!in_scope(&p, "b-wind"));
-        let spaces = [space("b-wind", "Wind Waker Multiplayer", "wind"), space("b-horton", "horton", "horton")];
+        let spaces = [
+            space("b-wind", "Wind Waker Multiplayer", "wind"),
+            space("b-horton", "horton", "horton"),
+        ];
         assert_eq!(
             home_boards(&[&p, &ours, &horton, &theirs], &spaces),
-            vec![rb("b-wind", "Wind Waker Multiplayer", "wind"), rb("b-horton", "horton", "horton")]
+            vec![
+                rb("b-wind", "Wind Waker Multiplayer", "wind"),
+                rb("b-horton", "horton", "horton")
+            ]
         );
         assert_eq!(home_boards(&[&p], &[]), vec![]);
     }
@@ -401,8 +459,14 @@ mod tests {
         let ours = on_board("o", "b-wind", "Wind Waker Multiplayer", "wind", true);
         let net = on_board("n", "b-wind", "Wind · Netcode", "net", true);
         let spaces = [space("b-wind", "Wind Waker Multiplayer", "wind")];
-        assert_eq!(home_boards(&[&net, &ours], &spaces), vec![rb("b-wind", "Wind Waker Multiplayer", "wind")]);
-        assert_eq!(home_boards(&[&net], &[]), vec![rb("b-wind", "Wind · Netcode", "")]);
+        assert_eq!(
+            home_boards(&[&net, &ours], &spaces),
+            vec![rb("b-wind", "Wind Waker Multiplayer", "wind")]
+        );
+        assert_eq!(
+            home_boards(&[&net], &[]),
+            vec![rb("b-wind", "Wind · Netcode", "")]
+        );
     }
 
     #[test]
@@ -416,13 +480,28 @@ mod tests {
         assert_eq!(as_filter(Some("private")), Filter::Private);
         assert!(matches(&ours, &Filter::Board("b-wind".into())));
         assert!(!matches(&horton, &Filter::Board("b-wind".into())));
-        assert_eq!(active_filter(&Filter::Private, &[], Some(&row), None), Filter::Private);
+        assert_eq!(
+            active_filter(&Filter::Private, &[], Some(&row), None),
+            Filter::Private
+        );
         let bh = Filter::Board("b-horton".into());
         assert_eq!(active_filter(&bh, &[], Some(&row), None), bh);
-        assert_eq!(active_filter(&Filter::Board("b-gone".into()), &[], Some(&row), None), Filter::All);
-        assert_eq!(active_filter(&Filter::Private, &[], None, None), Filter::All);
-        assert_eq!(active_filter(&Filter::Board("b-wind".into()), &[], None, None), Filter::All);
-        assert_eq!(active_filter(&Filter::Mine, &[], Some(&row), None), Filter::All);
+        assert_eq!(
+            active_filter(&Filter::Board("b-gone".into()), &[], Some(&row), None),
+            Filter::All
+        );
+        assert_eq!(
+            active_filter(&Filter::Private, &[], None, None),
+            Filter::All
+        );
+        assert_eq!(
+            active_filter(&Filter::Board("b-wind".into()), &[], None, None),
+            Filter::All
+        );
+        assert_eq!(
+            active_filter(&Filter::Mine, &[], Some(&row), None),
+            Filter::All
+        );
     }
 
     #[test]
@@ -433,7 +512,10 @@ mod tests {
         assert!(!remembered_filter(&Filter::Decide));
         assert!(!remembered_filter(&Filter::Done));
         assert_eq!(saved_home_filter(None), Filter::All);
-        assert_eq!(saved_home_filter(Some("board:b-wind")), Filter::Board("b-wind".into()));
+        assert_eq!(
+            saved_home_filter(Some("board:b-wind")),
+            Filter::Board("b-wind".into())
+        );
         assert_eq!(saved_home_filter(Some("private")), Filter::Private);
         assert_eq!(saved_home_filter(Some("done")), Filter::All);
         assert_eq!(saved_home_filter(Some("nonsense")), Filter::All);
@@ -448,7 +530,10 @@ mod tests {
         assert_eq!(hidden_by_filter(&cards, &Filter::All, ""), None);
         assert_eq!(hidden_by_filter(&cards, &Filter::Done, ""), None);
         assert_eq!(hidden_by_filter(&cards, &Filter::Review, ""), Some((2, 1)));
-        assert_eq!(hidden_by_filter(&cards, &Filter::All, "plain"), Some((2, 1)));
+        assert_eq!(
+            hidden_by_filter(&cards, &Filter::All, "plain"),
+            Some((2, 1))
+        );
         assert_eq!(hidden_by_filter(&[&waiting], &Filter::Decide, ""), None);
     }
 
@@ -463,8 +548,14 @@ mod tests {
         let members = [m("p-me", "Stephen", true), m("p-blake", "Blake", false)];
         let blake = Filter::Owner("p-blake".into());
         assert_eq!(active_filter(&blake, &[], None, Some(&members)), blake);
-        assert_eq!(active_filter(&Filter::Owner("p-gone".into()), &[], None, Some(&members)), Filter::All);
-        assert_eq!(active_filter(&blake, &[], None, Some(&members[..1])), Filter::All);
+        assert_eq!(
+            active_filter(&Filter::Owner("p-gone".into()), &[], None, Some(&members)),
+            Filter::All
+        );
+        assert_eq!(
+            active_filter(&blake, &[], None, Some(&members[..1])),
+            Filter::All
+        );
         assert_eq!(active_filter(&blake, &[], None, None), Filter::All);
     }
 
@@ -483,8 +574,14 @@ mod tests {
             .collect();
         let refs: Vec<&CardSummary> = all.iter().collect();
         assert_eq!(of_outcome(&refs, Outcome::Any).len(), 3);
-        assert_eq!(ids(&of_outcome(&refs, Outcome::Completed)), [state::COMPLETED]);
-        assert_eq!(ids(&of_outcome(&refs, Outcome::Canceled)), [state::CANCELED]);
+        assert_eq!(
+            ids(&of_outcome(&refs, Outcome::Completed)),
+            [state::COMPLETED]
+        );
+        assert_eq!(
+            ids(&of_outcome(&refs, Outcome::Canceled)),
+            [state::CANCELED]
+        );
         assert_eq!(ids(&of_outcome(&refs, Outcome::Failed)), [state::FAILED]);
     }
 
@@ -513,9 +610,24 @@ mod tests {
         assert_eq!(as_filter(Some("nope")), Filter::All);
         assert_eq!(as_filter(None), Filter::All);
         assert_eq!(as_filter(Some("board:b1")), Filter::Board("b1".into()));
-        assert_eq!(as_filter(Some("owner:p-blake")), Filter::Owner("p-blake".into()));
-        for f in [Filter::Device("d".into()), Filter::Board("b".into()), Filter::Owner("p".into()), Filter::Private] {
-            assert_eq!(as_filter(Some(&f.id())), if matches!(f, Filter::Device(_)) { Filter::All } else { f.clone() });
+        assert_eq!(
+            as_filter(Some("owner:p-blake")),
+            Filter::Owner("p-blake".into())
+        );
+        for f in [
+            Filter::Device("d".into()),
+            Filter::Board("b".into()),
+            Filter::Owner("p".into()),
+            Filter::Private,
+        ] {
+            assert_eq!(
+                as_filter(Some(&f.id())),
+                if matches!(f, Filter::Device(_)) {
+                    Filter::All
+                } else {
+                    f.clone()
+                }
+            );
         }
     }
 
@@ -526,7 +638,10 @@ mod tests {
         assert!(matches(&shared, &Filter::Board("b1".into())));
         assert!(!matches(&shared, &Filter::Board("b2".into())));
         assert!(!matches(&shared, &Filter::Mine));
-        assert!(!matches(&card(state::WORKING, 0), &Filter::Board("b1".into())));
+        assert!(!matches(
+            &card(state::WORKING, 0),
+            &Filter::Board("b1".into())
+        ));
     }
 
     fn sub(id: &str, parent: &str, ob: i64) -> CardSummary {
@@ -561,11 +676,24 @@ mod tests {
         let shape = |cs: &[&CardSummary]| -> Vec<Vec<String>> {
             family_groups(cs)
                 .into_iter()
-                .map(|(h, k)| std::iter::once(h.id.clone()).chain(k.iter().map(|c| c.id.clone())).collect())
+                .map(|(h, k)| {
+                    std::iter::once(h.id.clone())
+                        .chain(k.iter().map(|c| c.id.clone()))
+                        .collect()
+                })
                 .collect()
         };
-        let (a, p, k1, b, k2) = (cs("a", |_| {}), cs("p", |_| {}), sub("k1", "p", 0), cs("b", |_| {}), sub("k2", "p", 0));
-        assert_eq!(shape(&[&a, &p, &k1, &b, &k2]), [vec!["a"], vec!["p", "k1", "k2"], vec!["b"]]);
+        let (a, p, k1, b, k2) = (
+            cs("a", |_| {}),
+            cs("p", |_| {}),
+            sub("k1", "p", 0),
+            cs("b", |_| {}),
+            sub("k2", "p", 0),
+        );
+        assert_eq!(
+            shape(&[&a, &p, &k1, &b, &k2]),
+            [vec!["a"], vec!["p", "k1", "k2"], vec!["b"]]
+        );
         let k = sub("k", "gone", 0);
         assert_eq!(shape(&[&k, &a]), [vec!["k"], vec!["a"]]);
         let k = sub("k", "p", 0);
@@ -619,16 +747,30 @@ mod tests {
             person_id: "p".into(),
             name: "Blake".into(),
             presence: presence.into(),
-            last_seen: seen_ago.map(|a| gocompat::time::GoTime::unix_milli(now - a)).unwrap_or_default(),
+            last_seen: seen_ago
+                .map(|a| gocompat::time::GoTime::unix_milli(now - a))
+                .unwrap_or_default(),
             working,
             free,
             ..SummaryMember::default()
         };
-        assert_eq!(presence_line(&m("online", None, 2, 1), now), "online · 2 working");
+        assert_eq!(
+            presence_line(&m("online", None, 2, 1), now),
+            "online · 2 working"
+        );
         assert_eq!(presence_line(&m("online", None, 0, 1), now), "online");
-        assert_eq!(presence_line(&m("online", None, 0, 0), now), "online · no agents");
-        assert_eq!(presence_line(&m("recent", Some(5 * 60_000), 1, 0), now), "seen 5m ago · 1 working");
-        assert_eq!(presence_line(&m("offline", Some(2 * 3_600_000), 3, 1), now), "offline · seen 2h ago");
+        assert_eq!(
+            presence_line(&m("online", None, 0, 0), now),
+            "online · no agents"
+        );
+        assert_eq!(
+            presence_line(&m("recent", Some(5 * 60_000), 1, 0), now),
+            "seen 5m ago · 1 working"
+        );
+        assert_eq!(
+            presence_line(&m("offline", Some(2 * 3_600_000), 3, 1), now),
+            "offline · seen 2h ago"
+        );
         assert_eq!(presence_line(&m("offline", None, 0, 0), now), "offline");
         assert_eq!(presence_line(&m("", None, 0, 0), now), "offline");
     }
