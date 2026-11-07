@@ -48,10 +48,18 @@ const TAB_WIND_DOWN: &str = "wind-down";
 /// `terminate:`, which calls exit() itself, so `try_run` never returns (the
 /// Tauri shell's card #535). The shutdown then runs from the C exit hooks,
 /// with every thread still alive. Other platforms take it too, once.
+///
+/// It runs on a thread of its own: by the time the C exit hooks run, the
+/// main thread's thread-locals may be gone (tokio's runtime context among
+/// them, which `hosted.close` needs), and a panic here would abort.
 extern "C" fn on_exit() {
-    if let Some(f) = SHUTDOWN.get()
-        && let Err(e) = f()
-    {
+    let Some(f) = SHUTDOWN.get() else { return };
+    let r = std::thread::Builder::new()
+        .name("irori-exit".into())
+        .spawn(f)
+        .map_err(|e| e.to_string())
+        .and_then(|h| h.join().unwrap_or_else(|_| Err("the shutdown panicked".into())));
+    if let Err(e) = r {
         irori_core::log(&format!("irori: closing: {e}"));
     }
 }
