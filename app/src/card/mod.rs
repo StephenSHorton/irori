@@ -122,13 +122,6 @@ pub struct PageUi {
     /// Start an agent (a given card's, past a limit): what it said.
     pub start_line: HashMap<String, String>,
     pub revived: HashSet<String>,
-    /// Not yet: the popover's box, busy, error.
-    pub not_yet_open: bool,
-    pub not_yet: TextEdit,
-    pub not_yet_busy: bool,
-    pub not_yet_error: Option<String>,
-    pub start_now_busy: bool,
-    pub start_now_error: Option<String>,
     /// Steps done before the split, unfolded.
     pub old_steps: bool,
     /// Move to another board, and Transfer ownership: open, the pick, busy,
@@ -264,13 +257,14 @@ pub fn on_event(s: &mut State, ev: &Event) {
     if let Some(Dialog::NewCard { .. }) = &s.dialog {
         new_card::on_event(s, ev);
     }
+    share::watch(s);
 }
 
 /// Moves the working line's word on (card #317) while a card is open, and
 /// notices New card opening.
 pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
     use std::time::{Duration, Instant};
-    let opened = new_card::watch(s);
+    let opened = new_card::watch(s) | share::watch(s);
     if s.nav.card.is_none() || s.headless || !s.card.working_line.get() {
         return opened;
     }
@@ -293,7 +287,8 @@ pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
 /// The headless scene: the first card that needs you, else the newest;
 /// `IRORI_CARD_SCENE` picks a card ("#12" or an id; "blocker", "ready",
 /// "working" or "shared" for the first such), "new" or "share", or
-/// "demo-blocker" (the default card with two made-up open items).
+/// "demo-blocker" (the default card with made-up open items, waits,
+/// people and a review) or "demo-ready" (a made-up done check).
 pub fn scene(s: &mut State) {
     let want = std::env::var("IRORI_CARD_SCENE").unwrap_or_default();
     match want.as_str() {
@@ -303,6 +298,9 @@ pub fn scene(s: &mut State) {
             return;
         }
         "share" => {
+            // The spaces list loads after start: wait for it, as the
+            // board scenes do, so the dialog has a space to preview.
+            crate::spaces::wait_for_spaces(s);
             if let Some(c) = s
                 .data
                 .cards
@@ -329,14 +327,27 @@ pub fn scene(s: &mut State) {
                 _ => c.scope == "board" && !c.board.is_empty(),
             })
             .map(|c| c.id.clone())
-    } else if !want.is_empty() && want != "demo-blocker" {
-        let short = want.trim_start_matches('#');
-        s.data
+    } else if !want.is_empty() && !want.starts_with("demo") {
+        let short = want.trim_start_matches('#').to_string();
+        let found = s
+            .data
             .cards
             .iter()
             .find(|c| c.id == want || (want.starts_with('#') && c.short == short))
-            .map(|c| c.id.clone())
-            .or(Some(want.clone()))
+            .map(|c| c.id.clone());
+        if found.is_none() && want.starts_with('#') {
+            // A closed card isn't in the open list: look in Closed.
+            s.spawn(
+                move |w| w.done_cards(500, "").ok().and_then(|p| p.cards.into_iter().find(|c| c.short == short)).map(|c| c.id),
+                |s, id| {
+                    if let Some(id) = id {
+                        s.open_card(&id);
+                    }
+                },
+            );
+            return;
+        }
+        found.or(Some(want.clone()))
     } else {
         s.data
             .cards
@@ -350,6 +361,9 @@ pub fn scene(s: &mut State) {
     }
     if want == "demo-blocker" {
         demo_blockers(s);
+    }
+    if want == "demo-ready" {
+        demo_ready(s);
     }
 }
 
@@ -404,9 +418,115 @@ fn demo_blockers(s: &mut State) {
         }),
         ..CardBlocker::default()
     };
+    // An answered question: "Add to your answer" and "Mark resolved".
+    let answered = CardBlocker {
+        id: "demo-b3".into(),
+        question: "Keep the debug keystore in the repo?".into(),
+        raised_by: oak.clone(),
+        state: "answered".into(),
+        options: vec![opt("No, generate it in the script", "", true)],
+        ..CardBlocker::default()
+    };
+    // Waits on other work: an open card (with Stop waiting), and a gone
+    // agent's wait (Hand to an agent).
+    let other = s.data.cards.iter().find(|c| c.id != d.summary.id).map(|c| (c.id.clone(), c.short.clone(), c.title.clone()));
+    let mut wait = CardBlocker {
+        id: "demo-w1".into(),
+        question: "Wait for the keyboard work".into(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        waits_on: Some(Default::default()),
+        ..CardBlocker::default()
+    };
+    if let (Some(w), Some((id, short, title))) = (wait.waits_on.as_mut(), other) {
+        w.kind = "task".into();
+        w.task_id = id;
+        w.label = format!("#{short}");
+        w.title = title;
+    }
+    let mut gone_wait = CardBlocker {
+        id: "demo-w2".into(),
+        question: String::new(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        waits_on: Some(Default::default()),
+        gone_agent: Some(AgentRef { status: "gone".into(), live: false, ..oak.clone() }),
+        ..CardBlocker::default()
+    };
+    if let Some(w) = gone_wait.waits_on.as_mut() {
+        w.kind = "agent".into();
+        w.label = "oak".into();
+    }
+    d.blockers.insert(0, gone_wait);
+    d.blockers.insert(0, wait);
+    d.blockers.insert(0, answered);
     d.blockers.insert(0, gone);
     d.blockers.insert(0, first);
-    d.summary.open_blockers += 2;
+    d.summary.open_blockers += 3;
+    // Who's on it: oak working on a step, ash watching and waiting.
+    let mut working = AgentRef { status: "working".into(), steps: vec!["Sign the APK".into()], ..oak.clone() };
+    working.key = "demo/oak-live".into();
+    d.summary.working.push(working);
+    let ash = AgentRef {
+        key: "demo/ash".into(),
+        name: "ash".into(),
+        status: "idle".into(),
+        live: true,
+        where_: "Desktop Computer".into(),
+        ..AgentRef::default()
+    };
+    d.summary.watching.push(ash.clone());
+    d.waits.push(irori_window::cards::CardWait {
+        id: "demo-wait".into(),
+        who: ash.clone(),
+        text: "until done".into(),
+        on_this: true,
+        ..Default::default()
+    });
+    d.reviews.push(irori_window::cards::CardReview {
+        reviewer: ash,
+        asked_by: oak.clone(),
+        state: "changes".into(),
+        pr: "rune#1".into(),
+        text: "The keystore path is hard-coded; read it from the env.".into(),
+        ..Default::default()
+    });
+    assign_slots(s);
+}
+
+/// The scene's done check (card #112): an agent finished and brought
+/// proof, so the page leads with Ready for you, Done and Not done.
+fn demo_ready(s: &mut State) {
+    use irori_window::cards::{AgentRef, CardBlocker, CardOption};
+    let Some(d) = s.card.detail.as_mut() else { return };
+    let oak = AgentRef {
+        key: "demo/oak".into(),
+        name: "oak".into(),
+        status: "idle".into(),
+        live: true,
+        where_: "Macbook Pro".into(),
+        ..AgentRef::default()
+    };
+    d.blockers.insert(
+        0,
+        CardBlocker {
+            id: "demo-done".into(),
+            question: "Is it done?".into(),
+            context: "The APK builds with `scripts/android-apk.sh` and the emulator shows the app after a resume.".into(),
+            raised_by: oak.clone(),
+            state: "open".into(),
+            done_check: true,
+            options: vec![CardOption {
+                answer: "Done".into(),
+                by: oak,
+                recommended: true,
+                ..CardOption::default()
+            }],
+            ..CardBlocker::default()
+        },
+    );
+    d.summary.ready = true;
+    d.summary.open_blockers += 1;
     assign_slots(s);
 }
 

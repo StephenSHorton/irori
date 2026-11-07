@@ -110,6 +110,8 @@ pub fn opened(s: &mut State) {
         opened_for: Some(space.clone()),
         ..NewCard::default()
     };
+    // The title takes the keyboard as the dialog opens (autoFocus).
+    s.card.new_card.title.focused = true;
     s.spawn(
         move |w| (w.ask_repos(), w.agents_settings(&space), w.boards_personal().unwrap_or_default()),
         |s, (repos, spawn, personal)| {

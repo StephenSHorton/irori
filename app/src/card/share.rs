@@ -60,6 +60,19 @@ pub fn opened(s: &mut State) {
     load_preview(s);
 }
 
+/// The dialog opened before any space was ready (the spaces list still
+/// loading): once one is, pick it and read its preview, as React's
+/// `pick = board || ready[0]` effect does. True when it started one.
+pub fn watch(s: &mut State) -> bool {
+    if share_card(s).is_none() || !s.card.share.board.is_empty() {
+        return false;
+    }
+    let Some(first) = ready(s).first().map(|b| b.board_id.clone()) else { return false };
+    s.card.share.board = first;
+    load_preview(s);
+    true
+}
+
 fn load_preview(s: &mut State) {
     let Some(card) = share_card(s) else { return };
     let board = s.card.share.board.clone();
@@ -326,6 +339,7 @@ pub fn move_button(f: &Frame, d: &CardDetail, boards: Vec<SpaceBoard>, current: 
             });
         })
         .build(f.k)
+        .key("card/move")
 }
 
 /// Transfer ownership (card #432): the owner offers it to another member;

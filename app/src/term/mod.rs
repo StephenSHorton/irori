@@ -709,10 +709,12 @@ fn picker(s: &State, f: &mut Frame) -> El {
 fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
     let k = f.k;
     let id = l.id;
+    let cwd = s.term.terms.iter().flatten().find(|t| t.id == id).map(|t| t.cwd.clone()).unwrap_or_default();
     let mut c = col()
         .key(format!("term-view-{id}"))
         .w_full()
         .gap(8.0)
+        .label(format!("Terminal in {cwd}"))
         .child(grid::view(s, f, l, s.term.height))
         .child(
             el().key("term-grip")

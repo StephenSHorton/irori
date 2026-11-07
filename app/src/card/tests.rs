@@ -81,3 +81,21 @@ fn card_files_lists_each_file_once() {
     let got: Vec<String> = card_files(&d).into_iter().map(|f| f.sha256).collect();
     assert_eq!(got, ["a", "b", "c"]);
 }
+
+#[test]
+fn an_items_meta_line_joins_only_what_it_knows() {
+    use super::blockers::meta_line;
+    assert_eq!(meta_line(Some("oak"), "", None, ""), "Raised by oak");
+    assert_eq!(meta_line(Some("oak"), "2m ago", None, ""), "Raised by oak · 2m ago");
+    assert_eq!(meta_line(None, "2m ago", Some("ash"), "closed by You"), "2m ago · for ash to decide · closed by You");
+    assert_eq!(meta_line(None, "", None, ""), "");
+}
+
+#[test]
+fn each_blocker_gets_an_answer_box_and_a_resolve_note() {
+    use irori_window::cards::CardBlocker;
+    let mut d = card("submitted");
+    d.summary.id = "c1".into();
+    d.blockers = vec![CardBlocker { id: "b1".into(), ..CardBlocker::default() }];
+    assert_eq!(super::box_keys(&d), ["c1/comment", "c1/blocker/b1", "c1/resolve/b1"]);
+}

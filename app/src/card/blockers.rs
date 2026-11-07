@@ -94,7 +94,9 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
     let blockers: Vec<&CardBlocker> = d.blockers.iter().filter(|b| Some(b.id.as_str()) != ready.map(|r| r.id.as_str())).collect();
     let answered = s.card.ui.answered.as_ref().filter(|_| s.card.ui.card == c.id);
     let has_objective = !d.goal.is_empty() || !d.done_when.is_empty() || show_note;
-    let has_blockers = !blockers.is_empty() || legacy || answered.is_some();
+    // A held card (Not yet) keeps its hold item off the page: the line
+    // under the title says it, so the Blockers section isn't drawn.
+    let has_blockers = (!blockers.is_empty() || legacy || answered.is_some()) && c.later.is_none();
     if ready.is_none() && !has_objective && !has_blockers {
         return None;
     }
@@ -143,7 +145,7 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
         let title = if lc::open_ask(c.ask.as_ref()) { "You asked" } else { "Objective" };
         p = p.child(section(f, "card/objective", title, !has_blockers, body));
     }
-    if has_blockers && c.later.is_none() {
+    if has_blockers {
         let mut body = Vec::new();
         if legacy {
             body.push(
@@ -227,6 +229,26 @@ fn take(s: &State, get: crate::text::Get) -> Sent {
         mentions: crate::text::mentions::keep_mentions(&c.mentions, &c.edit.text),
         files: c.files.iter().map(|p| p.upload()).collect(),
     }
+}
+
+/// An item's small line: who raised a done check, when, who decides and
+/// how it ended, joined by " · " with nothing left dangling when the
+/// time is unknown.
+pub(crate) fn meta_line(raiser: Option<&str>, raised: &str, decider: Option<&str>, by: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(r) = raiser {
+        parts.push(format!("Raised by {r}"));
+    }
+    if !raised.is_empty() {
+        parts.push(raised.to_string());
+    }
+    if let Some(d) = decider {
+        parts.push(format!("for {d} to decide"));
+    }
+    if !by.is_empty() {
+        parts.push(by.to_string());
+    }
+    parts.join(" · ")
 }
 
 /// Sends an answer: `option` is a picked recommendation's index, or -1
@@ -547,20 +569,11 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     }
     // Who raised it, when, who decides, how it ended.
     let raised = ms(&b.at).map(|t| relative_time(t, now_ms())).unwrap_or_default();
-    let mut meta = String::new();
-    if b.done_check {
-        meta.push_str(&format!("Raised by {} · ", display_name(&b.raised_by)));
+    let decider = b.decider.as_ref().filter(|_| r.is_none()).map(|dc| display_name(dc));
+    let meta = meta_line(b.done_check.then(|| display_name(&b.raised_by)).as_deref(), &raised, decider.as_deref(), &by);
+    if !meta.is_empty() {
+        item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
     }
-    meta.push_str(&raised);
-    if let Some(dc) = &b.decider
-        && r.is_none()
-    {
-        meta.push_str(&format!(" · for {} to decide", display_name(dc)));
-    }
-    if !by.is_empty() {
-        meta.push_str(&format!(" · {by}"));
-    }
-    item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
     if let Some(sb) = done_rounds::sent_back_signs(f, &format!("card/b/{}/signs", b.id), b) {
         item = item.child(sb);
     }
@@ -907,6 +920,17 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
     let mut what = row().w_full().gap(4.0).min_w(0.0).items_start().child(text("Waiting on").font(ts(13.0, 400.0)).color(k.c.text_muted));
     if !w.task_id.is_empty() {
         what = what.child(super::page::card_link(f, &format!("card/w/{}/card", b.id), &w.task_id, &w.label, &w.title));
+        if gone {
+            what = what.child(text("(gone)").font(ts(13.0, 500.0)).color(k.c.warning.fg));
+        }
+    } else if gone {
+        // The name and "(gone)" read as one line, as React's inline spans.
+        let words = format!("{label} (gone)");
+        let spans = vec![
+            rune::Span::new(0, label.len()).color(k.c.text_base),
+            rune::Span::new(label.len() + 1, words.len()).color(k.c.warning.fg).weight(500.0),
+        ];
+        what = what.child(rune::rich(words, spans).font(ts(13.0, 400.0)).color(k.c.text_muted).shrink().min_w(0.0).wrap());
     } else {
         what = what.child(
             tt::rich_line(
@@ -922,9 +946,6 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
             .grow(1.0)
             .min_w(0.0),
         );
-    }
-    if gone {
-        what = what.child(text("(gone)").font(ts(13.0, 500.0)).color(k.c.warning.fg));
     }
     let mut left = col().grow(1.0).min_w(0.0).gap(2.0).child(what);
     if !b.question.is_empty() {
