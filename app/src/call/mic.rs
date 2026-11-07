@@ -350,7 +350,8 @@ pub fn mic_button(s: &State, f: &mut Frame, key: &str, target: Target) -> El {
 }
 
 fn note_body(s: &State, k: &Kit, key: &str, target: Target, note: Option<Note>, bytes: u64) -> El {
-    let c = col().key("call-mic-note").w(320.0).gap(8.0);
+    // The popover is at most 320 wide, its 12 inset inside that.
+    let c = col().key("call-mic-note").w(296.0).gap(8.0);
     if let Some((done, total)) = s.call.download {
         let pct = if total > 0 { (done as f32 / total as f32).min(1.0) } else { 0.0 };
         return c
