@@ -122,13 +122,6 @@ pub struct PageUi {
     /// Start an agent (a given card's, past a limit): what it said.
     pub start_line: HashMap<String, String>,
     pub revived: HashSet<String>,
-    /// Not yet: the popover's box, busy, error.
-    pub not_yet_open: bool,
-    pub not_yet: TextEdit,
-    pub not_yet_busy: bool,
-    pub not_yet_error: Option<String>,
-    pub start_now_busy: bool,
-    pub start_now_error: Option<String>,
     /// Steps done before the split, unfolded.
     pub old_steps: bool,
     /// Move to another board, and Transfer ownership: open, the pick, busy,

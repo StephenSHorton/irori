@@ -10,12 +10,11 @@ use std::sync::{Arc, Mutex};
 
 use irori_window::cards::{CardDetail, CardSummary};
 use rune::{El, Key, KeyEvent, TextEdit, Tx, col, el, row, text, text_input};
-use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Popover};
+use rune_kit::{Button, ButtonVariant, ControlSize};
 
-use super::{bar, err_line, labelled, note, panel, section, spacer, ts};
+use super::{bar, labelled, note, panel, section, spacer, ts};
 use crate::logic::agent_status::{Who, agent_status, ms, now_ms};
 use crate::logic::cards::{self as lc, Work, state};
-use crate::logic::later;
 use crate::logic::names::display_name;
 use crate::logic::plain::{plain_line, short_repo};
 use crate::logic::spawn_line::{SpawnState, SpawnTone, spawn_line, start_past_limit as past_limit_tip, usage_resets};
@@ -54,7 +53,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         btn("Cards")
             .variant(ButtonVariant::GhostMuted)
             .icon(&icons::ARROW_LEFT)
-            .help("Back to the cards")
+            .help("Back to the cards (Esc)")
             .on_press(|s: &mut State| s.back())
             .build(k),
     );
@@ -115,7 +114,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             if ev.key == Key::Escape
                 && s.dialog.is_none()
                 && s.widgets.confirm.is_none()
-                && !s.card.ui.not_yet_open
+                && s.board.order.hold_open.is_empty()
                 && s.card.ui.moving.is_none()
                 && s.card.ui.transfer.is_none()
             {
@@ -145,7 +144,7 @@ fn page_body(s: &State, f: &mut Frame, d: &CardDetail, mut body: El, wide: bool)
         body = body.child(r);
     }
     let mut extra = board_actions(s, f, d);
-    if let Some(b) = not_yet_button(s, f, c) {
+    if let Some(b) = crate::board::order::not_yet_button(s, f, "card/not-yet", &c.id, c.later.is_some(), lc::over(&c.state), c.ask.is_some()) {
         extra.push(b);
     }
     if d.on_board.is_none() {
@@ -413,7 +412,7 @@ fn header(s: &State, f: &mut Frame, c: &CardSummary, spinning: bool, extra: Vec<
     if let Some(p) = &c.parent {
         h = h.child(ref_line(f, "card/parent", "Part of", &p.id, &lc::ref_text(&p.tag, &p.short), &p.title));
     }
-    if let Some(w) = when_line(s, f, c) {
+    if let Some(w) = crate::board::order::when_line(s, f, "card/when", &c.id, c.later.as_ref(), c.order.as_ref()) {
         h = h.child(w);
     }
     if let Some(t) = &c.from_thread {
@@ -450,72 +449,6 @@ pub(crate) fn card_link(f: &Frame, key: &str, id: &str, r: &str, title: &str) ->
         .on_press(move |s: &mut State| s.open_card(&id))
         .child(text(plain_line(r)).font(ts(13.0, 400.0).mono()).color(k.c.text_base))
         .child(text(plain_line(title)).font(ts(14.0, 400.0)).color(k.c.text_base).max_lines(1).shrink().min_w(0.0))
-}
-
-/// Under the title, as "Part of" is: when a held card starts (with Start
-/// now), or the cards before and after it in its order (order.tsx
-/// WhenLine).
-fn when_line(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
-    let k = f.k;
-    if let Some(l) = &c.later {
-        let id = c.id.clone();
-        let busy = s.card.ui.start_now_busy;
-        let mut col_ = col().key("card/when").w_full().gap(2.0).child(
-            row()
-                .w_full()
-                .gap(6.0)
-                .center_y()
-                .flex_wrap()
-                .child(text(plain_line(&later::when_later(l))).font(ts(14.0, 400.0)).color(k.c.text_muted).shrink().wrap())
-                .child(
-                    text("Start now")
-                        .font(ts(14.0, 500.0))
-                        .color(if busy { k.c.text_muted } else { k.c.text_base })
-                        .role("button")
-                        .cursor(rune::Cursor::Pointer)
-                        .on_press(move |s: &mut State| {
-                            if s.card.ui.start_now_busy {
-                                return;
-                            }
-                            s.card.ui.start_now_busy = true;
-                            s.card.ui.start_now_error = None;
-                            let id = id.clone();
-                            s.spawn(
-                                move |w| w.start_now(&id),
-                                |s, r| {
-                                    s.card.ui.start_now_busy = false;
-                                    s.card.ui.start_now_error = r.err();
-                                },
-                            );
-                        }),
-                ),
-        );
-        if let Some(e) = &s.card.ui.start_now_error {
-            col_ = col_.child(err_line(f, e.clone()));
-        }
-        return Some(col_);
-    }
-    let (before, after) = later::around(&c.id, c.order.as_ref());
-    if before.is_none() && after.is_none() {
-        return None;
-    }
-    let mut r = row().key("card/order").w_full().min_w(0.0).gap(4.0).center_y().flex_wrap();
-    let muted = |t: &str| text(t.to_string()).font(ts(14.0, 400.0)).color(k.c.text_muted);
-    if let Some(b) = before {
-        r = r
-            .child(muted("After"))
-            .child(card_link(f, "card/order-before", &b.id, &lc::ref_text(&b.tag, &b.short), &b.title));
-        if after.is_some() {
-            r = r.child(muted(", then"));
-        }
-    }
-    if let Some(a) = after {
-        if before.is_none() {
-            r = r.child(muted("Then"));
-        }
-        r = r.child(card_link(f, "card/order-after", &a.id, &lc::ref_text(&a.tag, &a.short), &a.title));
-    }
-    Some(r)
 }
 
 /// Pin or unpin: pinned cards show in their own group above the grid.
@@ -612,90 +545,6 @@ fn delete_button(s: &State, f: &Frame, d: &CardDetail) -> El {
 }
 
 use crate::logic::card_status;
-
-/// Not yet: hold a card back until a card, a date or a version, or the
-/// person's word (order.tsx NotYetButton).
-fn not_yet_button(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
-    if c.later.is_some() || lc::over(&c.state) || c.ask.is_some() {
-        return None;
-    }
-    let k = f.k;
-    let ui = &s.card.ui;
-    let id = c.id.clone();
-    let hold = move |s: &mut State| {
-        if s.card.ui.not_yet_busy {
-            return;
-        }
-        s.card.ui.not_yet_busy = true;
-        s.card.ui.not_yet_error = None;
-        let (id, until) = (id.clone(), s.card.ui.not_yet.text.trim().to_string());
-        s.spawn(
-            move |w| w.not_yet(&id, &until, ""),
-            |s, r| {
-                s.card.ui.not_yet_busy = false;
-                match r {
-                    Ok(()) => {
-                        s.card.ui.not_yet.clear();
-                        s.card.ui.not_yet_open = false;
-                    }
-                    Err(e) => s.card.ui.not_yet_error = Some(e),
-                }
-            },
-        );
-    };
-    let hold2 = hold.clone();
-    let mut body = col()
-        .key("card/not-yet-body")
-        .w(260.0)
-        .gap(8.0)
-        .child(text("Hold it back until").font(ts(13.0, 400.0)).color(k.c.text_base))
-        .child(
-            text_input(&ui.not_yet, k.ty.ui)
-                .key("card/not-yet-until")
-                .w_full()
-                .px(8.0)
-                .py(8.0)
-                .radius(6.0)
-                .border(1.0, k.c.border_base)
-                .fill(k.c.layer_02)
-                .color(k.c.text_base)
-                .placeholder("#83, 1 Dec or v0.13.0", k.c.text_faint)
-                .label("Until")
-                .on_edit(|s: &mut State| &mut s.card.ui.not_yet)
-                .on_submit(move |s: &mut State, _tx: &mut Tx| hold(s)),
-        )
-        .child(note(f, "Leave it empty to hold it until you say. No agent gets it before then."));
-    if let Some(e) = &ui.not_yet_error {
-        body = body.child(err_line(f, e.clone()));
-    }
-    body = body.child(
-        row().w_full().child(spacer()).child(
-            Button::new("Hold back")
-                .variant(ButtonVariant::Submit)
-                .control_size(ControlSize::Small)
-                .disabled(ui.not_yet_busy)
-                .on_press(hold2)
-                .build(k),
-        ),
-    );
-    Some(
-        Popover::new("card/not-yet")
-            .trigger(
-                btn("Not yet")
-                    .on_press(|s: &mut State| s.card.ui.not_yet_open = !s.card.ui.not_yet_open)
-                    .build(k),
-            )
-            .open(ui.not_yet_open)
-            .placement(Placement::BottomEnd)
-            .padding(12.0)
-            .child(body)
-            .on_close(|s: &mut State| {
-                s.card.ui.not_yet_open = false;
-                s.card.ui.not_yet_error = None;
-            })
-            .build(k, f.layer),
-    )
-}
 
 /// The header's board buttons (v0.5 §8): Share to a space on a private
 /// card in play; Move, Transfer, Withdraw and a given card's Start on a
