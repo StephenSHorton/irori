@@ -641,6 +641,54 @@ async fn revoke_closes_the_live_connection_and_refuses_the_redial() {
     }
 }
 
+/// A dial that read the peer's address before the book took the peer out,
+/// and was still in the epoch-open exchange when the pair's connections
+/// were dropped, does not land afterwards: the book had parted them (#683,
+/// where such a dial bridged `node_iroh.rs`'s partition under load).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dial_in_flight_when_the_book_drops_the_peer_does_not_land() {
+    let devs = person(2, IpMode::Loopback);
+    let (a, b) = (&devs[0], &devs[1]);
+    let mut ca = a.room_config();
+    ca.offerer = Some(Arc::new(|_| true)); // A dials at once
+    a.join_with(a.secret(1), ca).await;
+    // B holds its epoch-open reply (in `accept`) until the test lets it go.
+    let (held_tx, held_rx) = std::sync::mpsc::channel::<()>();
+    let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+    let hold = Arc::new(Mutex::new(Some((held_tx, go_rx))));
+    let mut cb = b.room_config();
+    let check = cb.accept.clone();
+    cb.accept = Arc::new(move |peer, pubkey| {
+        let once = hold.lock().unwrap().take();
+        if let Some((held, go)) = once {
+            held.send(()).unwrap();
+            go.recv_timeout(WAIT).unwrap();
+        }
+        check(peer, pubkey)
+    });
+    b.join_with(b.secret(1), cb).await;
+    introduce(&[a, b], None).await;
+    a.room(1).connect(&b.id);
+    wait_until("B holds A's dial", WAIT, || held_rx.try_recv().is_ok()).await;
+    // Part them while the dial is in flight, as node_iroh.rs's Book does.
+    a.net.set_peers(vec![]);
+    b.net.set_peers(vec![]);
+    a.net.drop_device(&b.id, reason::LEAVING);
+    b.net.drop_device(&a.id, reason::LEAVING);
+    go_tx.send(()).unwrap();
+    wait_until("A's dial ends", WAIT, || {
+        a.net.dial_errors().contains_key(&b.id) || !a.net.conns().is_empty()
+    })
+    .await;
+    assert!(a.net.conns().is_empty(), "{:?}", a.net.conns());
+    let e = a.net.dial_errors()[&b.id].clone();
+    assert!(e.contains(reason::LEAVING), "{e}");
+    wait_until("B's half closes", WAIT, || b.net.conns().is_empty()).await;
+    for d in [a, b] {
+        d.net.close().await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sync_messages_keep_the_8_mib_cap() {
     let devs = person(2, IpMode::Loopback);
