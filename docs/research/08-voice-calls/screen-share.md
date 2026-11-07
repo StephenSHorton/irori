@@ -108,7 +108,7 @@ Irori is Tauri 2.12.5. [FC✓ Cargo.lock]
 | Decode in Rust, push raw frames | **No.** About 80–120 MB/s through IPC. iroh-live renders natively with egui/wgpu. [V; FC✓ `moq-media-egui` crate in workspace] |
 | MJPEG | **LAN only**, as a debug fallback. [I] |
 
-**Bitstream gotcha.** `moq-video` emits Annex-B. [V] WebCodecs reads a config with no `description` as Annex-B, and an `avcC` `description` as length-prefixed. [I] Normalise to AVCC plus a `description` in Rust. Probe `isConfigSupported('avc1.42E01F')` with `optimizeForLatency: true`.
+**Bitstream gotcha.** `moq-video` emits Annex-B. [V] WebCodecs reads a config with no `description` as Annex-B, and an `avcC` `description` as length-prefixed. [I] Normalise to AVCC plus a `description` in Rust. Probe `isConfigSupported` with `optimizeForLatency: true` and the codec string built from the encoder's own SPS (profile_idc, constraint flags, level_idc): both moq-video hardware encoders emit High, e.g. `avc1.640028` (see Results).
 
 ---
 
@@ -186,34 +186,46 @@ Choose B if `moq-video` pulls in too much of `moq-net`/`hang`/`kio`. For a fully
 
 ## Results (#657, 2026-11-06)
 
-What was built: `crates/share` (`irori-share`) on `moq-video =0.1.21` with `default-features = false, features = ["capture"]`. It is capture and encode only: a `Source` (one window or a display) becomes `Chunk`s, one Annex-B access unit each, with SPS/PPS in band on every keyframe. Capture is moq-video's (ScreenCaptureKit on the Mac, WGC on the PC), not the `screencapturekit` / `windows-capture` crates; encode is moq-video's VideoToolbox and Media Foundation backends, hardware only by default (`Settings::hardware_only`). `examples/share-dev.rs` lists windows and displays and times capture + encode; `tests/it/encode.rs` checks keyframes on request and a live bitrate change on the real hardware encoder.
+What was built: `crates/share` (`irori-share`) on `moq-video =0.1.21` with `default-features = false, features = ["capture"]`, patched to `vendor/moq-video` for one fix (below). It is capture and encode only: a `Source` (one window or a display) becomes `Chunk`s, one Annex-B access unit each, with SPS/PPS in band on every keyframe. Capture is moq-video's (ScreenCaptureKit on the Mac, WGC on the PC), not the `screencapturekit` / `windows-capture` crates; encode is moq-video's VideoToolbox and Media Foundation backends. The picture is the source fitted into the 1920x1080 box with its aspect ratio kept (`share::fit`): a tall window stays tall, and the encoder is built at that size. Tools: `examples/share-dev.rs` lists windows and displays and times capture + encode; `tests/it/encode.rs` checks keyframes on request on the real hardware encoder; `examples/share-picker.rs` and `grant-test.sh` / `grant-walk.sh` test the Mac grant.
 
 **Findings about moq-video 0.1.21** (from its source, unlike the survey's 0.1.10-era notes above):
 - `Encoded` is `{timestamp, payload}` only: the `keyframe` flag is gone. `irori-share` reads it from the bitstream (an IDR NAL, type 5).
 - Both hardware backends encode **H.264 High** (`kVTProfileLevel_H264_High_AutoLevel`, `eAVEncH264VProfile_High`), not Baseline/Main. WebCodecs decodes High (`avc1.64…`), so the viewer's codec string must say High.
-- VideoToolbox gets `AverageBitRate` only, no `DataRateLimits`; Media Foundation runs CBR in low-latency mode. On the Mac nothing caps a keyframe's size (see the numbers).
-- `capture::open` calls `CGPreflightScreenCaptureAccess` then `CGRequestScreenCaptureAccess` before every Mac stream, so it always goes through the persistent grant. A picker-based share can't use moq-video's capture; it needs its own `SCStream` on the picker's filter (`examples/share-picker.rs` is that, as a spike).
+- Rate control: VideoToolbox gets `AverageBitRate` only, no `DataRateLimits`, so on the Mac nothing caps a keyframe's size. Media Foundation is asked for CBR, low-latency mode, a mean bitrate and a GOP size through `ICodecAPI`; moq-video logs a refused value at debug level and carries on, so these are requests. On the PC's NVENC the keyframes came out a fifth of the Mac's size, which suggests CBR held.
+- **Two GPUs (fixed, #666):** Media Foundation's hardware list on the PC (RTX 5080 plus the Ryzen's Radeon iGPU) put `AMDh264Encoder` first; moq-video took it, while its D3D11 device is on the default adapter (the NVIDIA), and `SetOutputType` failed with `0xC00D6D76`. `vendor/moq-video` enumerates with `MFTEnum2` filtered to adapter 0's LUID and falls back to the old list. Worth sending upstream.
+- **Hardware only** (`Settings::hardware_only`) is enforced on the PC (Media Foundation is asked for hardware encoders only). On the Mac moq-video opens VideoToolbox with no encoder specification, so VideoToolbox prefers hardware but isn't made to use it; enforcing it means passing `RequireHardwareAcceleratedVideoEncoder` upstream.
+- **A resize reopens:** WGC ends a capture when the window changes size, and moq-video's `read()` then returns `None`, meaning "open again", not "ended". `irori-share` turns that into `Error::Reopen` and `Capture::reopen`; on the PC the encoder must be rebuilt too, because Media Foundation binds the first capture's D3D11 device. The share really ends with `Error::Video(SourceUnavailable)` (the window closed, Stop in the menu bar, the grant taken away).
+- **WGC ignores the size asked for** and hands over the window's own size; `Capture` scales it on the GPU to the fitted size. WGC delivers a frame only when the window changes (about 9.4 fps on a busy window at 10 fps).
+- `capture::open` checks `CGPreflightScreenCaptureAccess` before every Mac stream and calls `CGRequestScreenCaptureAccess` when there is no grant (`capture/screencapture.rs`), so it always goes through the persistent grant. A picker-based share can't use moq-video's capture; it needs its own `SCStream` on the picker's filter, as `examples/share-picker.rs` does.
 - **Audio:** nothing in moq-video sets `capturesAudio`, and ScreenCaptureKit's default is off, so a share carries no sound at all, Irori's included. WGC captures no audio. Sharing audio later means turning it on with `excludesCurrentProcessAudio` set, so Irori's own call voices and chimes stay out.
-- Frame input: a captured frame goes to the encoder zero-copy (IOSurface `CVPixelBuffer` on the Mac, D3D11 texture on the PC); a CPU I420 frame (the synthetic bench) is uploaded first.
+- **Frames stay on the GPU**, with no CPU readback. On the Mac the IOSurface `CVPixelBuffer` goes to VideoToolbox as is. On the PC moq-video converts each WGC BGRA texture into a new NV12 D3D11 texture, which Media Foundation takes as is, and `Capture` scales it on the GPU first when the size differs. A CPU I420 frame (the synthetic bench) is uploaded first.
 
-**Mac numbers** (MacBook Pro M5 Max, 18 cores, macOS 26.6.2; `share-dev`, release build; CPU is the whole process as a percent of one core):
+**Numbers.** `share-dev`, release build. CPU is a percent of one core. On the Mac VideoToolbox encodes in a separate `VTEncoderXPCService` process launched for the client, counted separately ("enc svc"). Media Foundation encodes in-process. Capture compositing in WindowServer is shared with everything on screen and is not counted. "Ask → keyframe" runs from when the ask falls due, through the wait for the next picture, to the keyframe coming out of the encoder: what a viewer waits. At 10 fps that includes up to 100 ms of waiting for the next frame. The synthetic picture is 30 frames of dense "text" and a moving block, played in a loop: harder than most real shares.
 
-| Run | Backend | fps | Bitrate (target) | Keyframes | Other frames | Keyframe ask → keyframe | Encode ms p50 / p95 | CPU |
+Mac: MacBook Pro, M5 Max, 18 cores, macOS 26.6.2. PC: Ryzen 7 9850X3D (8 cores), RTX 5080 (NVENC through Media Foundation), Windows 11.
+
+| Run | Backend | fps | Bitrate (target) | Keyframes | Other frames | Ask → keyframe | P-frame encode ms p50 / p95 | CPU (+ enc svc) |
 |---|---|---|---|---|---|---|---|---|
-| synth 1080p, 20 s, no asks | videotoolbox | 10.05 | 837 kbit/s (1451) | 1 × 594 KB | 7.5 KB | — | 4.91 / 5.24 | 0.7 % of one core |
-| synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | videotoolbox | 10.03 | 1986 kbit/s (1451 → 800) | 6 × 887 KB avg | 7.2 KB | 5 of 5 answered, 13.8 ms avg | 4.87 / 5.68 | 0.7 % |
-| synth 1080p, 20 s, ask every 2 s, 2500 kbit/s | videotoolbox | 10.04 | 4395 kbit/s (2500) | 10 × 921 KB avg | 9.4 KB | 9 of 9, 14.0 ms | 4.92 / 12.56 | 0.7 % |
+| Mac synth 1080p, 20 s, no asks | videotoolbox | 10.04 | 837 kbit/s (1451) | 1 × 594 KB | 7.5 KB | — | 4.87 / 5.39 | 0.8 % (+0.6 %) |
+| Mac synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | videotoolbox | 10.03 | 1936 kbit/s (1451 → 800) | 6 × 855 KB avg | 7.2 KB | 5/5, 121 ms avg | 5.15 / 5.48 | 0.9 % (+0.5 %) |
+| Mac synth 1080p, 20 s, ask every 2 s, 2500 kbit/s | videotoolbox | 10.04 | 4367 kbit/s (2500) | 10 × 917 KB avg | 9.2 KB | 9/9, 119 ms | 5.13 / 5.56 | 0.9 % (+0.6 %) |
+| PC synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | mediafoundation (NVENC) | 10.03 | 912 kbit/s (1451 → 800) | 6 × 179 KB avg | 8.0 KB | 5/5, 99 ms¹ | 0.71 / 1.03² | 2.0 % |
+| PC window (Discord 1280x1392)³, 30 s, ask every 5 s | mediafoundation | 9.43 | 1005 kbit/s (1451) | 6 × 86 KB | 11.7 KB | 5/5, 108 ms¹ | 0.29 / 0.68² | 1.0 % |
+| PC window (Task Manager 320x412)³, 30 s | mediafoundation | 9.41 | 575 kbit/s | 6 × 54 KB | 6.6 KB | 5/5, 108 ms¹ | 0.27 / 0.43² | 0.7 % |
 
-The synthetic picture is dense scrolling "text" plus a moving block, every frame new: harder than most real shares. P-frames sit under the target, and the live bitrate change shows within a second (about 500 → 270 kbit/s). **Keyframes are the cost:** 0.6–1 MB each, since VideoToolbox spends what it likes on an IDR. So the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. The sending layer has to ration them: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s). Captured-window numbers: _filled in from s6 below._
+¹ Measured by the first version of `share-dev`, from the frame the ask landed on to the keyframe, so it excludes the wait for that frame. That it is about one frame interval suggests Media Foundation forces the IDR one frame after the ask; the Mac's equivalent figure was 14 ms (the IDR came out on the same frame). ² Keyframes and P-frames mixed. ³ Before the aspect fix, so the window was stretched to 1920x1080; no yellow WGC border (moq-video asks for borderless) and no prompt. _Captured-window numbers on the Mac and the PC re-runs after the fixes: below._
 
-**PC numbers:** _from #666._
+What the numbers say:
+- **CPU is not a concern** on either machine: about 1–2 % of one core all told.
+- **Keyframes are the cost on the Mac:** 0.6–1 MB each. VideoToolbox spends what it likes on an IDR, so the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. NVENC's CBR keeps them at 50–180 KB. The sending layer has to ration keyframes: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s).
+- P-frames sit under the target, and a live bitrate change shows within a second (about 500 → 270 kbit/s on the Mac).
 
-**Mac Screen Recording grant:** _filled in from the walk-through (`sh crates/share/grant-test.sh walk`)._
+**Mac Screen Recording grant:** _filled in from the walk-through._
 
 ## Next steps (spikes, in order)
 1. **Picker without TCC:** test `11_content_picker` on an ad-hoc-signed build, before and after a rebuild.
 2. **Relay throughput:** 2 Mbps sustained plus bursts, relay-only, Mac↔PC, via `spike-call`.
-3. **WebCodecs probe:** run `isConfigSupported('avc1.42E01F')` and decode an AVCC GOP in WKWebView, WebView2 and the Pixel's WebView.
+3. **WebCodecs probe:** run `isConfigSupported` for High (`avc1.640028`, or the string from the encoder's real SPS) and decode an AVCC GOP in WKWebView, WebView2 and the Pixel's WebView.
 4. **`moq-video` dependency weight:** `cargo tree` with `default-features=false` on the Mac and Windows, checking for `windows` or crypto (aws-lc-rs) conflicts.
 
 ## Sources

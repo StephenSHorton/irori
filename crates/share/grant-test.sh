@@ -21,11 +21,12 @@
 # update does: an ad hoc grant is keyed to the cdhash, a Developer ID one to
 # the Team ID (docs/releasing.md, Signing).
 set -eu
-cd "$(dirname "$0")/../.."
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/../.."
 
 cmd=${1:?build, run, info or walk}
 if [ "$cmd" = walk ]; then
-  exec sh "$(dirname "$0")/grant-walk.sh"
+  exec sh "$here/grant-walk.sh"
 fi
 kind=${2:?adhoc, devid or picker}
 shift 2
@@ -69,7 +70,7 @@ EOF
   else
     codesign --force -s - "$app"
   fi
-  codesign -dv "$app" 2>&1 | grep -E "Identifier|Authority|Signature|CDHash|TeamIdentifier"
+  codesign -dvvv "$app" 2>&1 | grep -E "^Identifier=|^Authority=|^Signature|^CDHash=|^TeamIdentifier="
   ;;
 run)
   log="$dir/$name.log"
@@ -78,7 +79,7 @@ run)
   cat "$log"
   ;;
 info)
-  codesign -dv "$app" 2>&1 | grep -E "Identifier|Authority|Signature|CDHash|TeamIdentifier"
+  codesign -dvvv "$app" 2>&1 | grep -E "^Identifier=|^Authority=|^Signature|^CDHash=|^TeamIdentifier="
   codesign -d -r- "$app" 2>&1 | grep designated
   ;;
 *) echo "build, run, info or walk" >&2; exit 2 ;;

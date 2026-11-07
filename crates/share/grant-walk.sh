@@ -14,7 +14,8 @@
 # None of the test bundles is Irori: each has its own bundle id
 # (com.stephenshorton.irori.sharedev-*), so the live app's grant is untouched.
 set -u
-cd "$(dirname "$0")/../.."
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/../.."
 t="sh crates/share/grant-test.sh"
 target=${CARGO_TARGET_DIR:-target}
 mkdir -p "$target/share-grant"
@@ -26,9 +27,21 @@ say() { printf '\n== %s\n' "$*" | tee -a "$log"; }
 wait_enter() { printf '%s [Enter] ' "$*"; read -r _; }
 ask() { printf '%s [y/n] ' "$1"; read -r a; echo "Q: $1 A: $a" >>"$log"; }
 run() { $t run "$@" 2>&1 | tee -a "$log"; }
-build() { $t build "$@" 2>&1 | grep -E "Identifier=|Signature|TeamIdentifier|error" | tee -a "$log"; }
+build() {
+  if out=$($t build "$@" 2>&1); then
+    printf '%s\n' "$out" | grep -E "^Identifier=|^Authority=|^Signature|^CDHash=|^TeamIdentifier=" | tee -a "$log"
+  else
+    printf '%s\n' "$out" | tee -a "$log"
+    say "build $* failed: stopping the walk"
+    exit 1
+  fi
+}
 
 say "macOS $(sw_vers -productVersion)"
+say "starting clean: removing any earlier test entries"
+for k in adhoc devid picker; do
+  tccutil reset ScreenCapture "com.stephenshorton.irori.sharedev-$k" 2>&1 | tee -a "$log"
+done
 say "building the three test apps"
 build picker 1
 build adhoc 1
@@ -71,7 +84,7 @@ ask "Did any Screen Recording prompt appear after the Developer ID update?"
 
 say "4. clean up"
 ask "Take ShareDevAdhoc and SharePicker out of the Screen Recording list now (ShareDevDevID stays for the agent's measurements)?"
-if tail -1 "$log" | grep -q 'A: y'; then
+if tail -1 "$log" | grep -q 'A: y'; then  # ask writes only its Q/A line to the log
   for k in adhoc picker; do
     tccutil reset ScreenCapture "com.stephenshorton.irori.sharedev-$k" 2>&1 | tee -a "$log"
   done

@@ -17,12 +17,15 @@
 //! `--kbps-at T:N` (change the bitrate to N kbit/s at second T),
 //! `--software` (allow a software encoder), `--no-cursor`.
 //!
-//! CPU is this whole process (capture, scaling, encoder, this loop), as a
-//! percent of one core: run it in release, nothing else in the process.
-//! synth hands the encoder CPU I420 frames, which it uploads into a
-//! CVPixelBuffer (Mac) or NV12 sample (PC) first; real capture is zero-copy
-//! from the capture surface, so synth's CPU is an upper bound. synth draws
-//! its frames before the meter starts and only copies one per tick.
+//! CPU is a percent of one core; run it in release. "cpu" is this process:
+//! the loop, frame uploads, and on the PC the Media Foundation encoder, which
+//! runs in-process. On the Mac VideoToolbox encodes in a VTEncoderXPCService
+//! process launched for us, reported as "encoder cpu" (run nothing else that
+//! encodes video meanwhile). Capture compositing and scaling in WindowServer
+//! is shared with everything on screen and not counted. synth hands the
+//! encoder CPU I420 frames, uploaded into a CVPixelBuffer (Mac) or an NV12
+//! sample (PC) first, where real capture stays on the GPU; it draws its
+//! frames before the meter starts and only copies one per tick.
 
 use share::{Capture, Chunk, Encoder, Settings, Source, cpu, synthetic_frame, timestamp};
 use std::time::{Duration, Instant};
@@ -162,10 +165,11 @@ impl Opts {
         while let Some(a) = it.next() {
             let mut val = || it.next().cloned().ok_or(format!("{a} needs a value"));
             let num = |s: String| s.parse::<u64>().map_err(|_| format!("bad number {s:?}"));
+            let num32 = |s: String| s.parse::<u32>().map_err(|_| format!("bad number {s:?}"));
             match a.as_str() {
                 "--secs" => o.secs = num(val()?)?,
-                "--fps" => o.settings.fps = num(val()?)? as u32,
-                "--kbps" => o.settings.bitrate_kbps = Some(num(val()?)? as u32),
+                "--fps" => o.settings.fps = num32(val()?)?,
+                "--kbps" => o.settings.bitrate_kbps = Some(num32(val()?)?),
                 "--gop" => o.settings.keyframe_every = Duration::from_secs(num(val()?)?),
                 "--key-every" => {
                     let s = num(val()?)?;
@@ -174,13 +178,13 @@ impl Opts {
                 "--kbps-at" => {
                     let v = val()?;
                     let (t, k) = v.split_once(':').ok_or("--kbps-at wants T:KBPS")?;
-                    o.kbps_at = Some((num(t.into())?, num(k.into())? as u32));
+                    o.kbps_at = Some((num(t.into())?, num32(k.into())?));
                 }
                 "--size" => {
                     let v = val()?;
                     let (w, h) = v.split_once('x').ok_or("--size wants WxH")?;
-                    o.settings.width = num(w.into())? as u32;
-                    o.settings.height = num(h.into())? as u32;
+                    o.settings.width = num32(w.into())?;
+                    o.settings.height = num32(h.into())?;
                 }
                 "--software" => o.settings.hardware_only = false,
                 "--no-cursor" => o.settings.cursor = false,
@@ -204,11 +208,14 @@ struct Tally {
     bytes: u64,
     keys: u64,
     key_bytes: u64,
-    encode_ms: Vec<f64>,
+    /// Encode times, keyframes apart: a forced IDR costs more, and mixing
+    /// them makes the percentiles track how often keyframes were asked for.
+    p_ms: Vec<f64>,
+    key_ms: Vec<f64>,
 }
 
 impl Tally {
-    fn add(&mut self, chunks: &[Chunk]) {
+    fn add(&mut self, chunks: &[Chunk], ms: f64) {
         for c in chunks {
             self.frames += 1;
             self.bytes += c.data.len() as u64;
@@ -216,6 +223,11 @@ impl Tally {
                 self.keys += 1;
                 self.key_bytes += c.data.len() as u64;
             }
+        }
+        if chunks.iter().any(|c| c.keyframe) {
+            self.key_ms.push(ms);
+        } else if !chunks.is_empty() {
+            self.p_ms.push(ms);
         }
     }
 }
@@ -227,10 +239,8 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
         Some(src) => {
             let cap = Capture::open(src, s).await.map_err(e)?;
             let (w, h) = cap.captured_size();
-            println!(
-                "capturing {src:?} at {w}x{h}, encoding at {}x{}",
-                s.width, s.height
-            );
+            let (ew, eh) = cap.size();
+            println!("capturing {src:?} at {w}x{h}, encoding at {ew}x{eh}");
             Feed::Capture(cap)
         }
         None => {
@@ -249,7 +259,14 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
             Feed::Synth(ring)
         }
     };
-    let mut enc = Encoder::new(s).map_err(e)?;
+    let enc_settings = |feed: &Feed| match feed {
+        Feed::Capture(cap) => s.sized(cap.size()),
+        Feed::Synth(_) => s.clone(),
+    };
+    // The Mac's hardware encoder runs in its own process; count it too.
+    #[cfg(target_os = "macos")]
+    let service = cpu::ServiceMeter::start("VTEncoderXPCService");
+    let mut enc = Encoder::new(&enc_settings(&feed)).map_err(e)?;
     println!(
         "encoder {} at {} kbit/s, {} fps, {} cores; {} s",
         enc.name(),
@@ -258,46 +275,39 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
         cpu::cores(),
         o.secs
     );
-    println!(" sec  frames  kbit/s  keys  key KB  enc ms(avg)  cpu %1core");
+    println!(" sec  frames  kbit/s  keys  key KB  P enc ms  cpu %1core");
 
     let tick = Duration::from_secs_f64(1.0 / f64::from(s.fps));
     let meter = cpu::Meter::start();
     let start = Instant::now();
+    let end = start + Duration::from_secs(o.secs);
     let mut total = Tally::default();
     let mut sec = Tally::default();
     let mut sec_meter = cpu::Meter::start();
     let mut next_key = o.key_every.map(|d| start + d);
+    // When the outstanding ask fell due: a viewer's wait runs from then,
+    // through the wait for the next picture, to the keyframe coming out.
     let mut asked: Option<Instant> = None;
     let mut key_latency_ms: Vec<f64> = Vec::new();
     let mut unanswered = 0u32;
     let mut kbps_done = false;
     let mut next_report = start + Duration::from_secs(1);
+    let mut reopens = 0u32;
     let mut n = 0u64;
 
-    while start.elapsed() < Duration::from_secs(o.secs) {
-        // One frame: the next capture, or (synth) the next tick.
-        let frame = match &mut feed {
-            Feed::Capture(cap) => cap.next().await.map_err(e)?,
-            Feed::Synth(ring) => {
-                let due = start + tick * n as u32;
-                tokio::time::sleep_until(due.into()).await;
-                let pic = ring[(n % ring.len() as u64) as usize].clone();
-                share::Frame::new(
-                    moq_video::Surface::I420(pic),
-                    timestamp(start.elapsed()).map_err(e)?,
-                )
-            }
-        };
-        n += 1;
-
+    loop {
         let now = Instant::now();
-        if next_key.is_some_and(|t| now >= t) {
+        if now >= end {
+            break;
+        }
+        // Asks and bitrate changes happen on time, frame or no frame.
+        if let Some(due) = next_key.filter(|t| now >= *t) {
             if asked.is_some() {
                 unanswered += 1;
             }
             enc.request_keyframe().map_err(e)?;
-            asked = Some(now);
-            next_key = o.key_every.map(|d| now + d);
+            asked = Some(due);
+            next_key = o.key_every.map(|d| due + d);
         }
         if let Some((t, k)) = o.kbps_at
             && !kbps_done
@@ -307,6 +317,56 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
             println!("      bitrate now {} kbit/s", enc.bitrate_kbps());
             kbps_done = true;
         }
+        if now >= next_report {
+            println!(
+                "{:>4}  {:>6}  {:>6.0}  {:>4}  {:>6.1}  {:>8.2}  {:>10.1}",
+                start.elapsed().as_secs(),
+                sec.frames,
+                sec.bytes as f64 * 8.0 / sec_meter.wall().as_secs_f64() / 1000.0,
+                sec.keys,
+                sec.key_bytes as f64 / 1000.0,
+                avg(&sec.p_ms),
+                sec_meter.percent_of_one_core()
+            );
+            sec = Tally::default();
+            sec_meter = cpu::Meter::start();
+            next_report = now + Duration::from_secs(1);
+        }
+
+        // One frame: the next capture (waiting no later than the next thing
+        // due, since an unchanging window may send none), or the next tick.
+        let wake = [Some(end), Some(next_report), next_key]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(end);
+        let frame = match &mut feed {
+            Feed::Capture(cap) => match tokio::time::timeout_at(wake.into(), cap.next()).await {
+                Err(_) => continue,
+                Ok(Err(share::Error::Reopen)) => {
+                    cap.reopen().await.map_err(e)?;
+                    reopens += 1;
+                    println!("      source resized: reopened at {:?}", cap.size());
+                    enc = Encoder::new(&s.sized(cap.size())).map_err(e)?;
+                    continue;
+                }
+                Ok(r) => r.map_err(e)?,
+            },
+            Feed::Synth(ring) => {
+                let due = start + tick.mul_f64(n as f64);
+                if due > wake {
+                    tokio::time::sleep_until(wake.into()).await;
+                    continue;
+                }
+                tokio::time::sleep_until(due.into()).await;
+                let pic = ring[(n % ring.len() as u64) as usize].clone();
+                n += 1;
+                share::Frame::new(
+                    moq_video::Surface::I420(pic),
+                    timestamp(start.elapsed()).map_err(e)?,
+                )
+            }
+        };
 
         let t0 = Instant::now();
         let chunks = enc.encode(&frame).map_err(e)?;
@@ -317,43 +377,36 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
             key_latency_ms.push(at.elapsed().as_secs_f64() * 1000.0);
             asked = None;
         }
-        total.encode_ms.push(ms);
-        sec.encode_ms.push(ms);
-        total.add(&chunks);
-        sec.add(&chunks);
-
-        if Instant::now() >= next_report {
-            let i = start.elapsed().as_secs();
-            println!(
-                "{:>4}  {:>6}  {:>6.0}  {:>4}  {:>6.1}  {:>11.2}  {:>10.1}",
-                i,
-                sec.frames,
-                sec.bytes as f64 * 8.0 / sec_meter.wall().as_secs_f64() / 1000.0,
-                sec.keys,
-                sec.key_bytes as f64 / 1000.0,
-                avg(&sec.encode_ms),
-                sec_meter.percent_of_one_core()
-            );
-            sec = Tally::default();
-            sec_meter = cpu::Meter::start();
-            next_report += Duration::from_secs(1);
-        }
+        total.add(&chunks, ms);
+        sec.add(&chunks, ms);
     }
     let tail = enc.flush().map_err(e)?;
-    total.add(&tail);
+    total.add(&tail, 0.0);
+    // Read before the encoder closes: its service process exits with it.
+    #[cfg(target_os = "macos")]
+    let service_cpu = service.cpu();
 
     let wall = meter.wall().as_secs_f64();
     let cpu_pct = meter.percent_of_one_core();
     let p_frames = total.frames - total.keys;
-    let mut sorted = total.encode_ms.clone();
-    sorted.sort_by(f64::total_cmp);
+    let sorted = |v: &[f64]| {
+        let mut v = v.to_vec();
+        v.sort_by(f64::total_cmp);
+        v
+    };
+    let (p, k) = (sorted(&total.p_ms), sorted(&total.key_ms));
     println!("---");
     println!("backend        {}", enc.name());
     println!(
-        "frames         {} in {:.1} s ({:.2} fps)",
+        "frames         {} in {:.1} s ({:.2} fps){}",
         total.frames,
         wall,
-        total.frames as f64 / wall
+        total.frames as f64 / wall,
+        if reopens > 0 {
+            format!(", {reopens} reopens")
+        } else {
+            String::new()
+        }
     );
     println!(
         "bitrate        {:.0} kbit/s (target {})",
@@ -367,24 +420,33 @@ async fn bench(source: Option<Source>, o: &Opts) -> Result<(), String> {
         (total.bytes - total.key_bytes) as f64 / p_frames.max(1) as f64 / 1000.0
     );
     println!(
-        "keyframe asks  {} answered, avg {:.1} ms to the keyframe chunk; {} unanswered",
+        "keyframe asks  {} answered, avg {:.1} ms max {:.1} ms from the ask to the keyframe; {} unanswered",
         key_latency_ms.len(),
         avg(&key_latency_ms),
+        key_latency_ms.iter().copied().fold(0.0, f64::max),
         unanswered + u32::from(asked.is_some())
     );
     println!(
-        "encode ms      avg {:.2}, p50 {:.2}, p95 {:.2}, max {:.2}",
-        avg(&sorted),
-        pct(&sorted, 0.50),
-        pct(&sorted, 0.95),
-        sorted.last().copied().unwrap_or(0.0)
+        "encode ms      P frames avg {:.2}, p50 {:.2}, p95 {:.2}, max {:.2}; keyframes avg {:.2}, max {:.2}",
+        avg(&p),
+        pct(&p, 0.50),
+        pct(&p, 0.95),
+        p.last().copied().unwrap_or(0.0),
+        avg(&k),
+        k.last().copied().unwrap_or(0.0)
     );
     println!(
-        "cpu            {:.1}% of one core ({:.2}% of all {} cores), {:.2} s cpu",
+        "cpu            {:.1}% of one core ({:.2}% of all {} cores), {:.2} s cpu, this process",
         cpu_pct,
         cpu_pct / cpu::cores() as f64,
         cpu::cores(),
         meter.cpu().as_secs_f64()
+    );
+    #[cfg(target_os = "macos")]
+    println!(
+        "encoder cpu    {:.1}% of one core, {:.2} s cpu, in VTEncoderXPCService",
+        service_cpu.as_secs_f64() / wall * 100.0,
+        service_cpu.as_secs_f64()
     );
     Ok(())
 }

@@ -11,8 +11,9 @@ name = "share"
 
 # moq-video does both halves: window and display capture (ScreenCaptureKit
 # on the Mac, Windows.Graphics.Capture on the PC) and H.264 on VideoToolbox
-# or Media Foundation, zero-copy from the capture surface (screen-share.md,
-# stack A). Pinned exactly: it is months old and changes its API between
+# or Media Foundation, with frames kept on the GPU from capture to encoder
+# (screen-share.md, stack A). The workspace patches it to vendor/moq-video
+# for one Media Foundation fix (#666). Pinned exactly: it is months old and changes its API between
 # patch releases. Default features off: they add MediaCodec, NVENC and a
 # from-source OpenH264, which Cisco's patent licence doesn't cover.
 # moq-net is here only for the two types moq-video's API takes
