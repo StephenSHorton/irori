@@ -321,6 +321,7 @@ impl Services {
         else {
             return Ok(false);
         };
+        super::spawn::log_asked(t, t.spawn_request(), g, &name, "this device", &(self.now)());
         self.settle_ask(&t.id);
         if t.given.is_some() {
             self.spawn
@@ -407,8 +408,16 @@ impl Services {
                     continue;
                 }
             };
-            if let Err(e) = co.bind_spawn(&t.id, s.generation, &key) {
-                logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref()));
+            match co.bind_spawn(&t.id, s.generation, &key) {
+                Ok(true) => logf(format_args!(
+                    "spawn {} gen {}: {} showed {}s after it was asked; bound to {key}",
+                    t.short_ref(),
+                    s.generation,
+                    s.name,
+                    super::spawn::secs_since(&(self.now)(), &s.at)
+                )),
+                Ok(false) => {}
+                Err(e) => logf(format_args!("spawn {}: bind {key}: {e}", t.short_ref())),
             }
         }
     }
