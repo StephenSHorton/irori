@@ -397,9 +397,11 @@ fn test_no_name_comes_back_within_a_week() {
     let given = simulate(30, 20);
     assert_eq!(given.len(), 600);
     assert_eq!(shortest_reuse(&given), None, "a name came back");
-    // A busier device runs past the list; still nothing within 7 days.
-    let given = simulate(30, 60);
-    let (name, gap) = shortest_reuse(&given).expect("1800 names from about 1000 words");
+    // A busier device runs past the list (card #702's themes made it
+    // about 1900 words); still nothing within 7 days.
+    assert!(coord::names::WORDS.len() < 2100);
+    let given = simulate(21, 100);
+    let (name, gap) = shortest_reuse(&given).expect("2100 names from fewer words");
     assert!(
         gap >= 7 * 24 * 3600,
         "{name} came back after {:.1} days",
@@ -433,4 +435,60 @@ fn test_a_running_session_keeps_a_name_the_list_no_longer_gives() {
     n.set_mesh(Vec::new);
     assert_eq!(n.assigned("s1"), "oldword");
     assert_eq!(n.assign("s1"), "oldword", "renamed on restart");
+}
+
+/// Card #702: with a theme, new names come from its words; when every one
+/// is live or went by lately, from the other themes, still never a recent
+/// one; with none (or one this build doesn't know), from them all.
+#[test]
+fn test_namer_takes_names_from_the_theme_then_the_mix() {
+    let presidents = coord::names::theme("presidents").unwrap().words;
+    let cards: Cards = Arc::default();
+    let (_d, n) = test_namer("pc", &cards);
+    let theme = Arc::new(Mutex::new(String::from("presidents")));
+    {
+        let t = theme.clone();
+        n.set_theme(move || t.lock().unwrap().clone());
+    }
+    n.set_now(t0);
+    for i in 0..20 {
+        let got = n.assign(&format!("s{i}"));
+        assert!(presidents.contains(&got.as_str()), "{got}: not a president");
+    }
+
+    // Every president went by in the last day on another device: the
+    // theme has nothing free, so the next name is another theme's.
+    let recent: Vec<(String, String, GoTime)> = presidents
+        .iter()
+        .map(|w| {
+            (
+                format!("other/{w}"),
+                w.to_string(),
+                minus(t0(), Duration::from_secs(3600)),
+            )
+        })
+        .collect();
+    n.set_seen(move || recent.clone());
+    let got = n.assign("after");
+    assert!(
+        !presidents.contains(&got.as_str()),
+        "{got}: every president is recent"
+    );
+    assert!(coord::names::WORDS.contains(&got.as_str()), "{got}");
+
+    // Every theme mixed, and an unknown theme, pick over the whole list.
+    *theme.lock().unwrap() = String::new();
+    let (_d2, mixed) = test_namer("pc", &cards);
+    assert_eq!(
+        mixed.assign("s1"),
+        pick("s1", None),
+        "no theme: today's pick"
+    );
+    let (_d3, unknown) = test_namer("pc", &cards);
+    unknown.set_theme(|| "not-a-theme".into());
+    assert_eq!(
+        unknown.assign("s1"),
+        pick("s1", None),
+        "unknown theme: mixed"
+    );
 }

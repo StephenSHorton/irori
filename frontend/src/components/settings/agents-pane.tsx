@@ -7,7 +7,7 @@
 // #450, #575, #576): how many may run on each device, the idle limit and the
 // crashes and failed starts before Irori asks, and how many your agents
 // may start, with today's count and cost and a Claude usage limit holding
-// the queue.
+// the queue; and the theme new agents' names come from (card #702).
 // Only you set these, here; no agent's tool can.
 
 import { useContext, useId, useState, type ReactNode } from "react"
@@ -20,6 +20,7 @@ import {
   AGENT_STARTS_TITLE,
   AgentStartsControls,
 } from "@/components/settings/agent-starts"
+import { NamesThemeSection } from "@/components/settings/names-theme"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -131,6 +132,7 @@ export function AgentsPane({ open }: { open: boolean }) {
                 />
               </div>
             </section>
+            <NamesThemeSection open={open} />
             <LimitsSection open={open} settings={s} set={set} />
           </div>
         ) : (
