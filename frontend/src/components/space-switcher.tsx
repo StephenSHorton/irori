@@ -2,15 +2,14 @@
 // it picks the space Home and Talk show. All spaces is everything,
 // Needs you across all of it; Personal is you and your agents; then each
 // shared space, "with" whoever is in it. It is the one place for spaces
-// (card #689, which dropped the Spaces tab): at its foot, the picked
-// space's page (a shared space's boards, people, invites and settings;
-// Personal's boards) and New or join a space.
+// (card #689, which dropped the Spaces tab; Boards shows only the picked
+// space's): at its foot, Space settings for a shared pick (its page: its
+// boards, people, invites and settings) and New or join a space.
 
 import {
   CheckIcon,
   ChevronDownIcon,
   LayersIcon,
-  LayoutGridIcon,
   PlusIcon,
   SettingsIcon,
   UserIcon,
@@ -153,21 +152,14 @@ export function SpaceSwitcher({
           </div>
         ))}
         <DropdownMenuSeparator />
-        {cur.id === Personal ? (
-          <DropdownMenuItem onClick={() => go({ kind: "board", id: Personal })}>
-            <FootIcon Icon={LayoutGridIcon} />
-            Personal's boards
+        {cur.id !== AllSpaces && cur.id !== Personal && (
+          <DropdownMenuItem
+            onClick={() => go({ kind: "board", id: cur.id })}
+            title={`${plainLine(cur.name)}'s boards, people, invites and settings`}
+          >
+            <FootIcon Icon={SettingsIcon} />
+            Space settings
           </DropdownMenuItem>
-        ) : (
-          cur.id !== AllSpaces && (
-            <DropdownMenuItem
-              onClick={() => go({ kind: "board", id: cur.id })}
-              title={`${plainLine(cur.name)}'s boards, people, invites and settings`}
-            >
-              <FootIcon Icon={SettingsIcon} />
-              Space settings
-            </DropdownMenuItem>
-          )
         )}
         <DropdownMenuItem onClick={onNewSpace}>
           <FootIcon Icon={PlusIcon} />

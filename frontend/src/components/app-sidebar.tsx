@@ -23,6 +23,7 @@ import {
   GitMergeIcon,
   HomeIcon,
   InboxIcon,
+  LayoutGridIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
   PanelLeftIcon,
@@ -45,7 +46,7 @@ import { useCommands } from "@/lib/commands"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
-import { go, type Section } from "@/lib/nav"
+import { boardsFor, go, onBoards, type Section } from "@/lib/nav"
 import { boardsInSpace } from "@/lib/spaces"
 import { useNarrow } from "@/lib/media"
 import { previewFlag } from "@/lib/preview"
@@ -410,6 +411,15 @@ export function AppSidebar({
             folded={folded}
             current={!openCard && section?.kind === "notes"}
             onClick={() => go({ kind: "notes" })}
+          />
+          {/* Boards (card #689): the picked space's only, never across
+              spaces; with All spaces it asks for one. */}
+          <NavItem
+            icon={LayoutGridIcon}
+            label="Boards"
+            folded={folded}
+            current={!openCard && !!section && onBoards(section)}
+            onClick={() => go(boardsFor(space))}
           />
           <NavItem
             icon={BellIcon}

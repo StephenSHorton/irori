@@ -76,7 +76,7 @@ import {
   PersonalHeaderBar,
   PersonalList,
 } from "@/components/boards/space-boards"
-import { NewBoardDialog } from "@/components/boards/parts"
+import { NewBoardDialog, PickSpace } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
@@ -93,7 +93,16 @@ import { NotificationsPage } from "@/components/notifications-page"
 import { useNotifications, useUnreadNotifications } from "@/lib/notifications"
 import { Loading } from "@/components/ui/loading"
 import { HomeShape, NeedsYouShape } from "@/components/common/loading-shapes"
-import { go, Home, sameSection, sectionFromHash, type Section } from "@/lib/nav"
+import {
+  boardsFor,
+  go,
+  Home,
+  onBoards,
+  replace,
+  sameSection,
+  sectionFromHash,
+  type Section,
+} from "@/lib/nav"
 import {
   CommandPalette,
   PaletteJump,
@@ -598,6 +607,26 @@ export function App() {
     },
     [open, section]
   )
+  // pickSpace is a pick in the space picker (or Profile). Boards show only
+  // the picked space's (card #689), so on Boards the page follows the pick.
+  const pickSpace = useCallback(
+    (id: string) => {
+      if (id === space) return
+      setSpace(id)
+      if (!open && onBoards(section)) go(boardsFor(id))
+    },
+    [space, setSpace, open, section]
+  )
+  // And the pick follows the page: a space's page opened another way (a
+  // pinned space, the palette, a link) picks that space.
+  useEffect(() => {
+    if (open) return
+    if (section.kind === "boards" && space !== AllSpaces)
+      replace(boardsFor(space))
+    if (section.kind !== "board" || section.id === space) return
+    if (section.id === Personal || boards.some((b) => b.boardId === section.id))
+      setSpace(section.id)
+  }, [open, section, space, boards, setSpace])
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
     [goTo]
@@ -645,6 +674,14 @@ export function App() {
       order: 2,
       keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"],
       run: () => goTo({ kind: "notes" }),
+    },
+    {
+      id: "nav.boards",
+      title: "Boards",
+      group: "Go to",
+      order: 2,
+      keywords: ["space", "lists", "projects"],
+      run: () => goTo(boardsFor(space)),
     },
     {
       id: "nav.notifications",
@@ -778,7 +815,7 @@ export function App() {
             drawer={drawer}
             onDrawer={setDrawer}
             space={space}
-            onSpace={setSpace}
+            onSpace={pickSpace}
             onNewSpace={() => setNewBoard(true)}
             me={me}
           />
@@ -794,17 +831,19 @@ export function App() {
                     ? "Card"
                     : section.kind === "board" && section.id === Personal
                       ? "Personal"
-                      : section.kind === "talk"
-                        ? "Talk"
-                        : section.kind === "notes"
-                          ? "Notes"
-                          : section.kind === "profile"
-                            ? "Profile"
-                            : section.kind === "desk"
-                              ? "Merge desks"
-                              : section.kind === "notifications"
-                                ? "Notifications"
-                                : "Home"
+                      : section.kind === "boards"
+                        ? "Boards"
+                        : section.kind === "talk"
+                          ? "Talk"
+                          : section.kind === "notes"
+                            ? "Notes"
+                            : section.kind === "profile"
+                              ? "Profile"
+                              : section.kind === "desk"
+                                ? "Merge desks"
+                                : section.kind === "notifications"
+                                  ? "Notifications"
+                                  : "Home"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -900,7 +939,7 @@ export function App() {
                     boards={boards}
                     agents={roster.agents.length}
                     space={space}
-                    onSpace={setSpace}
+                    onSpace={pickSpace}
                     onNewSpace={() => setNewBoard(true)}
                   />
                 </Scroll>
@@ -914,6 +953,10 @@ export function App() {
                   nameOf={name}
                   now={now}
                 />
+              ) : section.kind === "boards" ? (
+                <Scroll>
+                  <PickSpace boards={boards} onPick={pickSpace} />
+                </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>
                   <NotificationsLive
@@ -1048,6 +1091,7 @@ export function App() {
               <PhoneTabs
                 at={phoneTab(section)}
                 talk={talkWaiting}
+                boards={boardsFor(space)}
                 onGo={goTo}
               />
             )}

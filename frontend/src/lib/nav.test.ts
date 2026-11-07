@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { sameSection, sectionFromHash, sectionHash } from "./nav"
+import { boardsFor, sameSection, sectionFromHash, sectionHash } from "./nav"
 
 describe("Talk lives in the address (card #390)", () => {
   test("#talk is the list, #talk/<id> a conversation open", () => {
@@ -15,6 +15,7 @@ describe("Talk lives in the address (card #390)", () => {
       { kind: "talk", id: "" },
       { kind: "talk", id: "01M6 x/y" },
       { kind: "board", id: "b1" },
+      { kind: "boards" },
       { kind: "profile" },
       { kind: "home" },
     ] as const)
@@ -31,9 +32,15 @@ describe("Talk lives in the address (card #390)", () => {
   })
 })
 
-describe("The Spaces page is gone (card #689)", () => {
-  test("an old #boards link opens Home", () => {
-    expect(sectionFromHash("#boards")).toEqual({ kind: "home" })
+describe("Boards shows only the picked space's (card #689)", () => {
+  test("#boards is Boards with no space picked, and round-trips", () => {
+    expect(sectionFromHash("#boards")).toEqual({ kind: "boards" })
+    expect(sectionHash({ kind: "boards" })).toBe("#boards")
+  })
+  test("the Boards tab goes to the picked space's page", () => {
+    expect(boardsFor("")).toEqual({ kind: "boards" })
+    expect(boardsFor("personal")).toEqual({ kind: "board", id: "personal" })
+    expect(boardsFor("b1")).toEqual({ kind: "board", id: "b1" })
   })
   test("a space's page and Personal's still open from their links", () => {
     expect(sectionFromHash("#board/b1")).toEqual({ kind: "board", id: "b1" })

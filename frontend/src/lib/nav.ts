@@ -3,9 +3,11 @@
 // a space's page. It lives in the address, like an open
 // card ("#card/<id>"), so back and forward move between them: "#talk",
 // "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
-// picture, and your spaces), "#board/<id>", and no hash for Home. The
-// Spaces page ("#boards") is gone (card #689): an old link to it opens Home. A card's page opens over whichever
+// picture, and your spaces), "#boards" (Boards with All spaces picked,
+// card #689: pick a space), "#board/<id>", and no hash for Home. A card's page opens over whichever
 // of them it was opened from.
+
+import { AllSpaces, Personal } from "./spaces"
 
 export type Section =
   | { kind: "home" }
@@ -13,6 +15,9 @@ export type Section =
   | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
+  // Boards with no space picked (card #689): it asks for one, since boards
+  // are never shown across spaces.
+  | { kind: "boards" }
   // A space's page (card #558): its boards. With board, that one board's
   // list ("#board/<space>/<board>"). Personal's page is "#board/personal".
   | { kind: "board"; id: string; board?: string }
@@ -25,6 +30,7 @@ export const Home: Section = { kind: "home" }
 // sectionFromHash is the section an address names (a card's page counts
 // as the section history has behind it, so Home here).
 export function sectionFromHash(hash: string): Section {
+  if (hash === "#boards") return { kind: "boards" }
   if (hash === "#profile") return { kind: "profile" }
   if (hash === "#talk") return { kind: "talk", id: "" }
   const t = hash.match(/^#talk\/(.+)$/)
@@ -49,6 +55,7 @@ export function sectionFromHash(hash: string): Section {
 }
 
 export function sectionHash(s: Section): string {
+  if (s.kind === "boards") return "#boards"
   if (s.kind === "profile") return "#profile"
   if (s.kind === "talk")
     return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
@@ -71,6 +78,14 @@ export function go(s: Section): void {
   window.dispatchEvent(new PopStateEvent("popstate", { state: { section: s } }))
 }
 
+// replace moves the window to section s in place of where it is: no
+// history entry to come back to (Boards on #boards following the pick).
+export function replace(s: Section): void {
+  const url = window.location.pathname + window.location.search + sectionHash(s)
+  window.history.replaceState({ section: s }, "", url)
+  window.dispatchEvent(new PopStateEvent("popstate", { state: { section: s } }))
+}
+
 export function sameSection(a: Section, b: Section): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === "board")
@@ -78,4 +93,18 @@ export function sameSection(a: Section, b: Section): boolean {
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
   return true
+}
+
+// boardsFor is where the Boards tab goes with space picked (card #689): a
+// shared space's page, Personal's, or with All spaces the page that asks
+// for a space.
+export function boardsFor(space: string): Section {
+  if (space === AllSpaces) return { kind: "boards" }
+  return { kind: "board", id: space === Personal ? Personal : space }
+}
+
+// onBoards says whether s is under the Boards tab: a space's page or one
+// of its boards, Personal's, or the pick-a-space page.
+export function onBoards(s: Section): boolean {
+  return s.kind === "boards" || s.kind === "board"
 }

@@ -62,6 +62,7 @@ const PAGES: Array<[name: string, query: string]> = [
   ["dm", "#talk/sample-dm-heron"],
   ["thread", "?thread=sample-thread-1"],
   ["new-space", "?boards"],
+  ["boards", "#boards"],
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
   ["personal", "#board/personal"],

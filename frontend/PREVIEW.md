@@ -57,7 +57,7 @@ unchanged.
 | `/?talk` | Talk (card #390): the Threads list beside the new-thread box; `#talk` in the address does the same |
 | `/?thread=sample-thread-1` | Talk with a thread open: sample-heron's answer, the reply box, Resolve (cards #116, #390); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
 | `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, a picture inline under sample-heron's post (card #643), the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card. The composer takes files (card #643): the clip, a drop or a paste; with files Send works on no text; `?voice=ready` shows its mic |
-| `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home and Talk as a bottom tab bar (the Spaces tab went in card #689: spaces are in the menu's space picker), Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
+| `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar (Boards is the picked space's, card #689), Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
 | `/?replying#talk/sample-ch-suzuri` | agents replying (card #645): "sample-heron and sample-otter are replying…" under the channel's posts; `/?replying#talk/sample-dm-heron` "sample-heron is replying…" in a DM |
 | `/#talk/sample-dm-heron` | a DM with an agent (unread until opened), its newest post with a picture inline (card #643); `/#talk/sample-dm-otter-badger` two agents' DM, read-only |
 | `/#talk/sample-dm-gone-3` | an archived DM open (card #473): gone agents' DMs, read or not, sit in the Archive at the bottom, which folded lists no rows and shows only its count, "Archive · N", muted: no "N new" pill, no Mark all read (card #514); open it and its unread rows keep their marks, with Mark all read beside its name |
@@ -102,8 +102,9 @@ unchanged.
 | `/?devices` | Settings at Devices and connections (this PC, a MacBook, an offline node) |
 | `/?sidebar=folded` | the sidebar folded to icons (card #135); its top button opens it again |
 | `/?boards` | New or join a space (card #689), the dialog the sidebar's space picker opens: Make a space, Join with an invite |
-| `/?spaces=open` | the space picker open: All spaces, Personal, each shared space, then Space settings (a shared pick) or Personal's boards, and New or join a space (card #689) |
+| `/?spaces=open` | the space picker open: All spaces, Personal, each shared space, then Space settings (a shared pick) and New or join a space (card #689) |
 | `/#board/personal` | Personal's page: its boards and Add board (card #689; it was on the Spaces page) |
+| `/#boards` | Boards with All spaces picked: pick a space to see its boards (card #689); with a space picked (`?space=sample-board-mlg#boards`) it opens that space's page |
 | `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
 | `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
 | `/#board/sample-board-mlg` | MLG, shared with Blake (card #268): each card's owner chip (Stephen, Blake, Former member) and the Mine / Blake chips |
