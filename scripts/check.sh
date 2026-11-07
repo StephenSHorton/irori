@@ -114,9 +114,6 @@ cargo test --workspace --no-run
 # Every crate's tests run even when one fails, so one failure can't hide
 # another (card #609); the run still fails at the end.
 temp_clean cargo test --workspace --no-fail-fast
-# The huddle screen share runs alone: overlapping the other huddle tests,
-# the core test binary crashed on the PC (see the test's doc).
-temp_clean cargo test -p irori-core --test it huddle::a_share_in_a_huddle_reaches_the_watcher_and_newest_wins -- --ignored --exact
 # frontend/src/gen/bindings.ts is what the window's commands generate (D10).
 cargo xtask bindings --check
 # Timing-sensitive, as in Go: capture's tests once more on one thread.

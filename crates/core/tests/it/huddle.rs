@@ -942,13 +942,12 @@ fn a_huddles_end_wakes_the_channels_agents_once() {
 /// Bob sharing replaces Alice's, and she is told who took over; Bob stops
 /// and the share is gone for both.
 ///
-/// Ignored in the workspace run; check.sh runs it alone. On the PC, the
-/// test binary crashed (access violation) in about half the runs where
-/// this test overlapped the other huddle tests, never alone (20 runs) or
-/// on one thread. Root cause not found yet; the app runs one Core.
+/// Ignored until #671: on the PC (NVIDIA) the test binary crashes, alone
+/// or beside the other huddle tests (about 1 run in 4), in NVIDIA's H.264
+/// encoder (nvEncMFTH264x.dll) on a Media Foundation work-queue thread.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[test]
-#[ignore = "run alone by check.sh: crashes when it overlaps other huddle tests on Windows"]
+#[ignore = "#671: crashes in the NVIDIA H.264 encoder on Windows"]
 fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
     use irori_net::share::{VIEW_CHUNK, VIEW_CONFIG};
 
