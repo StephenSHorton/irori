@@ -2008,6 +2008,11 @@ export type GoneSession = {
 	goneAt: string,
 	reason: string,
 	transcript: boolean,
+	/**
+	 *  Whether Claude Code will start `claude --bg --resume` in `cwd`: the
+	 *  spawn's rule ([`crate::spawn::trusted_in`]), so a git repo needs its
+	 *  own entry even under a trusted parent (card #731).
+	 */
 	trusted: boolean,
 };
 
