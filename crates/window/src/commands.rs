@@ -784,6 +784,13 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
     blocking(&w, move |w| Ok(w.threads_all())).await
 }
 
+/// The person has a thread open: what is in it now is read (card #719).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_read_thread(w: W<'_>, id: String) -> R<()> {
+    w.read_thread(&id)
+}
+
 /// Resolve on a thread: the person is done with it.
 #[tauri::command]
 #[specta::specta]
@@ -2042,6 +2049,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_threads,
             board_threads_all,
             board_card_ref,
+            board_read_thread,
             board_resolve_thread,
             board_reopen_thread,
             board_thread_agents_now,

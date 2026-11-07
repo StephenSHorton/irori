@@ -159,6 +159,8 @@ export const commands = {
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
+	/**  The person has a thread open: what is in it now is read (card #719). */
+	boardReadThread: (id: string) => __TAURI_INVOKE<null>("board_read_thread", { id }),
 	/**  Resolve on a thread: the person is done with it. */
 	boardResolveThread: (id: string) => __TAURI_INVOKE<null>("board_resolve_thread", { id }),
 	/**  A resolved thread is live again (card #169). */
@@ -3007,6 +3009,12 @@ export type ThreadSummary = {
 	 *  started for it.
 	 */
 	openedBy?: AgentRef | null,
+	/**
+	 *  An agent wrote in it after the person last opened or replied in it
+	 *  (card #719): Talk's count counts it and its list marks it. An
+	 *  agent's own thread is unread until the person first opens it.
+	 */
+	unread: boolean,
 };
 
 /**  Who an action's notice went to. */
