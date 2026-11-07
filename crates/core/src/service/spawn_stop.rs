@@ -96,76 +96,140 @@ fn expand_home(s: &str) -> String {
     s.to_string()
 }
 
+/// The lines of a reply, trimmed, with no code fences.
+fn raw_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with("```") && !l.is_empty())
+}
+
+/// A line without the quotes or backticks people put around paths.
+fn unquoted(l: &str) -> &str {
+    l.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '“' | '”' | '‘' | '’'))
+        .trim()
+}
+
 /// The lines of a reply as a person means them: trimmed, with no code
 /// fences and without the quotes or backticks people put around paths.
 fn reply_lines(text: &str) -> impl Iterator<Item = &str> {
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.starts_with("```"))
-        .map(|l| {
-            l.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '“' | '”'))
-                .trim()
-        })
-        .filter(|l| !l.is_empty())
+    raw_lines(text).map(unquoted).filter(|l| !l.is_empty())
 }
 
-/// The paths a line of words names (card #681: "put the clone in
-/// ~/projects/rune"): a span in backticks or quotes, then a word, that
-/// starts at a root or at `~`, without the punctuation around it.
+/// Whether `w`, as typed, is only a root or the home folder ("/", "~",
+/// "C:\"): never a repo's folder, as in "later / tomorrow".
+fn bare_root(w: &str) -> bool {
+    let w = w.trim_end_matches(['/', '\\']);
+    let b = w.as_bytes();
+    w.is_empty() || w == "~" || (b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
+}
+
+/// `w`, as typed, as a path: `~` expanded, when it starts at a root and is
+/// more than one.
+fn as_path(w: &str) -> Option<String> {
+    let w = w.trim();
+    if bare_root(w) {
+        return None;
+    }
+    let f = expand_home(w);
+    rooted(&f).then_some(f)
+}
+
+/// The quote pairs a span in a reply may sit in.
+const QUOTES: [(char, char); 5] = [('`', '`'), ('"', '"'), ('\'', '\''), ('“', '”'), ('‘', '’')];
+
+/// The spans of `line` in quotes, and `line` without them. A quote opens
+/// only at the start of a word and closes only at its end, so the
+/// apostrophe in "it's" opens nothing.
+fn quoted_spans(line: &str) -> (Vec<String>, String) {
+    let cs: Vec<char> = line.chars().collect();
+    let opens = |c: Option<&char>| c.is_none_or(|c| c.is_whitespace() || "([{,;:".contains(*c));
+    let closes = |c: Option<&char>| c.is_none_or(|c| c.is_whitespace() || ".,;:!?)]}".contains(*c));
+    let (mut spans, mut rest) = (Vec::new(), String::new());
+    let mut i = 0;
+    while i < cs.len() {
+        let open = QUOTES
+            .iter()
+            .find(|(o, _)| cs[i] == *o)
+            .filter(|_| opens(i.checked_sub(1).and_then(|j| cs.get(j))));
+        let close = open
+            .and_then(|(_, c)| (i + 1..cs.len()).find(|&j| cs[j] == *c && closes(cs.get(j + 1))));
+        if let Some(j) = close {
+            spans.push(cs[i + 1..j].iter().collect());
+            rest.push(' ');
+            i = j + 1;
+        } else {
+            rest.push(cs[i]);
+            i += 1;
+        }
+    }
+    (spans, rest)
+}
+
+/// The paths a line names (card #681: "put the clone in ~/projects/rune"):
+/// the line itself when it is one word or a folder here (a path with
+/// spaces), else each span in quotes, then each word, that starts at a root
+/// or at `~`, without the punctuation around it. A word in a sentence needs
+/// a folder past its root ("/clone" is a command, "/" a slash).
 fn paths_in(line: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut add = |s: &str| {
-        let f = expand_home(s.trim());
-        if rooted(&f) && !out.contains(&f) {
+    let mut add = |f: Option<String>| {
+        if let Some(f) = f
+            && !out.contains(&f)
+        {
             out.push(f);
         }
     };
-    for q in ['`', '"', '\''] {
-        for (i, span) in line.split(q).enumerate() {
-            if i % 2 == 1 {
-                add(span);
-            }
-        }
+    let bare = unquoted(line);
+    if let Some(w) = as_path(bare)
+        && (!bare.contains(char::is_whitespace) || Path::new(&w).is_dir())
+    {
+        add(Some(w));
+        return out;
     }
-    for span in line.split('“').skip(1) {
-        if let Some((inner, _)) = span.split_once('”') {
-            add(inner);
-        }
+    let (spans, rest) = quoted_spans(line);
+    for span in &spans {
+        add(as_path(span));
     }
-    for w in line.split_whitespace() {
+    for w in rest.split_whitespace() {
         let w = w.trim_start_matches(['(', '[', '{', '`', '"', '\'', '“', '‘']);
         let w = w.trim_end_matches([
             '.', ',', ';', ':', '!', '?', ')', ']', '}', '`', '"', '\'', '”', '’',
         ]);
-        add(w);
+        let deep = w
+            .trim_start_matches(['/', '\\'])
+            .trim_end_matches(['/', '\\'])
+            .contains(['/', '\\']);
+        let drive = w.as_bytes().get(1) == Some(&b':');
+        if deep || drive || w.starts_with('~') {
+            add(as_path(w));
+        }
     }
     out
 }
 
-/// The folder a person's reply names: a line that is a path (spaces and
-/// all), else a path in a line of words (card #681), with a leading `~` as
-/// the home folder. Of several, one that is a folder here wins. A question
-/// names none ("is it /Users/me/irori?", card #531). With no path, the
-/// reply's first line, which is quoted back to the person.
+/// The paths a reply names, over all its lines. A question names none ("is
+/// it /Users/me/irori?", card #531).
+fn paths_said(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in raw_lines(text).filter(|l| !unquoted(l).ends_with('?')) {
+        for f in paths_in(line) {
+            if !out.contains(&f) {
+                out.push(f);
+            }
+        }
+    }
+    out
+}
+
+/// The folder a person's reply names: its one path, a line that is a path
+/// (spaces and all) or a path in words (card #681), with a leading `~` as
+/// the home folder. With none, or several (Irori can't tell which was
+/// meant: "not ~/a, use ~/b"), the reply's first line, which is quoted
+/// back to the person.
 fn as_folder(text: &str) -> String {
-    let first = reply_lines(text).next().unwrap_or("");
-    let mut found: Vec<String> = Vec::new();
-    for line in reply_lines(text) {
-        if line.ends_with('?') {
-            continue;
-        }
-        let whole = expand_home(line);
-        if rooted(&whole) {
-            found.push(whole);
-        }
-        found.extend(paths_in(line));
-    }
-    if let Some(f) = found.iter().find(|f| Path::new(f).is_dir()) {
-        return f.clone();
-    }
-    match found.into_iter().next() {
-        Some(f) => f,
-        None => expand_home(first),
+    match paths_said(text).as_slice() {
+        [f] => f.clone(),
+        _ => expand_home(reply_lines(text).next().unwrap_or("")),
     }
 }
 
@@ -209,7 +273,7 @@ fn reads_as_path(f: &str) -> bool {
 /// #681: "put the clone in ~/projects/rune" while it clones): a full path
 /// here whose parent is a folder. Its parent missing reads as a typo.
 fn awaited(reply: &str) -> Option<String> {
-    let f = as_folder(reply);
+    let [f] = <[String; 1]>::try_from(paths_said(reply)).ok()?;
     let p = Path::new(&f);
     (reads_as_path(&f) && p.is_absolute() && !p.is_dir() && p.parent().is_some_and(Path::is_dir))
         .then_some(f)
@@ -218,7 +282,12 @@ fn awaited(reply: &str) -> Option<String> {
 /// Why a reply wasn't used as the card's folder.
 fn not_a_folder_line(reply: &str, dev: &str) -> String {
     let f = as_folder(reply);
-    if awaited(reply).is_some() {
+    if paths_said(reply).len() > 1 {
+        format!(
+            "{} names more than one folder, so Irori can't tell which to start the agent in and is asking again.",
+            quoted(reply)
+        )
+    } else if awaited(reply).is_some() {
         format!(
             "{} isn't a folder on {dev} yet. Irori starts the agent there as soon as it is, with no need to answer again.",
             quoted(reply)
@@ -393,10 +462,7 @@ impl Services {
             )
         };
         let question = match reply {
-            Some(r)
-                if r.person
-                    && let Some(f) = awaited(&r.text) =>
-            {
+            Some(r) if let Some(f) = awaited(&r.text) => {
                 format!(
                     "Irori starts the agent in “{}” once it's there. {CHOOSE_FOLDER} on {dev} instead?",
                     cut(&f, 60)
@@ -683,33 +749,56 @@ mod tests {
         assert_eq!(as_folder("clone it to /x/y."), "/x/y");
         assert_eq!(as_folder("use `C:\\src\\rune`, thanks"), "C:\\src\\rune");
         assert_eq!(as_folder("it's in (/opt/rune)"), "/opt/rune");
-        assert_eq!(
-            as_folder("put it in \"/Users/me/My Projects/rune\" please"),
-            "/Users/me/My Projects/rune"
-        );
-        assert_eq!(
-            as_folder("“/Users/me/My Projects/rune”"),
-            "/Users/me/My Projects/rune"
-        );
-        assert_eq!(as_folder("/srv/My Projects/rune"), "/srv/My Projects/rune");
-        assert_eq!(as_folder("clone it to /tmp/"), "/tmp/");
-        // Words with no path are quoted back as they were.
-        assert_eq!(as_folder("I'll clone it later"), "I'll clone it later");
-        assert_eq!(
-            as_folder("see https://github.com/x/rune"),
-            "see https://github.com/x/rune"
-        );
-        assert_eq!(
-            as_folder("is it /Users/me/irori?"),
-            "is it /Users/me/irori?"
-        );
+        assert_eq!(as_folder("clone it to /tmp/rune/"), "/tmp/rune/");
+        // In quotes, a path keeps its spaces; an apostrophe opens nothing.
+        for r in [
+            "put it in \"/Users/me/My Projects/rune\" please",
+            "“/Users/me/My Projects/rune”",
+            "it's in '/Users/me/My Projects/rune'",
+            "put it in ‘/Users/me/My Projects/rune’",
+        ] {
+            assert_eq!(as_folder(r), "/Users/me/My Projects/rune", "{r}");
+        }
+        // Words with no path are quoted back as they were: a slash, the
+        // home folder alone, a command, a URL, a question.
+        for r in [
+            "I'll clone it later",
+            "I'll clone it later / tomorrow",
+            "clone it to ~ or wherever",
+            "I'll run /clone later",
+            "see https://github.com/x/rune",
+            "is it /Users/me/irori?",
+        ] {
+            assert_eq!(as_folder(r), r, "{r}");
+            assert!(!reads_as_path(&as_folder(r)) || r.contains("?"), "{r}");
+        }
 
-        // Of two, the one that is a folder here wins.
         let d = tempfile::tempdir().unwrap();
         let real = d.path().display().to_string();
-        assert_eq!(as_folder(&format!("not /nope/rune but {real}")), real);
+        // A line that is a folder here keeps its spaces.
+        let spaced = d.path().join("My Projects");
+        std::fs::create_dir(&spaced).unwrap();
+        let spaced = spaced.display().to_string();
+        assert_eq!(as_folder(&spaced), spaced);
+        // A path then words: the path.
+        assert_eq!(
+            as_folder(&format!("{real}/rune (cloning it now)")),
+            format!("{real}/rune")
+        );
 
-        // A sentence about a real folder starts there.
+        // Two paths: Irori can't tell which was meant, whichever is there.
+        for r in [
+            format!("not {real}, that's stale: use {real}/rune"),
+            format!("In {real} I cloned it as {real}/rune"),
+        ] {
+            assert_eq!(paths_said(&r).len(), 2, "{r}");
+            assert!(!Path::new(&as_folder(&r)).is_dir(), "{r}");
+            assert_eq!(awaited(&r), None, "{r}");
+            let line = not_a_folder_line(&r, "Macbook Pro");
+            assert!(line.contains("names more than one folder"), "{line}");
+        }
+
+        // A sentence about a folder on its way: Irori waits for it.
         let line = not_a_folder_line(&format!("put the clone in {real}/rune"), "Macbook Pro");
         assert_eq!(
             line,
