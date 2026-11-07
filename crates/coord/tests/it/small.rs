@@ -18,9 +18,16 @@ fn test_words_are_distinct_and_plain() {
     let mut seen = std::collections::HashSet::new();
     // Card #224 grew the list from Go's 127 to 1021; card #702's themes
     // added to it.
-    assert_eq!(WORDS.len(), names::THEMES.iter().map(|t| t.words.len()).sum::<usize>());
+    assert_eq!(
+        WORDS.len(),
+        names::THEMES.iter().map(|t| t.words.len()).sum::<usize>()
+    );
     assert!(WORDS.len() > 1021, "{}", WORDS.len());
-    assert_eq!(&WORDS[..1021], names::THEMES[0].words, "card #224's words first");
+    assert_eq!(
+        &WORDS[..1021],
+        names::THEMES[0].words,
+        "card #224's words first"
+    );
     for w in WORDS {
         assert!(seen.insert(*w), "{w:?} twice");
         assert!(
