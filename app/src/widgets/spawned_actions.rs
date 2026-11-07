@@ -207,30 +207,39 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
     rune_kit::Dialog::new("widgets-logs", format!("Logs · {}", display_name(&l.who)))
         .open(true)
         .width(1024.0)
+        .fit()
         .description("Its terminal output so far, read only. Attach to talk to it.")
         .on_close(|s: &mut State| s.widgets.logs = None)
         .child(
             col()
-                .key("widgets-logs-scroll")
+                .key("widgets-logs-body")
                 .w_full()
-                .h(420.0)
-                .min_h(0.0)
-                .padding(12.0)
-                .radius(6.0)
-                .fill(k.c.bg_deep)
-                .border(1.0, k.c.border_muted)
-                .scroll(ScrollSpec { stick_bottom: true })
-                .scroll_xy()
-                .child(body),
-        )
-        .child(
-            row().key("widgets-logs-foot").w_full().child(rune::el().grow(1.0)).child(
-                Button::new("Refresh")
-                    .variant(ButtonVariant::Outline)
-                    .control_size(ControlSize::Small)
-                    .on_press(move |s: &mut State| open_logs(s, who.clone()))
-                    .build(k),
-            ),
+                .gap(12.0)
+                .px(16.0)
+                .pb(16.0)
+                .child(
+                    col()
+                        .key("widgets-logs-scroll")
+                        .w_full()
+                        .h(420.0)
+                        .min_h(0.0)
+                        .padding(12.0)
+                        .radius(6.0)
+                        .fill(k.c.bg_deep)
+                        .border(1.0, k.c.border_muted)
+                        .scroll(ScrollSpec { stick_bottom: true })
+                        .scroll_xy()
+                        .child(body),
+                )
+                .child(
+                    row().key("widgets-logs-foot").w_full().child(rune::el().grow(1.0)).child(
+                        Button::new("Refresh")
+                            .variant(ButtonVariant::Outline)
+                            .control_size(ControlSize::Small)
+                            .on_press(move |s: &mut State| open_logs(s, who.clone()))
+                            .build(k),
+                    ),
+                ),
         )
         .build(k, f.layer);
 }
