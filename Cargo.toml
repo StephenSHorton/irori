@@ -3,6 +3,7 @@ resolver = "3"
 # Crates are added as their milestone builds them (docs/architecture.md section 1, 8).
 members = [
   "app",
+  "desk",
   "crates/api",
   "crates/attach",
   "crates/blob",
