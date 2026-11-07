@@ -481,7 +481,6 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
     true
 }
 
-#[allow(dead_code)] // for the shell's keys and Settings (P8)
 /// VoiceNote: Settings' word on voice input: where the audio goes and
 /// whether the speech model is downloaded. Nothing where there's no
 /// engine.
@@ -516,7 +515,6 @@ pub fn voice_note(s: &State, f: &mut Frame) -> Option<El> {
     Some(c)
 }
 
-#[allow(dead_code)] // for the shell's keys and Settings (P8)
 /// Settings opened: read the voice status afresh.
 pub fn refresh_voice(s: &mut State) {
     load_status(s, true);

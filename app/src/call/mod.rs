@@ -49,7 +49,7 @@ pub use huddle::{huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_
 #[allow(unused_imports)]
 pub use logic::StartWhere;
 #[allow(unused_imports)]
-pub use mic::{mic_button, on_key, voice_note};
+pub use mic::{mic_button, on_key, refresh_voice, voice_note};
 #[allow(unused_imports)]
 pub use share::share_stage;
 #[allow(unused_imports)]
