@@ -1028,7 +1028,13 @@ pub fn run(o: &Opts) -> ExitCode {
             continue;
         }
         println!("agent-check: running {name}");
-        let (r, log) = f(o, &h);
+        // Every scenario shares one Core: start each with Pause all off,
+        // since 6's wind down turns it on and would hold the next agent's
+        // messages (card #669).
+        let (r, log) = match h.window.inbox_set_paused(false) {
+            Ok(()) => f(o, &h),
+            Err(e) => (Err(format!("Pause all off: {e}")), None),
+        };
         tally.report(name, r, log.as_deref());
     }
     h.stop.cancel();
