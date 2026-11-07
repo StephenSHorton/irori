@@ -253,7 +253,8 @@ html[data-ds="irori"]
 /* Menus, pickers, popovers and tooltips are solid off the Mac (card #688).
    They float over the page's own text, and Windows' webview skips the
    blur, so the sidebar and the page read straight through them. The Mac
-   (data-os, set in main.tsx) renders the blur and keeps the frost. */
+   (data-os, set in main.tsx) renders the blur and keeps the frost. A popup
+   made by hand rather than from components/ui takes .glass-float. */
 html[data-ds="irori"]:not([data-os="mac"])
   :is(
     [data-slot="popover-content"],
@@ -268,7 +269,8 @@ html[data-ds="irori"]:not([data-os="mac"])
     [data-slot="navigation-menu-content"],
     [data-slot="hover-card-content"],
     [data-slot="tooltip-content"],
-    [data-slot="command-palette"]
+    [data-slot="command-palette"],
+    .glass-float
   ) {
   --glass-bg: var(--glass-tint);
   --popover: var(--glass-tint);
