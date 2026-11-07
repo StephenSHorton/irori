@@ -174,7 +174,7 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
             );
         }
         out.push(
-            Command::new("search.cards", "Search cards on this page", |s| s.status.focus_search = true)
+            Command::new("search.cards", "Search cards on this page", crate::board::search::focus)
                 .keys("/")
                 .words(&["find", "filter", "search"]),
         );
