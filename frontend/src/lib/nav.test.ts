@@ -15,7 +15,6 @@ describe("Talk lives in the address (card #390)", () => {
       { kind: "talk", id: "" },
       { kind: "talk", id: "01M6 x/y" },
       { kind: "board", id: "b1" },
-      { kind: "boards" },
       { kind: "profile" },
       { kind: "home" },
     ] as const)
@@ -29,6 +28,24 @@ describe("Talk lives in the address (card #390)", () => {
       sameSection({ kind: "talk", id: "a" }, { kind: "talk", id: "b" })
     ).toBe(false)
     expect(sameSection({ kind: "talk", id: "" }, { kind: "home" })).toBe(false)
+  })
+})
+
+describe("The Spaces page is gone (card #689)", () => {
+  test("an old #boards link opens Home", () => {
+    expect(sectionFromHash("#boards")).toEqual({ kind: "home" })
+  })
+  test("a space's page and Personal's still open from their links", () => {
+    expect(sectionFromHash("#board/b1")).toEqual({ kind: "board", id: "b1" })
+    expect(sectionFromHash("#board/personal")).toEqual({
+      kind: "board",
+      id: "personal",
+    })
+    expect(sectionFromHash("#board/b1/b2")).toEqual({
+      kind: "board",
+      id: "b1",
+      board: "b2",
+    })
   })
 })
 

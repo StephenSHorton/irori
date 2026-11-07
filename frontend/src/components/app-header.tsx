@@ -20,21 +20,19 @@ export function AppHeader({
   bar,
   actions,
   onNewCard,
-  onNewBoard,
   onWindDown,
   section,
   onMenu,
 }: {
   roster: Roster
-  // The page's title (Home, Boards, a board's name) and a line beside it.
+  // The page's title (Home, Talk, a space's name) and a line beside it.
   title: ReactNode
   sub?: ReactNode
   // bar replaces the title (a board's page: its name, rename and actions).
   bar?: ReactNode
-  // The page's own actions, before New card / New board.
+  // The page's own actions, before New card.
   actions?: ReactNode
   onNewCard: () => void
-  onNewBoard: () => void
   // Wind down all (card #220): opens its dialog.
   onWindDown?: () => void
   // Where the window is; null on a card's page.
@@ -91,34 +89,22 @@ export function AppHeader({
               Wind down
             </Button>
           )}
-          {section?.kind === "boards" ? (
+          {section && (
             <Button
               size="sm"
-              onClick={onNewBoard}
-              aria-label="New space"
-              title="Make a space for a group of people, or join one with an invite"
+              onClick={onNewCard}
+              aria-label="New card"
+              title={
+                section.kind === "board"
+                  ? section.board
+                    ? "Make a card on this board"
+                    : "Make a card in this space"
+                  : "Make a card for an agent to pick up"
+              }
             >
               <PlusIcon aria-hidden className="sm:hidden" />
-              <span className="hidden sm:inline">+ New space</span>
+              <span className="hidden sm:inline">+ New card</span>
             </Button>
-          ) : (
-            section && (
-              <Button
-                size="sm"
-                onClick={onNewCard}
-                aria-label="New card"
-                title={
-                  section.kind === "board"
-                    ? section.board
-                      ? "Make a card on this board"
-                      : "Make a card in this space"
-                    : "Make a card for an agent to pick up"
-                }
-              >
-                <PlusIcon aria-hidden className="sm:hidden" />
-                <span className="hidden sm:inline">+ New card</span>
-              </Button>
-            )
           )}
         </div>
       </div>

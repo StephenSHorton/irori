@@ -72,10 +72,11 @@ import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
 import {
+  PersonalBoards,
   PersonalHeaderBar,
   PersonalList,
 } from "@/components/boards/space-boards"
-import { BoardsPage } from "@/components/boards/boards-page"
+import { NewBoardDialog } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
@@ -219,18 +220,15 @@ export function App() {
     }
   }
   // Where the window is (card #96): Home (your own cards), Talk (card
-  // #390), Notes (card #413), Boards, or one board's page; in the address
-  // so back and forward move between them. ?boards in the preview starts
-  // on Boards, ?talk on Talk, ?thread=<id> on Talk with that thread open,
-  // and ?notes on Notes.
+  // #390), Notes (card #413), or a space's page; in the address so back
+  // and forward move between them. ?talk in the preview starts on Talk,
+  // ?thread=<id> on Talk with that thread open, and ?notes on Notes.
   const [section, setSection] = useState<Section>(() => {
     const thread = previewFlag("thread")
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
     if (previewFlag("notes") !== null) return { kind: "notes" }
-    return previewFlag("boards") !== null
-      ? { kind: "boards" }
-      : sectionFromHash(window.location.hash)
+    return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
   // A board page starts on All; the preview's ?filter=owner:<id> starts it
@@ -289,7 +287,9 @@ export function App() {
   const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
-  const [newBoard, setNewBoard] = useState(false)
+  // New or join a space (card #689): the space picker's item and the
+  // palette's open it; ?boards in the preview starts with it open.
+  const [newBoard, setNewBoard] = useState(() => previewFlag("boards") !== null)
   // Threads (card #116) live on the Talk page (card #390): a new thread
   // from Home's ask box opens there, as does a thread's #ref.
   // Every log's (card #558): the picked space's are listed, and one past
@@ -647,14 +647,6 @@ export function App() {
       run: () => goTo({ kind: "notes" }),
     },
     {
-      id: "nav.boards",
-      title: "Spaces",
-      group: "Go to",
-      order: 2,
-      keywords: ["shared", "projects", "boards"],
-      run: () => goTo({ kind: "boards" }),
-    },
-    {
       id: "nav.notifications",
       title: "Notifications",
       group: "Go to",
@@ -684,13 +676,10 @@ export function App() {
     },
     {
       id: "board.new",
-      title: "New space",
+      title: "New or join a space",
       order: 2,
-      keywords: ["create", "add", "join", "invite", "board"],
-      run: () => {
-        goTo({ kind: "boards" })
-        setNewBoard(true)
-      },
+      keywords: ["create", "add", "join", "invite", "board", "spaces"],
+      run: () => setNewBoard(true),
     },
     {
       id: "view.list",
@@ -738,7 +727,9 @@ export function App() {
 
   // The nav drawer on a narrow window (card #227): it closes when you go
   // somewhere, as a phone's drawer does.
-  const [drawer, setDrawer] = useState(false)
+  // ?spaces=open in the preview starts it open, so a phone shows the
+  // space picker open in it (card #689).
+  const [drawer, setDrawer] = useState(() => previewFlag("spaces") === "open")
   const where = open
     ? `card:${open}`
     : `${section.kind}:${section.kind === "board" ? section.id : ""}`
@@ -776,7 +767,6 @@ export function App() {
             onHeld={() => openHeld("")}
             unread={unreadNotifications}
             section={open ? null : section}
-            boardsNeedYou={boardDecide.length}
             boards={boards}
             cards={spaceCards}
             openCard={open}
@@ -785,6 +775,7 @@ export function App() {
             onDrawer={setDrawer}
             space={space}
             onSpace={setSpace}
+            onNewSpace={() => setNewBoard(true)}
             me={me}
           />
           <div className="flex min-w-0 flex-1 flex-col">
@@ -797,10 +788,8 @@ export function App() {
                 title={
                   open
                     ? "Card"
-                    : section.kind === "boards"
-                      ? space === Personal
-                        ? "Personal"
-                        : "Spaces"
+                    : section.kind === "board" && section.id === Personal
+                      ? "Personal"
                       : section.kind === "talk"
                         ? "Talk"
                         : section.kind === "notes"
@@ -816,7 +805,11 @@ export function App() {
                 bar={
                   !open && section.kind === "board" ? (
                     section.id === Personal ? (
-                      <PersonalHeaderBar list={section.board ?? Personal} />
+                      // Personal's page has its title; one of its boards,
+                      // that board's header.
+                      section.board ? (
+                        <PersonalHeaderBar list={section.board} />
+                      ) : undefined
                     ) : (
                       <BoardHeaderBar
                         key={section.id}
@@ -827,7 +820,6 @@ export function App() {
                   ) : undefined
                 }
                 onNewCard={() => setNewCard(true)}
-                onNewBoard={() => setNewBoard(true)}
                 onWindDown={() => setWindDown(true)}
                 section={open ? null : section}
               />
@@ -905,6 +897,7 @@ export function App() {
                     agents={roster.agents.length}
                     space={space}
                     onSpace={setSpace}
+                    onNewSpace={() => setNewBoard(true)}
                   />
                 </Scroll>
               ) : section.kind === "desk" ? (
@@ -917,17 +910,6 @@ export function App() {
                   nameOf={name}
                   now={now}
                 />
-              ) : section.kind === "boards" ? (
-                <Scroll>
-                  <BoardsPage
-                    space={space}
-                    cards={cards}
-                    cardsLoading={cardsFirst}
-                    now={now}
-                    newBoard={newBoard}
-                    onNewBoard={setNewBoard}
-                  />
-                </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>
                   <NotificationsLive
@@ -936,6 +918,14 @@ export function App() {
                     onOpenCard={openCard}
                     onOpenMessage={setMessage}
                   />
+                </Scroll>
+              ) : section.kind === "board" &&
+                section.id === Personal &&
+                !section.board ? (
+                // Personal's page (card #689; the Spaces page had it): its
+                // boards, private to you, and Add board.
+                <Scroll>
+                  <PersonalBoards cards={cards} now={now} />
                 </Scroll>
               ) : section.kind === "board" && section.id === Personal ? (
                 <PersonalList
@@ -1069,6 +1059,7 @@ export function App() {
               onClose={() => setWindDown(false)}
             />
           )}
+          <NewBoardDialog open={newBoard} onClose={() => setNewBoard(false)} />
           <NewCardDialog
             open={newCard}
             onClose={() => setNewCard(false)}

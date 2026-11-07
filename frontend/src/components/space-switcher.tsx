@@ -1,9 +1,20 @@
 // SpaceSwitcher sits at the top of the sidebar (card #393, mockup talk-6):
 // it picks the space Home, Talk and Boards show. All spaces is everything,
 // Needs you across all of it; Personal is you and your agents; then each
-// shared space, "with" whoever is in it.
+// shared space, "with" whoever is in it. It is the one place for spaces
+// (card #689, which dropped the Spaces tab): at its foot, the picked
+// space's page (a shared space's boards, people, invites and settings;
+// Personal's boards) and New or join a space.
 
-import { CheckIcon, ChevronDownIcon, LayersIcon, UserIcon } from "lucide-react"
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  LayersIcon,
+  LayoutGridIcon,
+  PlusIcon,
+  SettingsIcon,
+  UserIcon,
+} from "lucide-react"
 
 import {
   DropdownMenu,
@@ -15,6 +26,7 @@ import {
 import { FreshnessShort } from "@/components/common/freshness-line"
 import type { BoardSummary } from "@/lib/boards"
 import { plainLine } from "@/lib/irori"
+import { go } from "@/lib/nav"
 import { previewFlag } from "@/lib/preview"
 import {
   AllSpaces,
@@ -49,15 +61,28 @@ function Mark({ s, className }: { s: Space; className?: string }) {
   )
 }
 
+// FootIcon is a foot item's icon in a Mark-sized box, so its words line up
+// with the spaces' names.
+function FootIcon({ Icon }: { Icon: typeof PlusIcon }) {
+  return (
+    <span className="flex size-5 shrink-0 items-center justify-center">
+      <Icon className="size-3.5 text-muted-foreground" aria-hidden />
+    </span>
+  )
+}
+
 export function SpaceSwitcher({
   boards,
   space,
   onSpace,
+  onNewSpace,
   folded,
 }: {
   boards: BoardSummary[]
   space: string
   onSpace: (id: string) => void
+  // Opens New or join a space (App's dialog, which the palette opens too).
+  onNewSpace: () => void
   folded: boolean
 }) {
   const spaces = spacesOf(boards)
@@ -73,7 +98,7 @@ export function SpaceSwitcher({
             title={
               folded
                 ? `Space: ${plainLine(cur.name)}`
-                : "Pick the space Home, Talk and Spaces show"
+                : "Pick the space Home and Talk show, or make or join one"
             }
             className={cn(
               "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 text-left text-sm text-ink hover:bg-secondary pointer-coarse:h-11",
@@ -127,6 +152,27 @@ export function SpaceSwitcher({
             )}
           </div>
         ))}
+        <DropdownMenuSeparator />
+        {cur.id === Personal ? (
+          <DropdownMenuItem onClick={() => go({ kind: "board", id: Personal })}>
+            <FootIcon Icon={LayoutGridIcon} />
+            Personal's boards
+          </DropdownMenuItem>
+        ) : (
+          cur.id !== AllSpaces && (
+            <DropdownMenuItem
+              onClick={() => go({ kind: "board", id: cur.id })}
+              title={`${plainLine(cur.name)}'s boards, people, invites and settings`}
+            >
+              <FootIcon Icon={SettingsIcon} />
+              Space settings
+            </DropdownMenuItem>
+          )
+        )}
+        <DropdownMenuItem onClick={onNewSpace}>
+          <FootIcon Icon={PlusIcon} />
+          New or join a space
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

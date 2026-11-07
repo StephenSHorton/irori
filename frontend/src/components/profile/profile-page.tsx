@@ -60,6 +60,7 @@ export function ProfilePage({
   agents,
   space,
   onSpace,
+  onNewSpace,
 }: {
   boards: BoardSummary[]
   // How many agents the person runs, for the "6 agents" line.
@@ -67,6 +68,9 @@ export function ProfilePage({
   // The switcher's pick, outlined among the spaces; a click picks one.
   space: string
   onSpace: (id: string) => void
+  // New or join a space (card #689), for Invite a friend with no shared
+  // space picked.
+  onNewSpace: () => void
 }) {
   const { name, error: nameError, save } = useYourName(true)
   const { devices: devs } = useDevices(true)
@@ -260,7 +264,13 @@ export function ProfilePage({
             )}
             <button
               type="button"
-              onClick={() => go({ kind: "boards" })}
+              // An invite is to one space: the picked shared space's
+              // page has Invite; otherwise make one (card #689).
+              onClick={() =>
+                boards.some((b) => b.boardId === space)
+                  ? go({ kind: "board", id: space })
+                  : onNewSpace()
+              }
               className="justify-self-start px-1 pt-1 text-xs text-primary hover:underline"
             >
               + Invite a friend

@@ -1,16 +1,18 @@
-import { HouseIcon, LayoutGridIcon, MessagesSquareIcon } from "lucide-react"
+import { HouseIcon, MessagesSquareIcon } from "lucide-react"
 
 import type { Section } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 
-// PhoneTab is a bottom tab: Home, Talk or Spaces (card #395, mockup talk-5).
-export type PhoneTab = "home" | "talk" | "boards"
+// PhoneTab is a bottom tab: Home or Talk (card #395, mockup talk-5). The
+// Spaces tab is gone (card #689): spaces are picked, made and opened from
+// the space picker at the top of the menu.
+export type PhoneTab = "home" | "talk"
 
-// phoneTab is the tab a section sits under: a space's page and its
-// boards are under Spaces. A card's page is under the tab it was opened from.
+// phoneTab is the tab a section sits under: Talk, else Home (a space's
+// page is the picked space's, so Home's). A card's page is under the tab
+// it was opened from.
 export function phoneTab(s: Section): PhoneTab {
   if (s.kind === "talk") return "talk"
-  if (s.kind === "boards" || s.kind === "board") return "boards"
   return "home"
 }
 
@@ -27,17 +29,11 @@ const tabs: {
     to: { kind: "talk", id: "" },
     Icon: MessagesSquareIcon,
   },
-  {
-    tab: "boards",
-    label: "Spaces",
-    to: { kind: "boards" },
-    Icon: LayoutGridIcon,
-  },
 ]
 
-// PhoneTabs is the phone's bottom bar (design §8): Home, Talk and Spaces,
-// with Talk's count of what waits on you. A tap on the tab you are on goes
-// to its top (Talk's list, the Spaces page).
+// PhoneTabs is the phone's bottom bar (design §8): Home and Talk, with
+// Talk's count of what waits on you. A tap on the tab you are on goes to
+// its top (Home, Talk's list).
 export function PhoneTabs({
   at,
   talk,
@@ -53,7 +49,7 @@ export function PhoneTabs({
   return (
     <nav
       aria-label="Tabs"
-      className="grid shrink-0 grid-cols-3 border-x-0! border-b-0! pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] glass-panel"
+      className="grid shrink-0 grid-cols-2 border-x-0! border-b-0! pr-[var(--safe-right)] pb-[var(--safe-bottom)] pl-[var(--safe-left)] glass-panel"
     >
       {tabs.map(({ tab, label, to, Icon }) => {
         const on = tab === at

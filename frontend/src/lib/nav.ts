@@ -1,10 +1,10 @@
 // Where the window is (card #96): Home (your own cards), Talk (card #390:
-// threads, and channels and DMs once Talk 1 lands), Notes (card #413), the
-// Boards page, or one board's page. It lives in the address, like an open
+// threads, and channels and DMs once Talk 1 lands), Notes (card #413), or
+// a space's page. It lives in the address, like an open
 // card ("#card/<id>"), so back and forward move between them: "#talk",
 // "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
-// picture, and your spaces), "#boards", "#board/<id>", and no hash for
-// Home. A card's page opens over whichever
+// picture, and your spaces), "#board/<id>", and no hash for Home. The
+// Spaces page ("#boards") is gone (card #689): an old link to it opens Home. A card's page opens over whichever
 // of them it was opened from.
 
 export type Section =
@@ -13,9 +13,8 @@ export type Section =
   | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
-  | { kind: "boards" }
   // A space's page (card #558): its boards. With board, that one board's
-  // list ("#board/<space>/<board>").
+  // list ("#board/<space>/<board>"). Personal's page is "#board/personal".
   | { kind: "board"; id: string; board?: string }
   | { kind: "profile" }
   // Card #377: every notification sent to the person.
@@ -26,7 +25,6 @@ export const Home: Section = { kind: "home" }
 // sectionFromHash is the section an address names (a card's page counts
 // as the section history has behind it, so Home here).
 export function sectionFromHash(hash: string): Section {
-  if (hash === "#boards") return { kind: "boards" }
   if (hash === "#profile") return { kind: "profile" }
   if (hash === "#talk") return { kind: "talk", id: "" }
   const t = hash.match(/^#talk\/(.+)$/)
@@ -51,7 +49,6 @@ export function sectionFromHash(hash: string): Section {
 }
 
 export function sectionHash(s: Section): string {
-  if (s.kind === "boards") return "#boards"
   if (s.kind === "profile") return "#profile"
   if (s.kind === "talk")
     return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
