@@ -57,7 +57,7 @@ fn space(dev: &str) -> Space {
             ("net".to_string(), NET.to_string()),
             ("art".to_string(), ART.to_string()),
         ],
-        finished: Vec::new(),
+        closed: Vec::new(),
     };
     Space {
         _dir: dir,
@@ -729,16 +729,16 @@ fn a_delete_folded_by_a_catch_up_moves_the_cards() {
     assert_eq!(c.task_ref("net#1").unwrap(), "n");
 }
 
-/// Finishes `board` (or reopens it) as if its row had just landed.
-fn set_finished(s: &Space, c: &Coord, seq: i64, at: u64, board: &str, finished: bool) {
+/// Closes `board` (or reopens it) as if its row had just landed.
+fn set_closed(s: &Space, c: &Coord, seq: i64, at: u64, board: &str, closed: bool) {
     {
         let mut l = s.list.lock().unwrap();
-        l.finished.retain(|b| b != board);
-        if finished {
-            l.finished.push(board.into());
+        l.closed.retain(|b| b != board);
+        if closed {
+            l.closed.push(board.into());
         }
     }
-    let raw = format!(r#"{{"boardId":"{board}","finished":{finished}}}"#);
+    let raw = format!(r#"{{"boardId":"{board}","closed":{closed}}}"#);
     land(
         s,
         c,
@@ -746,17 +746,17 @@ fn set_finished(s: &Space, c: &Coord, seq: i64, at: u64, board: &str, finished: 
             "dev-b",
             seq,
             at,
-            kinds::SPACE_BOARD_FINISHED,
+            kinds::SPACE_BOARD_CLOSED,
             raw.into_bytes(),
         ),
     );
 }
 
-/// Card #690: a finished board is read-only on this device (no new card,
+/// Card #690: a closed board is read-only on this device (no new card,
 /// no move onto it, none of its cards reopens), its cards stay where they
 /// are with their refs, and a card another device put there still folds.
 #[test]
-fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
+fn a_closed_board_takes_no_card_here_and_keeps_its_own() {
     let s = space("dev-a");
     let c = coord_on(&s);
     let n1 = card(&c, NET, "n1");
@@ -778,7 +778,7 @@ fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
         "the first board by its id"
     );
 
-    set_finished(&s, &c, 1, 100, NET, true);
+    set_closed(&s, &c, 1, 100, NET, true);
     let e = c
         .create_task(
             ME,
@@ -789,11 +789,15 @@ fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
             },
         )
         .unwrap_err();
-    assert!(e.to_string().contains("board \"net\" is finished"), "{e}");
+    assert!(
+        e.to_string()
+            .contains("board \"net\" is closed: reopen it first, or pick another board"),
+        "{e}"
+    );
     let e = c.move_task(ME, &w.id, NET).unwrap_err();
-    assert!(e.to_string().contains("is finished"), "{e}");
+    assert!(e.to_string().contains("is closed"), "{e}");
     let e = c.reopen(ME, &n1.id).unwrap_err();
-    assert!(e.to_string().contains("is finished"), "{e}");
+    assert!(e.to_string().contains("is closed"), "{e}");
     // Its cards keep their place and refs, and other boards are as before.
     assert_eq!(place(&c, &n1.id), (NET.to_string(), "net#1".to_string()));
     assert_eq!(card(&c, ART, "a1").short_ref(), "art#1");
@@ -804,11 +808,11 @@ fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
     let e = c
         .split(ME, "t-old", Vec::new(), vec![w.id.clone()])
         .unwrap_err();
-    assert!(e.to_string().contains("is finished"), "{e}");
+    assert!(e.to_string().contains("is closed"), "{e}");
     // A restart reads the same, and a reopen opens it up again.
     let c = coord_on(&s);
     assert!(c.move_task(ME, &w.id, NET).is_err());
-    set_finished(&s, &c, 3, 300, NET, false);
+    set_closed(&s, &c, 3, 300, NET, false);
     c.reopen(ME, &n1.id).unwrap();
     assert_eq!(c.move_task(ME, &w.id, NET).unwrap().board, NET);
 }

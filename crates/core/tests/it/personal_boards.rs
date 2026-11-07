@@ -5,7 +5,7 @@ use crate::common;
 
 use common::{Rig, options};
 use coord::ErrorKind as CK;
-use irori_core::{BoardError, Core, PERSONAL_BOARD};
+use irori_core::{BoardError, Core, OpenCards, PERSONAL_BOARD};
 use store::{Filter, kinds};
 
 fn card(r: &Rig, board: &str, title: &str) -> coord::Task {
@@ -271,16 +271,16 @@ fn a_private_card_moves_and_a_deleted_personal_board_empties_onto_the_default() 
     assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
 }
 
-/// Card #690: a Personal board has a mission from New board on, edited
-/// later; it finishes only once its cards are done, is read-only while
-/// finished, and reopens. The default board never finishes. Every row is
-/// in the private log, with no gate.
+/// Card #690: a Personal board may have a description, from New board on
+/// or edited later; it closes once no card on it is open (Keep), is
+/// read-only while closed, and reopens. The default board never closes.
+/// Every row is in the private log, with no gate.
 #[test]
-fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
+fn a_personal_board_has_a_description_and_closes_once_its_cards_are_done() {
     let r = Rig::new();
     let home = r
         .core
-        .create_personal_board_with("House", "home", "Fix up the house", "")
+        .create_personal_board_with("House", "home", "Fix up the house")
         .unwrap();
     let got = |id: &str| {
         r.core
@@ -292,20 +292,21 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
     };
     let b = got(&home);
     assert_eq!(
-        (b.mission.as_str(), b.mission_by.as_str()),
+        (b.description.as_str(), b.description_by.as_str()),
         ("Fix up the house", "user")
     );
-    assert!(b.may_finish && !b.finished);
-    assert!(!got(PERSONAL_BOARD).may_finish);
+    assert!(b.may_close && !b.closed);
+    assert!(!got(PERSONAL_BOARD).may_close);
     r.core
-        .set_personal_board_mission(&home, "Fix the fence", "The gate shuts")
+        .set_personal_board_description(&home, "Fix the fence: the gate shuts")
         .unwrap();
-    assert_eq!(
-        (got(&home).mission.as_str(), got(&home).done_when.as_str()),
-        ("Fix the fence", "The gate shuts")
-    );
-    let long = "x".repeat(irori_core::MAX_BOARD_MISSION + 1);
-    assert!(r.core.set_personal_board_mission(&home, &long, "").is_err());
+    assert_eq!(got(&home).description, "Fix the fence: the gate shuts");
+    let long = "x".repeat(irori_core::MAX_BOARD_DESCRIPTION + 1);
+    assert!(r.core.set_personal_board_description(&home, &long).is_err());
+    let fits = "x".repeat(irori_core::MAX_BOARD_DESCRIPTION);
+    r.core
+        .create_personal_board_with("Long", "long", &fits)
+        .unwrap();
 
     // An agent's card, done while it still holds it.
     let held = card(&r, &home, "sand");
@@ -314,10 +315,14 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
     co.set_task_state(&r.core.user_sender().key, &held.id, "completed", "")
         .unwrap();
     assert_eq!(co.get_task(&held.id).unwrap().holders, ["agent:a1"]);
-    // An open card holds the finish, and the refusal names it.
+    // An open card holds a close that keeps its cards, named.
     let t = card(&r, &home, "paint");
-    let e = r.core.finish_personal_board(&home, true).unwrap_err();
+    let e = r
+        .core
+        .close_personal_board(&home, OpenCards::Keep)
+        .unwrap_err();
     assert!(e.to_string().contains("home#2"), "{e}");
+    assert!(!got(&home).closed);
     let open = r.core.open_on_board("", &home).unwrap();
     assert_eq!(open.len(), 1);
     let by = r.core.user_sender().key;
@@ -325,11 +330,11 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
         .coord()
         .set_task_state(&by, &t.id, "completed", "")
         .unwrap();
-    r.core.finish_personal_board(&home, true).unwrap();
+    r.core.close_personal_board(&home, OpenCards::Keep).unwrap();
     let b = got(&home);
-    assert!(b.finished && !b.finished_at.is_empty());
+    assert!(b.closed && !b.closed_at.is_empty());
 
-    // Read-only: no card, no mission edit, no reopened card.
+    // Read-only: no card, no description edit, no reopened card.
     let e = r
         .core
         .coord()
@@ -342,8 +347,8 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
             },
         )
         .unwrap_err();
-    assert!(e.to_string().contains("is finished"), "{e}");
-    assert!(r.core.set_personal_board_mission(&home, "x", "").is_err());
+    assert!(e.to_string().contains("is closed"), "{e}");
+    assert!(r.core.set_personal_board_description(&home, "x").is_err());
     assert!(r.core.coord().reopen(&by, &t.id).is_err());
     // A comment on a done card there posts, and reopens nothing.
     co.person_comment(&by, &held.id, "why did this pass?", false, &[], None)
@@ -355,15 +360,18 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
         "its refs still work"
     );
 
-    // Reopened, it takes cards again, with its mission as it was.
-    r.core.finish_personal_board(&home, false).unwrap();
-    assert!(!got(&home).finished);
-    assert_eq!(got(&home).mission, "Fix the fence");
+    // Reopened, it takes cards again, with its description as it was.
+    r.core.reopen_personal_board(&home).unwrap();
+    assert!(!got(&home).closed);
+    assert_eq!(got(&home).description, "Fix the fence: the gate shuts");
     card(&r, &home, "stain");
+    // An empty description clears it.
+    r.core.set_personal_board_description(&home, "  ").unwrap();
+    assert_eq!(got(&home).description, "");
 
     let e = r
         .core
-        .finish_personal_board(PERSONAL_BOARD, true)
+        .close_personal_board(PERSONAL_BOARD, OpenCards::Keep)
         .unwrap_err();
     assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
     let rows = r
@@ -371,12 +379,110 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
         .store()
         .list(&Filter {
             kinds: vec![
-                kinds::SPACE_BOARD_MISSION.into(),
-                kinds::SPACE_BOARD_FINISHED.into(),
+                kinds::SPACE_BOARD_DESCRIBED.into(),
+                kinds::SPACE_BOARD_CLOSED.into(),
             ],
             ..Default::default()
         })
         .unwrap();
-    assert_eq!(rows.len(), 3);
+    // Two descriptions, a close, a reopen.
+    assert_eq!(rows.len(), 4);
     assert!(rows.iter().all(|e| e.actor == "user"));
+}
+
+/// Card #690: closing a board with open cards moves them (a parent with
+/// its subtask) to another board, or cancels them, then closes it. A move
+/// onto a closed board, onto itself or nowhere is refused before anything
+/// moves.
+#[test]
+fn closing_a_personal_board_moves_or_cancels_its_open_cards() {
+    let r = Rig::new();
+    let by = r.core.user_sender().key;
+    let co = r.core.coord();
+    let home = r.core.create_personal_board("House", "home").unwrap();
+    let garden = r.core.create_personal_board("Garden", "garden").unwrap();
+    let old = r.core.create_personal_board("Old", "old").unwrap();
+    r.core.close_personal_board(&old, OpenCards::Keep).unwrap();
+
+    let p = card(&r, &home, "fence");
+    let (_, kids) = co
+        .split(
+            &by,
+            &p.id,
+            vec![coord::NewSubtask {
+                title: "posts".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    let kid = kids[0].clone();
+    let lone = card(&r, &home, "gutters");
+    let done = card(&r, &home, "roof");
+    co.set_task_state(&by, &done.id, "completed", "").unwrap();
+    assert_eq!(r.core.open_on_board("", &home).unwrap().len(), 3);
+
+    // Refused before anything moves.
+    for (to, says) in [
+        (old.as_str(), "is closed"),
+        (home.as_str(), "pick another board"),
+        ("nope", "no board nope"),
+    ] {
+        let e = r
+            .core
+            .close_personal_board(&home, OpenCards::MoveTo(to.into()))
+            .unwrap_err();
+        assert!(e.to_string().contains(says), "{to}: {e}");
+    }
+    assert_eq!(r.core.open_on_board("", &home).unwrap().len(), 3);
+    assert!(
+        !r.core
+            .personal_boards()
+            .unwrap()
+            .iter()
+            .any(|b| b.board_id == home && b.closed)
+    );
+
+    // Moved: the family together, each with a number on Garden.
+    r.core
+        .close_personal_board(&home, OpenCards::MoveTo(garden.clone()))
+        .unwrap();
+    for id in [&p.id, &kid.id, &lone.id] {
+        let t = co.get_task(id).unwrap();
+        assert_eq!(t.board, garden, "{t:?}");
+        assert!(t.short_ref().starts_with("garden#"), "{}", t.short_ref());
+    }
+    assert_eq!(co.get_task(&kid.id).unwrap().parent, p.id);
+    assert_eq!(co.get_task(&done.id).unwrap().board, home, "done stays");
+    assert!(r.core.open_on_board("", &home).unwrap().is_empty());
+    let closed = |id: &str| {
+        r.core
+            .personal_boards()
+            .unwrap()
+            .into_iter()
+            .any(|b| b.board_id == id && b.closed)
+    };
+    assert!(closed(&home));
+
+    // Canceled: the parent's cancel ends its subtask too.
+    r.core
+        .close_personal_board(&garden, OpenCards::Cancel)
+        .unwrap();
+    assert!(closed(&garden));
+    for id in [&p.id, &kid.id, &lone.id] {
+        assert_eq!(co.get_task(id).unwrap().state, coord::CANCELED, "{id}");
+    }
+    assert_eq!(
+        co.get_task(&lone.id).unwrap().note,
+        irori_core::CLOSED_BOARD_NOTE
+    );
+
+    // Moved to the default board by its id.
+    let misc = r.core.create_personal_board("Misc", "misc").unwrap();
+    let m = card(&r, &misc, "odds");
+    r.core
+        .close_personal_board(&misc, OpenCards::MoveTo(PERSONAL_BOARD.into()))
+        .unwrap();
+    assert_eq!(co.get_task(&m.id).unwrap().board, "");
+    assert!(closed(&misc));
 }

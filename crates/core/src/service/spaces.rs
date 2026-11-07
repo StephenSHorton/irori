@@ -34,8 +34,8 @@ pub const PERSONAL_BOARD: &str = "personal";
 /// Personal's default board, before any rename.
 const PERSONAL_NAME: &str = "Personal";
 
-/// Longest mission, and longest done-when, in characters (card #690).
-pub const MAX_BOARD_MISSION: usize = 280;
+/// Longest board description, in characters (card #690).
+pub const MAX_BOARD_DESCRIPTION: usize = 2000;
 
 /// One board of a space.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,26 +45,24 @@ pub struct SpaceBoard {
     pub board_id: String,
     pub name: String,
     pub tag: String,
-    /// What the board is for (card #690); empty until someone writes one.
+    /// The board's description (card #690): optional free text, often
+    /// the end result it is for. Empty with none.
     #[serde(default)]
-    pub mission: String,
-    /// How to tell its project is over; optional.
-    #[serde(default)]
-    pub done_when: String,
-    /// Who wrote the mission, from the row's place (never its `by`):
+    pub description: String,
+    /// Who wrote the description, from the row's place (never its `by`):
     /// `person:<id>` in a space, `user` in Personal; empty with none.
     #[serde(default)]
-    pub mission_by: String,
-    /// Finished: read-only and out of the lists (card #690).
+    pub description_by: String,
+    /// Closed: read-only and out of the lists (card #690).
     #[serde(default)]
-    pub finished: bool,
-    /// When it was finished (the finish row's `at`), while it is.
+    pub closed: bool,
+    /// When it was closed (the close row's `at`), while it is.
     #[serde(default)]
-    pub finished_at: String,
-    /// Whether this person may finish or reopen it now: its maker or a
+    pub closed_at: String,
+    /// Whether this person may close or reopen it now: its maker or a
     /// space owner, anyone in Personal; never a first board.
     #[serde(default)]
-    pub may_finish: bool,
+    pub may_close: bool,
 }
 
 /// `space.board.created` / `space.board.renamed`. A delete is a rename with
@@ -79,44 +77,55 @@ pub struct SpaceBoardRow {
     pub tag: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
-    /// A new board's mission (card #690), on its create row only: every
-    /// decoder ignores a field it doesn't know, so one row makes a board.
+    /// A new board's description (card #690), on its create row only:
+    /// every decoder ignores a field it doesn't know, so one row makes a
+    /// board.
     #[serde(skip_serializing_if = "String::is_empty")]
-    pub mission: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub done_when: String,
+    pub description: String,
     pub by: String,
     pub at: String,
 }
 
-/// `space.board.mission` (card #690): a board's mission and done-when,
-/// both replaced (empty clears).
+/// `space.board.described` (card #690): a board's description, replaced
+/// (empty clears).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct BoardMissionRow {
+pub struct BoardDescribedRow {
     pub board_id: String,
-    pub mission: String,
-    pub done_when: String,
+    pub description: String,
     pub by: String,
     pub at: String,
 }
 
-/// `space.board.finished` (card #690): finished, or reopened with
-/// `finished: false`.
+/// `space.board.closed` (card #690): closed, or reopened with
+/// `closed: false`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct BoardFinishedRow {
+pub struct BoardClosedRow {
     pub board_id: String,
-    pub finished: bool,
+    pub closed: bool,
     pub by: String,
     pub at: String,
+}
+
+/// What closing a board does with its open cards (card #690).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenCards {
+    /// Nothing: the close is refused while any card is open, naming them.
+    Keep,
+    /// Moves each open card, its family along, to this board: a board id
+    /// of the same space (or Personal), its first board's by the space's
+    /// id ([`PERSONAL_BOARD`] in Personal).
+    MoveTo(String),
+    /// Cancels each open card (a parent's subtasks with it).
+    Cancel,
 }
 
 /// Who wrote what, at a row's place, for the board fold (card #690).
 pub(crate) struct Rules<'a> {
-    /// The writer was an active member there: deletes and missions.
+    /// The writer was an active member there: deletes and descriptions.
     pub(crate) member: MayDelete<'a>,
-    /// The writer was a space owner there: finishes any board.
+    /// The writer was a space owner there: closes any board.
     pub(crate) owner: MayDelete<'a>,
     /// A device's person key (`person:<id>`; `user` in Personal).
     pub(crate) person: &'a dyn Fn(&str) -> Option<String>,
@@ -276,21 +285,21 @@ fn makers(rows: &[&BoardRowAt], rules: &Rules) -> BTreeMap<String, Option<String
     out
 }
 
-/// The finished boards, each with its finish row's `at` (card #690): per
-/// board the newest valid `space.board.finished` row stands, so a reopen
-/// after a finish wins and the other way round. Valid: from the board's
+/// The closed boards, each with its close row's `at` (card #690): per
+/// board the newest valid `space.board.closed` row stands, so a reopen
+/// after a close wins and the other way round. Valid: from the board's
 /// maker while a member, or a space owner, at the row's place; never the
 /// first board (`own`).
-fn finishes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, String> {
+fn closes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, String> {
     let mut sorted: Vec<&BoardRowAt> = rows.iter().collect();
     sorted.sort_by(|a, b| a.at.cmp(&b.at));
     let made = makers(&sorted, rules);
     let mut state: BTreeMap<String, Option<String>> = BTreeMap::new();
     for row in sorted
         .iter()
-        .filter(|r| r.kind == kinds::SPACE_BOARD_FINISHED)
+        .filter(|r| r.kind == kinds::SPACE_BOARD_CLOSED)
     {
-        let Ok(r) = serde_json::from_slice::<BoardFinishedRow>(&row.payload) else {
+        let Ok(r) = serde_json::from_slice::<BoardClosedRow>(&row.payload) else {
             continue;
         };
         if r.board_id.is_empty() || r.board_id == own {
@@ -303,7 +312,7 @@ fn finishes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, S
         let may =
             (rules.owner)(&row.at) || (by.is_some() && by == *maker && (rules.member)(&row.at));
         if may {
-            state.insert(r.board_id, r.finished.then_some(r.at));
+            state.insert(r.board_id, r.closed.then_some(r.at));
         }
     }
     state
@@ -312,13 +321,12 @@ fn finishes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, S
         .collect()
 }
 
-/// Folds what makes a board a project (card #690) onto `boards` (from
-/// [`fold_space_boards`], the first board first): its mission, from its
-/// create row then each newer `space.board.mission` row from a member, and
-/// whether it is finished. `me` is who may finish now: `None` in Personal
-/// (the person may), else their person key and whether they own the
-/// space.
-pub(crate) fn fold_projects(
+/// Folds each board's description and whether it is closed (card #690)
+/// onto `boards` (from [`fold_space_boards`], the first board first): the
+/// description from its create row, then each newer `space.board.described`
+/// row from a member. `me` is who may close now: `None` in Personal (the
+/// person may), else their person key and whether they own the space.
+pub(crate) fn fold_board_state(
     boards: &mut [SpaceBoard],
     rows: &[BoardRowAt],
     rules: &Rules,
@@ -330,10 +338,10 @@ pub(crate) fn fold_projects(
     let mut sorted: Vec<&BoardRowAt> = rows.iter().collect();
     sorted.sort_by(|a, b| a.at.cmp(&b.at));
     let made = makers(&sorted, rules);
-    let done = finishes(&own, rows, rules);
+    let closed = closes(&own, rows, rules);
     let mut seen_create: std::collections::BTreeSet<String> = Default::default();
     for row in sorted {
-        let (id, mission, done_when) = match row.kind.as_str() {
+        let (id, description) = match row.kind.as_str() {
             kinds::SPACE_BOARD_CREATED => {
                 let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(&row.payload) else {
                     continue;
@@ -341,39 +349,38 @@ pub(crate) fn fold_projects(
                 if !seen_create.insert(r.board_id.clone()) {
                     continue;
                 }
-                (r.board_id, r.mission, r.done_when)
+                (r.board_id, r.description)
             }
-            kinds::SPACE_BOARD_MISSION => {
-                let Ok(r) = serde_json::from_slice::<BoardMissionRow>(&row.payload) else {
+            kinds::SPACE_BOARD_DESCRIBED => {
+                let Ok(r) = serde_json::from_slice::<BoardDescribedRow>(&row.payload) else {
                     continue;
                 };
                 if !(rules.member)(&row.at) {
                     continue;
                 }
-                (r.board_id, r.mission, r.done_when)
+                (r.board_id, r.description)
             }
             _ => continue,
         };
         let Some(b) = boards.iter_mut().find(|b| b.board_id == id) else {
             continue;
         };
-        if row.kind == kinds::SPACE_BOARD_CREATED && mission.is_empty() && done_when.is_empty() {
+        if row.kind == kinds::SPACE_BOARD_CREATED && description.is_empty() {
             continue;
         }
-        b.mission_by = if mission.is_empty() && done_when.is_empty() {
+        b.description_by = if description.is_empty() {
             String::new()
         } else {
             (rules.person)(&row.at.dev).unwrap_or_default()
         };
-        b.mission = mission;
-        b.done_when = done_when;
+        b.description = description;
     }
     for (i, b) in boards.iter_mut().enumerate() {
-        if let Some(at) = done.get(&b.board_id) {
-            b.finished = true;
-            b.finished_at = at.clone();
+        if let Some(at) = closed.get(&b.board_id) {
+            b.closed = true;
+            b.closed_at = at.clone();
         }
-        b.may_finish = i > 0
+        b.may_close = i > 0
             && match me {
                 None => true,
                 Some((me, owner)) => {
@@ -393,8 +400,8 @@ fn space_board_rows(st: &store::Store) -> store::Result<Vec<BoardRowAt>> {
             kinds: vec![
                 kinds::SPACE_BOARD_CREATED.into(),
                 kinds::SPACE_BOARD_RENAMED.into(),
-                kinds::SPACE_BOARD_MISSION.into(),
-                kinds::SPACE_BOARD_FINISHED.into(),
+                kinds::SPACE_BOARD_DESCRIBED.into(),
+                kinds::SPACE_BOARD_CLOSED.into(),
             ],
             limit: 10_000,
             ..Default::default()
@@ -442,7 +449,7 @@ pub(crate) fn board_list_in(
         own: own.to_string(),
         deleted: deletes(own, &rows, rules.member).into_iter().collect(),
         tags: tag_ids(&rows),
-        finished: finishes(own, &rows, rules).into_keys().collect(),
+        closed: closes(own, &rows, rules).into_keys().collect(),
     })
 }
 
@@ -504,7 +511,7 @@ impl Services {
         let owner = m.owner(&me);
         Ok(with_space_rules(&b.verifier, |rules| {
             let mut out = fold_space_boards(own, &rows, rules.member);
-            fold_projects(&mut out, &rows, rules, Some((&me_key, owner)));
+            fold_board_state(&mut out, &rows, rules, Some((&me_key, owner)));
             out
         }))
     }
@@ -617,21 +624,20 @@ impl Services {
         name: &str,
         tag: &str,
     ) -> Result<String> {
-        self.create_space_board_with(space_id, name, tag, "", "")
+        self.create_space_board_with(space_id, name, tag, "")
     }
 
-    /// [`Services::create_space_board`] with the new board's mission and
-    /// done-when (card #690), on its create row.
+    /// [`Services::create_space_board`] with the new board's description
+    /// (card #690), on its create row.
     pub(crate) fn create_space_board_with(
         &self,
         space_id: &str,
         name: &str,
         tag: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<String> {
-        let (mission, done_when) = (mission.trim(), done_when.trim());
-        check_mission(mission, done_when)?;
+        let description = description.trim();
+        check_description(description)?;
         if self.is_hidden_space(space_id) {
             return Err(Error::coord(
                 CK::NotAllowed,
@@ -660,8 +666,7 @@ impl Services {
             board_id: id.clone(),
             name: name.to_string(),
             tag: tag.to_string(),
-            mission: mission.to_string(),
-            done_when: done_when.to_string(),
+            description: description.to_string(),
             deleted: false,
             by: format!("{}{me}", kinds::PERSON_ACTOR_PREFIX),
             at: (self.now)().format_rfc3339_nano(),
@@ -715,8 +720,7 @@ impl Services {
             name: name.to_string(),
             tag: String::new(),
             deleted: false,
-            mission: String::new(),
-            done_when: String::new(),
+            description: String::new(),
             by: by.clone(),
             at: (self.now)().format_rfc3339_nano(),
         };
@@ -773,10 +777,10 @@ impl Services {
     }
 
     /// The member devices of space `space_id` known to be too old to store
-    /// a `space.board.mission` or `space.board.finished` row (hello
+    /// a `space.board.described` or `space.board.closed` row (hello
     /// `tolerant` below [`BOARD_ROWS_TOLERANT`], card #690), as
     /// `person/device`. One nobody has heard from doesn't count, as for the
-    /// spaces gate: finishing has no fallback.
+    /// spaces gate: closing has no fallback.
     pub(crate) fn board_rows_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
         let b = self.board(space_id)?;
         let ms = b.verifier.membership();
@@ -796,12 +800,13 @@ impl Services {
 
     /// Board `board_id` of space `space_id`, checked for a write by this
     /// person: an active member, a board the space holds, and every device
-    /// able to store the new rows (card #690).
-    fn project_board(
+    /// able to store the new rows (card #690). With the space's boards,
+    /// the first first.
+    fn checked_board(
         &self,
         space_id: &str,
         board_id: &str,
-    ) -> Result<(std::sync::Arc<BoardLog>, SpaceBoard)> {
+    ) -> Result<(std::sync::Arc<BoardLog>, SpaceBoard, Vec<SpaceBoard>)> {
         let b = self.board(space_id)?;
         let me = self.person_id();
         if !b.verifier.membership().active(&me) {
@@ -810,11 +815,8 @@ impl Services {
                 format_args!("you aren't a member of space {space_id}"),
             ));
         }
-        let Some(x) = self
-            .space_boards(space_id)?
-            .into_iter()
-            .find(|x| x.board_id == board_id)
-        else {
+        let all = self.space_boards(space_id)?;
+        let Some(x) = all.iter().find(|x| x.board_id == board_id).cloned() else {
             return Err(Error::coord(
                 CK::NotFound,
                 format_args!("no board {board_id} in space {space_id}"),
@@ -823,146 +825,171 @@ impl Services {
         if let Some(why) = board_rows_refusal(&self.board_rows_not_ready(space_id)?) {
             return Err(Error::coord(CK::NotAllowed, why));
         }
-        Ok((b, x))
+        Ok((b, x, all))
     }
 
-    /// Sets the mission and done-when of board `board_id` in space
-    /// `space_id`, its first board too (card #690): any active member may,
-    /// as for a rename. Not on a finished board: reopen it first.
-    pub(crate) fn set_space_board_mission(
+    /// Sets the description of board `board_id` in space `space_id`, its
+    /// first board too (card #690); empty clears it. Any active member
+    /// may, as for a rename. Not on a closed board: reopen it first.
+    pub(crate) fn set_space_board_description(
         &self,
         space_id: &str,
         board_id: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<()> {
-        let (mission, done_when) = (mission.trim(), done_when.trim());
-        check_mission(mission, done_when)?;
-        let (b, x) = self.project_board(space_id, board_id)?;
-        if x.finished {
-            return Err(finished_board(&x));
+        let description = description.trim();
+        check_description(description)?;
+        let (b, x, _) = self.checked_board(space_id, board_id)?;
+        if x.closed {
+            return Err(closed_board(&x));
         }
-        let by = format!("{}{}", kinds::PERSON_ACTOR_PREFIX, self.person_id());
-        let row = BoardMissionRow {
+        let by = self.person_actor();
+        let row = BoardDescribedRow {
             board_id: board_id.to_string(),
-            mission: mission.to_string(),
-            done_when: done_when.to_string(),
+            description: description.to_string(),
             by: by.clone(),
             at: (self.now)().format_rfc3339_nano(),
         };
-        b.store.append(&by, kinds::SPACE_BOARD_MISSION, &row)?;
+        b.store.append(&by, kinds::SPACE_BOARD_DESCRIBED, &row)?;
         self.boards.moved();
         Ok(())
     }
 
-    /// Finishes board `board_id` of space `space_id`, or reopens it with
-    /// `finished` false (card #690). Its maker or a space owner may; never
-    /// the first board, and a finish only once no card on it is open.
-    pub(crate) fn finish_space_board(
+    /// Closes board `board_id` of space `space_id` (card #690), its open
+    /// cards first as `open` says. Its maker or a space owner may; never
+    /// the first board.
+    pub(crate) fn close_space_board(
         &self,
         space_id: &str,
         board_id: &str,
-        finished: bool,
+        open: OpenCards,
+    ) -> Result<()> {
+        self.set_space_board_closed(space_id, board_id, Some(open))
+    }
+
+    /// Reopens closed board `board_id` of space `space_id` (card #690):
+    /// who may close it may.
+    pub(crate) fn reopen_space_board(&self, space_id: &str, board_id: &str) -> Result<()> {
+        self.set_space_board_closed(space_id, board_id, None)
+    }
+
+    /// A close (`Some`, with what to do with its open cards) or a reopen.
+    fn set_space_board_closed(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        open: Option<OpenCards>,
     ) -> Result<()> {
         if board_id == space_id {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("a space's first board can't be finished"),
+                format_args!("a space's first board is never closed"),
             ));
         }
-        let (b, x) = self.project_board(space_id, board_id)?;
-        if !x.may_finish {
+        let (b, x, all) = self.checked_board(space_id, board_id)?;
+        if !x.may_close {
             return Err(Error::coord(
                 CK::NotAllowed,
                 format_args!(
                     "only the person who made board {} or an owner of the space may {} it",
                     gocompat::quote::quote(&x.name),
-                    if finished { "finish" } else { "reopen" }
+                    if open.is_some() { "close" } else { "reopen" }
                 ),
             ));
         }
-        if x.finished == finished {
+        if x.closed == open.is_some() {
             return Ok(());
         }
-        if finished {
-            open_cards_refusal(&x, &b.coord().open_on_board(board_id))?;
+        let by = self.person_actor();
+        if let Some(open) = &open {
+            clear_open(b.coord(), &by, &x, &all, open)?;
         }
-        let by = format!("{}{}", kinds::PERSON_ACTOR_PREFIX, self.person_id());
-        let row = BoardFinishedRow {
+        let row = BoardClosedRow {
             board_id: board_id.to_string(),
-            finished,
+            closed: open.is_some(),
             by: by.clone(),
             at: (self.now)().format_rfc3339_nano(),
         };
-        b.store.append(&by, kinds::SPACE_BOARD_FINISHED, &row)?;
+        b.store.append(&by, kinds::SPACE_BOARD_CLOSED, &row)?;
         b.coord().refresh_boards();
         self.boards.moved();
         Ok(())
     }
 
-    /// Sets the mission and done-when of one of Personal's boards, its
-    /// default too (card #690).
-    pub(crate) fn set_personal_board_mission(
+    /// Sets the description of one of Personal's boards, its default too
+    /// (card #690); empty clears it.
+    pub(crate) fn set_personal_board_description(
         &self,
         board_id: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<()> {
-        let (mission, done_when) = (mission.trim(), done_when.trim());
-        check_mission(mission, done_when)?;
-        let x = self.personal_board(board_id)?;
-        if x.finished {
-            return Err(finished_board(&x));
+        let description = description.trim();
+        check_description(description)?;
+        let (x, _) = self.personal_board(board_id)?;
+        if x.closed {
+            return Err(closed_board(&x));
         }
         self.append_personal_row(
-            kinds::SPACE_BOARD_MISSION,
-            BoardMissionRow {
+            kinds::SPACE_BOARD_DESCRIBED,
+            BoardDescribedRow {
                 board_id: board_id.to_string(),
-                mission: mission.to_string(),
-                done_when: done_when.to_string(),
+                description: description.to_string(),
                 by: format!("user:{}", self.device.id),
                 at: (self.now)().format_rfc3339_nano(),
             },
         )
     }
 
-    /// Finishes one of Personal's boards, or reopens it (card #690). The
-    /// default board never finishes.
-    pub(crate) fn finish_personal_board(&self, board_id: &str, finished: bool) -> Result<()> {
+    /// Closes one of Personal's boards (card #690), its open cards first
+    /// as `open` says. The default board never closes.
+    pub(crate) fn close_personal_board(&self, board_id: &str, open: OpenCards) -> Result<()> {
+        self.set_personal_board_closed(board_id, Some(open))
+    }
+
+    /// Reopens one of Personal's closed boards (card #690).
+    pub(crate) fn reopen_personal_board(&self, board_id: &str) -> Result<()> {
+        self.set_personal_board_closed(board_id, None)
+    }
+
+    fn set_personal_board_closed(&self, board_id: &str, open: Option<OpenCards>) -> Result<()> {
         if board_id == PERSONAL_BOARD {
             return Err(Error::coord(
                 CK::NotAllowed,
-                format_args!("Personal's default board can't be finished"),
+                format_args!("Personal's default board is never closed"),
             ));
         }
-        let x = self.personal_board(board_id)?;
-        if x.finished == finished {
+        let (x, all) = self.personal_board(board_id)?;
+        if x.closed == open.is_some() {
             return Ok(());
         }
-        if finished {
-            open_cards_refusal(&x, &self.coord.open_on_board(board_id))?;
+        if let Some(open) = &open {
+            clear_open(&self.coord, &self.user_sender().key, &x, &all, open)?;
         }
         self.append_personal_row(
-            kinds::SPACE_BOARD_FINISHED,
-            BoardFinishedRow {
+            kinds::SPACE_BOARD_CLOSED,
+            BoardClosedRow {
                 board_id: board_id.to_string(),
-                finished,
+                closed: open.is_some(),
                 by: format!("user:{}", self.device.id),
                 at: (self.now)().format_rfc3339_nano(),
             },
         )
     }
 
-    fn personal_board(&self, board_id: &str) -> Result<SpaceBoard> {
-        self.personal_boards()?
-            .into_iter()
+    /// One of Personal's boards, with all of them (its default first).
+    fn personal_board(&self, board_id: &str) -> Result<(SpaceBoard, Vec<SpaceBoard>)> {
+        let all = self.personal_boards()?;
+        let x = all
+            .iter()
             .find(|x| x.board_id == board_id)
+            .cloned()
             .ok_or_else(|| {
                 Error::coord(
                     CK::NotFound,
                     format_args!("no board {board_id} in Personal"),
                 )
-            })
+            })?;
+        Ok((x, all))
     }
 
     fn append_personal_row(&self, kind: &str, row: impl Serialize) -> Result<()> {
@@ -982,7 +1009,7 @@ impl Services {
         let rows = space_board_rows(&self.store).map_err(Error::from)?;
         Ok(with_personal_rules(|rules| {
             let mut out = fold_space_boards(own, &rows, rules.member);
-            fold_projects(&mut out, &rows, rules, None);
+            fold_board_state(&mut out, &rows, rules, None);
             out
         }))
     }
@@ -991,20 +1018,19 @@ impl Services {
     /// the person's own log, so no gate and no membership: only the tag has
     /// to be free among every space here.
     pub(crate) fn create_personal_board(&self, name: &str, tag: &str) -> Result<String> {
-        self.create_personal_board_with(name, tag, "", "")
+        self.create_personal_board_with(name, tag, "")
     }
 
-    /// [`Services::create_personal_board`] with the new board's mission and
-    /// done-when (card #690).
+    /// [`Services::create_personal_board`] with the new board's
+    /// description (card #690).
     pub(crate) fn create_personal_board_with(
         &self,
         name: &str,
         tag: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<String> {
-        let (mission, done_when) = (mission.trim(), done_when.trim());
-        check_mission(mission, done_when)?;
+        let description = description.trim();
+        check_description(description)?;
         let (name, tag) = (name.trim(), tag.trim());
         check_board_name(name)?;
         check_board_tag(tag)?;
@@ -1018,8 +1044,7 @@ impl Services {
                 board_id: id.clone(),
                 name: name.to_string(),
                 tag: tag.to_string(),
-                mission: mission.to_string(),
-                done_when: done_when.to_string(),
+                description: description.to_string(),
                 ..Default::default()
             },
         )?;
@@ -1122,48 +1147,170 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
 }
 
-fn check_mission(mission: &str, done_when: &str) -> Result<()> {
-    if mission.chars().count() <= MAX_BOARD_MISSION
-        && done_when.chars().count() <= MAX_BOARD_MISSION
-    {
+fn check_description(description: &str) -> Result<()> {
+    if description.chars().count() <= MAX_BOARD_DESCRIPTION {
         return Ok(());
     }
     Err(Error::coord(
         CK::Invalid,
-        format_args!("a board's mission and done-when are {MAX_BOARD_MISSION} characters at most"),
+        format_args!("a board's description is {MAX_BOARD_DESCRIPTION} characters at most"),
     ))
 }
 
-fn finished_board(x: &SpaceBoard) -> Error {
+fn closed_board(x: &SpaceBoard) -> Error {
     Error::coord(
         CK::NotAllowed,
         format_args!(
-            "board {} is finished: reopen it first",
+            "board {} is closed: reopen it first",
             gocompat::quote::quote(&x.name)
         ),
     )
 }
 
-/// Refuses a finish while cards on the board are open, naming them.
+/// The note on a card canceled because its board closed (card #690).
+pub const CLOSED_BOARD_NOTE: &str = "its board was closed";
+
+/// Up to eight refs, then "and N more".
+fn card_list(refs: &[String]) -> String {
+    let shown = refs.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+    if refs.len() > 8 {
+        format!("{shown} and {} more", refs.len() - 8)
+    } else {
+        shown
+    }
+}
+
+/// Refuses a close while cards on the board are open, naming them.
 fn open_cards_refusal(x: &SpaceBoard, open: &[coord::Task]) -> Result<()> {
     if open.is_empty() {
         return Ok(());
     }
-    let names: Vec<String> = open.iter().take(8).map(|t| t.short_ref()).collect();
-    let more = if open.len() > names.len() {
-        format!(" and {} more", open.len() - names.len())
-    } else {
-        String::new()
-    };
+    let refs: Vec<String> = open.iter().map(|t| t.short_ref()).collect();
     Err(Error::coord(
         CK::BadState,
         format_args!(
-            "board {} has {} open card{} ({}{more}): finish, move or close {} first",
+            "board {} has {} open card{} ({}): move or cancel them, or close the board with them moved or canceled",
             gocompat::quote::quote(&x.name),
             open.len(),
             if open.len() == 1 { "" } else { "s" },
-            names.join(", "),
-            if open.len() == 1 { "it" } else { "them" },
+            card_list(&refs),
+        ),
+    ))
+}
+
+/// Clears board `x`'s open cards before it closes (card #690), as `open`
+/// says, writing on `co` as `by` (the person). `all` is its space's
+/// boards (Personal's), the first first. A move is checked for every card
+/// before the first one moves. A card it couldn't handle is named in the
+/// error, and the board stays open.
+fn clear_open(
+    co: &coord::Coord,
+    by: &str,
+    x: &SpaceBoard,
+    all: &[SpaceBoard],
+    open: &OpenCards,
+) -> Result<()> {
+    let cards = co.open_on_board(&x.board_id);
+    if cards.is_empty() {
+        return Ok(());
+    }
+    let failed = match open {
+        OpenCards::Keep => return open_cards_refusal(x, &cards),
+        OpenCards::MoveTo(to) => {
+            let to = to.trim();
+            let Some(target) = all.iter().find(|b| b.board_id == to) else {
+                return Err(Error::coord(
+                    CK::NotFound,
+                    format_args!("no board {to} to move the cards to"),
+                ));
+            };
+            if target.board_id == x.board_id {
+                return Err(Error::coord(
+                    CK::Invalid,
+                    format_args!("pick another board to move the cards to"),
+                ));
+            }
+            if target.closed {
+                return Err(closed_board(target));
+            }
+            // A subtask moves with its parent, so one whose parent isn't
+            // open here can't move; nor can an open ask.
+            let here: std::collections::BTreeSet<&str> =
+                cards.iter().map(|t| t.id.as_str()).collect();
+            let stuck: Vec<String> = cards
+                .iter()
+                .filter_map(|t| {
+                    if t.open_ask().is_some() {
+                        Some(format!("{} is an open ask", t.short_ref()))
+                    } else if !t.parent.is_empty() && !here.contains(t.parent.as_str()) {
+                        Some(format!(
+                            "{} is a subtask whose parent isn't open on this board",
+                            t.short_ref()
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !stuck.is_empty() {
+                return Err(Error::coord(
+                    CK::BadState,
+                    format_args!(
+                        "board {} stays open: {} can't move. Close or cancel {} first, or close the board canceling its cards",
+                        gocompat::quote::quote(&x.name),
+                        card_list(&stuck),
+                        if stuck.len() == 1 { "it" } else { "them" },
+                    ),
+                ));
+            }
+            cards
+                .iter()
+                .filter(|t| t.parent.is_empty())
+                .filter_map(|t| {
+                    co.move_task(by, &t.id, &target.board_id)
+                        .err()
+                        .map(|e| format!("{} ({e})", t.short_ref()))
+                })
+                .collect::<Vec<_>>()
+        }
+        OpenCards::Cancel => cards
+            .iter()
+            .filter_map(|t| {
+                // A parent's cancel already ended its subtasks.
+                if co
+                    .get_task(&t.id)
+                    .is_none_or(|now| coord::is_terminal(&now.state))
+                {
+                    return None;
+                }
+                co.set_task_state(by, &t.id, coord::CANCELED, CLOSED_BOARD_NOTE)
+                    .err()
+                    .map(|e| format!("{} ({e})", t.short_ref()))
+            })
+            .collect::<Vec<_>>(),
+    };
+    let left: Vec<String> = if failed.is_empty() {
+        co.open_on_board(&x.board_id)
+            .iter()
+            .map(|t| t.short_ref())
+            .collect()
+    } else {
+        failed
+    };
+    if left.is_empty() {
+        return Ok(());
+    }
+    Err(Error::coord(
+        CK::BadState,
+        format_args!(
+            "board {} stays open: {} couldn't be {}",
+            gocompat::quote::quote(&x.name),
+            card_list(&left),
+            if matches!(open, OpenCards::Cancel) {
+                "canceled"
+            } else {
+                "moved"
+            },
         ),
     ))
 }
@@ -1241,7 +1388,7 @@ pub const CALLS_TOLERANT: i64 = 2;
 
 /// The `tolerant` level that stores unknown `space.*` rows (card #579):
 /// what a space needs of every member device before it writes a board's
-/// mission or finish (card #690). No protocol bump.
+/// description or close row (card #690). No protocol bump.
 pub const BOARD_ROWS_TOLERANT: i64 = 1;
 
 /// [`gate_refusal`] for the board rows of card #690.
@@ -1685,49 +1832,53 @@ impl super::Core {
         self.s.rename_space_board(space_id, board_id, name)
     }
 
-    /// [`Core::create_space_board`] with the new board's mission and
-    /// done-when (card #690), on its one create row.
+    /// [`Core::create_space_board`] with the new board's description
+    /// (card #690), on its one create row; empty for none.
     pub fn create_space_board_with(
         &self,
         space_id: &str,
         name: &str,
         tag: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<String> {
         self.s
-            .create_space_board_with(space_id, name, tag, mission, done_when)
+            .create_space_board_with(space_id, name, tag, description)
     }
 
-    /// Sets a board's mission and done-when in space `space_id`, its first
-    /// board's too (card #690). Refused on a finished board, and until every
-    /// member device stores the row ([`BOARD_ROWS_TOLERANT`]).
-    pub fn set_space_board_mission(
+    /// Sets a board's description in space `space_id`, its first board's
+    /// too (card #690); empty clears it. Refused on a closed board, and
+    /// until every member device stores the row ([`BOARD_ROWS_TOLERANT`]).
+    pub fn set_space_board_description(
         &self,
         space_id: &str,
         board_id: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<()> {
         self.s
-            .set_space_board_mission(space_id, board_id, mission, done_when)
+            .set_space_board_description(space_id, board_id, description)
     }
 
-    /// Finishes a board in space `space_id`, or reopens it with `finished`
-    /// false (card #690): its maker or a space owner, not the first board,
-    /// and a finish only with no open card on it.
-    pub fn finish_space_board(&self, space_id: &str, board_id: &str, finished: bool) -> Result<()> {
-        self.s.finish_space_board(space_id, board_id, finished)
+    /// Closes a board in space `space_id` (card #690): its maker or a
+    /// space owner, never the first board. Its open cards are first kept
+    /// (the close is refused while any is open), moved or canceled, as
+    /// `open` says, as this person.
+    pub fn close_space_board(&self, space_id: &str, board_id: &str, open: OpenCards) -> Result<()> {
+        self.s.close_space_board(space_id, board_id, open)
     }
 
-    /// The member devices of `space_id` too old to store a board's mission
-    /// or finish row (card #690).
+    /// Reopens a closed board in space `space_id` (card #690).
+    pub fn reopen_space_board(&self, space_id: &str, board_id: &str) -> Result<()> {
+        self.s.reopen_space_board(space_id, board_id)
+    }
+
+    /// The member devices of `space_id` too old to store a board's
+    /// description or close row (card #690).
     pub fn board_rows_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
         self.s.board_rows_not_ready(space_id)
     }
 
     /// The open cards on a board of space `space_id` (`""` for Personal):
-    /// what a finish waits on (card #690).
+    /// what a close keeps, moves or cancels (card #690).
     pub fn open_on_board(&self, space_id: &str, board_id: &str) -> Result<Vec<coord::Task>> {
         if space_id.is_empty() {
             return Ok(self.s.coord.open_on_board(board_id));
@@ -1735,33 +1886,30 @@ impl super::Core {
         Ok(self.s.board(space_id)?.coord().open_on_board(board_id))
     }
 
-    /// [`Core::create_personal_board`] with a mission (card #690).
+    /// [`Core::create_personal_board`] with a description (card #690).
     pub fn create_personal_board_with(
         &self,
         name: &str,
         tag: &str,
-        mission: &str,
-        done_when: &str,
+        description: &str,
     ) -> Result<String> {
-        self.s
-            .create_personal_board_with(name, tag, mission, done_when)
+        self.s.create_personal_board_with(name, tag, description)
     }
 
-    /// Sets the mission of one of Personal's boards (card #690).
-    pub fn set_personal_board_mission(
-        &self,
-        board_id: &str,
-        mission: &str,
-        done_when: &str,
-    ) -> Result<()> {
-        self.s
-            .set_personal_board_mission(board_id, mission, done_when)
+    /// Sets the description of one of Personal's boards (card #690).
+    pub fn set_personal_board_description(&self, board_id: &str, description: &str) -> Result<()> {
+        self.s.set_personal_board_description(board_id, description)
     }
 
-    /// Finishes or reopens one of Personal's boards; not its default
-    /// (card #690).
-    pub fn finish_personal_board(&self, board_id: &str, finished: bool) -> Result<()> {
-        self.s.finish_personal_board(board_id, finished)
+    /// Closes one of Personal's boards, never its default (card #690),
+    /// its open cards first as `open` says.
+    pub fn close_personal_board(&self, board_id: &str, open: OpenCards) -> Result<()> {
+        self.s.close_personal_board(board_id, open)
+    }
+
+    /// Reopens one of Personal's closed boards (card #690).
+    pub fn reopen_personal_board(&self, board_id: &str) -> Result<()> {
+        self.s.reopen_personal_board(board_id)
     }
 
     /// Personal's boards, its default first (card #558).
@@ -1889,8 +2037,8 @@ mod tests {
         let moves = super::super::boards::summary_row;
         assert!(moves(&ev(kinds::SPACE_BOARD_CREATED)));
         assert!(moves(&ev(kinds::SPACE_BOARD_RENAMED)));
-        assert!(moves(&ev(kinds::SPACE_BOARD_MISSION)));
-        assert!(moves(&ev(kinds::SPACE_BOARD_FINISHED)));
+        assert!(moves(&ev(kinds::SPACE_BOARD_DESCRIBED)));
+        assert!(moves(&ev(kinds::SPACE_BOARD_CLOSED)));
         assert!(!moves(&ev(kinds::TASK_CREATED)));
     }
 
@@ -1974,7 +2122,7 @@ mod tests {
         assert_eq!(got.len(), 2, "the board stays: {got:?}");
     }
 
-    // ---- card #690: missions and finishing ----
+    // ---- card #690: descriptions and closing ----
 
     /// A row of `kind` with payload `p`, written by device `dev` at `seq`.
     fn by_dev(kind: &str, p: impl Serialize, dev: &str, seq: i64) -> BoardRowAt {
@@ -1989,14 +2137,14 @@ mod tests {
         }
     }
 
-    fn created(id: &str, tag: &str, mission: &str, dev: &str, seq: i64) -> BoardRowAt {
+    fn created(id: &str, tag: &str, description: &str, dev: &str, seq: i64) -> BoardRowAt {
         by_dev(
             kinds::SPACE_BOARD_CREATED,
             SpaceBoardRow {
                 board_id: id.into(),
                 name: tag.into(),
                 tag: tag.into(),
-                mission: mission.into(),
+                description: description.into(),
                 ..Default::default()
             },
             dev,
@@ -2004,13 +2152,12 @@ mod tests {
         )
     }
 
-    fn mission(id: &str, m: &str, done: &str, dev: &str, seq: i64) -> BoardRowAt {
+    fn described(id: &str, d: &str, dev: &str, seq: i64) -> BoardRowAt {
         by_dev(
-            kinds::SPACE_BOARD_MISSION,
-            BoardMissionRow {
+            kinds::SPACE_BOARD_DESCRIBED,
+            BoardDescribedRow {
                 board_id: id.into(),
-                mission: m.into(),
-                done_when: done.into(),
+                description: d.into(),
                 ..Default::default()
             },
             dev,
@@ -2018,12 +2165,12 @@ mod tests {
         )
     }
 
-    fn finish(id: &str, finished: bool, dev: &str, seq: i64) -> BoardRowAt {
+    fn close(id: &str, closed: bool, dev: &str, seq: i64) -> BoardRowAt {
         by_dev(
-            kinds::SPACE_BOARD_FINISHED,
-            BoardFinishedRow {
+            kinds::SPACE_BOARD_CLOSED,
+            BoardClosedRow {
                 board_id: id.into(),
-                finished,
+                closed,
                 at: format!("t{seq}"),
                 ..Default::default()
             },
@@ -2046,99 +2193,96 @@ mod tests {
         })
     }
 
-    fn projects(rows: &[BoardRowAt], me: Option<(&str, bool)>) -> Vec<SpaceBoard> {
+    fn boards_of(rows: &[BoardRowAt], me: Option<(&str, bool)>) -> Vec<SpaceBoard> {
         space_rules(|r| {
             let mut out = fold_space_boards(the_own(), rows, r.member);
-            fold_projects(&mut out, rows, r, me);
+            fold_board_state(&mut out, rows, r, me);
             out
         })
     }
 
     #[test]
-    fn a_mission_comes_from_the_create_then_the_newest_row_and_survives_a_rename() {
+    fn a_description_comes_from_the_create_then_the_newest_row_and_survives_a_rename() {
         let rows = [
             created("b1", "net", "Ship netcode", "bob", 1),
-            mission(
-                "b1",
-                "Ship rollback netcode",
-                "Two PCs play a match",
-                "alice",
-                3,
-            ),
-            mission("b1", "Lost to an older row", "", "bob", 2),
+            described("b1", "Rollback netcode: two PCs play a match", "alice", 3),
+            described("b1", "Lost to an older row", "bob", 2),
             at(row(kinds::SPACE_BOARD_RENAMED, "b1", "Netcode", ""), 5),
-            mission("s", "The space's first board", "", "bob", 4),
+            described("s", "The space's first board", "bob", 4),
             // Someone who isn't a member there counts for nothing.
-            mission("b1", "Vandalised", "", "eve", 9),
+            described("b1", "Vandalised", "eve", 9),
         ];
-        let got = projects(&rows, None);
+        let got = boards_of(&rows, None);
         assert_eq!(got[1].name, "Netcode");
-        assert_eq!(
-            (got[1].mission.as_str(), got[1].done_when.as_str()),
-            ("Ship rollback netcode", "Two PCs play a match")
-        );
-        assert_eq!(got[1].mission_by, "person:alice");
-        assert_eq!(got[0].mission, "The space's first board");
+        assert_eq!(got[1].description, "Rollback netcode: two PCs play a match");
+        assert_eq!(got[1].description_by, "person:alice");
+        assert_eq!(got[0].description, "The space's first board");
         // A board with none keeps none, and nobody wrote it.
-        let got = projects(&[created("b2", "art", "", "bob", 1)], None);
+        let got = boards_of(&[created("b2", "art", "", "bob", 1)], None);
         assert_eq!(
-            (got[1].mission.as_str(), got[1].mission_by.as_str()),
+            (got[1].description.as_str(), got[1].description_by.as_str()),
+            ("", "")
+        );
+        // An empty row clears it.
+        let got = boards_of(
+            &[
+                created("b2", "art", "Posters", "bob", 1),
+                described("b2", "", "bob", 2),
+            ],
+            None,
+        );
+        assert_eq!(
+            (got[1].description.as_str(), got[1].description_by.as_str()),
             ("", "")
         );
     }
 
     #[test]
-    fn a_finish_and_a_reopen_take_the_newest_whatever_order_the_rows_sit_in() {
+    fn a_close_and_a_reopen_take_the_newest_whatever_order_the_rows_sit_in() {
         let base = [created("b1", "net", "", "bob", 1)];
         let mut rows = base.to_vec();
-        rows.extend([
-            finish("b1", true, "bob", 5),
-            finish("b1", false, "alice", 7),
-        ]);
+        rows.extend([close("b1", true, "bob", 5), close("b1", false, "alice", 7)]);
         for order in [rows.clone(), rows.iter().rev().cloned().collect()] {
-            let got = projects(&order, None);
-            assert!(!got[1].finished, "the reopen is newer: {got:?}");
+            let got = boards_of(&order, None);
+            assert!(!got[1].closed, "the reopen is newer: {got:?}");
         }
-        rows.push(finish("b1", true, "bob", 9));
-        let got = projects(&rows, None);
-        assert!(got[1].finished);
-        assert_eq!(got[1].finished_at, "t9");
-        let list = space_rules(|r| finishes("s", &rows, r));
+        rows.push(close("b1", true, "bob", 9));
+        let got = boards_of(&rows, None);
+        assert!(got[1].closed);
+        assert_eq!(got[1].closed_at, "t9");
+        let list = space_rules(|r| closes("s", &rows, r));
         assert_eq!(list.keys().collect::<Vec<_>>(), ["b1"]);
     }
 
     #[test]
-    fn only_a_boards_maker_or_a_space_owner_finishes_it_and_never_the_first() {
+    fn only_a_boards_maker_or_a_space_owner_closes_it_and_never_the_first() {
         // Bob made b1, Alice (an owner) made b2.
         let rows = [
             created("b1", "net", "", "bob", 1),
             created("b2", "art", "", "alice", 2),
-            // Bob finishes Alice's board: not his, and he isn't an owner.
-            finish("b2", true, "bob", 3),
-            // Alice finishes Bob's: an owner may.
-            finish("b1", true, "alice", 4),
-            // A first board never finishes, whoever writes it.
-            finish("s", true, "alice", 5),
-            finish("b2", true, "eve", 6),
+            // Bob closes Alice's board: not his, and he isn't an owner.
+            close("b2", true, "bob", 3),
+            // Alice closes Bob's: an owner may.
+            close("b1", true, "alice", 4),
+            // A first board never closes, whoever writes it.
+            close("s", true, "alice", 5),
+            close("b2", true, "eve", 6),
         ];
-        let got = projects(&rows, Some(("person:bob", false)));
-        assert!(
-            !got[0].finished && got[1].finished && !got[2].finished,
-            "{got:?}"
-        );
+        let got = boards_of(&rows, Some(("person:bob", false)));
+        assert!(!got[0].closed && got[1].closed && !got[2].closed, "{got:?}");
         // Who may now: never the first; Bob his own; an owner any.
-        let may: Vec<bool> = got.iter().map(|b| b.may_finish).collect();
+        let may: Vec<bool> = got.iter().map(|b| b.may_close).collect();
         assert_eq!(may, [false, true, false]);
-        let got = projects(&rows, Some(("person:alice", true)));
-        let may: Vec<bool> = got.iter().map(|b| b.may_finish).collect();
+        let got = boards_of(&rows, Some(("person:alice", true)));
+        let may: Vec<bool> = got.iter().map(|b| b.may_close).collect();
         assert_eq!(may, [false, true, true]);
     }
 
-    /// An Irori before #690 folds a create row with a mission as it always
-    /// did: the extra fields are ignored, and a mission or finish row is
-    /// no board row it reads.
+    /// An Irori before #690 folds a create row with a description as it
+    /// always did: the extra field is ignored, and a described or closed
+    /// row is no board row it reads.
     #[test]
-    fn an_older_fold_reads_a_create_with_a_mission_as_before() {
+    fn an_older_fold_reads_a_create_with_a_description_as_before() {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Old {
@@ -2153,27 +2297,27 @@ mod tests {
             ("b1", "net", "net")
         );
         let v: serde_json::Value = serde_json::from_slice(&r.payload).unwrap();
-        assert_eq!(v["mission"], "Ship it");
-        // No mission: no field at all.
+        assert_eq!(v["description"], "Ship it");
+        // No description: no field at all.
         let v: serde_json::Value =
             serde_json::from_slice(&created("b2", "art", "", "bob", 1).payload).unwrap();
-        assert!(v.get("mission").is_none() && v.get("doneWhen").is_none());
+        assert!(v.get("description").is_none(), "{v}");
         // The tags and deletes an older device keeps never see these rows.
         let rows = [
             r,
-            mission("b1", "x", "", "bob", 2),
-            finish("b1", true, "bob", 3),
+            described("b1", "x", "bob", 2),
+            close("b1", true, "bob", 3),
         ];
         assert_eq!(tag_ids(&rows), [("net".to_string(), "b1".to_string())]);
         assert!(deletes("s", &rows, &|_| true).is_empty());
     }
 
     #[test]
-    fn personal_boards_finish_by_the_person_except_the_default() {
+    fn personal_boards_close_by_the_person_except_the_default() {
         let rows = [
             created("b1", "home", "Fix the house", "d1", 1),
-            finish("b1", true, "d2", 2),
-            finish(PERSONAL_BOARD, true, "d1", 3),
+            close("b1", true, "d2", 2),
+            close(PERSONAL_BOARD, true, "d1", 3),
         ];
         let own = SpaceBoard {
             board_id: PERSONAL_BOARD.into(),
@@ -2182,12 +2326,12 @@ mod tests {
         };
         let got = with_personal_rules(|r| {
             let mut out = fold_space_boards(own, &rows, r.member);
-            fold_projects(&mut out, &rows, r, None);
+            fold_board_state(&mut out, &rows, r, None);
             out
         });
-        assert!(!got[0].finished && !got[0].may_finish);
-        assert!(got[1].finished && got[1].may_finish);
-        assert_eq!(got[1].mission_by, "user");
+        assert!(!got[0].closed && !got[0].may_close);
+        assert!(got[1].closed && got[1].may_close);
+        assert_eq!(got[1].description_by, "user");
     }
 
     #[test]

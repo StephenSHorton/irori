@@ -2373,34 +2373,36 @@ fn sync_out_waits_until_another_device_holds_the_last_row() {
     assert_eq!(p.taken_by, None, "{alone:?}");
 }
 
-/// Card #690: a Personal board's mission and finish reach the person's
-/// other device through the private log, and its reopen does too.
+/// Card #690: a Personal board's description and close reach the
+/// person's other device through the private log, and its reopen does too.
 #[test]
-fn a_personal_boards_mission_and_finish_reach_the_other_device() {
+fn a_personal_boards_description_and_close_reach_the_other_device() {
     let (a, b) = paired();
     let home = a
         .core
-        .create_personal_board_with("House", "home", "Fix up the house", "Gate shuts")
+        .create_personal_board_with("House", "home", "Fix up the house")
         .unwrap();
     let on = |c: &Core| {
         c.personal_boards()
             .ok()
             .and_then(|bs| bs.into_iter().find(|x| x.board_id == home))
     };
-    wait_for(45, "b gets the board with its mission", || {
-        on(&b.core).is_some_and(|x| x.mission == "Fix up the house" && x.done_when == "Gate shuts")
+    wait_for(45, "b gets the board with its description", || {
+        on(&b.core).is_some_and(|x| x.description == "Fix up the house")
     });
     b.core
-        .set_personal_board_mission(irori_core::PERSONAL_BOARD, "Everything else", "")
+        .set_personal_board_description(irori_core::PERSONAL_BOARD, "Everything else")
         .unwrap();
-    wait_for(45, "a gets b's mission on the default board", || {
+    wait_for(45, "a gets b's description on the default board", || {
         a.core
             .personal_boards()
-            .is_ok_and(|bs| bs[0].mission == "Everything else")
+            .is_ok_and(|bs| bs[0].description == "Everything else")
     });
-    a.core.finish_personal_board(&home, true).unwrap();
-    wait_for(45, "b sees it finished", || {
-        on(&b.core).is_some_and(|x| x.finished)
+    a.core
+        .close_personal_board(&home, irori_core::OpenCards::Keep)
+        .unwrap();
+    wait_for(45, "b sees it closed", || {
+        on(&b.core).is_some_and(|x| x.closed)
     });
     // b's coord reads it too: no card goes on it there.
     let e = b
@@ -2415,18 +2417,18 @@ fn a_personal_boards_mission_and_finish_reach_the_other_device() {
             },
         )
         .unwrap_err();
-    assert!(e.to_string().contains("is finished"), "{e}");
-    b.core.finish_personal_board(&home, false).unwrap();
+    assert!(e.to_string().contains("is closed"), "{e}");
+    b.core.reopen_personal_board(&home).unwrap();
     wait_for(45, "a sees it reopened", || {
-        on(&a.core).is_some_and(|x| !x.finished)
+        on(&a.core).is_some_and(|x| !x.closed)
     });
 }
 
-/// Card #690: a space writes a board's mission or finish only once every
-/// member device stores unknown `space.*` rows (`tolerant` 1). A device
-/// last heard at `tolerant` 0 (spaces, but before v0.12.4) blocks it,
-/// named; a New board's mission rides its create row, so the spaces gate
-/// alone holds that.
+/// Card #690: a space writes a board's description or close only once
+/// every member device stores unknown `space.*` rows (`tolerant` 1). A
+/// device last heard at `tolerant` 0 (spaces, but before v0.12.4) blocks
+/// it, named; a New board's description rides its create row, so the
+/// spaces gate alone holds that.
 #[test]
 fn board_rows_wait_for_every_device_to_store_them() {
     let (a, b) = paired();
@@ -2452,17 +2454,20 @@ fn board_rows_wait_for_every_device_to_store_them() {
     {
         let net = a
             .core
-            .create_space_board_with(&id, "Netcode", "net", "Ship it", "")
+            .create_space_board_with(&id, "Netcode", "net", "Ship it")
             .unwrap();
         let e = a
             .core
-            .set_space_board_mission(&id, &net, "x", "")
+            .set_space_board_description(&id, &net, "x")
             .unwrap_err();
         assert!(
             e.to_string().contains("0.12.4") && e.to_string().contains(&short),
             "{e}"
         );
-        let e = a.core.finish_space_board(&id, &net, true).unwrap_err();
+        let e = a
+            .core
+            .close_space_board(&id, &net, irori_core::OpenCards::Keep)
+            .unwrap_err();
         assert!(e.to_string().contains(&short), "{e}");
         let rows = a
             .core
@@ -2470,25 +2475,25 @@ fn board_rows_wait_for_every_device_to_store_them() {
             .unwrap()
             .list(&Filter {
                 kinds: vec![
-                    kinds::SPACE_BOARD_MISSION.into(),
-                    kinds::SPACE_BOARD_FINISHED.into(),
+                    kinds::SPACE_BOARD_DESCRIBED.into(),
+                    kinds::SPACE_BOARD_CLOSED.into(),
                 ],
                 ..Default::default()
             })
             .unwrap();
         assert!(rows.is_empty(), "nothing written");
-        assert_eq!(a.core.space_boards(&id).unwrap()[1].mission, "Ship it");
+        assert_eq!(a.core.space_boards(&id).unwrap()[1].description, "Ship it");
     }
     wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
     wait_for(45, "a hears b store space rows", || {
         a.core.board_rows_not_ready(&id).unwrap().is_empty()
     });
     a.core
-        .set_space_board_mission(&id, &id, "The game", "")
+        .set_space_board_description(&id, &id, "The game")
         .unwrap();
-    wait_for(45, "b gets the first board's mission", || {
+    wait_for(45, "b gets the first board's description", || {
         b.core
             .space_boards(&id)
-            .is_ok_and(|bs| bs[0].mission == "The game")
+            .is_ok_and(|bs| bs[0].description == "The game")
     });
 }

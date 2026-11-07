@@ -2762,8 +2762,8 @@ impl Fold {
         if !board.is_empty() && self.board_tag(&board).is_none() {
             return Err(not_found(format!("board {}", quote(&board))));
         }
-        if self.board_finished(&board) {
-            return Err(self.finished_refusal(&board));
+        if self.board_closed(&board) {
+            return Err(self.closed_refusal(&board));
         }
         // Only the ones not there yet: this also brings together a family
         // that came apart, and a card already there keeps its number.

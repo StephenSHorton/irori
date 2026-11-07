@@ -276,17 +276,17 @@ impl Fold {
         board.to_string()
     }
 
-    /// Whether `board` is finished (card #690). The first board never is.
-    pub(crate) fn board_finished(&self, board: &str) -> bool {
+    /// Whether `board` is closed (card #690). The first board never is.
+    pub(crate) fn board_closed(&self, board: &str) -> bool {
         let b = self.own_board(board);
-        !b.is_empty() && self.board_view.finished.contains(&b)
+        !b.is_empty() && self.board_view.closed.contains(&b)
     }
 
-    /// The refusal for writing onto finished board `board`.
-    pub(crate) fn finished_refusal(&self, board: &str) -> Error {
+    /// The refusal for writing onto closed board `board`.
+    pub(crate) fn closed_refusal(&self, board: &str) -> Error {
         let tag = self.board_tag(board).unwrap_or_else(|| board.to_string());
         not_allowed(format!(
-            "board {} is finished: reopen it first, or pick another board",
+            "board {} is closed: reopen it first, or pick another board",
             quote(&tag)
         ))
     }
@@ -322,7 +322,7 @@ impl Fold {
             return false;
         };
         v.deleted.sort_by(|a, b| a.1.cmp(&b.1));
-        v.finished.sort();
+        v.closed.sort();
         if v == self.board_view {
             return false;
         }

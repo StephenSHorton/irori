@@ -587,18 +587,18 @@ fn the_board_tool_lists_shared_boards() {
     );
 }
 
-/// Card #690: the board tool shows what each board is for and leaves
-/// out finished boards; a card can't go on a finished one.
+/// Card #690: the board tool shows each board's description, briefly,
+/// and leaves out closed boards; a card can't go on a closed one.
 #[test]
-fn finished_boards_leave_the_list_and_take_no_cards() {
+fn closed_boards_leave_the_list_and_take_no_cards() {
     let r = rig();
-    let inner = |tag: &str, name: &str, mission: &str, finished: bool| BoardInfo {
+    let inner = |tag: &str, name: &str, description: &str, closed: bool| BoardInfo {
         tag: tag.into(),
         name: name.into(),
         space_board: format!("bd_{tag}"),
         space_name: "MLG farming".into(),
-        mission: mission.into(),
-        finished,
+        description: description.into(),
+        closed,
         ..r.fake.info.clone()
     };
     *r.fake.inside.lock().unwrap() = vec![
@@ -613,11 +613,11 @@ fn finished_boards_leave_the_list_and_take_no_cards() {
     let out = r.h.okj(&call_a(), "board", json!({}));
     has(
         &out,
-        &["boards: mlg \"MLG farming\", farm \"Farming\"\n  farm is for: \"Grow the farm xxx"],
+        &["boards: mlg \"MLG farming\", farm \"Farming\"\n  farm: \"Grow the farm xxx"],
     );
     assert!(out.contains("…\""), "{out}");
     assert!(
-        !out.contains("Old run") && !out.contains("old is for"),
+        !out.contains("Old run") && !out.contains("Done and dusted"),
         "{out}"
     );
     r.h.failsj(
@@ -631,7 +631,7 @@ fn finished_boards_leave_the_list_and_take_no_cards() {
         "board_create",
         json!({"title": "Another run", "board": "old"}),
         &[
-            "Old run (old) in MLG farming is finished",
+            "Old run (old) in MLG farming is closed",
             "Reopen it in Irori first, or pick another board",
         ],
     );

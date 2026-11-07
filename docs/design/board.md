@@ -20,13 +20,13 @@ The Board is a **scratch pad where agents and people coordinate live work**: wha
 - sprints, milestones, epics, sub-task trees (one level of subtasks is in: [Subtasks](#subtasks));
 - labels, custom fields, workflow states beyond Irori's few, templates;
 - reporting, burndown, velocity;
-- a long-term archive you browse. A finished board's cards stay readable in its space's Archived boards fold ([Boards are projects](#boards-are-projects-missions-and-finishing)), but that is the board kept as it was, not an archive of everything.
+- a long-term archive you browse. A closed board's cards stay readable on it ([Board descriptions and closing](#board-descriptions-and-closing)), but that is the board kept as it was, not an archive of everything.
 
 When a card needs any of those, it links to where they live.
 
 ## No retention rules
 
-The Board doesn't time cards out. A card stays until someone marks it done or closes it, and done cards fold into a collapsed Done group, the way the prototype shows. There are no timers, stale badges or auto-archive. A board's quiet "Looks finished?" line ([Boards are projects](#boards-are-projects-missions-and-finishing)) only suggests; nothing finishes or moves by itself. What keeps it from turning into a tracker is what it leaves out and what agents are told (below), not a clock.
+The Board doesn't time cards out. A card stays until someone marks it done or closes it, and done cards fold into a collapsed Done group, the way the prototype shows. There are no timers, stale badges or auto-archive, and no board closes by itself ([Board descriptions and closing](#board-descriptions-and-closing)). What keeps it from turning into a tracker is what it leaves out and what agents are told (below), not a clock.
 
 ## Instructions for agents
 
@@ -828,30 +828,31 @@ Card #137, 2026-11-01: a card says where its work is and where its holder left o
 - **The window:** a Pinned group above the grid, then "Everything else". Pinned cards keep their own order, and dragging one onto another moves it there. A pinned parent's subtasks follow it in the group, so a family stays together. The card page has Pin and Unpin. A finished card leaves the live grid as before; its pin stays, and it comes back pinned if it reopens.
 - **Shared boards (v0.5):** a pin is one person's view, so `task.pinned` belongs in the private log and is not on a board's kind allow-list. It names a card by its task id, whichever log holds the card.
 
-## Boards are projects: missions and finishing
+## Board descriptions and closing
 
-*2026-11-07, card #690, decision 57. Stephen: "boards are project-based. We should give like more details on a board describing the mission or something. That way we don't keep forever boards other than the personal one."*
+*2026-11-07, card #690, decision 58. Stephen first asked for "boards are project-based ... That way we don't keep forever boards other than the personal one", then relaxed it: "let's just make it more generic, a board can have a description (not a mission) and people can use it to describe the end result of a board, but we don't force it on them. The finish button can just be a close board button that moves the tasks to a preferred place if there were open ones (or they can just choose to drop all the tasks or whatever)".*
 
-A board (a list of cards inside a space, [spaces-boards.md](spaces-boards.md)) is a project. It says what it is for, and when the project is over it is finished and leaves the lists. A space (the people) never finishes; only its boards do.
+A board (a list of cards inside a space, [spaces-boards.md](spaces-boards.md)) may say what it is for, and when it has served its purpose it can be closed so it leaves the lists. A space (the people) never closes; only its boards do. Nothing here is required: a board with no description and never closed works as before.
 
-### Mission
+### Description
 
-- **Each board has a mission** (what it is for, one short paragraph, at most 280 characters) and an optional **done when** (at most 280). New board asks for both. The board's header edits them. They show on the board's tile and at the top of the board.
-- **An existing board has none.** Nothing is migrated. The top of the board shows a quiet "Add a mission" until someone writes one.
-- **Agents see it.** The brief of an agent started for a card on that board quotes the mission and done-when, fenced as data and named by who wrote them (`Board mission (by …)`). A mission another member wrote counts as other people's text, so bypass isn't used (as #573's `written_by`). The `board` tool's list of spaces and boards shows each board's mission, so an agent choosing where to post sees what each is for.
+- **One optional description per board**, free text, at most 2000 characters (`MAX_BOARD_DESCRIPTION`). People can use it to describe the end result a board is for, or anything else. It is the only field a board has beyond its name and tag.
+- **Where:** New board asks for it (optional). The board header's ⋯ menu has **Edit description…**; empty clears it. It shows on the board's tile (two lines, muted) and at the top of the board, **only when set**. A board without one shows nothing: no "Add a description" prompt, and no nudges of any kind.
+- **Agents see it.** The brief of an agent started for a card on that board quotes it, fenced as data and named by who wrote it (`Board description (by …)`). A description another member wrote counts as other people's text, so bypass isn't used (as #573's `written_by`). The `board` tool's list of spaces and boards shows each board's description in one line, cut at about 120 characters, so an agent choosing where to post sees what each is for.
 
-### Finish and reopen
+### Close and reopen
 
-- **Who may finish a board:** the person who made it, or an owner of its space. In Personal, the person.
-- **Never finished:** Personal's default board, and a space's first board (as delete refuses it: threads, asks, displaced cards and older devices' cards land there). To end a whole space, leave it.
-- **Open cards first.** A board finishes only when none of its cards is open: every card is completed, failed or canceled. In review, blocked and Not yet count as open. The Finish dialog lists the open cards and moves them (parent with its family) to a board the person picks, or opens one to close it.
-- **A finished board is read-only.** New card, `board_create`, a move onto it, adopting into a parent on it and reopening one of its cards are refused, naming the board and saying to reopen it. Its cards and their threads stay as they were, and refs to them (`net#4`) still find them.
-- **It leaves the lists:** the New card and Move pickers, the space's board tiles, the Boards page's board names, the board count, and the board tool's list for agents. The sidebar lists spaces, not boards, so nothing changes there. It shows in an **Archived boards** fold under its space's boards (and under Personal's), where it opens as usual, read-only, with **Reopen board**.
-- **Reopen** brings it back as it was, with its mission. Who may reopen is who may finish.
-
-### Looks finished?
-
-A board whose cards are all done (at least one card, none open) shows one quiet line at its top: "Looks finished? Finish board". With a done-when set, that is enough. Without one, it waits until nothing on the board has moved for three days (its newest card `updatedAt`). It is never a blocker, toast or badge, and nothing finishes by itself. It shows only to someone who may finish the board. Done-when is free text, so Irori doesn't try to judge it: "looks met" means every card on the board is done.
+- **Who may close a board:** the person who made it, or an owner of its space. In Personal, the person.
+- **Never closed:** Personal's default board, and a space's first board (as delete refuses it: threads, asks, displaced cards and older devices' cards land there). To end a whole space, leave it.
+- **Open cards.** Close board asks what to do with the board's open cards (any not completed, failed or canceled; in review, blocked and Not yet count as open), and Core does it in the one call (`OpenCards`):
+  - **Move** them to another board of the same space (or of Personal) that isn't closed and isn't this one, the first board included. Each open top-level card moves with its family ([Subtasks](#subtasks)), taking the next number there. An open subtask whose parent isn't open on this board, or an open ask, can't move: the close is refused naming them, before anything moves.
+  - **Cancel** them: each open card is canceled with the note "its board was closed" (a parent's subtasks with it).
+  - **Keep** (no choice): refused while any card is open, naming them.
+  The moves and cancels are written as the person (`person:<id>` in a space, the user key in Personal), then the close row. If any card couldn't be moved or canceled (another member's card the fold won't let this person cancel, say), no close row is written and the refusal names those cards.
+- **A closed board is read-only.** New card, `board_create`, a move onto it, adopting into a parent on it, reopening one of its cards and editing its description are refused, naming the board and saying to reopen it. A comment on one of its done cards posts but reopens nothing. Its cards and their threads stay as they were, and refs to them (`net#4`) still find them.
+- **It leaves the lists:** the New card and Move pickers, the space's board tiles, the board count, and the board tool's list for agents. The sidebar lists spaces, not boards, so nothing changes there. It still opens from its space's page (and Personal's), read-only, with **Reopen board**.
+- **Reopen** brings it back as it was, with its description. Who may reopen is who may close.
+- **Nothing closes by itself.** There is no "looks done" suggestion.
 
 ### Rows
 
@@ -859,29 +860,28 @@ Two new kinds, both `Replicated, Accepts`, in the space's log (Personal: the pri
 
 | Kind | Payload | Fold |
 |---|---|---|
-| `space.board.mission` | `{boardId, mission, doneWhen, by, at}` | The newest row by RowPos sets both fields (empty clears). Counts only from an active member at the row's place (`member_wrote`). |
-| `space.board.finished` | `{boardId, finished, by, at}` | The newest valid row by RowPos wins: `finished: false` reopens. Valid: written by the board's maker (the person whose device wrote its first `space.board.created`) or a space owner at the row's place (`owner_at`), and not a first board. In Personal any row of the person's counts, except for the default board. |
+| `space.board.described` | `{boardId, description, by, at}` | The newest row by RowPos sets the description (empty clears). Counts only from an active member at the row's place (`member_wrote`). |
+| `space.board.closed` | `{boardId, closed, by, at}` | The newest valid row by RowPos wins: `closed: false` reopens. Valid: written by the board's maker (the person whose device wrote its first `space.board.created`) or a space owner at the row's place (`owner_at`), and not a first board. In Personal any row of the person's counts, except for the default board. |
 
-- **New board carries the mission** as optional `mission` and `doneWhen` on `space.board.created`, so making a board is one row. Every decoder ignores fields it doesn't know (no `deny_unknown_fields` anywhere, coord's gojson drops them), so this needs no gate beyond the spaces gate a create already has. A later `space.board.mission` row replaces it.
+- **New board carries the description** as an optional `description` on `space.board.created` (left out when empty), so making a board is one row. Every decoder ignores fields it doesn't know (no `deny_unknown_fields` anywhere, coord's gojson drops them), so this needs no gate beyond the spaces gate a create already has. A later `space.board.described` row replaces it.
 - **The writer is read from the row's place, never its `by`:** `verifier.person_of(at.dev)` (rule 7).
-- **The fold never refuses a card for its board being finished.** Read-only is checked when writing, on this device. An older device can still put a card on a finished board, and a fold that refused a row it took would part ways with it (later.rs). Such a card shows open in the archived board, and blocks nothing.
-- **Finishing is not deleting.** `deleted: true` on `space.board.renamed` is permanent and moves the board's cards to the first board; a finish keeps every card where it is. Code says `finished`, never `archive`: `Coord::archive` already means clearing done cards.
-- **Coord** gets the finished boards in `BoardList.finished`, read again on every `space.board.*` row as now, and checks it in `create_task`, `move_task`, `split`'s adopt and `reopen`.
+- **The fold never refuses a card for its board being closed.** Read-only is checked when writing, on this device. An older device can still put a card on a closed board, and a fold that refused a row it took would part ways with it (later.rs). Such a card shows open in the closed board, and starts no agent.
+- **Closing is not deleting.** `deleted: true` on `space.board.renamed` is permanent and moves the board's cards to the first board; a close moves or cancels only the open cards the person chose to, and keeps every other card where it is. Code says `closed`, never `archive`: `Coord::archive` already means clearing done cards.
+- **Coord** gets the closed boards in `BoardList.closed`, read again on every `space.board.*` row, and checks it (`Fold::board_closed`, `closed_refusal`) in `create_task`, `move_task`, `split`'s adopt and `reopen`, and in the spawn sweeps. `Coord::open_on_board` lists what a close keeps, moves or cancels.
 
 ### Older Irori
 
-- **Kinds.** `space.*` is a tolerated family from the hello's `tolerant` 1 (v0.12.4, #579, [no-server.md](no-server.md) §3.5): an Irori at that level stores a pulled `space.board.mission` or `space.board.finished` row it doesn't know, folds past it, and reads it after it updates. An Irori below it (spaces, but `tolerant` 0) would refuse the row and stall the writer's stream.
-- **The gate.** So a space writes either kind only once every other member device has said `tolerant >= 1` (`BOARD_ROWS_TOLERANT`, no protocol bump). It has the spaces gate's shape: a device whose latest word is below 1 blocks, and the refusal names it ("waiting on …"); a device nobody has heard from is only warned about. It is not #652's fail-closed shape, because finishing has no fallback and a phone nobody has heard would block it for good.
-- **What an older device shows:** a finished board stays in its lists, and someone there can add a card to it (see above). A mission doesn't show. Both come right when it updates.
+- **Kinds.** `space.*` is a tolerated family from the hello's `tolerant` 1 (v0.12.4, #579, [no-server.md](no-server.md) §3.5): an Irori at that level stores a pulled `space.board.described` or `space.board.closed` row it doesn't know, folds past it, and reads it after it updates. An Irori below it (spaces, but `tolerant` 0) would refuse the row and stall the writer's stream.
+- **The gate.** So a space writes either kind only once every other member device has said `tolerant >= 1` (`BOARD_ROWS_TOLERANT`, no protocol bump). It has the spaces gate's shape: a device whose latest word is below 1 blocks, and the refusal names it ("waiting on …"); a device nobody has heard from is only warned about. It is not #652's fail-closed shape, because closing has no fallback and a phone nobody has heard would block it for good. The moves and cancels a close makes are ordinary card rows.
+- **What an older device shows:** a closed board stays in its lists, and someone there can add a card to it (see above). A description doesn't show. Both come right when it updates.
 - **Personal** needs no gate: the private log stores kinds it doesn't know (`Side::Unclassified`).
 
 ### Tests
 
-- Fold (`spaces.rs`): mission newest-wins and kept across a rename; finish/reopen newest-wins in any row order; a finish from a member who didn't make the board counts for nothing, from a space owner it counts; a first board's finish counts for nothing.
-- Core: Personal's mission and finish reach the person's other device (`paired()`); in a shared space Alice's mission, finish and reopen reach Bob, and Bob's mission edit reaches Alice (`five_cores`); the gate's refusal names a device at `tolerant` 0; Personal's default and a space's first board refuse; open cards refuse a finish.
-- Coord: create, move, adopt and reopen onto a finished board are refused, and a pulled card onto one still folds.
-- Brief: the mission is fenced as data, and another member's mission turns bypass off.
-- Frontend (`bun test`): live and finished boards, the Looks finished predicate, and New card's picker without finished boards.
+- Fold (`spaces.rs`): a description newest-wins, cleared by an empty row and kept across a rename; close/reopen newest-wins in any row order; a close from a member who didn't make the board counts for nothing, from a space owner it counts; a first board's close counts for nothing.
+- Core: Personal's description and close reach the person's other device (`paired()`); Keep refuses naming the open cards; Move takes a parent and its subtask to another board, then closes; Cancel cancels them, then closes; a move onto a closed board, onto the board itself or to no board is refused before anything moves; in a shared space Alice's description, Bob's close (moving a family, then canceling) and Alice's reopen reach the other person (`five_cores`); the gate's refusal names a device at `tolerant` 0; Personal's default and a space's first board refuse.
+- Coord: create, move, adopt and reopen onto a closed board are refused, and a pulled card onto one still folds.
+- Brief: the description is fenced as data, and another member's turns bypass off.
 
 ## Where Irori's own long-lived records fit
 

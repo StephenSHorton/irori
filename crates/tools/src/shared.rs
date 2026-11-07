@@ -38,11 +38,11 @@ pub struct BoardInfo {
     /// The space's own name, which its first board's `name` may not be.
     /// Empty: the same as `name`.
     pub space_name: String,
-    /// What the board is for (card #690); may be empty.
-    pub mission: String,
-    /// Finished: read-only and out of the lists, still found by its tag
-    /// so a ref to its cards works (card #690).
-    pub finished: bool,
+    /// The board's description (card #690); may be empty.
+    pub description: String,
+    /// Closed: read-only and out of the lists, still found by its tag so
+    /// a ref to its cards works (card #690).
+    pub closed: bool,
 }
 
 impl BoardInfo {
@@ -77,10 +77,10 @@ pub struct PersonalBoard {
     pub name: String,
     /// Its short handle; empty for the default, which has none.
     pub tag: String,
-    /// What it is for (card #690); empty with none.
-    pub mission: String,
-    /// Finished: it takes no cards and isn't listed (card #690).
-    pub finished: bool,
+    /// Its description (card #690); empty with none.
+    pub description: String,
+    /// Closed: it takes no cards and isn't listed (card #690).
+    pub closed: bool,
 }
 
 /// The id of Personal's default board, as Core names it
@@ -276,8 +276,8 @@ fn arg_texts(v: &serde_json::Value, key: &str, out: &mut Vec<String>) {
     }
 }
 
-/// How much of a board's mission the board tool's list shows.
-const MISSION_CHARS: usize = 120;
+/// How much of a board's description the board tool's list shows.
+const DESCRIPTION_CHARS: usize = 120;
 
 /// The refusal for a write scrub or the stricter pass blocks (§7.3).
 fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
@@ -382,7 +382,7 @@ impl Inner {
             .b
             .personal_boards()
             .into_iter()
-            .filter(|b| !b.is_default() && !b.finished)
+            .filter(|b| !b.is_default() && !b.closed)
             .map(|b| b.tag)
             .collect();
         if tags.is_empty() {
@@ -407,7 +407,7 @@ impl Inner {
             [] => {
                 let list: Vec<String> = all
                     .iter()
-                    .filter(|b| !b.finished)
+                    .filter(|b| !b.closed)
                     .map(|b| b.tag.clone())
                     .collect();
                 Err(err_text(&format!(
@@ -494,14 +494,14 @@ impl Inner {
         let all = self.b.personal_boards();
         let boards: Vec<String> = all
             .iter()
-            // A finished board takes no cards, so it isn't listed (card #690).
-            .filter(|b| !b.is_default() && !b.finished)
+            // A closed board takes no cards, so it isn't listed (card #690).
+            .filter(|b| !b.is_default() && !b.closed)
             .map(|b| {
                 let mut line = format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80)));
-                if !b.mission.trim().is_empty() {
+                if !b.description.trim().is_empty() {
                     line.push_str(&format!(
-                        " (for: {})",
-                        crate::format::q(&one_line(&b.mission, 120))
+                        ": {}",
+                        crate::format::q(&one_line(&b.description, DESCRIPTION_CHARS))
                     ));
                 }
                 line
@@ -531,8 +531,8 @@ impl Inner {
         let mut s = String::from(
             "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
         );
-        // A finished board takes no cards, so it isn't listed (card #690).
-        let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.finished).collect();
+        // A closed board takes no cards, so it isn't listed (card #690).
+        let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.closed).collect();
         let mut seen: Vec<&str> = Vec::new();
         for b in &live {
             if seen.contains(&b.board_id.as_str()) {
@@ -551,12 +551,12 @@ impl Inner {
                 self.b.inbox().autonomy(&b.board_id),
                 boards.join(", ")
             );
-            // What each board is for, so a card goes where it fits.
-            for x in here.iter().filter(|x| !x.mission.trim().is_empty()) {
+            // Each board's description, so a card goes where it fits.
+            for x in here.iter().filter(|x| !x.description.trim().is_empty()) {
                 s += &format!(
-                    "\n  {} is for: {}",
+                    "\n  {}: {}",
                     x.tag,
-                    crate::format::q(&one_line(&x.mission, MISSION_CHARS))
+                    crate::format::q(&one_line(&x.description, DESCRIPTION_CHARS))
                 );
             }
         }
@@ -696,9 +696,9 @@ pub(crate) fn create_on_board(
         Ok(b) => b,
         Err(e) => return e,
     };
-    if b.finished {
+    if b.closed {
         return err_text(&format!(
-            "{} is finished, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+            "{} is closed, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
             b.label()
         ));
     }

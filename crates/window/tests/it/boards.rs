@@ -1412,55 +1412,86 @@ fn a_space_channel_posts_file_goes_with_the_space() {
     assert_eq!(e, irori_window::attachments::NO_ATTACHMENT);
 }
 
-/// Card #690: from the window, a board gets its mission at New board and
-/// edits it, finishes once its cards are done (sent as camelCase fields
-/// only when set), and reopens; a space's first board and Personal's
-/// default never finish.
+/// Card #690: from the window, a board gets its description at New board
+/// and edits it, closes (sent as camelCase fields only when set), moving
+/// or canceling its open cards, and reopens; a space's first board and
+/// Personal's default never close.
 #[test]
-fn a_boards_mission_and_finish_from_the_window() {
+fn a_boards_description_and_close_from_the_window() {
     let r = Rig::new();
     let w = &r.w;
     let id = w.boards_create("Wind", "wind").unwrap().board_id;
     let s = w
-        .boards_add_to_space_with(&id, "Netcode", "net", "Rollback netcode", "")
+        .boards_add_to_space_with(&id, "Netcode", "net", "Rollback netcode")
         .unwrap();
     let net = s.boards[1].board_id.clone();
-    assert_eq!(s.boards[1].mission, "Rollback netcode");
-    assert!(s.boards[1].may_finish && !s.boards[0].may_finish);
+    assert_eq!(s.boards[1].description, "Rollback netcode");
+    assert!(s.boards[1].may_close && !s.boards[0].may_close);
     let s = w
-        .boards_set_mission_in_space(&id, &id, "The game", "Ships")
+        .boards_set_description_in_space(&id, &id, "The game")
         .unwrap();
-    assert_eq!(
-        (s.boards[0].mission.as_str(), s.boards[0].done_when.as_str()),
-        ("The game", "Ships")
-    );
-    let s = w.boards_finish_in_space(&id, &net, true).unwrap();
-    assert!(s.boards[1].finished && !s.boards[1].finished_at.is_empty());
+    assert_eq!(s.boards[0].description, "The game");
+    // A card on net: a close that keeps it is refused; a bad choice too.
+    let co = w.core.board_coord(&id).unwrap();
+    let me = w.core.board_key(&id, &w.core.user_sender().key).unwrap();
+    let t = co
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "rollback".into(),
+                board: net.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let e = w.boards_close_in_space(&id, &net, "keep", "").unwrap_err();
+    assert!(e.contains("net#1"), "{e}");
+    assert!(w.boards_close_in_space(&id, &net, "move", "").is_err());
+    assert!(w.boards_close_in_space(&id, &net, "drop", "").is_err());
+    // Moved to the first board, by the space's id.
+    let s = w.boards_close_in_space(&id, &net, "move", &id).unwrap();
+    assert!(s.boards[1].closed && !s.boards[1].closed_at.is_empty());
+    assert_eq!(co.get_task(&t.id).unwrap().board, "");
     let v = serde_json::to_value(&s.boards[1]).unwrap();
-    assert_eq!(v["finished"], true);
-    assert_eq!(v["mission"], "Rollback netcode");
+    assert_eq!(v["closed"], true);
+    assert_eq!(v["description"], "Rollback netcode");
+    assert!(v.get("closedAt").is_some(), "{v}");
     let v = serde_json::to_value(&s.boards[0]).unwrap();
     assert!(
-        v.get("finished").is_none() && v.get("mayFinish").is_none(),
+        v.get("closed").is_none() && v.get("mayClose").is_none(),
         "{v}"
     );
-    let e = w.boards_finish_in_space(&id, &id, true).unwrap_err();
+    let e = w.boards_close_in_space(&id, &id, "keep", "").unwrap_err();
     assert!(e.contains("first board"), "{e}");
-    let s = w.boards_finish_in_space(&id, &net, false).unwrap();
-    assert!(!s.boards[1].finished);
+    let s = w.boards_reopen_in_space(&id, &net).unwrap();
+    assert!(!s.boards[1].closed);
 
     let bs = w
-        .boards_add_to_personal_with("House", "home", "Fix up the house", "")
+        .boards_add_to_personal_with("House", "home", "Fix up the house")
         .unwrap();
     let home = bs[1].board_id.clone();
-    let bs = w.boards_finish_in_personal(&home, true).unwrap();
-    assert!(bs[1].finished);
-    let bs = w
-        .boards_set_mission_in_personal(irori_core::PERSONAL_BOARD, "Everything else", "")
+    let pc = w.core.coord();
+    let p = pc
+        .create_task(
+            &w.core.user_sender().key,
+            coord::NewTask {
+                title: "paint".into(),
+                board: home.clone(),
+                ..Default::default()
+            },
+        )
         .unwrap();
-    assert_eq!(bs[0].mission, "Everything else");
+    let bs = w.boards_close_in_personal(&home, "cancel", "").unwrap();
+    assert!(bs[1].closed);
+    assert_eq!(pc.get_task(&p.id).unwrap().state, coord::CANCELED);
+    let bs = w
+        .boards_set_description_in_personal(irori_core::PERSONAL_BOARD, "Everything else")
+        .unwrap();
+    assert_eq!(bs[0].description, "Everything else");
     assert!(
-        w.boards_finish_in_personal(irori_core::PERSONAL_BOARD, true)
+        w.boards_close_in_personal(irori_core::PERSONAL_BOARD, "keep", "")
             .is_err()
     );
+    let bs = w.boards_reopen_in_personal(&home).unwrap();
+    assert!(!bs[1].closed);
 }

@@ -110,9 +110,9 @@ const SINCE_GO: [&str; 28] = [
     kinds::TASK_SPAWNED,
     // A huddle's transcript lines (card #656).
     kinds::CALL_SEGMENT,
-    // A board's mission, and finishing it (card #690).
-    kinds::SPACE_BOARD_MISSION,
-    kinds::SPACE_BOARD_FINISHED,
+    // A board's description, and closing it (card #690).
+    kinds::SPACE_BOARD_DESCRIBED,
+    kinds::SPACE_BOARD_CLOSED,
 ];
 
 /// Kinds added after the Go port that board logs refuse: the person's own

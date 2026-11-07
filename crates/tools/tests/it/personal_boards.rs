@@ -178,15 +178,15 @@ fn a_board_tagged_personal_wins_over_the_default() {
     assert_eq!(private_card(&h, "Stuff").board, "a1b2c3");
 }
 
-/// Card #690: a finished Personal board isn't listed and takes no card;
-/// a live one shows its mission.
+/// Card #690: a closed Personal board isn't listed and takes no card;
+/// an open one shows its description.
 #[test]
-fn a_finished_personal_board_leaves_the_list() {
+fn a_closed_personal_board_leaves_the_list() {
     let h = with_boards();
     {
         let mut ps = h.b.personal.lock().unwrap();
-        ps[0].mission = "Decompile the racers".into();
-        ps[1].finished = true;
+        ps[0].description = "Decompile the racers".into();
+        ps[1].closed = true;
     }
     let out = h.ok(&call_a(), "board", "{}");
     assert!(
@@ -194,4 +194,13 @@ fn a_finished_personal_board_leaves_the_list() {
         "{out}"
     );
     assert!(!out.contains("Buzzing Cars"), "{out}");
+    h.fails(
+        &call_a(),
+        "board_create",
+        r#"{"title":"Late","board":"bc"}"#,
+        &[
+            "\"Buzzing Cars\" on Personal is closed",
+            "Reopen it in Irori first",
+        ],
+    );
 }

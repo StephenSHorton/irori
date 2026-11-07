@@ -43,7 +43,7 @@ A space is a group of people that holds many boards and channels. v0.5 already h
 
 **Hidden spaces** (#538's two-person DM spaces) show no boards and never get one: `is_hidden_space` is checked when listing a space's boards, adding one and making a card. It reads #538's private marker (`Services::is_dm_space`), never a tag or a name.
 
-Moving a card to another board and deleting a board are card #563 ([no-server.md](no-server.md) §3). A board's mission, and finishing and reopening it, are card #690 ([board.md](board.md#boards-are-projects-missions-and-finishing)): two more `space.board.*` kinds, written in a space once every member device says `tolerant >= 1`.
+Moving a card to another board and deleting a board are card #563 ([no-server.md](no-server.md) §3). A board's description, and closing and reopening it, are card #690 ([board.md](board.md#board-descriptions-and-closing)): two more `space.board.*` kinds, written in a space once every member device says `tolerant >= 1`.
 
 ## 4. The version gate
 

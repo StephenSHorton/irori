@@ -929,16 +929,16 @@ fn a_sibling_started_later_reads_the_persons_words_in_its_brief() {
 }
 
 /// Card #690: an agent started for a card on one of Personal's boards
-/// reads the board's mission in its brief, fenced as the person's.
+/// reads the board's description in its brief, fenced as the person's.
 #[test]
-fn a_personal_boards_mission_reaches_its_cards_brief() {
+fn a_personal_boards_description_reaches_its_cards_brief() {
     let r = Rig::new();
     let work = tempfile::tempdir().unwrap();
     let fake = Arc::new(Fake::default());
     let person = format!("user:{}", r.core.device_id());
     let board = r
         .core
-        .create_personal_board_with("Garden", "garden", "Grow the ``` beans", "")
+        .create_personal_board_with("Garden", "garden", "Grow the ``` beans")
         .unwrap();
     let co = r.core.coord();
     let t = co
@@ -984,10 +984,10 @@ fn a_personal_boards_mission_reaches_its_cards_brief() {
         brief.contains(&format!(
             "{} is on the board Garden (tag garden) in Personal.",
             t.short_ref()
-        )) && brief.contains("Board mission (by the person):\n```text\nGrow the ''' beans\n```"),
+        )) && brief
+            .contains("Board description (by the person):\n```text\nGrow the ''' beans\n```"),
         "{brief}"
     );
-    assert!(!brief.contains("Board done when"), "{brief}");
 }
 
 /// Card #570: "Start an agent" on a held card is the person's word to

@@ -241,10 +241,10 @@ pub struct BoardList {
     pub deleted: Vec<(String, RowPos)>,
     /// Every (tag, board) the log has named, deleted boards' too.
     pub tags: Vec<(String, String)>,
-    /// The finished boards (card #690): read-only, so this device puts no
+    /// The closed boards (card #690): read-only, so this device puts no
     /// card on one and reopens none of theirs. Checked only when writing:
     /// a card another device put on one still folds.
-    pub finished: Vec<String>,
+    pub closed: Vec<String>,
 }
 /// See [`Options::board_view`].
 ///
@@ -697,8 +697,8 @@ impl Coord {
         f.tasks.get(id).map(|t| f.shown(t))
     }
     /// The open cards on board `board` (`""` or the first board's id: the
-    /// first), parents before their subtasks (card #690): what has to be
-    /// done, moved or closed before the board can finish.
+    /// first), parents before their subtasks (card #690): what closing
+    /// the board keeps, moves or cancels.
     pub fn open_on_board(&self, board: &str) -> Vec<Task> {
         self.lock().open_on_board(board)
     }
