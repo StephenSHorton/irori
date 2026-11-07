@@ -26,12 +26,18 @@ pub fn is_avatar(a: &str) -> bool {
     else {
         return false;
     };
-    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+    !rest.is_empty()
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
 }
 
 /// A face's letter with no picture: the name's first, uppercased ("?").
 pub fn initials(name: &str) -> String {
-    name.trim().chars().next().map_or_else(|| "?".into(), |c| c.to_uppercase().collect())
+    name.trim()
+        .chars()
+        .next()
+        .map_or_else(|| "?".into(), |c| c.to_uppercase().collect())
 }
 
 /// A decoded picture: width, height, straight RGBA.
@@ -82,7 +88,10 @@ mod tests {
         assert!(!is_avatar(""));
         assert!(!is_avatar("data:image/svg+xml;base64,PHN2Zz4="));
         assert!(!is_avatar("https://example.com/a.png"));
-        assert!(!is_avatar(&format!("data:image/png;base64,{}", "A".repeat(40_000))));
+        assert!(!is_avatar(&format!(
+            "data:image/png;base64,{}",
+            "A".repeat(40_000)
+        )));
     }
 
     #[test]
@@ -107,7 +116,10 @@ mod tests {
             let mut w = e.write_header().unwrap();
             w.write_image_data(&[200u8; 4 * 2 * 4]).unwrap();
         }
-        let url = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png));
+        let url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
         let (w, h, px) = decode(&url).expect("decodes");
         assert_eq!((w, h, px.len()), (2, 2, 16));
         assert!(decode("data:image/png;base64,AAAA").is_none());

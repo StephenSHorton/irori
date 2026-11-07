@@ -66,7 +66,10 @@ pub fn ordinal(n: i64) -> String {
 pub fn spawn_line(c: &SpawnState) -> Option<SpawnLine> {
     let line = |t: String, tone| Some(SpawnLine { text: t, tone });
     if !c.starting.is_empty() {
-        return line(format!("starting an agent on {}", c.starting), SpawnTone::Quiet);
+        return line(
+            format!("starting an agent on {}", c.starting),
+            SpawnTone::Quiet,
+        );
     }
     // Card #541: no computer can take it. Already a whole sentence.
     if !c.no_agent.is_empty() {
@@ -74,9 +77,15 @@ pub fn spawn_line(c: &SpawnState) -> Option<SpawnLine> {
     }
     if !c.cant_start.is_empty() {
         if c.cant_start.starts_with(NOT_TRUSTED) {
-            return line("can't start: its repo isn't trusted here".into(), SpawnTone::Warn);
+            return line(
+                "can't start: its repo isn't trusted here".into(),
+                SpawnTone::Warn,
+            );
         }
-        let why = c.cant_start.strip_prefix("couldn't start: ").unwrap_or(&c.cant_start);
+        let why = c
+            .cant_start
+            .strip_prefix("couldn't start: ")
+            .unwrap_or(&c.cant_start);
         return line(format!("can't start: {why}"), SpawnTone::Warn);
     }
     if c.usage_limit.is_some() {
@@ -89,7 +98,10 @@ pub fn spawn_line(c: &SpawnState) -> Option<SpawnLine> {
         );
     }
     if !c.at_cap.is_empty() {
-        return line(format!("waiting: {} is at its cap", c.at_cap), SpawnTone::Quiet);
+        return line(
+            format!("waiting: {} is at its cap", c.at_cap),
+            SpawnTone::Quiet,
+        );
     }
     None
 }
@@ -155,7 +167,10 @@ mod tests {
             s.starting = "Macbook Pro (this one)".into();
             s.at_cap = "Macbook Pro (this one)".into();
         });
-        assert_eq!(spawn_line(&s).unwrap().text, "starting an agent on Macbook Pro (this one)");
+        assert_eq!(
+            spawn_line(&s).unwrap().text,
+            "starting an agent on Macbook Pro (this one)"
+        );
     }
 
     #[test]
@@ -168,11 +183,19 @@ mod tests {
             })
         );
         assert_eq!(
-            spawn_line(&st(|s| s.cant_start = "couldn't start: claude not found".into())).unwrap().text,
+            spawn_line(&st(
+                |s| s.cant_start = "couldn't start: claude not found".into()
+            ))
+            .unwrap()
+            .text,
             "can't start: claude not found"
         );
         assert_eq!(
-            spawn_line(&st(|s| s.cant_start = "no copy of irori on Desktop Computer".into())).unwrap().text,
+            spawn_line(&st(
+                |s| s.cant_start = "no copy of irori on Desktop Computer".into()
+            ))
+            .unwrap()
+            .text,
             "can't start: no copy of irori on Desktop Computer"
         );
     }
@@ -209,7 +232,10 @@ mod tests {
             "queued: usage limit"
         );
         assert!(usage_resets(&limit().unwrap()).starts_with("resets "));
-        assert!(usage_resets(&limit().unwrap()).ends_with(":30 AM") || usage_resets(&limit().unwrap()).ends_with(":30 PM"));
+        assert!(
+            usage_resets(&limit().unwrap()).ends_with(":30 AM")
+                || usage_resets(&limit().unwrap()).ends_with(":30 PM")
+        );
         assert_eq!(usage_resets(&GoTime::default()), "");
         assert_eq!(
             spawn_line(&st(|s| s.at_cap = "Macbook Pro (this one)".into())),
@@ -222,8 +248,17 @@ mod tests {
 
     #[test]
     fn ordinals() {
-        let got: Vec<String> = [1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111].iter().map(|n| ordinal(*n)).collect();
-        assert_eq!(got, ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "101st", "111th"]);
+        let got: Vec<String> = [1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111]
+            .iter()
+            .map(|n| ordinal(*n))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "101st",
+                "111th"
+            ]
+        );
     }
 
     #[test]

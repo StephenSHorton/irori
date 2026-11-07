@@ -32,7 +32,11 @@ pub fn member_of(person_id: &str, members: &[SummaryMember]) -> Option<Owner> {
         },
         Some(m) => Owner {
             person_id: person_id.into(),
-            name: if m.name.trim().is_empty() { "Someone".into() } else { m.name.trim().into() },
+            name: if m.name.trim().is_empty() {
+                "Someone".into()
+            } else {
+                m.name.trim().into()
+            },
             me: m.me,
             known: true,
         },
@@ -40,11 +44,18 @@ pub fn member_of(person_id: &str, members: &[SummaryMember]) -> Option<Owner> {
 }
 
 /// Card `c`'s board when other people are on it (two members or more).
-pub fn shared_board<'a>(scope: &str, board: &str, boards: &'a [BoardSummary]) -> Option<&'a BoardSummary> {
+pub fn shared_board<'a>(
+    scope: &str,
+    board: &str,
+    boards: &'a [BoardSummary],
+) -> Option<&'a BoardSummary> {
     if scope != "board" || board.is_empty() {
         return None;
     }
-    boards.iter().find(|b| b.board_id == board).filter(|b| b.members.len() >= 2)
+    boards
+        .iter()
+        .find(|b| b.board_id == board)
+        .filter(|b| b.members.len() >= 2)
 }
 
 /// The member card `c` belongs to on a shared board, `None` off one.
@@ -79,7 +90,10 @@ mod tests {
         vec![
             BoardSummary {
                 board_id: "b-mlg".into(),
-                members: vec![m("p-stephen", "Stephen", true), m("p-blake", "Blake", false)],
+                members: vec![
+                    m("p-stephen", "Stephen", true),
+                    m("p-blake", "Blake", false),
+                ],
                 ..BoardSummary::default()
             },
             BoardSummary {
@@ -132,10 +146,19 @@ mod tests {
     #[test]
     fn shared_and_owned_by() {
         let b = boards();
-        assert_eq!(shared_board("board", "b-mlg", &b).map(|x| x.board_id.as_str()), Some("b-mlg"));
+        assert_eq!(
+            shared_board("board", "b-mlg", &b).map(|x| x.board_id.as_str()),
+            Some("b-mlg")
+        );
         assert!(shared_board("board", "b-solo", &b).is_none());
-        assert!(owned_by(&card("p-blake", "b-mlg", "board"), "owner:p-blake"));
-        assert!(!owned_by(&card("p-blake", "b-mlg", "board"), "owner:p-stephen"));
+        assert!(owned_by(
+            &card("p-blake", "b-mlg", "board"),
+            "owner:p-blake"
+        ));
+        assert!(!owned_by(
+            &card("p-blake", "b-mlg", "board"),
+            "owner:p-stephen"
+        ));
         assert!(!owned_by(&card("", "b-mlg", "board"), "owner:"));
     }
 }

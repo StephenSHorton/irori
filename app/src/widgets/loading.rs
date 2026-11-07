@@ -25,7 +25,13 @@ pub fn block(f: &Frame, key: &str, w: Option<f32>, h: f32, radius: f32) -> El {
 /// A text line of `chars` characters at a font of `size`: a bar of about
 /// that length.
 fn bar(f: &Frame, key: &str, chars: usize, size: f32) -> El {
-    block(f, key, Some((chars as f32 * size * 0.5).min(560.0)), size * 0.8, 3.0)
+    block(
+        f,
+        key,
+        Some((chars as f32 * size * 0.5).min(560.0)),
+        size * 0.8,
+        3.0,
+    )
 }
 
 fn panel(f: &Frame, key: &str) -> El {
@@ -68,7 +74,12 @@ pub fn list_rows_shape(f: &Frame, key: &str, rows: usize, sub: bool) -> El {
     let titles = [30, 26, 14, 34, 17];
     let mut c = col().key(key.to_string()).w_full().gap(4.0);
     for i in 0..rows {
-        let mut t = col().gap(4.0).min_w(0.0).child(bar(f, &format!("{key}/{i}/t"), titles[i % titles.len()], 13.0));
+        let mut t = col().gap(4.0).min_w(0.0).child(bar(
+            f,
+            &format!("{key}/{i}/t"),
+            titles[i % titles.len()],
+            13.0,
+        ));
         if sub {
             t = t.child(bar(f, &format!("{key}/{i}/s"), 21, 11.5));
         }
@@ -138,7 +149,12 @@ pub fn card_tile_shape(f: &Frame, key: &str) -> El {
 pub fn tile_grid_shape(f: &Frame, key: &str, tiles: usize) -> El {
     let mut r = row().key(key.to_string()).w_full().gap(12.0).flex_wrap();
     for i in 0..tiles {
-        r = r.child(el().key(format!("{key}/{i}")).w(260.0).grow(1.0).child(card_tile_shape(f, &format!("{key}/{i}/t"))));
+        r = r.child(
+            el().key(format!("{key}/{i}"))
+                .w(260.0)
+                .grow(1.0)
+                .child(card_tile_shape(f, &format!("{key}/{i}/t"))),
+        );
     }
     r
 }
@@ -171,10 +187,14 @@ pub fn need_row_shape(f: &Frame, key: &str) -> El {
 
 /// Home's Needs you: its heading and a few rows.
 pub fn needs_you_shape(f: &Frame, key: &str, rows: usize) -> El {
-    let mut c = col().key(key.to_string()).w_full().gap(10.0).child(bar(f, &format!("{key}/h"), 12, 16.0));
+    let mut c =
+        col()
+            .key(key.to_string())
+            .w_full()
+            .gap(10.0)
+            .child(bar(f, &format!("{key}/h"), 12, 16.0));
     for i in 0..rows {
         c = c.child(need_row_shape(f, &format!("{key}/{i}")));
     }
     c
 }
-

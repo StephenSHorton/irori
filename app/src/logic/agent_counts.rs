@@ -174,7 +174,12 @@ pub fn idle_line(r: &IdleReport, untaken: &[Untaken], home_ids: &HashSet<String>
         .collect();
     let mut cards: Vec<(String, String)> = untaken
         .iter()
-        .map(|u| (u.short.clone(), why.get(u.id.as_str()).unwrap_or(&"").to_string()))
+        .map(|u| {
+            (
+                u.short.clone(),
+                why.get(u.id.as_str()).unwrap_or(&"").to_string(),
+            )
+        })
         .collect();
     let listed: HashSet<&str> = untaken.iter().map(|u| u.id.as_str()).collect();
     for u in &r.unoffered {
@@ -194,7 +199,13 @@ pub fn idle_line(r: &IdleReport, untaken: &[Untaken], home_ids: &HashSet<String>
     let shown = cards
         .iter()
         .take(IDLE_LINE_SHOWN)
-        .map(|(s, w)| if w.is_empty() { s.clone() } else { format!("{s} ({w})") })
+        .map(|(s, w)| {
+            if w.is_empty() {
+                s.clone()
+            } else {
+                format!("{s} ({w})")
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let more = if k > IDLE_LINE_SHOWN {
@@ -207,7 +218,10 @@ pub fn idle_line(r: &IdleReport, untaken: &[Untaken], home_ids: &HashSet<String>
     } else {
         "No agent is free".to_string()
     };
-    format!("{who}; {} nobody took: {shown}{more}.", n(k, "card", "cards"))
+    format!(
+        "{who}; {} nobody took: {shown}{more}.",
+        n(k, "card", "cards")
+    )
 }
 
 #[cfg(test)]
@@ -268,7 +282,14 @@ mod tests {
             ..Agent::default()
         };
         let blocked: HashSet<String> = ["a", "b"].iter().map(|s| s.to_string()).collect();
-        let c = agent_counts(&[k("a", "busy", false), k("b", "idle", true), k("c", "busy", false)], &blocked);
+        let c = agent_counts(
+            &[
+                k("a", "busy", false),
+                k("b", "idle", true),
+                k("c", "busy", false),
+            ],
+            &blocked,
+        );
         assert_eq!((c.working, c.free, c.blocked), (1, 0, 2));
     }
 
@@ -318,10 +339,16 @@ mod tests {
             "2 agents are idle, but none works in irori."
         );
         assert_eq!(why_waiting(&[a("idle"), a("busy")], ""), "");
-        assert_eq!(why_waiting(&[with("idle", |x| x.repo_key = "irori".into())], "irori"), "");
+        assert_eq!(
+            why_waiting(&[with("idle", |x| x.repo_key = "irori".into())], "irori"),
+            ""
+        );
         assert_eq!(
             why_waiting(
-                &[with("idle", |x| x.offers_cards = false), with("busy", |x| x.spawned = true)],
+                &[
+                    with("idle", |x| x.offers_cards = false),
+                    with("busy", |x| x.spawned = true)
+                ],
                 ""
             ),
             "No agent takes offered work: Irori starts one for it when spawning is on."
@@ -351,8 +378,14 @@ mod tests {
 
     #[test]
     fn idle_line_cases() {
-        assert_eq!(idle_line(&report(20, vec![]), &[], &none()), "20 agents idle, no open work.");
-        assert_eq!(idle_line(&report(1, vec![]), &[], &none()), "1 agent idle, no open work.");
+        assert_eq!(
+            idle_line(&report(20, vec![]), &[], &none()),
+            "20 agents idle, no open work."
+        );
+        assert_eq!(
+            idle_line(&report(1, vec![]), &[], &none()),
+            "1 agent idle, no open work."
+        );
         assert_eq!(idle_line(&report(0, vec![]), &[], &none()), "");
         assert_eq!(
             idle_line(
@@ -398,9 +431,16 @@ mod tests {
         let mut c5 = u("#5", "no agent is free");
         c5.id = "c5".into();
         let home: HashSet<String> = ["c5".to_string()].into_iter().collect();
-        assert_eq!(idle_line(&report(1, vec![c5]), &[], &home), "1 agent idle, no open work.");
         assert_eq!(
-            idle_line(&report(2, vec![u("wind#9", "nobody in this space is free")]), &took[..1], &none()),
+            idle_line(&report(1, vec![c5]), &[], &home),
+            "1 agent idle, no open work."
+        );
+        assert_eq!(
+            idle_line(
+                &report(2, vec![u("wind#9", "nobody in this space is free")]),
+                &took[..1],
+                &none()
+            ),
             "2 agents idle; 2 cards nobody took: #25, wind#9 (nobody in this space is free)."
         );
     }

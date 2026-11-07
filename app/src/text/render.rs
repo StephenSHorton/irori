@@ -24,9 +24,9 @@ use rune_kit::{ControlSize, IconButton, IconButtonVariant};
 use super::icons;
 use super::mentions::{MentionSpan, Named, card_refs, is_gone, split_mentions};
 use super::refs::{self, device_color};
-use crate::widgets::bits::tone_solid;
 use super::rich::{Block, Inline, LinkPiece, plain_line, rich_blocks, rich_inline, safe_href};
 use crate::ui::{Frame, State};
+use crate::widgets::bits::tone_solid;
 
 impl Named for CardMention {
     fn name(&self) -> &str {
@@ -105,12 +105,12 @@ pub fn rich_with(s: &State, f: &mut Frame, key: &str, src: &str, o: &RichOpts) -
                             .key(format!("{key}/l{i}/{j}"))
                             .w_full()
                             .gap(6.0)
+                            .child(text(marker).font(font).color(k.c.text_muted))
                             .child(
-                                text(marker)
-                                    .font(font)
-                                    .color(k.c.text_muted),
-                            )
-                            .child(run.build(f, &format!("{key}/l{i}/{j}/t"), o, font).grow(1.0).min_w(0.0)),
+                                run.build(f, &format!("{key}/l{i}/{j}/t"), o, font)
+                                    .grow(1.0)
+                                    .min_w(0.0),
+                            ),
                     );
                 }
                 out = out.child(list);
@@ -247,13 +247,31 @@ fn pieces(s: &State, f: &Frame, run: &mut Run, ps: &[Inline], o: &RichOpts, font
                 if o.interactive {
                     let id = format!("copy:{t}");
                     let done = copied(&id);
-                    let (glyph, ink) = if done { (&crate::ui::icons::CHECK, k.c.success.fg) } else { (&icons::COPY, k.c.text_faint) };
-                    run.icons.push((at, InlineIcon::glyph(glyph).size((font.size * 0.85).round()).gap(3.0).color(ink)));
-                    let tip = if done { "Copied".to_string() } else { format!("Copy: {t}") };
+                    let (glyph, ink) = if done {
+                        (&crate::ui::icons::CHECK, k.c.success.fg)
+                    } else {
+                        (&icons::COPY, k.c.text_faint)
+                    };
+                    run.icons.push((
+                        at,
+                        InlineIcon::glyph(glyph)
+                            .size((font.size * 0.85).round())
+                            .gap(3.0)
+                            .color(ink),
+                    ));
+                    let tip = if done {
+                        "Copied".to_string()
+                    } else {
+                        format!("Copy: {t}")
+                    };
                     run.links.push(
                         Link::new(r, id)
                             .role("button")
-                            .label(if done { "Copied".to_string() } else { format!("Copy {t}") })
+                            .label(if done {
+                                "Copied".to_string()
+                            } else {
+                                format!("Copy {t}")
+                            })
                             .help(tip)
                             .hover(LinkPaint::new().bg(k.c.hover)),
                     );
@@ -267,10 +285,20 @@ fn pieces(s: &State, f: &Frame, run: &mut Run, ps: &[Inline], o: &RichOpts, font
 fn link_piece(f: &Frame, run: &mut Run, l: &LinkPiece, o: &RichOpts) {
     let k = f.k;
     let accent = k.c.text_accent;
-    let dim = Span::new(0, 0).color(accent.alpha(0.78)).underline(accent.alpha(0.4));
+    let dim = Span::new(0, 0)
+        .color(accent.alpha(0.78))
+        .underline(accent.alpha(0.4));
     let start = run.s.len();
     run.push(&l.pre, Some(dim.clone()));
-    run.push(&l.host, Some(Span::new(0, 0).color(accent).bold().underline(accent.alpha(0.4))));
+    run.push(
+        &l.host,
+        Some(
+            Span::new(0, 0)
+                .color(accent)
+                .bold()
+                .underline(accent.alpha(0.4)),
+        ),
+    );
     run.push(&l.rest, Some(dim));
     if !l.shown_host.is_empty() {
         run.push(" (", None);
@@ -321,28 +349,53 @@ fn ref_chip(f: &Frame, run: &mut Run, label: &str, hit: &refs::Resolved, o: &Ric
     let k = f.k;
     let st = &hit.status;
     let name = plain_line(&hit.title);
-    let steps = st.progress.map(|(d, t)| format!("{d}/{t}")).unwrap_or_default();
-    let tip = [name.as_str(), st.label, &if steps.is_empty() { String::new() } else { format!("{steps} steps") }]
-        .iter()
-        .filter(|x| !x.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" · ");
+    let steps = st
+        .progress
+        .map(|(d, t)| format!("{d}/{t}"))
+        .unwrap_or_default();
+    let tip = [
+        name.as_str(),
+        st.label,
+        &if steps.is_empty() {
+            String::new()
+        } else {
+            format!("{steps} steps")
+        },
+    ]
+    .iter()
+    .filter(|x| !x.is_empty())
+    .copied()
+    .collect::<Vec<_>>()
+    .join(" · ");
     let start = run.s.len();
-    run.push("●\u{2009}", Some(Span::new(0, 0).color(tone_solid(f, st.tone)).size(8.0)));
-    run.push(label, Some(Span::new(0, 0).color(k.c.text_accent).weight(560.0)));
+    run.push(
+        "●\u{2009}",
+        Some(Span::new(0, 0).color(tone_solid(f, st.tone)).size(8.0)),
+    );
+    run.push(
+        label,
+        Some(Span::new(0, 0).color(k.c.text_accent).weight(560.0)),
+    );
     if !name.is_empty() {
         run.push(" ", None);
         let short = cut(&name, 22);
-        let c = if st.closed() { k.c.text_muted } else { k.c.text_base.alpha(0.85) };
+        let c = if st.closed() {
+            k.c.text_muted
+        } else {
+            k.c.text_base.alpha(0.85)
+        };
         run.push(&short, Some(Span::new(0, 0).color(c)));
     }
     if !steps.is_empty() {
         run.push(" ", None);
-        run.push(&steps, Some(Span::new(0, 0).color(k.c.text_muted).size(11.0)));
+        run.push(
+            &steps,
+            Some(Span::new(0, 0).color(k.c.text_muted).size(11.0)),
+        );
     }
     let r = start..run.s.len();
-    run.pills.push((r.clone(), PillStyle::new().bg(k.c.text_accent.alpha(0.1))));
+    run.pills
+        .push((r.clone(), PillStyle::new().bg(k.c.text_accent.alpha(0.1))));
     if o.interactive {
         run.links.push(
             Link::new(r, format!("card:{}", hit.id))
@@ -360,20 +413,34 @@ fn mention_chip(f: &Frame, run: &mut Run, t: &str, m: &CardMention) {
     let k = f.k;
     let gone = m.gone || is_gone(&m.who);
     if gone {
-        let r = run.push(t, Some(Span::new(0, 0).color(k.c.text_muted.alpha(0.7)).weight(560.0)));
+        let r = run.push(
+            t,
+            Some(
+                Span::new(0, 0)
+                    .color(k.c.text_muted.alpha(0.7))
+                    .weight(560.0),
+            ),
+        );
         run.strikes.push((r.start, r.end, None));
         let help = format!("{} is gone; not delivered", plain_line(&m.name));
-        run.links.push(Link::new(r, format!("mention:{}", m.who.key)).help(help));
+        run.links
+            .push(Link::new(r, format!("mention:{}", m.who.key)).help(help));
         return;
     }
     let tint = device_color(&m.who.color).unwrap_or(k.c.text_accent);
     let r = run.push(t, Some(Span::new(0, 0).color(tint).weight(560.0)));
-    run.pills.push((r.clone(), PillStyle::new().bg(tint.alpha(0.14))));
-    let mut help = plain_line(if m.who.name.is_empty() { &m.name } else { &m.who.name });
+    run.pills
+        .push((r.clone(), PillStyle::new().bg(tint.alpha(0.14))));
+    let mut help = plain_line(if m.who.name.is_empty() {
+        &m.name
+    } else {
+        &m.who.name
+    });
     if !m.who.where_.is_empty() {
         help = format!("{help} · {}", plain_line(&m.who.where_));
     }
-    run.links.push(Link::new(r, format!("mention:{}", m.who.key)).help(help));
+    run.links
+        .push(Link::new(r, format!("mention:{}", m.who.key)).help(help));
 }
 
 /// `s` cut to `n` characters, with "…" when cut.
@@ -423,7 +490,11 @@ const COPIED_FOR: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// Whether the Copy with this id was pressed a moment ago.
 fn copied(id: &str) -> bool {
-    COPIED.with(|c| c.borrow().as_ref().is_some_and(|(k, at)| k == id && at.elapsed() < COPIED_FOR))
+    COPIED.with(|c| {
+        c.borrow()
+            .as_ref()
+            .is_some_and(|(k, at)| k == id && at.elapsed() < COPIED_FOR)
+    })
 }
 
 /// A one-click Copy for `t`: copies it and shows a check for a moment.
@@ -431,19 +502,31 @@ pub fn copy_button(f: &Frame, key: &str, t: &str, label: &str) -> El {
     let v = t.to_string();
     let id = key.to_string();
     let done = copied(&id);
-    IconButton::new(if done { &crate::ui::icons::CHECK } else { &icons::COPY })
-        .variant(IconButtonVariant::GhostMuted)
-        .control_size(ControlSize::Mini)
-        .label(if done { "Copied".to_string() } else { format!("{label} {t}") })
-        .help(if done { "Copied".to_string() } else { format!("{label}: {t}") })
-        .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
-            tx.copy(v.clone());
-            COPIED.with(|c| *c.borrow_mut() = Some((id.clone(), std::time::Instant::now())));
-            // Back to the copy glyph once the moment is over.
-            tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
-        })
-        .build(f.k)
-        .key(key.to_string())
+    IconButton::new(if done {
+        &crate::ui::icons::CHECK
+    } else {
+        &icons::COPY
+    })
+    .variant(IconButtonVariant::GhostMuted)
+    .control_size(ControlSize::Mini)
+    .label(if done {
+        "Copied".to_string()
+    } else {
+        format!("{label} {t}")
+    })
+    .help(if done {
+        "Copied".to_string()
+    } else {
+        format!("{label}: {t}")
+    })
+    .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
+        tx.copy(v.clone());
+        COPIED.with(|c| *c.borrow_mut() = Some((id.clone(), std::time::Instant::now())));
+        // Back to the copy glyph once the moment is over.
+        tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
+    })
+    .build(f.k)
+    .key(key.to_string())
 }
 
 /// A link an agent put on a blocker or an option (`kind` "url", "path" or
@@ -478,7 +561,13 @@ pub fn link_chip(f: &Frame, key: &str, kind: &str, reference: &str, label: &str)
                 .shrink(),
         );
         if shown != host {
-            c = c.child(text(host).font(k.ty.small).color(k.c.text_muted).truncate().shrink());
+            c = c.child(
+                text(host)
+                    .font(k.ty.small)
+                    .color(k.c.text_muted)
+                    .truncate()
+                    .shrink(),
+            );
         }
         let open = r.clone();
         return c

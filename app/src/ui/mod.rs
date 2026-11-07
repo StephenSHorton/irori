@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use irori_window::Window;
-use rune::{AppHandle, Cx, El, col, el, row, text};
+use rune::{AppHandle, Cx, El, PointerButton, col, el, row, text};
 use rune_kit::{Kit, Toast, ToastRegion};
 
 pub use nav::{Dialog, Route};
@@ -188,7 +188,10 @@ impl State {
         self.nav.go(r);
         self.nav.save(&mut self.prefs);
         // The page's package reads what it shows (profile: your picture).
-        let ev = Event { name: "app:route-changed".into(), payload: serde_json::Value::Null };
+        let ev = Event {
+            name: "app:route-changed".into(),
+            payload: serde_json::Value::Null,
+        };
         dispatch(self, &ev);
     }
 
@@ -215,7 +218,10 @@ impl State {
     pub fn open_dialog(&mut self, d: Dialog) {
         self.dialog = Some(d);
         // The dialog's package reads what it shows (settings: its pane).
-        let ev = Event { name: "app:dialog-opened".into(), payload: serde_json::Value::Null };
+        let ev = Event {
+            name: "app:dialog-opened".into(),
+            payload: serde_json::Value::Null,
+        };
         dispatch(self, &ev);
     }
 
@@ -261,7 +267,8 @@ impl State {
             _ if r.is_empty() => {}
             _ => {
                 // task:<id>, or task:<id>/comment:<id> (a bare id opens too).
-                let (card, comment) = crate::logic::cards::open_target(r).unwrap_or_else(|| (r.to_string(), String::new()));
+                let (card, comment) = crate::logic::cards::open_target(r)
+                    .unwrap_or_else(|| (r.to_string(), String::new()));
                 self.card.focus_comment = (!comment.is_empty()).then_some(comment);
                 self.open_card(&card);
             }
@@ -368,7 +375,26 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     crate::widgets::overlay(s, &mut f);
     crate::canvas::overlay(s, &mut f);
     notes(s, &mut f);
+    // The mouse's Back and Forward buttons walk the history, as they did
+    // in the React app's webview (and as Cmd+[ and Cmd+] do).
+    let body = body
+        .pointer_buttons([PointerButton::Back, PointerButton::Forward])
+        .on_press_tx(|s: &mut State, tx: &mut rune::Tx| {
+            mouse_nav(s, tx.button());
+        });
     rune_kit::root(body, layer)
+}
+
+/// The mouse's Back and Forward buttons: back or forward in the history.
+/// Says whether the button was one of them (the primary button's presses
+/// on the page's bare background reach here too, and do nothing).
+pub fn mouse_nav(s: &mut State, button: PointerButton) -> bool {
+    match button {
+        PointerButton::Back => s.back(),
+        PointerButton::Forward => s.nav.forward(),
+        _ => return false,
+    }
+    true
 }
 
 /// The notes (toasts), bottom right.
@@ -423,7 +449,11 @@ pub fn not_yet(f: &Frame, title: &str, what: &str) -> El {
         .h_full()
         .padding(32.0)
         .gap(8.0)
-        .child(text(title.to_string()).font(k.ty.ui_medium).color(k.c.text_base))
+        .child(
+            text(title.to_string())
+                .font(k.ty.ui_medium)
+                .color(k.c.text_base),
+        )
         .child(
             text(what.to_string())
                 .font(k.ty.ui)
@@ -454,4 +484,27 @@ pub fn page_header(f: &Frame, title: &str, right: Vec<El>) -> El {
         r = r.child(e);
     }
     r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_back_and_forward_walk_the_history() {
+        let mut s = State::default();
+        s.nav.go(Route::Talk(None));
+        s.nav.open_card("c1".into());
+        assert!(mouse_nav(&mut s, PointerButton::Back));
+        assert_eq!((&s.nav.route, &s.nav.card), (&Route::Talk(None), &None));
+        assert!(mouse_nav(&mut s, PointerButton::Back));
+        assert_eq!(s.nav.route, Route::Home);
+        assert!(mouse_nav(&mut s, PointerButton::Forward));
+        assert_eq!(s.nav.route, Route::Talk(None));
+        assert!(mouse_nav(&mut s, PointerButton::Forward));
+        assert_eq!(s.nav.card.as_deref(), Some("c1"));
+        assert!(!mouse_nav(&mut s, PointerButton::Primary));
+        assert!(!mouse_nav(&mut s, PointerButton::Middle));
+        assert_eq!(s.nav.card.as_deref(), Some("c1"));
+    }
 }

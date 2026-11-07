@@ -22,7 +22,11 @@ pub fn query_words(query: &str) -> Vec<String> {
 fn haystack(c: &CardSummary) -> String {
     let mut parts = vec![
         format!("#{}", c.short),
-        if c.tag.is_empty() { String::new() } else { format!("{}#{}", c.tag, c.short) },
+        if c.tag.is_empty() {
+            String::new()
+        } else {
+            format!("{}#{}", c.tag, c.short)
+        },
         c.title.clone(),
         c.blocker_question.clone(),
         c.search_text.clone(),
@@ -75,7 +79,11 @@ pub fn matching<'a>(cards: &[&'a CardSummary], query: &str) -> Vec<&'a CardSumma
     if query_words(query).is_empty() {
         return cards.to_vec();
     }
-    cards.iter().copied().filter(|c| card_matches(c, query)).collect()
+    cards
+        .iter()
+        .copied()
+        .filter(|c| card_matches(c, query))
+        .collect()
 }
 
 #[cfg(test)]
@@ -126,7 +134,15 @@ mod tests {
         assert!(card_matches(&c, "DOCK boat"));
         assert!(card_matches(&c, "clip"));
         assert!(!card_matches(&c, "boat release"));
-        for q in ["pier", "test scene", "collider", "you", "clamp roll", "heron", "wren"] {
+        for q in [
+            "pier",
+            "test scene",
+            "collider",
+            "you",
+            "clamp roll",
+            "heron",
+            "wren",
+        ] {
             assert!(card_matches(&c, q), "{q}");
         }
         assert!(!card_matches(&c, "willow"));

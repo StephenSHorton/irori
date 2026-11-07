@@ -29,7 +29,9 @@ impl Prefs {
     }
 
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        self.map.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+        self.map
+            .get(key)
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
     }
 
     pub fn get_or<T: DeserializeOwned>(&self, key: &str, default: T) -> T {
@@ -39,7 +41,9 @@ impl Prefs {
     /// Sets and saves (best effort: a write that fails keeps the value for
     /// this run).
     pub fn set<T: Serialize>(&mut self, key: &str, v: T) {
-        let Ok(v) = serde_json::to_value(v) else { return };
+        let Ok(v) = serde_json::to_value(v) else {
+            return;
+        };
         if self.map.get(key) == Some(&v) {
             return;
         }

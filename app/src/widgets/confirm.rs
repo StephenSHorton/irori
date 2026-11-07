@@ -78,7 +78,9 @@ pub fn open(s: &mut State, key: &str, ask: Ask) {
 }
 
 fn run(s: &mut State) {
-    let Some(o) = s.widgets.confirm.clone() else { return };
+    let Some(o) = s.widgets.confirm.clone() else {
+        return;
+    };
     if !s.widgets.busy.insert(o.key.clone()) {
         return;
     }
@@ -103,7 +105,15 @@ fn run(s: &mut State) {
 }
 
 /// The button: `label` (an icon optional), and its error under it.
-pub fn confirm_button(s: &State, f: &Frame, key: &str, label: &str, ic: Option<&'static rune::Icon>, disabled: bool, ask: Ask) -> El {
+pub fn confirm_button(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    label: &str,
+    ic: Option<&'static rune::Icon>,
+    disabled: bool,
+    ask: Ask,
+) -> El {
     let k = f.k;
     let kk = key.to_string();
     let mut b = Button::new(label.to_string())
@@ -133,14 +143,26 @@ pub fn dialog(s: &State, f: &mut Frame) {
     let k = f.k;
     let busy = s.widgets.busy.contains(&o.key);
     let a = &o.ask;
-    let title = if a.rich { a.confirm_label.clone() } else { a.question.clone() };
-    let confirm = Button::new(if busy { "Working…".to_string() } else { a.confirm_label.clone() })
-        .variant(if a.danger { ButtonVariant::Danger } else { ButtonVariant::Contrast })
-        .control_size(ControlSize::Small)
-        .disabled(busy)
-        .on_press(run)
-        .build(k)
-        .default_button();
+    let title = if a.rich {
+        a.confirm_label.clone()
+    } else {
+        a.question.clone()
+    };
+    let confirm = Button::new(if busy {
+        "Working…".to_string()
+    } else {
+        a.confirm_label.clone()
+    })
+    .variant(if a.danger {
+        ButtonVariant::Danger
+    } else {
+        ButtonVariant::Contrast
+    })
+    .control_size(ControlSize::Small)
+    .disabled(busy)
+    .on_press(run)
+    .build(k)
+    .default_button();
     let cancel = Button::new(a.cancel_label.clone())
         .variant(ButtonVariant::Ghost)
         .control_size(ControlSize::Small)
@@ -151,13 +173,27 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .open(true)
         .width(420.0)
         .on_close(move |s: &mut State| {
-            if !s.widgets.busy.contains(&s.widgets.confirm.as_ref().map(|c| c.key.clone()).unwrap_or_default()) {
+            if !s.widgets.busy.contains(
+                &s.widgets
+                    .confirm
+                    .as_ref()
+                    .map(|c| c.key.clone())
+                    .unwrap_or_default(),
+            ) {
                 s.widgets.confirm = None;
             }
         });
     if a.rich {
         d = d.description(a.question.clone());
     }
-    d.child(row().key("widgets-confirm-foot").w_full().gap(8.0).child(rune::el().grow(1.0)).child(cancel).child(confirm))
-        .build(k, f.layer);
+    d.child(
+        row()
+            .key("widgets-confirm-foot")
+            .w_full()
+            .gap(8.0)
+            .child(rune::el().grow(1.0))
+            .child(cancel)
+            .child(confirm),
+    )
+    .build(k, f.layer);
 }

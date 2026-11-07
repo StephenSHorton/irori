@@ -50,7 +50,6 @@ pub fn badge(f: &Frame, key: &str, label: &str, tone: Tone, round: bool, tip: &s
         .h(20.0)
         .px(7.0)
         .center_y()
-        
         .min_w(0.0)
         .radius(if round { 10.0 } else { 5.0 })
         .fill(bg)
@@ -90,11 +89,23 @@ pub fn progress_bar(f: &Frame, key: &str, c: &CardSummary) -> Option<El> {
             .w_full()
             .h(4.0)
             .fill(k.c.layer_03)
-            .child(el().key(format!("{key}/fill")).w_frac(p as f32 / 100.0).h_full().fill(fill)),
+            .child(
+                el().key(format!("{key}/fill"))
+                    .w_frac(p as f32 / 100.0)
+                    .h_full()
+                    .fill(fill),
+            ),
     )
 }
 
-fn line(f: &Frame, key: &str, warn: bool, dot: Option<Color>, words: String, extra: Option<El>) -> El {
+fn line(
+    f: &Frame,
+    key: &str,
+    warn: bool,
+    dot: Option<Color>,
+    words: String,
+    extra: Option<El>,
+) -> El {
     let k = f.k;
     let mut r = row().key(key.to_string()).gap(6.0).center_y().min_w(0.0);
     if let Some(d) = dot {
@@ -103,7 +114,11 @@ fn line(f: &Frame, key: &str, warn: bool, dot: Option<Color>, words: String, ext
     r = r.child(
         text(words)
             .font(rune::tok::TextStyle::new(12.5, 400.0))
-            .color(if warn { status::decide() } else { k.c.text_muted })
+            .color(if warn {
+                status::decide()
+            } else {
+                k.c.text_muted
+            })
             .max_lines(1)
             .shrink(),
     );
@@ -137,7 +152,6 @@ pub fn ask_line(f: &Frame, key: &str, a: &CardAsk) -> El {
         text(format!("on {}", plain_line(&t.device)))
             .font(f.k.ty.text_xsmall)
             .color(f.k.c.text_muted)
-            
     });
     line(f, key, lc::ask_warns(a), dot, lc::ask_line(a), on)
 }
@@ -145,7 +159,14 @@ pub fn ask_line(f: &Frame, key: &str, a: &CardAsk) -> El {
 /// Where the card lives: "My devices", or its shared board's name.
 pub fn scope_badge(f: &Frame, key: &str, c: &CardSummary) -> El {
     let l = plain_line(&c.scope_label);
-    badge(f, key, if l.is_empty() { "My devices" } else { &l }, Tone::Outline, false, "")
+    badge(
+        f,
+        key,
+        if l.is_empty() { "My devices" } else { &l },
+        Tone::Outline,
+        false,
+        "",
+    )
 }
 
 /// The work/personal side a card is on (card #494), and its wait when
@@ -196,7 +217,9 @@ pub fn pr_chip(f: &Frame, key: &str, c: &CardSummary) -> Option<El> {
             .border(1.0, border)
             .cursor(rune::Cursor::Pointer)
             .help(p.title)
-            .on_press_tx(move |_: &mut State, tx: &mut Tx| { let _ = tx.open_url(&url); })
+            .on_press_tx(move |_: &mut State, tx: &mut Tx| {
+                let _ = tx.open_url(&url);
+            })
             .child(text(p.text).font(f.k.ty.text_xsmall).color(fg))
             .child(icon(&icons::EXTERNAL_LINK, 11.0).color(fg)),
     )
@@ -243,16 +266,26 @@ pub fn short_ref(f: &Frame, key: &str, c: &CardSummary) -> Option<El> {
     let tip = if was.is_empty() {
         format!("Agents know this card as {tag}#{short}")
     } else {
-        format!("Was {tag}#{was}: a card made on another device while they were apart had {tag}#{was} too, so each now has a letter")
+        format!(
+            "Was {tag}#{was}: a card made on another device while they were apart had {tag}#{was} too, so each now has a letter"
+        )
     };
     let mut r = row()
         .key(key.to_string())
         .gap(4.0)
         .center_y()
         .help(tip)
-        .child(text(format!("{tag}#{short}")).font(k.ty.text_xsmall.mono()).color(k.c.text_muted));
+        .child(
+            text(format!("{tag}#{short}"))
+                .font(k.ty.text_xsmall.mono())
+                .color(k.c.text_muted),
+        );
     if !was.is_empty() {
-        r = r.child(text(format!("(was {tag}#{was})")).font(k.ty.text_xsmall).color(k.c.text_muted));
+        r = r.child(
+            text(format!("(was {tag}#{was})"))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted),
+        );
     }
     Some(r)
 }
@@ -264,7 +297,12 @@ pub fn spinner(f: &Frame, key: &str) -> El {
         .role("img")
         .label("An agent is working on it")
         .help("An agent is working on it")
-        .child(rune_kit::Loader::new().size(14.0).color(f.k.c.icon_accent).build(f.k))
+        .child(
+            rune_kit::Loader::new()
+                .size(14.0)
+                .color(f.k.c.icon_accent)
+                .build(f.k),
+        )
 }
 
 /// Who asks a blocker's question, above it (card #491).
@@ -273,6 +311,14 @@ pub fn asker(f: &Frame, key: &str, who: &AgentRef) -> El {
     row()
         .key(key.to_string())
         .gap(4.0)
-        .child(text(display_name(who)).font(rune::tok::TextStyle::new(11.5, 500.0)).color(k.c.text_base))
-        .child(text("asks:").font(rune::tok::TextStyle::new(11.5, 400.0)).color(k.c.text_muted))
+        .child(
+            text(display_name(who))
+                .font(rune::tok::TextStyle::new(11.5, 500.0))
+                .color(k.c.text_base),
+        )
+        .child(
+            text("asks:")
+                .font(rune::tok::TextStyle::new(11.5, 400.0))
+                .color(k.c.text_muted),
+        )
 }

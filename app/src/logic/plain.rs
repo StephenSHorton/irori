@@ -28,7 +28,13 @@ pub fn plain_block(s: &str) -> String {
     let s = s.replace("\r\n", "\n").replace('\r', "\n");
     let out: String = s
         .chars()
-        .map(|c| if c == '\n' || c == '\t' || !hidden(c) { c } else { ' ' })
+        .map(|c| {
+            if c == '\n' || c == '\t' || !hidden(c) {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     let mut squeezed = String::with_capacity(out.len());
     let mut run = 0;

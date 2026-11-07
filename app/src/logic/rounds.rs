@@ -32,12 +32,17 @@ fn agent(it: &CardThreadItem) -> bool {
 /// it. `fallback` is the reason when no comment carries it (a card from
 /// before #476).
 pub fn sent_back(thread: &[CardThreadItem], fallback: &str) -> Option<SentBack> {
-    let comments: Vec<&CardThreadItem> = thread.iter().filter(|it| it.kind == KIND_COMMENT).collect();
+    let comments: Vec<&CardThreadItem> =
+        thread.iter().filter(|it| it.kind == KIND_COMMENT).collect();
     let Some(at) = comments.iter().rposition(|it| person(it)) else {
         if fallback.trim().is_empty() {
             return None;
         }
-        let replies: Vec<CardThreadItem> = comments.into_iter().filter(|it| agent(it)).cloned().collect();
+        let replies: Vec<CardThreadItem> = comments
+            .into_iter()
+            .filter(|it| agent(it))
+            .cloned()
+            .collect();
         let any = !replies.is_empty();
         return Some(SentBack {
             reason: fallback.into(),
@@ -49,7 +54,11 @@ pub fn sent_back(thread: &[CardThreadItem], fallback: &str) -> Option<SentBack> 
         });
     };
     let reason = comments[at];
-    let replies: Vec<CardThreadItem> = comments[at + 1..].iter().filter(|it| agent(it)).map(|it| (*it).clone()).collect();
+    let replies: Vec<CardThreadItem> = comments[at + 1..]
+        .iter()
+        .filter(|it| agent(it))
+        .map(|it| (*it).clone())
+        .collect();
     let answered = !replies.is_empty();
     Some(SentBack {
         reason: reason.text.clone(),
@@ -57,7 +66,11 @@ pub fn sent_back(thread: &[CardThreadItem], fallback: &str) -> Option<SentBack> 
         replies,
         heard: answered || !reason.heard_by.is_empty(),
         answered,
-        pending: if answered { vec![] } else { reason.pending.clone() },
+        pending: if answered {
+            vec![]
+        } else {
+            reason.pending.clone()
+        },
     })
 }
 
@@ -125,8 +138,15 @@ mod tests {
 
     #[test]
     fn answered_after_the_reason() {
-        let s = sent_back(&[reply("c0", "earlier"), reason(), reply("c2", "made #108")], "").unwrap();
-        assert_eq!(s.replies.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), ["c2"]);
+        let s = sent_back(
+            &[reply("c0", "earlier"), reason(), reply("c2", "made #108")],
+            "",
+        )
+        .unwrap();
+        assert_eq!(
+            s.replies.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(),
+            ["c2"]
+        );
         assert!(s.heard && s.answered);
         assert!(s.pending.is_empty());
     }

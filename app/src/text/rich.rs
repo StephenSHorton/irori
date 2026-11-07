@@ -74,9 +74,8 @@ static LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
 static SCHEME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^https?://").expect("scheme regex"));
 static CODE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]+)`").expect("code regex"));
-static LIST_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*([-*•]|\d{1,3}[.)])\s+(\S.*)$").expect("list regex")
-});
+static LIST_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*([-*•]|\d{1,3}[.)])\s+(\S.*)$").expect("list regex"));
 static ENUM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(^|\s)(\d{1,2})\)\s+").expect("enum regex"));
 
@@ -118,7 +117,9 @@ pub fn host_of(href: &str) -> String {
 /// . , ; : ! ? or quote, and a closing bracket with no opening one in it.
 fn trim_end(mut s: &str) -> &str {
     loop {
-        let Some(last) = s.chars().last() else { return s };
+        let Some(last) = s.chars().last() else {
+            return s;
+        };
         if ".,;:!?'\"*".contains(last) {
             s = &s[..s.len() - last.len_utf8()];
             continue;
@@ -376,10 +377,15 @@ mod tests {
     #[test]
     fn urls_are_found_without_the_sentences_punctuation() {
         assert_eq!(
-            kinds("open https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click Request access."),
+            kinds(
+                "open https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m and click Request access."
+            ),
             vec![
                 pair("text", "open "),
-                pair("link", "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m"),
+                pair(
+                    "link",
+                    "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m"
+                ),
                 pair("text", " and click Request access."),
             ]
         );
@@ -407,7 +413,10 @@ mod tests {
             links_of("on github.com, or www.notion.com/x."),
             vec!["https://github.com/", "https://www.notion.com/x"]
         );
-        assert_eq!(links_of("see GitHub.com/acme"), vec!["https://github.com/acme"]);
+        assert_eq!(
+            links_of("see GitHub.com/acme"),
+            vec!["https://github.com/acme"]
+        );
         for s in [
             "edit board.go and cards.ts",
             "see README.md or main.rs, run.sh",
@@ -430,13 +439,24 @@ mod tests {
     fn the_host_stands_out() {
         let l = first_link("https://evil.com/github.com/acme");
         assert_eq!(
-            (l.pre.as_str(), l.host.as_str(), l.rest.as_str(), l.shown_host.as_str()),
+            (
+                l.pre.as_str(),
+                l.host.as_str(),
+                l.rest.as_str(),
+                l.shown_host.as_str()
+            ),
             ("https://", "evil.com", "/github.com/acme", "")
         );
         let b = first_link("huggingface.co/x");
-        assert_eq!((b.pre.as_str(), b.host.as_str(), b.rest.as_str()), ("", "huggingface.co", "/x"));
+        assert_eq!(
+            (b.pre.as_str(), b.host.as_str(), b.rest.as_str()),
+            ("", "huggingface.co", "/x")
+        );
         let i = first_link("https://exämple.com/x");
-        assert_eq!((i.host.as_str(), i.shown_host.as_str()), ("", "xn--exmple-cua.com"));
+        assert_eq!(
+            (i.host.as_str(), i.shown_host.as_str()),
+            ("", "xn--exmple-cua.com")
+        );
     }
 
     #[test]
@@ -457,20 +477,33 @@ mod tests {
         }
         assert_eq!(safe_href("javascript:alert(1)"), None);
         assert_eq!(safe_href("https://user@example.com"), None);
-        assert_eq!(safe_href("example.com/a b").as_deref(), Some("https://example.com/a%20b"));
-        assert_eq!(safe_href("http://example.com").as_deref(), Some("http://example.com/"));
+        assert_eq!(
+            safe_href("example.com/a b").as_deref(),
+            Some("https://example.com/a%20b")
+        );
+        assert_eq!(
+            safe_href("http://example.com").as_deref(),
+            Some("http://example.com/")
+        );
     }
 
     #[test]
     fn control_and_bidi_characters_are_made_plain_first() {
-        assert_eq!(links_of("https://example.com/\u{202e}gnp.exe"), vec!["https://example.com/"]);
+        assert_eq!(
+            links_of("https://example.com/\u{202e}gnp.exe"),
+            vec!["https://example.com/"]
+        );
     }
 
     #[test]
     fn backtick_spans_are_code_without_links_inside() {
         assert_eq!(
             kinds("type `! hf auth login` in the Mac session"),
-            vec![pair("text", "type "), pair("code", "! hf auth login"), pair("text", " in the Mac session")]
+            vec![
+                pair("text", "type "),
+                pair("code", "! hf auth login"),
+                pair("text", " in the Mac session")
+            ]
         );
         assert_eq!(
             kinds("run `curl https://example.com/x` then open example.com"),
@@ -508,12 +541,23 @@ mod tests {
 
     #[test]
     fn list_lines_keep_the_marker_the_agent_wrote() {
-        let b = rich_blocks("Two steps:\n1) open huggingface.co/x\n2) type `hf auth login`\n- and a dash\nafter");
+        let b = rich_blocks(
+            "Two steps:\n1) open huggingface.co/x\n2) type `hf auth login`\n- and a dash\nafter",
+        );
         assert_eq!(block_kinds(&b), vec!["para", "list", "para"]);
         let Block::List(items) = &b[1] else { panic!() };
-        assert_eq!(items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(), vec!["1)", "2)", "-"]);
-        assert_eq!(items[0].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "link"]);
-        assert_eq!(items[1].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "code"]);
+        assert_eq!(
+            items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(),
+            vec!["1)", "2)", "-"]
+        );
+        assert_eq!(
+            items[0].inline.iter().map(kind).collect::<Vec<_>>(),
+            vec!["text", "link"]
+        );
+        assert_eq!(
+            items[1].inline.iter().map(kind).collect::<Vec<_>>(),
+            vec!["text", "code"]
+        );
     }
 
     #[test]
@@ -523,8 +567,14 @@ mod tests {
         );
         assert_eq!(block_kinds(&b), vec!["para", "list"]);
         let Block::List(items) = &b[1] else { panic!() };
-        assert_eq!(items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(), vec!["1)", "2)"]);
-        assert_eq!(items[1].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "code", "text"]);
+        assert_eq!(
+            items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(),
+            vec!["1)", "2)"]
+        );
+        assert_eq!(
+            items[1].inline.iter().map(kind).collect::<Vec<_>>(),
+            vec!["text", "code", "text"]
+        );
         for s in ["only 1) here", "see 2) and 3) there", "a (1) b (2) c"] {
             assert_eq!(block_kinds(&rich_blocks(s)), vec!["para"], "{s}");
         }

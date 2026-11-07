@@ -21,13 +21,16 @@ use std::time::{Duration, Instant};
 
 use irori_window::board::UploadFile;
 use irori_window::mentions::MentionOutcome;
-use rune::{Align, El, FileDialogOptions, Key, KeyEvent, Side, Span, TextEdit, Tx, col, el, row, text, text_input};
+use rune::{
+    Align, El, FileDialogOptions, Key, KeyEvent, Side, Span, TextEdit, Tx, col, el, row, text,
+    text_input,
+};
 use rune_kit::{ControlSize, IconButton, IconButtonVariant, PopupItem, PopupList};
 
 use super::attach::{self, MAX_UPLOAD_FILES, Pending};
 use super::icons;
 use super::mentions::{
-    self, CardCandidate, Candidate, Mention, MenuKey, Token, add_mention, after, agent_on_rows,
+    self, Candidate, CardCandidate, Mention, MenuKey, Token, add_mention, after, agent_on_rows,
     board_rows, card_token_at, filter_candidates, filter_cards, insert_card_ref, insert_mention,
     is_full, is_gone, keep_mentions, menu_key, move_highlight, row_name, settle, settle_range,
     split_mentions, token_at,
@@ -236,7 +239,11 @@ struct Popup {
 
 impl Popup {
     fn rows(&self) -> usize {
-        if self.for_cards { self.cards.len() } else { self.agents.len() }
+        if self.for_cards {
+            self.cards.len()
+        } else {
+            self.agents.len()
+        }
     }
     /// The row Enter picks: the highlighted one, else the first.
     fn shown(&self) -> i32 {
@@ -256,8 +263,16 @@ fn popup(s: &State, c: &Composer, board: &str, card: &str, no_mentions: bool) ->
     let all = candidates(s, board, card);
     let names: Vec<String> = all.iter().map(row_name).collect();
     let focused = c.edit.focused;
-    let agent = if focused && !no_mentions { token_at(text, caret, &names) } else { None };
-    let cc = if focused && agent.is_none() && !no_mentions { card_candidates(s) } else { Vec::new() };
+    let agent = if focused && !no_mentions {
+        token_at(text, caret, &names)
+    } else {
+        None
+    };
+    let cc = if focused && agent.is_none() && !no_mentions {
+        card_candidates(s)
+    } else {
+        Vec::new()
+    };
     let card_tok = if agent.is_none() && !cc.is_empty() {
         let titles: Vec<String> = cc.iter().map(|(c, _)| c.title.clone()).collect();
         card_token_at(text, caret, &titles)
@@ -268,7 +283,10 @@ fn popup(s: &State, c: &Composer, board: &str, card: &str, no_mentions: bool) ->
     let token = agent.or(card_tok);
     let open = token.as_ref().is_some_and(|t| Some(t.start) != c.dismissed);
     let mut p = Popup {
-        at: token.as_ref().map(|t| format!("{}:{}", t.start, t.query)).unwrap_or_default(),
+        at: token
+            .as_ref()
+            .map(|t| format!("{}:{}", t.start, t.query))
+            .unwrap_or_default(),
         token,
         for_cards,
         open,
@@ -317,7 +335,9 @@ fn pick(s: &mut State, get: Get, get_mut: GetMut, board: &str, card: &str, i: us
     let caret = c.edit.range().1;
     let value = c.edit.text.clone();
     let (next_text, next_caret, mentions) = if p.for_cards {
-        let Some((row, _)) = p.cards.get(i) else { return };
+        let Some((row, _)) = p.cards.get(i) else {
+            return;
+        };
         let (nt, nc) = insert_card_ref(&value, &t, caret, &row.r#ref);
         (nt, nc, keep_mentions(&c.mentions, &value))
     } else {
@@ -417,8 +437,17 @@ fn changed(s: &mut State, get_mut: GetMut, board: &str, card: &str, no_mentions:
 
 /// Enter or Send: an exact, unique name at the caret counts as picked;
 /// then the site's `on_send` gets the text, mentions and files.
-fn send(s: &mut State, get_mut: GetMut, board: &str, card: &str, no_mentions: bool, on_send: &Option<SendFn>) {
-    let Some(on_send) = on_send.clone() else { return };
+fn send(
+    s: &mut State,
+    get_mut: GetMut,
+    board: &str,
+    card: &str,
+    no_mentions: bool,
+    on_send: &Option<SendFn>,
+) {
+    let Some(on_send) = on_send.clone() else {
+        return;
+    };
     let cands = candidates(s, board, card);
     let c = get_mut(s);
     if c.sending {
@@ -443,7 +472,14 @@ fn send(s: &mut State, get_mut: GetMut, board: &str, card: &str, no_mentions: bo
 /// Sends the box as its Enter would, through `o.on_send` (a site's own
 /// Send-like button: the message dialog's Reply and Stop and read).
 pub fn submit(s: &mut State, get_mut: GetMut, o: &ComposerOpts) {
-    send(s, get_mut, &o.board, &o.card, o.no_mentions.is_some(), &o.on_send);
+    send(
+        s,
+        get_mut,
+        &o.board,
+        &o.card,
+        o.no_mentions.is_some(),
+        &o.on_send,
+    );
 }
 
 /// Files picked, dropped or pasted: read off the UI thread, then added.
@@ -460,7 +496,14 @@ fn add_paths(s: &mut State, get_mut: GetMut, paths: Vec<std::path::PathBuf>) {
 
 /// The composer: the box with its pickers, files, clip, mic and Send.
 /// `key` names it on the page (prefix it with your package's name).
-pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, o: &ComposerOpts) -> El {
+pub fn composer(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    get: Get,
+    get_mut: GetMut,
+    o: &ComposerOpts,
+) -> El {
     let k = f.k;
     let c = get(s);
     let board = o.board.clone();
@@ -476,7 +519,11 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
         match m {
             mentions::MentionSpan::Text(t) => at += t.len(),
             mentions::MentionSpan::Mention(t, _) => {
-                deco.push(Span::new(at, at + t.len()).color(k.c.text_accent).weight(560.0));
+                deco.push(
+                    Span::new(at, at + t.len())
+                        .color(k.c.text_accent)
+                        .weight(560.0),
+                );
                 at += t.len();
             }
         }
@@ -499,7 +546,11 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
         .color(k.c.text_base)
         .placeholder(o.placeholder.clone(), k.c.text_faint)
         .caret(k.c.text_base, k.selection())
-        .label(if o.label.is_empty() { o.placeholder.clone() } else { o.label.clone() })
+        .label(if o.label.is_empty() {
+            o.placeholder.clone()
+        } else {
+            o.label.clone()
+        })
         .decorations(deco);
     if let Some(why) = &o.no_mentions {
         field = field.help(why.clone());
@@ -510,14 +561,23 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
             .on_input_change(move |s: &mut State, _tx: &mut Tx| changed(s, get_mut, &b1, &c1, no_m))
             .on_input_key(move |s: &mut State, ev: &KeyEvent, _tx: &mut Tx| {
                 let p = popup(s, get(s), &b2, &c2, no_m);
-                if let Some(f) = on_escape.as_ref().filter(|_| ev.key == Key::Escape && !p.open) {
+                if let Some(f) = on_escape
+                    .as_ref()
+                    .filter(|_| ev.key == Key::Escape && !p.open)
+                {
                     f(s);
                     return true;
                 }
                 let Some(t) = &p.token else { return false };
                 match menu_key(key_name(ev), ev.mods.shift, false, p.open, p.rows()) {
                     Some(MenuKey::Next | MenuKey::Prev) => {
-                        let dir = if menu_key(key_name(ev), ev.mods.shift, false, true, 1) == Some(MenuKey::Next) { 1 } else { -1 };
+                        let dir = if menu_key(key_name(ev), ev.mods.shift, false, true, 1)
+                            == Some(MenuKey::Next)
+                        {
+                            1
+                        } else {
+                            -1
+                        };
                         let i = move_highlight(p.highlight, p.rows(), dir);
                         get_mut(s).hi = (p.at.clone(), i);
                         true
@@ -540,29 +600,31 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
                 let (b, c) = (board.clone(), card.clone());
                 move |s: &mut State, _tx: &mut Tx| send(s, get_mut, &b, &c, no_m, &on_send)
             })
-            .on_input_paste(move |s: &mut State, content: &rune::ClipboardContent, _tx: &mut Tx| {
-                if hide_files {
-                    return false;
-                }
-                let has_files = content.image().is_some() || !content.files().is_empty();
-                if !has_files {
-                    return false;
-                }
-                if let Some(why) = &no_files {
-                    get_mut(s).refused = Some(why.clone());
-                    return true;
-                }
-                if !content.files().is_empty() {
-                    add_paths(s, get_mut, content.files().to_vec());
-                    return true;
-                }
-                if let Some(img) = content.image() {
-                    let c = get_mut(s);
-                    let id = c.file_id(1);
-                    c.add_files(vec![attach::pending("image.png", img.png().to_vec(), id)]);
-                }
-                true
-            });
+            .on_input_paste(
+                move |s: &mut State, content: &rune::ClipboardContent, _tx: &mut Tx| {
+                    if hide_files {
+                        return false;
+                    }
+                    let has_files = content.image().is_some() || !content.files().is_empty();
+                    if !has_files {
+                        return false;
+                    }
+                    if let Some(why) = &no_files {
+                        get_mut(s).refused = Some(why.clone());
+                        return true;
+                    }
+                    if !content.files().is_empty() {
+                        add_paths(s, get_mut, content.files().to_vec());
+                        return true;
+                    }
+                    if let Some(img) = content.image() {
+                        let c = get_mut(s);
+                        let id = c.file_id(1);
+                        c.add_files(vec![attach::pending("image.png", img.png().to_vec(), id)]);
+                    }
+                    true
+                },
+            );
     }
     let (min_rows, max_rows) = o.rows.unwrap_or((1, 8));
     let mut boxed = col()
@@ -573,34 +635,54 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
         .py(8.0)
         .radius(k.radius.md)
         .fill(k.c.bg_base)
-        .border(1.0, if c.edit.focused { k.c.border_focus } else { k.c.border_base })
+        .border(
+            1.0,
+            if c.edit.focused {
+                k.c.border_focus
+            } else {
+                k.c.border_base
+            },
+        )
         .child(rune::auto_grow(field, min_rows, max_rows));
     if o.disabled {
         boxed = boxed.layer_opacity(0.5);
     } else if !o.hide_files && o.no_files.is_none() {
-        boxed = boxed.on_drop_files(move |s: &mut State, paths: &[std::path::PathBuf], _tx: &mut Tx| {
-            add_paths(s, get_mut, paths.to_vec());
-        });
+        boxed = boxed.on_drop_files(
+            move |s: &mut State, paths: &[std::path::PathBuf], _tx: &mut Tx| {
+                add_paths(s, get_mut, paths.to_vec());
+            },
+        );
     }
 
-    let mut line = row().key(format!("{key}/row")).w_full().gap(4.0).items_end().child(boxed);
+    let mut line = row()
+        .key(format!("{key}/row"))
+        .w_full()
+        .gap(4.0)
+        .items_end()
+        .child(boxed);
     if !o.hide_files {
-        let pick_file: Arc<dyn Fn(&mut State, &mut Tx)> = Arc::new(move |_s: &mut State, tx: &mut Tx| {
-            let opts = FileDialogOptions {
-                title: "Add files".into(),
-                ..FileDialogOptions::default()
-            };
-            tx.open_file(opts, move |s: &mut State, r, _tx| match r {
-                Ok(Some(path)) => add_paths(s, get_mut, vec![path]),
-                Ok(None) => {}
-                Err(e) => get_mut(s).refused = Some(format!("Couldn't open the file picker: {e}")),
+        let pick_file: Arc<dyn Fn(&mut State, &mut Tx)> =
+            Arc::new(move |_s: &mut State, tx: &mut Tx| {
+                let opts = FileDialogOptions {
+                    title: "Add files".into(),
+                    ..FileDialogOptions::default()
+                };
+                tx.open_file(opts, move |s: &mut State, r, _tx| match r {
+                    Ok(Some(path)) => add_paths(s, get_mut, vec![path]),
+                    Ok(None) => {}
+                    Err(e) => {
+                        get_mut(s).refused = Some(format!("Couldn't open the file picker: {e}"))
+                    }
+                });
             });
-        });
         let full = c.files.len() >= MAX_UPLOAD_FILES || c.sending || o.disabled;
-        line = line.child(
-            el().pb(4.0)
-                .child(attach::attach_button(f, &format!("{key}/clip"), o.no_files.as_deref(), full, pick_file)),
-        );
+        line = line.child(el().pb(4.0).child(attach::attach_button(
+            f,
+            &format!("{key}/clip"),
+            o.no_files.as_deref(),
+            full,
+            pick_file,
+        )));
     }
     if let Some(mic) = &o.mic {
         line = line.child(el().pb(4.0).child(mic.clone()));
@@ -642,7 +724,8 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
     }
     out = out.child(line);
     let missed = !c.missed.is_empty()
-        && c.missed_at.is_some_and(|t| t.elapsed() < Duration::from_millis(mentions::MISSED_MS));
+        && c.missed_at
+            .is_some_and(|t| t.elapsed() < Duration::from_millis(mentions::MISSED_MS));
     if missed {
         out = out.child(
             text(c.missed.clone())
@@ -673,9 +756,22 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
 
 /// The @ or # list, anchored to the box.
 #[allow(clippy::too_many_arguments)]
-fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut: GetMut, p: &Popup, o: &ComposerOpts) {
+fn picker(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    box_key: &str,
+    get: Get,
+    get_mut: GetMut,
+    p: &Popup,
+    o: &ComposerOpts,
+) {
     let k = f.k;
-    let query = p.token.as_ref().map(|t| plain_line(&t.query)).unwrap_or_default();
+    let query = p
+        .token
+        .as_ref()
+        .map(|t| plain_line(&t.query))
+        .unwrap_or_default();
     let mut items = Vec::new();
     let empty;
     if p.for_cards {
@@ -687,21 +783,37 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
             items.push(
                 PopupItem::new(i.to_string(), c.title.clone())
                     .leading(
-                        row()
-                            .gap(6.0)
-                            .center_y()
-                            .child(ref_dot(f, &st))
-                            .child(text(c.r#ref.clone()).font(k.ty.small.mono()).color(k.c.text_muted)),
+                        row().gap(6.0).center_y().child(ref_dot(f, &st)).child(
+                            text(c.r#ref.clone())
+                                .font(k.ty.small.mono())
+                                .color(k.c.text_muted),
+                        ),
                     )
                     // The status sits at the end, whole (React's ml-auto
                     // span): a description would shrink to nothing first.
-                    .trailing(text(d).font(rune::tok::TextStyle::new(11.0, 400.0)).color(k.c.text_muted).max_lines(1)),
+                    .trailing(
+                        text(d)
+                            .font(rune::tok::TextStyle::new(11.0, 400.0))
+                            .color(k.c.text_muted)
+                            .max_lines(1),
+                    ),
             );
         }
-        empty = if query.is_empty() { "No cards".to_string() } else { format!("No card matches {query}") };
+        empty = if query.is_empty() {
+            "No cards".to_string()
+        } else {
+            format!("No card matches {query}")
+        };
     } else {
         for (i, r) in p.agents.iter().enumerate() {
-            items.push(agent_item(s, f, key, i, r, p.capped && !p.taken.contains(&r.who.key)));
+            items.push(agent_item(
+                s,
+                f,
+                key,
+                i,
+                r,
+                p.capped && !p.taken.contains(&r.who.key),
+            ));
         }
         empty = if query.is_empty() {
             "No agents to mention".to_string()
@@ -712,15 +824,41 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
     let board = o.board.clone();
     let card = o.card.clone();
     let at = p.at.clone();
-    let mut list = PopupList::new(format!("{key}-picker"), box_key.to_string())
-        .side(if o.popup_below { Side::Bottom } else { Side::Top })
+    // The list hangs from the caret line, so it stays by what is typed in
+    // a long line (React's caretRect anchor); from the box's edge until
+    // the caret has been drawn.
+    // Cx::caret matches one key of the focused field's path; the box's
+    // key has a slash, so each of its parts must be on that path.
+    let caret = box_key
+        .split('/')
+        .map(|seg| f.cx.caret(seg))
+        .reduce(|a, b| a.filter(|_| b.is_some()));
+    let anchor = match caret.flatten() {
+        Some([x, y, _, h]) => {
+            let a = format!("{key}-caret");
+            f.layer
+                .push(el().key(a.clone()).absolute(x, y).size(1.0, h.max(1.0)));
+            a
+        }
+        None => box_key.to_string(),
+    };
+    let mut list = PopupList::new(format!("{key}-picker"), anchor)
+        .side(if o.popup_below {
+            Side::Bottom
+        } else {
+            Side::Top
+        })
         .align(Align::Start)
         .offset(4.0)
         .width(320.0)
         .max_height(288.0)
         .items(items)
         .empty_message(empty)
-        .label(if p.for_cards { "Cards to mention" } else { "Agents to mention" })
+        .label(if p.for_cards {
+            "Cards to mention"
+        } else {
+            "Agents to mention"
+        })
         .on_active(move |s: &mut State, i| get_mut(s).hi = (at.clone(), i as i32))
         .on_choose(move |s: &mut State, id: &str, _tx: &mut Tx| {
             if let Ok(i) = id.parse::<usize>() {
@@ -736,15 +874,34 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
 /// One agent in the picker: its initial in its device colour, its name,
 /// device, status and repo, so two agents with one name tell apart. A gone
 /// one says so; past the cap a new one can't be picked.
-fn agent_item(s: &State, f: &mut Frame, key: &str, i: usize, r: &Candidate, disabled: bool) -> PopupItem {
+fn agent_item(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    i: usize,
+    r: &Candidate,
+    disabled: bool,
+) -> PopupItem {
     let who = &r.who;
     let gone = is_gone(who);
     // The agent's own face (MentionRow's Face, no hover card in a list).
-    let opts = crate::widgets::faces::FaceOpts { no_hover: true, no_dot: true, ..Default::default() };
+    let opts = crate::widgets::faces::FaceOpts {
+        no_hover: true,
+        no_dot: true,
+        ..Default::default()
+    };
     let face = crate::widgets::faces::face(s, f, &format!("{key}-pick-face-{i}"), who, opts);
-    let name = if r.card.is_empty() { plain_line(&who.name) } else { mentions::agent_on_label(&r.card) };
+    let name = if r.card.is_empty() {
+        plain_line(&who.name)
+    } else {
+        mentions::agent_on_label(&r.card)
+    };
     let place = if r.repo.is_empty() {
-        r.cwd.rsplit(['/', '\\']).find(|x| !x.is_empty()).unwrap_or("").to_string()
+        r.cwd
+            .rsplit(['/', '\\'])
+            .find(|x| !x.is_empty())
+            .unwrap_or("")
+            .to_string()
     } else {
         r.repo.clone()
     };
@@ -752,7 +909,11 @@ fn agent_item(s: &State, f: &mut Frame, key: &str, i: usize, r: &Candidate, disa
     let desc = if gone {
         "gone".to_string()
     } else if !r.card.is_empty() {
-        [plain_line(&who.name), status].into_iter().filter(|x| !x.is_empty()).collect::<Vec<_>>().join(" · ")
+        [plain_line(&who.name), status]
+            .into_iter()
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
     } else {
         let mut parts = Vec::new();
         if !who.where_.is_empty() {
@@ -765,7 +926,10 @@ fn agent_item(s: &State, f: &mut Frame, key: &str, i: usize, r: &Candidate, disa
         }
         parts.join(" · ")
     };
-    PopupItem::new(i.to_string(), name).leading(face).description(desc).disabled(disabled)
+    PopupItem::new(i.to_string(), name)
+        .leading(face)
+        .description(desc)
+        .disabled(disabled)
 }
 
 /// An agent's state in words (lib/agent-status.ts).

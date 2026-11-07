@@ -41,7 +41,11 @@ pub fn name_or(name: &str, fallback: &str) -> String {
 pub fn member_name(kind: &str, name: &str) -> String {
     name_or(
         name,
-        if kind == "person" { UNKNOWN_PERSON } else { UNKNOWN_AGENT },
+        if kind == "person" {
+            UNKNOWN_PERSON
+        } else {
+            UNKNOWN_AGENT
+        },
     )
 }
 

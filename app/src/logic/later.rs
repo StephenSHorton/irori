@@ -16,7 +16,9 @@ pub fn head_of(ch: &[OrderStep]) -> Option<&OrderStep> {
 
 /// The cards that hang under card `id` in a list, in order.
 pub fn follows_of<'a>(id: &str, order: Option<&'a CardOrder>) -> &'a [OrderStep] {
-    let Some(ch) = chain_of(order) else { return &[] };
+    let Some(ch) = chain_of(order) else {
+        return &[];
+    };
     if head_of(ch).map(|h| h.id.as_str()) != Some(id) {
         return &[];
     }
@@ -48,9 +50,16 @@ pub fn when_later(l: &CardLater) -> String {
 }
 
 /// The card before `id` in its order and the one after it.
-pub fn around<'a>(id: &str, order: Option<&'a CardOrder>) -> (Option<&'a OrderStep>, Option<&'a OrderStep>) {
-    let Some(ch) = chain_of(order) else { return (None, None) };
-    let Some(i) = ch.iter().position(|s| s.id == id) else { return (None, None) };
+pub fn around<'a>(
+    id: &str,
+    order: Option<&'a CardOrder>,
+) -> (Option<&'a OrderStep>, Option<&'a OrderStep>) {
+    let Some(ch) = chain_of(order) else {
+        return (None, None);
+    };
+    let Some(i) = ch.iter().position(|s| s.id == id) else {
+        return (None, None);
+    };
     (i.checked_sub(1).map(|j| &ch[j]), ch.get(i + 1))
 }
 
@@ -94,8 +103,14 @@ mod tests {
             when_later(&later("Not before the release", "on 1 Dec")),
             "Not yet: on 1 Dec. Not before the release."
         );
-        assert_eq!(when_later(&later("An idea.", "When you say")), "Not yet: when you say. An idea.");
-        assert_eq!(when_later(&later("", "when you say")), "Not yet: when you say.");
+        assert_eq!(
+            when_later(&later("An idea.", "When you say")),
+            "Not yet: when you say. An idea."
+        );
+        assert_eq!(
+            when_later(&later("", "when you say")),
+            "Not yet: when you say."
+        );
     }
 
     #[test]
