@@ -268,7 +268,7 @@ mod tests {
         let search = commands(&s, true).into_iter().find(|c| c.id == "search.cards").unwrap();
         assert_eq!(search.shortcut, Some("/"));
         (search.run)(&mut s);
-        assert!(s.status.focus_search);
+        assert!(s.board.query.focused);
         // Not on Notes, nor over a card.
         s.go(Route::Notes);
         assert!(!ids(&s).contains(&"search.cards".to_string()));
