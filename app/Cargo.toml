@@ -6,6 +6,16 @@ license.workspace = true
 publish.workspace = true
 description = "The irori binary: every CLI role and the Rune window (rune-ui spike, card #674: no Tauri, no webview)"
 
+# The window's packages as a library: the desktop binary below, and the
+# Android prototype (card #680), which links it as a cdylib that Rune's
+# Kotlin host (RuneActivity) loads: app/android, scripts/android-rune.sh.
+# Built as an rlib here so desktop builds never link a .so; the Android
+# script asks for the cdylib with `cargo rustc --crate-type cdylib`.
+[lib]
+name = "irori_app"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
 [[bin]]
 name = "irori"
 path = "src/main.rs"
@@ -29,11 +39,12 @@ tokio = { workspace = true }
 png = { workspace = true }
 libc = { workspace = true }
 # Rune (github.com/StephenSHorton/rune, the person's fork), pinned: Rune is
-# pre-release and asks for a rev of dev. Its ogg-audio (symphonia) and
+# pre-release and asks for a rev of dev. 064a411 is 5fd9bfa plus the Android
+# shell and its on-screen keyboard (#677, #679). Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
-rune = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
+rune = { git = "https://github.com/StephenSHorton/rune", rev = "064a41105be2345a9465d946dfcb2b96ec415824", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
 # Rune's components (dialogs, menus, sidebar, toasts, markdown), same rev.
-rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", features = ["markdown"] }
+rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "064a41105be2345a9465d946dfcb2b96ec415824", features = ["markdown"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # The text package (app/src/text): rich text's links (regex, and url for

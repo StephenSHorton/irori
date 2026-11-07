@@ -95,6 +95,8 @@ pub struct State {
     pub focused: bool,
     /// The tray, kept alive with the state (shell.rs).
     pub tray: Option<Box<dyn Any>>,
+    /// The Android prototype (card #680): the phone's frame, no sidebar.
+    pub phone: bool,
 
     // The packages' own state.
     pub home: crate::home::Model,
@@ -114,6 +116,7 @@ pub struct State {
     pub status: crate::status::Model,
     pub text: crate::text::Model,
     pub widgets: crate::widgets::Model,
+    pub phone_pair: crate::phone::Model,
 }
 
 impl State {
@@ -290,6 +293,7 @@ pub fn dispatch(s: &mut State, ev: &Event) {
     crate::status::on_event(s, ev);
     crate::text::on_event(s, ev);
     crate::widgets::on_event(s, ev);
+    crate::phone::on_event(s, ev);
 }
 
 /// The window: sidebar, then the page (or the open card), dialogs and
@@ -304,7 +308,9 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         layer: &mut layer,
         dark,
     };
-    let page = if s.text.demo {
+    let page = if crate::phone::needs_pairing(s) {
+        crate::phone::pair_view(s, &mut f)
+    } else if s.text.demo {
         crate::text::view(s, &mut f)
     } else if let Some(g) = crate::widgets::page(s, &mut f) {
         g
@@ -333,13 +339,24 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         .fill(k.c.bg_base)
         .child(crate::status::banner(s, &mut f))
         .child(page.grow(1.0).min_h(0.0).w_full());
-    let body = row()
-        .key("body")
-        .w_full()
-        .h_full()
-        .fill(k.c.page)
-        .child(sidebar::view(s, &mut f))
-        .child(main);
+    // The phone (card #680): the page alone, below the status bar.
+    let body = if s.phone {
+        col()
+            .key("body")
+            .w_full()
+            .h_full()
+            .pt(crate::phone::STATUS_BAR)
+            .fill(k.c.bg_base)
+            .child(main)
+    } else {
+        row()
+            .key("body")
+            .w_full()
+            .h_full()
+            .fill(k.c.page)
+            .child(sidebar::view(s, &mut f))
+            .child(main)
+    };
     if let Some(d) = &s.dialog {
         match d {
             Dialog::NewCard { .. } => crate::card::new_card_dialog(s, &mut f),

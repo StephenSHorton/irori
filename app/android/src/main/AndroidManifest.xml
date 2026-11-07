@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Irori's Rune phone prototype (card #680). RuneActivity is NativeActivity
+     plus a view that takes the on-screen keyboard (Rune's crates/rune/android).
+     It loads libirori_app.so and calls its android_main. INTERNET is the
+     mesh's: pairing and sync. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <application android:label="Irori (Rune)">
+    <activity android:name="dev.rune.RuneActivity" android:exported="true"
+        android:windowSoftInputMode="adjustNothing"
+        android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode|density">
+      <meta-data android:name="android.app.lib_name" android:value="irori_app"/>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
