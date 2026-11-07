@@ -135,6 +135,46 @@ impl Viewer {
     }
 }
 
+/// How a press starts a selection (suzuri-view's select ops).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectKind {
+    Cell,
+    Word,
+    Line,
+}
+
+/// A mouse event a view reports to an app that asked for the mouse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseKind {
+    Press,
+    Release,
+    /// Motion with a button held (Some) or none (None).
+    Motion(Option<u8>),
+    WheelUp,
+    WheelDown,
+}
+
+/// A mouse report at a visible cell; `button` 0 left, 1 middle, 2 right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mouse {
+    pub kind: MouseKind,
+    pub button: u8,
+    pub col: u16,
+    pub row: u16,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+}
+
+/// A link under the pointer: on visible row `row`, columns `x0..x1`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub url: String,
+    pub row: u16,
+    pub x0: u16,
+    pub x1: u16,
+}
+
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub(crate) const NOT_HERE: &str = "terminals are not on this device";
 #[cfg(not(any(target_os = "android", target_os = "ios")))]

@@ -8,7 +8,7 @@ use base64::Engine as _;
 use parking_lot::Mutex;
 use rsz_term::{Out, Pane, PaneConfig, Sink};
 
-use crate::{NO_TERM, OpenSpec, Scope, TermId, TermInfo, TermMsg, Viewer};
+use crate::{Link, Mouse, MouseKind, NO_TERM, OpenSpec, Scope, SelectKind, TermId, TermInfo, TermMsg, Viewer};
 
 /// Every terminal on this device.
 pub struct Terms {
@@ -186,6 +186,64 @@ impl Terms {
     /// The visible screen as text.
     pub fn screen_text(&self, id: TermId) -> Result<String, String> {
         Ok(self.pane(id)?.screen_text())
+    }
+
+    /// Starts a selection at a visible cell (`right`: the cell's right
+    /// half). The selected cells come back in frames (A_SELECTED).
+    pub fn select_start(&self, id: TermId, col: u16, row: u16, right: bool, kind: SelectKind) -> Result<(), String> {
+        let kind = match kind {
+            SelectKind::Cell => rsz_term::SelectKind::Cell,
+            SelectKind::Word => rsz_term::SelectKind::Word,
+            SelectKind::Line => rsz_term::SelectKind::Line,
+        };
+        self.pane(id)?.select_start(col, row, right, kind);
+        Ok(())
+    }
+
+    pub fn select_extend(&self, id: TermId, col: u16, row: u16, right: bool) -> Result<(), String> {
+        self.pane(id)?.select_extend(col, row, right);
+        Ok(())
+    }
+
+    pub fn select_clear(&self, id: TermId) -> Result<(), String> {
+        self.pane(id)?.select_clear();
+        Ok(())
+    }
+
+    /// The selected text, if any.
+    pub fn selection_text(&self, id: TermId) -> Result<Option<String>, String> {
+        Ok(self.pane(id)?.selection_text())
+    }
+
+    /// The link at a visible cell: an OSC 8 hyperlink or a URL in the text.
+    pub fn link_at(&self, id: TermId, col: u16, row: u16) -> Result<Option<Link>, String> {
+        Ok(self.pane(id)?.link_at(col, row).map(|l| Link {
+            url: l.url,
+            row: l.row,
+            x0: l.x0,
+            x1: l.x1,
+        }))
+    }
+
+    /// Reports a mouse event to the program when its modes ask for it;
+    /// false when they don't (the view handles it).
+    pub fn mouse(&self, id: TermId, m: Mouse) -> Result<bool, String> {
+        let kind = match m.kind {
+            MouseKind::Press => rsz_term::MouseKind::Press,
+            MouseKind::Release => rsz_term::MouseKind::Release,
+            MouseKind::Motion(b) => rsz_term::MouseKind::Motion(b),
+            MouseKind::WheelUp => rsz_term::MouseKind::WheelUp,
+            MouseKind::WheelDown => rsz_term::MouseKind::WheelDown,
+        };
+        Ok(self.pane(id)?.mouse(rsz_term::MouseEvent {
+            kind,
+            button: m.button,
+            col: m.col,
+            row: m.row,
+            shift: m.shift,
+            alt: m.alt,
+            ctrl: m.ctrl,
+        }))
     }
 
     /// Kills the shell and forgets the terminal.

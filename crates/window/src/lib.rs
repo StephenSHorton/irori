@@ -60,6 +60,7 @@ pub mod notes;
 pub mod notifications;
 pub mod ready;
 pub mod roster;
+pub mod rune_term;
 pub mod seams;
 pub mod settings;
 pub mod spawn;
