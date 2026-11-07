@@ -153,9 +153,9 @@ pub struct AgentNode {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Node {
     Group(GroupNode),
-    Card(CardNode),
+    Card(Box<CardNode>),
     Blocker(BlockerNode),
-    Agent(AgentNode),
+    Agent(Box<AgentNode>),
 }
 
 /// A node that isn't an area: its kind for sizes.
@@ -248,7 +248,7 @@ impl Graph {
 
     pub fn cards(&self) -> impl Iterator<Item = &CardNode> {
         self.nodes.iter().filter_map(|n| match n {
-            Node::Card(c) => Some(c),
+            Node::Card(c) => Some(&**c),
             _ => None,
         })
     }
@@ -277,8 +277,7 @@ pub fn repo_label(repo_key: &str) -> String {
         }
     }
     k.split(['/', '\\'])
-        .filter(|s| !s.is_empty())
-        .next_back()
+        .rfind(|s| !s.is_empty())
         .unwrap_or(k)
         .to_string()
 }
@@ -438,7 +437,7 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
             .as_ref()
             .filter(|p| ids.contains(p.id.as_str()))
             .map(|p| p.id.clone());
-        nodes.push(Node::Card(CardNode {
+        nodes.push(Node::Card(Box::new(CardNode {
             id: c.id.clone(),
             label: c.title.clone(),
             short: c.short.clone(),
@@ -461,7 +460,7 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
             done: is_done,
             faces: faces.clone(),
             card: (*c).clone(),
-        }));
+        })));
         if let Some(p) = &parent {
             edges.add(EdgeKind::Subtask, p, &c.id, "");
         }
@@ -627,7 +626,7 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
     let mut all = hubs;
     all.extend(areas);
     all.extend(nodes);
-    all.extend(agents.list.into_iter().map(Node::Agent));
+    all.extend(agents.list.into_iter().map(|a| Node::Agent(Box::new(a))));
     Graph { nodes: all, edges }
 }
 
@@ -804,7 +803,7 @@ pub fn auto_layout(g: &Graph) -> Layout {
         g.nodes
             .iter()
             .filter_map(|n| match n {
-                Node::Agent(a) if a.group == group => Some(a),
+                Node::Agent(a) if a.group == group => Some(&**a),
                 _ => None,
             })
             .collect()
@@ -1193,7 +1192,7 @@ mod tests {
         let spot_pt = pt(spot.x as f32, spot.y as f32);
         // Arranged within its hub: kept.
         let mut in_hub = a2.clone();
-        in_hub.pos = Some(spot.clone());
+        in_hub.pos = Some(spot);
         let g = graph(&[a1.clone(), in_hub.clone()]);
         assert_eq!(with_placed(&g, &auto_layout(&g)).pos[&in_hub.id], spot_pt);
         // Far off (an older layout, or dropped in the open): back in the grid.
