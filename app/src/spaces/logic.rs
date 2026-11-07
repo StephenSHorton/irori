@@ -11,38 +11,8 @@ use irori_window::freshness::LogFreshness;
 
 // ---- text -------------------------------------------------------------------
 
-/// lib/irori.ts `hidden`: C0/C1 controls, zero-width marks, bidi
-/// embeddings, overrides and isolates, and the BOM.
-fn hidden(c: char) -> bool {
-    let c = c as u32;
-    c < 0x20
-        || (0x7f..=0x9f).contains(&c)
-        || (0x200b..=0x200f).contains(&c)
-        || (0x202a..=0x202e).contains(&c)
-        || (0x2066..=0x2069).contains(&c)
-        || c == 0xfeff
-}
-
-/// Untrusted text made safe to show on one line: hidden characters become
-/// spaces and whitespace runs collapse.
-pub fn plain_line(s: &str) -> String {
-    let out: String = s.chars().map(|c| if hidden(c) { ' ' } else { c }).collect();
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// plain_line for multi-line text: newlines and tabs stay.
-pub fn plain_block(s: &str) -> String {
-    let s = s.replace("\r\n", "\n").replace('\r', "\n");
-    let out: String = s
-        .chars()
-        .map(|c| if c == '\n' || c == '\t' || !hidden(c) { c } else { ' ' })
-        .collect();
-    let mut t = out.trim().to_string();
-    while t.contains("\n\n\n\n") {
-        t = t.replace("\n\n\n\n", "\n\n\n");
-    }
-    t
-}
+// lib/irori.ts plainLine/plainBlock/relativeTime/shortRepo: one copy, logic::plain's.
+pub use crate::logic::plain::{plain_block, plain_line, relative_time, short_repo};
 
 /// Milliseconds since the epoch, now.
 pub fn now_ms() -> i64 {
@@ -50,44 +20,6 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
-}
-
-/// "just now", "42s ago", "5m ago", "3h ago", "2d ago" (then and now in
-/// ms since the epoch).
-pub fn relative_time(then_ms: i64, now_ms: i64) -> String {
-    let s = ((now_ms - then_ms) as f64 / 1000.0).round() as i64;
-    if s < 5 {
-        return "just now".into();
-    }
-    if s < 60 {
-        return format!("{s}s ago");
-    }
-    let m = s / 60;
-    if m < 60 {
-        return format!("{m}m ago");
-    }
-    let h = m / 60;
-    if h < 24 {
-        return format!("{h}h ago");
-    }
-    format!("{}d ago", h / 24)
-}
-
-/// A repo key in a row: "owner/name" for a hosted remote, "local repo
-/// 1a2b3c4" for a root-commit key.
-pub fn short_repo(key: &str) -> String {
-    if key.is_empty() {
-        return String::new();
-    }
-    if let Some(rest) = key.strip_prefix("root:") {
-        return format!("local repo {}", rest.chars().take(7).collect::<String>());
-    }
-    let parts: Vec<&str> = key.split('/').filter(|p| !p.is_empty()).collect();
-    if parts.len() > 2 {
-        parts[parts.len() - 2..].join("/")
-    } else {
-        key.to_string()
-    }
 }
 
 /// Seconds since the epoch from an RFC 3339 stamp ("2026-11-07T15:42:00Z",
