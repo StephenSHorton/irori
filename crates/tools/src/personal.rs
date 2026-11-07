@@ -84,7 +84,27 @@ impl Inner {
                     || (b.is_default() && v.eq_ignore_ascii_case(PERSONAL_DEFAULT))
             })
             .collect();
-        let shared: Vec<BoardInfo> = self.shared_hits(v);
+        let mut shared: Vec<BoardInfo> = self.shared_hits(v);
+        // A board's id is unique, so it wins over another board's tag:
+        // "personal" is the default's id even if some board took it as a
+        // tag, and a boardId given after "more than one" always settles it.
+        let mut mine = mine;
+        let by_id = |b: &BoardInfo| {
+            if b.space_board.is_empty() {
+                b.board_id == v
+            } else {
+                b.space_board == v
+            }
+        };
+        if mine.len() + shared.len() > 1 {
+            if let Some(one) = mine.iter().find(|b| b.board_id == v).copied() {
+                mine = vec![one];
+                shared.clear();
+            } else if let Some(one) = shared.iter().find(|b| by_id(b)).cloned() {
+                mine.clear();
+                shared = vec![one];
+            }
+        }
         match (mine.as_slice(), shared.as_slice()) {
             ([one], []) => Ok(Target::Personal((*one).clone())),
             ([], [_]) => Ok(Target::Shared),

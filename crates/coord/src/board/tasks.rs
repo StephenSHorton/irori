@@ -155,6 +155,7 @@ impl Fold {
         // A card made from a thread opened on a board goes on that board
         // when none is named (card #708); a subtask takes its parent's.
         if board.is_empty()
+            && !nt.board_named
             && ct.parent.is_empty()
             && let Some(th) = self.tasks.get(&ct.from)
             && !th.board.is_empty()

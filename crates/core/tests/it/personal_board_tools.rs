@@ -315,3 +315,59 @@ fn a_card_from_a_thread_on_a_board_goes_on_that_board() {
     assert_eq!(task(&r, "colors#2").from, th.id);
     assert_eq!(task(&r, "colors#2").board, m.board_id);
 }
+
+/// Naming Personal's default board wins over the thread the agent
+/// answered on another board, and "personal" names the default even when
+/// some board has the tag.
+#[test]
+fn a_named_default_board_wins_over_the_thread_and_a_tag() {
+    let r = Rig::new();
+    let space = r
+        .core
+        .create_board("Colors of War Decomp", "colors")
+        .unwrap();
+    r.core
+        .board_ask(
+            &space,
+            coord::NewAsk {
+                text: "what's left?".into(),
+                thread: true,
+                quiet: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    r.core
+        .move_space_to_personal(&space, &irori_core::MoveOpts::default())
+        .unwrap();
+    tool(
+        &r,
+        "board_comment",
+        serde_json::json!({"task_id": "colors#1", "text": "the menus"}),
+    );
+    let out = tool(
+        &r,
+        "board_create",
+        serde_json::json!({"title": "chores", "board": "personal"}),
+    );
+    assert!(out.contains("Created #1"), "{out}");
+    assert_eq!(
+        task(&r, "#1").from,
+        task(&r, "colors#1").id,
+        "still from it"
+    );
+
+    let odd = r.core.create_personal_board("Odd", "personal").unwrap();
+    let out = tool(
+        &r,
+        "board_create",
+        serde_json::json!({"title": "more chores", "board": "personal"}),
+    );
+    assert!(out.contains("Created #2"), "the default by its id: {out}");
+    let out = tool(
+        &r,
+        "board_create",
+        serde_json::json!({"title": "odd one", "board": odd}),
+    );
+    assert!(out.contains("Created personal#1"), "{out}");
+}

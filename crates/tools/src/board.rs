@@ -1075,6 +1075,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .as_ref()
                 .map(|pb| pb.coord_id().to_string())
                 .unwrap_or_default(),
+            board_named: placed.is_some(),
             ..NewTask::default()
         },
     ) {
@@ -2672,11 +2673,31 @@ pub(crate) fn board_edit(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     if let Some(pb) = &to_board {
         let was = co.get_task(&id).map(|x| x.short_ref()).unwrap_or_default();
+        // Those of the family not there yet: only they move (a family
+        // that came apart comes together).
+        let stray = co
+            .get_task(&id)
+            .map(|p| {
+                std::iter::once(p.board.clone())
+                    .chain(
+                        p.subtasks
+                            .iter()
+                            .filter_map(|k| co.get_task(k).map(|k| k.board)),
+                    )
+                    .filter(|b| b != pb.coord_id())
+                    .count()
+            })
+            .unwrap_or_default();
         match co.move_task(&as_[0], &id, pb.coord_id()) {
             Ok(nt) => {
                 let kids = nt.subtasks.len();
-                done.push(if was == nt.short_ref() {
+                done.push(if stray == 0 {
                     format!("it was on {} already", pb.label())
+                } else if was == nt.short_ref() {
+                    format!(
+                        "it was on {} already; {stray} of its subtasks moved there too",
+                        pb.label()
+                    )
                 } else {
                     format!(
                         "it moved to {} as {}{} (its old ref {was} still finds it)",

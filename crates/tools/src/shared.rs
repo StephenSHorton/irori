@@ -526,6 +526,7 @@ pub(crate) fn create_on_board(
         },
         blocked_by: waits.map(|w| w.1),
         board: b.space_board.clone(),
+        board_named: true,
         after,
         later: later.map(|l| l.0),
         ..NewTask::default()

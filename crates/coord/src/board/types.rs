@@ -739,6 +739,10 @@ pub struct NewTask {
     /// On a space (card #392): another board in it, by id; empty for the
     /// space's own board.
     pub board: String,
+    /// The caller named the board, even the space's own (stored as ""):
+    /// the board of the thread it comes from doesn't override it (card
+    /// #708).
+    pub board_named: bool,
     /// The work/personal side (card #494). Empty: a subtask's parent's,
     /// else the side of this device (the first it runs), else none.
     /// Ignored on a shared board.
