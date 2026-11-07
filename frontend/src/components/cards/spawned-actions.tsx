@@ -6,7 +6,7 @@
 // Attach and Logs work on the device the agent runs on; elsewhere the row
 // says where, and End asks that device to end it (part 11).
 
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   ScrollTextIcon,
   SquareIcon,
@@ -187,11 +187,18 @@ export function SpawnedActions({
 }
 
 // LogsDialog is Logs: `claude logs` for the agent, read once on open, with
-// Refresh.
+// Refresh. The Core replays it through the terminal engine (card #741), so
+// it is the agent's screen as text: it keeps its columns (no wrapping) and
+// opens at the bottom, where the newest lines are.
 function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
   const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [tick, setTick] = useState(0)
+  const pre = useRef<HTMLPreElement>(null)
+  useLayoutEffect(() => {
+    const el = pre.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [text])
   useEffect(() => {
     let live = true
     agentLogs(who.key).then(
@@ -204,14 +211,17 @@ function LogsDialog({ who, onClose }: { who: AgentRef; onClose: () => void }) {
   }, [who.key, tick])
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Logs · {displayName(who)}</DialogTitle>
           <DialogDescription>
             Its terminal output so far, read only. Attach to talk to it.
           </DialogDescription>
         </DialogHeader>
-        <pre className="max-h-[60vh] min-h-32 overflow-auto rounded-md border border-border bg-background/60 p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-2">
+        <pre
+          ref={pre}
+          className="max-h-[60vh] min-h-32 overflow-auto rounded-md border border-border bg-background/60 p-3 font-mono text-[12px] leading-snug whitespace-pre text-ink-2"
+        >
           {error ? (
             <span className="text-destructive">{error}</span>
           ) : text === null ? (
