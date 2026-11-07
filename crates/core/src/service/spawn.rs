@@ -3335,7 +3335,7 @@ impl Services {
 /// `device` doesn't trust `folder` (card #699).
 pub fn not_trusted_line(device: &str, folder: &str) -> String {
     format!(
-        "Irori couldn't start an agent for this card on {device}: Claude Code there doesn't trust {folder} yet. Use Trust and start on the card, or run `claude` in that folder once and accept its prompt; once it's trusted, Irori starts the agent at its next look."
+        "Irori couldn't start an agent for this card on {device}: Claude Code there doesn't trust {folder} itself (a trusted parent folder doesn't count). Use Trust and start on the card, or Trust in Settings › Agents; once it's trusted, Irori starts the agent at its next look."
     )
 }
 
