@@ -21,7 +21,7 @@ pub fn synthetic_frame(width: u32, height: u32, n: u64, at: Duration) -> Result<
         let text = line % 18 < 12;
         for (x, px) in row.iter_mut().enumerate() {
             let word = ((x / 9) * 31 + line / 18 * 17) % 11 < 7;
-            *px = if text && word && (x + line) % 3 != 0 {
+            *px = if text && word && !(x + line).is_multiple_of(3) {
                 40
             } else {
                 230

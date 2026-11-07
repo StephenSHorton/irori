@@ -43,11 +43,18 @@ fn keyframes_on_request_at_1080p() {
         .filter(|c| c.keyframe)
         .map(|c| c.timestamp_us / 100_000)
         .collect();
-    assert_eq!(keys, vec![0, 15, 30], "keyframes at start and on request only");
+    assert_eq!(
+        keys,
+        vec![0, 15, 30],
+        "keyframes at start and on request only"
+    );
     // Every keyframe carries its parameter sets, so a viewer can start there.
     for c in chunks.iter().filter(|c| c.keyframe) {
         let types: Vec<u8> = nal_types(&c.data);
-        assert!(types.contains(&7) && types.contains(&8), "SPS/PPS in {types:?}");
+        assert!(
+            types.contains(&7) && types.contains(&8),
+            "SPS/PPS in {types:?}"
+        );
     }
 }
 

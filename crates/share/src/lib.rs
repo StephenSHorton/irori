@@ -131,6 +131,31 @@ pub async fn windows() -> Result<Vec<Window>> {
         .collect())
 }
 
+/// A display that can be shared.
+#[derive(Clone, Debug)]
+pub struct Display {
+    /// Pass to [`Source::Display`].
+    pub id: String,
+    pub name: String,
+    /// Points on the Mac, pixels on the PC.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The displays attached now. Needs the grant on the Mac, like [`windows`].
+pub async fn displays() -> Result<Vec<Display>> {
+    let list = moq_video::capture::displays().await?;
+    Ok(list
+        .into_iter()
+        .map(|d| Display {
+            id: d.id,
+            name: d.name,
+            width: d.width,
+            height: d.height,
+        })
+        .collect())
+}
+
 /// A running capture of one [`Source`], scaled to the settings' size.
 pub struct Capture {
     stream: moq_video::capture::Stream,
