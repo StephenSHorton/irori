@@ -41,7 +41,8 @@ pub const NO_TARGET: &str = "no cargo target";
 pub const TARGET_LINK: &str = "target is a link";
 
 /// Why a `target/` holding a repo, a worktree or a link out of the tree is
-/// kept: that is work, not build output.
+/// kept: that is work, not build output. A repo a build script copied into
+/// its own `OUT_DIR` is cargo's ([`crate::treeclean::in_build_out`]).
 pub const HOLDS_REPO: &str = "target holds a repo, a worktree or a link";
 
 /// When the sweep last listed the cards, when it last cleared, the

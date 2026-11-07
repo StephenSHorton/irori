@@ -1462,6 +1462,38 @@ fn a_repo_cloned_into_target_keeps_the_tree_and_its_build() {
     assert_eq!(judge(&w), Verdict::Removed);
 }
 
+/// A build script's `OUT_DIR` is cargo's: whisper-rs-sys copies
+/// whisper.cpp there with its `.git`, and that must not keep every tree
+/// that built voice. The same `.git` anywhere else in `target/` still
+/// does (above).
+#[test]
+fn a_repo_a_build_script_copied_into_its_out_dir_is_build_output() {
+    let (_d, _main, w) = setup("build-out-repo");
+    git_target(&w);
+    for out in [
+        "target/debug/build/whisper-rs-sys-8b97011b/out/whisper.cpp",
+        "target/x86_64-pc-windows-msvc/release/build/foo-1a2b/out",
+    ] {
+        let vendored = w.join(out);
+        fs::create_dir_all(&vendored).unwrap();
+        git(&vendored, &["init", "-q", "-b", "main"]);
+    }
+    assert!(irori_core::treeclean::in_build_out(Path::new(
+        "debug/build/x-1/out/a/.git"
+    )));
+    assert!(!irori_core::treeclean::in_build_out(Path::new(
+        "tmp/build/x/out/.git"
+    )));
+    assert!(!irori_core::treeclean::in_build_out(Path::new(
+        "tmp/upstream/.git"
+    )));
+    assert!(!irori_core::treeclean::in_build_out(Path::new(
+        "debug/build/x-1/.git"
+    )));
+    assert_eq!(judge(&w), Verdict::Removed);
+    assert!(!w.exists());
+}
+
 /// A checkout made with `--separate-git-dir` has a `.git` file but is a
 /// main checkout all the same; a linked worktree isn't.
 #[test]
