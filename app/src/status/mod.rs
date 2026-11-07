@@ -31,7 +31,7 @@ use irori_window::update::{EVENT_UPDATE_STATUS, UpdateStatus};
 use irori_window::usage::{EVENT_USAGE_CHANGED, UsageLimits};
 use rune::tok::TextStyle;
 use rune::{Align, Color, El, col, el, icon, oklch, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Spinner, Switch, popover};
+use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Spinner, popover};
 
 use crate::ui::{Event, Frame, State, icons, theme};
 use sparkline::{Max, sparkline};
@@ -707,23 +707,23 @@ pub fn update_section(s: &State, f: &mut Frame) -> El {
         .w_full()
         .gap(4.0)
         .pt(12.0)
-        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_base)
         .child(text("Updates").font(k.ty.ui_medium).color(k.c.text_strong))
         .child(status_line(s, f));
     if let Some(on) = s.status.keep {
-        c = c.child(
-            col().pt(8.0).child(
-                Switch::new(on)
-                    .label("Keep this device up to date")
-                    .description(
-                        "Checks every few hours and restarts Irori when no agent is working. \
-                         If that hasn't happened within a day, it asks you.",
-                    )
-                    .on_toggle(move |s: &mut State| set_keep(s, !on))
-                    .build(k)
-                    .key("status-keep"),
+        // Laid out as Settings' other switches: words left, switch right.
+        c = c.child(col().pt(8.0).child(crate::settings::toggle(
+            f,
+            "status-keep",
+            "Keep this device up to date",
+            Some(
+                "Checks every few hours and restarts Irori when no agent is working. \
+                 If that hasn't happened within a day, it asks you.",
             ),
-        );
+            on,
+            false,
+            |s, v| set_keep(s, v),
+        )));
         if let Some(e) = &s.status.keep_error {
             c = c.child(text(e.clone()).font(small(f)).color(theme::status::failed()).wrap());
         }
