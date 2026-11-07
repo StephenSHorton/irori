@@ -69,6 +69,7 @@ unchanged.
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
+| `/?term&open=board:task:sample-card-1` | the card page's Terminal section (card #730) with one blank stand-in shell (no shell runs, nothing is drawn): the box at its remembered height and the grip under it; drag it or focus it and press the arrow keys (Shift: bigger steps, Home and End: the ends, double-click: the default) |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=board:task:sample-card-12` | Ready for you: an agent says it's done, its proof (screenshot, then how it was checked) at the top; Done closes it, Not done sends your words back (cards #112, #140) |
