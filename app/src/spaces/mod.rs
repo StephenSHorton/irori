@@ -17,12 +17,10 @@
 
 // Home, Talk and the board package filter by the pick with these
 // (cardInSpace, convInSpace, threadsSpace, presenceLine).
-#[allow(dead_code)]
 pub mod logic;
 mod board;
 mod page;
 mod parts;
-#[allow(dead_code)]
 mod switcher;
 mod ui;
 
@@ -39,14 +37,16 @@ use irori_window::invites::{EVENT_INVITE_CHANGED, InviteStatus};
 use crate::ui::{Event, Frame, Route, State};
 
 pub use board::board_page;
+pub use parts::invite_panel;
 pub use logic::{ALL_SPACES, PERSONAL};
-// The sidebar mounts the switcher (ui/sidebar.rs, at merge).
-#[allow(unused_imports)]
-pub use switcher::{switcher, switcher_folded};
+pub use switcher::switcher;
 
 /// The prefs key of the space pick (the React app's localStorage
 /// `irori.space`).
 pub const SPACE_PREF: &str = "spaces.pick";
+
+/// Sent (to every package's `on_event`) when the switcher picks a space.
+pub const EVENT_SPACE_PICKED: &str = "app:space-picked";
 
 /// New space's two tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -149,7 +149,6 @@ pub struct Model {
     /// Each shared space's agents switch (the "agents are off" line).
     pub agents: HashMap<String, AgentsSettings>,
     pub agents_error: Option<String>,
-    #[allow(dead_code)]
     pub switcher_open: bool,
     ticker: bool,
 }
@@ -164,14 +163,18 @@ pub fn current(s: &State) -> String {
     logic::known(&raw, &s.data.spaces)
 }
 
-/// Picks the space Home, Talk and Spaces show.
-#[allow(dead_code)]
+/// Picks the space Home, Talk and Spaces show (kept in the prefs).
 pub fn pick(s: &mut State, id: &str) {
     if id == ALL_SPACES {
         s.prefs.remove(SPACE_PREF);
     } else {
         s.prefs.set(SPACE_PREF, id);
     }
+    let ev = Event {
+        name: EVENT_SPACE_PICKED.into(),
+        payload: serde_json::Value::String(id.to_string()),
+    };
+    crate::ui::dispatch(s, &ev);
 }
 
 /// Opens New space over the Spaces page (the palette's "New space").

@@ -42,7 +42,7 @@ libc = { workspace = true }
 # pre-release and asks for a rev of dev. 064a411 is 5fd9bfa plus the Android
 # shell and its on-screen keyboard (#677, #679). Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
-rune = { git = "https://github.com/StephenSHorton/rune", rev = "064a41105be2345a9465d946dfcb2b96ec415824", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
+rune = { git = "https://github.com/StephenSHorton/rune", rev = "064a41105be2345a9465d946dfcb2b96ec415824", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "native-file-dialog", "svg"] }
 # Rune's components (dialogs, menus, sidebar, toasts, markdown), same rev.
 rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "064a41105be2345a9465d946dfcb2b96ec415824", features = ["markdown"] }
 serde = { workspace = true }

@@ -7,7 +7,6 @@
 //! [`needs_row`] builds one row and [`blocker_answer`] one item's answers,
 //! for the other pages that list them (Notifications).
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use inbox::{Delivery, hold};
@@ -16,7 +15,7 @@ use irori_window::cards::{AgentRef, CardBlocker, CardRef, CardSummary, GoneWait,
 use rune::{El, KeyEvent, Key, TextEdit, Tx, col, el, row, text, text_input};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
-use super::held::{Words, allow_lifts, hold_text, name_of, repo_name, started_line};
+use crate::inbox::words::{Names, Repos, allow_lifts, hold_text, started_line};
 use super::pure::{answer_failed, answer_key, answer_said, by_recommendation, trust_from_reason, waits_on_you};
 use crate::logic::agent_status::ms;
 use crate::logic::card_status::card_ref;
@@ -866,9 +865,22 @@ fn sender(d: &Delivery) -> String {
     if n.is_empty() { "an agent".into() } else { n }
 }
 
-/// The names the held rows use: the roster's, else the messages'.
-fn names(s: &State) -> HashMap<String, String> {
-    super::held::name_lookup(&s.data.agents, &s.home.held)
+/// The names the held rows use: the roster's, else the messages'
+/// (lib/talk.ts nameLookup, the inbox package's copy).
+fn names(s: &State) -> Names {
+    let mut n = Names::default();
+    for a in &s.data.agents {
+        n.add(&a.card.key, &a.card.name);
+    }
+    for d in &s.home.held {
+        n.add(&d.message.from.key, &d.message.from.name);
+    }
+    n
+}
+
+/// Repo keys as this device's checkouts name them.
+fn repos(s: &State) -> Repos {
+    Repos(s.home.repo_names.iter().map(|r| (r.repo_key.clone(), r.name.clone())).collect())
 }
 
 /// A held message that asks the person (card #488): their own message no
@@ -877,8 +889,9 @@ fn names(s: &State) -> HashMap<String, String> {
 fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
     let k = f.k;
     let names = names(s);
-    let name = |key: &str| name_of(&names, key);
-    let repo = |key: &str| repo_name(&s.home.repo_names, key);
+    let repos = repos(s);
+    let name = |key: &str| names.name(key);
+    let repo = |key: &str| repos.name(key);
     let unowned = d.hold == hold::UNOWNED && d.to.is_empty();
     let mine = d.message.from.key.starts_with("user:");
     let where_repo = {
@@ -893,7 +906,7 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
     };
     let from = if mine { "You".to_string() } else { sender(d) };
     let where_ = text(format!("{from} → {to}")).font(small(f)).color(k.c.text_muted).max_lines(1);
-    let title = hold_text(d, &Words { name: &name, repo: &repo });
+    let title = hold_text(d, &names, &repos);
     let mut kids = vec![
         text(d.message.text.clone())
             .font(k.ty.ui)
@@ -1066,4 +1079,75 @@ fn release_all(s: &mut State, ids: Vec<String>) {
             };
         },
     );
+}
+
+/// The held rows' words as Home says them (these were home::held's cases
+/// before it was folded into the inbox package's copy).
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use inbox::st;
+    use irori_window::ts::StartedAgent;
+
+    fn d(f: impl FnOnce(&mut Delivery)) -> Delivery {
+        let mut d = Delivery {
+            state: st::HELD.into(),
+            ..Delivery::default()
+        };
+        d.message.from.key = "dev/otter".into();
+        d.message.from.name = "otter".into();
+        d.to = "dev/heron".into();
+        f(&mut d);
+        d
+    }
+
+    #[test]
+    fn holds_name_who_is_involved() {
+        let mut names = Names::default();
+        names.add("dev/heron", "heron");
+        let repos = Repos::default();
+        let w = |x: &Delivery| hold_text(x, &names, &repos);
+        let loop_ = d(|d| {
+            d.hold = hold::HOP_LIMIT.into();
+            d.message.hop = 8;
+        });
+        assert_eq!(w(&loop_), "otter and heron have messaged each other 8 times without stopping.");
+        assert_eq!(w(&d(|d| d.hold = hold::HOP_LIMIT.into())), "otter and heron kept messaging each other without stopping.");
+        assert_eq!(w(&d(|d| d.hold = hold::BLOCKED.into())), "otter is on your block list.");
+        let mine = d(|d| {
+            d.hold = hold::UNOWNED.into();
+            d.message.from.key = "user:me".into();
+            d.repo_key = "github.com/acme/example-app.git".into();
+            d.to = String::new();
+        });
+        assert_eq!(w(&mine), "No agent is working in example-app to take your message.");
+        assert_eq!(w(&d(|d| d.hold = hold::UNOWNED.into())), "No agent is working in its repo to take it yet.");
+        assert_eq!(
+            w(&d(|d| d.held_for = "off_side".into())),
+            "Irori picked heron for a card on a side heron's device doesn't run. Release delivers it."
+        );
+        assert_eq!(w(&d(|d| d.hold = "weird".into())), "Irori held it.");
+        assert_eq!(w(&d(|_| {})), "");
+        // A checkout's name over the key's last part.
+        let repos = Repos([("root:abc".to_string(), "irori".to_string())].into_iter().collect());
+        assert_eq!(repos.name("root:abc"), "irori");
+        assert_eq!(repos.name("root:abcdef12"), "local repo abcdef1");
+    }
+
+    #[test]
+    fn started_lines_and_allow() {
+        let s = |started, offered| StartedAgent {
+            card_ref: "#12".into(),
+            repo: "irori".into(),
+            started,
+            offered,
+        };
+        assert_eq!(started_line(&s(false, true)), "Your message is card #12 in irori, handed to a free agent.");
+        assert_eq!(started_line(&s(false, false)), "Your message is card #12 in irori; it waits for a free agent.");
+        assert!(allow_lifts(&d(|d| d.hold = hold::NOT_ALLOWED.into())));
+        assert!(!allow_lifts(&d(|d| {
+            d.hold = hold::NOT_ALLOWED.into();
+            d.state = st::DISMISSED.into();
+        })));
+    }
 }

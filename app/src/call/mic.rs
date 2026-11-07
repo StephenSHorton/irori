@@ -350,7 +350,8 @@ pub fn mic_button(s: &State, f: &mut Frame, key: &str, target: Target) -> El {
 }
 
 fn note_body(s: &State, k: &Kit, key: &str, target: Target, note: Option<Note>, bytes: u64) -> El {
-    let c = col().key("call-mic-note").w(320.0).gap(8.0);
+    // The popover is at most 320 wide, its 12 inset inside that.
+    let c = col().key("call-mic-note").w(296.0).gap(8.0);
     if let Some((done, total)) = s.call.download {
         let pct = if total > 0 { (done as f32 / total as f32).min(1.0) } else { 0.0 };
         return c
@@ -442,7 +443,6 @@ fn note_body(s: &State, k: &Kit, key: &str, target: Target, note: Option<Note>, 
     }
 }
 
-#[allow(dead_code)] // for the shell's keys and Settings (P8)
 /// The dictation shortcut (card #634): Cmd+D on a Mac, Ctrl+D elsewhere,
 /// toggles the one mic that answers (the one listening; else the focused
 /// box's; else the newest drawn). Call it from the window's key handler;
@@ -481,7 +481,6 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
     true
 }
 
-#[allow(dead_code)] // for the shell's keys and Settings (P8)
 /// VoiceNote: Settings' word on voice input: where the audio goes and
 /// whether the speech model is downloaded. Nothing where there's no
 /// engine.
@@ -516,7 +515,6 @@ pub fn voice_note(s: &State, f: &mut Frame) -> Option<El> {
     Some(c)
 }
 
-#[allow(dead_code)] // for the shell's keys and Settings (P8)
 /// Settings opened: read the voice status afresh.
 pub fn refresh_voice(s: &mut State) {
     load_status(s, true);

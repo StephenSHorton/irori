@@ -128,14 +128,9 @@ pub struct Model {
     /// The newest post this window marked read.
     pub read_to: String,
 
-    // A thread.
-    pub reply_box: Composer,
-    pub reply_error: String,
-    /// Who heard the last reply.
-    pub reply_heard: String,
+    // A thread (its reply box is the card package's).
     pub thread_busy: bool,
     pub thread_act_error: String,
-    pub show_all: bool,
 
     // Start a thread.
     pub ask_box: Composer,
@@ -148,12 +143,6 @@ pub(crate) fn post_box(s: &State) -> &Composer {
 }
 pub(crate) fn post_box_mut(s: &mut State) -> &mut Composer {
     &mut s.talk.post_box
-}
-pub(crate) fn reply_box(s: &State) -> &Composer {
-    &s.talk.reply_box
-}
-pub(crate) fn reply_box_mut(s: &mut State) -> &mut Composer {
-    &mut s.talk.reply_box
 }
 pub(crate) fn ask_box(s: &State) -> &Composer {
     &s.talk.ask_box
@@ -218,10 +207,8 @@ pub fn sync(s: &mut State) {
         s.talk.thread_id = id.clone();
         s.talk.thread = None;
         s.talk.thread_error = None;
-        s.talk.reply_error.clear();
         s.talk.thread_act_error.clear();
-        s.talk.show_all = false;
-        crate::text::open_draft(s, reply_box_mut, &format!("talk/thread/{id}"));
+        crate::card::open_reply(s, &id);
         load_thread(s);
     } else if is_conv && s.talk.posts.conv != id {
         s.talk.posts = Posts {
@@ -235,6 +222,9 @@ pub fn sync(s: &mut State) {
         s.talk.leave_error.clear();
         s.talk.asking = None;
         s.talk.menu = None;
+        // An ended huddle's transcript belongs to the conversation it was
+        // opened on.
+        crate::call::close_transcript(s);
         crate::text::open_draft(s, post_box_mut, &format!("talk/{id}"));
         load_posts(s);
     }

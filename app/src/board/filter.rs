@@ -9,7 +9,6 @@ use irori_window::cards::CardSummary;
 
 use crate::logic::cards::{over, state};
 use crate::logic::owners::owned_by;
-use crate::logic::plain::relative_time;
 use crate::logic::search::card_matches;
 use crate::logic::spaces::boards_of;
 
@@ -304,34 +303,6 @@ impl Outcome {
 /// The closed cards that ended as `o`.
 pub fn of_outcome<'a>(cs: &[&'a CardSummary], o: Outcome) -> Vec<&'a CardSummary> {
     cs.iter().copied().filter(|c| o == Outcome::Any || c.state == o.state()).collect()
-}
-
-/// A member's presence on a board (lib/boards.ts presenceLine, card
-/// #371): "online · 2 working", "seen 5m ago", "offline · seen 2h ago".
-pub fn presence_line(m: &SummaryMember, now_ms: i64) -> String {
-    let at = crate::logic::agent_status::ms(&m.last_seen);
-    let ago = |t: i64| relative_time(t, now_ms);
-    if m.presence != "online" && m.presence != "recent" {
-        return match at {
-            Some(t) => format!("offline · seen {}", ago(t)),
-            None => "offline".into(),
-        };
-    }
-    let head = if m.presence == "online" {
-        "online".to_string()
-    } else {
-        match at {
-            Some(t) => format!("seen {}", ago(t)),
-            None => "seen recently".into(),
-        }
-    };
-    if m.working > 0 {
-        format!("{head} · {} working", m.working)
-    } else if m.free > 0 {
-        head
-    } else {
-        format!("{head} · no agents")
-    }
 }
 
 /// A space's cards on one of its boards: a card with no inner board (or
@@ -638,10 +609,11 @@ mod tests {
         assert_eq!(ids(&got), ["p1", "p2", "kid", "dec", "new", "old"]);
     }
 
-    // boards.test.ts presenceLine
+    // boards.test.ts presenceLine (the spaces package's copy)
 
     #[test]
     fn presence_line_says_how_a_member_stands() {
+        use crate::spaces::logic::presence_line;
         let now = 1_800_000_000_000;
         let m = |presence: &str, seen_ago: Option<i64>, working: i64, free: i64| SummaryMember {
             person_id: "p".into(),

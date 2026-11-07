@@ -19,20 +19,14 @@
 //!   the `listed` ids (Needs you's) on All; `plain` is a space's page (no
 //!   filters, only `empty` and the threads). Returns a page that fills
 //!   its parent (the list scrolls by itself).
-//! - [`cards_list`]`(s, f, &cards)`: a plain scrolling grid of some cards
-//!   (pinned first, Not yet folded at the end).
-//! - [`card`]`(c, f)`: a simple stateless tile; [`grid::tile`] is the full
-//!   one (faces, holder line, chips) and needs the state.
-//! - [`canvas_cards`]`(s)`: the cards List would show on the current page
-//!   under the current filter and search: the canvas package draws these.
 //! - [`order::when_line`] and [`order::not_yet_button`]: a card page's
 //!   "After #12, then #14" line and its Not yet popover (card #570).
 //! - [`clear::clear_done`]: Clear done by age, also for Settings >
 //!   Maintenance (`compact: false`).
 //!
-//! The page for `Route::Board` is [`view`]: Personal's lists, a space's
-//! board, or a space's page (`board: None`, plain, with its boards as
-//! chips until the spaces package draws SpaceBoards there).
+//! Home (home::view) and the `Route::Board` pages (spaces::board_page)
+//! both draw [`board_view`]. List or Canvas is the canvas package's pick
+//! (`canvas::wants_canvas`); its switch sits beside the search box.
 
 pub mod bars;
 pub mod clear;
@@ -52,20 +46,10 @@ use rune::{El, KeyEvent, ScrollSpec, TextEdit, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
 use crate::logic::cards::device_chips;
-use crate::logic::spaces::{PERSONAL, boards_of, cards_on_personal};
-use crate::ui::{Dialog, Event, Frame, Route, State, icons};
+use crate::logic::spaces::{PERSONAL, boards_of};
+use crate::ui::{Event, Frame, Route, State};
 
 pub use filter::{Filter, SCOPE_OWN};
-
-/// List or Canvas (canvas/switch.tsx), kept in the prefs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum View {
-    #[default]
-    List,
-    Canvas,
-}
-
-pub const VIEW_PREF: &str = "board.view";
 
 #[derive(Default)]
 pub struct Model {
@@ -75,7 +59,6 @@ pub struct Model {
     pub home_filter: Filter,
     /// The search box's words (card #171), shared by every page.
     pub query: TextEdit,
-    pub view: View,
     /// The card last opened, marked on the way back.
     pub selected: String,
     pub done: done::Model,
@@ -139,212 +122,11 @@ pub fn set_filter(s: &mut State, home: bool, f: Filter, scope: &str) {
     }
 }
 
-/// The cards a page shows under its filter and search (before Home's
-/// listed cards are left out), and the ids shown only as context.
-#[allow(dead_code)] // the canvas and spaces packages' API
-fn shown_all<'a>(s: &State, scope: &str, cards: &[&'a CardSummary], home: bool, plain: bool) -> (Vec<&'a CardSummary>, HashSet<String>, Filter) {
-    let mine = filter::board_order(&cards.iter().copied().filter(|c| filter::in_scope(c, scope)).collect::<Vec<_>>());
-    let chips: Vec<String> = device_chips(mine.iter().copied()).into_iter().map(|d| d.id).collect();
-    let row_boards = (scope == SCOPE_OWN).then(|| filter::home_boards(&mine, &s.data.spaces));
-    let members = members_of(s, scope);
-    let picked = if plain { Filter::All } else { filter_of(s, home) };
-    let active = filter::active_filter(&picked, &chips, row_boards.as_deref(), members);
-    let (shown, context) = filter::shown_cards(&mine, &active, &s.board.query.text);
-    (shown, context, active)
-}
-
 fn members_of<'a>(s: &'a State, scope: &str) -> Option<&'a [irori_window::boards::SummaryMember]> {
     if scope == SCOPE_OWN {
         return None;
     }
     s.data.spaces.iter().find(|b| b.board_id == scope).map(|b| b.members.as_slice())
-}
-
-/// What the Board route shows: its scope, its cards, whether it is a
-/// space's plain page.
-struct RoutePage<'a> {
-    scope: String,
-    cards: Vec<&'a CardSummary>,
-    plain: bool,
-    threads: Option<String>,
-    title: String,
-    space: String,
-    board: Option<String>,
-}
-
-fn route_page(s: &State) -> RoutePage<'_> {
-    let (space, board) = match &s.nav.route {
-        Route::Board { space, board } => (space.clone(), board.clone()),
-        _ => {
-            return RoutePage {
-                scope: SCOPE_OWN.into(),
-                cards: s.data.cards.iter().collect(),
-                plain: false,
-                threads: None,
-                title: "Home".into(),
-                space: String::new(),
-                board: None,
-            };
-        }
-    };
-    if space == PERSONAL || space.is_empty() {
-        let list = board.clone().unwrap_or_else(|| PERSONAL.to_string());
-        return RoutePage {
-            scope: SCOPE_OWN.into(),
-            cards: cards_on_personal(&s.data.cards, &list),
-            plain: false,
-            threads: None,
-            title: if list == PERSONAL { "Personal".into() } else { "Personal board".into() },
-            space,
-            board,
-        };
-    }
-    let sp = s.data.spaces.iter().find(|b| b.board_id == space);
-    let title = sp.map(|b| b.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Space".into());
-    match (sp, &board) {
-        (Some(b), Some(list)) => {
-            let name = boards_of(b).into_iter().find(|x| &x.board_id == list).map(|x| x.name);
-            RoutePage {
-                scope: space.clone(),
-                cards: filter::cards_on_board(b, &s.data.cards, list),
-                plain: false,
-                threads: Some(space.clone()),
-                title: match name {
-                    Some(n) if n != title && !n.is_empty() => format!("{title} · {n}"),
-                    _ => title,
-                },
-                space,
-                board,
-            }
-        }
-        _ => RoutePage {
-            scope: space.clone(),
-            cards: vec![],
-            plain: true,
-            threads: sp.map(|_| space.clone()),
-            title,
-            space,
-            board,
-        },
-    }
-}
-
-/// The cards the List would show on the current page: the canvas draws
-/// these (card #587: a card Needs you lists stays on the canvas).
-#[allow(dead_code)] // the canvas and spaces packages' API
-pub fn canvas_cards(s: &State) -> Vec<&CardSummary> {
-    let p = route_page(s);
-    let home = !matches!(s.nav.route, Route::Board { .. });
-    shown_all(s, &p.scope, &p.cards, home, p.plain).0
-}
-
-/// The page for `Route::Board`.
-pub fn view(s: &State, f: &mut Frame) -> El {
-    let p = route_page(s);
-    let k = f.k;
-    let space_known = p.space == PERSONAL || p.space.is_empty() || s.data.spaces.iter().any(|b| b.board_id == p.space);
-    if !space_known {
-        return col()
-            .key("board-page")
-            .w_full()
-            .h_full()
-            .child(crate::ui::page_header(f, &p.title, vec![]))
-            .child(
-                text("This space isn't here any more: you may have left or forgotten it.")
-                    .key("board-gone")
-                    .font(k.ty.ui)
-                    .color(k.c.text_muted)
-                    .px(20.0),
-            );
-    }
-    let new_board = if p.scope == SCOPE_OWN {
-        p.board.clone().filter(|b| b != PERSONAL)
-    } else {
-        p.board.clone().or_else(|| Some(p.space.clone()))
-    };
-    let new_card = Button::new("New card")
-        .variant(ButtonVariant::Outline)
-        .control_size(ControlSize::Small)
-        .icon(&icons::PLUS)
-        .on_press(move |s: &mut State| s.open_dialog(Dialog::NewCard { board: new_board.clone() }))
-        .build(k);
-    let header = crate::ui::page_header(f, &p.title, vec![new_card]);
-    let empty = if p.plain {
-        space_boards(s, f, &p.space)
-    } else if p.scope == SCOPE_OWN {
-        muted(f, "board-empty", "No cards on this board yet. Make one with New card.")
-    } else {
-        muted(f, "board-empty", "No cards on this board yet. Make one with New card, or move one here from its page.")
-    };
-    let body = board_view(
-        s,
-        f,
-        Opts {
-            scope: p.scope.clone(),
-            cards: p.cards,
-            home: false,
-            empty: Some(empty),
-            nothing_decide: (p.scope != SCOPE_OWN).then(|| "Nothing on this board waits on you.".to_string()),
-            threads: p.threads,
-            plain: p.plain,
-            ..Opts::default()
-        },
-    );
-    col()
-        .key("board-page")
-        .w_full()
-        .h_full()
-        .min_h(0.0)
-        .child(header)
-        .child(col().key("board-page-body").w_full().grow(1.0).min_h(0.0).px(20.0).child(body.grow(1.0).min_h(0.0)))
-}
-
-/// A space's boards as chips (the stand-in for the spaces package's
-/// SpaceBoards on a space's own page).
-fn space_boards(s: &State, f: &Frame, space: &str) -> El {
-    let k = f.k;
-    let Some(b) = s.data.spaces.iter().find(|b| b.board_id == space) else {
-        return el();
-    };
-    let mut r = row().key("board-space-boards").gap(8.0).flex_wrap().w_full();
-    for x in boards_of(b) {
-        let n = filter::cards_on_board(b, &s.data.cards, &x.board_id)
-            .iter()
-            .filter(|c| !crate::logic::cards::over(&c.state))
-            .count();
-        let (sp, id) = (space.to_string(), x.board_id.clone());
-        r = r.child(
-            col()
-                .key(format!("board-space-board-{}", x.board_id))
-                .role("button")
-                .label(x.name.clone())
-                .focusable(true)
-                .w(220.0)
-                .padding(12.0)
-                .gap(4.0)
-                .radius(10.0)
-                .fill(k.c.layer_01)
-                .border(1.0, k.c.border_muted)
-                .cursor(rune::Cursor::Pointer)
-                .on_press(move |s: &mut State| {
-                    s.go(Route::Board {
-                        space: sp.clone(),
-                        board: Some(id.clone()),
-                    })
-                })
-                .child(text(x.name.clone()).font(k.ty.ui_medium).color(k.c.text_base).max_lines(1))
-                .child(
-                    text(format!(
-                        "{}{n} open {}",
-                        if x.tag.is_empty() { String::new() } else { format!("{}# · ", x.tag) },
-                        if n == 1 { "card" } else { "cards" }
-                    ))
-                    .font(k.ty.small)
-                    .color(k.c.text_muted),
-                ),
-        );
-    }
-    col().key("board-space").w_full().gap(8.0).child(text("Boards").font(k.ty.small_medium).color(k.c.text_muted)).child(r)
 }
 
 pub(crate) fn muted(f: &Frame, key: &str, t: &str) -> El {
@@ -403,7 +185,8 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
     let open_threads = th.map_or(0, |(_, l)| l.iter().filter(|t| t.state != "resolved").count());
     let show_threads = th.is_some_and(|(_, l)| !s.board.threads.hidden && (!l.is_empty() || !s.board.threads.open.is_empty()));
     let threads_btn = th.is_some_and(|(_, l)| !show_threads && !l.is_empty());
-    let fill = s.board.view == View::Canvas && active != Filter::Done && !mine.is_empty();
+    let canvas = crate::canvas::wants_canvas(s);
+    let fill = canvas && active != Filter::Done && !mine.is_empty();
     let home = o.home;
     let scope = o.scope.clone();
 
@@ -481,7 +264,7 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
         if let Some(b) = btn {
             right = right.child(b);
         }
-        right = right.child(search::search_box(s, f)).child(bars::view_switch(s, f));
+        right = right.child(search::search_box(s, f)).child(crate::canvas::view_switch(s, f));
         column.push(
             row()
                 .key("board-filters")
@@ -499,8 +282,10 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
         }
         if active == Filter::Done {
             column.push(done::grid(s, f, &scope));
-        } else if s.board.view == View::Canvas {
-            column.push(crate::canvas::view(s, f).w_full().grow(1.0).min_h(if fill { 0.0 } else { 480.0 }));
+        } else if canvas {
+            // Every card in scope, not only the filtered ones (card #587:
+            // a card Needs you lists stays on the map).
+            column.push(crate::canvas::view_of(s, f, &mine).w_full().grow(1.0).min_h(if fill { 0.0 } else { 480.0 }));
         } else if !shown.is_empty() && o.rows {
             if !pinned.is_empty() {
                 column.push(heading(f, "board-pinned-h", "Pinned", None));
@@ -627,52 +412,10 @@ fn hidden_line(f: &Frame, home: bool, search: bool, n: usize, decide: usize, sco
     )
 }
 
-/// A plain scrolling grid of these cards (pinned first, Not yet folded
-/// at the end): what Home showed before P1, and any page's card list.
-pub fn cards_list(s: &State, f: &mut Frame, cards: &[&CardSummary]) -> El {
-    let none = HashSet::new();
-    let cards = &filter::board_order(cards);
-    let pinned: Vec<&CardSummary> = cards.iter().copied().filter(|c| c.pinned && !crate::logic::cards::over(&c.state)).collect();
-    let rest: Vec<&CardSummary> = cards
-        .iter()
-        .copied()
-        .filter(|c| !c.pinned && c.later.is_none() && !crate::logic::cards::over(&c.state))
-        .collect();
-    let later: Vec<&CardSummary> = cards.iter().copied().filter(|c| !c.pinned && c.later.is_some()).collect();
-    let mut list = col().key("board-list").w_full().gap(14.0).padding(20.0);
-    if !pinned.is_empty() {
-        list = list
-            .child(heading(f, "board-list-pinned-h", "Pinned", None))
-            .child(grid::card_grid(s, f, "list-pinned", &pinned, &none, true, None))
-            .child(heading(f, "board-list-else-h", "Everything else", None));
-    }
-    if rest.is_empty() && pinned.is_empty() {
-        list = list.child(muted(f, "board-list-empty", "No cards here."));
-    } else {
-        list = list.child(grid::card_grid(s, f, "list", &rest, &none, false, None));
-    }
-    if !later.is_empty() {
-        let g = grid::card_grid(s, f, "list-later", &later, &none, false, None);
-        list = list.child(order::not_yet_fold(s, f, "board-list-notyet", later.len(), g));
-    }
-    col().key("board-list-scroll").w_full().h_full().min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list)
-}
-
-/// A simple tile with no live state (no faces or roster): its ref, state,
-/// title, question and progress. Pressing it opens the card.
-#[allow(dead_code)] // the canvas and spaces packages' API
-pub fn card(c: &CardSummary, f: &Frame) -> El {
-    grid::simple_tile(c, f)
-}
-
 pub fn on_event(s: &mut State, ev: &Event) {
     match ev.name.as_str() {
         "app:start" => {
             s.board.home_filter = filter::saved_home_filter(s.prefs.get::<String>(filter::HOME_FILTER_PREF).as_deref());
-            s.board.view = match s.prefs.get::<String>(VIEW_PREF).as_deref() {
-                Some("canvas") => View::Canvas,
-                _ => View::List,
-            };
         }
         "app:card-opened" => {
             if let Some(id) = ev.payload.as_str() {
@@ -707,6 +450,9 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
 /// panel read (`--scene board`).
 pub fn scene(s: &mut State) {
     s.close_card();
+    // The Core opens the shared spaces a few seconds in.
+    crate::spaces::wait_for_spaces(s);
+    crate::canvas::set_view(s, "list");
     let mut best: Option<(String, String, usize)> = None;
     for b in &s.data.spaces {
         for x in boards_of(b) {

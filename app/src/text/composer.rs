@@ -449,6 +449,12 @@ fn send(s: &mut State, get_mut: GetMut, board: &str, card: &str, no_mentions: bo
     on_send(s, sent);
 }
 
+/// Sends the box as its Enter would, through `o.on_send` (a site's own
+/// Send-like button: the message dialog's Reply and Stop and read).
+pub fn submit(s: &mut State, get_mut: GetMut, o: &ComposerOpts) {
+    send(s, get_mut, &o.board, &o.card, o.no_mentions.is_some(), &o.on_send);
+}
+
 /// Files picked, dropped or pasted: read off the UI thread, then added.
 fn add_paths(s: &mut State, get_mut: GetMut, paths: Vec<std::path::PathBuf>) {
     if paths.is_empty() {

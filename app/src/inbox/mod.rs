@@ -30,6 +30,7 @@ use irori_window::roster::GoneSession;
 use irori_window::rune_inbox::Delivery;
 use rune::{El, TextEdit};
 
+use crate::text::Composer;
 use crate::ui::{Dialog, Event, Frame, Route, State};
 
 use notify::Filter;
@@ -75,9 +76,8 @@ pub struct Held {
 pub struct Message {
     pub id: String,
     pub d: Option<Result<Delivery, String>>,
-    // TODO(text::composer): the shared composer (mentions, files, voice)
-    // replaces this plain box once it lands.
-    pub reply: TextEdit,
+    /// The reply (mentions, files and the mic; no draft kept).
+    pub reply: Composer,
     pub missed: String,
     pub error: Option<String>,
     pub busy: bool,
@@ -102,7 +102,7 @@ pub struct Model {
     pub acts: HashMap<String, Act>,
     /// The item whose Reply box is open, and its words.
     pub replying: Option<String>,
-    pub reply: TextEdit,
+    pub reply: Composer,
     /// Picks shown at once while they save (card #644), by item key.
     pub picked: HashMap<String, String>,
 
@@ -262,7 +262,7 @@ pub fn on_event(s: &mut State, ev: &Event) {
             Some(Dialog::Message { id }) => {
                 s.inbox.message = Message {
                     id,
-                    reply: focused_edit(),
+                    reply: focused_box(),
                     ..Message::default()
                 };
                 load_message(s);
@@ -285,6 +285,27 @@ pub fn scene(s: &mut State) {
     s.go(Route::Notifications);
     s.inbox.filter = Filter::All;
     load(s);
+    // IRORI_SCENE_MESSAGE=1: the Message dialog over it, on a stand-in
+    // message from an agent (its reply box is the shared composer).
+    if std::env::var("IRORI_SCENE_MESSAGE").is_ok_and(|v| !v.is_empty()) {
+        let mut d = Delivery {
+            id: "scene-msg".into(),
+            to: "user:you".into(),
+            state: irori_window::rune_inbox::st::DELIVERED.into(),
+            ..Delivery::default()
+        };
+        d.message.from.key = "scene/oak".into();
+        d.message.from.name = "oak".into();
+        d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+        s.inbox.message = Message {
+            id: d.id.clone(),
+            d: Some(Ok(d)),
+            reply: focused_box(),
+            ..Message::default()
+        };
+        // Set directly: opening it the usual way would read it back.
+        s.dialog = Some(Dialog::Message { id: "scene-msg".into() });
+    }
 }
 
 /// The Held list over the Notifications page (`--scene held`).
@@ -301,6 +322,13 @@ pub fn dialog(s: &State, f: &mut Frame) {
         Some(Dialog::Message { id }) => message::dialog(s, f, id),
         _ => {}
     }
+}
+
+/// An empty reply box with the keyboard in it.
+pub fn focused_box() -> Composer {
+    let mut c = Composer::default();
+    c.edit.focused = true;
+    c
 }
 
 /// An empty field that asks for focus when it mounts.

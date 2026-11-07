@@ -15,6 +15,7 @@
 //! - [`transcript_pane`] beside the posts once [`open_transcript`] ran,
 //! - [`huddle_started`], [`huddle_ended`] and [`huddle_line`] for posts and
 //!   list rows, [`ask_join`] for a Join anywhere,
+//! - [`in_call_here`] for whether the panel and the stage show,
 //! - [`mic_button`] for a composer, [`on_key`] for the dictation shortcut,
 //!   [`voice_note`] and [`set_transcribe`] for Settings.
 
@@ -42,17 +43,13 @@ use rune::{El, TextEdit};
 
 use crate::ui::{Event, Frame, Route, State};
 
-// The pieces other packages place (Talk, Settings, the shell's keys);
-// until they are ported only this package's scene uses some of them.
-#[allow(unused_imports)]
+// The pieces other packages place (Talk, the card page, the window's keys).
 pub use huddle::{huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_started};
-#[allow(unused_imports)]
 pub use logic::StartWhere;
-#[allow(unused_imports)]
-pub use mic::{mic_button, on_key, voice_note};
-#[allow(unused_imports)]
+pub use mic::{Target as MicTarget, mic_button, on_key};
+// Settings' voice note.
+pub use mic::{refresh_voice, voice_note};
 pub use share::share_stage;
-#[allow(unused_imports)]
 pub use transcript::transcript_pane;
 
 /// A huddle about to open the mic: starting one, or joining.
@@ -363,20 +360,6 @@ pub fn ask_join(s: &mut State, call_id: &str, conv_id: &str, conv_kind: &str, co
     check_transcribe(s);
 }
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
-/// Asks before a Start opens the mic (a start from anywhere but the
-/// start sheet, which says the notice itself).
-pub fn ask_start(s: &mut State, conv_id: &str, conv_kind: &str, conv_name: &str) {
-    s.call.notice = Some(NoticeAsk {
-        start: true,
-        call_id: String::new(),
-        conv_id: conv_id.to_string(),
-        conv_kind: conv_kind.to_string(),
-        conv_name: conv_name.to_string(),
-    });
-    check_transcribe(s);
-}
-
 /// Whether this device can write down its person's voice, asked afresh.
 fn check_transcribe(s: &mut State) {
     s.call.can_transcribe = None;
@@ -466,7 +449,7 @@ pub fn open_sheet(s: &mut State, conv_id: &str, at: StartWhere) {
     );
 }
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
+#[allow(dead_code)] // for Settings (P8), whose general pane calls the Window itself for now
 /// "Transcribe what I say in calls" on or off on all the person's
 /// devices; a huddle in progress follows at once. Shows at once,
 /// call:state confirms it.
@@ -478,7 +461,7 @@ pub fn set_transcribe(s: &mut State, on: bool) {
     s.act("Transcribe", move |w| w.call_transcribe_set(on), |_, ()| {});
 }
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
+#[allow(dead_code)] // for Settings (P8), whose general pane reads it itself for now
 /// The person's "Transcribe what I say in calls" switch, as last read.
 pub fn transcribe_on(s: &State) -> bool {
     s.call.view.transcribe_on
@@ -509,27 +492,14 @@ pub fn close_transcript(s: &mut State) {
     s.call.transcript = None;
 }
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
 /// Whether this device is in `conv_id`'s huddle (Talk shows the panel).
 pub fn in_call_here(s: &State, conv_id: &str) -> bool {
     logic::in_call_here(&s.call.view, conv_id)
 }
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
-/// Who is in `conv_id`'s huddle, "You" first (Talk's list rows).
-pub fn huddle_names(s: &State, conv_id: &str) -> Vec<String> {
-    logic::huddle_names(&s.call.view, conv_id)
-}
-
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
-/// The huddle on in `conv_id`, if one is.
-pub fn live_in<'a>(s: &'a State, conv_id: &str) -> Option<&'a CallLiveView> {
-    s.call.view.live.iter().find(|l| l.conv_id == conv_id)
-}
-
 // ---- the package contract -----------------------------------------------------
 
-#[allow(dead_code)] // for Talk (P5) and Settings (P8)
+#[allow(dead_code)] // the package contract; no route shows it
 /// The package's page: the huddle this device is in, or a line saying
 /// none is (no route shows it; Talk embeds [`huddle_panel`]).
 pub fn view(s: &State, f: &mut Frame) -> El {

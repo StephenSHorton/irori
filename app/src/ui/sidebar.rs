@@ -106,9 +106,10 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .child(sb.grow(1.0).min_h(0.0))
 }
 
-fn header(_s: &State, f: &Frame) -> El {
+/// The title row, then the space switcher (card #393) under it.
+fn header(s: &State, f: &mut Frame) -> El {
     let k = f.k;
-    row()
+    let title = row()
         .key("sb-header")
         .w_full()
         .h(36.0)
@@ -136,7 +137,14 @@ fn header(_s: &State, f: &Frame) -> El {
                 .help("New card")
                 .on_press(|s: &mut State| s.open_dialog(Dialog::NewCard { board: None }))
                 .build(k),
-        )
+        );
+    col()
+        .key("sb-head")
+        .w_full()
+        .gap(6.0)
+        .pb(4.0)
+        .child(title)
+        .child(crate::spaces::switcher(s, f))
 }
 
 fn footer(s: &State, f: &Frame) -> El {
