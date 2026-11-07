@@ -18,7 +18,7 @@ pub mod conv;
 pub mod icons;
 pub mod list;
 // The pure helpers are also the inbox's and the sidebar's API (talk.ts's
-// name_lookup and counts_by_agent, the status words): parts stay unused here.
+// Names (re-exported from inbox::words) and counts_by_agent, the status words): parts stay unused here.
 #[allow(dead_code)]
 pub mod logic;
 pub mod thread;
@@ -161,10 +161,10 @@ pub fn open_id(s: &State) -> &str {
     }
 }
 
-/// The space the list shows. The window has no space switcher yet, so
-/// every space's (logic::spaces::ALL_SPACES).
-pub fn picked_space(_s: &State) -> &'static str {
-    crate::logic::spaces::ALL_SPACES
+/// The space the list shows: the sidebar switcher's pick (React's
+/// useSpacePick), ALL_SPACES for every space's.
+pub fn picked_space(s: &State) -> String {
+    crate::spaces::current(s)
 }
 
 /// Whether section `k` is folded (the person's pick, else its default).
@@ -393,6 +393,21 @@ pub fn scene(s: &mut State) {
     load_convs(s);
     load_threads(s);
     load_replying(s);
+    // The list follows the sidebar's space pick: the scene waits for the
+    // spaces, and `IRORI_TALK_SPACE` (part of a space's name, or
+    // "personal") picks one.
+    crate::spaces::wait_for_spaces(s);
+    if let Ok(want) = std::env::var("IRORI_TALK_SPACE") {
+        let w = want.to_lowercase();
+        let id = if w == crate::logic::spaces::PERSONAL {
+            Some(w.clone())
+        } else {
+            s.data.spaces.iter().find(|b| b.name.to_lowercase().contains(&w)).map(|b| b.board_id.clone())
+        };
+        if let Some(id) = id {
+            crate::spaces::pick(s, &id);
+        }
+    }
     let pick = std::env::var("IRORI_TALK_SCENE").unwrap_or_default();
     let id = match pick.as_str() {
         "start" | "search" => String::new(),

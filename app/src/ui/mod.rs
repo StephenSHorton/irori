@@ -332,6 +332,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         .min_h(0.0)
         .fill(k.c.bg_base)
         .child(crate::status::banner(s, &mut f))
+        .child(crate::call::ring_row(s, &mut f))
         .child(page.grow(1.0).min_h(0.0).w_full());
     let body = row()
         .key("body")

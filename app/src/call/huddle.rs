@@ -586,25 +586,21 @@ pub(super) fn call_bar(s: &State, f: &mut Frame) {
 
 /// RingBanner: "Spencer started a huddle in #netcode · Join / Dismiss",
 /// for the newest ring of a huddle this device isn't in.
-pub(super) fn ring(s: &State, f: &mut Frame) {
+/// The newest huddle ringing here that this device isn't in, as a banner
+/// over the page (React's Ringing, under the update banner): in the
+/// page's flow, so it pushes the page down rather than covering its
+/// header. An empty row when nothing rings.
+pub(super) fn ring(s: &State, f: &mut Frame) -> El {
     let v = &s.call.view;
     let ring = v
         .ringing
         .iter()
         .filter(|r| v.mine.as_ref().is_none_or(|m| m.call_id != r.call_id))
         .max_by_key(|r| r.at_ms);
-    let Some(r) = ring else { return };
-    let k = f.k;
-    let banner = ring_banner(s, k, r);
-    f.layer.push(
-        row()
-            .key("call-ring-at")
-            // Under the page's title bar (48 points).
-            .pin(Some(crate::ui::sidebar::WIDTH), Some(56.0), Some(0.0), None)
-            .justify_center()
-            .px(16.0)
-            .child(banner),
-    );
+    let at = row().key("call-ring-at").w_full().justify_center();
+    let Some(r) = ring else { return at };
+    let banner = ring_banner(s, f.k, r);
+    at.px(16.0).pt(8.0).pb(4.0).child(banner)
 }
 
 fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
