@@ -893,6 +893,73 @@ mod tests {
         assert!(trusted_in(&t, &repo.join("sub")).is_ok() || !repo.join("sub").exists());
     }
 
+    /// Card #731, checked live on Claude Code 2.1.319: a folder outside git
+    /// follows its nearest trusted ancestor, however deep; a git repo (and
+    /// any folder in it) doesn't; nothing counts in an untrusted tree.
+    #[test]
+    fn ancestors_count_outside_git_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let home = base.join("home");
+        let deep = home.join("a").join("b").join("c");
+        let repo = home.join("projects").join("rune");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let other = base.join("elsewhere").join("x");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::create_dir_all(base.join("elsewhere").join("r").join(".git")).unwrap();
+
+        let t = cfg(&base, &[&home]);
+        assert!(
+            trusted_in(&t, &deep).is_ok(),
+            "a plain folder deep under a trusted one"
+        );
+        for d in [&repo, &repo.join("src")] {
+            let e = trusted_in(&t, d).unwrap_err();
+            assert!(
+                e.contains(&repo.display().to_string()),
+                "names the repo: {e}"
+            );
+        }
+        assert!(trusted_in(&t, &other).is_err(), "an untrusted tree");
+        assert!(trusted_in(&t, &base.join("elsewhere").join("r")).is_err());
+
+        let t = cfg(&base, &[&home, &repo]);
+        assert!(trusted_in(&t, &repo).is_ok());
+        assert!(
+            trusted_in(&t, &repo.join("src")).is_ok(),
+            "inside a trusted repo"
+        );
+        assert!(trusted_in(&TrustSet::load_file(&base.join("none.json")), &deep).is_err());
+    }
+
+    /// Windows keys in `.claude.json` (`C:/...`, or backslashes) match the
+    /// folder however it is written, and a parent counts for a plain folder.
+    #[test]
+    fn windows_style_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join(".claude.json");
+        std::fs::write(
+            &f,
+            r#"{"projects":{"C:/Users/me":{"hasTrustDialogAccepted":true},
+                "C:\\work\\api":{"hasTrustDialogAccepted":true},
+                "C:/work/web":{"hasTrustDialogAccepted":false}}}"#,
+        )
+        .unwrap();
+        let t = TrustSet::load_file(&f);
+        assert!(t.has("C:/work/api") && t.has("C:/work/api/"));
+        assert!(t.has(r"C:\Users\me\") && t.has("C:/Users/me"));
+        assert!(!t.has("C:/work/web"), "false isn't trust");
+        assert!(!t.has("C:/Users/me/projects/rune"), "has is exact");
+        assert!(t.covers("C:/Users/me/projects/notes"));
+        assert!(!t.covers("C:/work/web/x") && !t.covers("D:/Users/me"));
+        if cfg!(windows) {
+            assert!(t.covers(r"C:\Users\me\projects\notes"));
+            assert!(t.has(r"c:\work\API"), "Windows paths ignore case");
+        }
+    }
+
     #[test]
     fn worktree_follows_its_repo() {
         let tmp = tempfile::tempdir().unwrap();

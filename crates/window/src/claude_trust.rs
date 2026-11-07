@@ -20,6 +20,9 @@
 //! On Claude Code 2.1.318 a git repo needs its own entry (a trusted parent
 //! doesn't count), a git worktree follows its main repo's entry, and a
 //! folder outside git inherits from its parents (card #445's live checks).
+//! Checked again on 2.1.319 (card #731): under a trusted home folder, a new
+//! git repo is refused by `claude --bg` and interactive `claude` shows the
+//! trust prompt there, while a plain folder starts.
 //! Part 1's `trust_root(dir)` finds that root.
 //!
 //! The edit keeps every other byte: only the levels on the way to the key
