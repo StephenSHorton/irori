@@ -241,9 +241,10 @@ export function DeviceTerminals({ fill = false }: { fill?: boolean }) {
       onClose={close}
       onNew={() => start(lastFolder())}
       newDisabled={busy || terms === null}
+      // Where the shell was last, not where it started.
       onRestart={(t) => {
         close(t.id)
-        start(t.cwd)
+        start(lastFolder() ?? t.cwd)
       }}
       onCwd={rememberLastFolder}
       fill={fill}

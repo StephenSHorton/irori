@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { termsHere } from "@/lib/term"
 import {
   MinHeight,
+  clampHeight,
   TerminalShortcut,
   setTermPanelHeight,
   setTermPanelOpen,
@@ -76,8 +77,11 @@ export function TerminalPanel({
 
 // Edge is the panel's top edge: drag it, or focus it and press the arrow
 // keys, to resize. The height is remembered when the drag ends.
-function Edge({ height }: { height: number }) {
+function Edge({ height: kept }: { height: number }) {
   const drag = useRef<{ y: number; h: number } | null>(null)
+  // The height as shown: a remembered one taller than this window allows
+  // is drawn at the most it can be, and dragging starts from there.
+  const height = clampHeight(kept, window.innerHeight)
   return (
     <div
       role="separator"

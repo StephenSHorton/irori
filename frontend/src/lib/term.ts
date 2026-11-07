@@ -175,7 +175,7 @@ export async function openDeviceTerm(
 }
 
 // firstDeviceTerm is what the panel shows when it opens off a card: the
-// shell already running, else a new one in cwd. Opening the panel is the
+// shells already there, and a new one in cwd when none of them runs. Opening the panel is the
 // person asking for a shell. Calls made while one is under way share it,
 // so a double mount (StrictMode, a quick toggle) never starts two.
 let starting: Promise<TermInfo[]> | null = null
@@ -186,8 +186,12 @@ export function firstDeviceTerm(
   cwd: string | null
 ): Promise<TermInfo[]> {
   starting ??= deviceTerms()
+    // Shells that ended stay listed (with Restart) until closed; with
+    // none still running, a new one is started beside them.
     .then(async (ts) =>
-      ts.length ? ts : [await openDeviceTerm(cols, rows, cwd)]
+      ts.some((t) => t.running)
+        ? ts
+        : [...ts, await openDeviceTerm(cols, rows, cwd)]
     )
     .finally(() => {
       starting = null
