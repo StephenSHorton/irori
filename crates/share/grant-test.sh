@@ -78,6 +78,9 @@ run)
   log="$dir/$name.log"
   : >"$log"
   open -n -W --stdout "$log" --stderr "$log" "$app" --args "$@"
+  # open -W sometimes returns before the app exits ("Unable to block on
+  # application"): wait for it, so the log is complete.
+  while pgrep -f "$app/Contents/MacOS/" >/dev/null; do sleep 0.2; done
   cat "$log"
   ;;
 info)

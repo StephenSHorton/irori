@@ -62,7 +62,7 @@ granted() { $t run "$1" grant 2>&1 | grep -q "granted before: true"; }
 switch_on() {
   run "$1" grant --request
   open "$settings"
-  msg="In System Settings (just opened), Privacy and Security, Screen and System Audio Recording: find $2 in the list and switch it ON. Not Irori: leave Irori as it is. If $2 isn't there yet, wait a few seconds or click the + button. If macOS offers Quit and Reopen, choose Later. This box closes by itself once $2 is on."
+  msg="First, an alert says $2 would like to record this computer's screen: click Open System Settings. Then in Screen and System Audio Recording, switch $2 ON (it appears in the list once you've answered that alert). Leave Irori's own switch as it is. If macOS offers Quit and Reopen, choose Later. This box closes by itself once $2 is on."
   echo "SHOWN: $msg" >>"$log"
   osascript -e "display dialog \"$msg\" buttons {\"Skip\"} default button 1 giving up after 600 with title \"$title\"" >/dev/null 2>&1 &
   box=$!
