@@ -58,6 +58,7 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
                         }
                     })
                     .build(k)
+                    .key(if t == NewTab::Make { "spaces-new-tab-make" } else { "spaces-new-tab-join" })
                     .role("tab")
                     .checked(tab == t),
             );
@@ -630,6 +631,16 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
     let name = plain_line(&b.name);
     let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
     let mut body = col().key("spaces-settings-body").w_full().gap(14.0).px(16.0).pb(16.0);
+    // The kit Dialog's description doesn't wrap in a fitted panel: the
+    // line goes in the body, where it wraps.
+    body = body.child(
+        u::line(
+            format!("{name}: who is on it, what reaches your agents and what they may do here."),
+            t13(k),
+            k.c.text_muted,
+        )
+        .key("spaces-settings-desc"),
+    );
     body = body.child(board_invite(s, f, b, st));
     if let Some(panel) = settings_panel(f, st) {
         body = body.child(panel);
@@ -638,9 +649,6 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
     }
     let h = f.cx.layout_size("main").map_or(720.0, |s| s[1]);
     Dialog::new("spaces-settings", "Space settings")
-        .description(format!(
-            "{name}: who is on it, what reaches your agents and what they may do here."
-        ))
         .width(512.0)
         .fit()
         .open(true)
@@ -738,6 +746,7 @@ fn board_invite(s: &State, f: &Frame, b: &BoardSummary, st: &Settings) -> El {
         c = c
             .child(
                 Button::new("Invite someone")
+                    .variant(ButtonVariant::Submit)
                     .on_press(move |s: &mut State| {
                         let id = id.clone();
                         if let Some(st) = s.spaces.settings.as_mut() {
@@ -909,7 +918,7 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
                 let n2 = name.clone();
                 acts = acts.child(
                     Button::new("Remove")
-                        .variant(ButtonVariant::Outline)
+                        .variant(ButtonVariant::Danger)
                         .on_press(move |s: &mut State| {
                             if let Some(st) = s.spaces.settings.as_mut() {
                                 st.asking = Some(MemberAsk::Remove {

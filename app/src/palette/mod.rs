@@ -188,12 +188,16 @@ pub fn build_items(s: &State, dark: bool) -> Vec<Item> {
             order: 100,
             quiet: false,
             others: vec![a.title.clone(), a.ai_title.clone(), "agent".into()],
-            // Home's cards narrowed to that agent's: the home package owns
-            // the query; until it takes one, Home.
-            run: Rc::new(|s: &mut State| {
-                s.close_card();
-                s.go(Route::Home)
-            }),
+            // Home's cards narrowed to that agent's (App.tsx onPaletteAgent:
+            // the shared search box takes the name).
+            run: {
+                let name = a.name.clone();
+                Rc::new(move |s: &mut State| {
+                    s.board.query = TextEdit::new(name.clone());
+                    s.close_card();
+                    s.go(Route::Home)
+                })
+            },
         });
     }
     out
@@ -563,6 +567,27 @@ pub fn dialog(s: &State, f: &mut Frame) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_narrows_home_to_its_cards() {
+        let mut s = State::default();
+        s.go(Route::Notes);
+        let mut card = coord::roster::AgentCard::default();
+        card.key = "sess-1".into();
+        card.name = "oak".into();
+        s.data.agents.push(irori_window::roster::RosterAgent {
+            card,
+            offers_cards: true,
+            spawned: false,
+            here: true,
+        });
+        let items = build_items(&s, true);
+        let oak = items.iter().find(|i| i.key == "agent:oak").expect("oak is listed");
+        assert_eq!(oak.group, "Agents");
+        (oak.run.clone())(&mut s);
+        assert_eq!(s.nav.route, Route::Home);
+        assert_eq!(s.board.query.text, "oak");
+    }
 
     #[test]
     fn refs() {

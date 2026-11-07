@@ -546,7 +546,8 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
                     |s, r| match r {
                         Ok(()) => {
                             super::reload_spaces(s);
-                            s.go(Route::Spaces);
+                            // The space has gone: Home, as React went.
+                            s.go(Route::Home);
                         }
                         Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
                     },
@@ -565,7 +566,8 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
                     |s, r| match r {
                         Ok(()) => {
                             super::reload_spaces(s);
-                            s.go(Route::Spaces);
+                            // The space has gone: Home, as React went.
+                            s.go(Route::Home);
                         }
                         Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
                     },
