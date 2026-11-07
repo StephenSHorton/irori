@@ -473,8 +473,7 @@ impl Window {
             let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
             let cursor = self.core.talk().cursor(&me, &read_conv(&t.id));
-            let unread =
-                !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
+            let unread = !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
             let state = if resolved {
                 THREAD_RESOLVED
             } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
@@ -687,10 +686,18 @@ mod tests {
     use super::{Said, thread_unread};
 
     fn agent(at: i64, id: &str) -> Said {
-        Said { at, id: id.into(), agent: true }
+        Said {
+            at,
+            id: id.into(),
+            agent: true,
+        }
     }
     fn person(at: i64, id: &str) -> Said {
-        Said { at, id: id.into(), agent: false }
+        Said {
+            at,
+            id: id.into(),
+            agent: false,
+        }
     }
 
     /// Card #719: a thread is unread when an agent wrote after the person
@@ -719,7 +726,11 @@ mod tests {
         assert!(thread_unread(&again, Some("c1"), false));
         // Same instant: the id breaks the tie.
         assert!(thread_unread(&[agent(5, "b"), person(5, "a")], None, false));
-        assert!(!thread_unread(&[agent(5, "a"), person(5, "b")], None, false));
+        assert!(!thread_unread(
+            &[agent(5, "a"), person(5, "b")],
+            None,
+            false
+        ));
     }
 
     /// An agent's own thread waits unread until the person first opens or
