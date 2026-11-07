@@ -598,6 +598,38 @@ impl Fold {
             .find(|h| self.sides.runs(h, side) && self.same_person_dev(h, &self.dev))
     }
 
+    /// Whether device `dev` isn't connected now (card #686).
+    pub(crate) fn is_away(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_some_and(|f| f().away.contains(dev))
+    }
+
+    /// Whether device `dev` has no free agent slot now (card #686): at its
+    /// cap, held by a usage limit, or with its agents paused.
+    pub(crate) fn is_full(&self, dev: &str) -> bool {
+        self.agent_devices
+            .as_ref()
+            .is_some_and(|f| f().full.contains(dev))
+    }
+
+    /// The computer an ask on `side` goes to when its owner `owner` is
+    /// full (card #686): the first of the person's computers, in
+    /// [`Self::agent_home`]'s order, that is connected, runs the side and
+    /// has a free slot. Only it takes the ask, so two computers with room
+    /// don't both write a move. None when every computer is full.
+    pub(crate) fn room_home(&self, side: &str, owner: &str) -> Option<String> {
+        let d = self.agent_devices.as_ref()?();
+        d.homes.into_iter().find(|h| {
+            h != owner
+                && !d.full.contains(h)
+                && !d.away.contains(h)
+                && !d.cant.contains(h)
+                && self.sides.runs(h, side)
+                && self.same_person_dev(h, &self.dev)
+        })
+    }
+
     /// Whether this device starts the agent of a card made on a device
     /// that can't run agents (card #541). No device is asked to: a phone
     /// asleep hands nothing out, so a computer does it for the phone, and
