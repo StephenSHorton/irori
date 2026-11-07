@@ -1065,6 +1065,7 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 .as_ref()
                 .map(|p| p.inner().to_string())
                 .unwrap_or_default(),
+            board_named: personal.is_some(),
             ..NewTask::default()
         },
     ) {
@@ -1079,7 +1080,17 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             t.id,
             s.short_of(&t.parent)
         )
-    } else if let Some(p) = &personal {
+    } else if let Some(p) = personal.clone().or_else(|| {
+        // Card #708: a card from a thread on one of Personal's boards
+        // went on that board.
+        Some(&t)
+            .filter(|t| !t.board.is_empty() && Arc::ptr_eq(&co, s.b.coord()))
+            .and_then(|t| {
+                s.b.personal_boards()
+                    .into_iter()
+                    .find(|b| b.board_id == t.board)
+            })
+    }) {
         format!(
             "Created {} (task:{}) on {}.",
             t.short_ref(),

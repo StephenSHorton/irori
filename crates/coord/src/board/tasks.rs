@@ -152,6 +152,17 @@ impl Fold {
         if nt.parent.is_empty() || !nt.from.trim().is_empty() {
             ct.from = self.thread_from(&ct.by, &nt.from)?;
         }
+        // A card made from a thread opened on a board goes on that board
+        // when none is named (card #708); a subtask takes its parent's.
+        if board.is_empty()
+            && !nt.board_named
+            && ct.parent.is_empty()
+            && let Some(th) = self.tasks.get(&ct.from)
+            && !th.board.is_empty()
+            && self.board_tag(&th.board).is_some()
+        {
+            ct.board = th.board.clone();
+        }
         let by = ct.by.clone();
         self.create_locked(&by, ct)
     }
