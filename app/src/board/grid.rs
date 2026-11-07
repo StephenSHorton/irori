@@ -323,7 +323,11 @@ pub fn tile(s: &State, f: &mut Frame, c: &CardSummary, dim: bool, movable: bool,
     if let Some(tb) = talk_bubble(s, f, &format!("{p}/talk"), &c.talking) {
         body = body.child(tb);
     }
-    body = body.child(text(title).font(rune::tok::TextStyle::new(14.0, 500.0)).color(k.c.text_base).w_full().wrap());
+    // A long unbroken word (a test's name) breaks anywhere rather than
+    // running out of the tile.
+    let long = title.split_whitespace().any(|w| w.chars().count() > 28);
+    let t = text(title).font(rune::tok::TextStyle::new(14.0, 500.0)).color(k.c.text_base).w_full();
+    body = body.child(if long { t.wrap_anywhere() } else { t.wrap() });
     if blocked && !c.blocker_question.is_empty() {
         let color = if c.ready && c.open_blockers == 1 { status::working() } else { status::failed() };
         body = body.child(dot_line(format!("{p}/q"), color, plain_line(&c.blocker_question)));
@@ -501,8 +505,8 @@ fn subtask_row(s: &State, f: &mut Frame, c: &CardSummary, dim: bool) -> El {
         line1 = line1.child(sr);
     }
     line1 = line1
-        .child(text(plain_line(&c.title)).font(small()).color(k.c.text_base).max_lines(1).grow(1.0).min_w(0.0))
-        .child(row().max_w(160.0).min_w(0.0).child(state_pill(f, &format!("{p}/state"), c)));
+        .child(text(plain_line(&c.title)).font(small()).color(k.c.text_base).max_lines(1).grow(1.0).min_w(80.0))
+        .child(row().max_w(150.0).min_w(0.0).shrink().child(state_pill(f, &format!("{p}/state"), c)));
     r = r.child(line1).child(line2);
     if blocked && !c.blocker_question.is_empty() {
         r = r.child(text(plain_line(&c.blocker_question)).font(tiny()).color(status::failed()).max_lines(2).pl(16.0).w_full());
