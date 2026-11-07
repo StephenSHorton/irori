@@ -847,7 +847,8 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
     };
     let mut c = col()
         .key("call-sheet-body")
-        .w(320.0)
+        // The popover is at most 320 wide, its 16 inset inside that.
+        .w(288.0)
         .gap(12.0)
         .child(
             col()
@@ -898,7 +899,9 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
                     text("Echo cancelling and noise suppression are on.")
                         .font(k.ty.text_xsmall)
                         .color(k.c.text_muted)
-                        .pl(22.0),
+                        .pl(22.0)
+                        .w_full()
+                        .wrap(),
                 ),
         )
         .child(

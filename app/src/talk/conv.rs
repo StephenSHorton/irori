@@ -90,9 +90,34 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
         header = header.child(small(plain_line(topic)).min_w(0.0).shrink());
     }
     header = header.child(el().grow(1.0));
-    // TODO(call): HuddleButton (start, join or "In huddle") goes here for a
-    // channel, or a DM with a person that reached them, once the call
-    // package lands its huddle pieces.
+    // A channel, or a DM with a person that has reached them, has a huddle
+    // (#654); an agent's DM and a read-only one never do.
+    let can_huddle = !c.read_only && (c.kind == "channel" || (person.is_some() && waiting.is_empty()));
+    if can_huddle {
+        let sheet_here = s.call.sheet.as_ref().is_some_and(|sh| sh.conv_id == c.conv_id);
+        if !s.call.error.is_empty() && !sheet_here && !crate::call::in_call_here(s, &c.conv_id) {
+            header = header.child(
+                text(s.call.error.clone())
+                    .key("talk-huddle-error")
+                    .role("alert")
+                    .help(s.call.error.clone())
+                    .font(ts(11.0, 400.0))
+                    .color(status::failed())
+                    .max_lines(1)
+                    .max_w(240.0)
+                    .shrink(),
+            );
+        }
+        header = header.child(crate::call::huddle_button(
+            s,
+            f,
+            &c.conv_id,
+            &c.kind,
+            &c.name,
+            !c.space_id.is_empty(),
+            &person_name,
+        ));
+    }
     if c.kind == "channel" {
         header = header.child(
             Button::new(c.members.len().to_string())
@@ -109,8 +134,13 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
         header = header.child(leave_controls(s, f, c, &person_name));
     }
 
-    // The posts.
-    let posts = posts_view(s, f, c, &live, now);
+    // The posts, or the share on in this huddle in their place (#658).
+    let here = crate::call::in_call_here(s, &c.conv_id);
+    let stage = if here { crate::call::share_stage(s, f) } else { None };
+    let posts = match stage {
+        Some(st) => st,
+        None => posts_view(s, f, c, &live, now),
+    };
     let foot = if c.read_only {
         row()
             .key("talk-read-only")
@@ -138,10 +168,13 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
         .child(posts.grow(1.0).min_h(0.0))
         .child(foot);
     let mut out = row().key("talk-conv").w_full().h_full().min_h(0.0).child(main);
-    // TODO(call): with this device in a huddle here, `crate::call::huddle_panel(s, f)`
-    // takes the members column's place; an ended huddle's transcript opens
-    // there too (TranscriptPane).
-    if show_members {
+    // Beside the posts: the huddle while this device is in it here, else an
+    // ended huddle's transcript, else the members.
+    if here {
+        out = out.child(crate::call::huddle_panel(s, f));
+    } else if let Some(t) = crate::call::transcript_pane(s, f) {
+        out = out.child(t);
+    } else if show_members {
         out = out.child(members(s, f, &c.members, &live, now));
     }
     out
@@ -338,24 +371,11 @@ fn post_row(
 
     // A huddle's start or end (#654).
     if let Some(call) = &post.call {
-        // TODO(call): the call package's HuddleStarted (with Join while it's
-        // on) and HuddleEnded (with its transcript).
-        let line = if call.op == "end" {
-            let mins = (call.duration_ms / 60_000).max(1);
-            let people = if call.people.is_empty() { String::new() } else { format!(" · {}", call.people.join(", ")) };
-            format!("Huddle ended · {mins} min{people}")
+        return if call.op == "end" {
+            crate::call::huddle_ended(f, &key, call.duration_ms, &call.people, &call.call_id, call.transcript)
         } else {
-            format!("{name} started a huddle")
+            crate::call::huddle_started(s, f, &key, &name, &call.call_id, &c.conv_id, &c.kind, &plain_line(&c.name))
         };
-        return row()
-            .key(key)
-            .w_full()
-            .px(8.0)
-            .py(4.0)
-            .gap(8.0)
-            .center_y()
-            .child(icon(&icons::PHONE_CALL, 14.0).color(k.c.text_muted))
-            .child(text(line).font(ts(12.0, 400.0)).color(k.c.text_muted).max_lines(1));
     }
 
     // A thread started from a message here leaves one line (design b2).
@@ -730,6 +750,7 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
         extra,
         board: c.space_id.clone(),
         rows: Some((1, 8)),
+        mic: Some(crate::call::mic_button(s, f, "talk-composer", |s: &mut State| &mut s.talk.post_box.edit)),
         on_send: Some(Rc::new(move |s: &mut State, m: Sent| {
             let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
             let now = if channel { s.talk.agents_now.unwrap_or(logic::agents_now_for(&kinds)) } else { logic::agents_now_for(&kinds) };
