@@ -34,6 +34,9 @@ regex = { workspace = true }
 irori-inbox = { workspace = true }
 irori-gocompat = { workspace = true }
 base64 = { workspace = true }
+# Decodes the person's avatar (PNG, JPEG or WebP data URL; Rune's own
+# decoder has no WebP). The same image crate Rune pulls in.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

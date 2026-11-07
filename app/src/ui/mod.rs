@@ -296,7 +296,9 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         layer: &mut layer,
         dark,
     };
-    let page = if s.nav.card.is_some() {
+    let page = if let Some(g) = crate::widgets::page(s, &mut f) {
+        g
+    } else if s.nav.card.is_some() {
         crate::card::view(s, &mut f)
     } else {
         match &s.nav.route {
