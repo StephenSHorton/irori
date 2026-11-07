@@ -35,16 +35,6 @@ pub struct LinkPiece {
     pub shown_host: String,
 }
 
-impl Inline {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Inline::Text(_) => "text",
-            Inline::Link(_) => "link",
-            Inline::Code(_) => "code",
-        }
-    }
-}
-
 /// A list item, with the marker the agent wrote ("1)", "2.", "-").
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
@@ -59,58 +49,8 @@ pub enum Block {
     List(Vec<Item>),
 }
 
-/// C0/C1 controls, zero-width marks, bidi embeddings, overrides and
-/// isolates, and the BOM (irori.ts `hidden`).
-fn hidden(c: char) -> bool {
-    let c = c as u32;
-    c < 0x20
-        || (0x7f..=0x9f).contains(&c)
-        || (0x200b..=0x200f).contains(&c)
-        || (0x202a..=0x202e).contains(&c)
-        || (0x2066..=0x2069).contains(&c)
-        || c == 0xfeff
-}
-
-/// Untrusted agent text made safe for one line: control, zero-width and
-/// bidi-override characters become spaces and whitespace runs collapse.
-pub fn plain_line(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut space = false;
-    for ch in s.chars() {
-        let ch = if hidden(ch) { ' ' } else { ch };
-        if ch.is_whitespace() {
-            space = true;
-            continue;
-        }
-        if space && !out.is_empty() {
-            out.push(' ');
-        }
-        space = false;
-        out.push(ch);
-    }
-    out
-}
-
-/// [`plain_line`] for multi-line text: the same characters are
-/// neutralised, but newlines and tabs stay.
-pub fn plain_block(s: &str) -> String {
-    let s = s.replace("\r\n", "\n").replace('\r', "\n");
-    let mut out = String::with_capacity(s.len());
-    let mut newlines = 0;
-    for ch in s.chars() {
-        let ch = if ch == '\n' || ch == '\t' || !hidden(ch) { ch } else { ' ' };
-        if ch == '\n' {
-            newlines += 1;
-            if newlines > 3 {
-                continue;
-            }
-        } else {
-            newlines = 0;
-        }
-        out.push(ch);
-    }
-    out.trim().to_string()
-}
+// One copy of lib/irori.ts plainLine/plainBlock: logic::plain's.
+pub use crate::logic::plain::{plain_block, plain_line};
 
 /// TLDs a bare link may end in, written in lowercase in the text. Short on
 /// purpose, and without the ones that are also file extensions here (.go,
@@ -390,6 +330,14 @@ pub fn rich_blocks(s: &str) -> Vec<Block> {
 mod tests {
     use super::*;
 
+    fn kind(i: &Inline) -> &'static str {
+        match i {
+            Inline::Text(_) => "text",
+            Inline::Link(_) => "link",
+            Inline::Code(_) => "code",
+        }
+    }
+
     fn kinds(s: &str) -> Vec<(&'static str, String)> {
         rich_inline(s)
             .into_iter()
@@ -564,8 +512,8 @@ mod tests {
         assert_eq!(block_kinds(&b), vec!["para", "list", "para"]);
         let Block::List(items) = &b[1] else { panic!() };
         assert_eq!(items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(), vec!["1)", "2)", "-"]);
-        assert_eq!(items[0].inline.iter().map(Inline::kind).collect::<Vec<_>>(), vec!["text", "link"]);
-        assert_eq!(items[1].inline.iter().map(Inline::kind).collect::<Vec<_>>(), vec!["text", "code"]);
+        assert_eq!(items[0].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "link"]);
+        assert_eq!(items[1].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "code"]);
     }
 
     #[test]
@@ -576,7 +524,7 @@ mod tests {
         assert_eq!(block_kinds(&b), vec!["para", "list"]);
         let Block::List(items) = &b[1] else { panic!() };
         assert_eq!(items.iter().map(|i| i.marker.as_str()).collect::<Vec<_>>(), vec!["1)", "2)"]);
-        assert_eq!(items[1].inline.iter().map(Inline::kind).collect::<Vec<_>>(), vec!["text", "code", "text"]);
+        assert_eq!(items[1].inline.iter().map(kind).collect::<Vec<_>>(), vec!["text", "code", "text"]);
         for s in ["only 1) here", "see 2) and 3) there", "a (1) b (2) c"] {
             assert_eq!(block_kinds(&rich_blocks(s)), vec!["para"], "{s}");
         }

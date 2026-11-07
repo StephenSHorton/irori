@@ -260,13 +260,10 @@ impl State {
             "inbox" => self.open_dialog(Dialog::Message { id: r.to_string() }),
             _ if r.is_empty() => {}
             _ => {
-                // task:<id>, or task:<id>/comment:<id>.
-                let (card, comment) = match r.split_once('/') {
-                    Some((c, rest)) => (c, Some(rest.trim_start_matches("comment:"))),
-                    None => (r, None),
-                };
-                self.card.focus_comment = comment.map(str::to_string);
-                self.open_card(card);
+                // task:<id>, or task:<id>/comment:<id> (a bare id opens too).
+                let (card, comment) = crate::logic::cards::open_target(r).unwrap_or_else(|| (r.to_string(), String::new()));
+                self.card.focus_comment = (!comment.is_empty()).then_some(comment);
+                self.open_card(&card);
             }
         }
     }

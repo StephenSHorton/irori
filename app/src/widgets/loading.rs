@@ -38,18 +38,6 @@ fn panel(f: &Frame, key: &str) -> El {
         .border(1.0, f.k.c.border_muted)
 }
 
-/// An item's answers in a Notifications row: its question, its buttons.
-pub fn answers_shape(f: &Frame, key: &str) -> El {
-    col().key(key.to_string()).gap(6.0).child(bar(f, &format!("{key}/q"), 42, 14.0)).child(
-        row()
-            .key(format!("{key}/b"))
-            .gap(6.0)
-            .child(block(f, &format!("{key}/b0"), Some(112.0), 32.0, 6.0))
-            .child(block(f, &format!("{key}/b1"), Some(80.0), 32.0, 6.0))
-            .child(block(f, &format!("{key}/b2"), Some(80.0), 32.0, 6.0)),
-    )
-}
-
 /// A run of thread messages: the time column, a name, a line or two.
 pub fn message_rows_shape(f: &Frame, key: &str, rows: usize) -> El {
     let lines = [(12, 55), (7, 40), (12, 100), (12, 22)];
@@ -155,37 +143,6 @@ pub fn tile_grid_shape(f: &Frame, key: &str, tiles: usize) -> El {
     r
 }
 
-/// The ask box over a board: one line and its Send.
-pub fn ask_box_shape(f: &Frame, key: &str) -> El {
-    panel(f, key)
-        .padding(6.0)
-        .child(
-            row()
-                .w_full()
-                .gap(8.0)
-                .center_y()
-                .child(el().grow(1.0).px(12.0).py(8.0).child(bar(f, &format!("{key}/x"), 20, 14.0)))
-                .child(block(f, &format!("{key}/b"), Some(56.0), 32.0, 6.0)),
-        )
-}
-
-/// A board's filter row: its tabs, then search and the List/Canvas switch.
-pub fn filter_row_shape(f: &Frame, key: &str, tabs: usize) -> El {
-    let mut t = row().gap(4.0);
-    for i in 0..tabs {
-        t = t.child(block(f, &format!("{key}/t{i}"), Some(if i == 1 { 144.0 } else { 56.0 }), 32.0, 6.0));
-    }
-    row()
-        .key(key.to_string())
-        .w_full()
-        .gap(12.0)
-        .center_y()
-        .child(t)
-        .child(el().grow(1.0))
-        .child(block(f, &format!("{key}/s"), Some(224.0), 32.0, 6.0))
-        .child(block(f, &format!("{key}/v"), Some(112.0), 32.0, 6.0))
-}
-
 /// One Needs you row: kind, where, when, the title, a line and buttons.
 pub fn need_row_shape(f: &Frame, key: &str) -> El {
     panel(f, key)
@@ -221,39 +178,3 @@ pub fn needs_you_shape(f: &Frame, key: &str, rows: usize) -> El {
     c
 }
 
-/// Home's Agent progress list: ref, title, the line, state and bar.
-pub fn progress_rows_shape(f: &Frame, key: &str, rows: usize) -> El {
-    let mut list = panel(f, &format!("{key}/list"));
-    for i in 0..rows {
-        list = list.child(
-            row()
-                .key(format!("{key}/{i}"))
-                .w_full()
-                .px(16.0)
-                .py(10.0)
-                .gap(12.0)
-                .center_y()
-                .border_sides([0.0, 0.0, 1.0, 0.0], f.k.c.border_muted)
-                .child(el().w(72.0).child(bar(f, &format!("{key}/{i}/r"), 4, 12.0)))
-                .child(el().grow(1.0).min_w(0.0).child(bar(f, &format!("{key}/{i}/t"), 30, 14.0)))
-                .child(el().w(256.0).child(bar(f, &format!("{key}/{i}/l"), 18, 12.5)))
-                .child(block(f, &format!("{key}/{i}/s"), Some(64.0), 20.0, 6.0))
-                .child(block(f, &format!("{key}/{i}/p"), Some(72.0), 4.0, 0.0)),
-        );
-    }
-    col().key(key.to_string()).w_full().gap(6.0).child(bar(f, &format!("{key}/h"), 9, 12.0)).child(list)
-}
-
-/// Home while its cards load: the ask box, Needs you, then Agent
-/// progress with its filter row.
-pub fn home_shape(f: &Frame, key: &str) -> El {
-    col()
-        .key(key.to_string())
-        .w_full()
-        .gap(14.0)
-        .child(ask_box_shape(f, &format!("{key}/ask")))
-        .child(needs_you_shape(f, &format!("{key}/needs"), 2))
-        .child(bar(f, &format!("{key}/ap"), 14, 16.0))
-        .child(filter_row_shape(f, &format!("{key}/filters"), 4))
-        .child(progress_rows_shape(f, &format!("{key}/progress"), 4))
-}

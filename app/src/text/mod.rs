@@ -15,10 +15,10 @@
 //!   comment's `Vec<CardMention>`: their "@name"s become chips), `font`,
 //!   `color`, `max_lines`, `interactive: false` (inside a button).
 //! - [`rich_line`] for one line; [`code`], [`copy_button`], [`link_chip`]
-//!   (a blocker's or option's link: url/path/commit), [`ref_dot`].
+//!   (a blocker's or option's link: url/path/commit), [`render::ref_dot`].
 //! - Card refs the window doesn't hold (done cards, other boards, old
 //!   threads) are looked up off the UI thread when the text comes on screen
-//!   ([`refs::prefetch_text`] does it ahead) and show as chips once found.
+//!   ([`refs::prefetch_refs`] does it ahead) and show as chips once found.
 //! - Pure logic: [`rich::rich_blocks`], [`rich::rich_inline`],
 //!   [`rich::safe_href`], [`rich::plain_line`], [`rich::plain_block`];
 //!   [`refs::card_status`] / [`refs::ref_status`] (a card's chip status,
@@ -72,10 +72,6 @@
 //! The demo scene `irori --snap x.png --scene text` shows rich text samples,
 //! the attachments found in the data, and a composer with its picker open.
 
-// The API above is for the wave-2 pages (card, Talk, Home, the message
-// dialog); until they use it, parts of it are used only by the demo.
-#![allow(dead_code, unused_imports)]
-
 pub mod attach;
 pub mod composer;
 pub mod drafts;
@@ -95,7 +91,7 @@ use rune::{El, ScrollSpec, col, row, text};
 
 pub use attach::{File, attachment_list};
 pub use composer::{Composer, ComposerOpts, Get, GetMut, SendFn, Sent, composer, open_draft, sent, submit};
-pub use render::{RichOpts, code, copy_button, link_chip, ref_dot, rich_line, rich_text, rich_with};
+pub use render::{RichOpts, code, link_chip, rich_line, rich_text, rich_with};
 
 use crate::ui::{Event, Frame, State};
 

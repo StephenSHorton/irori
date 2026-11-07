@@ -447,9 +447,13 @@ pub fn full_view(s: &State, f: &mut Frame) {
     let k = f.k;
     let (w, h) = img.size().map_or((800.0, 600.0), |[w, h]| (w as f32, h as f32));
     let win = f.cx.window_layout("main").map_or((1100.0, 720.0), |r| (r[2], r[3]));
-    let scale = ((win.0 * 0.85 - 48.0) / w).min(win.1 * 0.7 / h).min(1.0);
+    // React: at most 90vw wide, the picture at most 75vh tall; the title
+    // and the Save/Open row must stay on screen too.
+    let scale = ((win.0 * 0.9 - 48.0) / w).min((win.1 * 0.75 - 140.0).max(120.0) / h).min(1.0);
     let actions = file_actions(s, f, "text-full/acts", file, false);
     Dialog::new("text-full", file.shown())
+        .open(true)
+        .fit()
         .description(human_size(file.size))
         .width((w * scale + 48.0).clamp(360.0, 1200.0))
         .click_outside(true)

@@ -73,3 +73,4 @@ lucide!(PENCIL, "pencil", r#"<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 
 lucide!(ALERT_TRIANGLE, "triangle-alert", r#"<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>"#);
 lucide!(ZAP, "zap", r#"<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>"#);
 lucide!(ARROW_RIGHT_LEFT, "arrow-right-left", r#"<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>"#);
+lucide!(PANEL_LEFT, "panel-left", r#"<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>"#);

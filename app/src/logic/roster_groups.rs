@@ -87,16 +87,6 @@ pub fn roster_groups<'a>(agents: &'a [RosterAgent], cards: &[CardSummary]) -> Ro
     g
 }
 
-/// The agents Irori started for a card (never handed a second card).
-pub fn spawned_keys(cards: &[CardSummary]) -> HashSet<String> {
-    cards
-        .iter()
-        .flat_map(|c| c.working.iter())
-        .filter(|w| w.spawned)
-        .map(|w| w.key.clone())
-        .collect()
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -186,12 +176,6 @@ pub(crate) mod tests {
         d.cant_start = "no copy of irori on PC".into();
         let g = roster_groups(&[], &[a, b, c, d]);
         assert_eq!((g.starting, g.queued), (1, 2));
-    }
-
-    #[test]
-    fn spawned_keys_are_only_irori_started() {
-        let k = spawned_keys(&[card("58", &[("thyme", true), ("basil", false)])]);
-        assert_eq!(k.into_iter().collect::<Vec<_>>(), ["thyme"]);
     }
 
     #[test]

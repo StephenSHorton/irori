@@ -32,7 +32,8 @@ use super::mentions::{
     is_full, is_gone, keep_mentions, menu_key, move_highlight, row_name, settle, settle_range,
     split_mentions, token_at,
 };
-use super::refs::{RefStatus, card_status, device_color, tone_color};
+use super::refs::{RefStatus, card_status};
+use super::render::ref_dot;
 use super::rich::plain_line;
 use crate::ui::{Frame, State};
 
@@ -80,19 +81,6 @@ pub struct Composer {
 }
 
 impl Composer {
-    /// An empty box keeping its draft under `key` ("" for none). The draft
-    /// itself loads with [`open_draft`].
-    pub fn new(key: &str) -> Composer {
-        Composer {
-            key: key.to_string(),
-            ..Composer::default()
-        }
-    }
-
-    pub fn text(&self) -> &str {
-        &self.edit.text
-    }
-
     /// Nothing typed and no files.
     pub fn is_empty(&self) -> bool {
         self.edit.text.trim().is_empty() && self.files.is_empty()
@@ -687,7 +675,6 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
 #[allow(clippy::too_many_arguments)]
 fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut: GetMut, p: &Popup, o: &ComposerOpts) {
     let k = f.k;
-    let _ = s;
     let query = p.token.as_ref().map(|t| plain_line(&t.query)).unwrap_or_default();
     let mut items = Vec::new();
     let empty;
@@ -703,16 +690,18 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
                         row()
                             .gap(6.0)
                             .center_y()
-                            .child(el().size(6.0, 6.0).radius(3.0).fill(tone_color(st.tone)))
+                            .child(ref_dot(f, &st))
                             .child(text(c.r#ref.clone()).font(k.ty.small.mono()).color(k.c.text_muted)),
                     )
-                    .description(d),
+                    // The status sits at the end, whole (React's ml-auto
+                    // span): a description would shrink to nothing first.
+                    .trailing(text(d).font(rune::tok::TextStyle::new(11.0, 400.0)).color(k.c.text_muted).max_lines(1)),
             );
         }
         empty = if query.is_empty() { "No cards".to_string() } else { format!("No card matches {query}") };
     } else {
         for (i, r) in p.agents.iter().enumerate() {
-            items.push(agent_item(f, i, r, p.capped && !p.taken.contains(&r.who.key)));
+            items.push(agent_item(s, f, key, i, r, p.capped && !p.taken.contains(&r.who.key)));
         }
         empty = if query.is_empty() {
             "No agents to mention".to_string()
@@ -747,18 +736,12 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
 /// One agent in the picker: its initial in its device colour, its name,
 /// device, status and repo, so two agents with one name tell apart. A gone
 /// one says so; past the cap a new one can't be picked.
-fn agent_item(f: &Frame, i: usize, r: &Candidate, disabled: bool) -> PopupItem {
-    let k = f.k;
+fn agent_item(s: &State, f: &mut Frame, key: &str, i: usize, r: &Candidate, disabled: bool) -> PopupItem {
     let who = &r.who;
     let gone = is_gone(who);
-    let tint = device_color(&who.color).unwrap_or(k.c.text_accent);
-    let initial: String = plain_line(&who.name).chars().next().map(|c| c.to_uppercase().collect()).unwrap_or_default();
-    let face = el()
-        .size(18.0, 18.0)
-        .radius(9.0)
-        .fill(tint.alpha(if gone { 0.12 } else { 0.22 }))
-        .center()
-        .child(text(initial).font(k.ty.text_xsmall_medium).color(if gone { k.c.text_faint } else { tint }));
+    // The agent's own face (MentionRow's Face, no hover card in a list).
+    let opts = crate::widgets::faces::FaceOpts { no_hover: true, no_dot: true, ..Default::default() };
+    let face = crate::widgets::faces::face(s, f, &format!("{key}-pick-face-{i}"), who, opts);
     let name = if r.card.is_empty() { plain_line(&who.name) } else { mentions::agent_on_label(&r.card) };
     let place = if r.repo.is_empty() {
         r.cwd.rsplit(['/', '\\']).find(|x| !x.is_empty()).unwrap_or("").to_string()
@@ -785,13 +768,11 @@ fn agent_item(f: &Frame, i: usize, r: &Candidate, disabled: bool) -> PopupItem {
     PopupItem::new(i.to_string(), name).leading(face).description(desc).disabled(disabled)
 }
 
-/// An agent's state in a word (lib/agent-status.ts, cut down).
+/// An agent's state in words (lib/agent-status.ts).
 fn status_text(who: &irori_window::cards::AgentRef) -> String {
-    if who.offline {
-        return "offline".into();
+    use crate::logic::agent_status::{Who, agent_status, now_ms};
+    if who.status == "person" {
+        return String::new();
     }
-    match who.status.as_str() {
-        "" | "person" => String::new(),
-        s => s.replace('_', " "),
-    }
+    agent_status(&Who::from(who), None, now_ms()).text
 }

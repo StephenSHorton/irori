@@ -23,7 +23,8 @@ use rune_kit::{ControlSize, IconButton, IconButtonVariant};
 
 use super::icons;
 use super::mentions::{MentionSpan, Named, card_refs, is_gone, split_mentions};
-use super::refs::{self, device_color, tone_color};
+use super::refs::{self, device_color};
+use crate::widgets::bits::tone_solid;
 use super::rich::{Block, Inline, LinkPiece, plain_line, rich_blocks, rich_inline, safe_href};
 use crate::ui::{Frame, State};
 
@@ -208,7 +209,8 @@ pub fn on_link(s: &mut State, id: &str, tx: &mut Tx) {
         }
     } else if let Some(t) = id.strip_prefix("copy:") {
         tx.copy(t.to_string());
-        s.toast("Copied", &plain_line(t));
+        COPIED.with(|c| *c.borrow_mut() = Some((id.to_string(), std::time::Instant::now())));
+        tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
     } else if let Some(card) = id.strip_prefix("card:") {
         s.open_card(card);
     }
@@ -243,15 +245,16 @@ fn pieces(s: &State, f: &Frame, run: &mut Run, ps: &[Inline], o: &RichOpts, font
                     ),
                 );
                 if o.interactive {
-                    run.icons.push((
-                        at,
-                        InlineIcon::glyph(&icons::COPY).size((font.size * 0.85).round()).gap(3.0).color(k.c.text_faint),
-                    ));
+                    let id = format!("copy:{t}");
+                    let done = copied(&id);
+                    let (glyph, ink) = if done { (&crate::ui::icons::CHECK, k.c.success.fg) } else { (&icons::COPY, k.c.text_faint) };
+                    run.icons.push((at, InlineIcon::glyph(glyph).size((font.size * 0.85).round()).gap(3.0).color(ink)));
+                    let tip = if done { "Copied".to_string() } else { format!("Copy: {t}") };
                     run.links.push(
-                        Link::new(r, format!("copy:{t}"))
+                        Link::new(r, id)
                             .role("button")
-                            .label(format!("Copy {t}"))
-                            .help(format!("Copy: {t}"))
+                            .label(if done { "Copied".to_string() } else { format!("Copy {t}") })
+                            .help(tip)
                             .hover(LinkPaint::new().bg(k.c.hover)),
                     );
                 }
@@ -326,7 +329,7 @@ fn ref_chip(f: &Frame, run: &mut Run, label: &str, hit: &refs::Resolved, o: &Ric
         .collect::<Vec<_>>()
         .join(" · ");
     let start = run.s.len();
-    run.push("●\u{2009}", Some(Span::new(0, 0).color(tone_color(st.tone)).size(8.0)));
+    run.push("●\u{2009}", Some(Span::new(0, 0).color(tone_solid(f, st.tone)).size(8.0)));
     run.push(label, Some(Span::new(0, 0).color(k.c.text_accent).weight(560.0)));
     if !name.is_empty() {
         run.push(" ", None);
@@ -409,17 +412,35 @@ pub fn code(f: &Frame, key: &str, t: &str) -> El {
         .child(copy_button(f, &format!("{key}/copy"), t, "Copy"))
 }
 
-/// A one-click Copy for `t`: copies it and says so in a note.
+thread_local! {
+    /// The Copy button pressed last and when: it shows a check for a
+    /// moment (rich-text.tsx CopyButton's `done`).
+    static COPIED: std::cell::RefCell<Option<(String, std::time::Instant)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// How long a Copy shows its check.
+const COPIED_FOR: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Whether the Copy with this id was pressed a moment ago.
+fn copied(id: &str) -> bool {
+    COPIED.with(|c| c.borrow().as_ref().is_some_and(|(k, at)| k == id && at.elapsed() < COPIED_FOR))
+}
+
+/// A one-click Copy for `t`: copies it and shows a check for a moment.
 pub fn copy_button(f: &Frame, key: &str, t: &str, label: &str) -> El {
     let v = t.to_string();
-    IconButton::new(&icons::COPY)
+    let id = key.to_string();
+    let done = copied(&id);
+    IconButton::new(if done { &crate::ui::icons::CHECK } else { &icons::COPY })
         .variant(IconButtonVariant::GhostMuted)
         .control_size(ControlSize::Mini)
-        .label(format!("{label} {t}"))
-        .help(format!("{label}: {t}"))
-        .on_press_tx(move |s: &mut State, tx: &mut Tx| {
+        .label(if done { "Copied".to_string() } else { format!("{label} {t}") })
+        .help(if done { "Copied".to_string() } else { format!("{label}: {t}") })
+        .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
             tx.copy(v.clone());
-            s.toast("Copied", &plain_line(&v));
+            COPIED.with(|c| *c.borrow_mut() = Some((id.clone(), std::time::Instant::now())));
+            // Back to the copy glyph once the moment is over.
+            tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
         })
         .build(f.k)
         .key(key.to_string())
@@ -492,6 +513,6 @@ pub fn link_chip(f: &Frame, key: &str, kind: &str, reference: &str, label: &str)
 }
 
 /// A card's state as a dot in its status colour (card #343).
-pub fn ref_dot(st: &refs::RefStatus) -> El {
-    el().size(6.0, 6.0).radius(3.0).fill(tone_color(st.tone))
+pub fn ref_dot(f: &Frame, st: &refs::RefStatus) -> El {
+    el().size(6.0, 6.0).radius(3.0).fill(tone_solid(f, st.tone))
 }

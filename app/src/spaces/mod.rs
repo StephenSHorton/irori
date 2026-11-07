@@ -39,7 +39,7 @@ use crate::ui::{Event, Frame, Route, State};
 pub use board::board_page;
 pub use parts::invite_panel;
 pub use logic::{ALL_SPACES, PERSONAL};
-pub use switcher::switcher;
+pub use switcher::{switcher, switcher_folded};
 
 /// The prefs key of the space pick (the React app's localStorage
 /// `irori.space`).

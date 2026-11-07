@@ -132,11 +132,6 @@ pub fn blocker_tone(state: &str) -> BlockerTone {
     }
 }
 
-/// The item waits on the person: open, or replied.
-pub fn needs_person(state: &str) -> bool {
-    blocker_tone(state) == BlockerTone::Amber
-}
-
 /// The person can still answer the item.
 pub fn answerable(state: &str) -> bool {
     state != blocker::RESOLVED && state != blocker::CLOSED
@@ -219,10 +214,16 @@ pub struct LiveAgent {
     pub updated_at: Option<i64>,
     pub status_since: Option<i64>,
     pub device_state: String,
+    #[allow(dead_code)]
     pub device_via: String,
     pub last_tool: String,
+    // thread.ts LiveAgent's whole shape, which Talk fills too; the hover
+    // card reads these from the roster itself (widgets::agent_hover).
+    #[allow(dead_code)]
     pub offers_cards: bool,
+    #[allow(dead_code)]
     pub spawned: bool,
+    #[allow(dead_code)]
     pub here: bool,
 }
 
@@ -564,19 +565,17 @@ mod tests {
 
     #[test]
     fn blocker_states() {
-        for (st, tone, needs, open) in [
-            (blocker::OPEN, BlockerTone::Amber, true, true),
-            (blocker::ANSWERED, BlockerTone::Grey, false, true),
-            (blocker::REPLIED, BlockerTone::Amber, true, true),
-            (blocker::RESOLVED, BlockerTone::Green, false, false),
-            (blocker::CLOSED, BlockerTone::Closed, false, false),
+        for (st, tone, open) in [
+            (blocker::OPEN, BlockerTone::Amber, true),
+            (blocker::ANSWERED, BlockerTone::Grey, true),
+            (blocker::REPLIED, BlockerTone::Amber, true),
+            (blocker::RESOLVED, BlockerTone::Green, false),
+            (blocker::CLOSED, BlockerTone::Closed, false),
         ] {
             assert_eq!(blocker_tone(st), tone);
-            assert_eq!(needs_person(st), needs);
             assert_eq!(answerable(st), open);
         }
         assert_eq!(blocker_tone(""), BlockerTone::Amber);
-        assert!(needs_person(""));
         let mut b = CardBlocker {
             state: "open".into(),
             waits_on: Some(Default::default()),

@@ -335,7 +335,8 @@ pub fn waits_on_trust(c: &CardSummary) -> bool {
 
 /// Irori's own sweep questions (card #456); they match the Rust constants.
 pub const WAITING_PERMISSION: &str = "Waiting for your permission";
-pub const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start another?";
+#[cfg(test)]
+const CRASHED_QUESTION: &str = "Its agent crashed twice in a row: start another?";
 pub const GIVEN_QUESTION: &str = "OK to start an agent on this?";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -449,15 +450,6 @@ pub fn asks_person(d: &Delivery) -> bool {
 /// The person at this app sent `d`.
 pub fn from_person(d: &Delivery) -> bool {
     d.message.from.kind == "user" || d.message.from.key.starts_with("user:")
-}
-
-/// An agent's open message to the person.
-pub fn to_person(d: &Delivery) -> bool {
-    d.to.starts_with("user:")
-        && matches!(
-            d.state.as_str(),
-            inbox::st::QUEUED | inbox::st::DELIVERED | inbox::st::ENGAGED | inbox::st::DEFERRED
-        )
 }
 
 fn time(t: &gocompat::time::GoTime) -> i64 {
@@ -856,13 +848,6 @@ mod tests {
         mq.state = inbox::st::QUEUED.into();
         assert!(!asks_person(&mq));
         assert_eq!(kinds(&needs_of(&[], std::slice::from_ref(&hop))), [format!("heldQuiet:{HELD_QUIET}")]);
-    }
-
-    #[test]
-    fn to_person_open_messages_only() {
-        assert!(to_person(&delivery(|_| {})));
-        assert!(!to_person(&delivery(|d| d.state = inbox::st::HELD.into())));
-        assert!(!to_person(&delivery(|d| d.to = "dev/agent".into())));
     }
 
     fn pr(n: i64) -> WaitPr {

@@ -5,9 +5,6 @@
 
 use base64::Engine;
 
-/// The square's side in pixels the window shrinks a picked picture to.
-pub const AVATAR_SIZE: u32 = 128;
-
 /// coord::person_avatar::MAX_LEN.
 pub const MAX_AVATAR: usize = 32 * 1024;
 
