@@ -483,7 +483,7 @@
         },
         "board": {
           "type": "string",
-          "description": "Optional: a board to put it on, by tag or boardId (the board tool lists them). One of Personal's boards keeps the card private. A board in a shared space is seen by everyone in that space, and your person's autonomy setting there decides whether you may create there or must ask them first. Without it the card is private, on Personal's default board."
+          "description": "Optional: a board to put it on, by tag or boardId (the board tool lists them). One of Personal's boards keeps the card private. A board in a shared space is seen by everyone in that space, and your person's autonomy setting there decides whether you may create there or must ask them first. Without it the card is private: on its parent's board for a subtask, else on its thread's board, else on Personal's default."
         },
         "shared": {
           "type": "boolean",

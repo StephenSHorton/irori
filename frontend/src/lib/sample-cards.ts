@@ -103,19 +103,20 @@ function sampleAccent(working: AgentRef[]): {
 export function sampleHolder(working: AgentRef[]): CardHolder {
   if (!working.length) return CardHolder({ state: Holding.HoldNobody })
   const who = working.find((w) => !w.assigned) ?? working[0]
+  // The order of holder_line in crates/window/src/cards.rs (card #699).
   const state =
     who.status === "person"
       ? Holding.HoldPerson
-      : who.waiting
-        ? Holding.HoldWaiting
-        : who.assigned
-          ? Holding.HoldAssigned
-          : who.status === "gone"
-            ? Holding.HoldGone
-            : who.status === "unresponsive"
-              ? Holding.HoldSilent
-              : who.offline
-                ? Holding.HoldOffline
+      : who.status === "gone"
+        ? Holding.HoldGone
+        : who.status === "unresponsive"
+          ? Holding.HoldSilent
+          : who.offline
+            ? Holding.HoldOffline
+            : who.waiting
+              ? Holding.HoldWaiting
+              : who.assigned
+                ? Holding.HoldAssigned
                 : who.status === "idle"
                   ? Holding.HoldIdle
                   : Holding.HoldActive

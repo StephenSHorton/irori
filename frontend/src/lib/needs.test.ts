@@ -787,6 +787,33 @@ describe("Home's groups (card #487)", () => {
       expect(nobodyTook(c)).toBe(true)
     }
   })
+  // Card #699: an offered agent that died isn't a slow one.
+  test("an offered agent that is gone or silent says so", () => {
+    const away = (w: Record<string, unknown>, state: string) =>
+      card({
+        state: TaskState.Submitted,
+        working: [
+          { ...heron, assigned: true, spawned: true, ...w },
+        ] as CardSummary["working"],
+        holder: {
+          state,
+          who: { ...heron, ...w },
+          others: 0,
+        } as CardSummary["holder"],
+      })
+    for (const [c, line] of [
+      [away({ status: "unresponsive" }, "silent"), "heron isn't answering"],
+      [away({ status: "gone", live: false }, "gone"), "heron went away"],
+      [away({ offline: true }, "offline"), "heron is on an offline device"],
+    ] as const) {
+      expect(rowState(c)).toEqual({ state: "stuck", line })
+      expect(nobodyTook(c)).toBe(true)
+    }
+    // Unknown here (a shared board's agent) is not dead: still offered.
+    expect(
+      rowState(away({ status: "unknown", live: false }, "assigned"))
+    ).toEqual({ state: "stuck", line: "Offered, not taken up yet" })
+  })
   test("someone on it, or starting: Working, not counted", () => {
     const taken = ask({ state: "taken", taker: heron })
     expect(rowState(taken)).toEqual({ state: "working", line: "heron took it" })
