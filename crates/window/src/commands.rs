@@ -16,7 +16,8 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, RunningAgent,
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
+    RunningAgent,
 };
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
@@ -1691,6 +1692,21 @@ pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsVie
     w.agents_starts_set(on, max)
 }
 
+/// The themes new agents' names come from (card #702), each with its
+/// switch.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_themes(w: W<'_>) -> R<NamesThemesView> {
+    blocking(&w, |w| Ok(w.names_themes())).await
+}
+
+/// The person turns a theme on or off: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_theme_set(w: W<'_>, id: String, on: bool) -> R<NamesThemesView> {
+    blocking(&w, move |w| w.names_theme_set(&id, on)).await
+}
+
 /// The person changes them: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
@@ -2190,6 +2206,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_device_list,
             agents_settings,
             agents_set,
+            names_themes,
+            names_theme_set,
             agents_starts,
             agents_starts_set,
             agents_pause,
