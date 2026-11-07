@@ -633,6 +633,38 @@ impl Window {
                 gocompat::quote::quote(blocker_id)
             ));
         };
+        // A pick on a permission prompt Irori can answer (card #682): it
+        // resolves as the person, and the device that runs the agent hands
+        // it to the waiting hook. Always allow also adds its rule to the
+        // card's board's allow list (app only, decision 23).
+        if let Some(w) = bl
+            .permission
+            .as_ref()
+            .filter(|w| !w.request.is_empty() && bl.open())
+            && irori_core::spawn_waiting::is_permission_wait(bl)
+            && option >= 0
+        {
+            let Some(picked) = bl.options.get(option as usize) else {
+                return Err(invalid("no such answer on this permission prompt"));
+            };
+            if picked.answer == coord::PERMISSION_ALWAYS && !w.rule.is_empty() {
+                self.allow_rule(task_id, &w.rule)?;
+            }
+            let a = BlockerAnswer {
+                pick: option + 1,
+                resolve: true,
+                ..BlockerAnswer::default()
+            };
+            let (t, _) = co
+                .answer(&me, task_id, blocker_id, a)
+                .map_err(|e| e.to_string())?;
+            return Ok(AnswerResult {
+                resolved: item_resolved(&t, blocker_id),
+                told: Default::default(),
+                mentioned: Default::default(),
+                irori_acts: true,
+            });
+        }
         // Done on a done check (card #112): resolve it and close the card,
         // as the person.
         if bl.done_check
