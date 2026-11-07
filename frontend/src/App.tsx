@@ -183,8 +183,8 @@ export function App() {
   const idle = useIdleReport(roster.agents)
   const { boards } = useBoards()
   const { boards: personalBoards } = usePersonalBoards()
-  // The space the sidebar's switcher picked (card #393): Home, Talk and
-  // Boards show it. All spaces, the default, is everything.
+  // The space the sidebar's switcher picked (card #393): Home and Talk
+  // show it. All spaces, the default, is everything.
   const [space, setSpace] = useSpace(boards)
   const shared = space !== AllSpaces && space !== Personal
   const spaceCards = useMemo(
@@ -732,15 +732,19 @@ export function App() {
   const [drawer, setDrawer] = useState(() => previewFlag("spaces") === "open")
   const where = open
     ? `card:${open}`
-    : `${section.kind}:${section.kind === "board" ? section.id : ""}`
+    : section.kind === "board"
+      ? // The board too: the picker's Space settings goes from one of a
+        // space's boards to its page (card #689).
+        `board:${section.id}/${section.board ?? ""}`
+      : `${section.kind}:`
   const [drawerAt, setDrawerAt] = useState(where)
   if (drawerAt !== where) {
     setDrawerAt(where)
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home, Talk and Spaces are tabs at
-  // the bottom, and an open conversation is the whole screen, its own
+  // A phone (card #395, mockup talk-5): Home and Talk are tabs at the
+  // bottom (card #689 dropped Spaces), and an open conversation is the whole screen, its own
   // header carrying Back.
   const narrow = useNarrow()
   // The badge counts what Talk lists in the picked space (card #461).

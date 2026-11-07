@@ -323,7 +323,7 @@ export function PersonalHeaderBar({ list }: { list: string }) {
   // board now, so that is where the page goes.
   const gone = all.length > 0 && !x
   useEffect(() => {
-    if (gone) go({ kind: "board", id: Personal })
+    if (gone) go({ kind: "board", id: Personal, board: Personal })
   }, [gone])
   if (!x) return <h1 className="text-lg font-semibold text-ink">Personal</h1>
   return (

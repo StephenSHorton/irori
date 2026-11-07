@@ -1,5 +1,5 @@
 // SpaceSwitcher sits at the top of the sidebar (card #393, mockup talk-6):
-// it picks the space Home, Talk and Boards show. All spaces is everything,
+// it picks the space Home and Talk show. All spaces is everything,
 // Needs you across all of it; Personal is you and your agents; then each
 // shared space, "with" whoever is in it. It is the one place for spaces
 // (card #689, which dropped the Spaces tab): at its foot, the picked

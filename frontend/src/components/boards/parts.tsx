@@ -181,9 +181,9 @@ export function NewBoard({
 // sidebar's space picker or the palette (card #689): make a space, or join
 // one with an invite someone sent, as two tabs. A space you make opens on
 // its own page, where you invite people. While an invite is open, either
-// side, the dialog shows it in place of the tabs: one invite at a time, and
-// the joiner reads their five words here. Closing it leaves the invite
-// running; opening it again shows it.
+// side, it shows over the tabs and Join goes (one invite at a time), so
+// the joiner reads their five words here and Make a space still works.
+// Closing the dialog leaves the invite running; opening it again shows it.
 export function NewBoardDialog({
   open,
   onClose,
@@ -195,6 +195,7 @@ export function NewBoardDialog({
   const { invite, setInvite } = useInvite(open)
   const inviting = !!invite && invite.state !== ""
   const [tab, setTab] = useState<"make" | "join">("make")
+  const t = inviting ? "make" : tab
   const close = () => {
     setTab("make")
     // Opening again reads the invite afresh, not this one's last state.
@@ -206,68 +207,62 @@ export function NewBoardDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {inviting
-              ? "Invite"
-              : tab === "make"
-                ? "New space"
-                : "Join a space"}
+            {t === "make" ? "New space" : "Join a space"}
           </DialogTitle>
           <DialogDescription>
-            {inviting
-              ? "An invite is open. It goes on if you close this; open New or join a space to see it again."
-              : tab === "make"
-                ? "A group of people, with its boards and Talk. Only the people you invite see it."
-                : "Paste the invite link someone sent you."}
+            {t === "make"
+              ? "A group of people, with its boards and Talk. Only the people you invite see it."
+              : "Paste the invite link someone sent you."}
           </DialogDescription>
         </DialogHeader>
-        {inviting ? (
-          <InvitePanel
-            s={invite}
-            onClose={() => {
-              setInvite(null)
-              void reload()
+        {inviting && (
+          <div className="rounded-lg border border-border p-3">
+            <InvitePanel
+              s={invite}
+              onClose={() => {
+                setInvite(null)
+                void reload()
+              }}
+            />
+          </div>
+        )}
+        {!inviting && (
+          <div
+            className="flex gap-1"
+            role="tablist"
+            aria-label="New space or join one"
+          >
+            {(
+              [
+                ["make", "Make a space"],
+                ["join", "Join with an invite"],
+              ] as const
+            ).map(([k, label]) => (
+              <Button
+                key={k}
+                type="button"
+                size="sm"
+                role="tab"
+                aria-selected={t === k}
+                variant={t === k ? "secondary" : "ghost"}
+                onClick={() => setTab(k)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+        {t === "make" ? (
+          <NewBoard
+            taken={all.map((b) => b.tag)}
+            onMade={async (b) => {
+              await reload()
               close()
+              go({ kind: "board", id: b.boardId })
             }}
           />
         ) : (
-          <>
-            <div
-              className="flex gap-1"
-              role="tablist"
-              aria-label="New space or join one"
-            >
-              {(
-                [
-                  ["make", "Make a space"],
-                  ["join", "Join with an invite"],
-                ] as const
-              ).map(([k, label]) => (
-                <Button
-                  key={k}
-                  type="button"
-                  size="sm"
-                  role="tab"
-                  aria-selected={tab === k}
-                  variant={tab === k ? "secondary" : "ghost"}
-                  onClick={() => setTab(k)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-            {tab === "make" ? (
-              <NewBoard
-                taken={all.map((b) => b.tag)}
-                onMade={async (b) => {
-                  await reload()
-                  close()
-                  go({ kind: "board", id: b.boardId })
-                }}
-              />
-            ) : (
-              <JoinInvite onJoined={setInvite} />
-            )}
-          </>
+          <JoinInvite onJoined={setInvite} />
         )}
       </DialogContent>
     </Dialog>

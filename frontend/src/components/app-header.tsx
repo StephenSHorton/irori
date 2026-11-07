@@ -10,8 +10,7 @@ import type { Section } from "@/lib/nav"
 
 // AppHeader is the page header (card #135): the page's title and its own
 // actions. The nav lives in the sidebar. New card on Home and on a board's
-// page (card #116, there it goes on that board), New board on Boards (card
-// #126); a board's page adds its own actions (pin, rename, leave) as
+// page (card #116, there it goes on that board); a board's page adds its own actions (pin, rename, leave) as
 // `actions`.
 export function AppHeader({
   roster,

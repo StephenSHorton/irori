@@ -715,7 +715,7 @@ export const boards = {
 // ---- hooks ------------------------------------------------------------------
 
 // The boards list is one list for the whole window (card #233): the
-// sidebar's Pinned boards, the Boards page and every other reader share
+// sidebar's Pinned boards, the space picker and every other reader share
 // it, so they can never disagree. It loads when its first reader mounts,
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.
