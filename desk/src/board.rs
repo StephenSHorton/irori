@@ -421,7 +421,8 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
             text(c.title.clone())
                 .font(rune::tok::TextStyle::new(17.0, 600.0))
                 .color(t.text)
-                .w_full(),
+                .w_full()
+                .wrap(),
         );
     if !d.goal.is_empty() {
         page = page.child(section("Objective", &d.goal, t));
@@ -454,7 +455,9 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
                         text(st.text.clone())
                             .font(type_::BODY)
                             .color(if st.done { t.text_secondary } else { t.text })
-                            .grow(1.0),
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .wrap(),
                     ),
             );
         }
@@ -473,14 +476,16 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
                 text(b.question.clone())
                     .font(type_::TITLE)
                     .color(t.text)
-                    .w_full(),
+                    .w_full()
+                    .wrap(),
             );
         if !b.context.is_empty() {
             bl = bl.child(
                 text(b.context.clone())
                     .font(type_::BODY)
                     .color(t.text_secondary)
-                    .w_full(),
+                    .w_full()
+                    .wrap(),
             );
         }
         for (i, o) in b.options.iter().enumerate() {
@@ -489,7 +494,8 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
                 text(format!("{}. {}{rec}", i + 1, o.answer))
                     .font(type_::BODY)
                     .color(t.text)
-                    .w_full(),
+                    .w_full()
+                    .wrap(),
             );
         }
         page = page.child(bl);
@@ -517,6 +523,7 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
                             .font(type_::BODY)
                             .color(t.text)
                             .w_full()
+                            .wrap()
                             .max_lines(8),
                     ),
             );
@@ -569,7 +576,8 @@ fn comment_box(s: &State, t: Theme) -> El {
             text(s.error.clone())
                 .font(type_::BODY)
                 .color(hex("#e5534b"))
-                .w_full(),
+                .w_full()
+                .wrap(),
         );
     }
     c
@@ -588,6 +596,7 @@ fn section(title: &str, body: &str, t: Theme) -> El {
             text(body.to_string())
                 .font(type_::BODY)
                 .color(t.text)
-                .w_full(),
+                .w_full()
+                .wrap(),
         )
 }

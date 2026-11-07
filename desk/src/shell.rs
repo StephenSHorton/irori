@@ -126,9 +126,21 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // changed; the state re-reads on the UI thread.
     {
         let h = handle.clone();
+        // IRORI_DESK_TRACE=1 logs each refresh (the spike's live check).
+        let trace = std::env::var_os("IRORI_DESK_TRACE").is_some();
         window.set_emitter(move |name, _payload| {
             if name == EVENT_BOARD_CHANGED || name == EVENT_ROSTER_CHANGED {
-                h.update(|s: &mut State, _| s.refresh());
+                let name = name.to_string();
+                h.update(move |s: &mut State, _| {
+                    s.refresh();
+                    if trace {
+                        irori_core::log(&format!(
+                            "desk: {name}: {} cards, open card thread {}",
+                            s.cards.len(),
+                            s.detail.as_ref().map_or(0, |d| d.thread.len())
+                        ));
+                    }
+                });
             }
         });
     }
