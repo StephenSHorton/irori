@@ -115,10 +115,22 @@ export async function leaveHuddle(): Promise<void> {
   await CallService.Leave()
 }
 
-// setMuted shows the change at once; call:state confirms it.
+// setMuted shows the change at once; call:state confirms it. Unmuting
+// while deafened undeafens too: the mic was off for the deafen, and the
+// person asked for it on.
 export async function setMuted(on: boolean): Promise<void> {
-  if (shared.mine) set({ ...shared, mine: { ...shared.mine, muted: on } })
+  const deafened = !on && !!shared.mine?.deafened
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        muted: on,
+        deafened: deafened ? false : shared.mine.deafened,
+      },
+    })
   if (!inWails()) return
+  if (deafened) await CallService.Deafen(false)
   await CallService.Mute(on)
 }
 
@@ -251,6 +263,7 @@ export function convLabel(c: { convKind: string; convName: string }): string {
 // tick so the dots and rings can be seen. The app never runs it.
 //   ?call=live (and share): you're in #suzuri's huddle
 //   ?call=start: Spencer's huddle is on in #netcode and rings here
+//   ?call=sheet: the open channel's Huddle start sheet (conversation.tsx)
 export const previewPeers: CallPeerView[] = [
   {
     name: "Spencer",

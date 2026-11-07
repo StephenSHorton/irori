@@ -78,11 +78,13 @@ import {
   HuddleEnded,
   HuddleStarted,
   useCallPart,
+  type StartWhere,
 } from "./huddle"
 import {
   joinHuddle,
   leaveHuddle,
   liveIn,
+  setDeafened,
   setMuted,
   startHuddle,
 } from "@/lib/call"
@@ -90,6 +92,7 @@ import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
+import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { agentStatus } from "@/lib/agent-status"
 import { isOthersKey, memberName, nameOr } from "@/lib/names"
@@ -220,6 +223,12 @@ export function ConversationView({
   }
   const onMute = (on: boolean) =>
     void setMuted(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onDeafen = (on: boolean) =>
+    void setDeafened(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  // Huddle's start sheet; the browser preview's ?call=sheet opens it.
+  const [sheetOpen, setSheetOpen] = useState(
+    () => typeof window !== "undefined" && previewFlag("call") === "sheet"
+  )
   const onLeave = () => void huddle(leaveHuddle)
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
@@ -279,6 +288,15 @@ export function ConversationView({
   // huddle; an agent's DM and a read-only one never do.
   const canHuddle =
     !conv.readOnly && (conv.kind === "channel" || (!!person && !waiting))
+  // Who the start sheet says gets told.
+  const startWhere: StartWhere = {
+    label: conv.kind === "channel" ? `#${plainLine(conv.name)}` : personName,
+    kind:
+      conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
+    people: conv.members
+      .filter((m) => m.kind === "person" && m.name !== "you")
+      .map(memberName),
+  }
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")
   const leave = async () => {
@@ -377,7 +395,7 @@ export function ConversationView({
           )}
           {canHuddle && (
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
-              {huddleError && (
+              {huddleError && !sheetOpen && (
                 <span
                   role="alert"
                   className="max-w-[240px] truncate text-[11px] text-destructive"
@@ -390,10 +408,18 @@ export function ConversationView({
                 mine={mine}
                 live={livePeople}
                 busy={huddleBusy}
+                start={startWhere}
+                error={huddleError}
+                sheetOpen={sheetOpen}
+                onSheetOpen={(o) => {
+                  setSheetOpen(o)
+                  if (o) setHuddleError("")
+                }}
                 onStart={() =>
-                  void huddle(() =>
-                    startHuddle(conv.convId, plainLine(conv.name))
-                  )
+                  void huddle(async () => {
+                    await startHuddle(conv.convId, plainLine(conv.name))
+                    setSheetOpen(false)
+                  })
                 }
                 onJoin={() =>
                   liveHere && void huddle(() => joinHuddle(liveHere.callId))
@@ -461,7 +487,13 @@ export function ConversationView({
           )}
         </header>
         {narrow && mine ? (
-          <CallPanel mine={mine} wide onMute={onMute} onLeave={onLeave} />
+          <CallPanel
+            mine={mine}
+            wide
+            onMute={onMute}
+            onDeafen={onDeafen}
+            onLeave={onLeave}
+          />
         ) : mock === "share" ? (
           <ShareStage />
         ) : narrow && showMembers && conv.kind === "channel" ? (
@@ -557,7 +589,12 @@ export function ConversationView({
         mock === "share" ? (
           <MockCallPanel channel={conv.name} sharing />
         ) : (
-          <CallPanel mine={mine} onMute={onMute} onLeave={onLeave} />
+          <CallPanel
+            mine={mine}
+            onMute={onMute}
+            onDeafen={onDeafen}
+            onLeave={onLeave}
+          />
         )
       ) : mock === "transcript" && !narrow ? (
         <TranscriptPane />
