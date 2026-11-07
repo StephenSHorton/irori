@@ -341,6 +341,7 @@ function sampleThread(
 // one its named agent heard, one handed to an idle agent, one resolved.
 function sampleThreadSeed(now: Date): CardDetail[] {
   const ago = (s: number) => new Date(now.getTime() - s * 1000).toISOString()
+  sampleThreadRead.set("sample-thread-6", 1)
   return [
     sampleThread(
       "sample-thread-1",
@@ -363,6 +364,23 @@ function sampleThreadSeed(now: Date): CardDetail[] {
           at: ago(30),
           who: sampleAgents.heron,
           text: "The build log is at builds/release/mac-universal/2026-11-01T18-37-38Z/irori-desktop-aarch64-apple-darwin-signed-notarized-stapled.log and the failing key was RELEASE_NOTES_EXPORT_PIPELINE_STAGE_THREE_MISSING_ARTIFACT_MANIFEST.",
+        }),
+      ],
+      "answered"
+    ),
+    // Answered and opened since (card #719): not in Talk's count, no dot.
+    sampleThread(
+      "sample-thread-6",
+      "28",
+      "Which port does the preview use?",
+      ago(300),
+      [
+        CardThreadItem({
+          id: "sample-thread-6-a",
+          kind: "comment",
+          at: ago(240),
+          who: sampleAgents.otter,
+          text: "The first free one from 9246 up; it writes it to frontend/.preview-url.",
         }),
       ],
       "answered"
