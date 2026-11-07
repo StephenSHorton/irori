@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 use super::*;
 use crate::buildclean::{self, Cleared};
-use crate::treeclean::{key, tree_of};
+use crate::treeclean::{self, key, tree_of};
 
 /// A worktree Irori made here for cards, as Storage lists it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -86,15 +86,45 @@ impl Core {
     /// Clears one tree's `target/` now, at the person's word (card #728):
     /// only a tree [`Self::build_trees`] lists, never one an agent works
     /// in, and through [`buildclean::clear`]'s checks (a tree Irori made, a
-    /// real cargo target, no build holding its lock).
+    /// real cargo target, no build holding its lock). Who is in a tree is
+    /// asked as the sweep's last look asks it (`tree_recheck`): sessions,
+    /// then `claude agents`, so an agent presence doesn't list (just
+    /// started, waiting on a limit) still counts. When the agents can't be
+    /// listed, only a build idle for [`buildclean::IDLE`] goes.
     pub fn clear_build(&self, tree: &str) -> Result<Cleared, String> {
         let k = key(tree);
         let Some(t) = self.build_trees().into_iter().find(|t| t.tree == k) else {
             return Err(format!("{tree} isn't a worktree Irori made here"));
         };
-        if t.live {
+        if t.live
+            || self
+                .s
+                .session_dirs()
+                .iter()
+                .any(|d| treeclean::under(d, &t.tree))
+        {
             return Ok(Cleared::Kept(LIVE_TREE));
         }
-        buildclean::clear(Path::new(&t.tree), Duration::ZERO, SystemTime::now())
+        let list = self
+            .s
+            .spawn
+            .spawner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|s| s.list.clone());
+        let idle = match list.map(|f| f()) {
+            Some(Ok(agents)) if super::trees::placed(&agents) => {
+                if agents
+                    .iter()
+                    .any(|a| a.live && treeclean::under(&a.cwd, &t.tree))
+                {
+                    return Ok(Cleared::Kept(LIVE_TREE));
+                }
+                Duration::ZERO
+            }
+            _ => buildclean::IDLE,
+        };
+        buildclean::clear(Path::new(&t.tree), idle, SystemTime::now())
     }
 }

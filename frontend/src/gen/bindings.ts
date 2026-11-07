@@ -2712,7 +2712,7 @@ export type StorageItem = {
 	at: string,
 	/**  A second line: the cards it belongs to, who sent it, ... */
 	detail: string,
-	/**  The cards it belongs to, as short refs (`#12`, `mlg#4`), to open. */
+	/**  The cards on this device it belongs to (ids), to open. */
 	cards: string[],
 	/**  Whether a clean takes it. */
 	cleanable: boolean,

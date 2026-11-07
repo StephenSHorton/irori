@@ -21,6 +21,11 @@ pub const MAX_FILE_SIZE: u64 = 256 << 20;
 /// line, in the store's folder.
 const DROPPED: &str = "dropped";
 
+/// Serializes changes to the dropped list: the Core and the mesh node each
+/// open their own [`Files`] on the same folder, and fetches finish on many
+/// threads.
+static DROPPED_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// An attachment as a message or a comment carries it. `device` is where
 /// it was attached; `name` comes from that device and is only a hint until
 /// [`safe_name`] has reduced it.
@@ -358,6 +363,7 @@ impl Files {
     }
 
     fn mark_dropped(&self, id: &str, on: bool) -> Result<()> {
+        let _held = DROPPED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut ids = self.dropped_ids();
         let had = ids.iter().any(|d| d == id);
         if had == on {

@@ -242,6 +242,14 @@ impl Prefetch {
             }
             let now = Instant::now();
             let next = (now >= rest).then(|| this.ready(&q, now)).flatten();
+            // Got by hand, or let go from Storage, since it was queued
+            // (card #728).
+            if let Some(sha) = next.as_ref()
+                && (this.files.has(sha) || this.files.dropped(sha))
+            {
+                q.remove(sha);
+                continue;
+            }
             if let Some(sha) = next {
                 let r = q[&sha].r.clone();
                 let got = tokio::select! {

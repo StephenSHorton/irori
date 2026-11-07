@@ -176,7 +176,9 @@ pub fn dir_size(p: &Path) -> (u64, u64) {
             continue;
         };
         for e in rd.flatten() {
-            let Ok(m) = fs::symlink_metadata(e.path()) else {
+            // The entry's own metadata doesn't follow links, and costs no
+            // second lookup.
+            let Ok(m) = e.metadata() else {
                 continue;
             };
             if link(&m) {
@@ -448,7 +450,11 @@ impl Window {
                     id,
                     bytes: bytes as i64,
                     at,
-                    keep: "Shared with the space's members: leave or forget a space from its menu on Boards".into(),
+                    keep: if shown.is_some() {
+                        "Shared with the space's members: forget it from its menu on Boards to remove it here".into()
+                    } else {
+                        "Shared with its members: a direct-message space, or one you left that goes once another member has your leave".into()
+                    },
                     ..StorageItem::default()
                 }
             })
@@ -523,10 +529,17 @@ impl Window {
     }
 
     fn build_items(&self) -> Vec<StorageItem> {
+        self.build_items_of(None)
+    }
+
+    /// [`Self::build_items`], only the trees in `want` when given: a clean
+    /// of one tree measures that one.
+    fn build_items_of(&self, want: Option<&HashSet<String>>) -> Vec<StorageItem> {
         let cards = self.storage_cards();
         self.core
             .build_trees()
             .into_iter()
+            .filter(|t| want.is_none_or(|w| w.contains(&t.tree)))
             .map(|t| {
                 let target = Path::new(&t.tree).join("target");
                 let (bytes, _) = dir_size(&target);
@@ -780,8 +793,19 @@ impl Window {
     /// none given every one a clean may take. What can't be deleted stays
     /// and says why.
     pub fn storage_clean(&self, kind: &str, ids: &[String]) -> Result<StorageCleaned, String> {
-        let items = self.storage_items(kind)?;
         let want: HashSet<&str> = ids.iter().map(|s| crate::trim(s)).collect();
+        let items = if kind == BUILDS && !want.is_empty() {
+            let keys: HashSet<String> =
+                want.iter().map(|t| irori_core::treeclean::key(t)).collect();
+            self.build_items_of(Some(&keys))
+        } else {
+            self.storage_items(kind)?
+        };
+        let want: HashSet<String> = if kind == BUILDS {
+            want.iter().map(|t| irori_core::treeclean::key(t)).collect()
+        } else {
+            want.iter().map(|t| t.to_string()).collect()
+        };
         let mut out = StorageCleaned::default();
         for it in items {
             if !want.is_empty() && !want.contains(it.id.as_str()) {
@@ -866,7 +890,10 @@ impl Window {
         let mut out: Vec<ClearedCard> = self
             .storage_cards()
             .into_values()
-            .filter(|(t, _)| cleared.contains(&t.id))
+            // Reopened ones are back in the lists, as the lists say.
+            .filter(|(t, _)| {
+                cleared.contains(&t.id) && coord::is_terminal(coord::effective_state(t))
+            })
             .map(|(t, board)| ClearedCard {
                 short: t.short_ref(),
                 thread: crate::threads::is_thread(&t),
@@ -982,10 +1009,7 @@ fn offered_rows(st: &store::Store) -> Vec<store::Event> {
         limit: store::MAX_LIST_LIMIT,
         ..store::Filter::default()
     };
-    loop {
-        let Ok(page) = st.list(&f) else {
-            break;
-        };
+    while let Ok(page) = st.list(&f) {
         let full = page.len() as i64 >= store::MAX_LIST_LIMIT;
         if let Some(last) = page.last() {
             f.after = last.cursor();

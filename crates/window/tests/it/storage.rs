@@ -172,7 +172,7 @@ fn briefs_of_settled_cards_go() {
     assert!(!briefs.join(format!("{}-1.settings.json", done.id)).exists());
     // Asked for by id, an open card's brief stays and says why.
     let kept =
-        r.w.storage_clean(storage::BRIEFS, &[open.id.clone()])
+        r.w.storage_clean(storage::BRIEFS, std::slice::from_ref(&open.id))
             .unwrap();
     assert_eq!(kept.removed, 0);
     assert_eq!(kept.kept[0].why, storage::CARD_OPEN);
@@ -199,7 +199,9 @@ fn attachments_are_listed_and_deleted() {
     assert_eq!(got[0].name, "trace.txt");
     assert_eq!(got[0].bytes, 18);
     assert!(got[0].only_here, "attached here: maybe the only copy");
-    let out = r.w.storage_clean(storage::FILES, &[sha.clone()]).unwrap();
+    let out =
+        r.w.storage_clean(storage::FILES, std::slice::from_ref(&sha))
+            .unwrap();
     assert_eq!((out.removed, out.freed), (1, 18));
     assert!(!r.w.core.files().has(&sha));
     assert!(r.w.core.files().dropped(&sha));
@@ -251,6 +253,13 @@ fn clearing_threads_and_putting_cards_back() {
     let got: Vec<(&str, bool)> = cleared.iter().map(|c| (c.id.as_str(), c.thread)).collect();
     assert!(got.contains(&(over.as_str(), true)), "{got:?}");
     assert!(got.contains(&(card.id.as_str(), false)), "{got:?}");
+
+    // Reopened, a cleared card is back in the lists, so not listed here.
+    w.reopen(&card.id).unwrap();
+    assert!(!w.storage_cleared().iter().any(|c| c.id == card.id));
+    co.set_task_state(&me, &card.id, coord::CANCELED, "")
+        .unwrap();
+    assert!(w.storage_cleared().iter().any(|c| c.id == card.id));
 
     assert_eq!(
         w.storage_unclear(&[over.clone(), card.id.clone()]).unwrap(),

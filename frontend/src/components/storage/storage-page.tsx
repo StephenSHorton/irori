@@ -5,7 +5,7 @@
 // page here. Nothing is cleaned out by itself (board.md "No retention
 // rules"), and each clean says plainly what can't be undone.
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -70,27 +70,49 @@ export function StoragePage({
   const kinds = useMemo(
     () =>
       report.kinds.map((k) =>
-        k.id === "builds" && !builds.loading
+        k.id === "builds" && !builds.loading && !builds.error
           ? measuredFrom(k, builds.items)
-          : k.id === "claude" && !claude.loading
+          : k.id === "claude" && !claude.loading && !claude.error
             ? measuredFrom(k, claude.items)
             : k
       ),
-    [report.kinds, builds.items, builds.loading, claude.items, claude.loading]
+    [report.kinds, builds, claude]
   )
+  const walkError = builds.error ?? claude.error
   const kind = kinds.find((k) => k.id === tab)
 
   if (tab && !loading && !kind)
     return (
       <div className="grid content-start gap-4">
         <BackToStorage onTab={onTab} />
-        <p className="text-[13px] text-muted-foreground">
-          Irori keeps nothing called “{tab}” on this device.
-        </p>
+        {error ? (
+          <p className="text-xs text-destructive">
+            Could not read what Irori keeps: {error}
+          </p>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">
+            Irori keeps nothing called “{tab}” on this device.
+          </p>
+        )}
       </div>
     )
   if (tab && kind)
-    return <KindPage kind={kind} onTab={onTab} onOpen={onOpen} now={now} />
+    return (
+      <KindPage
+        kind={kind}
+        // The overview already lists these two (a long walk): no second one.
+        list={
+          kind.id === "builds"
+            ? builds
+            : kind.id === "claude"
+              ? claude
+              : undefined
+        }
+        onTab={onTab}
+        onOpen={onOpen}
+        now={now}
+      />
+    )
   return (
     <div className="grid content-start gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -113,6 +135,11 @@ export function StoragePage({
       {error && (
         <p className="text-xs text-destructive">
           Could not read what Irori keeps: {error}
+        </p>
+      )}
+      {walkError && (
+        <p className="text-xs text-destructive">
+          Could not measure every folder: {walkError}
         </p>
       )}
       <Loading loading={loading} label="Measuring storage" className="min-w-0">
@@ -153,7 +180,7 @@ function Overview({
           <span className="text-xl font-semibold tabular-nums">
             {bytesText(sum)}
           </span>{" "}
-          on this device{measuring ? ", still measuring build output" : ""}
+          on this device{measuring ? ", still measuring some folders" : ""}
         </p>
         <div
           className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
@@ -232,13 +259,18 @@ function BackToStorage({ onTab }: { onTab: (tab: string) => void }) {
   )
 }
 
+// Listed is a kind's items as a hook returns them.
+type Listed = { items: StorageItem[]; loading: boolean; error: string | null }
+
 function KindPage({
   kind,
+  list,
   onTab,
   onOpen,
   now,
 }: {
   kind: StorageKind
+  list?: Listed
   onTab: (tab: string) => void
   onOpen: (cardId: string) => void
   now: Date
@@ -278,7 +310,7 @@ function KindPage({
       {kind.id === "log" ? (
         <LogPage onOpen={onOpen} now={now} />
       ) : kind.id === "capture" ? null : (
-        <ItemsList kind={kind.id} onOpen={onOpen} now={now} />
+        <ItemsList kind={kind.id} list={list} onOpen={onOpen} now={now} />
       )}
     </div>
   )
@@ -287,14 +319,17 @@ function KindPage({
 // ItemsList is one kind's items, with Delete for the ones that may go.
 function ItemsList({
   kind,
+  list,
   onOpen,
   now,
 }: {
   kind: string
+  list?: Listed
   onOpen: (cardId: string) => void
   now: Date
 }) {
-  const { items, loading, error } = useStorageItems(kind)
+  const own = useStorageItems(list ? "" : kind)
+  const { items, loading, error } = list ?? own
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [done, setDone] = useState<StorageCleaned | null>(null)
   const info = infoOf(kind)
@@ -372,7 +407,13 @@ function ItemsList({
               true
             )}
             onConfirm={async () => {
-              setDone(await storage.clean(kind, []))
+              // The ones the confirm showed, never what turned up since.
+              setDone(
+                await storage.clean(
+                  kind,
+                  items.filter((i) => i.cleanable).map((i) => i.id)
+                )
+              )
               setPicked(new Set())
             }}
           />
@@ -495,7 +536,7 @@ function LogPage({
 }) {
   const loadParts = useCallback(() => storage.log(), [])
   const parts = useLatest<LogPart[]>(loadParts, [], "the log")
-  useStorageFresh(parts.reload)
+  useStorageFresh(parts.reload, false, "log-size")
   const sum = parts.value.reduce((n, p) => n + p.bytes, 0)
   return (
     <div className="grid gap-6">
@@ -575,18 +616,20 @@ function ClearThreads() {
   const [count, setCount] = useState<number | null>(null)
   const [last, setLast] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [tick, setTick] = useState(0)
   const pick = clearAges.find((a) => a.id === age) ?? clearAges[1]
-  useEffect(() => {
-    let live = true
-    storage
-      .clearThreadsCount(pick.secs)
-      .then((n) => live && (setCount(n), setError(null)))
-      .catch((err: unknown) => live && setError(errorText(err)))
-    return () => {
-      live = false
-    }
-  }, [pick.secs, tick])
+  // Counted again on each change here (Put back) and on board:changed.
+  const recount = useCallback(
+    () =>
+      storage
+        .clearThreadsCount(pick.secs)
+        .then((n) => {
+          setCount(n)
+          setError(null)
+        })
+        .catch((err: unknown) => setError(errorText(err))),
+    [pick.secs]
+  )
+  useStorageFresh(recount, true, "log")
   const plural = (n: number) =>
     `${n} resolved ${n === 1 ? "thread" : "threads"}`
   const what = pick.phrase
@@ -634,7 +677,6 @@ function ClearThreads() {
           }
           onConfirm={async () => {
             setLast(await storage.clearThreads(pick.secs))
-            setTick((t) => t + 1)
           }}
         />
         {last !== null && (
@@ -662,7 +704,7 @@ function ClearedList({
     [],
     "cleared cards"
   )
-  useStorageFresh(reload, true)
+  useStorageFresh(reload, true, "log")
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState(50)
   return (

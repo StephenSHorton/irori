@@ -97,7 +97,7 @@ export const kindInfo: Record<StorageKindId, KindInfo> = {
     label: "Shared spaces",
     what: "Each shared space's log, which every member keeps a copy of. Direct messages with another person are a space too.",
     clean:
-      "Not deleted here: leave or forget a space from its menu on Boards, which removes its file from this device.",
+      "Not deleted here: forget a space from its menu on Boards to remove its file from this device. A space you leave goes once another member has your leave.",
     cleanable: false,
   },
   files: {
@@ -472,9 +472,13 @@ resetSample()
 
 // ---- the gateway --------------------------------------------------------------
 
-const listeners = new Set<() => void>()
-function changed() {
-  for (const fn of listeners) fn()
+// Each listener follows a scope: a kind's items follow that kind, the
+// report follows every change ("*"), the log's lists follow "log". A clean
+// of one kind so never re-walks another (build output is a long walk).
+const listeners = new Map<() => void, string>()
+function changed(kind?: string) {
+  for (const [fn, scope] of listeners)
+    if (!kind || scope === "*" || scope === kind) fn()
 }
 
 export const storage = {
@@ -514,7 +518,7 @@ export const storage = {
       }
       sample[kind] = left
     }
-    changed()
+    changed(kind)
     return out
   },
 
@@ -529,7 +533,7 @@ export const storage = {
       sampleCleared = sampleCleared.filter((c) => !ids.includes(c.id))
       n = before - sampleCleared.length
     }
-    changed()
+    changed("log")
     return n
   },
 
@@ -556,7 +560,7 @@ export const storage = {
         })
       sampleThreads -= n
     }
-    changed()
+    changed("log")
     return n
   },
 }
@@ -565,17 +569,21 @@ export const storage = {
 // Put back, Refresh) and, with board, on board:changed too. Sizes walk the
 // disk and the log, so only the cleared list follows board:changed; the
 // rest is read when the page opens and after each change made here.
-export function useStorageFresh(reload: () => Promise<void>, board = false) {
+export function useStorageFresh(
+  reload: () => Promise<void>,
+  board = false,
+  scope = "*"
+) {
   useEffect(() => {
     void reload()
     const fn = () => void reload()
-    listeners.add(fn)
+    listeners.set(fn, scope)
     const off = board && inWails() ? Events.On(EventBoardChanged, fn) : () => {}
     return () => {
       listeners.delete(fn)
       off()
     }
-  }, [reload, board])
+  }, [reload, board, scope])
 }
 
 // refreshStorage re-reads everything the page shows (its Refresh).
@@ -606,6 +614,6 @@ export function useStorageItems(kind: string) {
     [],
     "the items"
   )
-  useStorageFresh(reload)
+  useStorageFresh(reload, false, kind)
   return { items: value, loading, error, reload }
 }
