@@ -180,7 +180,20 @@ pub fn needs(s: &mut State) {
     let mut words = TextEdit::new("Two releases: the PC stays on 0.12 until");
     words.focused = true;
     s.home.own.insert(answer_key(&decision.id, &q2.id), words);
-    let mut cards = vec![decision, check, merge, gone, trust, no_agent, looped_a, looped_b];
+    let perm = card("s-perm", "909", "Clean old worktrees off the Mac", 2, |c| {
+        c.open_blockers = 1;
+        c.state = "input_required".into();
+        c.blocker_question = "Waiting for your permission: rm -rf .claude/worktrees/card-600-1".into();
+        c.working = vec![AgentRef {
+            spawned: true,
+            assigned: false,
+            status: "busy".into(),
+            device: "Lead-PC".into(),
+            where_: "Lead-PC".into(),
+            ..agent("wren")
+        }];
+    });
+    let mut cards = vec![perm, decision, check, merge, gone, trust, no_agent, looped_a, looped_b];
     cards.extend(s.data.cards.drain(..));
     s.data.cards = cards;
     s.home.held = vec![
