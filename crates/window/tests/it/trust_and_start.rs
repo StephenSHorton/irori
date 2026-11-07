@@ -302,7 +302,11 @@ fn trust_and_start_at_the_cap_says_it_waits_for_a_slot() {
     claude_trust::record_trust(&u.file, &other.to_string_lossy()).unwrap();
     let busy = in_folder(r, "Fix the page", &other);
     wait("the other card's agent", || {
-        u.started.lock().unwrap().iter().any(|s| s.task_id == busy.id)
+        u.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.task_id == busy.id)
     });
 
     let done = w.trust_and_start_in(&u.file, &u.card.id).unwrap();
@@ -330,6 +334,33 @@ fn trust_and_start_with_a_slot_says_it_starts() {
     let done = u.r.w.trust_and_start_in(&u.file, &u.card.id).unwrap();
     assert_eq!(done.said, "Trusted. Its agent is starting.");
     wait("the agent starts", || {
+        u.started
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.task_id == u.card.id)
+    });
+}
+
+/// Card #717: with Pause agents on, Trust and start says so, and the card
+/// leaves Needs you: the person has asked, and it starts when they turn
+/// the pause off.
+#[test]
+fn trust_and_start_while_paused_says_so_and_leaves_needs_you() {
+    let u = untrusted();
+    let w = &u.r.w;
+    w.core.set_agents_paused(true).unwrap();
+    let done = w.trust_and_start_in(&u.file, &u.card.id).unwrap();
+    assert_eq!(
+        done.said,
+        "Trusted. Its agent starts when you turn off Pause agents."
+    );
+    assert_eq!(cant_start(&u.r, &u.card.id), "", "out of Needs you");
+    assert!(w.agents_trust_need(&u.card.id).unwrap().is_none());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(u.started.lock().unwrap().is_empty(), "nothing while paused");
+    w.core.set_agents_paused(false).unwrap();
+    wait("the agent starts once unpaused", || {
         u.started
             .lock()
             .unwrap()

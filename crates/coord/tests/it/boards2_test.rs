@@ -4236,7 +4236,11 @@ fn an_agent_given_a_given_card_closes_its_question() {
     sync(&a, &b);
     for s in [&a, &b] {
         let got = s.c.get_task(&t.id).unwrap();
-        assert!(!given_question(&got).open(), "closed on {}", s.c.device_id());
+        assert!(
+            !given_question(&got).open(),
+            "closed on {}",
+            s.c.device_id()
+        );
         assert_ne!(got.state, coord::BLOCKED);
     }
 }

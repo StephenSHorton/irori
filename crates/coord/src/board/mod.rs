@@ -1681,6 +1681,10 @@ impl Coord {
     pub fn spawn_asked_now(&self, id: &str) -> bool {
         self.lock().spawn_now.contains(id)
     }
+    /// Every card [`Self::spawn_asked_now`] holds for (card #717).
+    pub fn spawn_asked(&self) -> std::collections::HashSet<String> {
+        self.lock().spawn_now.iter().cloned().collect()
+    }
     /// Ends request `generation` of card `id` (its own part) as failed or
     /// canceled with `reason`.
     pub fn end_spawn(

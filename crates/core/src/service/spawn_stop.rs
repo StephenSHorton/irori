@@ -511,9 +511,19 @@ impl Services {
 /// The first of card t's holders that is an agent, not a person: one on
 /// it means no agent needs to start for it (card #717).
 pub(crate) fn agent_holder(t: &Task) -> Option<&String> {
-    t.holders
-        .iter()
-        .find(|k| !k.starts_with(irori_identity::kinds::PERSON_ACTOR_PREFIX) && !k.starts_with("user:"))
+    t.holders.iter().find(|k| is_agent_key(k))
+}
+
+/// The agent card t is with (card #717): one holding it, else one it was
+/// given to. A person holding it (a card given to them, say) isn't one:
+/// their agent still has to start.
+pub fn agent_on(t: &Task) -> Option<&String> {
+    agent_holder(t).or_else(|| t.assigned.iter().find(|k| is_agent_key(k)))
+}
+
+/// Whether `k` is an agent's key, not a person's.
+pub fn is_agent_key(k: &str) -> bool {
+    !k.starts_with(irori_identity::kinds::PERSON_ACTOR_PREFIX) && !k.starts_with("user:")
 }
 
 /// A helper's part (spawned agents part 7): its folder is a worktree of the
@@ -525,6 +535,24 @@ pub(crate) fn is_helper(t: &Task) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Card #717: a person holding a card (one given to them) isn't an
+    /// agent on it; an agent holding it, or given it, is.
+    #[test]
+    fn only_an_agent_is_on_a_card() {
+        let mut t = Task {
+            holders: vec!["person:p1".into()],
+            assigned: vec!["person:p1".into()],
+            ..Task::default()
+        };
+        assert_eq!(agent_on(&t), None);
+        t.holders.push("user:dev1".into());
+        assert_eq!(agent_on(&t), None);
+        t.assigned.push("agent:c1".into());
+        assert_eq!(agent_on(&t).map(String::as_str), Some("agent:c1"));
+        t.holders.push("agent:c2".into());
+        assert_eq!(agent_on(&t).map(String::as_str), Some("agent:c2"));
+    }
 
     #[test]
     fn replies_name_folders() {

@@ -164,10 +164,10 @@ impl Window {
         let t = co
             .get_task(&id)
             .ok_or_else(|| format!("no card {task_id}"))?;
-        if !t.holders.is_empty() || !t.assigned.is_empty() {
-            return Ok(None);
-        }
-        if self.core.spawn_queue().places.contains_key(&t.id) {
+        if irori_core::spawn_stop::agent_on(&t).is_some()
+            || co.spawn_asked_now(&t.id)
+            || self.core.spawn_queue().places.contains_key(&t.id)
+        {
             return Ok(None);
         }
         self.trust_wait(&t)
@@ -282,12 +282,17 @@ impl Window {
         if !claude_trust::is_trusted(file, &need.folder) {
             return Err(format!("{} still reads as not trusted", need.folder));
         }
+        let held = |who: String| format!("Trusted. {who} already has it, so no new agent starts.");
         let said = match self.held_by(&need.task_id) {
-            Some(who) => format!("Trusted. {who} already has it, so no new agent starts."),
-            None => {
-                self.core.start_agent(&need.task_id, "")?;
-                self.what_starts(&need.task_id)
-            }
+            Some(who) => held(who),
+            None => match self.core.start_agent(&need.task_id, "") {
+                Ok(()) => self.what_starts(&need.task_id),
+                // An agent took it between the look and the start.
+                Err(e) => match self.held_by(&need.task_id) {
+                    Some(who) => held(who),
+                    None => return Err(e),
+                },
+            },
         };
         Ok(TrustStarted {
             folder: need.folder,
@@ -300,7 +305,7 @@ impl Window {
     /// one: no agent starts for it then.
     fn held_by(&self, id: &str) -> Option<String> {
         let t = self.core.coord().get_task(id)?;
-        let key = t.holders.first().or(t.assigned.first())?;
+        let key = irori_core::spawn_stop::agent_on(&t)?;
         let name = self.core.agent_name(key);
         Some(if name.is_empty() {
             "An agent".to_string()
@@ -315,6 +320,10 @@ impl Window {
         let co = self.core.coord();
         if !co.hands_out_here(id) {
             return "Trusted. Another of your computers starts its agent.".into();
+        }
+        if !self.core.spawn_setting("").on {
+            return "Trusted. Its agent starts when you turn agents on in Settings › Agents."
+                .into();
         }
         if self.core.agents_pause().on {
             return "Trusted. Its agent starts when you turn off Pause agents.".into();

@@ -1020,6 +1020,9 @@ pub(crate) struct People {
     queue: irori_core::spawn_limits::SpawnQueue,
     /// Cards that wait for an agent here (queued or held).
     waiting: std::collections::HashSet<String>,
+    /// Cards the person asked an agent for since their last failed
+    /// request (card #717).
+    asked_now: std::collections::HashSet<String>,
 }
 
 /// The other people's colours on this screen (card #385): every person
@@ -1147,6 +1150,7 @@ impl Window {
             // Shared boards' cards wait on a usage hold whatever the
             // private board's switch says.
             p.queue = c.spawn_queue();
+            p.asked_now = co.spawn_asked();
             p.waiting.extend(p.queue.on_boards.iter().cloned());
             if c.spawn_setting("").on {
                 if p.queue.held_until.is_some() {
@@ -1597,13 +1601,15 @@ pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String
 
 /// Whether card t's failed spawn still keeps it waiting (card #717). The
 /// failed row stays the card's newest until another request replaces it,
-/// but the sweep only starts an agent for a card nobody holds or was
-/// given to: once an agent is on it, the reason no longer applies. Nor
-/// once it has a place in this device's queue (the person asked again,
-/// say after Trust and start, and it waits for a slot): the queue line is
-/// what it waits on then.
+/// but once an agent holds the card (or it was given to one) no agent
+/// starts for it, so the reason no longer applies; a person holding it
+/// (a card given to them) still waits on theirs. Nor once the person
+/// asked again (Trust and start, Start an agent) and no request has been
+/// written since: the next sweep asks afresh, or it waits in the queue.
 pub(crate) fn failed_wait_applies(t: &Task, p: &People) -> bool {
-    t.holders.is_empty() && t.assigned.is_empty() && !p.queue.places.contains_key(&t.id)
+    irori_core::spawn_stop::agent_on(t).is_none()
+        && !p.queue.places.contains_key(&t.id)
+        && !p.asked_now.contains(&t.id)
 }
 
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
@@ -1679,7 +1685,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         cant_start: t
             .spawn_request()
             .filter(|sp| {
-                sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp) && failed_wait_applies(t, p)
+                sp.op == coord::SPAWN_FAILED
+                    && !coord::usage_limited(sp)
+                    && failed_wait_applies(t, p)
             })
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
