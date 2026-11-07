@@ -48,3 +48,7 @@ Stephen first held these for a server design (b3). Decision 48 dropped the serve
 - Window: an inner board's tag and board reach `CardSummary` (`card_place`), New card can go on any board, subtasks stay on their parent's board, and `summary_row` follows `space.board.*`.
 - Talk: a thread from a space channel lands in the space's log, agent Talk tools reach space threads, All spaces lists them, and `talk_post` on a space's card goes through the shared-space fence like `board_comment`.
 - Agents: `board_share` and `board_create` onto an inner board land on that board, and labels name a card's own board.
+
+## 6. Missions and finishing (card #690)
+
+A board has a mission and a done-when, and is finished (read-only, in an Archived boards fold) when its project is over. Neither a space's first board nor Personal's default board finishes. Rows, who may and the gate: [board.md](board.md#boards-are-projects-missions-and-finishing).
