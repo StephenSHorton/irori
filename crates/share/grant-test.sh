@@ -14,7 +14,8 @@
 # (the SCContentSharingPicker spike), signed ad hoc, under its own bundle id
 # so a grant to the others can't help it.
 #
-# Each kind has its own bundle id, never Irori's own
+# The executable is named like the app, so System Settings' list shows
+# ShareDevAdhoc, not a generic share-dev. Each kind has its own bundle id, never Irori's own
 # (com.stephenshorton.irori), so nothing here touches the live app's grant.
 # devid signs like release-mac.sh: Developer ID, hardened runtime, timestamp.
 # Building again with another version changes the signature's cdhash, as an
@@ -47,7 +48,7 @@ build)
   cargo build --release -p irori-share --example "$example"
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS"
-  cp "$target/release/examples/$example" "$app/Contents/MacOS/$example"
+  cp "$target/release/examples/$example" "$app/Contents/MacOS/$name"
   cat >"$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,7 +56,8 @@ build)
 <dict>
   <key>CFBundleIdentifier</key><string>$id</string>
   <key>CFBundleName</key><string>$name</string>
-  <key>CFBundleExecutable</key><string>$example</string>
+  <key>CFBundleExecutable</key><string>$name</string>
+  <key>CFBundleDisplayName</key><string>$name</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$version</string>

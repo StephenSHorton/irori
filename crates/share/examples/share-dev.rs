@@ -99,6 +99,14 @@ async fn list() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn grant(rest: &[String]) -> Result<(), String> {
+    // TCC judges the "responsible" process: an app started by `open` is its
+    // own, one started from a shell answers to the shell's app.
+    let me = std::process::id() as i32;
+    let resp = responsible_pid(me);
+    println!(
+        "pid {me}, responsible pid {resp:?} ({})",
+        resp.map(pid_path).unwrap_or_default()
+    );
     println!("granted before: {}", share::grant::granted());
     if rest.iter().any(|a| a == "--request") {
         println!("request returned: {}", share::grant::request());
@@ -106,6 +114,34 @@ fn grant(rest: &[String]) -> Result<(), String> {
     }
     println!("settings: open \"{}\"", share::grant::SETTINGS_URL);
     Ok(())
+}
+
+/// The process TCC holds responsible for `pid`, through the private
+/// `responsibility_get_pid_responsible_for_pid` (libsystem).
+#[cfg(target_os = "macos")]
+fn responsible_pid(pid: i32) -> Option<i32> {
+    type F = unsafe extern "C" fn(libc::pid_t) -> libc::pid_t;
+    // SAFETY: dlsym on the default handle, and a call with the signature
+    // libsystem has exported for years; None if it isn't there.
+    unsafe {
+        let sym = libc::dlsym(
+            libc::RTLD_DEFAULT,
+            c"responsibility_get_pid_responsible_for_pid".as_ptr(),
+        );
+        if sym.is_null() {
+            return None;
+        }
+        let f: F = std::mem::transmute(sym);
+        Some(f(pid))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn pid_path(pid: i32) -> String {
+    let mut buf = vec![0u8; 4096];
+    // SAFETY: proc_pidpath writes at most the buffer's length.
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..n.max(0) as usize]).into_owned()
 }
 
 #[cfg(not(target_os = "macos"))]

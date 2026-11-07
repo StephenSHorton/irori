@@ -9,6 +9,8 @@
 # 2. Ad hoc: ask, switch on, capture; "update" (a new signature), capture.
 # 3. Developer ID: the same.
 # 4. Take the ad hoc and picker entries out of Settings again.
+#
+# WALK_STEPS="adhoc devid" runs only those parts (default: all three).
 #    ShareDevDevID stays on: the agent measures captured windows with it,
 #    then removes it (tccutil reset).
 #
@@ -55,20 +57,27 @@ build() {
 }
 granted() { $t run "$1" grant 2>&1 | grep -q "granted before: true"; }
 # Ask for the grant for app $1 (shown as $2), open Settings, and wait until
-# the person has switched it on (checked by launching the app again).
+# the person has switched it on: the dialog closes by itself once a fresh
+# launch of the app holds the grant, or after 10 minutes.
 switch_on() {
   run "$1" grant --request
   open "$settings"
-  tries=0
-  while :; do
-    tell "In System Settings (just opened) at Privacy and Security, Screen and System Audio Recording: switch $2 ON. If macOS offers Quit and Reopen, choose Later. Then click Done." "Done"
+  msg="In System Settings (just opened), Privacy and Security, Screen and System Audio Recording: find $2 in the list and switch it ON. Not Irori: leave Irori as it is. If $2 isn't there yet, wait a few seconds or click the + button. If macOS offers Quit and Reopen, choose Later. This box closes by itself once $2 is on."
+  echo "SHOWN: $msg" >>"$log"
+  osascript -e "display dialog \"$msg\" buttons {\"Skip\"} default button 1 giving up after 600 with title \"$title\"" >/dev/null 2>&1 &
+  box=$!
+  i=0
+  while kill -0 "$box" 2>/dev/null; do
     if granted "$1"; then
-      say "$2 is switched on"
+      kill "$box" 2>/dev/null
+      say "$2 is switched on (after about $((i * 3)) s)"
       return 0
     fi
-    tries=$((tries + 1))
-    [ "$tries" -lt 3 ] || { say "$2 still not on after 3 tries: going on"; return 1; }
+    i=$((i + 1))
+    sleep 3
   done
+  say "$2 was not switched on (skipped or 10 minutes passed)"
+  return 1
 }
 
 say "macOS $(sw_vers -productVersion)"
@@ -81,16 +90,22 @@ build picker 1
 build adhoc 1
 build devid 1
 
-tell "Hi! This is the Screen Recording test for screen share, about 3 minutes. It uses three test apps (ShareDevAdhoc, ShareDevDevID, SharePicker), not Irori, so Irori's permissions don't change. Each step tells you what to do in a box like this one. Click Start when you're ready." "Start"
+tell "Hi! This is the Screen Recording test for screen share, about 3 minutes. It uses test apps called ShareDevAdhoc, ShareDevDevID and SharePicker. Please don't touch Irori's own switch. Each step tells you what to do in a box like this one. Click Start when you're ready." "Start"
 
+steps=${WALK_STEPS:-picker adhoc devid}
+has() { case " $steps " in *" $1 "*) return 0 ;; esac; return 1; }
+
+if has picker; then
 say "1. picker, no grant"
-tell "Step 1 of 3: when you click OK, the system window picker opens. Click any window in it (a Finder or Notes window is fine)."
+tell "Picker: when you click OK, the system window picker opens. Click any window in it (a Finder or Notes window is fine)."
 run picker
 ask "Did the picker appear without a Screen Recording prompt first?"
 ask "After you picked a window, did macOS show any extra prompt or alert?"
+fi
 
+if has adhoc; then
 say "2a. ad hoc v1: ask for the grant"
-tell "Step 2 of 3: a Screen Recording prompt for ShareDevAdhoc will appear, then System Settings opens. Click OK to begin."
+tell "Ad hoc signed app: a Screen Recording prompt for ShareDevAdhoc will appear, then System Settings opens. Click OK to begin."
 switch_on adhoc ShareDevAdhoc
 say "2b. ad hoc v1: capture 3 s"
 run adhoc display --secs 3
@@ -101,9 +116,11 @@ run adhoc display --secs 3
 open "$settings"
 ask "The test app was just updated. Does Settings still show ShareDevAdhoc switched ON?"
 ask "Did a new Screen Recording prompt appear just now?"
+fi
 
+if has devid; then
 say "3a. Developer ID v1: ask for the grant"
-tell "Step 3 of 3: the same for ShareDevDevID, the Developer ID signed test app. Click OK to begin."
+tell "Developer ID app: the same for ShareDevDevID, the Developer ID signed test app. Click OK to begin."
 switch_on devid ShareDevDevID
 say "3b. Developer ID v1: capture 3 s"
 run devid display --secs 3
@@ -112,6 +129,7 @@ build devid 2
 run devid grant
 run devid display --secs 3
 ask "The Developer ID test app was just updated. Did any Screen Recording prompt appear?"
+fi
 
 say "4. clean up"
 for k in adhoc picker; do
