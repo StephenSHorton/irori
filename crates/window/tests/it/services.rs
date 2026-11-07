@@ -683,14 +683,6 @@ mod erased {
     }
 }
 
-/// The package dir as cargo gives it when it runs the test, so a test binary
-/// built in another tree (a shared or copied target dir) still reads this
-/// tree's files; the compile-time path only when run outside cargo.
-fn manifest_dir() -> std::path::PathBuf {
-    std::env::var_os("CARGO_MANIFEST_DIR")
-        .map_or_else(|| env!("CARGO_MANIFEST_DIR").into(), Into::into)
-}
-
 /// Card #57: the person closes any card by hand (Done or Canceled, with a
 /// note) and deletes any card; Closed lists done, canceled and failed.
 #[test]
