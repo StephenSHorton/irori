@@ -15,10 +15,14 @@
 //! boards, how fresh each log is, the open invite, each space's agents
 //! switch) lives in [`Model`] and is re-read on the backend's events.
 
+// Home, Talk and the board package filter by the pick with these
+// (cardInSpace, convInSpace, threadsSpace, presenceLine).
+#[allow(dead_code)]
 pub mod logic;
 mod board;
 mod page;
 mod parts;
+#[allow(dead_code)]
 mod switcher;
 mod ui;
 
@@ -145,6 +149,7 @@ pub struct Model {
     /// Each shared space's agents switch (the "agents are off" line).
     pub agents: HashMap<String, AgentsSettings>,
     pub agents_error: Option<String>,
+    #[allow(dead_code)]
     pub switcher_open: bool,
     ticker: bool,
 }
@@ -160,6 +165,7 @@ pub fn current(s: &State) -> String {
 }
 
 /// Picks the space Home, Talk and Spaces show.
+#[allow(dead_code)]
 pub fn pick(s: &mut State, id: &str) {
     if id == ALL_SPACES {
         s.prefs.remove(SPACE_PREF);
@@ -309,7 +315,30 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 }
 
 /// The headless scene that shows it (`irori --snap x.png --scene spaces`).
+/// The Core opens the shared spaces a few seconds after launch, and a
+/// headless clock doesn't wait for it: give it up to 12 s here so the
+/// scene shows them.
 pub fn scene(s: &mut State) {
     s.close_card();
     s.go(Route::Spaces);
+    wait_for_spaces(s);
+}
+
+/// (Headless scenes only.) Waits for the Core's spaces to open.
+pub fn wait_for_spaces(s: &mut State) {
+    let Some(w) = s.w.clone() else { return };
+    for _ in 0..60 {
+        let list = w.boards_list();
+        if !list.is_empty() {
+            s.data.spaces = list;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    if let Ok(v) = w.boards_personal() {
+        s.spaces.personal = v;
+    }
+    s.spaces.fresh = w.freshness().into_iter().map(|f| (f.log.clone(), f)).collect();
+    let ids: Vec<String> = s.data.spaces.iter().map(|b| b.board_id.clone()).collect();
+    s.spaces.agents = ids.iter().map(|id| (id.clone(), w.agents_settings(id))).collect();
 }

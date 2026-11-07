@@ -754,6 +754,7 @@ fn board_invite(s: &State, f: &Frame, b: &BoardSummary, st: &Settings) -> El {
                         );
                     })
                     .build(k)
+                    .key("spaces-invite-button")
                     .self_start(),
             )
             .child(invite_how(f, &s.spaces.reach));

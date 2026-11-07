@@ -230,11 +230,23 @@ pub fn confirm(
                 .build(k)
                 .default_button(),
         );
+    // Rune's dialog description doesn't wrap in a fitted panel, so the
+    // question is the body's first, wrapping line.
+    let body = col()
+        .w_full()
+        .child(
+            text(question.to_string())
+                .font(k.ty.ui.lh(20.0))
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap()
+                .px(16.0),
+        )
+        .child(buttons);
     Dialog::new(key.to_string(), label.to_string())
-        .description(question.to_string())
         .open(true)
         .fit()
         .on_close(on_cancel)
-        .child(buttons)
+        .child(body)
         .build(k, f.layer);
 }

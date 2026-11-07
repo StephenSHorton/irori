@@ -436,7 +436,8 @@ fn space_header(s: &State, f: &mut Frame, b: &BoardSummary) -> El {
                 .label("Space settings")
                 .help("Space settings")
                 .on_press(move |s: &mut State| parts::open_settings(s, &sid))
-                .build(k),
+                .build(k)
+                .key("spaces-settings-button"),
         );
     }
     if b.owner && !renaming {

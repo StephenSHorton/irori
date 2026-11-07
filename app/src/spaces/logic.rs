@@ -328,6 +328,8 @@ pub fn error_text(e: &str) -> String {
 pub const ALL_SPACES: &str = "";
 pub const PERSONAL: &str = "personal";
 
+// The switcher's: read once the sidebar mounts `spaces::switcher`.
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Space {
     /// ALL_SPACES, PERSONAL, or a shared space's id.
@@ -339,6 +341,7 @@ pub struct Space {
 
 /// The switcher's list: All spaces, Personal, then each shared space by
 /// name.
+#[allow(dead_code)]
 pub fn spaces_of(boards: &[BoardSummary]) -> Vec<Space> {
     let mut shared: Vec<&BoardSummary> = boards.iter().filter(|b| !b.leaving).collect();
     shared.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));

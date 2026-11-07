@@ -32,7 +32,8 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let new = Button::new("+ New space")
         .on_press(super::open_new_space)
         .build(k)
-        .label("New space");
+        .label("New space")
+        .key("spaces-new-button");
     let mut body = col().key("spaces-body").w_full().gap(16.0).px(24.0).pt(18.0).pb(24.0);
     if space != PERSONAL {
         body = body.child(
