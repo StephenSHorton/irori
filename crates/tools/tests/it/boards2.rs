@@ -111,3 +111,18 @@ fn a_lease_mirrors_through_the_router() {
         ]
     );
 }
+
+/// Card #418: the desk never merges. An old-style desk lease call, with the
+/// run's pr and head_sha, gets the refusal that says to ask "Can I merge
+/// PR #N?", not an unknown-argument error.
+#[test]
+fn an_old_desk_lease_call_points_at_the_merge_question() {
+    let h = new_harness();
+    let a = call_a();
+    for args in [
+        r#"{"resource":"desk/acme/app","pr":7,"head_sha":"abc123","base_sha":"def"}"#,
+        r#"{"resource":"desk/acme/app"}"#,
+    ] {
+        h.fails(&a, "lease", args, &["never merges", "Can I merge PR #N?"]);
+    }
+}

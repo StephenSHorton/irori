@@ -2,19 +2,27 @@
 //!
 //! Every GitHub repo an agent works in has a desk by itself (card #521):
 //! a `repo.seen` row for a `remote:github.com/...` key gives it default
-//! settings (on, nobody holding it so nothing merges, polled from the
-//! device whose `repo.seen` is the latest). The person's `repo.desk` row,
-//! once written, replaces the default: it turns the desk off, names a
-//! holder or sets check lines. One device, `pollDevice`, asks GitHub for the repo's
+//! settings (on, polled from the device whose `repo.seen` is the latest).
+//! The person's `repo.desk` row, once written, replaces the default: it
+//! turns the desk off or picks the poll device. Only the person's own
+//! repos count (card #625): the Core tells the fold which those are
+//! ([`Fold::desk_repos`]), and a desk on any other repo is stray: off,
+//! whatever its settings say. The desk never merges (card #418): it lists
+//! PRs for review, and each agent asks the person "Can I merge PR #N?" on
+//! its own card. One device, `pollDevice`, asks GitHub for the repo's
 //! open PRs (`gh pr list`, the Core's desk poller) and hands the list to
 //! [`Fold::record_desk_prs`], which writes a `desk.prs` snapshot only when
 //! the list changed. coord never shells out.
 //!
 //! v1 keeps every desk row in the person's private log (§10 question 5).
-//! `repo.desk`, `desk.hold`, `desk.pause` and `desk.ok` are the person's
-//! alone: the fold ignores them from anyone else, so an agent can never
-//! change the check command, the holder or whom the desk trusts (§7).
-//! `desk.prs` is Irori's; `desk.run` the desk holder's (slice 4).
+//! `repo.desk` and `desk.ok` are the person's alone: the fold ignores them
+//! from anyone else (§7). `desk.ok` is legacy: nothing writes it since
+//! card #625, and old rows still fold. `desk.prs` is Irori's.
+//!
+//! Older builds had a desk holder that merged under a desk lease, with
+//! check lines, a merge method, holds and a pause. Their rows still
+//! decode: `repo.desk`'s `holder`, `checks` and `mergeMethod` keys are
+//! dropped, and `desk.hold`, `desk.pause` and `desk.run` are folded past.
 
 use std::collections::BTreeMap;
 
@@ -22,11 +30,10 @@ use gocompat::time::GoTime;
 use serde::Serialize;
 use store::{Event, kinds};
 
-use super::error::{Result, invalid, not_allowed, not_found};
+use super::error::{Result, invalid, not_allowed};
 use super::fold::Fold;
-use super::fold::REASON_DESK_HOLDER_CHANGED;
-use super::resource::{check_repo_key, desk_resource};
-use super::rows::{LeaseReleasedRow, row};
+use super::resource::check_repo_key;
+use super::rows::row;
 use super::util::{SWEEPER, caller};
 use crate::gojson::omit;
 use crate::names::trim_space;
@@ -35,23 +42,6 @@ use crate::names::trim_space;
 /// truncated: GitHub may have more (§3).
 pub const DESK_LIMIT: usize = 1000;
 
-/// Merge methods the holder may pass to `gh pr merge`.
-pub const MERGE_SQUASH: &str = "squash";
-pub const MERGE_MERGE: &str = "merge";
-pub const MERGE_REBASE: &str = "rebase";
-
-crate::go_struct! {
-    /// One check line (§7): `command` always runs, or only when the diff
-    /// touches `paths`; `runner` (an agent) and `device` say where.
-    #[derive(Debug, Clone, Default, PartialEq, Eq)]
-    pub struct DeskCheck {
-        pub command: String = "command",
-        pub paths: Vec<String> = "paths" "omit",
-        pub runner: String = "runner" "omit",
-        pub device: String = "device" "omit",
-    }
-}
-
 crate::go_struct! {
     /// `repo.desk`: the person's settings for one repo's desk.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -59,11 +49,9 @@ crate::go_struct! {
         pub repo_key: String = "repoKey",
         pub enabled: bool = "enabled",
         pub takes_prs: bool = "takesPrs",
-        pub holder: String = "holder" "omit",
         pub poll_device: String = "pollDevice",
         pub trusted: Vec<String> = "trusted" "omit",
-        pub checks: Vec<DeskCheck> = "checks" "omit",
-        pub merge_method: String = "mergeMethod" "omit",
+        /// Kept so rows round-trip; nothing reads it (§10 question 12).
         pub per_pr_ok: bool = "perPrOk" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
@@ -115,32 +103,9 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
-    /// `desk.hold`: the person holds PR `pr` ("not this one yet");
-    /// `cleared` lifts it.
-    #[derive(Debug, Clone, Default, PartialEq, Eq)]
-    pub struct DeskHoldRow {
-        pub repo_key: String = "repoKey",
-        pub pr: i64 = "pr",
-        pub note: String = "note" "omit",
-        pub cleared: bool = "cleared" "omit",
-        pub by: String = "by",
-        pub at: GoTime = "at",
-    }
-}
-
-crate::go_struct! {
-    /// `desk.pause`: the holder takes no lease while paused.
-    #[derive(Debug, Clone, Default, PartialEq, Eq)]
-    pub struct DeskPauseRow {
-        pub repo_key: String = "repoKey",
-        pub paused: bool = "paused",
-        pub by: String = "by",
-        pub at: GoTime = "at",
-    }
-}
-
-crate::go_struct! {
-    /// `desk.ok`: the person's OK on an Outside PR at one head (§5).
+    /// `desk.ok`: the person's OK on an Outside PR at one head. Legacy:
+    /// card #625 removed Outside PR and its OK, so nothing writes it; old
+    /// rows still decode and fold.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct DeskOkRow {
         pub repo_key: String = "repoKey",
@@ -151,26 +116,13 @@ crate::go_struct! {
     }
 }
 
-crate::go_struct! {
-    /// `desk.run`: the holder's merge run under the desk lease (slice 4).
-    #[derive(Debug, Clone, Default, PartialEq, Eq)]
-    pub struct DeskRunRow {
-        pub repo_key: String = "repoKey",
-        pub pr: i64 = "pr",
-        pub head_sha: String = "headSha",
-        pub base_sha: String = "baseSha" "omit",
-        pub by: String = "by",
-        pub at: GoTime = "at",
-    }
-}
-
 /// One repo's desk as folded.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Desk {
     /// The person's latest `repo.desk` row; before they write one, the
-    /// default a GitHub repo an agent works in gets (card #521): on, no
-    /// holder, polled from the device that saw the repo last. `by` is
+    /// default a GitHub repo an agent works in gets (card #521): on,
+    /// polled from the device that saw the repo last. `by` is
     /// empty while it is the default.
     pub settings: RepoDeskRow,
     /// The device whose `repo.seen` for this repo is the latest, among
@@ -188,21 +140,22 @@ pub struct Desk {
     /// The latest snapshot; `None` before the first poll.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prs: Option<DeskPrsRow>,
-    /// Holds by PR number (cleared ones dropped).
-    pub holds: BTreeMap<i64, DeskHoldRow>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pause: Option<DeskPauseRow>,
-    /// The person's OKs on Outside PRs, by PR number (latest wins).
+    /// Old `desk.ok` rows by PR number (latest wins). Nothing reads them
+    /// since card #625 removed Outside PR; folded so old logs replay.
     pub oks: BTreeMap<i64, DeskOkRow>,
-    /// The latest run row.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub run: Option<DeskRunRow>,
+    /// Not one of the person's repos (card #625): nobody in their spaces
+    /// opens PRs there (a cloned upstream repo). A stray desk is off
+    /// whatever its settings say: never polled or listed. Set on
+    /// read from what the Core told [`Fold::desk_repos`]; no row says it.
+    #[serde(skip)]
+    pub stray: bool,
 }
 
 impl Desk {
-    /// Whether the desk is on: enabled and the repo takes PRs.
+    /// Whether the desk is on: enabled, the repo takes PRs, and it is one
+    /// of the person's repos (not [`Desk::stray`]).
     pub fn on(&self) -> bool {
-        self.settings.enabled && self.settings.takes_prs
+        self.settings.enabled && self.settings.takes_prs && !self.stray
     }
 
     /// Whether the settings are the default, not a row the person wrote.
@@ -251,15 +204,13 @@ pub fn github_repo(repo_key: &str) -> Option<String> {
 }
 
 /// The settings a new desk starts from; the person changes them in the
-/// app. Nobody holds it, so nothing merges until the person names a
-/// holder (card #521).
+/// app (card #521).
 pub fn new_desk(repo_key: &str, poll_device: &str) -> RepoDeskRow {
     RepoDeskRow {
         repo_key: repo_key.into(),
         enabled: true,
         takes_prs: true,
         poll_device: poll_device.into(),
-        merge_method: MERGE_SQUASH.into(),
         ..RepoDeskRow::default()
     }
 }
@@ -288,7 +239,9 @@ impl Fold {
             kinds::REPO_SEEN => {
                 // Every GitHub repo an agent works in has a desk, on by
                 // default, polled from the device that saw it last (card
-                // #521). Desks live in the person's own log, never a board's.
+                // #521); it stays off unless it is one of the person's
+                // repos (#625, desk_ours). Desks live in the person's own
+                // log, never a board's.
                 if self.on_board {
                     return;
                 }
@@ -316,33 +269,6 @@ impl Fold {
                 let k = ledger::canonical_repo_key(&p.repo_key);
                 self.desks.entry(k).or_default().prs = Some(p);
             }
-            kinds::DESK_HOLD => {
-                let Some(p) = row::<DeskHoldRow>(&ev.payload) else {
-                    return;
-                };
-                if !person(self, &p.by) {
-                    return;
-                }
-                let d = self
-                    .desks
-                    .entry(ledger::canonical_repo_key(&p.repo_key))
-                    .or_default();
-                if p.cleared {
-                    d.holds.remove(&p.pr);
-                } else {
-                    d.holds.insert(p.pr, p);
-                }
-            }
-            kinds::DESK_PAUSE => {
-                let Some(p) = row::<DeskPauseRow>(&ev.payload) else {
-                    return;
-                };
-                if !person(self, &p.by) {
-                    return;
-                }
-                let k = ledger::canonical_repo_key(&p.repo_key);
-                self.desks.entry(k).or_default().pause = Some(p);
-            }
             kinds::DESK_OK => {
                 let Some(p) = row::<DeskOkRow>(&ev.payload) else {
                     return;
@@ -355,18 +281,6 @@ impl Fold {
                     .or_default()
                     .oks
                     .insert(p.pr, p);
-            }
-            kinds::DESK_RUN => {
-                let Some(p) = row::<DeskRunRow>(&ev.payload) else {
-                    return;
-                };
-                // Only the desk holder's run counts (slice 4); its lease is
-                // checked when the run is read ([`Fold::desk_view`]).
-                let k = ledger::canonical_repo_key(&p.repo_key);
-                let d = self.desks.entry(k).or_default();
-                if !d.settings.holder.is_empty() && p.by == d.settings.holder {
-                    d.run = Some(p);
-                }
             }
             _ => {}
         }
@@ -403,177 +317,30 @@ impl Fold {
         if d.enabled && d.poll_device.is_empty() && !seen {
             return Err(invalid("a desk needs a device that polls GitHub"));
         }
-        if d.merge_method.is_empty() {
-            d.merge_method = MERGE_SQUASH.into();
-        }
-        if ![MERGE_SQUASH, MERGE_MERGE, MERGE_REBASE].contains(&d.merge_method.as_str()) {
-            return Err(invalid(format!(
-                "merge method {} isn't squash, merge or rebase",
-                d.merge_method
-            )));
-        }
-        for c in &d.checks {
-            if trim_space(&c.command).is_empty() {
-                return Err(invalid("a check line needs a command"));
-            }
-        }
-        d.holder = trim_space(&d.holder).to_string();
-        let old = self
-            .desks
-            .get(&d.repo_key)
-            .map(|x| x.settings.holder.clone())
-            .unwrap_or_default();
         d.by = by.clone();
         d.at = self.stamp();
-        let (repo_key, holder) = (d.repo_key.clone(), d.holder.clone());
-        self.write(&by, kinds::REPO_DESK, &d)?;
-        if old != holder {
-            self.release_desk_lease(&repo_key, &holder)?;
-        }
-        Ok(())
+        self.write(&by, kinds::REPO_DESK, &d)
     }
 
-    /// The desk lease name for a desk's repo, `None` off GitHub.
-    pub(crate) fn desk_lease_of(repo_key: &str) -> Option<String> {
-        github_repo(repo_key).map(|r| desk_resource(&r))
+    /// Whether `repo_key` is one of the person's repos, as the Core last
+    /// said (card #625); every repo until it has said.
+    pub(crate) fn desk_ours(&self, repo_key: &str) -> bool {
+        let k = ledger::canonical_repo_key(repo_key);
+        self.desk_repos
+            .as_ref()
+            .is_none_or(|r| r.contains(&k) || !self.desk_judged.contains(&k))
     }
 
-    /// The desk whose lease is `name`.
-    fn desk_by_lease(&self, name: &str) -> Option<&Desk> {
-        self.desks
-            .values()
-            .find(|d| Fold::desk_lease_of(&d.settings.repo_key).as_deref() == Some(name))
+    /// Whether `repo_key` has a desk that is on and one of the person's.
+    pub(crate) fn desk_on(&self, repo_key: &str) -> bool {
+        self.desks.get(repo_key).is_some_and(|d| d.on()) && self.desk_ours(repo_key)
     }
 
-    /// A merge desk lease is the desk holder's alone, taken while the desk
-    /// is on and not paused, and never stolen (merge-desk.md §5).
-    pub(crate) fn desk_may_take(&self, holder: &str, name: &str, steal: bool) -> Result<()> {
-        if steal {
-            return Err(not_allowed(format!(
-                "{name} is a merge desk's lease and can't be stolen: only the desk holder takes it, one PR at a time"
-            )));
-        }
-        let Some(d) = self.desk_by_lease(name) else {
-            return Err(not_allowed(format!(
-                "{name} is a merge desk lease, and that repo has no merge desk: a GitHub repo gets one once an agent works in it"
-            )));
-        };
-        if !d.on() {
-            return Err(not_allowed(format!(
-                "{name}: the merge desk is off (the person turns it on in Merge desk settings)"
-            )));
-        }
-        if d.pause.as_ref().is_some_and(|p| p.paused) {
-            return Err(not_allowed(format!(
-                "{name}: the merge desk is paused; the holder takes no lease until the person resumes it"
-            )));
-        }
-        match d.settings.holder.as_str() {
-            "" => Err(not_allowed(format!(
-                "{name}: the merge desk is unheld; the person names a holder in Merge desk settings"
-            ))),
-            h if h == holder => Ok(()),
-            h => Err(not_allowed(format!(
-                "{name} is the merge desk's lease and {} is its holder: only the holder takes it",
-                self.named(h)
-            ))),
-        }
-    }
-
-    /// Releases a desk's live lease held by anyone but `keep` (the holder
-    /// changed: the old holder's run ends).
-    fn release_desk_lease(&mut self, repo_key: &str, keep: &str) -> Result<()> {
-        let Some(name) = Fold::desk_lease_of(repo_key) else {
-            return Ok(());
-        };
-        let now = self.stamp();
-        let Some(l) = self
-            .held
-            .get(&name)
-            .filter(|l| self.live(l, &now) && l.lease.holder != keep)
-            .cloned()
-        else {
-            return Ok(());
-        };
-        if !self.lease_local(&l) {
-            return self.steal(SWEEPER, &l.lease);
-        }
-        self.write(
-            SWEEPER,
-            kinds::LEASE_RELEASED,
-            &LeaseReleasedRow {
-                resource: name,
-                holder: l.lease.holder,
-                reason: REASON_DESK_HOLDER_CHANGED.into(),
-                by: SWEEPER.into(),
-                at: now,
-            },
-        )
-    }
-
-    /// The holder records the PR it runs under the desk lease (`desk.run`):
-    /// it must hold the desk's lease now.
-    pub(crate) fn record_desk_run(
-        &mut self,
-        by: &str,
-        repo_key: &str,
-        pr: i64,
-        head_sha: &str,
-        base_sha: &str,
-    ) -> Result<()> {
-        let by = caller(by)?;
-        let Some(name) = Fold::desk_lease_of(repo_key) else {
-            return Err(invalid(format!(
-                "{} isn't a GitHub repo",
-                ledger::repo_name(repo_key)
-            )));
-        };
-        let now = self.stamp();
-        if !self
-            .held
-            .get(&name)
-            .is_some_and(|l| self.live(l, &now) && l.lease.holder == by)
-        {
-            return Err(not_found(format!(
-                "take the lease {name} first: a merge run is recorded under it"
-            )));
-        }
-        if pr <= 0 {
-            return Err(invalid("pr is the PR's number"));
-        }
-        let head_sha = trim_space(head_sha);
-        if head_sha.is_empty() {
-            return Err(invalid("give head_sha: the PR head the run checks"));
-        }
-        self.write(
-            &by,
-            kinds::DESK_RUN,
-            &DeskRunRow {
-                repo_key: repo_key.into(),
-                pr,
-                head_sha: head_sha.into(),
-                base_sha: trim_space(base_sha).into(),
-                by: by.clone(),
-                at: now,
-            },
-        )
-    }
-
-    /// A desk as the app and tools read it: its run only while the run's
-    /// agent still holds the desk lease (Merging ends with the lease).
+    /// A desk as the app and tools read it: stray when it isn't one of the
+    /// person's repos.
     pub(crate) fn desk_view(&self, d: &Desk) -> Desk {
         let mut d = d.clone();
-        let now = self.stamp();
-        let live = |run: &DeskRunRow| {
-            Fold::desk_lease_of(&d.settings.repo_key).is_some_and(|name| {
-                self.held
-                    .get(&name)
-                    .is_some_and(|l| self.live(l, &now) && l.lease.holder == run.by)
-            })
-        };
-        if d.run.as_ref().is_some_and(|r| !live(r)) {
-            d.run = None;
-        }
+        d.stray = !self.desk_ours(&d.settings.repo_key);
         // A device revoked since the repo was seen there no longer polls.
         if !d.seen.is_empty() {
             let k = d.settings.repo_key.clone();
@@ -600,7 +367,7 @@ impl Fold {
     ) -> Result<bool> {
         let repo_key = ledger::canonical_repo_key(repo_key);
         let repo_key = repo_key.as_str();
-        if !self.desks.get(repo_key).is_some_and(|d| d.on()) {
+        if !self.desk_on(repo_key) {
             return Err(invalid(format!(
                 "{} has no merge desk",
                 ledger::repo_name(repo_key)

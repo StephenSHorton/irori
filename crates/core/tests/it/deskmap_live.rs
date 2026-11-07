@@ -1,6 +1,6 @@
 //! Merge desk slice 2 on a real Core: after a poll, each trusted PR shows
 //! its author card (linked by Irori) or gets a "PR #n" card; an untrusted
-//! login is an Outside PR with no card and no wake.
+//! login's PR isn't ours (card #625): not listed, no card and no wake.
 
 use crate::common;
 
@@ -18,6 +18,11 @@ struct FakeGh(Mutex<Vec<DeskPr>>);
 impl PrLister for FakeGh {
     fn list(&self, _repo: &str, _limit: usize) -> Result<Vec<DeskPr>, String> {
         Ok(self.0.lock().unwrap().clone())
+    }
+
+    /// The repo's owner: it is the person's repo (card #625).
+    fn viewer(&self) -> Result<String, String> {
+        Ok("StephenSHorton".into())
     }
 }
 
@@ -55,7 +60,6 @@ fn a_poll_maps_each_pr_to_its_author_card() {
     let me = format!("user:{}", r.core.device_id());
     let mut d = new_desk(REPO, r.core.device_id());
     d.trusted = vec!["StephenSHorton".into()];
-    d.holder = r.key_b.clone();
     co.set_desk(&me, d).unwrap();
 
     // 1: a card already linking PR 1. 3: a card on PR 3's branch.
@@ -91,22 +95,22 @@ fn a_poll_maps_each_pr_to_its_author_card() {
 
     // 1: linked by the agent, held by the person's agent: trusted.
     assert!(matches!(&v[&1], Verdict::Card(m) if m.task_id == c1.id));
-    // 2: a trusted login with no card: a "PR #2" card, linked, the desk
-    // holder watching it.
+    // 2: a trusted login with no card: a "PR #2" card, linked. No agent
+    // watches it: the desk has no holder (card #418).
     let two = linked(&r, 2);
     assert_eq!(two.len(), 1, "{two:?}");
     assert_eq!(two[0].title, "PR #2 \"PR 2 title\"");
-    assert!(two[0].watchers.contains(&r.key_b), "{:?}", two[0].watchers);
+    assert!(two[0].watchers.is_empty(), "{:?}", two[0].watchers);
     assert!(matches!(&v[&2], Verdict::Card(m) if m.task_id == two[0].id));
     // 3: rule 3 found the branch card, and Irori linked it.
     assert_eq!(
         linked(&r, 3).iter().map(|t| &t.id).collect::<Vec<_>>(),
         vec![&c3.id]
     );
-    // 4 and 5: a stranger's login is an Outside PR, even on our branch name:
-    // no card, no link.
-    assert_eq!(v[&4], Verdict::Outside);
-    assert_eq!(v[&5], Verdict::Outside);
+    // 4 and 5: a stranger's PR isn't ours, even on our branch name: no
+    // card, no link (card #625).
+    assert_eq!(v[&4], Verdict::NotOurs);
+    assert_eq!(v[&5], Verdict::NotOurs);
     assert!(linked(&r, 4).is_empty() && linked(&r, 5).is_empty());
     // The page's read-only view agrees, and writes nothing.
     let n = co.list_tasks(&coord::TaskFilter::default()).len();
@@ -121,9 +125,9 @@ fn a_poll_maps_each_pr_to_its_author_card() {
     assert_eq!(authors[&1].card_ref, c1.short_ref());
     assert_eq!(authors[&1].agent, r.key_a);
     assert_eq!(authors[&3].card, c3.id);
-    assert!(!authors[&2].outside && !authors[&2].card.is_empty());
-    assert!(authors[&4].outside && authors[&4].card.is_empty());
-    assert!(authors[&5].outside);
+    assert!(!authors[&2].card.is_empty());
+    // A PR that isn't ours isn't listed at all.
+    assert_eq!(authors.keys().copied().collect::<Vec<_>>(), [1, 2, 3]);
     // Only PR 2's card is new, and a second pass makes no more.
     assert_eq!(
         co.list_tasks(&coord::TaskFilter::default()).len(),
@@ -134,7 +138,7 @@ fn a_poll_maps_each_pr_to_its_author_card() {
         co.list_tasks(&coord::TaskFilter::default()).len(),
         before + 1
     );
-    // No wake for the Outside PRs: nobody heard about 4 or 5.
+    // No wake for PRs that aren't ours: nobody heard about 4 or 5.
     for k in [&r.key_a, &r.key_b] {
         assert!(
             r.notices_to(k)

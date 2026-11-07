@@ -647,9 +647,11 @@ impl Fold {
             return Err(invalid("no holder"));
         }
         let res = parse_resource(resource)?;
-        let desk = is_desk(&res.name);
-        if desk {
-            self.desk_may_take(&holder, &res.name, steal)?;
+        if is_desk(&res.name) {
+            return Err(not_allowed(format!(
+                "{}: the merge desk never merges. Merge your own PR: ask the person \"Can I merge PR #N?\" on your card (board_block), and merge it on their yes",
+                res.name
+            )));
         }
         let ttl = if ttl.is_zero() { DEFAULT_TTL } else { ttl }.min(MAX_TTL);
         let now = self.stamp();
@@ -682,11 +684,7 @@ impl Fold {
                 v.0,
                 v.1,
                 v.2.format_rfc3339(),
-                if desk {
-                    " (a merge desk runs one PR at a time; wait for its release)"
-                } else {
-                    " (pass steal to take it)"
-                }
+                " (pass steal to take it)"
             ));
             let vs: Vec<(String, String, GoTime)> = victims
                 .iter()
