@@ -599,7 +599,8 @@ pub(super) fn ring(s: &State, f: &mut Frame) {
     f.layer.push(
         row()
             .key("call-ring-at")
-            .pin(Some(crate::ui::sidebar::WIDTH), Some(12.0), Some(0.0), None)
+            // Under the page's title bar (48 points).
+            .pin(Some(crate::ui::sidebar::WIDTH), Some(56.0), Some(0.0), None)
             .justify_center()
             .px(16.0)
             .child(banner),
@@ -968,7 +969,7 @@ pub fn huddle_started(s: &State, f: &mut Frame, key: &str, by: &str, call_id: &s
         && s.call.view.mine.as_ref().is_none_or(|m| m.call_id != call_id);
     let mut r = row()
         .key(key.to_string())
-        .w_full()
+        .self_stretch()
         .mx(8.0)
         .my(6.0)
         .gap(8.0)
@@ -1008,7 +1009,7 @@ pub fn huddle_ended(f: &mut Frame, key: &str, duration_ms: i64, people: &[String
     let k = f.k;
     let mut c = col()
         .key(key.to_string())
-        .w_full()
+        .self_stretch()
         .mx(8.0)
         .my(6.0)
         .px(12.0)
