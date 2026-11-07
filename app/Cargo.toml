@@ -17,6 +17,14 @@ irori-sys = { workspace = true }
 irori-notify = { workspace = true }
 # The window's services (their Tauri commands went with the frontend).
 irori-window = { workspace = true }
+# The updater and Keep this device up to date (status/updater.rs, keep.rs):
+# whether an agent is working, and the home server's switch.
+irori-update = { workspace = true }
+irori-presence = { workspace = true }
+irori-coord = { workspace = true }
+irori-home = { workspace = true }
+# Launch at login (login/winrun.rs): Go's quoting of the Run value.
+irori-gocompat = { workspace = true }
 tokio = { workspace = true }
 png = { workspace = true }
 libc = { workspace = true }
@@ -31,6 +39,8 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# status/updater.rs's card tests: a fake card system.
+irori-toast = { workspace = true }
 # tests/it/attach_exe.rs: the real binary against a Core behind the API server.
 irori-api = { workspace = true }
 irori-identity = { workspace = true }
@@ -47,3 +57,15 @@ irori-attach = { workspace = true }
 # The Mac's menu-bar item: Rune's Tray is Windows and Linux only.
 [target.'cfg(target_os = "macos")'.dependencies]
 tray-icon = "0.25.1"
+# Launch at login (login/macos.rs): SMAppService.mainAppService.
+objc2-service-management = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSBundle", "NSError", "NSString"] }
+
+# Launch at login (login/winrun.rs): the HKCU Run value.
+[target.'cfg(windows)'.dependencies]
+winreg = { workspace = true }
+
+# app/build.rs: the exe's icon, version resource and manifest.
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3.0.12"

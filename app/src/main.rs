@@ -14,6 +14,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod instance;
+mod login;
 mod shell;
 #[cfg(target_os = "macos")]
 mod tray_mac;
