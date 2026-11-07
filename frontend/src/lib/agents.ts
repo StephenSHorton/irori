@@ -536,11 +536,10 @@ export function runningSince(at: number, now: number): string {
   return `${Math.floor(m / 60)} h`
 }
 
-// Pause agents (card #665): one switch, on every one of the person's
-// devices, that stops Irori starting or restarting any agent. Running agents
-// keep running. Their agents may set it too (the agents_pause tool), and
-// another device may, so it is read again on the event, on focus and every
-// few seconds. The preview's sample: `?agentspause=on`.
+// Pause agents (card #665): this device's switch that stops Irori starting
+// or restarting any agent here. Running agents keep running. Its agents may
+// set it too (the agents_pause tool), so it is read again on the event, on
+// focus and every few seconds. The preview's sample: `?agentspause=on`.
 function samplePause(): AgentsPauseView {
   return previewFlag("agentspause") === "on"
     ? { on: true, since: Date.now() - 42 * 60_000, by: "the person on MacBook Pro" }

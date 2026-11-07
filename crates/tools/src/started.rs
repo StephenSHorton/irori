@@ -120,8 +120,8 @@ pub(crate) fn agent_end(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     if to.is_empty() {
         return format!(
             "Ending it: it writes its hand-off, then goes. If {r} is still open, Irori starts a fresh agent for it from Left off{}.\n",
-            if s.b.agents_paused().is_some_and(|p| p.on) {
-                " once Pause agents is off"
+            if s.b.agents_paused(&c.sender.key).is_some_and(|p| p.on) {
+                " once Pause agents is off on your device, or on another device that can run it"
             } else {
                 ""
             }
@@ -133,28 +133,35 @@ pub(crate) fn agent_end(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     format!("Ending it: it writes its hand-off, then goes.\n{out}")
 }
 
-/// agents_pause (card #665): Pause agents on or off for every one of the
-/// person's devices, or (no `on`) what it is now.
+/// agents_pause (card #665): Pause agents on or off for the caller's own
+/// device, or (no `on`) what it is now.
 pub(crate) fn agents_pause(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let a = match decode(raw, PAUSE_ARGS) {
         Ok(a) => a,
         Err(e) => return e,
     };
-    match a.opt_bool("on") {
-        Some(on) => match s.b.agents_pause(&c.sender.key, on) {
+    if let Some(on) = a.opt_bool("on") {
+        return match s.b.agents_pause(&c.sender.key, on) {
             Ok(said) => format!("{said}\n"),
             Err(why) => err_text(&why),
-        },
-        None => match s.b.agents_paused() {
-            Some(p) if p.on => format!(
-                "Pause agents is on (since {}, by {}): Irori starts no agent on any of the person's devices. Give on = false to turn it off.\n",
-                p.since, p.by
-            ),
-            Some(_) => {
-                "Pause agents is off: Irori starts agents as usual. Give on = true to pause.\n"
-                    .into()
-            }
-            None => err_text("Pause agents isn't kept here."),
-        },
+        };
+    }
+    let Some(p) = s.b.agents_paused(&c.sender.key) else {
+        return err_text("Pause agents isn't kept here.");
+    };
+    let dev = if p.device.is_empty() {
+        "your device".to_string()
+    } else {
+        p.device
+    };
+    if p.on {
+        format!(
+            "Pause agents is on for {dev} (since {}, by {}): Irori starts no agent there. Give on = false to turn it off.\n",
+            p.since, p.by
+        )
+    } else {
+        format!(
+            "Pause agents is off for {dev}: Irori starts agents there as usual. Give on = true to pause.\n"
+        )
     }
 }

@@ -1166,7 +1166,7 @@
   },
   {
     "name": "agents_pause",
-    "description": "Pause agents on or off for every one of your person's devices, or (no on) see whether it is on. While it is on, Irori starts or restarts no agent anywhere: no new cards, asks or threads, no retries, and no fresh agent after an End. Running agents keep running and keep getting messages. To wind down the agents: turn it on, then ask each running agent to commit and push, write left_off and stop. Turning it off starts the waiting cards in the usual order.",
+    "description": "Pause agents on or off for the device you run on, or (no on) see whether it is on. While on, Irori starts no agent on that device (new cards, threads, retries, the fresh agent after an End), and your person's other devices don't ask it. Running agents keep running. To wind down: turn it on, then ask each running agent to push, write left_off and stop. Off starts the waiting cards in the usual order.",
     "inputSchema": {
       "type": "object",
       "properties": {

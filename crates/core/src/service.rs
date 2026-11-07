@@ -431,9 +431,10 @@ impl tools::Backend for ToolsView {
     fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
         self.0.agent_set_paused(caller, on)
     }
-    fn agents_paused(&self) -> Option<tools::AgentsPaused> {
-        let p = self.0.agents_pause();
+    fn agents_paused(&self, caller: &str) -> Option<tools::AgentsPaused> {
+        let (device, p) = self.0.agent_pause_of(caller);
         Some(tools::AgentsPaused {
+            device,
             on: p.on,
             since: if p.on {
                 p.since.format_rfc3339()
@@ -2698,9 +2699,14 @@ impl Core {
         self.s.start_agent(id, note)
     }
 
-    /// Pause agents (card #665): whether no device starts agents now.
+    /// Pause agents (card #665): whether this device starts no agents now.
     pub fn agents_pause(&self) -> spawn_pause::AgentsPause {
         self.s.agents_pause()
+    }
+
+    /// Pause agents on device `dev`.
+    pub fn agents_pause_on(&self, dev: &str) -> spawn_pause::AgentsPause {
+        self.s.agents_pause_on(dev)
     }
 
     /// Who set Pause agents, for people (`by` from [`Self::agents_pause`]).
@@ -2708,11 +2714,12 @@ impl Core {
         self.s.pause_by_name(by)
     }
 
-    /// The person turns Pause agents on or off for every device, from the
+    /// The person turns Pause agents on or off for this device, from the
     /// app (their agents use the `agents_pause` tool).
     pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {
-        let by = format!("user:{}", self.s.device.id);
-        self.s.set_agents_paused(on, &by)
+        let me = self.s.device.id.clone();
+        let by = format!("user:{me}");
+        self.s.set_agents_paused(&me, on, &by)
     }
 
     /// "Hand to an agent" (card #485): the person moves a card whose items

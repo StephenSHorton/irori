@@ -1433,14 +1433,14 @@ pub async fn agents_starts(w: W<'_>) -> R<AgentStartsView> {
     Ok(w.agents_starts())
 }
 
-/// Pause agents (card #665): whether no device starts agents now.
+/// Pause agents (card #665): whether this device starts no agents now.
 #[tauri::command]
 #[specta::specta]
 pub async fn agents_pause(w: W<'_>) -> R<AgentsPauseView> {
     Ok(w.agents_pause())
 }
 
-/// The person turns Pause agents on or off for every device (their agents
+/// The person turns Pause agents on or off for this device (their agents
 /// use the agents_pause tool).
 #[tauri::command]
 #[specta::specta]

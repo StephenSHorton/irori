@@ -87,8 +87,8 @@ pub struct AgentStartsView {
 /// agents:paused: Pause agents was turned on or off here (card #665).
 pub const EVENT_AGENTS_PAUSED: &str = "agents:paused";
 
-/// Pause agents (card #665): no device starts or restarts an agent while it
-/// is on. The person's, on all their devices; their agents may set it too.
+/// Pause agents (card #665): this device starts or restarts no agent while
+/// it is on. Each device has its own; the person's agents may set it too.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentsPauseView {
@@ -397,7 +397,7 @@ impl Window {
         }
     }
 
-    /// The person turns Pause agents on or off for every device.
+    /// The person turns Pause agents on or off for this device.
     pub fn agents_pause_set(&self, on: bool) -> Result<AgentsPauseView, String> {
         self.core.set_agents_paused(on)?;
         let v = self.agents_pause();

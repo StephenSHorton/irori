@@ -881,7 +881,10 @@ fn an_agent_pauses_and_unpauses_agent_starts() {
     assert!(p.on);
     assert_eq!(p.by, s.r.key_a, "the row names the agent");
     let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
-    assert!(said.contains("Pause agents is on (since"), "{said}");
+    assert!(
+        said.contains("Pause agents is on for") && said.contains("by alpha"),
+        "{said}"
+    );
     let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
     assert!(said.contains("Pause agents is off"), "{said}");
     assert!(!s.r.core.agents_pause().on);

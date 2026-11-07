@@ -208,6 +208,8 @@ pub struct AgentLimit {
 /// Pause agents (card #665), as an agent may read it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentsPaused {
+    /// The device's name for people; empty when it has none.
+    pub device: String,
     pub on: bool,
     /// When it went on, RFC 3339; empty when off.
     pub since: String,
@@ -282,13 +284,14 @@ pub trait Backend: Send + Sync {
     fn agent_end(&self, _caller: &str, _key: &str) -> Result<String, String> {
         Err("agents can't end agents here".into())
     }
-    /// Pause agents (card #665): agent `caller` turns it on or off for
-    /// every device; what it says, or why not.
+    /// Pause agents (card #665): agent `caller` turns it on or off for its
+    /// own device; what it says, or why not.
     fn agents_pause(&self, _caller: &str, _on: bool) -> Result<String, String> {
         Err("agents can't pause agents here".into())
     }
-    /// Whether Pause agents is on; `None` when the backend keeps none.
-    fn agents_paused(&self) -> Option<AgentsPaused> {
+    /// Whether Pause agents is on on agent `caller`'s device; `None` when
+    /// the backend keeps none.
+    fn agents_paused(&self, _caller: &str) -> Option<AgentsPaused> {
         None
     }
     /// The person's limit on their agents' starts. There is no setter here,

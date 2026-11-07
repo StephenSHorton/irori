@@ -6,10 +6,10 @@ import { runningSince, useAgentsPause } from "@/lib/agents"
 import { cn } from "@/lib/utils"
 
 // PauseAgentsButton is the top nav's Pause agents switch (card #665): one
-// click stops Irori starting or restarting any agent on every one of the
-// person's devices, and while it is on the nav says so and since when, and
-// one click turns it off. Running agents keep running and keep getting
-// messages. Icon only on a phone.
+// click stops Irori starting or restarting any agent on this computer (each
+// device has its own switch, Stephen's pick), and while it is on the nav
+// says so and since when, and one click turns it off. Running agents keep
+// running and keep getting messages. A short label on a phone.
 export function PauseAgentsButton() {
   const { pause, error, busy, set } = useAgentsPause()
   const [now, setNow] = useState(() => Date.now())
@@ -30,7 +30,7 @@ export function PauseAgentsButton() {
     const ago = runningSince(sinceMs, Math.max(now, sinceMs))
     const title =
       `Agents paused since ${at}${pause.by ? ` by ${pause.by}` : ""}. ` +
-      "Irori starts no agent on any of your devices until you turn this off; running agents keep running. Click to start agents again." +
+      "Irori starts no agent on this computer until you turn this off, and your other devices don't ask it; running agents keep running. Click to start agents again." +
       (error ? `\n${error}` : "")
     return (
       <Button
@@ -66,7 +66,7 @@ export function PauseAgentsButton() {
       disabled={busy}
       onClick={() => set(true)}
       title={
-        "Pause agents: Irori stops starting or restarting agents on all your devices (new cards, threads, retries, the fresh agent after End). Running agents keep running." +
+        "Pause agents on this computer: Irori stops starting or restarting agents here (new cards, threads, retries, the fresh agent after End), and your other devices don't ask it. Running agents keep running." +
         (error ? `\n${error}` : "")
       }
       aria-label="Pause agents"

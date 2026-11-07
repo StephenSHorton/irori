@@ -1159,8 +1159,8 @@ pub(crate) struct SpawnState {
     pub caps: RwLock<HashMap<String, i64>>,
     /// "My agents may start agents on my cards" (card #575).
     pub agent_starts: RwLock<AgentStarts>,
-    /// Pause agents (card #665): no start on any device while on.
-    pub agents_pause: RwLock<super::spawn_pause::AgentsPause>,
+    /// Pause agents (card #665), by device: no start there while on.
+    pub agents_pause: RwLock<HashMap<String, super::spawn_pause::AgentsPause>>,
     /// Cards an agent asked for an agent on, until the request is written.
     pub agent_asks: Mutex<HashMap<String, AgentAsk>>,
     /// Cards the person asked for an agent on, which never count.
@@ -1364,9 +1364,9 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             && !r.device.is_empty()
         {
             // The person's limit on their agents' starts (card #575).
-            if r.device == super::spawn_pause::AGENTS_PAUSED_ROW {
-                // Pause agents (card #665).
-                pause.add(&r);
+            if let Some(dev) = super::spawn_pause::paused_device(&r.device) {
+                // Pause agents on a device (card #665).
+                pause.add(dev, &r);
             } else if r.device == AGENT_STARTS_ROW {
                 starts = Some(AgentStarts {
                     on: r.on.unwrap_or(AGENT_STARTS_ON),
@@ -1638,12 +1638,15 @@ impl Services {
             self.publish_host(sp.as_ref(), ready);
             self.refresh_agent_devices(ready);
         }
-        // Pause all (wakes and starts), or Pause agents (starts only, every
-        // device, card #665): nothing below starts an agent while either is
-        // on. Requests stay pending, so turning it off starts them in order.
-        if self.inbox.policy().paused || self.agents_paused() {
+        if self.inbox.policy().paused {
             return;
         }
+        // Pause agents on this device (card #665): nothing below starts an
+        // agent here while it is on, though this device's cards may still
+        // be asked of another device that runs agents (spawn_device skips
+        // paused ones). Requests naming this device stay pending, so
+        // turning it off starts them in order.
+        let paused = self.agents_paused();
         if decided {
             self.lift_cant_run_no_copy();
             self.say_no_agent();
@@ -1651,7 +1654,8 @@ impl Services {
         let Some(sp) = sp else {
             return;
         };
-        if decided && ready {
+        // A paused device takes no ask from another device.
+        if decided && ready && !paused {
             self.pull_asks();
         }
         self.lift_no_copy(&sp);
@@ -1682,7 +1686,7 @@ impl Services {
                 }
                 continue;
             }
-            if running >= cap {
+            if paused || running >= cap {
                 continue;
             }
             match self.spawn_for(&sp, &t) {
@@ -1692,12 +1696,14 @@ impl Services {
             }
         }
         // This person's own cards on shared boards whose switch is on.
-        if ready {
+        if ready && !paused {
             self.sweep_board_spawns(&sp, cap, &mut running);
         }
         // What another device asked this one to start, and sessions
         // started for a request that is no longer the card's.
-        self.start_requested(&sp, &mut running);
+        if !paused {
+            self.start_requested(&sp, &mut running);
+        }
         if ready {
             self.end_superseded(&sp);
         }
