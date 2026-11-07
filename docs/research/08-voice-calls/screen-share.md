@@ -221,7 +221,9 @@ What the numbers say:
 - **Keyframes are the cost on the Mac:** 0.6–1 MB each. VideoToolbox spends what it likes on an IDR, so the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. NVENC's CBR keeps them at 50–180 KB. The sending layer has to ration keyframes: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s).
 - P-frames sit under the target, and a live bitrate change shows within a second (about 500 → 270 kbit/s on the Mac).
 
-**Mac Screen Recording grant:** _filled in from the walk-through._
+**The picker needs no grant (macOS 26.6.2, tested).** `examples/share-picker.rs`, bundled as `SharePicker.app`, ad hoc signed, with no Screen Recording entry at all (reset with `tccutil` first): `SCContentSharingPicker` showed with no prompt; the person picked a window; an `SCStream` on the picker's `SCContentFilter` delivered 32 frames with pictures in 3 s; `CGPreflightScreenCaptureAccess` stayed `false` before, during and after, and macOS showed no prompt or alert. The app sets `NSApplication` to the accessory policy and runs it (no Dock icon); the picker's callback came on a background queue. So the survey's open question is settled for this macOS: **the picker is per-session consent and avoids the persistent grant**, and with it an ad hoc build loses nothing on update. The catch is that it needs its own capture code: moq-video's `capture::open` always goes through the grant.
+
+**Mac Screen Recording grant (the persistent one):** _filled in from the walk-through._
 
 ## Next steps (spikes, in order)
 1. **Picker without TCC:** test `11_content_picker` on an ad-hoc-signed build, before and after a rebuild.
