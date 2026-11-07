@@ -264,8 +264,11 @@ export function askSpawn(
 // askLine is an open ask's line in place of the holder line: how many
 // it told, who it waits on, or who took it; while nobody took it and
 // Irori gets it an agent, that (card #739).
+// A reason it can't start is a long sentence: the line says it short, and
+// the card page's queue row (and a tile's title) carries it in full.
 export function askLine(a: CardAsk, spawn?: SpawnState | null): string {
   const sp = askSpawn(a, spawn)
+  if (sp?.tone === "warn") return "Can't start an agent"
   if (sp) return sp.text.charAt(0).toUpperCase() + sp.text.slice(1)
   switch (a.state) {
     case AskState.Taken:

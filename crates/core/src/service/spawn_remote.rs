@@ -683,6 +683,12 @@ impl Services {
             // sees the hold on this device's host row and asks elsewhere.
             if let Some(until) = self.usage_held() {
                 let why = super::spawn_limits::usage_reason(&until);
+                logf(format_args!(
+                    "spawn {} gen {}: held by a usage limit until {}",
+                    t.short_ref(),
+                    s.generation,
+                    until.format_rfc3339()
+                ));
                 if let Err(e) =
                     self.coord
                         .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)

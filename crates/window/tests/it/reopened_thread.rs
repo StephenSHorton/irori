@@ -146,4 +146,38 @@ fn a_reopened_thread_says_its_new_agent_is_starting() {
         "{:?}",
         card.summary
     );
+
+    // Its new agent answers: Answered at once, before any sweep.
+    let fresh = format!("{me}/eeeeeeee-5555-4555-8555-000000000005");
+    r.w.core
+        .coord()
+        .add_comment(&fresh, &id, "Yes: Ctrl in place of Cmd.", false)
+        .unwrap();
+    let t = r.w.threads("").into_iter().find(|t| t.id == id).unwrap();
+    assert_eq!(t.state, "answered", "{t:?}");
+}
+
+/// A follow-up with Agents answer now off gets no agent: it stays
+/// Answered, the person's to follow up, never Waiting for good.
+#[test]
+fn a_follow_up_with_agents_answer_now_off_stays_answered() {
+    let r = Rig::new();
+    let me = r.w.core.device_id().to_string();
+    let gone = format!("{me}/ffffffff-6666-4666-8666-000000000006");
+    let id =
+        r.w.start_thread("Can we add shortcuts to the app?", &[], &[], "")
+            .unwrap()
+            .task
+            .id;
+    r.w.core
+        .coord()
+        .add_comment(&gone, &id, "Yes: #733 has them.", false)
+        .unwrap();
+    r.w.resolve_thread(&id).unwrap();
+    r.w.reopen_thread(&id).unwrap();
+    r.w.comment(&id, "And on Windows?", "wake", &[], &[])
+        .unwrap();
+    r.w.set_agents_now(&id, false).unwrap();
+    let t = r.w.threads("").into_iter().find(|t| t.id == id).unwrap();
+    assert_eq!(t.state, "answered", "{t:?}");
 }

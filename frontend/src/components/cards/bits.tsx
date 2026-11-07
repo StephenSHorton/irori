@@ -366,7 +366,9 @@ export function AskLine({
           aria-hidden
         />
       )}
-      <span className="truncate">{askLine(ask, spawn)}</span>
+      <span className="truncate" title={sp ? sp.text : undefined}>
+        {askLine(ask, spawn)}
+      </span>
       {ask.taker?.device && (
         <span className="shrink-0 text-[11px] text-muted-foreground">
           on {plainLine(ask.taker.device)}

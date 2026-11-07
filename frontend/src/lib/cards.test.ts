@@ -199,6 +199,10 @@ describe("asks", () => {
       text: "can't start: its repo isn't trusted here",
       tone: "warn",
     })
+    // Why it can't start is long: the line says it short.
+    expect(
+      askLine(ask({ state: "unclaimed" }), { cantStart: "not trusted: /x" })
+    ).toBe("Can't start an agent")
     // Taken, handed or closed: who has it, not the spawn.
     expect(
       askLine(

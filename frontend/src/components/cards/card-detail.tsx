@@ -634,11 +634,13 @@ function WorkingRow({ card }: { card: CardSummary }) {
 // in a device's queue, held on a usage limit until its reset (with Start
 // an agent), or why one can't start. Nothing otherwise.
 //
-// An open ask's line says it there instead (card #739), so the page
-// doesn't say it twice.
+// An open ask's line says that an agent is starting or queued (card
+// #739), so the page doesn't say it twice; why one can't start, and a
+// usage limit's reset with Start an agent, still show here in full.
 function QueueRow({ card }: { card: CardSummary }) {
   const line = spawnLine(card)
-  if (!line || openAsk(card)) return null
+  if (!line) return null
+  if (openAsk(card) && line.tone === "quiet" && !card.usageLimit) return null
   const resets = card.usageLimit ? usageResets(card.usageLimit) : ""
   return (
     <p

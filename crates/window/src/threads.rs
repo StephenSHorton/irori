@@ -20,6 +20,8 @@ use crate::ts;
 
 /// Where a thread stands, for the panel.
 pub const THREAD_WAITING: &str = "waiting";
+/// Irori's own key on a card's thread.
+const IRORI: &str = "irori";
 pub const THREAD_HANDED: &str = "handed";
 pub const THREAD_ANSWERED: &str = "answered";
 pub const THREAD_RESOLVED: &str = "resolved";
@@ -444,9 +446,22 @@ impl Window {
             let raw = co.comments(&t.id).unwrap_or_default();
             // People, not agents: on a board, any member (card #134).
             let mut answered: Vec<String> = Vec::new();
+            // The newest reply by an agent and post by a person (card #739).
+            let (mut agent_at, mut person_at) = (i64::MIN, i64::MIN);
+            // Irori's own lines (say why its agent can't start) aren't one.
             for c in &raw {
+                if !c.msg_id.is_empty() {
+                    continue;
+                }
+                if co.is_any_person(&c.by) {
+                    person_at = person_at.max(c.at.unix_nano());
+                    continue;
+                }
+                if c.by != IRORI {
+                    agent_at = agent_at.max(c.at.unix_nano());
+                }
                 let k = self.core.private_key(&c.by);
-                if c.msg_id.is_empty() && !co.is_any_person(&c.by) && !answered.contains(&k) {
+                if !answered.contains(&k) {
                     answered.push(k);
                 }
             }
@@ -459,12 +474,16 @@ impl Window {
             let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
             // The person's follow-up that no live agent heard (card #739):
-            // it went out again and nobody has it yet. It waits on an agent
-            // as a new thread does, so it reads Waiting, with the agent
-            // Irori starts for it, not Answered by an agent that is gone.
+            // it went out again, nobody has it yet, and no agent wrote since.
+            // It waits on an agent as a new thread does, so it reads
+            // Waiting, with the agent Irori starts for it, not Answered by
+            // an agent that is gone. With Agents answer now off nothing
+            // comes for it: it stays Answered, the person's to follow up.
             let follow_up_waits = !rests
+                && a.wake
                 && a.taker.is_empty()
-                && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED);
+                && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED)
+                && (answered.is_empty() || person_at > agent_at);
             let state = if resolved {
                 THREAD_RESOLVED
             } else if follow_up_waits {
