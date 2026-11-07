@@ -117,6 +117,21 @@ struct Dev {
     dir: tempfile::TempDir,
 }
 
+/// Even after a failed assert: the mesh stops and the board log closes
+/// before `dir` goes. The mesh's tasks hold the log open, and Windows
+/// can't delete an open file, so a test that panicked before its own
+/// closes left `<id>.db`, `.secrets` and `files/` behind (card #675).
+/// Both closes are idempotent, so a test that closed them already is
+/// unchanged.
+impl Drop for Dev {
+    fn drop(&mut self) {
+        if let Some(m) = &self.mesh {
+            m.close();
+        }
+        let _ = self.log.close();
+    }
+}
+
 impl Dev {
     fn new(root: &str, creator: &MemberPin) -> Dev {
         Self::with_person(Person::new(root), creator)
@@ -1249,9 +1264,13 @@ async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     })
     .await;
 
-    eventually("the row of the writer behind the stall lands", || {
-        bob.has(&row)
-    })
+    // The pull's rows go in before its refusal is logged, so Casey's row
+    // can be on Bob while the log hook hasn't run yet (card #675): wait
+    // for both.
+    eventually(
+        "the row behind the stall lands and the stall is logged",
+        || bob.has(&row) && first_had_casey.get().is_some(),
+    )
     .await;
     assert_eq!(
         first_had_casey.get(),
