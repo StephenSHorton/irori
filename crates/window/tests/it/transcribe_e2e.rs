@@ -290,7 +290,14 @@ fn transcribe_e2e() {
         dev(move |data, o| {
             let voice_dir = data.join("voice");
             std::fs::create_dir_all(&voice_dir).unwrap();
-            std::os::unix::fs::symlink(&model, voice_dir.join(voice::MODEL.file)).unwrap();
+            let to = voice_dir.join(voice::MODEL.file);
+            // A symlink on Windows needs Developer Mode or admin rights.
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&model, &to).unwrap();
+            #[cfg(not(unix))]
+            if std::fs::hard_link(&model, &to).is_err() {
+                std::fs::copy(&model, &to).unwrap();
+            }
             let rec = Arc::new(Mutex::new(Recording::default()));
             o.call_audio = Some(Arc::new(move || {
                 fake::devices(mic(speech.clone(), go.clone(), began.clone()), rec.clone())
