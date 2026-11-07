@@ -13,9 +13,9 @@ use irori_window::freshness::LogFreshness;
 
 use crate::logic::cards::blocker;
 use crate::logic::spaces::ALL_SPACES;
-use crate::spaces::logic::{STALE_TAIL, fresh_line, stale};
 use crate::logic::spawn_line::NOT_TRUSTED;
 use crate::logic::thread::answerable;
+use crate::spaces::logic::{STALE_TAIL, fresh_line, stale};
 
 // ---- instant actions (optimistic.ts) -----------------------------------
 
@@ -24,15 +24,6 @@ use crate::logic::thread::answerable;
 pub fn answer_key(card_id: &str, blocker_id: &str) -> String {
     format!("answer:{card_id}/{blocker_id}")
 }
-#[allow(dead_code)] // The card page (P3) and Notifications (P9) answer by these too.
-pub fn close_key(card_id: &str) -> String {
-    format!("close:{card_id}")
-}
-#[allow(dead_code)]
-pub fn ask_key(ask_id: &str) -> String {
-    format!("ask:{ask_id}")
-}
-
 /// The coord's Done answer: the done check's option that closes the card.
 pub const DONE_ANSWER: &str = "Done";
 
@@ -41,7 +32,9 @@ pub const DONE_ANSWER: &str = "Done";
 pub fn is_done(b: &CardBlocker, option: i64) -> bool {
     b.done_check
         && option >= 0
-        && b.options.get(option as usize).is_some_and(|o| o.answer == DONE_ANSWER)
+        && b.options
+            .get(option as usize)
+            .is_some_and(|o| o.answer == DONE_ANSWER)
 }
 
 /// What an answer on a row says at once, while it saves.
@@ -64,30 +57,26 @@ pub fn answer_failed(b: &CardBlocker) -> &'static str {
     }
 }
 
-/// The open item counts toward the card's open count (cards.rs
-/// card_summary): open or replied back to the person, not another
-/// member's question nor a wait. An answered one already isn't.
-#[allow(dead_code)]
-pub fn counted(b: &CardBlocker) -> bool {
-    b.resolved.is_none()
-        && b.decider.is_none()
-        && b.waits_on.is_none()
-        && (b.state.is_empty() || b.state == blocker::OPEN || b.state == blocker::REPLIED)
-}
-
 // ---- needs-you rows ---------------------------------------------------------
 
 /// The blockers of a card the person answers now: open, or replied back
 /// to them, and not another member's question nor a wait on other work.
 pub fn waits_on_you(b: &CardBlocker) -> bool {
-    let st = if b.state.is_empty() { blocker::OPEN } else { b.state.as_str() };
+    let st = if b.state.is_empty() {
+        blocker::OPEN
+    } else {
+        b.state.as_str()
+    };
     b.decider.is_none() && b.waits_on.is_none() && answerable(st) && b.state != blocker::ANSWERED
 }
 
 /// Options, recommended first, with their index.
 pub fn by_recommendation(options: &[CardOption]) -> Vec<(&CardOption, usize)> {
     let all = options.iter().enumerate().map(|(i, o)| (o, i));
-    all.clone().filter(|(o, _)| o.recommended).chain(all.filter(|(o, _)| !o.recommended)).collect()
+    all.clone()
+        .filter(|(o, _)| o.recommended)
+        .chain(all.filter(|(o, _)| !o.recommended))
+        .collect()
 }
 
 /// Reads `not trusted: <folder> on <device>` (a failed spawn's reason)
@@ -117,7 +106,10 @@ pub use crate::logic::sidebar::board_decides;
 /// order they first appear, with how many.
 pub fn boards_need_you(cards: &[CardSummary]) -> Vec<(String, usize)> {
     let mut by: Vec<(String, usize)> = Vec::new();
-    for c in cards.iter().filter(|c| board_decides(c) && !c.ours && !c.board.is_empty()) {
+    for c in cards
+        .iter()
+        .filter(|c| board_decides(c) && !c.ours && !c.board.is_empty())
+    {
         match by.iter_mut().find(|(b, _)| *b == c.board) {
             Some((_, n)) => *n += 1,
             None => by.push((c.board.clone(), 1)),
@@ -136,7 +128,11 @@ pub fn names_person(key: &str) -> bool {
 /// The toggle's starting point: on when the text names nobody or an
 /// agent, off when it names only people.
 pub fn agents_now_default<'a>(keys: impl IntoIterator<Item = &'a str>) -> bool {
-    let keys: Vec<&str> = keys.into_iter().map(str::trim).filter(|k| !k.is_empty() && *k != "irori").collect();
+    let keys: Vec<&str> = keys
+        .into_iter()
+        .map(str::trim)
+        .filter(|k| !k.is_empty() && *k != "irori")
+        .collect();
     keys.is_empty() || keys.iter().any(|k| !names_person(k))
 }
 
@@ -176,7 +172,6 @@ pub fn wind_down_state(state: &str) -> &str {
     }
 }
 
-
 // ---- Home's freshness line (freshness-line.tsx HomeFreshness) ----------
 
 /// The log that has gone longest without catching up, among those old
@@ -185,7 +180,11 @@ pub fn wind_down_state(state: &str) -> &str {
 pub fn stalest(all: &[LogFreshness], now_ms: i64) -> Option<&LogFreshness> {
     let mut worst: Option<(&LogFreshness, i64)> = None;
     for f in all.iter().filter(|f| stale(Some(f), now_ms)) {
-        let at = if f.at.is_zero() { 0 } else { f.at.unix_milli_value() };
+        let at = if f.at.is_zero() {
+            0
+        } else {
+            f.at.unix_milli_value()
+        };
         if worst.is_none_or(|(_, w)| at < w) {
             worst = Some((f, at));
         }
@@ -215,7 +214,9 @@ pub fn home_fresh_line(
     let f = stalest(all, now_ms)?;
     let line = fresh_line(Some(f), now_ms);
     let mut cs = line.chars();
-    let lower = cs.next().map_or(String::new(), |c| c.to_lowercase().chain(cs).collect());
+    let lower = cs
+        .next()
+        .map_or(String::new(), |c| c.to_lowercase().chain(cs).collect());
     let who = name(&f.log).unwrap_or_else(|| "Personal".into());
     Some((format!("{who}: {lower}{STALE_TAIL}"), true))
 }
@@ -253,7 +254,10 @@ mod tests {
     fn one_line_for_the_whole_run() {
         let mut states = vec!["done"; 23];
         states.extend(vec!["no_answer"; 20]);
-        assert_eq!(wind_down_line(&run(&states, |_| {})), "Wound down 43 agents, 23 confirmed");
+        assert_eq!(
+            wind_down_line(&run(&states, |_| {})),
+            "Wound down 43 agents, 23 confirmed"
+        );
         assert_eq!(
             wind_down_line(&run(&states, |s| s.paused = true)),
             "Wound down 43 agents, 23 confirmed · Pause all is on"
@@ -266,7 +270,10 @@ mod tests {
             wind_down_line(&run(&["done", "winding", "waiting"], |s| s.finished = false)),
             "Winding down 3 agents, 1 confirmed so far"
         );
-        assert_eq!(wind_down_line(&run(&["done"], |_| {})), "Wound down 1 agent, 1 confirmed");
+        assert_eq!(
+            wind_down_line(&run(&["done"], |_| {})),
+            "Wound down 1 agent, 1 confirmed"
+        );
     }
 
     #[test]
@@ -311,7 +318,10 @@ mod tests {
         assert!(!is_done(&check, 7));
         assert_eq!(answer_said(&check, 0), "Marked done.");
         assert_eq!(answer_said(&check, -1), "Sent back to the agent.");
-        assert_eq!(answer_failed(&check), "Your answer to the done check wasn't saved");
+        assert_eq!(
+            answer_failed(&check),
+            "Your answer to the done check wasn't saved"
+        );
         let q = CardBlocker {
             done_check: false,
             ..check.clone()
@@ -324,22 +334,6 @@ mod tests {
     #[test]
     fn keys_are_one_per_thing() {
         assert_eq!(answer_key("c1", "b2"), "answer:c1/b2");
-        assert_eq!(close_key("c1"), "close:c1");
-        assert_eq!(ask_key("a1"), "ask:a1");
-    }
-
-    #[test]
-    fn counted_items() {
-        let b = |f: fn(&mut CardBlocker)| {
-            let mut b = CardBlocker::default();
-            f(&mut b);
-            b
-        };
-        assert!(counted(&b(|_| {})));
-        assert!(counted(&b(|b| b.state = "replied".into())));
-        assert!(!counted(&b(|b| b.state = "answered".into())));
-        assert!(!counted(&b(|b| b.decider = Some(Default::default()))));
-        assert!(!counted(&b(|b| b.waits_on = Some(Default::default()))));
     }
 
     #[test]
@@ -361,7 +355,12 @@ mod tests {
 
     #[test]
     fn recommended_first() {
-        let os = vec![opt("a", false), opt("b", true), opt("c", false), opt("d", true)];
+        let os = vec![
+            opt("a", false),
+            opt("b", true),
+            opt("c", false),
+            opt("d", true),
+        ];
         let order: Vec<usize> = by_recommendation(&os).into_iter().map(|(_, i)| i).collect();
         assert_eq!(order, vec![1, 3, 0, 2]);
     }
@@ -372,7 +371,10 @@ mod tests {
         assert_eq!(t.folder, "/r/api");
         assert!(t.here);
         assert_eq!(t.device, "this computer");
-        assert!(t.what.starts_with("Claude Code will run agents in /r/api on this computer"));
+        assert!(
+            t.what
+                .starts_with("Claude Code will run agents in /r/api on this computer")
+        );
         assert_eq!(trust_from_reason("/x").folder, "/x");
     }
 
@@ -412,7 +414,10 @@ mod tests {
                 c.scope = "private".into();
             }),
         ];
-        assert_eq!(boards_need_you(&cards), vec![("b1".to_string(), 2), ("b2".to_string(), 1)]);
+        assert_eq!(
+            boards_need_you(&cards),
+            vec![("b1".to_string(), 2), ("b2".to_string(), 1)]
+        );
         // Home's own scope is the board list's (board::filter::in_scope).
         let own = crate::board::SCOPE_OWN;
         assert!(crate::board::filter::in_scope(&cards[3], own));
@@ -431,27 +436,42 @@ mod tests {
             with: "your PC".into(),
             shared: true,
         };
-        let all = vec![f("personal", 3 * 3600_000), f("s1", 2 * STALE_AFTER_MS), f("s2", 3 * STALE_AFTER_MS)];
+        let all = vec![
+            f("personal", 3 * 3_600_000),
+            f("s1", 2 * STALE_AFTER_MS),
+            f("s2", 3 * STALE_AFTER_MS),
+        ];
         let name = |log: &str| (log == "s2").then(|| "Dent Charter".to_string());
         // A picked space: its own line, muted while fresh.
         assert_eq!(
             home_fresh_line("personal", &all, name, now),
             Some(("Last synced with your PC 3h ago".into(), false))
         );
-        assert_eq!(home_fresh_line("s1", &all, name, now).map(|(_, old)| old), Some(true));
+        assert_eq!(
+            home_fresh_line("s1", &all, name, now).map(|(_, old)| old),
+            Some(true)
+        );
         assert_eq!(home_fresh_line("nope", &all, name, now), None);
         // All spaces: only the stalest, named, once stale.
         assert_eq!(stalest(&all, now).map(|f| f.log.as_str()), Some("s2"));
         let (t, old) = home_fresh_line(ALL_SPACES, &all, name, now).unwrap();
         assert!(old);
-        assert!(t.starts_with("Dent Charter: last synced with your PC "), "{t}");
+        assert!(
+            t.starts_with("Dent Charter: last synced with your PC "),
+            "{t}"
+        );
         assert!(t.ends_with(STALE_TAIL));
         assert_eq!(home_fresh_line(ALL_SPACES, &all[..1], name, now), None);
         // A log never synced is the stalest of all; Personal by default.
-        let never = LogFreshness { at: GoTime::default(), ..f("personal", 0) };
+        let never = LogFreshness {
+            at: GoTime::default(),
+            ..f("personal", 0)
+        };
         assert_eq!(
             home_fresh_line(ALL_SPACES, &[never], name, now).unwrap().0,
-            format!("Personal: not synced with another device since Irori started here{STALE_TAIL}")
+            format!(
+                "Personal: not synced with another device since Irori started here{STALE_TAIL}"
+            )
         );
     }
 }

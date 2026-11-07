@@ -3,10 +3,6 @@
 //! can't start yet folds away at the end. [`when_line`] and
 //! [`not_yet_button`] are for the card page.
 
-// when_line and not_yet_button are the card page's (card/), which the
-// card integrator wires; nothing in board/ calls them.
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
 use irori_window::later::{CardLater, CardOrder, OrderStep};
@@ -42,7 +38,15 @@ pub fn not_yet_fold(s: &State, f: &Frame, key: &str, count: usize, children: El)
     let k = f.k;
     let open = s.board.folds.contains(key);
     let kk = key.to_string();
-    let chevron = icon(if open { &icons::CHEVRON_DOWN } else { &icons::CHEVRON_RIGHT }, 12.0).color(k.c.text_muted);
+    let chevron = icon(
+        if open {
+            &icons::CHEVRON_DOWN
+        } else {
+            &icons::CHEVRON_RIGHT
+        },
+        12.0,
+    )
+    .color(k.c.text_muted);
     let mut c = col().key(key.to_string()).w_full().gap(6.0).child(
         row()
             .key(format!("{key}/toggle"))
@@ -60,7 +64,11 @@ pub fn not_yet_fold(s: &State, f: &Frame, key: &str, count: usize, children: El)
                 }
             })
             .child(chevron)
-            .child(text(format!("{count} not yet")).font(small()).color(k.c.text_muted)),
+            .child(
+                text(format!("{count} not yet"))
+                    .font(small())
+                    .color(k.c.text_muted),
+            ),
     );
     if open {
         c = c.child(children);
@@ -69,7 +77,11 @@ pub fn not_yet_fold(s: &State, f: &Frame, key: &str, count: usize, children: El)
 }
 
 fn step_ref(st: &OrderStep) -> String {
-    if st.short.is_empty() { "new".into() } else { format!("{}#{}", st.tag, st.short) }
+    if st.short.is_empty() {
+        "new".into()
+    } else {
+        format!("{}#{}", st.tag, st.short)
+    }
 }
 
 /// A card in an order line: its ref and title, opening it.
@@ -84,12 +96,25 @@ fn card_link(f: &Frame, key: &str, st: &OrderStep) -> El {
         .cursor(rune::Cursor::Pointer)
         .on_press(move |s: &mut State| s.open_card(&id))
         .child(text(step_ref(st)).font(k.ty.ui.mono()).color(k.c.text_base))
-        .child(text(plain_line(&st.title)).font(k.ty.ui).color(k.c.text_base).max_lines(1).shrink())
+        .child(
+            text(plain_line(&st.title))
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink(),
+        )
 }
 
 /// Under a card's title, as "Part of" sits: when it starts (held, with
 /// Start now), or "After #12, then #14".
-pub fn when_line(s: &State, f: &Frame, key: &str, id: &str, later: Option<&CardLater>, order: Option<&CardOrder>) -> Option<El> {
+pub fn when_line(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    id: &str,
+    later: Option<&CardLater>,
+    order: Option<&CardOrder>,
+) -> Option<El> {
     let k = f.k;
     let muted = |t: &str| text(t.to_string()).font(k.ty.ui).color(k.c.text_muted);
     if let Some(l) = later {
@@ -101,7 +126,9 @@ pub fn when_line(s: &State, f: &Frame, key: &str, id: &str, later: Option<&CardL
     }
     let mut r = row().key(key.to_string()).gap(4.0).center_y().flex_wrap();
     if let Some(b) = before {
-        r = r.child(muted("After")).child(card_link(f, &format!("{key}/before"), b));
+        r = r
+            .child(muted("After"))
+            .child(card_link(f, &format!("{key}/before"), b));
         if after.is_some() {
             r = r.child(muted(", then"));
         }
@@ -187,7 +214,15 @@ fn hold(s: &mut State) {
 /// Holds a card back from the agents: one box takes a card, a date or a
 /// version, and left empty it waits for the person's word. None for a
 /// card already held, over, or an ask.
-pub fn not_yet_button(s: &State, f: &mut Frame, key: &str, id: &str, held: bool, over: bool, ask: bool) -> Option<El> {
+pub fn not_yet_button(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    id: &str,
+    held: bool,
+    over: bool,
+    ask: bool,
+) -> Option<El> {
     if held || over || ask {
         return None;
     }
@@ -199,7 +234,11 @@ pub fn not_yet_button(s: &State, f: &mut Frame, key: &str, id: &str, held: bool,
         .variant(ButtonVariant::Ghost)
         .control_size(ControlSize::Small)
         .on_press(move |s: &mut State| {
-            s.board.order.hold_open = if s.board.order.hold_open == cid { String::new() } else { cid.clone() };
+            s.board.order.hold_open = if s.board.order.hold_open == cid {
+                String::new()
+            } else {
+                cid.clone()
+            };
             s.board.order.hold_error = None;
             s.board.order.until.focused = true;
         })
@@ -208,7 +247,11 @@ pub fn not_yet_button(s: &State, f: &mut Frame, key: &str, id: &str, held: bool,
         .key(format!("{key}/body"))
         .w(260.0)
         .gap(8.0)
-        .child(text("Hold it back until").font(rune::tok::TextStyle::new(13.0, 400.0)).color(k.c.text_base))
+        .child(
+            text("Hold it back until")
+                .font(rune::tok::TextStyle::new(13.0, 400.0))
+                .color(k.c.text_base),
+        )
         .child(
             TextInput::new(&o.until)
                 .placeholder("#83, 1 Dec or v0.13.0")
@@ -227,7 +270,13 @@ pub fn not_yet_button(s: &State, f: &mut Frame, key: &str, id: &str, held: bool,
                 .wrap(),
         );
     if let Some(e) = &o.hold_error {
-        body = body.child(text(e.clone()).font(small()).color(status::failed()).w_full().wrap());
+        body = body.child(
+            text(e.clone())
+                .font(small())
+                .color(status::failed())
+                .w_full()
+                .wrap(),
+        );
     }
     body = body.child(
         row().w_full().child(rune::el().grow(1.0)).child(

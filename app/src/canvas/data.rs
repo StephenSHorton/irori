@@ -284,7 +284,11 @@ pub fn repo_label(repo_key: &str) -> String {
 
 fn where_of(c: &CardSummary) -> String {
     if !c.board.is_empty() {
-        return if c.scope_label.is_empty() { c.board.clone() } else { c.scope_label.clone() };
+        return if c.scope_label.is_empty() {
+            c.board.clone()
+        } else {
+            c.scope_label.clone()
+        };
     }
     if !c.repo_key.is_empty() {
         return repo_label(&c.repo_key);
@@ -401,7 +405,11 @@ pub fn to_graph(cards: &[&CardSummary], details: &HashMap<String, CardDetail>) -
     to_graph_at(cards, details, now_ms())
 }
 
-pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>, now: i64) -> Graph {
+pub fn to_graph_at(
+    cards: &[&CardSummary],
+    details: &HashMap<String, CardDetail>,
+    now: i64,
+) -> Graph {
     let mut nodes: Vec<Node> = Vec::new();
     let mut edges = Edges {
         out: Vec::new(),
@@ -511,7 +519,12 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
                 id: id.clone(),
                 label,
                 card: c.id.clone(),
-                state: if c.open_blockers > 0 { blocker::OPEN } else { blocker::ANSWERED }.into(),
+                state: if c.open_blockers > 0 {
+                    blocker::OPEN
+                } else {
+                    blocker::ANSWERED
+                }
+                .into(),
                 group: g.clone(),
             }));
             edges.add(EdgeKind::Blocker, &id, &c.id, "");
@@ -527,12 +540,20 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
                 continue;
             }
             let a = agents.node(&f.agent, now).id.clone();
-            let kind = if f.watching { EdgeKind::Watcher } else { EdgeKind::Holder };
+            let kind = if f.watching {
+                EdgeKind::Watcher
+            } else {
+                EdgeKind::Holder
+            };
             edges.add(kind, &a, &c.id, "");
         }
 
         // Agents writing to each other on this card: a line per pair.
-        let talking: Vec<&AgentRef> = c.talking.iter().filter(|a| here(a) && a.status != "person").collect();
+        let talking: Vec<&AgentRef> = c
+            .talking
+            .iter()
+            .filter(|a| here(a) && a.status != "person")
+            .collect();
         for i in 0..talking.len() {
             for j in i + 1..talking.len() {
                 let (mut a, mut b) = (talking[i].key.clone(), talking[j].key.clone());
@@ -554,7 +575,12 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
         }
     }
     for (a, b, cs) in &talk {
-        edges.add(EdgeKind::Talk, &format!("agent:{a}"), &format!("agent:{b}"), &cs.join(", "));
+        edges.add(
+            EdgeKind::Talk,
+            &format!("agent:{a}"),
+            &format!("agent:{b}"),
+            &cs.join(", "),
+        );
     }
 
     // An agent that is a card's first holder here (you too) has a hub; the
@@ -569,7 +595,11 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
             others += 1;
             continue;
         }
-        let head = if a.person { "You".to_string() } else { a.status.clone() };
+        let head = if a.person {
+            "You".to_string()
+        } else {
+            a.status.clone()
+        };
         let label = [head, plural(n, "card")]
             .into_iter()
             .filter(|s| !s.is_empty())
@@ -592,7 +622,11 @@ pub fn to_graph_at(cards: &[&CardSummary], details: &HashMap<String, CardDetail>
     let mut edges = edges.out;
     for e in edges.iter_mut() {
         if e.kind == EdgeKind::Holder {
-            let agent_group = agents.list.iter().find(|a| a.id == e.source).map(|a| a.group.as_str());
+            let agent_group = agents
+                .list
+                .iter()
+                .find(|a| a.id == e.source)
+                .map(|a| a.group.as_str());
             if agent_group.is_some() && group_of.get(e.target.as_str()).copied() == agent_group {
                 e.in_hub = true;
             }
@@ -646,7 +680,10 @@ pub fn hand_offs(prev: &HashMap<String, String>, graph: &Graph) -> Vec<String> {
 
 /// Each card's area, for [`hand_offs`] next time.
 pub fn holders(graph: &Graph) -> HashMap<String, String> {
-    graph.cards().map(|n| (n.id.clone(), n.group.clone())).collect()
+    graph
+        .cards()
+        .map(|n| (n.id.clone(), n.group.clone()))
+        .collect()
 }
 
 // ---- default layout ---------------------------------------------------------
@@ -715,7 +752,12 @@ fn depth_first<'a>(cards: &[&'a CardNode]) -> Vec<&'a CardNode> {
             .collect()
     };
     let mut out = Vec::new();
-    fn visit<'a>(c: &'a CardNode, kids_of: &dyn Fn(&str) -> Vec<&'a CardNode>, out: &mut Vec<&'a CardNode>, depth: usize) {
+    fn visit<'a>(
+        c: &'a CardNode,
+        kids_of: &dyn Fn(&str) -> Vec<&'a CardNode>,
+        out: &mut Vec<&'a CardNode>,
+        depth: usize,
+    ) {
         out.push(c);
         // A parent loop can't recurse forever.
         if depth > 64 {
@@ -742,14 +784,23 @@ struct Placed {
 /// One area laid out from (0, 0): its label strip, its agents (a hub's
 /// one, or the others strip's several, in rows), then its cards in a grid,
 /// each card's blockers under it.
-fn place_area(agents: &[&AgentNode], cards: &[&CardNode], blockers_of: &dyn Fn(&str) -> Vec<String>, max_cols: usize) -> Placed {
+fn place_area(
+    agents: &[&AgentNode],
+    cards: &[&CardNode],
+    blockers_of: &dyn Fn(&str) -> Vec<String>,
+    max_cols: usize,
+) -> Placed {
     let mut at = Vec::new();
     let mut y = HEAD + PAD;
     let mut w: f32 = 0.0;
     let pill_cols = PILL_COLS.min(agents.len());
     for chunk in agents.chunks(pill_cols.max(1)) {
         for (i, a) in chunk.iter().enumerate() {
-            at.push((a.id.clone(), pt(PAD + i as f32 * (AGENT.w + PILL_GAP), y), AGENT));
+            at.push((
+                a.id.clone(),
+                pt(PAD + i as f32 * (AGENT.w + PILL_GAP), y),
+                AGENT,
+            ));
         }
         w = w.max(pill_cols as f32 * AGENT.w + (pill_cols as f32 - 1.0) * PILL_GAP);
         y += AGENT.h + PILL_GAP;
@@ -758,7 +809,11 @@ fn place_area(agents: &[&AgentNode], cards: &[&CardNode], blockers_of: &dyn Fn(&
         y += GAP - PILL_GAP;
     }
     // An agent's hub is about square; the big areas lie wide, like the window.
-    let cols = cols_for(cards.len(), max_cols, if max_cols == HUB_COLS { 1 } else { 2 });
+    let cols = cols_for(
+        cards.len(),
+        max_cols,
+        if max_cols == HUB_COLS { 1 } else { 2 },
+    );
     for row in cards.chunks(cols) {
         let mut row_h: f32 = 0.0;
         for (i, c) in row.iter().enumerate() {
@@ -808,7 +863,9 @@ pub fn auto_layout(g: &Graph) -> Layout {
             })
             .collect()
     };
-    let members = |group: &str| -> Vec<&CardNode> { cards.iter().copied().filter(|c| c.group == group).collect() };
+    let members = |group: &str| -> Vec<&CardNode> {
+        cards.iter().copied().filter(|c| c.group == group).collect()
+    };
     let count = |group: &str| cards.iter().filter(|c| c.group == group).count();
     let agent_of = |group: &str| agents_of(group).into_iter().next();
 
@@ -820,7 +877,11 @@ pub fn auto_layout(g: &Graph) -> Layout {
             _ => None,
         })
         .collect();
-    let mut hubs: Vec<&GroupNode> = areas.iter().copied().filter(|a| a.by == By::Agent).collect();
+    let mut hubs: Vec<&GroupNode> = areas
+        .iter()
+        .copied()
+        .filter(|a| a.by == By::Agent)
+        .collect();
     hubs.sort_by(|a, b| {
         let pa = agent_of(&a.id).is_some_and(|x| x.person);
         let pb = agent_of(&b.id).is_some_and(|x| x.person);
@@ -841,8 +902,20 @@ pub fn auto_layout(g: &Graph) -> Layout {
     let placed: Vec<(&GroupNode, Placed)> = order
         .iter()
         .map(|a| {
-            let max = if a.by == By::Agent { HUB_COLS } else { AREA_COLS };
-            (*a, place_area(&agents_of(&a.id), &depth_first(&members(&a.id)), &blockers_of, max))
+            let max = if a.by == By::Agent {
+                HUB_COLS
+            } else {
+                AREA_COLS
+            };
+            (
+                *a,
+                place_area(
+                    &agents_of(&a.id),
+                    &depth_first(&members(&a.id)),
+                    &blockers_of,
+                    max,
+                ),
+            )
         })
         .collect();
     let room: f32 = placed
@@ -918,7 +991,9 @@ pub fn followers(g: &Graph, pos: &HashMap<String, Point>) -> HashMap<String, Poi
     let mut seen: HashMap<&str, usize> = HashMap::new();
     for n in &g.nodes {
         let Node::Blocker(b) = n else { continue };
-        let Some(c) = out.get(&b.card).copied() else { continue };
+        let Some(c) = out.get(&b.card).copied() else {
+            continue;
+        };
         let i = seen.entry(b.card.as_str()).or_default();
         out.insert(b.id.clone(), blocker_spot(c, *i));
         *i += 1;
@@ -930,7 +1005,10 @@ pub fn followers(g: &Graph, pos: &HashMap<String, Point>) -> HashMap<String, Poi
 fn within(p: Point, r: Option<&Rect>) -> bool {
     let Some(r) = r else { return false };
     let slack = GAP;
-    p.x >= r.x - slack && p.y >= r.y - slack && p.x + CARD.w <= r.x + r.w + slack && p.y + CARD.h <= r.y + r.h + slack
+    p.x >= r.x - slack
+        && p.y >= r.y - slack
+        && p.x + CARD.w <= r.x + r.w + slack
+        && p.y + CARD.h <= r.y + r.h + slack
 }
 
 /// How far outside its area's laid-out rect a kept card may sit and still
@@ -941,7 +1019,10 @@ const REACH: f32 = 160.0;
 
 fn near(p: Point, r: Option<&Rect>) -> bool {
     let Some(r) = r else { return true };
-    p.x >= r.x - REACH - CARD.w && p.x <= r.x + r.w + REACH && p.y >= r.y - REACH - CARD.h && p.y <= r.y + r.h + REACH
+    p.x >= r.x - REACH - CARD.w
+        && p.x <= r.x + r.w + REACH
+        && p.y >= r.y - REACH - CARD.h
+        && p.y <= r.y + r.h + REACH
 }
 
 /// Each area's rect around its agent, cards and blockers as they sit now;
@@ -977,9 +1058,12 @@ pub fn group_rects(
         }
         let Some(p) = pos.get(n.id()) else { continue };
         let s = node_size(kind);
-        let b = boxes
-            .entry(n.group())
-            .or_insert([f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY]);
+        let b = boxes.entry(n.group()).or_insert([
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ]);
         b[0] = b[0].min(p.x);
         b[1] = b[1].min(p.y);
         b[2] = b[2].max(p.x + s.w);
@@ -1106,7 +1190,12 @@ mod tests {
         for n in &g.nodes {
             let Some(k) = n.kind() else { continue };
             let r = &l.groups[n.group()];
-            assert!(inside(r, l.pos[n.id()], node_size(k)), "{} outside {}", n.id(), n.group());
+            assert!(
+                inside(r, l.pos[n.id()], node_size(k)),
+                "{} outside {}",
+                n.id(),
+                n.group()
+            );
         }
         // The agent's pill heads its own hub.
         assert!(inside(&l.groups["group:agent:a"], l.pos["agent:a"], AGENT));
@@ -1114,7 +1203,9 @@ mod tests {
 
     #[test]
     fn no_tall_column_one_agent_with_16_cards_is_a_4_by_4_grid() {
-        let cards: Vec<_> = (0..16).map(|_| card(|c| c.working = vec![busy("solo")])).collect();
+        let cards: Vec<_> = (0..16)
+            .map(|_| card(|c| c.working = vec![busy("solo")]))
+            .collect();
         let l = auto_layout(&graph(&cards));
         let hub = l.groups["group:agent:solo"];
         assert_eq!(cols_for(16, 4, 1), 4);
@@ -1239,7 +1330,11 @@ mod tests {
             c.talking = vec![b.clone(), a.clone()];
         });
         let g = graph(&[c1.clone(), c2.clone()]);
-        let talk: Vec<&Edge> = g.edges.iter().filter(|e| e.kind == EdgeKind::Talk).collect();
+        let talk: Vec<&Edge> = g
+            .edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::Talk)
+            .collect();
         assert_eq!(talk.len(), 1);
         assert_eq!(talk[0].source, "agent:a");
         assert_eq!(talk[0].target, "agent:b");
@@ -1264,12 +1359,21 @@ mod tests {
         for k in ["agent:w1", "agent:w2"] {
             assert!(inside(&l.groups["group:others"], l.pos[k], AGENT));
         }
-        assert!(g.edges.iter().find(|e| e.kind == EdgeKind::Holder).unwrap().in_hub);
+        assert!(
+            g.edges
+                .iter()
+                .find(|e| e.kind == EdgeKind::Holder)
+                .unwrap()
+                .in_hub
+        );
     }
 
     #[test]
     fn agent_status_tone_comes_from_agent_status() {
-        let g = graph(&[card(|c| c.working = vec![busy("a")]), card(|c| c.working = vec![idle("b")])]);
+        let g = graph(&[
+            card(|c| c.working = vec![busy("a")]),
+            card(|c| c.working = vec![idle("b")]),
+        ]);
         let tone = |id: &str| match g.node(id) {
             Some(Node::Agent(a)) => a.tone,
             _ => panic!("{id}"),
@@ -1322,7 +1426,11 @@ mod tests {
             });
         });
         let g = graph(&[p.clone(), other.clone(), kid.clone()]);
-        assert!(g.edges.iter().any(|e| e.kind == EdgeKind::Subtask && e.source == p.id && e.target == kid.id));
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.kind == EdgeKind::Subtask && e.source == p.id && e.target == kid.id)
+        );
         let l = auto_layout(&g);
         // The kid comes right after its parent in the grid.
         assert!(l.pos[&kid.id].x < l.pos[&other.id].x);

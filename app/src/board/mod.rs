@@ -98,12 +98,20 @@ pub struct Opts<'a> {
 
 /// The live roster's status by agent key (lib/thread LiveRoster).
 pub fn live_map(s: &State) -> HashMap<String, String> {
-    s.data.agents.iter().map(|a| (a.card.key.clone(), a.card.status.clone())).collect()
+    s.data
+        .agents
+        .iter()
+        .map(|a| (a.card.key.clone(), a.card.status.clone()))
+        .collect()
 }
 
 /// The filter a page reads.
 pub fn filter_of(s: &State, home: bool) -> Filter {
-    if home { s.board.home_filter.clone() } else { s.board.filter.clone() }
+    if home {
+        s.board.home_filter.clone()
+    } else {
+        s.board.filter.clone()
+    }
 }
 
 /// Picks a filter: Home keeps its All, Private or board pick in the
@@ -126,7 +134,11 @@ fn members_of<'a>(s: &'a State, scope: &str) -> Option<&'a [irori_window::boards
     if scope == SCOPE_OWN {
         return None;
     }
-    s.data.spaces.iter().find(|b| b.board_id == scope).map(|b| b.members.as_slice())
+    s.data
+        .spaces
+        .iter()
+        .find(|b| b.board_id == scope)
+        .map(|b| b.members.as_slice())
 }
 
 pub(crate) fn muted(f: &Frame, key: &str, t: &str) -> El {
@@ -145,9 +157,17 @@ pub(crate) fn heading(f: &Frame, key: &str, t: &str, n: Option<usize>) -> El {
         .gap(8.0)
         .center_y()
         .px(4.0)
-        .child(text(t.to_uppercase()).font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.6)).color(k.c.text_muted));
+        .child(
+            text(t.to_uppercase())
+                .font(rune::tok::TextStyle::new(11.0, 500.0).tracking(0.6))
+                .color(k.c.text_muted),
+        );
     if let Some(n) = n {
-        r = r.child(text(n.to_string()).font(rune::tok::TextStyle::new(11.0, 500.0)).color(k.c.text_muted));
+        r = r.child(
+            text(n.to_string())
+                .font(rune::tok::TextStyle::new(11.0, 500.0))
+                .color(k.c.text_muted),
+        );
     }
     r
 }
@@ -155,18 +175,31 @@ pub(crate) fn heading(f: &Frame, key: &str, t: &str, n: Option<usize>) -> El {
 /// One board's cards as a page (BoardView, card #161).
 pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
     let k = f.k;
-    let mine = filter::board_order(&o.cards.iter().copied().filter(|c| filter::in_scope(c, &o.scope)).collect::<Vec<_>>());
+    let mine = filter::board_order(
+        &o.cards
+            .iter()
+            .copied()
+            .filter(|c| filter::in_scope(c, &o.scope))
+            .collect::<Vec<_>>(),
+    );
     let chips = device_chips(mine.iter().copied());
     let row_boards = (o.scope == SCOPE_OWN).then(|| filter::home_boards(&mine, &s.data.spaces));
     let members = members_of(s, &o.scope);
-    let picked = if o.plain { Filter::All } else { filter_of(s, o.home) };
+    let picked = if o.plain {
+        Filter::All
+    } else {
+        filter_of(s, o.home)
+    };
     let chip_ids: Vec<String> = chips.iter().map(|d| d.id.clone()).collect();
     let active = filter::active_filter(&picked, &chip_ids, row_boards.as_deref(), members);
     let query = s.board.query.text.clone();
     let searching = !query.trim().is_empty();
     let (all, context) = filter::shown_cards(&mine, &active, &query);
     let shown: Vec<&CardSummary> = if o.rows && active == Filter::All && !searching {
-        all.iter().copied().filter(|c| !o.listed.contains(&c.id)).collect()
+        all.iter()
+            .copied()
+            .filter(|c| !o.listed.contains(&c.id))
+            .collect()
     } else {
         all.clone()
     };
@@ -174,16 +207,32 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
     let pinned: Vec<&CardSummary> = shown
         .iter()
         .copied()
-        .filter(|c| c.pinned || c.parent.as_ref().is_some_and(|p| shown.iter().any(|x| x.id == p.id && x.pinned)))
+        .filter(|c| {
+            c.pinned
+                || c.parent
+                    .as_ref()
+                    .is_some_and(|p| shown.iter().any(|x| x.id == p.id && x.pinned))
+        })
         .collect();
     let in_pinned: HashSet<&str> = pinned.iter().map(|c| c.id.as_str()).collect();
-    let not_yet: Vec<&CardSummary> = shown.iter().copied().filter(|c| !in_pinned.contains(c.id.as_str()) && c.later.is_some()).collect();
+    let not_yet: Vec<&CardSummary> = shown
+        .iter()
+        .copied()
+        .filter(|c| !in_pinned.contains(c.id.as_str()) && c.later.is_some())
+        .collect();
     let decide = mine.iter().filter(|c| c.open_blockers > 0).count();
-    let review = mine.iter().filter(|c| c.state == crate::logic::cards::state::IN_REVIEW).count();
+    let review = mine
+        .iter()
+        .filter(|c| c.state == crate::logic::cards::state::IN_REVIEW)
+        .count();
 
     let th = o.threads.as_deref().map(|b| (b, s.board.threads.list(b)));
-    let open_threads = th.map_or(0, |(_, l)| l.iter().filter(|t| t.state != "resolved").count());
-    let show_threads = th.is_some_and(|(_, l)| !s.board.threads.hidden && (!l.is_empty() || !s.board.threads.open.is_empty()));
+    let open_threads = th.map_or(0, |(_, l)| {
+        l.iter().filter(|t| t.state != "resolved").count()
+    });
+    let show_threads = th.is_some_and(|(_, l)| {
+        !s.board.threads.hidden && (!l.is_empty() || !s.board.threads.open.is_empty())
+    });
     let threads_btn = th.is_some_and(|(_, l)| !show_threads && !l.is_empty());
     let canvas = crate::canvas::wants_canvas(s);
     let fill = canvas && active != Filter::Done && !mine.is_empty();
@@ -223,17 +272,48 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
     let mut column: Vec<El> = Vec::new();
     if mine.is_empty() && picked != Filter::Done {
         if !o.plain {
-            column.push(bars::filter_bar(f, home, &picked, 0, 0, &[Filter::All, Filter::Done], &scope));
+            column.push(bars::filter_bar(
+                f,
+                home,
+                &picked,
+                0,
+                0,
+                &[Filter::All, Filter::Done],
+                &scope,
+            ));
         }
         if let Some(b) = btn {
-            column.push(row().key("board-threads-btn-row").w_full().child(el().grow(1.0)).child(b));
+            column.push(
+                row()
+                    .key("board-threads-btn-row")
+                    .w_full()
+                    .child(el().grow(1.0))
+                    .child(b),
+            );
         }
         column.extend(o.lead);
         column.extend(o.notice);
         column.extend(o.empty);
     } else {
         if let Some(lead) = o.lead {
-            column.push(if fill { col().key("board-lead-box").w_full().max_h(260.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(lead) } else { lead });
+            // Over the canvas, Needs you takes at most 30% of the column
+            // (board-view.tsx max-h-[30%]), as the column measured last.
+            let cap =
+                f.cx.layout_size("board-column")
+                    .map_or(260.0, |[_, h]| (h * 0.3).max(120.0));
+            column.push(if fill {
+                col()
+                    .key("board-lead-box")
+                    .w_full()
+                    .max_h(cap)
+                    .min_h(0.0)
+                    .scroll(ScrollSpec {
+                        stick_bottom: false,
+                    })
+                    .child(lead)
+            } else {
+                lead
+            });
         }
         if o.rows {
             column.push(
@@ -245,8 +325,22 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
                     .pt(8.0),
             );
         }
-        let mut left = row().key("board-filter-left").gap(12.0).center_y().flex_wrap().min_w(0.0).shrink();
-        left = left.child(bars::filter_bar(f, home, &active, decide, review, &[Filter::All, Filter::Decide, Filter::Review, Filter::Done], &scope));
+        let mut left = row()
+            .key("board-filter-left")
+            .gap(12.0)
+            .center_y()
+            .flex_wrap()
+            .min_w(0.0)
+            .shrink();
+        left = left.child(bars::filter_bar(
+            f,
+            home,
+            &active,
+            decide,
+            review,
+            &[Filter::All, Filter::Decide, Filter::Review, Filter::Done],
+            &scope,
+        ));
         if let Some(d) = bars::device_bar(f, home, &active, &chips, &scope) {
             left = left.child(d);
         }
@@ -264,7 +358,9 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
         if let Some(b) = btn {
             right = right.child(b);
         }
-        right = right.child(search::search_box(s, f)).child(crate::canvas::view_switch(s, f));
+        right = right
+            .child(search::search_box(s, f))
+            .child(crate::canvas::view_switch(s, f));
         column.push(
             row()
                 .key("board-filters")
@@ -286,18 +382,47 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
             // The cards the filter and search show (the query narrows
             // List, Canvas and Closed alike, card #171), with the ones
             // Needs you lists kept on the map (card #587).
-            column.push(crate::canvas::view_of(s, f, &all).w_full().grow(1.0).min_h(if fill { 0.0 } else { 480.0 }));
+            column.push(
+                crate::canvas::view_of(s, f, &all)
+                    .w_full()
+                    .grow(1.0)
+                    .min_h(if fill { 280.0 } else { 480.0 }),
+            );
         } else if !shown.is_empty() && o.rows {
             if !pinned.is_empty() {
                 column.push(heading(f, "board-pinned-h", "Pinned", None));
-                column.push(rows::progress_rows(s, f, "board-rows-pinned", "Pinned cards", &pinned, false));
+                column.push(rows::progress_rows(
+                    s,
+                    f,
+                    "board-rows-pinned",
+                    "Pinned cards",
+                    &pinned,
+                    false,
+                ));
             }
-            let rest: Vec<&CardSummary> = shown.iter().copied().filter(|c| !in_pinned.contains(c.id.as_str())).collect();
-            column.push(rows::progress_rows(s, f, "board-rows", if pinned.is_empty() { "Cards" } else { "Everything else" }, &rest, true));
+            let rest: Vec<&CardSummary> = shown
+                .iter()
+                .copied()
+                .filter(|c| !in_pinned.contains(c.id.as_str()))
+                .collect();
+            column.push(rows::progress_rows(
+                s,
+                f,
+                "board-rows",
+                if pinned.is_empty() {
+                    "Cards"
+                } else {
+                    "Everything else"
+                },
+                &rest,
+                true,
+            ));
         } else if !shown.is_empty() {
             if !pinned.is_empty() {
                 column.push(heading(f, "board-pinned-h", "Pinned", None));
-                column.push(grid::card_grid(s, f, "pinned", &pinned, &context, true, None));
+                column.push(grid::card_grid(
+                    s, f, "pinned", &pinned, &context, true, None,
+                ));
                 column.push(heading(f, "board-else-h", "Everything else", None).pt(8.0));
             }
             let rest: Vec<&CardSummary> = shown
@@ -324,7 +449,14 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
         }
     }
 
-    let mut main = col().key("board-column").w_full().min_w(0.0).min_h(0.0).grow(1.0).gap(14.0).px(4.0);
+    let mut main = col()
+        .key("board-column")
+        .w_full()
+        .min_w(0.0)
+        .min_h(0.0)
+        .grow(1.0)
+        .gap(14.0)
+        .px(4.0);
     for c in column {
         main = main.child(c);
     }
@@ -337,10 +469,18 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
             .min_w(0.0)
             .min_h(0.0)
             .h_full()
-            .scroll(ScrollSpec { stick_bottom: false })
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
             .child(main.grow(0.0).pb(40.0))
     };
-    let mut body = row().key("board-body").w_full().grow(1.0).min_h(0.0).gap(16.0).child(main);
+    let mut body = row()
+        .key("board-body")
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .gap(16.0)
+        .child(main);
     if show_threads && let Some((b, list)) = th {
         body = body.child(
             col()
@@ -348,11 +488,18 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
                 .w(380.0)
                 .h_full()
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(threads::panel(s, f, b, list).mb(16.0)),
         );
     }
-    let mut page = col().key("board-view").w_full().h_full().min_h(0.0).gap(14.0);
+    let mut page = col()
+        .key("board-view")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .gap(14.0);
     if let Some(h) = o.header {
         page = page.child(h);
     }
@@ -395,9 +542,12 @@ fn hidden_line(f: &Frame, home: bool, search: bool, n: usize, decide: usize, sco
         );
     if decide > 0 {
         r = r.child(
-            text(format!(", {decide} {} a decision", if decide == 1 { "needs" } else { "need" }))
-                .font(rune::tok::TextStyle::new(12.5, 600.0))
-                .color(warn),
+            text(format!(
+                ", {decide} {} a decision",
+                if decide == 1 { "needs" } else { "need" }
+            ))
+            .font(rune::tok::TextStyle::new(12.5, 600.0))
+            .color(warn),
         );
     }
     let scope = scope.to_string();
@@ -416,7 +566,9 @@ fn hidden_line(f: &Frame, home: bool, search: bool, n: usize, decide: usize, sco
 pub fn on_event(s: &mut State, ev: &Event) {
     match ev.name.as_str() {
         "app:start" => {
-            s.board.home_filter = filter::saved_home_filter(s.prefs.get::<String>(filter::HOME_FILTER_PREF).as_deref());
+            s.board.home_filter = filter::saved_home_filter(
+                s.prefs.get::<String>(filter::HOME_FILTER_PREF).as_deref(),
+            );
         }
         "app:card-opened" => {
             if let Some(id) = ev.payload.as_str() {
@@ -436,11 +588,19 @@ pub fn on_event(s: &mut State, ev: &Event) {
 /// "/" outside a text field puts the cursor in the search box (card
 /// #171), on Home and the board pages, with no dialog open.
 pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let slash = matches!(&ev.key, rune::Key::Text(t) if t == "/");
-    if !slash || ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || tx.focused().is_some() {
+    let slash = matches!(&ev.key, rune::Key::Text(t) if t == "/")
+        && !ev.mods.cmd
+        && !ev.mods.ctrl
+        && !ev.mods.alt;
+    // Cmd+F (Ctrl+F on a PC) too (card #733, app-shortcuts.ts).
+    let find = ev.is_command('f') && !ev.mods.shift && !ev.mods.alt;
+    if !(slash || find) || tx.focused().is_some() {
         return false;
     }
-    if s.dialog.is_some() || s.nav.card.is_some() || !matches!(s.nav.route, Route::Home | Route::Board { .. }) {
+    if s.dialog.is_some()
+        || s.nav.card.is_some()
+        || !matches!(s.nav.route, Route::Home | Route::Board { .. })
+    {
         return false;
     }
     search::focus(s);
@@ -467,7 +627,10 @@ pub fn scene(s: &mut State) {
     match best {
         Some((space, board, n)) if n >= own.min(1) && n > 0 => {
             threads::load(s, &space);
-            s.go(Route::Board { space, board: Some(board) });
+            s.go(Route::Board {
+                space,
+                board: Some(board),
+            });
         }
         _ => s.go(Route::Board {
             space: PERSONAL.into(),

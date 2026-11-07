@@ -8,11 +8,13 @@ use inbox::{Delivery, Sender, hold, st};
 use irori_window::agents::AgentsSettings;
 use irori_window::agents_trust::TrustNeed;
 use irori_window::cards::{
-    AgentRef, CardBlocker, CardDetail, CardOption, CardRef, CardSummary, GoneWait, WaitPr,
+    AgentRef, CardBlocker, CardDetail, CardHolder, CardOption, CardPermission, CardRef,
+    CardSummary, GoneWait, Holding, WaitPr,
 };
 use irori_window::wind_down::{WindDownRow, WindDownStatus};
 use rune::TextEdit;
 
+use super::permission::{ALLOW_ONCE, ALWAYS_ALLOW, DENY};
 use super::pure::answer_key;
 use crate::logic::agent_status::now_ms;
 use crate::ui::{Dialog, Route, State};
@@ -30,7 +32,13 @@ fn agent(name: &str) -> AgentRef {
     }
 }
 
-fn card(id: &str, short: &str, title: &str, min: i64, f: impl FnOnce(&mut CardSummary)) -> CardSummary {
+fn card(
+    id: &str,
+    short: &str,
+    title: &str,
+    min: i64,
+    f: impl FnOnce(&mut CardSummary),
+) -> CardSummary {
     let mut c = CardSummary {
         id: id.into(),
         short: short.into(),
@@ -78,44 +86,70 @@ fn held(id: &str, f: impl FnOnce(&mut Delivery)) -> Delivery {
 /// Puts one of every Needs you row on Home.
 pub fn needs(s: &mut State) {
     let oak = agent("oak");
-    let decision = card("s-dec", "901", "Pick the sync format for shared boards", 4, |c| {
-        c.open_blockers = 2;
-        c.state = "input_required".into();
-        c.blocker_question = "JSON lines or one CBOR blob per board?".into();
-        c.working = vec![oak.clone()];
-    });
-    let check = card("s-check", "902", "Speed up the Board's first paint", 12, |c| {
-        c.ready = true;
-        c.open_blockers = 1;
-    });
-    let merge = card("s-merge", "903", "Fix the stale presence dot after sleep", 40, |c| {
-        c.state = "in_review".into();
-        c.merge_pr = Some(WaitPr {
-            repo: "irori".into(),
-            number: 152,
-            url: "https://github.com/acme/irori/pull/152".into(),
-            ..WaitPr::default()
-        });
-        c.wait_question = "CI is green; can you merge it?".into();
-    });
-    let gone = card("s-gone", "904", "Rotate the relay's TLS certificate", 90, |c| {
-        c.state = "blocked".into();
-        c.gone_wait = Some(GoneWait {
-            agent: AgentRef {
-                status: "gone".into(),
-                ..agent("kestrel")
-            },
-            question: "Which DNS provider holds the zone?".into(),
-            ..GoneWait::default()
-        });
-    });
+    let decision = card(
+        "s-dec",
+        "901",
+        "Pick the sync format for shared boards",
+        4,
+        |c| {
+            c.open_blockers = 2;
+            c.state = "input_required".into();
+            c.blocker_question = "JSON lines or one CBOR blob per board?".into();
+            c.working = vec![oak.clone()];
+        },
+    );
+    let check = card(
+        "s-check",
+        "902",
+        "Speed up the Board's first paint",
+        12,
+        |c| {
+            c.ready = true;
+            c.open_blockers = 1;
+        },
+    );
+    let merge = card(
+        "s-merge",
+        "903",
+        "Fix the stale presence dot after sleep",
+        40,
+        |c| {
+            c.state = "in_review".into();
+            c.merge_pr = Some(WaitPr {
+                repo: "irori".into(),
+                number: 152,
+                url: "https://github.com/acme/irori/pull/152".into(),
+                ..WaitPr::default()
+            });
+            c.wait_question = "CI is green; can you merge it?".into();
+        },
+    );
+    let gone = card(
+        "s-gone",
+        "904",
+        "Rotate the relay's TLS certificate",
+        90,
+        |c| {
+            c.state = "blocked".into();
+            c.gone_wait = Some(GoneWait {
+                agent: AgentRef {
+                    status: "gone".into(),
+                    ..agent("kestrel")
+                },
+                question: "Which DNS provider holds the zone?".into(),
+                ..GoneWait::default()
+            });
+        },
+    );
     let trust = card("s-trust", "905", "Add the Android build to CI", 120, |c| {
         c.state = "submitted".into();
         c.cant_start = "not trusted: /Users/me/code/irori-android on this Mac".into();
     });
     let no_agent = card("s-noagent", "906", "Port the tray to Linux", 200, |c| {
         c.state = "submitted".into();
-        c.no_agent = "No computer can start its agent: its repo is checked out nowhere you have Irori.".into();
+        c.no_agent =
+            "No computer can start its agent: its repo is checked out nowhere you have Irori."
+                .into();
     });
     let looped_a = card("s-loop-a", "907", "Ship the pairing rework", 300, |c| {
         c.state = "blocked".into();
@@ -139,7 +173,11 @@ pub fn needs(s: &mut State) {
         context: "JSON lines diff well in git; CBOR is a third the size on the relay.".into(),
         raised_by: oak.clone(),
         options: vec![
-            opt("JSON lines", "Readable, and the export already writes it", false),
+            opt(
+                "JSON lines",
+                "Readable, and the export already writes it",
+                false,
+            ),
             opt("CBOR per board", "Smaller on the wire", true),
         ],
         state: "open".into(),
@@ -163,8 +201,12 @@ pub fn needs(s: &mut State) {
         state: "open".into(),
         ..CardBlocker::default()
     };
-    s.home.details.insert(decision.id.clone(), detail(&decision, vec![q1, q2.clone()]));
-    s.home.details.insert(check.id.clone(), detail(&check, vec![done]));
+    s.home
+        .details
+        .insert(decision.id.clone(), detail(&decision, vec![q1, q2.clone()]));
+    s.home
+        .details
+        .insert(check.id.clone(), detail(&check, vec![done]));
     s.home.trust.insert(
         trust.id.clone(),
         Some(TrustNeed {
@@ -183,7 +225,8 @@ pub fn needs(s: &mut State) {
     let perm = card("s-perm", "909", "Clean old worktrees off the Mac", 2, |c| {
         c.open_blockers = 1;
         c.state = "input_required".into();
-        c.blocker_question = "Waiting for your permission: rm -rf .claude/worktrees/card-600-1".into();
+        c.blocker_question =
+            "Waiting for your permission: rm -rf .claude/worktrees/card-600-1".into();
         c.working = vec![AgentRef {
             spawned: true,
             assigned: false,
@@ -193,8 +236,69 @@ pub fn needs(s: &mut State) {
             ..agent("wren")
         }];
     });
-    let mut cards = vec![perm, decision, check, merge, gone, trust, no_agent, looped_a, looped_b];
-    cards.extend(s.data.cards.drain(..));
+    // A typed prompt Irori can answer (card #682): its command and buttons.
+    let thyme = AgentRef {
+        spawned: true,
+        assigned: false,
+        status: "busy".into(),
+        device: "Lead-PC".into(),
+        where_: "Lead-PC".into(),
+        ..agent("thyme")
+    };
+    let prompt = card("s-prompt", "910", "Run the core tests on the PC", 1, |c| {
+        c.open_blockers = 1;
+        c.state = "input_required".into();
+        c.blocker_question = "thyme wants to use Bash: cargo test -p irori-core".into();
+        c.permission_wait = true;
+        c.working = vec![thyme.clone()];
+    });
+    let pb = CardBlocker {
+        id: "bp".into(),
+        question: prompt.blocker_question.clone(),
+        raised_by: thyme.clone(),
+        options: vec![
+            opt(ALLOW_ONCE, "", false),
+            opt(ALWAYS_ALLOW, "", false),
+            opt(DENY, "", false),
+        ],
+        state: "open".into(),
+        permission: Some(CardPermission {
+            agent: thyme.clone(),
+            tool: "Bash".into(),
+            input:
+                "cargo test -p irori-core --test it net::mesh -- --test-threads=1 2>&1 | tail -40"
+                    .into(),
+            rule: "Bash(cargo test:*)".into(),
+            answerable: true,
+            expires: String::new(),
+        }),
+        ..CardBlocker::default()
+    };
+    s.home
+        .details
+        .insert(prompt.id.clone(), detail(&prompt, vec![pb]));
+    // Offered to an agent Irori started that died before it took the card
+    // up (card #699): Not taken up, "went away".
+    let dead = card("s-dead", "911", "Tidy the release notes", 30, |c| {
+        c.state = "submitted".into();
+        let w = AgentRef {
+            spawned: true,
+            assigned: true,
+            status: "gone".into(),
+            live: false,
+            ..agent("sage")
+        };
+        c.working = vec![w.clone()];
+        c.holder = CardHolder {
+            state: Holding::Gone,
+            who: w,
+            others: 0,
+        };
+    });
+    let mut cards = vec![
+        prompt, perm, decision, check, merge, gone, trust, no_agent, looped_a, looped_b, dead,
+    ];
+    cards.append(&mut s.data.cards);
     s.data.cards = cards;
     s.home.held = vec![
         held("h1", |d| {
@@ -249,8 +353,16 @@ fn run() -> WindDownStatus {
         paused: true,
         finished: true,
         rows: vec![
-            row(1, "done", "Wound down. Left #701 with a hand-off; no leases held."),
-            row(2, "done", "Wound down. Pushed card-702-1 and left a hand-off."),
+            row(
+                1,
+                "done",
+                "Wound down. Left #701 with a hand-off; no leases held.",
+            ),
+            row(
+                2,
+                "done",
+                "Wound down. Pushed card-702-1 and left a hand-off.",
+            ),
             row(3, "done", "Wound down. Nothing in hand."),
             row(4, "no_answer", ""),
             WindDownRow {

@@ -10,9 +10,9 @@
 //! - [`node`]: how each node is drawn.
 //! - `edges`: the lines as Rune shapes.
 //!
-//! Pan with a drag on the background, a trackpad scroll or the middle
-//! button; zoom with a pinch, a mouse wheel or Cmd/Ctrl + scroll, or the
-//! controls; drag a card to place it (kept in coord through
+//! Pan with a drag on the background or the middle button; zoom with a
+//! pinch, any scroll (a mouse wheel or a trackpad's two fingers, as React
+//! Flow's defaults do), or the controls; drag a card to place it (kept in coord through
 //! `Window::place`, so every device shows it); click a card or a blocker
 //! to open the card. The camera lives in Rune `Live` values, so a pan
 //! draws without running the view.
@@ -36,7 +36,10 @@ use std::collections::{HashMap, HashSet};
 
 use irori_window::cards::{CardDetail, CardSummary};
 use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_ROSTER_CHANGED};
-use rune::{Beat, Color, Drag, El, Key, Live, Phase, PointerButton, Sequence, Shape, canvas, col, el, row, text};
+use rune::{
+    Beat, Color, Drag, El, Key, Live, Phase, PointerButton, Sequence, Shape, canvas, col, el, row,
+    text,
+};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant};
 
 use crate::logic::cards::open_ask;
@@ -157,7 +160,8 @@ impl Model {
         self.pan.set(pan);
         self.zoom.set(zoom);
         let g = self.dot_gap.get().max(1.0);
-        self.dots.set([pan[0].rem_euclid(g) - g, pan[1].rem_euclid(g) - g]);
+        self.dots
+            .set([pan[0].rem_euclid(g) - g, pan[1].rem_euclid(g) - g]);
         let m = self.mini.get();
         let [w, h] = self.size.get();
         self.mini_rect.set([
@@ -185,7 +189,10 @@ impl Model {
         let z = (w / (b.w * (1.0 + 2.0 * FIT_PAD)))
             .min(h / (b.h * (1.0 + 2.0 * FIT_PAD)))
             .clamp(MIN_ZOOM, MAX_ZOOM);
-        let pan = [w / 2.0 - (b.x + b.w / 2.0) * z, h / 2.0 - (b.y + b.h / 2.0) * z];
+        let pan = [
+            w / 2.0 - (b.x + b.w / 2.0) * z,
+            h / 2.0 - (b.y + b.h / 2.0) * z,
+        ];
         self.set_camera(pan, z);
     }
 
@@ -212,7 +219,10 @@ pub fn scoped(s: &State) -> Vec<&CardSummary> {
             s.data
                 .cards
                 .iter()
-                .filter(|c| crate::logic::spaces::card_in_space(c, &space) && crate::board::filter::in_scope(c, &scope))
+                .filter(|c| {
+                    crate::logic::spaces::card_in_space(c, &space)
+                        && crate::board::filter::in_scope(c, &scope)
+                })
                 .collect()
         }
         Route::Board { space, board } => s
@@ -250,13 +260,22 @@ pub fn set_view(s: &mut State, v: &str) {
 /// The board's view switch (card #93): List (the grid) or Canvas.
 pub fn view_switch(s: &State, f: &Frame) -> El {
     let canvas = wants_canvas(s);
-    let mut r = row().key("canvas/switch").gap(4.0).center_y().role("group").label("Board view");
+    let mut r = row()
+        .key("canvas/switch")
+        .gap(4.0)
+        .center_y()
+        .role("group")
+        .label("Board view");
     for (id, label) in [("list", "List"), ("canvas", "Canvas")] {
         let on = (id == "canvas") == canvas;
         r = r.child(
             Button::new(label)
                 .control_size(ControlSize::Regular)
-                .variant(if on { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+                .variant(if on {
+                    ButtonVariant::Neutral
+                } else {
+                    ButtonVariant::Ghost
+                })
                 .on_press(move |s: &mut State| set_view(s, id))
                 .build(f.k)
                 .key(format!("canvas/switch/{id}"))
@@ -378,12 +397,22 @@ fn map_of(s: &State, cards: &[&CardSummary]) -> Map {
     } else {
         (pos, layout.groups.clone())
     };
-    Map { graph, auto, pos, groups }
+    Map {
+        graph,
+        auto,
+        pos,
+        groups,
+    }
 }
 
 /// The rect around every area and node.
 fn bounds(m: &Map) -> Rect {
-    let mut b = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+    let mut b = [
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    ];
     let mut grow = |r: Rect| {
         b[0] = b[0].min(r.x);
         b[1] = b[1].min(r.y);
@@ -467,8 +496,11 @@ pub fn overlay(s: &State, f: &mut Frame) {
     // route's whole scope when no page drew one.
     let cards: Vec<&CardSummary> = match s.canvas.shown.borrow().as_ref() {
         Some(ids) => {
-            let by: HashMap<&str, &CardSummary> = s.data.cards.iter().map(|c| (c.id.as_str(), c)).collect();
-            ids.iter().filter_map(|id| by.get(id.as_str()).copied()).collect()
+            let by: HashMap<&str, &CardSummary> =
+                s.data.cards.iter().map(|c| (c.id.as_str(), c)).collect();
+            ids.iter()
+                .filter_map(|id| by.get(id.as_str()).copied())
+                .collect()
         }
         None => scoped(s),
     };
@@ -496,7 +528,13 @@ fn board_canvas(s: &State, f: &mut Frame, cards: &[&CardSummary], full: bool) ->
         m.size.set(size);
         if old[0] > 0.0 && old[1] > 0.0 {
             let (pan, z) = m.camera();
-            m.set_camera([pan[0] + (size[0] - old[0]) / 2.0, pan[1] + (size[1] - old[1]) / 2.0], z);
+            m.set_camera(
+                [
+                    pan[0] + (size[0] - old[0]) / 2.0,
+                    pan[1] + (size[1] - old[1]) / 2.0,
+                ],
+                z,
+            );
         }
     }
     let (_, zoom) = m.camera();
@@ -572,7 +610,10 @@ fn board_canvas(s: &State, f: &mut Frame, cards: &[&CardSummary], full: bool) ->
     // Then the lines, lit ones last.
     let mut lit_edges = Vec::new();
     for e in &map.graph.edges {
-        let lit = m.hover.as_ref().is_some_and(|h| *h == e.source || *h == e.target);
+        let lit = m
+            .hover
+            .as_ref()
+            .is_some_and(|h| *h == e.source || *h == e.target);
         if lit {
             lit_edges.push(e);
             continue;
@@ -639,24 +680,17 @@ fn board_canvas(s: &State, f: &mut Frame, cards: &[&CardSummary], full: bool) ->
                 .pin(Some(20.0), Some(20.0), None, None),
         );
     }
-    viewport = viewport
-        .child(controls(f))
-        .child(toolbar(s, f, &map, full));
+    viewport = viewport.child(controls(f)).child(toolbar(s, f, &map, full));
     if !narrow && b.w > 0.0 {
         viewport = viewport.child(minimap(s, f, &map, mini));
     }
     viewport
-        // A trackpad scroll pans; a mouse wheel, or a scroll with Cmd or
-        // Ctrl held, zooms about the pointer (React Flow's way).
-        .on_wheel(|s: &mut State, e: rune::WheelEvent, tx| {
+        // Any scroll zooms about the pointer, a trackpad's two fingers too
+        // (React Flow's defaults: zoomOnScroll on, panOnScroll off); a
+        // drag pans.
+        .on_wheel(|s: &mut State, e: rune::WheelEvent, _tx| {
             s.canvas.touched = true;
-            if e.mods.cmd || e.mods.ctrl || !e.precise {
-                s.canvas.zoom_about(e.x, e.y, (e.dy * 0.002).exp());
-            } else {
-                let (pan, z) = s.canvas.camera();
-                s.canvas.set_camera([pan[0] + e.dx, pan[1] + e.dy], z);
-                tx.live_only();
-            }
+            s.canvas.zoom_about(e.x, e.y, (e.dy * 0.002).exp());
             true
         })
         .on_magnify(|s: &mut State, e: rune::MagnifyEvent, _tx| {
@@ -708,7 +742,15 @@ fn dots(f: &Frame, size: [f32; 2], gap: f32, off: &Live<[f32; 2]>) -> El {
         for j in 0..rows {
             for i in 0..cols {
                 let (x, y) = (i as f32 * gap, j as f32 * gap);
-                sh = sh.fill(vec![[x - r, y - r], [x + r, y - r], [x + r, y + r], [x - r, y + r]], c);
+                sh = sh.fill(
+                    vec![
+                        [x - r, y - r],
+                        [x + r, y - r],
+                        [x + r, y + r],
+                        [x - r, y + r],
+                    ],
+                    c,
+                );
             }
         }
     }
@@ -726,7 +768,11 @@ fn rect_of(map: &Map, id: &str) -> Option<(Point, data::Size)> {
 }
 
 fn route_of(map: &Map, e: &Edge) -> Option<Vec<[f32; 2]>> {
-    Some(edges::route(e.kind, rect_of(map, &e.source)?, rect_of(map, &e.target)?))
+    Some(edges::route(
+        e.kind,
+        rect_of(map, &e.source)?,
+        rect_of(map, &e.target)?,
+    ))
 }
 
 /// One line. A holder line inside its agent's hub (the box says it) and a
@@ -787,7 +833,10 @@ fn node_el(s: &State, f: &mut Frame, n: &Node, map: &Map) -> Option<El> {
             e = e.role("button").label(c.label.clone());
         }
         Node::Blocker(b) => {
-            e = e.child(node::blocker_body(f, b)).role("button").label(b.label.clone());
+            e = e
+                .child(node::blocker_body(f, b))
+                .role("button")
+                .label(b.label.clone());
         }
         Node::Agent(a) => {
             e = e.child(node::agent_body(s, f, &key, a));
@@ -856,7 +905,11 @@ fn node_drag(s: &mut State, id: &str, at: Point, card: bool, d: &Drag) {
             if card {
                 let (x, y) = (to.x.round() as i64, to.y.round() as i64);
                 let id = g.id;
-                s.act("Couldn't keep the card's spot", move |w| w.place(&id, x, y), |_, _| {});
+                s.act(
+                    "Couldn't keep the card's spot",
+                    move |w| w.place(&id, x, y),
+                    |_, _| {},
+                );
             }
         }
     }
@@ -877,7 +930,12 @@ fn flash_ring(f: &Frame, key: &str, generation: u64) -> El {
 /// Zoom in, zoom out and fit, bottom left (React Flow's controls).
 fn controls(f: &Frame) -> El {
     let k = f.k;
-    let b = |icon: &'static rune::Icon, label: &str| IconButton::new(icon).variant(IconButtonVariant::Ghost).label(label).help(label);
+    let b = |icon: &'static rune::Icon, label: &str| {
+        IconButton::new(icon)
+            .variant(IconButtonVariant::Ghost)
+            .label(label)
+            .help(label)
+    };
     col()
         .key("canvas/controls")
         .pin(Some(12.0), None, None, Some(12.0))
@@ -919,7 +977,11 @@ fn controls(f: &Frame) -> El {
 /// Tidy up (when any card has a kept spot) and full screen, top right.
 fn toolbar(s: &State, f: &Frame, map: &Map, full: bool) -> El {
     let k = f.k;
-    let mut r = row().key("canvas/toolbar").pin(None, Some(12.0), Some(12.0), None).gap(8.0).center_y();
+    let mut r = row()
+        .key("canvas/toolbar")
+        .pin(None, Some(12.0), Some(12.0), None)
+        .gap(8.0)
+        .center_y();
     let placed = map.graph.cards().any(|n| n.card.pos.is_some()) || !s.canvas.moved.is_empty();
     if placed {
         // Every card back where Irori lays it out.
@@ -927,7 +989,12 @@ fn toolbar(s: &State, f: &Frame, map: &Map, full: bool) -> El {
             .graph
             .cards()
             .filter(|n| n.card.pos.is_some() || s.canvas.moved.contains_key(&n.id))
-            .filter_map(|n| map.auto.pos.get(&n.id).map(|p| (n.id.clone(), p.x.round() as i64, p.y.round() as i64)))
+            .filter_map(|n| {
+                map.auto
+                    .pos
+                    .get(&n.id)
+                    .map(|p| (n.id.clone(), p.x.round() as i64, p.y.round() as i64))
+            })
             .collect();
         r = r.child(
             Button::new("Tidy up")
@@ -952,7 +1019,11 @@ fn toolbar(s: &State, f: &Frame, map: &Map, full: bool) -> El {
         );
     }
     let (icon, label, tip) = if full {
-        (&icons::MINIMIZE_2, "Exit full screen", "Exit full screen (Esc)")
+        (
+            &icons::MINIMIZE_2,
+            "Exit full screen",
+            "Exit full screen (Esc)",
+        )
     } else {
         (&icons::MAXIMIZE_2, "Full screen", "Full screen (F)")
     };
@@ -973,18 +1044,28 @@ fn minimap(s: &State, f: &Frame, map: &Map, mini: Mini) -> El {
     let k = f.k;
     let mut sh = Shape::new();
     for n in &map.graph.nodes {
-        let (Some(kind), Some(p)) = (n.kind(), map.pos.get(n.id())) else { continue };
+        let (Some(kind), Some(p)) = (n.kind(), map.pos.get(n.id())) else {
+            continue;
+        };
         let c = match n {
             Node::Card(c) => node::tone_color(f, c.tone),
             Node::Blocker(_) => status::failed(),
             _ => k.c.icon_accent,
         };
         let sz = node_size(kind);
-        let (x0, y0) = (p.x * mini.scale + mini.off[0], p.y * mini.scale + mini.off[1]);
+        let (x0, y0) = (
+            p.x * mini.scale + mini.off[0],
+            p.y * mini.scale + mini.off[1],
+        );
         let (x1, y1) = (x0 + sz.w * mini.scale, y0 + sz.h * mini.scale);
         sh = sh.fill(vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1]], c.alpha(0.85));
     }
-    let to_world = move |x: f32, y: f32| [(x - mini.off[0]) / mini.scale.max(1e-6), (y - mini.off[1]) / mini.scale.max(1e-6)];
+    let to_world = move |x: f32, y: f32| {
+        [
+            (x - mini.off[0]) / mini.scale.max(1e-6),
+            (y - mini.off[1]) / mini.scale.max(1e-6),
+        ]
+    };
     el().key("canvas/minimap")
         .role("group")
         .label("Mini map")

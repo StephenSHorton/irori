@@ -25,7 +25,11 @@ pub const DRAFT: &str = "ask/room";
 
 /// The drafts key of the box on `board` ("" your own).
 pub fn draft_key(board: &str) -> String {
-    if board.is_empty() { DRAFT.to_string() } else { format!("ask/board/{board}") }
+    if board.is_empty() {
+        DRAFT.to_string()
+    } else {
+        format!("ask/board/{board}")
+    }
 }
 
 /// Points the box at `board`'s draft when it was on another one's.
@@ -75,13 +79,23 @@ pub fn sent_line(now: bool, handed: bool, n: usize) -> String {
     } else if n == 0 {
         format!("Sent.{more}")
     } else {
-        format!("Sent to {}.{more}", if n == 1 { "1 agent".to_string() } else { format!("{n} agents") })
+        format!(
+            "Sent to {}.{more}",
+            if n == 1 {
+                "1 agent".to_string()
+            } else {
+                format!("{n} agents")
+            }
+        )
     }
 }
 
 /// The page's board while it is still a ready board of ours ("" none).
 fn on_board(s: &State, board: &str) -> bool {
-    s.data.spaces.iter().any(|b| b.board_id == board && b.ready && !b.leaving)
+    s.data
+        .spaces
+        .iter()
+        .any(|b| b.board_id == board && b.ready && !b.leaving)
 }
 
 fn send(s: &mut State, m: Sent) {
@@ -107,7 +121,10 @@ fn send(s: &mut State, m: Sent) {
     let now = agents_now(s);
     let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
     s.spawn(
-        move |w| w.start_thread_with(&m.text, &ms, &m.files, &board, Some(now)).map(|r| (r, board)),
+        move |w| {
+            w.start_thread_with(&m.text, &ms, &m.files, &board, Some(now))
+                .map(|r| (r, board))
+        },
         move |s, r| {
             s.home.ask.sending = false;
             match r {
@@ -147,13 +164,20 @@ pub fn ask_box(s: &State, f: &mut Frame) -> El {
         placeholder: "Ask about anything…".into(),
         label: "Start a thread".into(),
         send_button: true,
-        extra: vec![agents_now_toggle(f, "home/ask/now", agents_now(s), busy, |s, on| {
-            s.home.agents_now = Some(on)
-        })],
+        extra: vec![agents_now_toggle(
+            f,
+            "home/ask/now",
+            agents_now(s),
+            busy,
+            |s, on| s.home.agents_now = Some(on),
+        )],
         on_send: Some(Rc::new(send)),
         rows: Some((1, 8)),
-        mic: Some(crate::call::mic_button(s, f, "home/ask/box", |s| &mut s.home.ask.edit)),
-        no_files: (!board.is_empty()).then(|| "Files don't go on a space thread yet: attach them on a card".to_string()),
+        mic: Some(crate::call::mic_button(s, f, "home/ask/box", |s| {
+            &mut s.home.ask.edit
+        })),
+        no_files: (!board.is_empty())
+            .then(|| "Files don't go on a space thread yet: attach them on a card".to_string()),
         board,
         ..ComposerOpts::default()
     };
@@ -162,7 +186,14 @@ pub fn ask_box(s: &State, f: &mut Frame) -> El {
         .role("form")
         .w_full()
         .gap(4.0)
-        .child(crate::text::composer(s, f, "home/ask/box", ask, ask_mut, &opts));
+        .child(crate::text::composer(
+            s,
+            f,
+            "home/ask/box",
+            ask,
+            ask_mut,
+            &opts,
+        ));
     if let Some((t, err)) = &s.home.ask_line {
         c = c.child(
             text(t.clone())
@@ -184,8 +215,14 @@ mod tests {
 
     #[test]
     fn what_a_send_says() {
-        assert_eq!(sent_line(false, false, 3), "Sent. Agents answer now was off: no agent was woken or handed it.");
-        assert_eq!(sent_line(true, true, 1), "Sent. An agent with Offer it cards on has it.");
+        assert_eq!(
+            sent_line(false, false, 3),
+            "Sent. Agents answer now was off: no agent was woken or handed it."
+        );
+        assert_eq!(
+            sent_line(true, true, 1),
+            "Sent. An agent with Offer it cards on has it."
+        );
         assert_eq!(
             sent_line(true, false, 0),
             "Sent. An idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on."

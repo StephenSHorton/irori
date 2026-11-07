@@ -12,18 +12,20 @@ use std::sync::{Arc, Mutex};
 use inbox::{Delivery, hold};
 use irori_window::Window;
 use irori_window::cards::{AgentRef, CardBlocker, CardRef, CardSummary, GoneWait, WaitPr};
-use rune::{El, KeyEvent, Key, TextEdit, Tx, col, el, row, text, text_input};
+use rune::{El, Key, KeyEvent, TextEdit, Tx, col, el, row, text, text_input};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
+use super::pure::{
+    answer_failed, answer_key, answer_said, by_recommendation, trust_from_reason, waits_on_you,
+};
 use crate::inbox::words::{Names, Repos, allow_lifts, hold_text, started_line};
-use super::pure::{answer_failed, answer_key, answer_said, by_recommendation, trust_from_reason, waits_on_you};
 use crate::logic::agent_status::ms;
 use crate::logic::card_status::card_ref;
 use crate::logic::cards::{Tone, blocker};
 use crate::logic::names::display_name;
 use crate::logic::needs::{
-    GIVEN_QUESTION, Need, NeedKind, SpawnNeed, WAITING_PERMISSION, gone_title, loop_line, merge_line, ref_of,
-    spawn_need, stuck_line,
+    GIVEN_QUESTION, Need, NeedKind, SpawnNeed, WAITING_PERMISSION, gone_title, loop_line,
+    merge_line, ref_of, spawn_need, stuck_line,
 };
 use crate::logic::plain::{plain_line, relative_time};
 use crate::ui::{Dialog, Frame, State};
@@ -31,6 +33,8 @@ use crate::widgets::bits::badge;
 use crate::widgets::confirm::{self, Ask};
 use crate::widgets::done_rounds::earlier_round;
 use crate::widgets::spawned_actions::{Action, spawned_actions};
+
+use super::permission::permission_prompt;
 
 /// One row action's state: in flight, its error, or what it did.
 #[derive(Clone, Debug, Default)]
@@ -64,7 +68,9 @@ fn small(f: &Frame) -> rune::tok::TextStyle {
 }
 
 fn btn(label: impl Into<String>, v: ButtonVariant) -> Button {
-    Button::new(label).variant(v).control_size(ControlSize::Small)
+    Button::new(label)
+        .variant(v)
+        .control_size(ControlSize::Small)
 }
 
 /// Runs one row action off the UI thread; `said` makes its outcome's
@@ -135,10 +141,22 @@ fn body(f: &Frame, t: impl Into<String>, muted: bool) -> El {
 }
 
 /// A row's frame: its kind, where it's from, when, its title.
-fn frame(f: &Frame, key: &str, kind: &str, where_: El, at: i64, now: i64, title: &str, kids: Vec<El>) -> El {
+fn frame(
+    f: &Frame,
+    key: &str,
+    kind: &str,
+    where_: El,
+    (at, now): (i64, i64),
+    title: &str,
+    kids: Vec<El>,
+) -> El {
     let k = f.k;
     let (label, tone) = kind_chip(kind);
-    let when = if at > 0 { relative_time(at, now) } else { String::new() };
+    let when = if at > 0 {
+        relative_time(at, now)
+    } else {
+        String::new()
+    };
     let mut c = col()
         .key(key.to_string())
         .role("article")
@@ -180,21 +198,32 @@ fn frame(f: &Frame, key: &str, kind: &str, where_: El, at: i64, now: i64, title:
 /// A card's ref, and its space only when it isn't the person's own.
 fn where_card(f: &Frame, c: &CardSummary) -> El {
     let k = f.k;
-    let mut r = row()
-        .min_w(0.0)
-        .gap(0.0)
-        .child(text(card_ref(c)).font(small(f).mono()).color(k.c.text_muted));
+    let mut r = row().min_w(0.0).gap(0.0).child(
+        text(card_ref(c))
+            .font(small(f).mono())
+            .color(k.c.text_muted),
+    );
     if c.scope == "board" {
         let b = plain_line(&c.scope_label);
         if !b.is_empty() {
-            r = r.child(text(format!(" · {b}")).font(small(f)).color(k.c.text_muted).max_lines(1));
+            r = r.child(
+                text(format!(" · {b}"))
+                    .font(small(f))
+                    .color(k.c.text_muted)
+                    .max_lines(1),
+            );
         }
     }
     r
 }
 
 fn buttons(key: &str, kids: Vec<El>) -> El {
-    let mut r = row().key(key.to_string()).w_full().gap(6.0).flex_wrap().center_y();
+    let mut r = row()
+        .key(key.to_string())
+        .w_full()
+        .gap(6.0)
+        .flex_wrap()
+        .center_y();
     for e in kids {
         r = r.child(e);
     }
@@ -203,20 +232,29 @@ fn buttons(key: &str, kids: Vec<El>) -> El {
 
 fn open_card_btn(f: &Frame, label: &str, id: &str, v: ButtonVariant) -> El {
     let id = id.to_string();
-    btn(label.to_string(), v).on_press(move |s: &mut State| s.open_card(&id)).build(f.k)
+    btn(label.to_string(), v)
+        .on_press(move |s: &mut State| s.open_card(&id))
+        .build(f.k)
 }
 
 /// Needs you: its heading with the count, its rows, Start an agent's
 /// outcome and the quiet holds' line.
 pub fn needs_section(s: &State, f: &mut Frame, needs: &[Need], now: i64) -> El {
     let k = f.k;
-    let rows: Vec<&Need> = needs.iter().filter(|n| !matches!(n.kind, NeedKind::HeldQuiet(_))).collect();
+    let rows: Vec<&Need> = needs
+        .iter()
+        .filter(|n| !matches!(n.kind, NeedKind::HeldQuiet(_)))
+        .collect();
     let mut head = row()
         .key("home/needs/h")
         .role("heading")
         .px(4.0)
         .gap(0.0)
-        .child(text("Needs you").font(rune::tok::TextStyle::new(16.0, 600.0)).color(k.c.text_base));
+        .child(
+            text("Needs you")
+                .font(rune::tok::TextStyle::new(16.0, 600.0))
+                .color(k.c.text_base),
+        );
     if !rows.is_empty() {
         head = head.child(
             text(format!(" · {}", rows.len()))
@@ -241,7 +279,12 @@ pub fn needs_section(s: &State, f: &mut Frame, needs: &[Need], now: i64) -> El {
                 .px(4.0),
         );
     } else {
-        let mut list = col().key("home/needs/list").role("list").label("What needs you").w_full().gap(10.0);
+        let mut list = col()
+            .key("home/needs/list")
+            .role("list")
+            .label("What needs you")
+            .w_full()
+            .gap(10.0);
         for n in rows {
             list = list.child(needs_row(s, f, "home/need", n, now));
         }
@@ -262,7 +305,9 @@ pub fn needs_section(s: &State, f: &mut Frame, needs: &[Need], now: i64) -> El {
     if let Some(Need {
         kind: NeedKind::HeldQuiet(ds),
         ..
-    }) = needs.iter().find(|n| matches!(n.kind, NeedKind::HeldQuiet(_)))
+    }) = needs
+        .iter()
+        .find(|n| matches!(n.kind, NeedKind::HeldQuiet(_)))
     {
         sec = sec.child(held_quiet(s, f, ds));
     }
@@ -274,13 +319,17 @@ pub fn needs_section(s: &State, f: &mut Frame, needs: &[Need], now: i64) -> El {
 pub fn needs_row(s: &State, f: &mut Frame, prefix: &str, n: &Need, now: i64) -> El {
     let key = format!("{prefix}/{}:{}", n.kind_name(), n.id);
     match &n.kind {
-        NeedKind::Check(c) | NeedKind::Decision(c) => card_need(s, f, &key, n.kind_name(), c, n.at, now),
+        NeedKind::Check(c) | NeedKind::Decision(c) => {
+            card_need(s, f, &key, n.kind_name(), c, n.at, now)
+        }
         NeedKind::Merge(c, pr) => merge_need(s, f, &key, c, pr, n.at, now),
         NeedKind::Gone(c, g) => gone_need(s, f, &key, c, g, n.at, now),
         NeedKind::NoAgent(c) => no_agent_need(f, &key, c, n.at, now),
         NeedKind::Trust(c) => trust_row(s, f, &key, c, n.at, now),
         NeedKind::Loop(ring, cards) => stuck_need(f, &key, "loop", ring, None, cards, n.at, now),
-        NeedKind::Stuck(end, cards) => stuck_need(f, &key, "stuck", &[], Some(end), cards, n.at, now),
+        NeedKind::Stuck(end, cards) => {
+            stuck_need(f, &key, "stuck", &[], Some(end), cards, n.at, now)
+        }
         NeedKind::Held(d) => held_need(s, f, &key, d, now),
         NeedKind::HeldQuiet(ds) => held_quiet(s, f, ds),
     }
@@ -312,8 +361,12 @@ fn stuck_need(
             ref_of(e)
         ),
     };
-    let open: Vec<&CardRef> = if lp { ring.iter().collect() } else { end.into_iter().collect() };
-    let where_ = cards.first().map_or_else(|| el(), |c| where_card(f, c));
+    let open: Vec<&CardRef> = if lp {
+        ring.iter().collect()
+    } else {
+        end.into_iter().collect()
+    };
+    let where_ = cards.first().map_or_else(el, |c| where_card(f, c));
     let bs = open
         .iter()
         .map(|r| {
@@ -329,64 +382,115 @@ fn stuck_need(
         key,
         kind,
         where_,
-        at,
-        now,
+        (at, now),
         &title,
         vec![body(f, line, true), buttons(&format!("{key}/acts"), bs)],
     )
 }
 
 /// An agent waits on the person to merge its PR (card #509).
-fn merge_need(s: &State, f: &Frame, key: &str, c: &CardSummary, pr: &WaitPr, at: i64, now: i64) -> El {
+fn merge_need(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    c: &CardSummary,
+    pr: &WaitPr,
+    at: i64,
+    now: i64,
+) -> El {
     let k = f.k;
     let q = plain_line(&c.wait_question);
     let line = format!(
         "{} in {}: its agent waits on you to merge it.{}",
         merge_line(pr),
         pr.repo,
-        if q.is_empty() { String::new() } else { format!(" “{q}”") }
+        if q.is_empty() {
+            String::new()
+        } else {
+            format!(" “{q}”")
+        }
     );
     let url = pr.url.clone();
     let open_pr = btn(format!("Open PR #{}", pr.number), ButtonVariant::Contrast)
         .help(pr.url.clone())
-        .on_press_tx(move |_s: &mut State, tx: &mut Tx| { let _ = tx.open_url(&url); })
+        .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
+            let _ = tx.open_url(&url);
+        })
         .build(k);
     let mut kids = vec![
         body(f, line, true),
         buttons(
             &format!("{key}/acts"),
-            vec![open_pr, open_card_btn(f, "Open card", &c.id, ButtonVariant::Outline)],
+            vec![
+                open_pr,
+                open_card_btn(f, "Open card", &c.id, ButtonVariant::Outline),
+            ],
         ),
     ];
     let a = act(s, key);
-    kids.extend(said(f, &format!("{key}/said"), a.and_then(|a| a.error.as_deref()), a.map_or("", |a| &a.done)));
-    frame(f, key, "merge", where_card(f, c), at, now, &plain_line(&c.title), kids)
+    kids.extend(said(
+        f,
+        &format!("{key}/said"),
+        a.and_then(|a| a.error.as_deref()),
+        a.map_or("", |a| &a.done),
+    ));
+    frame(
+        f,
+        key,
+        "merge",
+        where_card(f, c),
+        (at, now),
+        &plain_line(&c.title),
+        kids,
+    )
 }
 
 /// A card nobody holds whose wait no agent will end (card #520): Hand to
 /// an agent puts it back on the Board with what was open said on it.
-fn gone_need(s: &State, f: &Frame, key: &str, c: &CardSummary, g: &GoneWait, at: i64, now: i64) -> El {
+fn gone_need(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    c: &CardSummary,
+    g: &GoneWait,
+    at: i64,
+    now: i64,
+) -> El {
     let k = f.k;
     let name = display_name(&g.agent);
     let q = plain_line(&g.question);
     let r = card_ref(c);
     let mut line = plain_line(&c.title);
-    line.push_str(&if q.is_empty() { ".".to_string() } else { format!(": “{q}”.") });
+    line.push_str(&if q.is_empty() {
+        ".".to_string()
+    } else {
+        format!(": “{q}”.")
+    });
     if !g.waited_on && !g.on.is_empty() {
-        line.push_str(&format!(" It waits on {}, and {name}, who raised it, is gone.", plain_line(&g.on)));
+        line.push_str(&format!(
+            " It waits on {}, and {name}, who raised it, is gone.",
+            plain_line(&g.on)
+        ));
     }
     line.push_str(&format!(
         " Nobody holds the card, so nothing will move it{}.",
-        if g.more > 0 { format!(" ({} more like it)", g.more) } else { String::new() }
+        if g.more > 0 {
+            format!(" ({} more like it)", g.more)
+        } else {
+            String::new()
+        }
     ));
     let mut kids = vec![body(f, line, true)];
     if !g.no_hand_on.is_empty() {
         kids.push(
-            text(format!("It can't be handed to an agent from here: {}.", plain_line(&g.no_hand_on)))
-                .font(small(f))
-                .color(k.c.text_muted)
-                .w_full()
-                .wrap(),
+            text(format!(
+                "It can't be handed to an agent from here: {}.",
+                plain_line(&g.no_hand_on)
+            ))
+            .font(small(f))
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap(),
         );
     }
     let mut bs = Vec::new();
@@ -415,20 +519,38 @@ fn gone_need(s: &State, f: &Frame, key: &str, c: &CardSummary, g: &GoneWait, at:
         bs.push(
             btn("Hand to an agent", ButtonVariant::Contrast)
                 .on_press(move |s: &mut State| confirm::open(s, &ck, ask.clone()))
-                .build(k),
+                .build(k)
+                .key(format!("{key}/hand")),
         );
     }
-    bs.push(open_card_btn(f, &format!("Open {r}"), &c.id, ButtonVariant::Outline));
+    bs.push(open_card_btn(
+        f,
+        &format!("Open {r}"),
+        &c.id,
+        ButtonVariant::Outline,
+    ));
     kids.push(buttons(&format!("{key}/acts"), bs));
     let a = act(s, key);
-    let err = s.widgets.confirm_errors.get(&format!("{key}/hand")).map(String::as_str);
+    let err = s
+        .widgets
+        .confirm_errors
+        .get(&format!("{key}/hand"))
+        .map(String::as_str);
     kids.extend(said(
         f,
         &format!("{key}/said"),
         err.or(a.and_then(|a| a.error.as_deref())),
         a.map_or("", |a| &a.done),
     ));
-    frame(f, key, "gone", where_card(f, c), at, now, &gone_title(c, g), kids)
+    frame(
+        f,
+        key,
+        "gone",
+        where_card(f, c),
+        (at, now),
+        &gone_title(c, g),
+        kids,
+    )
 }
 
 /// No computer can start the card's agent (card #541): nothing to decide.
@@ -440,7 +562,15 @@ fn no_agent_need(f: &Frame, key: &str, c: &CardSummary, at: i64, now: i64) -> El
             vec![open_card_btn(f, "Open card", &c.id, ButtonVariant::Outline)],
         ),
     ];
-    frame(f, key, "noAgent", where_card(f, c), at, now, &plain_line(&c.title), kids)
+    frame(
+        f,
+        key,
+        "noAgent",
+        where_card(f, c),
+        (at, now),
+        &plain_line(&c.title),
+        kids,
+    )
 }
 
 /// A card whose agent can't start because its repo isn't trusted for
@@ -461,24 +591,43 @@ fn trust_row(s: &State, f: &Frame, key: &str, c: &CardSummary, at: i64, now: i64
         .label(format!("Open {}", card_ref(c)))
         .focusable(true)
         .on_press(move |s: &mut State| s.open_card(&id))
-        .child(text(card_ref(c)).font(small(f).mono()).color(k.c.text_muted));
+        .child(
+            text(card_ref(c))
+                .font(small(f).mono())
+                .color(k.c.text_muted),
+        );
     let on = match &info {
         Some(i) if i.here => " on this computer".to_string(),
         Some(i) => format!(" on {}", i.device),
         None => String::new(),
     };
-    let what = info.as_ref().map(|i| i.what.clone()).filter(|w| !w.is_empty());
+    let what = info
+        .as_ref()
+        .map(|i| i.what.clone())
+        .filter(|w| !w.is_empty());
     let line = row()
         .w_full()
         .flex_wrap()
-        .child(text("Can't start an agent: ").font(k.ty.ui).color(k.c.text_muted))
+        .child(
+            text("Can't start an agent: ")
+                .font(k.ty.ui)
+                .color(k.c.text_muted),
+        )
         .child(text(folder).font(k.ty.ui.mono()).color(k.c.text_muted))
-        .child(text(format!(" isn't trusted for agents{on}.")).font(k.ty.ui).color(k.c.text_muted));
+        .child(
+            text(format!(" isn't trusted for agents{on}."))
+                .font(k.ty.ui)
+                .color(k.c.text_muted),
+        );
     let mut kids = vec![line];
     if let Some(w) = what {
         kids.push(body(f, w, true));
     }
-    if let Some(by) = info.as_ref().filter(|i| i.here).and_then(|i| i.asked_by.clone()) {
+    if let Some(by) = info
+        .as_ref()
+        .filter(|i| i.here)
+        .and_then(|i| i.asked_by.clone())
+    {
         kids.push(
             text(format!("{by} asked you to trust this."))
                 .font(small(f))
@@ -493,52 +642,102 @@ fn trust_row(s: &State, f: &Frame, key: &str, c: &CardSummary, at: i64, now: i64
     let akey = key.to_string();
     let main = match &info {
         Some(i) if !i.here => btn(
-            if a.busy { "Asking…".to_string() } else { format!("Ask {} to trust it", i.device) },
+            if a.busy {
+                "Asking…".to_string()
+            } else {
+                format!("Ask {} to trust it", i.device)
+            },
             ButtonVariant::Contrast,
         )
         .disabled(off)
         .on_press(move |s: &mut State| {
             let id = id.clone();
-            run_act(s, akey.clone(), move |w| w.agents_trust_request(&id), |_, d| {
-                format!("Asked {d}: confirm it there.")
-            })
+            run_act(
+                s,
+                akey.clone(),
+                move |w| w.agents_trust_request(&id),
+                |_, d| format!("Asked {d}: confirm it there."),
+            )
         }),
-        _ => btn(if a.busy { "Trusting…" } else { "Trust and start" }, ButtonVariant::Contrast)
-            .disabled(off)
-            .on_press(move |s: &mut State| {
-                let id = id.clone();
-                run_act(s, akey.clone(), move |w| w.agents_trust_and_start(&id), |_, _| {
-                    "Trusted. Starting its agent…".to_string()
-                })
-            }),
+        _ => btn(
+            if a.busy {
+                "Trusting…"
+            } else {
+                "Trust and start"
+            },
+            ButtonVariant::Contrast,
+        )
+        .disabled(off)
+        .on_press(move |s: &mut State| {
+            let id = id.clone();
+            run_act(
+                s,
+                akey.clone(),
+                move |w| w.agents_trust_and_start(&id),
+                |_, _| "Trusted. Starting its agent…".to_string(),
+            )
+        }),
     };
     kids.push(buttons(
         &format!("{key}/acts"),
-        vec![main.build(k), open_card_btn(f, "Open card", &c.id, ButtonVariant::Ghost)],
+        vec![
+            main.build(k),
+            open_card_btn(f, "Open card", &c.id, ButtonVariant::Ghost),
+        ],
     ));
     kids.extend(said(f, &format!("{key}/said"), a.error.as_deref(), &a.done));
-    frame(f, key, "trust", where_, at, now, &plain_line(&c.title), kids)
+    frame(
+        f,
+        key,
+        "trust",
+        where_,
+        (at, now),
+        &plain_line(&c.title),
+        kids,
+    )
 }
 
 /// A card waiting on the person: its done check (Done, or Not done with a
 /// reason) or each of its decisions (the options, recommended first, or
 /// an answer in their own words).
-fn card_need(s: &State, f: &mut Frame, key: &str, kind: &str, c: &CardSummary, at: i64, now: i64) -> El {
+fn card_need(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    kind: &str,
+    c: &CardSummary,
+    at: i64,
+    now: i64,
+) -> El {
     let k = f.k;
-    let spawn = if kind == "decision" { spawn_need(c) } else { None };
+    let spawn = if kind == "decision" {
+        spawn_need(c)
+    } else {
+        None
+    };
     let perm = spawn == Some(SpawnNeed::Permission);
-    // The permission wait is answered at the agent's prompt, not here.
-    let blockers: Vec<&CardBlocker> = s
-        .home
-        .details
-        .get(&c.id)
+    // A permission wait has its own row: the command and its buttons (card
+    // #682), never an answer box, since words don't reach the prompt.
+    let is_perm =
+        |b: &CardBlocker| b.permission.is_some() || b.question.starts_with(WAITING_PERMISSION);
+    let detail = s.home.details.get(&c.id);
+    let prompts: Vec<&CardBlocker> = detail
         .map(|d| {
             d.blockers
                 .iter()
-                .filter(|b| waits_on_you(b) && !(perm && b.question.starts_with(WAITING_PERMISSION)))
+                .filter(|b| waits_on_you(b) && b.permission.is_some())
                 .collect()
         })
         .unwrap_or_default();
+    let blockers: Vec<&CardBlocker> = detail
+        .map(|d| {
+            d.blockers
+                .iter()
+                .filter(|b| waits_on_you(b) && !(perm && is_perm(b)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let who: Option<&AgentRef> = c.working.iter().find(|w| w.spawned && !w.assigned);
     let kind = match spawn {
         Some(SpawnNeed::Permission) => "permission",
         Some(SpawnNeed::Crashed) => "crashed",
@@ -547,7 +746,15 @@ fn card_need(s: &State, f: &mut Frame, key: &str, kind: &str, c: &CardSummary, a
     };
     let mut kids = Vec::new();
     if perm {
-        kids.push(permission_wait(s, f, key, c));
+        if prompts.is_empty() {
+            kids.push(permission_wait(s, f, key, c));
+        } else {
+            kids.extend(
+                prompts
+                    .iter()
+                    .filter_map(|b| permission_prompt(s, f, key, &c.id, b, who, true)),
+            );
+        }
     }
     if blockers.is_empty() {
         if !perm {
@@ -561,7 +768,14 @@ fn card_need(s: &State, f: &mut Frame, key: &str, kind: &str, c: &CardSummary, a
         }
     } else {
         for b in blockers.iter().take(3) {
-            kids.push(blocker_answer(s, f, &format!("{key}/b-{}", b.id), &c.id, b, false));
+            kids.push(blocker_answer(
+                s,
+                f,
+                &format!("{key}/b-{}", b.id),
+                &c.id,
+                b,
+                false,
+            ));
         }
     }
     if blockers.len() > 3 {
@@ -578,7 +792,15 @@ fn card_need(s: &State, f: &mut Frame, key: &str, kind: &str, c: &CardSummary, a
             ),
         );
     }
-    frame(f, key, kind, where_card(f, c), at, now, &plain_line(&c.title), kids)
+    frame(
+        f,
+        key,
+        kind,
+        where_card(f, c),
+        (at, now),
+        &plain_line(&c.title),
+        kids,
+    )
 }
 
 /// "Waiting for your permission" (card #456): the agent Irori started is
@@ -587,9 +809,20 @@ fn permission_wait(s: &State, f: &mut Frame, key: &str, c: &CardSummary) -> El {
     let k = f.k;
     let who: Option<&AgentRef> = c.working.iter().find(|w| w.spawned && !w.assigned);
     let name = who.map_or_else(|| "Its agent".to_string(), display_name);
-    let mut acts = row().key(format!("{key}/perm-acts")).w_full().gap(6.0).flex_wrap();
+    let mut acts = row()
+        .key(format!("{key}/perm-acts"))
+        .w_full()
+        .gap(6.0)
+        .flex_wrap();
     if let Some(w) = who {
-        acts = acts.child(spawned_actions(s, f, &format!("{key}/spawned"), w, &c.id, &[Action::Attach, Action::Logs]));
+        acts = acts.child(spawned_actions(
+            s,
+            f,
+            &format!("{key}/spawned"),
+            w,
+            &c.id,
+            &[Action::Attach, Action::Logs],
+        ));
     }
     let k2 = f.k;
     let _ = k2;
@@ -622,13 +855,34 @@ pub fn words_key(card_id: &str, blocker_id: &str) -> String {
 /// background, and a refusal brings the item back (with the words typed
 /// still in the box) and says why.
 pub fn answer(s: &mut State, card_id: &str, b: &CardBlocker, option: i64, words: String) {
+    answer_with(
+        s,
+        card_id,
+        b,
+        option,
+        words,
+        answer_said(b, option).to_string(),
+        answer_failed(b),
+    );
+}
+
+/// [`answer`] with its own outcome words and failure title (a permission
+/// prompt's, card #682).
+pub fn answer_with(
+    s: &mut State,
+    card_id: &str,
+    b: &CardBlocker,
+    option: i64,
+    words: String,
+    said_now: String,
+    failed: &'static str,
+) {
     let key = answer_key(card_id, &b.id);
     if !s.home.busy.insert(key.clone()) {
         return;
     }
-    s.home.said.insert(key.clone(), answer_said(b, option).to_string());
+    s.home.said.insert(key.clone(), said_now);
     s.home.own.remove(&key);
-    let failed = answer_failed(b);
     let (cid, bid) = (card_id.to_string(), b.id.clone());
     let dkey = words_key(card_id, &b.id);
     s.spawn(
@@ -664,7 +918,14 @@ pub fn open_words(s: &mut State, key: &str, dkey: &str) {
 /// An item's answers in a row (Needs you, Notifications). A pick or an
 /// own-words answer shows at once and saves in the background (card #644).
 /// `answer_opens`: "Answer…" opens the card to answer there instead.
-pub fn blocker_answer(s: &State, f: &Frame, key: &str, card_id: &str, b: &CardBlocker, answer_opens: bool) -> El {
+pub fn blocker_answer(
+    s: &State,
+    f: &Frame,
+    key: &str,
+    card_id: &str,
+    b: &CardBlocker,
+    answer_opens: bool,
+) -> El {
     let k = f.k;
     let akey = answer_key(card_id, &b.id);
     let dkey = words_key(card_id, &b.id);
@@ -674,7 +935,11 @@ pub fn blocker_answer(s: &State, f: &Frame, key: &str, card_id: &str, b: &CardBl
         let mut q = col().w_full().gap(2.0);
         // Irori asks this one in the person's own name (card #573).
         if b.question != GIVEN_QUESTION {
-            q = q.child(crate::widgets::bits::asker(f, &format!("{key}/asker"), &b.raised_by));
+            q = q.child(crate::widgets::bits::asker(
+                f,
+                &format!("{key}/asker"),
+                &b.raised_by,
+            ));
         }
         c = c.child(q.child(body(f, question.clone(), false)));
     } else if let Some(r) = earlier_round(s, f, &format!("{key}/round"), b, true) {
@@ -694,7 +959,11 @@ pub fn blocker_answer(s: &State, f: &Frame, key: &str, card_id: &str, b: &CardBl
         c = c.child(
             text(format!(
                 "They still need: {}",
-                b.missing.iter().map(|m| plain_line(m)).collect::<Vec<_>>().join("; ")
+                b.missing
+                    .iter()
+                    .map(|m| plain_line(m))
+                    .collect::<Vec<_>>()
+                    .join("; ")
             ))
             .font(rune::tok::TextStyle::new(13.0, 400.0))
             .color(k.c.text_base)
@@ -717,9 +986,16 @@ pub fn blocker_answer(s: &State, f: &Frame, key: &str, card_id: &str, b: &CardBl
                         label.push_str(" (recommended)");
                     }
                     let (cid, bb) = (card_id.to_string(), b.clone());
-                    let mut bt = btn(label.clone(), if primary { ButtonVariant::Contrast } else { ButtonVariant::Outline })
-                        .label_with(move |st, col| text(label).font(st).color(col).max_w(520.0).wrap())
-                        .on_press(move |s: &mut State| answer(s, &cid, &bb, i as i64, String::new()));
+                    let mut bt = btn(
+                        label.clone(),
+                        if primary {
+                            ButtonVariant::Contrast
+                        } else {
+                            ButtonVariant::Outline
+                        },
+                    )
+                    .label_with(move |st, col| text(label).font(st).color(col).max_w(520.0).wrap())
+                    .on_press(move |s: &mut State| answer(s, &cid, &bb, i as i64, String::new()));
                     if !o.why.is_empty() {
                         bt = bt.help(plain_line(&o.why));
                     }
@@ -749,7 +1025,10 @@ pub fn blocker_answer(s: &State, f: &Frame, key: &str, card_id: &str, b: &CardBl
                         .key(format!("{key}/own")),
                 );
             }
-            bs.push(open_card_btn(f, "Open card", card_id, ButtonVariant::Ghost).key(format!("{key}/open")));
+            bs.push(
+                open_card_btn(f, "Open card", card_id, ButtonVariant::Ghost)
+                    .key(format!("{key}/open")),
+            );
             c = c.child(
                 buttons(&format!("{key}/answers"), bs)
                     .role("group")
@@ -779,7 +1058,11 @@ fn own_words(
     let k = f.k;
     let label = format!(
         "{}: {question}",
-        if b.done_check { "Why it isn't done" } else { "Your answer to" }
+        if b.done_check {
+            "Why it isn't done"
+        } else {
+            "Your answer to"
+        }
     );
     let placeholder = if b.done_check {
         if b.gone_agent.is_some() {
@@ -795,12 +1078,22 @@ fn own_words(
         line_height: (13.0f32 * 1.35 * 2.0).round() / 2.0,
         ..k.ty.ui
     };
-    let (a1, a2, a3, a4) = (akey.to_string(), akey.to_string(), akey.to_string(), akey.to_string());
+    let (a1, a2, a3, a4) = (
+        akey.to_string(),
+        akey.to_string(),
+        akey.to_string(),
+        akey.to_string(),
+    );
     let d1 = dkey.to_string();
     let (c1, b1) = (card_id.to_string(), b.clone());
     let (c2, b2) = (card_id.to_string(), b.clone());
     let send = move |s: &mut State, cid: &str, bb: &CardBlocker, ak: &str| {
-        let t = s.home.own.get(ak).map(|e| e.text.clone()).unwrap_or_default();
+        let t = s
+            .home
+            .own
+            .get(ak)
+            .map(|e| e.text.clone())
+            .unwrap_or_default();
         if !t.trim().is_empty() {
             answer(s, cid, bb, -1, t);
         }
@@ -812,9 +1105,16 @@ fn own_words(
         .placeholder(placeholder.to_string(), k.c.text_faint)
         .caret(k.c.text_base, k.selection())
         .label(label)
-        .on_edit(rune::edit_access(move |s: &mut State| s.home.own.entry(a1.clone()).or_default()))
+        .on_edit(rune::edit_access(move |s: &mut State| {
+            s.home.own.entry(a1.clone()).or_default()
+        }))
         .on_input_change(move |s: &mut State, _tx: &mut Tx| {
-            let t = s.home.own.get(&a2).map(|e| e.text.clone()).unwrap_or_default();
+            let t = s
+                .home
+                .own
+                .get(&a2)
+                .map(|e| e.text.clone())
+                .unwrap_or_default();
             crate::text::drafts::set_draft(s, &d1, &t, &[]);
         })
         .on_input_key(move |s: &mut State, ev: &KeyEvent, _tx: &mut Tx| {
@@ -833,7 +1133,14 @@ fn own_words(
         .py(6.0)
         .radius(k.radius.md)
         .fill(k.c.bg_base)
-        .border(1.0, if edit.focused { k.c.border_focus } else { k.c.border_base })
+        .border(
+            1.0,
+            if edit.focused {
+                k.c.border_focus
+            } else {
+                k.c.border_base
+            },
+        )
         .child(rune::auto_grow(field, 1, 8));
     let empty = edit.text.trim().is_empty();
     let a5 = akey.to_string();
@@ -880,7 +1187,13 @@ fn names(s: &State) -> Names {
 
 /// Repo keys as this device's checkouts name them.
 fn repos(s: &State) -> Repos {
-    Repos(s.home.repo_names.iter().map(|r| (r.repo_key.clone(), r.name.clone())).collect())
+    Repos(
+        s.home
+            .repo_names
+            .iter()
+            .map(|r| (r.repo_key.clone(), r.name.clone()))
+            .collect(),
+    )
 }
 
 /// A held message that asks the person (card #488): their own message no
@@ -896,7 +1209,11 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
     let mine = d.message.from.key.starts_with("user:");
     let where_repo = {
         let r = plain_line(&repo(&d.repo_key));
-        if d.repo_key.is_empty() || r.is_empty() { "its repo".to_string() } else { r }
+        if d.repo_key.is_empty() || r.is_empty() {
+            "its repo".to_string()
+        } else {
+            r
+        }
     };
     let to = if d.to.is_empty() {
         where_repo.clone()
@@ -905,7 +1222,10 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
         if n.is_empty() { "an agent".into() } else { n }
     };
     let from = if mine { "You".to_string() } else { sender(d) };
-    let where_ = text(format!("{from} → {to}")).font(small(f)).color(k.c.text_muted).max_lines(1);
+    let where_ = text(format!("{from} → {to}"))
+        .font(small(f))
+        .color(k.c.text_muted)
+        .max_lines(1);
     let title = hold_text(d, &names, &repos);
     let mut kids = vec![
         text(d.message.text.clone())
@@ -923,18 +1243,28 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
             if mine {
                 let (id, akey) = (id.clone(), akey.clone());
                 bs.push(
-                    btn(format!("Start an agent in {where_repo}"), ButtonVariant::Contrast)
-                        .disabled(a.busy)
-                        .help(format!("Makes your message a card in {where_repo} and gets an agent on it"))
-                        .on_press(move |s: &mut State| {
-                            let id = id.clone();
-                            run_act(s, akey.clone(), move |w| w.inbox_start_agent(&id), |s, r| {
+                    btn(
+                        format!("Start an agent in {where_repo}"),
+                        ButtonVariant::Contrast,
+                    )
+                    .disabled(a.busy)
+                    .help(format!(
+                        "Makes your message a card in {where_repo} and gets an agent on it"
+                    ))
+                    .on_press(move |s: &mut State| {
+                        let id = id.clone();
+                        run_act(
+                            s,
+                            akey.clone(),
+                            move |w| w.inbox_start_agent(&id),
+                            |s, r| {
                                 let said = started_line(&r);
                                 s.home.started = said.clone();
                                 said
-                            })
-                        })
-                        .build(k),
+                            },
+                        )
+                    })
+                    .build(k),
                 );
             }
         } else {
@@ -944,7 +1274,12 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
                     .disabled(a.busy)
                     .on_press(move |s: &mut State| {
                         let id = id.clone();
-                        run_act(s, akey.clone(), move |w| w.inbox_release(&id), |_, _| "Released.".into())
+                        run_act(
+                            s,
+                            akey.clone(),
+                            move |w| w.inbox_release(&id),
+                            |_, _| "Released.".into(),
+                        )
                     })
                     .build(k),
             );
@@ -956,7 +1291,12 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
                     .disabled(a.busy)
                     .on_press(move |s: &mut State| {
                         let id = id.clone();
-                        run_act(s, akey.clone(), move |w| w.inbox_dismiss(&id), |_, _| "Dismissed.".into())
+                        run_act(
+                            s,
+                            akey.clone(),
+                            move |w| w.inbox_dismiss(&id),
+                            |_, _| "Dismissed.".into(),
+                        )
                     })
                     .build(k),
             );
@@ -969,9 +1309,12 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
                     .on_press(move |s: &mut State| {
                         let id = id.clone();
                         let who = who.clone();
-                        run_act(s, akey.clone(), move |w| w.inbox_allow_and_release(&id), move |_, _| {
-                            format!("Allowed {who} and released.")
-                        })
+                        run_act(
+                            s,
+                            akey.clone(),
+                            move |w| w.inbox_allow_and_release(&id),
+                            move |_, _| format!("Allowed {who} and released."),
+                        )
                     })
                     .build(k),
             );
@@ -980,7 +1323,7 @@ fn held_need(s: &State, f: &Frame, key: &str, d: &Delivery, now: i64) -> El {
     }
     kids.extend(said(f, &format!("{key}/said"), a.error.as_deref(), &a.done));
     let at = ms(&d.created_at).unwrap_or(0);
-    frame(f, key, "held", where_, at, now, &title, kids)
+    frame(f, key, "held", where_, (at, now), &title, kids)
 }
 
 /// The held messages that don't ask the person one by one (card #488):
@@ -989,9 +1332,16 @@ fn held_quiet(s: &State, f: &Frame, ds: &[&Delivery]) -> El {
     let k = f.k;
     // Ones the block or allow list holds aren't released in bulk.
     let listed = |d: &Delivery| d.hold == hold::BLOCKED || d.hold == hold::NOT_ALLOWED;
-    let bulk: Vec<String> = ds.iter().filter(|d| !listed(d)).map(|d| d.id.clone()).collect();
+    let bulk: Vec<String> = ds
+        .iter()
+        .filter(|d| !listed(d))
+        .map(|d| d.id.clone())
+        .collect();
     let lists = ds.len() - bulk.len();
-    let paused = ds.iter().filter(|d| !listed(d) && d.hold == hold::PAUSED).count();
+    let paused = ds
+        .iter()
+        .filter(|d| !listed(d) && d.hold == hold::PAUSED)
+        .count();
     let between = bulk.len() - paused;
     let parts: Vec<String> = [
         (between > 0).then(|| format!("{between} between agents")),
@@ -1019,9 +1369,13 @@ fn held_quiet(s: &State, f: &Frame, ds: &[&Delivery]) -> El {
                         .color(k.c.text_base),
                 )
                 .child(
-                    text(if parts.is_empty() { String::new() } else { format!(": {}", parts.join(", ")) })
-                        .font(small(f))
-                        .color(k.c.text_muted),
+                    text(if parts.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", parts.join(", "))
+                    })
+                    .font(small(f))
+                    .color(k.c.text_muted),
                 ),
         );
     let busy = s.home.quiet_busy;
@@ -1073,9 +1427,16 @@ fn release_all(s: &mut State, ids: Vec<String>) {
         move |s, left| {
             s.home.quiet_busy = false;
             s.home.quiet_said = if left == 0 {
-                if n == 1 { "Released.".into() } else { format!("Released all {n}.") }
+                if n == 1 {
+                    "Released.".into()
+                } else {
+                    format!("Released all {n}.")
+                }
             } else {
-                format!("Released {}; {left} can't go yet (See them says why).", n - left)
+                format!(
+                    "Released {}; {left} can't go yet (See them says why).",
+                    n - left
+                )
             };
         },
     );
@@ -1111,17 +1472,32 @@ mod tests {
             d.hold = hold::HOP_LIMIT.into();
             d.message.hop = 8;
         });
-        assert_eq!(w(&loop_), "otter and heron have messaged each other 8 times without stopping.");
-        assert_eq!(w(&d(|d| d.hold = hold::HOP_LIMIT.into())), "otter and heron kept messaging each other without stopping.");
-        assert_eq!(w(&d(|d| d.hold = hold::BLOCKED.into())), "otter is on your block list.");
+        assert_eq!(
+            w(&loop_),
+            "otter and heron have messaged each other 8 times without stopping."
+        );
+        assert_eq!(
+            w(&d(|d| d.hold = hold::HOP_LIMIT.into())),
+            "otter and heron kept messaging each other without stopping."
+        );
+        assert_eq!(
+            w(&d(|d| d.hold = hold::BLOCKED.into())),
+            "otter is on your block list."
+        );
         let mine = d(|d| {
             d.hold = hold::UNOWNED.into();
             d.message.from.key = "user:me".into();
             d.repo_key = "github.com/acme/example-app.git".into();
             d.to = String::new();
         });
-        assert_eq!(w(&mine), "No agent is working in example-app to take your message.");
-        assert_eq!(w(&d(|d| d.hold = hold::UNOWNED.into())), "No agent is working in its repo to take it yet.");
+        assert_eq!(
+            w(&mine),
+            "No agent is working in example-app to take your message."
+        );
+        assert_eq!(
+            w(&d(|d| d.hold = hold::UNOWNED.into())),
+            "No agent is working in its repo to take it yet."
+        );
         assert_eq!(
             w(&d(|d| d.held_for = "off_side".into())),
             "Irori picked heron for a card on a side heron's device doesn't run. Release delivers it."
@@ -1129,7 +1505,11 @@ mod tests {
         assert_eq!(w(&d(|d| d.hold = "weird".into())), "Irori held it.");
         assert_eq!(w(&d(|_| {})), "");
         // A checkout's name over the key's last part.
-        let repos = Repos([("root:abc".to_string(), "irori".to_string())].into_iter().collect());
+        let repos = Repos(
+            [("root:abc".to_string(), "irori".to_string())]
+                .into_iter()
+                .collect(),
+        );
         assert_eq!(repos.name("root:abc"), "irori");
         assert_eq!(repos.name("root:abcdef12"), "local repo abcdef1");
     }
@@ -1142,8 +1522,14 @@ mod tests {
             started,
             offered,
         };
-        assert_eq!(started_line(&s(false, true)), "Your message is card #12 in irori, handed to a free agent.");
-        assert_eq!(started_line(&s(false, false)), "Your message is card #12 in irori; it waits for a free agent.");
+        assert_eq!(
+            started_line(&s(false, true)),
+            "Your message is card #12 in irori, handed to a free agent."
+        );
+        assert_eq!(
+            started_line(&s(false, false)),
+            "Your message is card #12 in irori; it waits for a free agent."
+        );
         assert!(allow_lifts(&d(|d| d.hold = hold::NOT_ALLOWED.into())));
         assert!(!allow_lifts(&d(|d| {
             d.hold = hold::NOT_ALLOWED.into();

@@ -9,7 +9,7 @@ use irori_window::cards::CardSummary;
 use rune::{El, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
-use super::bars::{Look, chip};
+use super::bars::{ChipOpts, Look, chip};
 use super::filter::{OUTCOMES, Outcome, of_outcome};
 use super::{grid, muted};
 use crate::logic::agent_status::now_ms;
@@ -66,7 +66,9 @@ pub fn load(s: &mut State, scope: &str, more: bool) {
     s.spawn(
         move |w| w.done_cards_in(want, "", &sc),
         move |s, r| {
-            let Some(d) = s.board.done.by_scope.get_mut(&sc2) else { return };
+            let Some(d) = s.board.done.by_scope.get_mut(&sc2) else {
+                return;
+            };
             if d.req != req {
                 return;
             }
@@ -95,9 +97,21 @@ pub fn reload_all(s: &mut State) {
 fn shape(f: &Frame, scope: &str) -> El {
     let mut r = row().key("board-done-shape-row").gap(4.0).center_y();
     for (i, _) in OUTCOMES.iter().enumerate() {
-        r = r.child(loading::block(f, &format!("board-done-shape-{i}"), Some(80.0), 24.0, 6.0));
+        r = r.child(loading::block(
+            f,
+            &format!("board-done-shape-{i}"),
+            Some(80.0),
+            24.0,
+            6.0,
+        ));
     }
-    r = r.child(el().grow(1.0)).child(loading::block(f, "board-done-shape-sel", Some(56.0), 24.0, 6.0));
+    r = r.child(el().grow(1.0)).child(loading::block(
+        f,
+        "board-done-shape-sel",
+        Some(56.0),
+        24.0,
+        6.0,
+    ));
     let sc = scope.to_string();
     col()
         .key("board-done-shape")
@@ -126,12 +140,24 @@ fn show_more(f: &Frame, scope: &str) -> El {
 }
 
 fn error_line(key: &str, t: String) -> El {
-    text(t).key(key.to_string()).role("alert").font(rune::tok::TextStyle::new(12.5, 400.0)).color(status::failed()).w_full().wrap()
+    text(t)
+        .key(key.to_string())
+        .role("alert")
+        .font(rune::tok::TextStyle::new(12.5, 400.0))
+        .color(status::failed())
+        .w_full()
+        .wrap()
 }
 
 /// The Closed tab of `scope` ("own" for Home's, else a space id).
 pub fn grid(s: &State, f: &mut Frame, scope: &str) -> El {
-    let Some(all) = s.board.done.by_scope.get(scope).filter(|d| !(d.loading && d.cards.is_empty()) || d.error.is_some()) else {
+    let Some(all) = s
+        .board
+        .done
+        .by_scope
+        .get(scope)
+        .filter(|d| !(d.loading && d.cards.is_empty()) || d.error.is_some())
+    else {
         return shape(f, scope);
     };
     let k = f.k;
@@ -142,7 +168,10 @@ pub fn grid(s: &State, f: &mut Frame, scope: &str) -> El {
     if let Some(e) = &all.error
         && cards.is_empty()
     {
-        return c.child(error_line("board-done-error", format!("Could not load the closed cards: {e}")));
+        return c.child(error_line(
+            "board-done-error",
+            format!("Could not load the closed cards: {e}"),
+        ));
     }
     if cards.is_empty() && all.cards.is_empty() {
         return c.child(muted(f, "board-done-none", "Nothing closed yet."));
@@ -151,7 +180,11 @@ pub fn grid(s: &State, f: &mut Frame, scope: &str) -> El {
         c = c.child(muted(
             f,
             "board-done-nomatch",
-            if all.more { "No cards match among these; Show more looks further back." } else { "No cards match." },
+            if all.more {
+                "No cards match among these; Show more looks further back."
+            } else {
+                "No cards match."
+            },
         ));
         if all.more {
             c = c.child(show_more(f, scope));
@@ -160,38 +193,68 @@ pub fn grid(s: &State, f: &mut Frame, scope: &str) -> El {
     }
     let d = &s.board.done;
     let shown = of_outcome(&cards, d.outcome);
-    let mut tabs = row().key("board-outcomes").role("group").label("Filter closed cards by outcome").w_full().gap(4.0).center_y().flex_wrap();
+    let mut tabs = row()
+        .key("board-outcomes")
+        .role("group")
+        .label("Filter closed cards by outcome")
+        .w_full()
+        .gap(4.0)
+        .center_y()
+        .flex_wrap();
     for (o, label) in OUTCOMES {
-        tabs = tabs.child(chip(f, &format!("board-outcome-{}", o.state()), label, d.outcome == o, Look::Secondary, "", None, None, move |s: &mut State| {
-            s.board.done.outcome = o
-        }));
+        tabs = tabs.child(chip(
+            f,
+            &format!("board-outcome-{}", o.state()),
+            label,
+            d.outcome == o,
+            ChipOpts {
+                look: Look::Secondary,
+                ..ChipOpts::default()
+            },
+            move |s: &mut State| s.board.done.outcome = o,
+        ));
     }
     let mut right = row().key("board-done-tools").gap(8.0).center_y();
     if !d.picking {
         right = right.child(super::clear::clear_done(s, f, "board-clear", scope, true));
     }
     right = right.child(
-        Button::new(if d.picking { "Done selecting" } else { "Select" })
-            .variant(if d.picking { ButtonVariant::Neutral } else { ButtonVariant::Outline })
-            .control_size(ControlSize::Small)
-            .on_press(|s: &mut State| {
-                if s.board.done.picking {
-                    s.board.done.picking = false;
-                    s.board.done.picked.clear();
-                } else {
-                    s.board.done.picking = true;
-                }
-            })
-            .build(k),
+        Button::new(if d.picking {
+            "Done selecting"
+        } else {
+            "Select"
+        })
+        .variant(if d.picking {
+            ButtonVariant::Neutral
+        } else {
+            ButtonVariant::Outline
+        })
+        .control_size(ControlSize::Small)
+        .on_press(|s: &mut State| {
+            if s.board.done.picking {
+                s.board.done.picking = false;
+                s.board.done.picked.clear();
+            } else {
+                s.board.done.picking = true;
+            }
+        })
+        .build(k),
     );
     c = c.child(tabs.child(el().grow(1.0)).child(right));
     if d.picking {
-        let picked: Vec<&CardSummary> = cards.iter().copied().filter(|c| d.picked.contains(&c.id)).collect();
+        let picked: Vec<&CardSummary> = cards
+            .iter()
+            .copied()
+            .filter(|c| d.picked.contains(&c.id))
+            .collect();
         let all_ids: Vec<String> = shown.iter().map(|c| c.id.clone()).collect();
         c = c.child(pick_bar(s, f, scope, &picked, all_ids));
     }
     if let Some(e) = &all.error {
-        c = c.child(error_line("board-done-reload-error", format!("Could not reload the closed cards: {e}")));
+        c = c.child(error_line(
+            "board-done-reload-error",
+            format!("Could not reload the closed cards: {e}"),
+        ));
     }
     if shown.is_empty() {
         let what = match d.outcome {
@@ -201,11 +264,26 @@ pub fn grid(s: &State, f: &mut Frame, scope: &str) -> El {
         c = c.child(muted(
             f,
             "board-done-none-of",
-            &format!("None {what} among these{}", if all.more { "; Show more looks further back." } else { "." }),
+            &format!(
+                "None {what} among these{}",
+                if all.more {
+                    "; Show more looks further back."
+                } else {
+                    "."
+                }
+            ),
         ));
     }
     let none = HashSet::new();
-    c = c.child(grid::card_grid(s, f, "done", &shown, &none, false, Some(now_ms())));
+    c = c.child(grid::card_grid(
+        s,
+        f,
+        "done",
+        &shown,
+        &none,
+        false,
+        Some(now_ms()),
+    ));
     if all.more {
         c = c.child(show_more(f, scope));
     }
@@ -233,9 +311,13 @@ fn pick_bar(s: &State, f: &Frame, scope: &str, picked: &[&CardSummary], all: Vec
         .fill(k.c.layer_01)
         .border(1.0, k.c.border_muted)
         .child(
-            text(if n > 0 { format!("{what} selected") } else { "Click cards to select them".into() })
-                .font(rune::tok::TextStyle::new(12.5, 400.0))
-                .color(k.c.text_base),
+            text(if n > 0 {
+                format!("{what} selected")
+            } else {
+                "Click cards to select them".into()
+            })
+            .font(rune::tok::TextStyle::new(12.5, 400.0))
+            .color(k.c.text_base),
         )
         .child(
             Button::new("Select all shown")
@@ -289,7 +371,27 @@ fn pick_bar(s: &State, f: &Frame, scope: &str, picked: &[&CardSummary], all: Vec
             .key("board-pick-acts")
             .gap(8.0)
             .items_start()
-            .child(confirm_button(s, f, "board-pick-clear", &if n > 0 { format!("Clear {n}…") } else { "Clear…".into() }, None, n == 0, clear))
-            .child(confirm_button(s, f, "board-pick-delete", "Delete permanently…", None, n == 0 || shared, delete)),
+            .child(confirm_button(
+                s,
+                f,
+                "board-pick-clear",
+                &if n > 0 {
+                    format!("Clear {n}…")
+                } else {
+                    "Clear…".into()
+                },
+                None,
+                n == 0,
+                clear,
+            ))
+            .child(confirm_button(
+                s,
+                f,
+                "board-pick-delete",
+                "Delete permanently…",
+                None,
+                n == 0 || shared,
+                delete,
+            )),
     )
 }

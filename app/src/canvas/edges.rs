@@ -180,7 +180,11 @@ fn round_corners(pts: &[[f32; 2]], r: f32) -> Vec<[f32; 2]> {
 /// comes in square to each side.
 fn curve_points(s: [f32; 2], ss: Side, t: [f32; 2], ts: Side) -> Vec<[f32; 2]> {
     let reach = |side: Side| {
-        let d = if side.vertical() { (t[1] - s[1]).abs() } else { (t[0] - s[0]).abs() };
+        let d = if side.vertical() {
+            (t[1] - s[1]).abs()
+        } else {
+            (t[0] - s[0]).abs()
+        };
         (d * 0.5).max(25.0)
     };
     let c1 = add(s, ss.out(), reach(ss));
@@ -204,7 +208,11 @@ pub fn route(k: EdgeKind, from: (Point, Size), to: (Point, Size)) -> Vec<[f32; 2
     let (ss, ts) = sides(k);
     let s = ss.at(from.0, from.1);
     let t = ts.at(to.0, to.1);
-    if look(k).step { step_points(s, ss, t, ts) } else { curve_points(s, ss, t, ts) }
+    if look(k).step {
+        step_points(s, ss, t, ts)
+    } else {
+        curve_points(s, ss, t, ts)
+    }
 }
 
 /// The polyline cut into dashes `on` long with `off` between.
@@ -217,7 +225,10 @@ pub fn dashes(pts: &[[f32; 2]], on: f32, off: f32) -> Vec<Vec<[f32; 2]>> {
         let mut len = dist(a, b);
         while len > 0.0 {
             let step = left.min(len);
-            let next = [a[0] + (b[0] - a[0]) * step / len, a[1] + (b[1] - a[1]) * step / len];
+            let next = [
+                a[0] + (b[0] - a[0]) * step / len,
+                a[1] + (b[1] - a[1]) * step / len,
+            ];
             if drawing {
                 if cur.is_empty() {
                     cur.push(a);
@@ -259,8 +270,18 @@ fn arrow(pts: &[[f32; 2]], size: f32) -> Option<Vec<[f32; 2]>> {
 }
 
 /// One line as a shape, `color` at `opacity`, shifted by `-origin`.
-pub fn shape(pts: &[[f32; 2]], lk: Look, color: Color, opacity: f32, width: f32, origin: [f32; 2]) -> Shape {
-    let pts: Vec<[f32; 2]> = pts.iter().map(|p| [p[0] - origin[0], p[1] - origin[1]]).collect();
+pub fn shape(
+    pts: &[[f32; 2]],
+    lk: Look,
+    color: Color,
+    opacity: f32,
+    width: f32,
+    origin: [f32; 2],
+) -> Shape {
+    let pts: Vec<[f32; 2]> = pts
+        .iter()
+        .map(|p| [p[0] - origin[0], p[1] - origin[1]])
+        .collect();
     let c = color.alpha(opacity);
     let mut sh = Shape::new();
     // The line stops short of the arrow's tip so the two don't overlap.
@@ -272,7 +293,10 @@ pub fn shape(pts: &[[f32; 2]], lk: Look, color: Color, opacity: f32, width: f32,
         let d = dist(a, t);
         let back = 6.0f32.min(d);
         if let Some(last) = body.last_mut() {
-            *last = [t[0] - (t[0] - a[0]) / d * back, t[1] - (t[1] - a[1]) / d * back];
+            *last = [
+                t[0] - (t[0] - a[0]) / d * back,
+                t[1] - (t[1] - a[1]) / d * back,
+            ];
         }
     }
     match lk.dash {
@@ -313,7 +337,11 @@ mod tests {
 
     #[test]
     fn a_holder_line_runs_from_the_agents_bottom_to_the_cards_top() {
-        let pts = route(EdgeKind::Holder, (p(0.0, 0.0), AGENT), (p(200.0, 200.0), CARD));
+        let pts = route(
+            EdgeKind::Holder,
+            (p(0.0, 0.0), AGENT),
+            (p(200.0, 200.0), CARD),
+        );
         assert_eq!(pts.first(), Some(&[90.0, 40.0]));
         assert_eq!(pts.last(), Some(&[340.0, 200.0]));
         // Square corners only: every piece away from the bends is level or upright.
@@ -322,7 +350,11 @@ mod tests {
 
     #[test]
     fn a_subtask_line_comes_into_the_kids_left_side() {
-        let pts = route(EdgeKind::Subtask, (p(0.0, 0.0), CARD), (p(300.0, 200.0), CARD));
+        let pts = route(
+            EdgeKind::Subtask,
+            (p(0.0, 0.0), CARD),
+            (p(300.0, 200.0), CARD),
+        );
         assert_eq!(pts.first(), Some(&[140.0, 132.0]));
         assert_eq!(pts.last(), Some(&[300.0, 266.0]));
     }

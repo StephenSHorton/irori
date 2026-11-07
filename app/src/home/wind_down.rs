@@ -9,11 +9,11 @@ use irori_window::wind_down::{WindDownRow, WindDownStatus};
 use rune::{El, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize};
 
+use super::icons::POWER;
 use super::pure::{wind_down_line, wind_down_state};
 use crate::logic::cards::Tone;
 use crate::logic::names::name_or;
 use crate::logic::plain::{plain_block, plain_line};
-use super::icons::POWER;
 use crate::ui::{Dialog, Frame, State, icons};
 use crate::widgets::bits::badge;
 
@@ -107,7 +107,10 @@ fn start(s: &mut State) {
     let scope = if s.home.wd_dlg.all { "all" } else { "this" };
     let pause = s.home.wd_dlg.pause_after;
     s.spawn(
-        move |w| w.wind_down_all(scope, pause).map(|st| (st, w.wind_down_status())),
+        move |w| {
+            w.wind_down_all(scope, pause)
+                .map(|st| (st, w.wind_down_status()))
+        },
         |s, r| {
             s.home.wd_dlg.busy.clear();
             match r {
@@ -151,25 +154,34 @@ fn state_tone(state: &str) -> Tone {
 
 fn agent_row(s: &State, f: &Frame, r: &WindDownRow) -> El {
     let k = f.k;
-    let id = if r.key.is_empty() { r.name.clone() } else { r.key.clone() };
+    let id = if r.key.is_empty() {
+        r.name.clone()
+    } else {
+        r.key.clone()
+    };
     let key = format!("home/wd/row-{id}");
-    let mut head = row()
-        .w_full()
-        .gap(8.0)
-        .center_y()
-        .child(
-            text(name_or(&r.name, "an agent"))
-                .font(k.ty.ui_medium)
-                .color(k.c.text_base)
-                .max_lines(1)
-                .shrink(),
-        );
+    let mut head = row().w_full().gap(8.0).center_y().child(
+        text(name_or(&r.name, "an agent"))
+            .font(k.ty.ui_medium)
+            .color(k.c.text_base)
+            .max_lines(1)
+            .shrink(),
+    );
     if !r.device.is_empty() {
-        head = head.child(text(plain_line(&r.device)).font(k.ty.text_xsmall).color(k.c.text_muted));
+        head = head.child(
+            text(plain_line(&r.device))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted),
+        );
     }
-    head = head
-        .child(el().grow(1.0))
-        .child(badge(f, &format!("{key}/state"), wind_down_state(&r.state), state_tone(&r.state), false, ""));
+    head = head.child(el().grow(1.0)).child(badge(
+        f,
+        &format!("{key}/state"),
+        wind_down_state(&r.state),
+        state_tone(&r.state),
+        false,
+        "",
+    ));
     if r.state == "waiting" || r.state == "winding" {
         let rk = r.key.clone();
         head = head.child(
@@ -204,7 +216,13 @@ fn agent_row(s: &State, f: &Frame, r: &WindDownRow) -> El {
         );
     }
     if !r.error.is_empty() {
-        c = c.child(text(r.error.clone()).font(k.ty.text_xsmall).color(k.c.danger.fg).w_full().wrap());
+        c = c.child(
+            text(r.error.clone())
+                .font(k.ty.text_xsmall)
+                .color(k.c.danger.fg)
+                .w_full()
+                .wrap(),
+        );
     }
     c
 }
@@ -228,7 +246,11 @@ pub fn dialog(s: &State, f: &mut Frame) {
     if st.id.is_empty() || st.finished {
         let pick = |label: String, on: bool, all: bool| {
             Button::new(label)
-                .variant(if on { ButtonVariant::Contrast } else { ButtonVariant::Ghost })
+                .variant(if on {
+                    ButtonVariant::Contrast
+                } else {
+                    ButtonVariant::Ghost
+                })
                 .control_size(ControlSize::Small)
                 .on_press(move |s: &mut State| s.home.wd_dlg.all = all)
                 .build(k)
@@ -241,11 +263,17 @@ pub fn dialog(s: &State, f: &mut Frame) {
             .child(
                 Checkbox::new(d.pause_after)
                     .label("Pause all after, so nothing wakes them until you resume")
-                    .on_toggle(|s: &mut State| s.home.wd_dlg.pause_after = !s.home.wd_dlg.pause_after)
+                    .on_toggle(|s: &mut State| {
+                        s.home.wd_dlg.pause_after = !s.home.wd_dlg.pause_after
+                    })
                     .build(k),
             );
         if d.all {
-            pause = pause.child(text("(this device's wakes)").font(k.ty.text_xsmall).color(k.c.text_muted));
+            pause = pause.child(
+                text("(this device's wakes)")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_muted),
+            );
         }
         body = body.child(
             col()
@@ -282,14 +310,21 @@ pub fn dialog(s: &State, f: &mut Frame) {
             list = list.child(agent_row(s, f, r));
         }
         body = body
-            .child(text(sum).key("home/wd/sum").font(k.ty.ui).color(k.c.text_muted))
+            .child(
+                text(sum)
+                    .key("home/wd/sum")
+                    .font(k.ty.ui)
+                    .color(k.c.text_muted),
+            )
             .child(
                 col()
                     .key("home/wd/scroll")
                     .w_full()
                     .max_h(380.0)
                     .min_h(0.0)
-                    .scroll(rune::ScrollSpec { stick_bottom: false })
+                    .scroll(rune::ScrollSpec {
+                        stick_bottom: false,
+                    })
                     .child(list),
             );
     }

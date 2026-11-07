@@ -14,12 +14,13 @@
 //! thread, a refusal takes it back with a toast, and `board:changed`
 //! re-reads the cards.
 //!
-//! For other pages: [`needs_row`] (one Needs you row) and
+//! For other pages: [`needs::needs_row`] (one Needs you row) and
 //! [`needs::blocker_answer`] (one item's answers).
 
 pub mod ask;
 mod icons;
 pub mod needs;
+pub mod permission;
 pub mod pure;
 pub mod sample;
 pub mod wind_down;
@@ -30,8 +31,8 @@ use inbox::Delivery;
 use irori_window::agents::{AgentsChange, AgentsSettings};
 use irori_window::agents_trust::TrustNeed;
 use irori_window::cards::{CardDetail, CardSummary, IdleReport};
-use irori_window::freshness::LogFreshness;
 use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_INBOX_CHANGED, EVENT_ROSTER_CHANGED};
+use irori_window::freshness::LogFreshness;
 use irori_window::ts::RepoName;
 use irori_window::wind_down::{EVENT_WIND_DOWN, WindDownStatus};
 use rune::{El, TextEdit, col, icon, row, text};
@@ -44,9 +45,6 @@ use crate::logic::cards::with_live;
 use crate::logic::needs::{Need, NeedKind, needs_of, nobody_took};
 use crate::text::Composer;
 use crate::ui::{Dialog, Event, Frame, Route, State};
-
-#[allow(unused_imports)]
-pub use needs::needs_row;
 
 #[derive(Default)]
 pub struct Model {
@@ -90,6 +88,8 @@ pub struct Model {
     pub quiet_said: String,
     /// Bumped on each card re-read: an older read's answer is dropped.
     rev: u64,
+    /// The freshness poll runs.
+    ticker: bool,
 }
 
 /// The space the switcher picked (card #393), and Home's own scope in it:
@@ -98,13 +98,21 @@ pub struct Model {
 pub fn home_scope(s: &State) -> (String, String) {
     let space = crate::spaces::current(s);
     let shared = space != crate::spaces::ALL_SPACES && space != crate::spaces::PERSONAL;
-    let scope = if shared { space.clone() } else { crate::board::SCOPE_OWN.to_string() };
+    let scope = if shared {
+        space.clone()
+    } else {
+        crate::board::SCOPE_OWN.to_string()
+    };
     (space, scope)
 }
 
 /// The cards in the picked space.
 fn space_cards<'a>(s: &'a State, space: &str) -> Vec<&'a CardSummary> {
-    s.data.cards.iter().filter(|c| crate::logic::spaces::card_in_space(c, space)).collect()
+    s.data
+        .cards
+        .iter()
+        .filter(|c| crate::logic::spaces::card_in_space(c, space))
+        .collect()
 }
 
 /// Home's cards: the picked space's, in Home's scope.
@@ -124,7 +132,11 @@ fn listed(needs: &[Need]) -> HashSet<String> {
         .filter(|n| {
             matches!(
                 n.kind,
-                NeedKind::Check(_) | NeedKind::Decision(_) | NeedKind::Merge(..) | NeedKind::Gone(..) | NeedKind::NoAgent(_)
+                NeedKind::Check(_)
+                    | NeedKind::Decision(_)
+                    | NeedKind::Merge(..)
+                    | NeedKind::Gone(..)
+                    | NeedKind::NoAgent(_)
             )
         })
         .map(|n| n.id.clone())
@@ -197,11 +209,18 @@ fn load_cards(s: &mut State) {
                     d.blockers
                         .iter()
                         .filter(|b| pure::waits_on_you(b))
-                        .map(|b| (pure::answer_key(&d.summary.id, &b.id), needs::words_key(&d.summary.id, &b.id)))
+                        .map(|b| {
+                            (
+                                pure::answer_key(&d.summary.id, &b.id),
+                                needs::words_key(&d.summary.id, &b.id),
+                            )
+                        })
                 })
                 .collect();
             let busy = s.home.busy.clone();
-            s.home.said.retain(|k, _| busy.contains(k) || open.iter().any(|(a, _)| a == k));
+            s.home
+                .said
+                .retain(|k, _| busy.contains(k) || open.iter().any(|(a, _)| a == k));
             s.home.own.retain(|k, _| open.iter().any(|(a, _)| a == k));
             for (ak, dk) in open {
                 if !s.home.own.contains_key(&ak)
@@ -216,11 +235,39 @@ fn load_cards(s: &mut State) {
     );
 }
 
+/// How often Home re-reads how fresh each log is (lib/freshness.ts
+/// RefreshMs): a catch-up that brings nothing new fires no event, so a
+/// quiet log is polled, and "3h ago" moves on.
+const FRESH_POLL_SECS: u64 = 30;
+
+/// Re-reads the freshness line every 30 s while Home shows.
+fn start_ticker(s: &mut State) {
+    if s.home.ticker || s.headless {
+        return;
+    }
+    let Some(h) = s.handle.clone() else { return };
+    s.home.ticker = true;
+    std::thread::Builder::new()
+        .name("irori-home-fresh".into())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(FRESH_POLL_SECS));
+                h.update(|s: &mut State, _| {
+                    if s.nav.card.is_none() && s.nav.route == Route::Home {
+                        s.spawn(|w| w.freshness(), |s, v| s.home.fresh = v);
+                    }
+                });
+            }
+        })
+        .ok();
+}
+
 fn load_spawn(s: &mut State) {
     s.spawn(|w| w.agents_settings(""), |s, v| s.home.spawn = Some(v));
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
+    start_ticker(s);
     match ev.name.as_str() {
         "app:start" => {
             s.home.wd_seen = s.prefs.get(wind_down::SEEN_PREF).unwrap_or_default();
@@ -312,7 +359,11 @@ fn spawn_notice(s: &State, f: &Frame) -> Option<El> {
                 .wrap(),
         );
     }
-    let b = |label: &str, v: ButtonVariant| Button::new(label.to_string()).variant(v).control_size(ControlSize::Small);
+    let b = |label: &str, v: ButtonVariant| {
+        Button::new(label.to_string())
+            .variant(v)
+            .control_size(ControlSize::Small)
+    };
     Some(
         col()
             .key("home/spawn-notice")
@@ -339,11 +390,21 @@ fn spawn_notice(s: &State, f: &Frame) -> Option<El> {
                     .child(rune::el().grow(1.0))
                     .child(
                         b("Settings › Agents", ButtonVariant::Ghost)
-                            .on_press(|s: &mut State| s.open_dialog(Dialog::Settings("agents".into())))
+                            .on_press(|s: &mut State| {
+                                s.open_dialog(Dialog::Settings("agents".into()))
+                            })
                             .build(k),
                     )
-                    .child(b("Turn it off", ButtonVariant::Outline).on_press(set(false)).build(k))
-                    .child(b("Keep it on", ButtonVariant::Contrast).on_press(set(true)).build(k)),
+                    .child(
+                        b("Turn it off", ButtonVariant::Outline)
+                            .on_press(set(false))
+                            .build(k),
+                    )
+                    .child(
+                        b("Keep it on", ButtonVariant::Contrast)
+                            .on_press(set(true))
+                            .build(k),
+                    ),
             ),
     )
 }
@@ -354,14 +415,20 @@ fn spawn_notice(s: &State, f: &Frame) -> Option<El> {
 fn fresh_line(s: &State, f: &Frame, space: &str, now: i64) -> Option<El> {
     let k = f.k;
     let name = |log: &str| {
-        s.data
-            .spaces
-            .iter()
-            .find(|b| b.board_id == log)
-            .map(|b| if b.name.is_empty() { b.tag.clone() } else { b.name.clone() })
+        s.data.spaces.iter().find(|b| b.board_id == log).map(|b| {
+            if b.name.is_empty() {
+                b.tag.clone()
+            } else {
+                b.name.clone()
+            }
+        })
     };
     let (t, old) = pure::home_fresh_line(space, &s.home.fresh, name, now)?;
-    let color = if old { k.c.warning.icon } else { k.c.text_muted };
+    let color = if old {
+        k.c.warning.icon
+    } else {
+        k.c.text_muted
+    };
     Some(
         row()
             .key("home/fresh")
@@ -370,7 +437,14 @@ fn fresh_line(s: &State, f: &Frame, space: &str, now: i64) -> Option<El> {
             .gap(6.0)
             .center_y()
             .child(icon(&crate::ui::icons::REFRESH, 12.0).color(color))
-            .child(text(t).font(k.ty.text_xsmall).color(color).wrap().shrink().min_w(0.0)),
+            .child(
+                text(t)
+                    .font(k.ty.text_xsmall)
+                    .color(color)
+                    .wrap()
+                    .shrink()
+                    .min_w(0.0),
+            ),
     )
 }
 

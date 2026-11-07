@@ -87,6 +87,13 @@ fn away(w: &AgentRef) -> bool {
     w.status == "gone" || w.status == NOT_ANSWERING || !w.live || w.offline
 }
 
+/// An offered agent won't take the card up (card #699): gone, not
+/// answering or on an offline device. Not merely unknown here (a shared
+/// board's agent this device doesn't know is not live, not dead).
+fn downed(w: &AgentRef) -> bool {
+    w.status == "gone" || w.status == NOT_ANSWERING || w.offline
+}
+
 fn away_line(w: &AgentRef, h: Holding) -> String {
     let name = if w.key.is_empty() { "Its agent".to_string() } else { display_name(w) };
     if h == Holding::Silent || w.status == NOT_ANSWERING {
@@ -95,7 +102,9 @@ fn away_line(w: &AgentRef, h: Holding) -> String {
     if h == Holding::Offline || w.offline {
         return format!("{name} is on an offline device");
     }
-    format!("{name} {}", if w.spawned { "finished" } else { "went away" })
+    // An agent Irori started that ended before taking the card up died
+    // (card #699): it went away, it didn't finish.
+    format!("{name} {}", if w.spawned && !w.assigned { "finished" } else { "went away" })
 }
 
 fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
@@ -229,6 +238,11 @@ fn row(c: &CardSummary, now: i64) -> (RowLine, bool) {
             return r(RowState::Waiting, "Waiting on its subtasks".into());
         }
         if !c.working.is_empty() {
+            // Card #699: an offered agent that is gone, not answering or
+            // offline says so; it isn't a slow one about to take it up.
+            if c.working.iter().all(downed) {
+                return nobody(RowState::Stuck, away_line(&c.working[0], c.holder.state));
+            }
             let l = if work_label(&w) == "offered" { "Offered, not taken up yet" } else { "Not picked up" };
             return nobody(RowState::Stuck, l.into());
         }
@@ -349,7 +363,8 @@ pub enum SpawnNeed {
 /// Whether a card's decision is one of Irori's sweep questions.
 pub fn spawn_need(c: &CardSummary) -> Option<SpawnNeed> {
     let q = c.blocker_question.as_str();
-    if q.starts_with(WAITING_PERMISSION) {
+    // Typed since card #682; an older Irori's item by its question.
+    if c.permission_wait || q.starts_with(WAITING_PERMISSION) {
         return Some(SpawnNeed::Permission);
     }
     if q.starts_with("Its agent crashed") && q.ends_with(": start another?") {
@@ -1151,6 +1166,13 @@ mod tests {
         assert_eq!(q("Its agent crashed: start another?"), Some(SpawnNeed::Crashed));
         assert_eq!(q("Its agent crashed 5 times in a row: start another?"), Some(SpawnNeed::Crashed));
         assert_eq!(q("Ship today?"), None);
+        // A typed permission wait, whatever its question (card #682).
+        let typed = card(|c| {
+            c.open_blockers = 1;
+            c.blocker_question = "thyme wants to use Bash: cargo test".into();
+            c.permission_wait = true;
+        });
+        assert_eq!(spawn_need(&typed), Some(SpawnNeed::Permission));
     }
 
     fn heron() -> AgentRef {
@@ -1203,6 +1225,50 @@ mod tests {
             assert_eq!(row_state(&c, 0), rl(RowState::Stuck, line));
             assert!(nobody_took(&c, 0));
         }
+        // Card #699: an offered agent that is gone or silent says so.
+        let away_card = |f: fn(&mut AgentRef), h: Holding| {
+            card(|c| {
+                c.state = state::SUBMITTED.into();
+                let mut w = AgentRef {
+                    assigned: true,
+                    spawned: true,
+                    ..heron()
+                };
+                f(&mut w);
+                c.working = vec![w.clone()];
+                c.holder = CardHolder {
+                    state: h,
+                    who: w,
+                    others: 0,
+                };
+            })
+        };
+        for (c, line) in [
+            (away_card(|w| w.status = NOT_ANSWERING.into(), Holding::Silent), "heron isn't answering"),
+            (
+                away_card(
+                    |w| {
+                        w.status = "gone".into();
+                        w.live = false
+                    },
+                    Holding::Gone,
+                ),
+                "heron went away",
+            ),
+            (away_card(|w| w.offline = true, Holding::Offline), "heron is on an offline device"),
+        ] {
+            assert_eq!(row_state(&c, 0), rl(RowState::Stuck, line));
+            assert!(nobody_took(&c, 0));
+        }
+        // Unknown here (a shared board's agent) is not dead: still offered.
+        let unknown = away_card(
+            |w| {
+                w.status = "unknown".into();
+                w.live = false
+            },
+            Holding::Assigned,
+        );
+        assert_eq!(row_state(&unknown, 0), rl(RowState::Stuck, "Offered, not taken up yet"));
         let taken = card(|c| {
             c.state = state::SUBMITTED.into();
             c.ask = Some(CardAsk {
