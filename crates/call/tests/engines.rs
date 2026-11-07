@@ -179,14 +179,23 @@ fn deafening_silences_the_speaker_and_the_mic() {
     std::thread::sleep(Duration::from_millis(1600));
     {
         let r = b.rec.lock().unwrap();
-        assert!(onset(&r.samples, 0).is_none(), "a deafened speaker plays nothing");
+        assert!(
+            onset(&r.samples, 0).is_none(),
+            "a deafened speaker plays nothing"
+        );
         let r = a.rec.lock().unwrap();
-        assert!(onset(&r.samples, 0).is_none(), "a deafened mic sends nothing");
+        assert!(
+            onset(&r.samples, 0).is_none(),
+            "a deafened mic sends nothing"
+        );
     }
     let st = b.engine.stats();
     assert!(st.deafened && !st.muted, "{st:?}");
     assert!(st.peers[0].jitter.received > 10, "still receiving: {st:?}");
-    assert!(a.engine.stats().peers[0].jitter.muted, "the others see it muted");
+    assert!(
+        a.engine.stats().peers[0].jitter.muted,
+        "the others see it muted"
+    );
 
     // Undeafen: a's voice plays again, from now.
     let at = b.rec.lock().unwrap().samples.len();
@@ -194,7 +203,10 @@ fn deafening_silences_the_speaker_and_the_mic() {
     // The next burst starts at 3 s.
     std::thread::sleep(Duration::from_millis(2000));
     let r = b.rec.lock().unwrap();
-    assert!(onset(&r.samples, at).is_some(), "heard again after Undeafen");
+    assert!(
+        onset(&r.samples, at).is_some(),
+        "heard again after Undeafen"
+    );
 }
 
 #[test]
