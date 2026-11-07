@@ -286,6 +286,8 @@ function sampleState(): CardDetail[] {
 // keeps the real ones.
 const sampleThreadIds = new Set<string>()
 const sampleThreadState = new Map<string, string>()
+// How many replies the person has read in each sample thread (card #719).
+const sampleThreadRead = new Map<string, number>()
 // sampleThreadBoard is the shared board a sample thread was started on.
 const sampleThreadBoard = new Map<string, string>()
 // sampleThreadAgentsNow is a sample thread's "Agents answer now" (card
@@ -414,6 +416,15 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
     const last = replies[replies.length - 1]
     const agents = replies.filter((it) => it.who.key !== sampleYou.key)
     const state = sampleThreadState.get(c.id) ?? "waiting"
+    // Unread (card #719): an agent replied after what the person read and
+    // after their own newest reply.
+    const seen = Math.max(
+      sampleThreadRead.get(c.id) ?? 0,
+      replies.findLastIndex((it) => it.who.key === sampleYou.key) + 1
+    )
+    const unread =
+      state !== "resolved" &&
+      replies.slice(seen).some((it) => it.who.key !== sampleYou.key)
     return ThreadSummary({
       id: c.id,
       short: c.short,
@@ -446,6 +457,7 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
       spaceId: sampleThreadBoard.get(c.id),
+      unread,
       starting:
         c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
     })
@@ -539,6 +551,18 @@ export const threads = {
   async setAgentsNow(id: string, on: boolean): Promise<void> {
     if (inWails()) return BoardService.ThreadAgentsNow(id, on)
     sampleThreadAgentsNow.set(id, on)
+    sampleChanged()
+  },
+
+  // read marks what is in an open thread now as read (card #719): Talk's
+  // count drops it until an agent replies again.
+  async read(id: string): Promise<void> {
+    if (inWails()) return BoardService.ReadThread(id)
+    const n = sampleState()
+      .find((c) => c.id === id)
+      ?.thread.filter((it) => it.kind === "comment").length
+    if (n === undefined || sampleThreadRead.get(id) === n) return
+    sampleThreadRead.set(id, n)
     sampleChanged()
   },
 
@@ -804,6 +828,13 @@ export function useAllThreads(): {
   const load = useCallback(() => threads.listAll(), [])
   const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
   useFresh(reload, error, true)
+  // A thread's read marker is a Talk read cursor (card #719): reading one
+  // here or on another of the person's devices fires talk:changed
+  // (conversations.ts's EventTalkChanged), not board:changed.
+  useEffect(() => {
+    if (!inWails()) return
+    return Events.On("talk:changed", () => void reload())
+  }, [reload])
   return { threads: value, loading, error }
 }
 

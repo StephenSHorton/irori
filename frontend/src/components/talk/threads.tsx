@@ -3,7 +3,7 @@
 // open thread itself.
 
 import { cardRef } from "@/components/cards/bits"
-import { useContext, useState } from "react"
+import { useContext, useEffect, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -163,6 +163,20 @@ export function ThreadView({
   const items = (detail?.thread ?? []).filter(
     (it) => it.kind !== "event" || it.made
   )
+  // Open and in view, what it holds now is read (card #719): Talk's count
+  // drops it until an agent writes again. A reply that lands while the
+  // window is in the background waits until it is back in front.
+  const newest = items[items.length - 1]?.id ?? ""
+  useEffect(() => {
+    if (resolved) return
+    const read = () => {
+      if (document.visibilityState === "visible" && document.hasFocus())
+        void threadsApi.read(t.id).catch(() => {})
+    }
+    read()
+    window.addEventListener("focus", read)
+    return () => window.removeEventListener("focus", read)
+  }, [t.id, newest, resolved])
   const act = (f: (id: string) => Promise<void>) => async () => {
     if (busy) return
     setBusy(true)
