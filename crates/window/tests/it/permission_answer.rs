@@ -12,6 +12,10 @@ use coord::{
     PermissionWait,
 };
 
+/// An agent on another device: this device's sweep leaves its items alone
+/// (only the device that runs an agent decides it's past its prompt).
+const AGENT: &str = "0000000000000000000000000000beef/sess";
+
 fn opt(a: &str) -> BlockerOption {
     BlockerOption {
         answer: a.into(),
@@ -48,7 +52,7 @@ fn always_allow_resolves_the_prompt_and_adds_the_rule() {
                     opt(PERMISSION_DENY),
                 ],
                 permission: Some(PermissionWait {
-                    agent: format!("{me}/sess"),
+                    agent: AGENT.into(),
                     tool: "Bash".into(),
                     input: "cargo test".into(),
                     rule: "Bash(cargo test)".into(),
@@ -76,15 +80,10 @@ fn always_allow_resolves_the_prompt_and_adds_the_rule() {
         ),
         ("Bash", "cargo test", "Bash(cargo test)", true)
     );
-    // Its agent runs here: Attach shows on the card page.
+    // Its agent as the card names it: on another device, so Attach says
+    // where it runs.
     assert!(
-        p.agent.here && p.agent.key == format!("{me}/sess"),
-        "{:?}",
-        p.agent
-    );
-    // Its agent runs here: Attach shows on the card page.
-    assert!(
-        p.agent.here && p.agent.key == format!("{me}/sess"),
+        !p.agent.here && p.agent.key == AGENT && p.agent.device_id.ends_with("beef"),
         "{:?}",
         p.agent
     );
@@ -124,7 +123,7 @@ fn always_allow_resolves_the_prompt_and_adds_the_rule() {
             NewBlocker {
                 question: "Waiting for your permission: thyme is stopped on a prompt".into(),
                 permission: Some(PermissionWait {
-                    agent: format!("{me}/sess"),
+                    agent: AGENT.into(),
                     tool: "Bash".into(),
                     ..PermissionWait::default()
                 }),
