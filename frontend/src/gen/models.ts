@@ -277,7 +277,7 @@ export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
 
 /** CallMineView with Go's zero values for every field left out. */
 export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
 }
 
 /** CallPeerView with Go's zero values for every field left out. */

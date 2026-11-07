@@ -209,8 +209,15 @@ describe("the replying row (card #645)", () => {
   })
 })
 
-const { CallBar, CallPanel, HuddleEnded, HuddleLine, RingBanner } =
-  await import("./huddle")
+const {
+  CallBar,
+  CallPanel,
+  HuddleEnded,
+  HuddleLine,
+  RingBanner,
+  StartSheet,
+  toldText,
+} = await import("./huddle")
 const { huddleNames } = await import("@/lib/call")
 
 describe("a huddle names people, never keys (#654)", () => {
@@ -233,6 +240,7 @@ describe("a huddle names people, never keys (#654)", () => {
     convKind: "dm",
     joinedAtMs: 0,
     muted: true,
+    deafened: false,
     speaking: false,
     device: "",
     peers: [
@@ -253,17 +261,56 @@ describe("a huddle names people, never keys (#654)", () => {
             folded,
             onOpen: no,
             onMute: no,
+            onDeafen: no,
             onLeave: no,
           })
         )
       )
     const panel = html(
-      createElement(CallPanel, { mine, onMute: no, onLeave: no })
+      createElement(CallPanel, {
+        mine,
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+      })
     )
     noKeys(panel)
     expect(panel).toContain("another person")
     expect(panel).toContain("Aiko")
     expect(panel).toContain("direct · 26 ms")
+  })
+
+  test("deafened: the panel says so and offers Undeafen (#655)", () => {
+    const panel = html(
+      createElement(CallPanel, {
+        mine: { ...mine, muted: false, deafened: true },
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+      })
+    )
+    expect(panel).toContain('aria-label="deafened"')
+    expect(panel).toContain('aria-label="Undeafen"')
+    // The mic is off while deafened, so Mute offers Unmute.
+    expect(panel).toContain('aria-label="Unmute"')
+  })
+
+  test("the start sheet names who's told and keeps no transcript (#655)", () => {
+    const start = { label: "#suzuri", kind: "channel" as const }
+    const sheet = html(
+      createElement(StartSheet, { start, onStart: no, onCancel: no })
+    )
+    noKeys(sheet)
+    expect(sheet).toContain("Start a huddle in #suzuri")
+    expect(sheet).toContain("Everyone in #suzuri&#x27;s space gets a notice")
+    expect(sheet).toContain("No transcript.")
+    expect(sheet).toContain("Microphone")
+    expect(toldText({ label: "Spencer", kind: "dm" })).toContain(
+      "Spencer gets a notice"
+    )
+    expect(toldText({ label: "#me", kind: "personal" })).toContain(
+      "Your other devices"
+    )
   })
 
   test("the ringing banner, a list row's line and the end post", () => {

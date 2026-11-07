@@ -2,17 +2,20 @@
 // #571 mock-up (call-mock.tsx). Each piece takes the call picture as props
 // (lib/call.ts holds it), so the server-rendered tests can feed it
 // directly:
-// - HuddleButton: the conversation header's Huddle, Join or In huddle.
+// - HuddleButton: the conversation header's Huddle (with its start
+//   sheet, StartSheet), Join or In huddle.
 // - CallBar: the huddle you're in, on every page (the sidebar, or above
 //   the phone's tabs).
-// - CallPanel: who's in it, how each device reaches you, Mute and Leave.
+// - CallPanel: who's in it, how each device reaches you, Mute, Deafen and
+//   Leave.
 // - HuddleLine: a Talk list row's huddle that's on.
 // - HuddleStarted, HuddleEnded: the posts a huddle leaves.
 // - RingBanner: someone started a huddle you can join.
 // Ringing and PhoneCallBar read the store and act, for App.
 
-import { useState, useSyncExternalStore } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import {
+  HeadphoneOffIcon,
   HeadphonesIcon,
   MicIcon,
   MicOffIcon,
@@ -23,6 +26,11 @@ import {
 
 import { Button } from "@/components/ui/button"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   convLabel,
   dismissRing,
   durationText,
@@ -31,8 +39,10 @@ import {
   joinHuddle,
   leaveHuddle,
   lengthText,
+  micName,
   namesText,
   personWord,
+  setDeafened,
   setMuted,
   sharedCall,
   subscribeCall,
@@ -100,7 +110,10 @@ type Who = {
   link: string
   health: Health | null
   speaking: boolean
+  // The mic is off (muted, or deafened).
   muted: boolean
+  // Nothing plays there: only this device knows its own.
+  deafened: boolean
 }
 
 function peerWho(p: CallPeerView): Who {
@@ -111,6 +124,7 @@ function peerWho(p: CallPeerView): Who {
     health: healthOf(p),
     speaking: p.speaking,
     muted: p.muted,
+    deafened: false,
   }
 }
 
@@ -121,7 +135,8 @@ function selfWho(m: CallMineView): Who {
     link: "this device",
     health: null,
     speaking: m.speaking,
-    muted: m.muted,
+    muted: m.muted || m.deafened,
+    deafened: m.deafened,
   }
 }
 
@@ -154,12 +169,16 @@ function Avatar({ w, size = "md" }: { w: Who; size?: "sm" | "md" }) {
   )
 }
 
-// HuddleButton is a conversation header's way in: Huddle to start one,
-// Join when one is on here, or the running time while you're in it.
+// HuddleButton is a conversation header's way in: Huddle opens the start
+// sheet, Join when one is on here, or the running time while you're in it.
 export function HuddleButton({
   mine,
   live,
   busy,
+  start,
+  error,
+  sheetOpen,
+  onSheetOpen,
   onStart,
   onJoin,
 }: {
@@ -168,6 +187,13 @@ export function HuddleButton({
   // How many people are in this conversation's huddle (0: none on).
   live: number
   busy?: boolean
+  // What the start sheet says about this conversation.
+  start: StartWhere
+  // Why the last Start failed, shown in the sheet while it's open.
+  error?: string
+  // The start sheet: open, and opening or closing it.
+  sheetOpen: boolean
+  onSheetOpen: (open: boolean) => void
   onStart: () => void
   onJoin: () => void
 }) {
@@ -198,17 +224,127 @@ export function HuddleButton({
       </Button>
     )
   return (
-    <Button
-      size="xs"
-      variant="ghost"
-      className="shrink-0"
-      disabled={busy}
-      onClick={onStart}
-      title="Start a voice huddle here"
-    >
-      <HeadphonesIcon />
-      Huddle
-    </Button>
+    <Popover open={sheetOpen} onOpenChange={(o) => onSheetOpen(o)}>
+      <PopoverTrigger
+        render={
+          <Button
+            size="xs"
+            variant={sheetOpen ? "secondary" : "ghost"}
+            className="shrink-0"
+            title="Start a voice huddle here"
+          >
+            <HeadphonesIcon />
+            Huddle
+          </Button>
+        }
+      />
+      <PopoverContent
+        side="bottom"
+        align="end"
+        className="w-[min(22rem,calc(100vw-2rem))] gap-3 p-4"
+      >
+        <StartSheet
+          start={start}
+          busy={busy}
+          error={error}
+          onStart={onStart}
+          onCancel={() => onSheetOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// StartWhere is the conversation a huddle would start in, as the start
+// sheet tells it.
+export type StartWhere = {
+  // "#suzuri", or the DM's other person.
+  label: string
+  // channel (in a space), personal (a Personal channel: your own devices)
+  // or dm.
+  kind: "channel" | "personal" | "dm"
+}
+
+// toldText is who a huddle's start reaches: the devices it rings, as the
+// Core's call_start does (the space's devices, your own for a Personal
+// channel, both of you in a DM). Agents aren't told.
+export function toldText(w: StartWhere): string {
+  if (w.kind === "personal")
+    return "Your other devices get a notice and can join. It's just you here."
+  if (w.kind === "dm")
+    return `${w.label} gets a notice on each of their devices, and so do your other devices. Either of you can join from any of them.`
+  // The ring goes to the whole space, not only the channel's members.
+  return `Everyone in ${w.label}'s space gets a notice on each of their devices, and so do your other devices. They can join from any of them; agents aren't told.`
+}
+
+// StartSheet is what Huddle opens before anything starts: who gets told,
+// the mic it will use, and that no transcript is kept.
+export function StartSheet({
+  start,
+  busy,
+  error,
+  onStart,
+  onCancel,
+}: {
+  start: StartWhere
+  busy?: boolean
+  error?: string
+  onStart: () => void
+  onCancel: () => void
+}) {
+  // The mic's name, asked once when the sheet opens (null until it
+  // answers; "" when it can't say).
+  const [mic, setMic] = useState<string | null>(null)
+  useEffect(() => {
+    let on = true
+    micName()
+      .then((n) => on && setMic(n))
+      .catch(() => on && setMic(""))
+    return () => {
+      on = false
+    }
+  }, [])
+  return (
+    <div className="grid gap-3 text-[12.5px]">
+      <div className="grid gap-1">
+        <h3 className="flex items-center gap-2 text-[14px] font-semibold text-ink">
+          <HeadphonesIcon className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">
+            {start.kind === "dm"
+              ? `Start a huddle with ${start.label}`
+              : `Start a huddle in ${start.label}`}
+          </span>
+        </h3>
+        <p className="text-muted-foreground">{toldText(start)}</p>
+      </div>
+      <div className="grid gap-1.5 rounded-lg border border-border bg-card/60 p-2.5">
+        <span className="flex items-center gap-2">
+          <MicIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground">Microphone</span>
+          <span className="ml-auto min-w-0 truncate text-right text-ink">
+            {mic === null ? "…" : mic || "the default microphone"}
+          </span>
+        </span>
+        <span className="pl-5.5 text-[11.5px] text-muted-foreground">
+          Echo cancelling and noise suppression are on.
+        </span>
+      </div>
+      <p className="rounded-lg border border-border px-2.5 py-2 text-[12px] text-muted-foreground">
+        <span className="font-medium text-ink">No transcript.</span> Nothing
+        said in a huddle is written down or recorded yet: it is heard live, then
+        gone.
+      </p>
+      {error && <ErrorLine text={error} />}
+      <div className="flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={busy} onClick={onStart}>
+          <HeadphonesIcon />
+          {busy ? "Starting…" : "Start huddle"}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -243,11 +379,18 @@ function Tile({ w }: { w: Who }) {
           {line}
         </span>
       </span>
-      {w.muted && (
-        <MicOffIcon
+      {w.deafened ? (
+        <HeadphoneOffIcon
           className="size-3.5 shrink-0 text-destructive"
-          aria-label="muted"
+          aria-label="deafened"
         />
+      ) : (
+        w.muted && (
+          <MicOffIcon
+            className="size-3.5 shrink-0 text-destructive"
+            aria-label="muted"
+          />
+        )
       )}
       {w.speaking && !w.muted && <Speaking />}
     </div>
@@ -293,6 +436,39 @@ function MuteButton({
   )
 }
 
+// DeafenButton turns the speaker off (and the mic with it), or back on.
+function DeafenButton({
+  deafened,
+  onDeafen,
+  size,
+}: {
+  deafened: boolean
+  onDeafen: (on: boolean) => void
+  size: "icon-xs" | "icon-lg"
+}) {
+  const label = deafened ? "Undeafen" : "Deafen: hear nothing, mic off"
+  return (
+    <Button
+      size={size}
+      variant={
+        deafened ? "destructive" : size === "icon-lg" ? "secondary" : "ghost"
+      }
+      aria-pressed={deafened}
+      title={label}
+      aria-label={deafened ? "Undeafen" : "Deafen"}
+      onClick={() => onDeafen(!deafened)}
+    >
+      {deafened ? <HeadphoneOffIcon /> : <HeadphonesIcon />}
+    </Button>
+  )
+}
+
+// micOff is whether the mic sends nothing: muted, or deafened (Unmute then
+// undeafens too, lib/call.ts's setMuted).
+function micOff(m: CallMineView): boolean {
+  return m.muted || m.deafened
+}
+
 // ErrorLine is why the huddle isn't working, when the Core says.
 function ErrorLine({ text }: { text: string }) {
   return (
@@ -307,16 +483,18 @@ function ErrorLine({ text }: { text: string }) {
 }
 
 // CallPanel is the huddle beside the posts (or the whole page on a phone):
-// who's in it, how each device reaches you, and Mute and Leave.
+// who's in it, how each device reaches you, and Mute, Deafen and Leave.
 export function CallPanel({
   mine,
   wide,
   onMute,
+  onDeafen,
   onLeave,
 }: {
   mine: CallMineView
   wide?: boolean
   onMute: (on: boolean) => void
+  onDeafen: (on: boolean) => void
   onLeave: () => void
 }) {
   const who = whoIn(mine)
@@ -355,7 +533,12 @@ export function CallPanel({
         )}
       </div>
       <div className="flex items-center justify-center gap-2 border-t border-border px-3 py-2.5">
-        <MuteButton muted={mine.muted} onMute={onMute} size="icon-lg" />
+        <MuteButton muted={micOff(mine)} onMute={onMute} size="icon-lg" />
+        <DeafenButton
+          deafened={mine.deafened}
+          onDeafen={onDeafen}
+          size="icon-lg"
+        />
         <Button
           size="icon-lg"
           variant="destructive"
@@ -378,12 +561,14 @@ export function CallBar({
   folded,
   onOpen,
   onMute,
+  onDeafen,
   onLeave,
 }: {
   mine: CallMineView
   folded?: boolean
   onOpen: () => void
   onMute: (on: boolean) => void
+  onDeafen: (on: boolean) => void
   onLeave: () => void
 }) {
   const where = convLabel(mine)
@@ -411,7 +596,12 @@ export function CallBar({
             )}
           />
         </button>
-        <MuteButton muted={mine.muted} onMute={onMute} size="icon-xs" />
+        <MuteButton muted={micOff(mine)} onMute={onMute} size="icon-xs" />
+        <DeafenButton
+          deafened={mine.deafened}
+          onDeafen={onDeafen}
+          size="icon-xs"
+        />
       </div>
     )
   return (
@@ -447,7 +637,12 @@ export function CallBar({
           {who.length === 1 ? "just you" : `${who.length} in it`}
         </span>
         <span className="ml-auto flex shrink-0 gap-0.5">
-          <MuteButton muted={mine.muted} onMute={onMute} size="icon-xs" />
+          <MuteButton muted={micOff(mine)} onMute={onMute} size="icon-xs" />
+          <DeafenButton
+            deafened={mine.deafened}
+            onDeafen={onDeafen}
+            size="icon-xs"
+          />
           <Button
             size="icon-xs"
             variant="ghost"
@@ -629,6 +824,7 @@ export function PhoneCallBar({
         mine={mine}
         onOpen={() => onOpen(mine.convId)}
         onMute={(on) => void setMuted(on).catch(() => {})}
+        onDeafen={(on) => void setDeafened(on).catch(() => {})}
         onLeave={() => void leaveHuddle().catch(() => {})}
       />
     </div>
