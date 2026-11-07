@@ -72,7 +72,7 @@ pub fn view(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> El 
     let links = side_links(d);
     let files = card_files(d);
     let spinning = lc::busy(&lc::Work::from(now_));
-    let mut p = panel(f, "card/side").label("About the card");
+    let mut p = panel(f, "card/side").label("About the card").clip_rounded(12.0);
 
     // Progress.
     let mut prog = Vec::new();
@@ -133,7 +133,7 @@ pub fn view(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> El 
         p = p.child(section(f, "card/side-links", "Links", files.is_empty(), vec![g]));
     }
     if !files.is_empty() {
-        let list = tt::attachment_list(s, f, "card/side-file-list", &files, true);
+        let list = tt::attachment_list(s, f, "card/side-file-list", &files, true).w_full();
         p = p.child(section(
             f,
             "card/side-files",

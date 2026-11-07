@@ -11,7 +11,7 @@ use irori_window::cards::{AgentRef, CardBlocker, CardDetail, CardOption, NOTE_IT
 use rune::{El, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
-use super::{err_line, note, panel, section, spacer, ts};
+use super::{err_line, note, panel, section, ts};
 use crate::logic::agent_status::{ms, now_ms};
 use crate::logic::cards::{self as lc, Tone, blocker};
 use crate::logic::names::display_name;
@@ -472,7 +472,7 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     if !b.done_check {
         item = item.child(bits::asker(f, &format!("card/b/{}/asker", b.id), &b.raised_by));
     }
-    let mut head = row().w_full().min_w(0.0).gap(6.0).center_y().flex_wrap();
+    let mut head = row().w_full().min_w(0.0).gap(6.0).items_start();
     if r.is_some() {
         head = head.child(text("✓").font(ts(13.5, 600.0)).color(k.c.success.fg).label("Resolved: "));
     }
@@ -487,7 +487,7 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
                 ..RichOpts::default()
             },
         )
-        .shrink()
+        .grow(1.0)
         .min_w(0.0),
     );
     if let Some(chip) = blocker_chip(b) {
@@ -495,7 +495,7 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     }
     if r.is_some() {
         let bid = b.id.clone();
-        head = head.child(spacer()).child(
+        head = head.child(
             Button::new("Fold")
                 .variant(ButtonVariant::GhostMuted)
                 .control_size(ControlSize::Mini)
@@ -899,7 +899,7 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
     let k = f.k;
     let gone = b.gone_agent.is_some();
     let label = plain_line(&w.label);
-    let mut what = row().gap(4.0).min_w(0.0).flex_wrap().center_y().child(text("Waiting on").font(ts(13.0, 400.0)).color(k.c.text_muted));
+    let mut what = row().w_full().gap(4.0).min_w(0.0).items_start().child(text("Waiting on").font(ts(13.0, 400.0)).color(k.c.text_muted));
     if !w.task_id.is_empty() {
         what = what.child(super::page::card_link(f, &format!("card/w/{}/card", b.id), &w.task_id, &w.label, &w.title));
     } else {
@@ -914,7 +914,8 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
                     ..RichOpts::default()
                 },
             )
-            .shrink(),
+            .grow(1.0)
+            .min_w(0.0),
         );
     }
     if gone {

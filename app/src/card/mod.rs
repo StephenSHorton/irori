@@ -275,7 +275,8 @@ pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
 }
 
 /// The headless scene: the first card that needs you, else the newest;
-/// `IRORI_CARD_SCENE` picks a card ("#12" or an id), "new" or "share".
+/// `IRORI_CARD_SCENE` picks a card ("#12" or an id; "blocker", "ready",
+/// "working" or "shared" for the first such), "new" or "share".
 pub fn scene(s: &mut State) {
     let want = std::env::var("IRORI_CARD_SCENE").unwrap_or_default();
     match want.as_str() {
@@ -300,7 +301,18 @@ pub fn scene(s: &mut State) {
         }
         _ => {}
     }
-    let pick = if !want.is_empty() {
+    let pick = if want == "blocker" || want == "ready" || want == "working" || want == "shared" {
+        s.data
+            .cards
+            .iter()
+            .find(|c| match want.as_str() {
+                "blocker" => c.open_blockers > 0 && !c.ready,
+                "ready" => c.ready,
+                "working" => !c.working.is_empty() && !crate::logic::cards::over(&c.state),
+                _ => c.scope == "board" && !c.board.is_empty(),
+            })
+            .map(|c| c.id.clone())
+    } else if !want.is_empty() {
         let short = want.trim_start_matches('#');
         s.data
             .cards

@@ -67,10 +67,13 @@ fn gist_cuts_a_long_answer_to_one_line() {
 
 #[test]
 fn card_files_lists_each_file_once() {
-    let file = |sha: &str| serde_json::json!({"sha256": sha, "name": format!("{sha}.png"), "size": 1, "mime": "image/png"});
     let item = |shas: &[&str]| -> CardThreadItem {
         let mut it = CardThreadItem::default();
-        it.attachments = shas.iter().map(|s| serde_json::from_value(file(s)).unwrap()).collect();
+        it.attachments = vec![Default::default(); shas.len()];
+        for (a, sha) in it.attachments.iter_mut().zip(shas) {
+            a.sha256 = sha.to_string();
+            a.name = format!("{sha}.png");
+        }
         it
     };
     let mut d = card("working");
