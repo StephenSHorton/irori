@@ -112,6 +112,7 @@ pub struct State {
     pub term: crate::term::Model,
     pub status: crate::status::Model,
     pub text: crate::text::Model,
+    pub widgets: crate::widgets::Model,
 }
 
 impl State {
@@ -280,6 +281,7 @@ pub fn dispatch(s: &mut State, ev: &Event) {
     crate::term::on_event(s, ev);
     crate::status::on_event(s, ev);
     crate::text::on_event(s, ev);
+    crate::widgets::on_event(s, ev);
 }
 
 /// The window: sidebar, then the page (or the open card), dialogs and
@@ -335,6 +337,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         }
     }
     crate::call::overlay(s, &mut f);
+    crate::widgets::overlay(s, &mut f);
     notes(s, &mut f);
     rune_kit::root(body, layer)
 }
@@ -366,7 +369,8 @@ pub fn poll(s: &mut State, _t: f64, tx: &mut rune::Tx) -> bool {
     if let Some(next) = s.notes.iter().map(|n| n.until).min() {
         tx.wake_after(next.saturating_duration_since(now));
     }
-    before != s.notes.len()
+    let widgets = crate::widgets::poll(s, tx);
+    before != s.notes.len() || widgets
 }
 
 /// A page a package hasn't ported yet: says so, so a screenshot shows

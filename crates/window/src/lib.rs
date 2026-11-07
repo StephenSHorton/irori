@@ -73,6 +73,7 @@ pub mod update;
 pub mod usage;
 pub mod voice;
 pub mod wind_down;
+pub mod rune_widgets;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};

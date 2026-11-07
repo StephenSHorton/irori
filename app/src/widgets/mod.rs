@@ -1,13 +1,26 @@
-//! Card and agent pieces several pages share (F0c: the React app's
-//! cards/bits.tsx, faces.tsx, agent-hover.tsx, agent-strip.tsx,
-//! spawned-actions.tsx, done-rounds.tsx).
+//! Card and agent pieces several pages share (F0c). Work in progress.
 
 use rune::El;
 
-use crate::ui::{Frame, State};
+use crate::ui::{Event, Frame, State};
 
-/// The sidebar's agents strip: who is running now. Not ported yet.
+#[derive(Default)]
+pub struct Model {}
+
 pub fn agent_strip(s: &State, f: &mut Frame) -> El {
     let _ = (s, f);
     rune::el().key("agent-strip").h(0.0)
+}
+pub fn on_event(s: &mut State, ev: &Event) {
+    let _ = (s, ev);
+}
+pub fn overlay(s: &State, f: &mut Frame) {
+    let _ = (s, f);
+}
+pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
+    let _ = (s, tx);
+    false
+}
+pub fn scene(s: &mut State) {
+    let _ = s;
 }
