@@ -51,11 +51,12 @@ fn main() {
     chunks.extend(enc.flush().unwrap());
     for c in chunks {
         let key = has_idr(&c.data);
-        if key && let Some(a) = Avc::from_annexb(&c.data) {
-            if config.as_ref() != Some(&a) {
-                put(view_config(&a));
-                config = Some(a);
-            }
+        if key
+            && let Some(a) = Avc::from_annexb(&c.data)
+            && config.as_ref() != Some(&a)
+        {
+            put(view_config(&a));
+            config = Some(a);
         }
         if config.is_some() {
             put(view_chunk(key, c.timestamp_us, &to_avcc(&c.data)));

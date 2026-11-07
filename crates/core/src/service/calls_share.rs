@@ -26,6 +26,12 @@
 //!   the device id). A device sharing when a newer one starts stops its own
 //!   and says who took over.
 
+// The phone only views: the sharer's half is unused there.
+#![cfg_attr(
+    not(any(target_os = "macos", target_os = "windows")),
+    allow(dead_code, unused_imports)
+)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -55,6 +61,10 @@ const QUEUE: usize = 5;
 const RAMP_EVERY: Duration = Duration::from_secs(2);
 /// After a viewer falls behind, no ramp for this long.
 const CALM_FOR: Duration = Duration::from_secs(6);
+/// An access unit reaching its viewer's stream this much later than its
+/// GOP's pace says: the viewer is behind (QUIC buffers far more than the
+/// queue, so a full queue alone comes too late).
+const LAG_MAX: Duration = Duration::from_millis(500);
 
 /// Where a watched share's frames go: the window's channel. False when it
 /// is gone.
@@ -99,8 +109,11 @@ pub struct EncCtl {
     key_ask: AtomicBool,
     /// The bitrate wanted, kbit/s.
     kbps: AtomicU32,
-    /// Bumped each time a viewer falls behind.
+    /// Bumped each time a viewer falls behind (or is still behind).
     behind: AtomicU64,
+    /// The share's GOP numbers: one counter for every viewer's sender, so a
+    /// viewer that watches again, or reconnects, still sees them rise.
+    gop: AtomicU64,
 }
 
 impl EncCtl {
@@ -176,6 +189,11 @@ struct Mine {
     info: ShareInfo,
     ctl: Arc<EncCtl>,
     viewers: HashMap<String, Viewer>,
+    /// The call has been told (the capture runs).
+    announced: bool,
+    /// The share this one replaces, kept until it is announced: a share that
+    /// fails to start gives the old one back.
+    prev: Option<Theirs>,
 }
 
 struct Theirs {
@@ -211,11 +229,7 @@ fn newer(a: &ShareInfo, da: &str, b: &ShareInfo, db: &str) -> bool {
 }
 
 impl ShareHub {
-    pub fn new(
-        me: String,
-        rt: Handle,
-        changed: Arc<dyn Fn() + Send + Sync>,
-    ) -> Arc<ShareHub> {
+    pub fn new(me: String, rt: Handle, changed: Arc<dyn Fn() + Send + Sync>) -> Arc<ShareHub> {
         Arc::new(ShareHub {
             me,
             rt,
@@ -370,7 +384,10 @@ impl ShareHub {
                 }
                 if let Some(m) = &g.mine {
                     if !newer(&info, peer, &m.info, &self.me) {
-                        // Ours is newer: they stop theirs when they hear it.
+                        // Ours is newer: tell them, so they stop theirs.
+                        if m.announced {
+                            Self::tell(&g, peer, ShareMsg::Start(m.info.clone()));
+                        }
                         return;
                     }
                     let m = g.mine.take().expect("mine");
@@ -419,6 +436,13 @@ impl ShareHub {
                 }
             }
             ShareMsg::Stop { share_id } => {
+                if let Some(m) = g.mine.as_mut()
+                    && m.prev
+                        .as_ref()
+                        .is_some_and(|t| t.peer == peer && t.info.share_id == share_id)
+                {
+                    m.prev = None;
+                }
                 if g.theirs
                     .as_ref()
                     .is_some_and(|t| t.peer == peer && t.info.share_id == share_id)
@@ -438,7 +462,7 @@ impl ShareHub {
                     {
                         let (tx, rx) = mpsc::channel(QUEUE);
                         let behind = Arc::new(AtomicBool::new(false));
-                        rt.spawn(send_gops(conn, share_id, rx, behind.clone()));
+                        rt.spawn(send_gops(conn, share_id, m.ctl.clone(), rx, behind.clone()));
                         m.viewers.insert(peer.to_string(), Viewer { tx, behind });
                         m.ctl.ask_key();
                     }
@@ -518,14 +542,16 @@ impl ShareHub {
                     if t.avc.is_some() {
                         out.push(wire::view_chunk(au.key, au.ts_us, &wire::to_avcc(&au.data)));
                     }
-                    (sink, out)
+                    // Delivered under the lock, so an older GOP's frame can't
+                    // land after a newer GOP's config. The sink (a Tauri
+                    // channel send) doesn't block or call back here.
+                    let ok = out.into_iter().all(|b| sink(b));
+                    (sink, ok)
                 };
-            for b in out {
-                if !sink(b) {
-                    self.detach_sink(&sink);
-                    let _ = r.stop(0u32.into());
-                    return;
-                }
+            if !out {
+                self.detach_sink(&sink);
+                let _ = r.stop(0u32.into());
+                return;
             }
         }
     }
@@ -601,7 +627,7 @@ impl ShareHub {
     /// Starts sharing `info` (its size and rate filled in as the encoder
     /// opens): any share of ours ends first, and a share of theirs gives way.
     /// Returns the encoder's controls.
-    pub fn begin(&self, info: ShareInfo) -> Result<Arc<EncCtl>, String> {
+    pub fn begin(&self, mut info: ShareInfo) -> Result<Arc<EncCtl>, String> {
         let mut g = self.lock();
         if g.closed {
             return Err("you're not in a huddle".into());
@@ -618,13 +644,19 @@ impl ShareHub {
         if g.sink.is_some() {
             Self::unwatch(&g);
         }
-        g.theirs = None;
+        // Replacing theirs on purpose: newer than it whatever the clocks say.
+        if let Some(t) = &g.theirs {
+            info.started_ms = info.started_ms.max(t.info.started_ms + 1);
+        }
+        let prev = g.theirs.take();
         g.note = None;
         let ctl = EncCtl::new();
         g.mine = Some(Mine {
             info,
             ctl: ctl.clone(),
             viewers: HashMap::new(),
+            announced: false,
+            prev,
         });
         Ok(ctl)
     }
@@ -639,6 +671,8 @@ impl ShareHub {
         m.info.width = width;
         m.info.height = height;
         m.info.kbps = kbps;
+        m.announced = true;
+        m.prev = None;
         let msg = ShareMsg::Start(m.info.clone());
         Self::tell_all(&g, &msg);
         drop(g);
@@ -658,6 +692,9 @@ impl ShareHub {
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     if !v.behind.swap(true, Ordering::SeqCst) {
                         ctl.fell_behind();
+                    } else {
+                        // Still behind: hold the ramp, no second cut.
+                        ctl.behind.fetch_add(1, Ordering::SeqCst);
                     }
                 }
                 Err(mpsc::error::TrySendError::Closed(_)) => {}
@@ -678,12 +715,29 @@ impl ShareHub {
         }
         let m = g.mine.take().expect("mine");
         m.ctl.stop.store(true, Ordering::SeqCst);
-        Self::tell_all(
-            &g,
-            &ShareMsg::Stop {
-                share_id: m.info.share_id,
-            },
-        );
+        if m.announced {
+            Self::tell_all(
+                &g,
+                &ShareMsg::Stop {
+                    share_id: m.info.share_id,
+                },
+            );
+        } else if let Some(mut t) = m.prev {
+            // Never told anyone: the share it would have replaced is back.
+            t.gop = 0;
+            t.avc = None;
+            if g.sink.is_some() {
+                Self::tell(
+                    &g,
+                    &t.peer,
+                    ShareMsg::Watch {
+                        share_id: t.info.share_id.clone(),
+                        on: true,
+                    },
+                );
+            }
+            g.theirs = Some(t);
+        }
         g.note = why.map(ShareNote::Failed);
         drop(g);
         (self.changed)();
@@ -696,16 +750,21 @@ impl ShareHub {
 }
 
 /// One viewer's sender: each GOP on a stream of its own, started at a
-/// keyframe. After the viewer fell behind (`behind`), its stream is reset
-/// and nothing goes until the next keyframe.
+/// keyframe; the GOP before it is reset, not drained, so stale frames never
+/// go ahead of the new keyframe. An access unit that goes out more than
+/// [`LAG_MAX`] behind its GOP's pace, or a full queue (`behind`), resets the
+/// stream: nothing more goes until the next keyframe, which is asked for,
+/// and the bitrate comes down.
 async fn send_gops(
     conn: Connection,
     share_id: String,
+    ctl: Arc<EncCtl>,
     mut rx: mpsc::Receiver<Au>,
     behind: Arc<AtomicBool>,
 ) {
     let mut cur: Option<SendStream> = None;
-    let mut gop = 0u64;
+    // When the GOP's keyframe went out, and its timestamp.
+    let mut pace: Option<(tokio::time::Instant, u64)> = None;
     while let Some(au) = rx.recv().await {
         if behind.swap(false, Ordering::SeqCst)
             && let Some(mut s) = cur.take()
@@ -714,22 +773,43 @@ async fn send_gops(
         }
         if au.key {
             if let Some(mut s) = cur.take() {
-                let _ = s.finish();
+                let _ = s.reset(0u32.into());
             }
-            gop += 1;
             let h = GopHeader {
                 share_id: share_id.clone(),
-                gop,
+                gop: ctl.gop.fetch_add(1, Ordering::SeqCst) + 1,
             };
             match wire::open_gop(&conn, &h).await {
-                Ok(s) => cur = Some(s),
+                Ok(s) => {
+                    cur = Some(s);
+                    pace = Some((tokio::time::Instant::now(), au.ts_us));
+                }
                 Err(_) if conn.close_reason().is_some() => return,
                 Err(_) => continue,
             }
         }
         let Some(s) = cur.as_mut() else { continue };
-        if wire::write_au(s, &au).await.is_err() {
-            cur = None;
+        let due = pace.map(|(t, ts0)| t + Duration::from_micros(au.ts_us.saturating_sub(ts0)));
+        let late = |now: tokio::time::Instant| due.is_some_and(|d| now > d + LAG_MAX);
+        // A write blocked on QUIC's buffer past the limit is behind too.
+        let wait = due.map_or(LAG_MAX * 2, |d| {
+            (d + LAG_MAX).saturating_duration_since(tokio::time::Instant::now()) + LAG_MAX
+        });
+        let ok = if late(tokio::time::Instant::now()) {
+            false
+        } else {
+            match tokio::time::timeout(wait, wire::write_au(s, &au)).await {
+                Ok(Ok(())) => !late(tokio::time::Instant::now()),
+                Ok(Err(_)) => {
+                    cur = None;
+                    continue;
+                }
+                Err(_) => false,
+            }
+        };
+        if !ok && let Some(mut s) = cur.take() {
+            let _ = s.reset(0u32.into());
+            ctl.fell_behind();
         }
     }
     if let Some(mut s) = cur {

@@ -402,7 +402,9 @@ fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
         })
     };
     b1.core.share_attach(sink).expect("bob watches");
-    a1.core.share_start("synthetic:640x360").expect("alice shares");
+    a1.core
+        .share_start("synthetic:640x360")
+        .expect("alice shares");
     let mine = a1.core.call_snapshot().mine.unwrap();
     let share = mine.share.expect("alice sees her share");
     assert!(share.now.mine);
@@ -442,12 +444,52 @@ fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
         }
     }
 
+    // Bob looks away and back (the stage unmounts and mounts again): the
+    // sharer starts a new sender for him, and he gets a fresh config and
+    // keyframe, not a black picture.
+    b1.core.share_detach();
+    let again: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let sink2: irori_core::ShareSink = {
+        let again = again.clone();
+        Arc::new(move |b| {
+            again.lock().unwrap().push(b);
+            true
+        })
+    };
+    b1.core.share_attach(sink2).expect("bob watches again");
+    // Within a few seconds: a keyframe ask waits at most 2 s (and a sender
+    // that started its GOP numbers over would be ignored until the next
+    // unasked keyframe, 10 s on).
+    let t = std::time::Instant::now();
+    loop {
+        let ok = {
+            let g = again.lock().unwrap();
+            g.first().is_some_and(|b| b[0] == VIEW_CONFIG)
+                && g.iter().filter(|b| b[0] == VIEW_CHUNK).count() >= 5
+        };
+        if ok {
+            break;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(6),
+            "bob got no picture within 6 s of watching again"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
     // Bob shares: Alice's stops and she's told it was Bob.
-    b1.core.share_start("synthetic:320x240").expect("bob shares");
+    b1.core
+        .share_start("synthetic:320x240")
+        .expect("bob shares");
     wait_for(WAIT, "alice's share gives way to bob's", || {
         let m = a1.core.call_snapshot().mine.unwrap();
-        m.share.as_ref().is_some_and(|x| !x.now.mine && x.now.info.width == 320)
-            && matches!(m.share_note, Some(irori_core::CallShareNote::Replaced { .. }))
+        m.share
+            .as_ref()
+            .is_some_and(|x| !x.now.mine && x.now.info.width == 320)
+            && matches!(
+                m.share_note,
+                Some(irori_core::CallShareNote::Replaced { .. })
+            )
     });
     b1.core.share_stop();
     wait_for(WAIT, "the share is gone for both", || {

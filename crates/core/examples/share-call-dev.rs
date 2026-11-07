@@ -17,17 +17,29 @@
 //! Delay is from just before the encoder starts plus the frame's timestamp
 //! to the sink: an upper bound, since the encoder's start is counted too.
 
+#![cfg_attr(
+    not(any(target_os = "macos", target_os = "windows")),
+    allow(dead_code, unused_imports)
+)]
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn main() {
+    eprintln!("share-call-dev needs the Mac's or the PC's hardware encoder");
+}
+
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use iroh::endpoint::Builder;
 use iroh::{Endpoint, SecretKey};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use irori_core::share_dev::{Picture, ShareHub, spawn_encoder};
-use irori_net::share::{ShareInfo, VIEW_CHUNK, VIEW_CONFIG};
 use irori_meshseam::{read_frame, write_frame};
+use irori_net::share::{ShareInfo, VIEW_CHUNK, VIEW_CONFIG};
 
 const ALPN: &[u8] = b"irori/share-dev/1";
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     if let Err(e) = run().await {
@@ -70,6 +82,7 @@ struct Got {
     bytes: usize,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 async fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let relay_only = args.iter().any(|a| a == "--relay-only");
@@ -79,7 +92,9 @@ async fn run() -> Result<(), String> {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let secs: u64 = val("--secs").map_or(Ok(30), |v| v.parse()).map_err(|_| "--secs N")?;
+    let secs: u64 = val("--secs")
+        .map_or(Ok(30), |v| v.parse())
+        .map_err(|_| "--secs N")?;
     let (w, h) = match val("--size") {
         Some(s) => {
             let (w, h) = s.split_once('x').ok_or("--size WxH")?;
@@ -130,27 +145,26 @@ async fn run() -> Result<(), String> {
     let configs = Arc::new(Mutex::new(Vec::<String>::new()));
     {
         let (got, configs) = (got.clone(), configs.clone());
-        b_hub
-            .attach(Arc::new(move |b: Vec<u8>| {
-                let at = Instant::now();
-                match b[0] {
-                    VIEW_CONFIG => {
-                        let n = u16::from_be_bytes([b[1], b[2]]) as usize;
-                        configs
-                            .lock()
-                            .unwrap()
-                            .push(String::from_utf8_lossy(&b[3..3 + n]).into_owned());
-                    }
-                    VIEW_CHUNK => got.lock().unwrap().push(Got {
-                        at,
-                        key: b[1] & 1 == 1,
-                        ts_us: u64::from_be_bytes(b[2..10].try_into().unwrap()),
-                        bytes: b.len() - 10,
-                    }),
-                    _ => {}
+        b_hub.attach(Arc::new(move |b: Vec<u8>| {
+            let at = Instant::now();
+            match b[0] {
+                VIEW_CONFIG => {
+                    let n = u16::from_be_bytes([b[1], b[2]]) as usize;
+                    configs
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(&b[3..3 + n]).into_owned());
                 }
-                true
-            }));
+                VIEW_CHUNK => got.lock().unwrap().push(Got {
+                    at,
+                    key: b[1] & 1 == 1,
+                    ts_us: u64::from_be_bytes(b[2..10].try_into().unwrap()),
+                    bytes: b.len() - 10,
+                }),
+                _ => {}
+            }
+            true
+        }));
     }
 
     let mut id = [0u8; 16];
@@ -199,15 +213,27 @@ async fn run() -> Result<(), String> {
             pct(&recent, 1.0),
         );
     }
-    let g = got.lock().unwrap();
+    let g = std::mem::take(&mut *got.lock().unwrap());
     let all: Vec<f64> = g.iter().map(|x| delay_ms(t0, x)).collect();
-    let keys: Vec<f64> = g.iter().filter(|x| x.key).map(|x| delay_ms(t0, x)).collect();
-    let key_kb: Vec<f64> = g.iter().filter(|x| x.key).map(|x| x.bytes as f64 / 1000.0).collect();
+    let keys: Vec<f64> = g
+        .iter()
+        .filter(|x| x.key)
+        .map(|x| delay_ms(t0, x))
+        .collect();
+    let key_kb: Vec<f64> = g
+        .iter()
+        .filter(|x| x.key)
+        .map(|x| x.bytes as f64 / 1000.0)
+        .collect();
     let over = all.iter().filter(|d| **d > 1000.0).count();
     let r = irori_net::path::report(&a_conn);
     println!(
         "SUMMARY mode={} path={:?} size={w}x{h} connect={connect_ms:.0}ms frames={} (of ~{}) config={:?} delay p50={:.0} p95={:.0} max={:.0} ms over1s={over} keyframes={} key delay p50={:.0} max={:.0} ms key size p50={:.0} KB",
-        if relay_only { "relay-only" } else { "direct-allowed" },
+        if relay_only {
+            "relay-only"
+        } else {
+            "direct-allowed"
+        },
         r.kind,
         g.len(),
         secs * 10,
