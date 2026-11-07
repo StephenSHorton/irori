@@ -28,6 +28,11 @@ rune = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e632
 rune-kit = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", features = ["markdown"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The text package (app/src/text): rich text's links (regex, and url for
+# safeHref's WHATWG parse), and the composer's files (base64 for UploadFile).
+regex = { workspace = true }
+url = "2.5"
+base64 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
