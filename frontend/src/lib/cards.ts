@@ -414,6 +414,43 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       [],
       "waiting"
     ),
+    // Card #739: answered by an agent that has gone since, resolved,
+    // reopened, and written on. Nobody live heard the follow-up; Irori
+    // starts a new agent for it, and the thread says so while it starts.
+    {
+      ...sampleThread(
+        "sample-thread-6",
+        "28",
+        "Can we add shortcuts to the app, like Cmd+[ to go back?",
+        ago(600),
+        [
+          CardThreadItem({
+            id: "sample-thread-6-a",
+            kind: "comment",
+            at: ago(540),
+            who: { ...sampleAgents.heron, status: "gone", live: false },
+            text: "Yes: #733 adds Back/Forward, Cmd+1–5 and Cmd+B, and #734 a terminal panel on Ctrl+`.",
+          }),
+          CardThreadItem({
+            id: "sample-thread-6-b",
+            kind: "comment",
+            at: ago(15),
+            who: sampleYou,
+            text: "we're doing equivalent windows shortcuts right?",
+            unheard: true,
+          }),
+        ],
+        "waiting"
+      ),
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "",
+        wake: true,
+        outcomeRef: "",
+      }),
+      starting: "Macbook Pro (this one)",
+    } as CardDetail,
     sampleThread(
       "sample-thread-4",
       "26",
@@ -442,8 +479,13 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       short: c.short,
       title: c.title,
       text: c.goal,
+      // A follow-up nobody live heard waits on an agent (card #739).
       state:
-        state === "resolved" ? "resolved" : agents.length ? "answered" : state,
+        state === "resolved"
+          ? "resolved"
+          : agents.length && c.id !== "sample-thread-6"
+            ? "answered"
+            : state,
       told: c.id === "sample-thread-1" ? [sampleAgents.heron] : [],
       answeredBy: agents
         .map((it) => it.who)
@@ -470,7 +512,9 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
       spaceId: sampleThreadBoard.get(c.id),
       starting:
-        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+        c.id === "sample-thread-5" || c.id === "sample-thread-6"
+          ? "Macbook Pro (this one)"
+          : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
