@@ -452,7 +452,6 @@ pub fn open_sheet(s: &mut State, conv_id: &str, at: StartWhere) {
     );
 }
 
-#[allow(dead_code)] // for Settings (P8), whose general pane calls the Window itself for now
 /// "Transcribe what I say in calls" on or off on all the person's
 /// devices; a huddle in progress follows at once. Shows at once,
 /// call:state confirms it.
@@ -464,7 +463,6 @@ pub fn set_transcribe(s: &mut State, on: bool) {
     s.act("Transcribe", move |w| w.call_transcribe_set(on), |_, ()| {});
 }
 
-#[allow(dead_code)] // for Settings (P8), whose general pane reads it itself for now
 /// The person's "Transcribe what I say in calls" switch, as last read.
 pub fn transcribe_on(s: &State) -> bool {
     s.call.view.transcribe_on

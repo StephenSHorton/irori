@@ -9,7 +9,7 @@
 //! | Cmd+[, Cmd+] | back, forward |
 //! | Cmd+N | New card (on the board shown, if any) |
 //! | Cmd+, | Settings |
-//! | / | focus the page's search ([`crate::status::Model::focus_search`]) |
+//! | / | focus the board's search (Home and boards: `board::on_key`, ahead of this) |
 //!
 //! A text field takes its keys first, so `/` types there and only reaches
 //! this when no field has focus; an open dialog takes Esc (its modal closes
@@ -60,10 +60,6 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         Key::Escape if s.nav.card.is_some() || s.nav.can_back() => {
             s.back();
-            true
-        }
-        Key::Text(t) if t == "/" && !m.cmd && !m.ctrl && !m.alt && s.dialog.is_none() => {
-            s.status.focus_search = true;
             true
         }
         _ => false,
@@ -121,13 +117,5 @@ mod tests {
         assert_eq!(s.nav.route, Route::Home);
         assert!(run(&mut s, key(Key::Command(']'), true)));
         assert_eq!(s.nav.route, Route::Talk(None));
-    }
-
-    #[test]
-    fn slash_asks_for_the_search() {
-        let mut s = State::default();
-        assert!(run(&mut s, key(Key::Text("/".into()), false)));
-        assert!(s.status.focus_search);
-        assert!(!run(&mut s, key(Key::Text("a".into()), false)));
     }
 }

@@ -156,29 +156,9 @@ pub fn usage_resets(at_ms: i64) -> String {
     format!("resets {h12}:{m:02} {ampm}")
 }
 
-/// An agent's status in words and a tone (lib/agent-status.ts, without
-/// the job's age: the roster's statusSince isn't read here).
-pub fn agent_status(status: &str) -> (&'static str, Tone) {
-    match status {
-        "unknown" | "person" | "irori" => ("", Tone::Muted),
-        "gone" => ("gone", Tone::Muted),
-        "starting" => ("starting", Tone::Muted),
-        "busy" | "working" => ("working", Tone::Working),
-        "shell" => ("running a job", Tone::Working),
-        "unresponsive" => ("not answering", Tone::Warn),
-        "idle" => ("idle", Tone::Idle),
-        "waiting" => ("waiting on a permission prompt", Tone::Warn),
-        _ => ("working", Tone::Working),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tone {
-    Working,
-    Warn,
-    Idle,
-    Muted,
-}
+// An agent's status in words and a tone: lib/agent-status.ts, shared
+// (crate::logic::agent_status), with the job's age from the live roster.
+use crate::logic::agent_status::{Tone, Who, agent_status, ms};
 
 // ---- permissions (lib/agent-permissions.ts) --------------------------------------
 
@@ -687,7 +667,7 @@ fn agent_starts_row(s: &State, f: &Frame) -> Option<El> {
 
 fn tone_color(f: &Frame, t: Tone) -> Color {
     match t {
-        Tone::Working => status::working(),
+        Tone::Working | Tone::Job => status::working(),
         Tone::Warn => status::decide(),
         Tone::Idle => status::idle(),
         Tone::Muted => f.k.c.text_muted,
@@ -734,7 +714,10 @@ fn running_section(s: &State, f: &Frame) -> El {
     let mut out = Vec::new();
     for r in rows {
         let starting = r.status == "starting";
-        let (word, tone) = agent_status(&r.status);
+        // The live roster knows when a job began ("running a job · 12 min").
+        let since = s.data.agents.iter().find(|x| x.card.key == r.key).and_then(|x| ms(&x.card.status_since));
+        let st = agent_status(&Who::status(&r.status), since, now);
+        let (word, tone) = (st.text.as_str(), st.tone);
         let mut name_row = row()
             .gap(8.0)
             .center_y()
@@ -1108,14 +1091,6 @@ mod tests {
         assert_eq!(valid_max("101", 100), None);
         assert_eq!(valid_max("1.5", 100), None);
         assert_eq!(valid_max("", 100), None);
-    }
-
-    #[test]
-    fn statuses_read_the_same_everywhere() {
-        assert_eq!(agent_status("shell").0, "running a job");
-        assert_eq!(agent_status("busy"), ("working", Tone::Working));
-        assert_eq!(agent_status("waiting").1, Tone::Warn);
-        assert_eq!(agent_status("person").0, "");
     }
 
     #[test]

@@ -64,8 +64,8 @@ pub fn shrink_avatar(bytes: &[u8]) -> Result<String, String> {
 }
 
 /// An avatar's pixels (straight RGBA), for [`face`]; None when it isn't one
-/// this build can draw (WebP has no decoder here: it falls back to the
-/// initial).
+/// (the face falls back to the initial). PNG, JPEG and WebP (the React
+/// app saved WebP first) all decode.
 pub fn decode(avatar: &str) -> Option<(u32, u32, Vec<u8>)> {
     if !is_avatar(avatar) {
         return None;
@@ -146,5 +146,20 @@ mod tests {
         assert_eq!((w, h), (AVATAR_SIZE, AVATAR_SIZE));
         assert_eq!(px.len(), (w * h * 4) as usize);
         assert!(shrink_avatar(b"not a picture").is_err());
+    }
+
+    #[test]
+    fn a_webp_avatar_from_the_react_app_draws() {
+        let img = image::RgbaImage::from_fn(16, 12, |x, y| image::Rgba([x as u8 * 10, y as u8 * 10, 99, 255]));
+        let mut webp = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut webp), image::ImageFormat::WebP)
+            .unwrap();
+        let url = format!("data:image/webp;base64,{}", base64::engine::general_purpose::STANDARD.encode(&webp));
+        let (w, h, px) = decode(&url).expect("webp decodes");
+        assert_eq!((w, h), (16, 12));
+        assert_eq!(&px[..4], &[0, 0, 99, 255]);
+        // And a picked WebP shrinks like any other picture.
+        assert!(shrink_avatar(&webp).is_ok());
     }
 }

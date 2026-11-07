@@ -94,7 +94,6 @@ pub enum Act {
     TrustRepo(String),
     RemoveDevice(String),
     ResetDevice,
-    ClearDone(i64),
 }
 
 /// An open confirm: the alert dialog over Settings.
@@ -112,6 +111,9 @@ pub struct Confirm {
 pub struct Model {
     /// The open select's key.
     pub open_select: Option<String>,
+    /// The pane last shown: the gear and Cmd+, open Settings there again
+    /// (settings-menu.tsx keeps its section while the window lives).
+    pub last: String,
     pub confirm: Option<Confirm>,
     /// A confirm's failure, under its button, by its id.
     pub confirm_err: HashMap<String, String>,
@@ -147,6 +149,7 @@ pub fn now_ms() -> i64 {
 pub fn show(s: &mut State, id: &str) {
     s.settings.open_select = None;
     s.dialog = Some(Dialog::Settings(id.to_string()));
+    s.settings.last = pane(id).id.to_string();
     load(s);
 }
 
@@ -161,7 +164,6 @@ pub fn load(s: &mut State) {
         "people" => people::load(s),
         "agents" => agents::load(s),
         "desks" => desks::load(s),
-        "maintenance" => general::load_clear(s),
         "app" => general::load_app(s),
         _ => {}
     }
@@ -208,6 +210,12 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 
 pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is("app:dialog-opened") {
+        if let Some(Dialog::Settings(id)) = &mut s.dialog {
+            if id.is_empty() {
+                id.clone_from(&s.settings.last);
+            }
+            s.settings.last = pane(id).id.to_string();
+        }
         if open_pane(s).is_some() {
             start_ticker(s);
             load(s);
@@ -234,6 +242,9 @@ pub fn on_event(s: &mut State, ev: &Event) {
 pub fn scene(s: &mut State) {
     s.close_card();
     let p = std::env::var("IRORI_SCENE_PANE").unwrap_or_default();
+    // The Core's spaces open after the first frame; the People and
+    // Agents panes list them.
+    crate::spaces::wait_for_spaces(s);
     s.open_dialog(Dialog::Settings(pane(&p).id.to_string()));
 }
 
@@ -243,6 +254,10 @@ pub fn dialog(s: &State, f: &mut Frame) {
     let Some(Dialog::Settings(id)) = &s.dialog else { return };
     let here = pane(id);
     let k = f.k;
+    // The panes' menus (selects) go into the layer as they build; the
+    // panel goes in before them, so they draw over it and find their
+    // triggers to anchor to (built after them, they fell to the corner).
+    let at = f.layer.len();
     let mut nav = col()
         .key("settings-nav")
         .w(216.0)
@@ -342,7 +357,8 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .modal(true, |s: &mut State| close_dialog(s))
         .modal_click_outside(true);
     let panel = k.elevate(panel, &k.elevation.overlay);
-    f.layer.push(
+    f.layer.insert(
+        at,
         el().key("settings-scrim")
             .absolute(0.0, 0.0)
             .w_full()
@@ -350,7 +366,8 @@ pub fn dialog(s: &State, f: &mut Frame) {
             .fill(k.c.scrim)
             .a11y_hidden(),
     );
-    f.layer.push(
+    f.layer.insert(
+        at + 1,
         el().key("settings-layer")
             .absolute(0.0, 0.0)
             .w_full()
@@ -466,16 +483,6 @@ fn run_confirm(s: &mut State) {
                 fail(s, e)
             }
         }),
-        Act::ClearDone(secs) => s.spawn(
-            move |w| w.clear_done(secs, &[], ""),
-            move |s, r: Result<i64, String>| match r {
-                Ok(n) => {
-                    s.settings.general.cleared = Some(n);
-                    general::load_clear(s);
-                }
-                Err(e) => fail(s, e),
-            },
-        ),
     }
 }
 
@@ -525,7 +532,7 @@ pub fn hint(f: &Frame, s: &str) -> El {
 
 /// A muted paragraph (text-[12.5px] text-muted-foreground).
 pub fn muted_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.ui).color(f.k.c.text_muted).w_full().wrap()
+    text(s.to_string()).font(rune::tok::TextStyle::new(12.5, 400.0)).color(f.k.c.text_muted).w_full().wrap()
 }
 
 pub fn error_line(f: &Frame, s: &str) -> El {
@@ -679,6 +686,23 @@ pub fn boxed(f: &Frame, key: &str, rows: Vec<El>) -> El {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_opens_where_it_was_left() {
+        let mut s = State::default();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("notifications"), "first time: the first pane");
+        show(&mut s, "desks");
+        s.close_dialog();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("desks"));
+        s.close_dialog();
+        // A jump to a named pane goes there, and is remembered.
+        s.open_dialog(Dialog::Settings("app".into()));
+        s.close_dialog();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("app"));
+    }
 
     #[test]
     fn plain_line_hides_controls_and_collapses_space() {
