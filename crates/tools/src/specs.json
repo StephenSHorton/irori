@@ -1600,7 +1600,7 @@
   },
   {
     "name": "lease",
-    "description": "Take or renew an advisory lease so other agents know you are working on something: files in a repo (path:\u003crepoKey\u003e:\u003cglob\u003e) or a named resource (gpu/qwen, port:8799). Leases last ttl_minutes (default 30, max 240) and are released when you go away. Overlapping path leases in one repo conflict; steal takes an unexpired one, so only steal when the holder is clearly done or stuck. Check leases first. A desk/\u003cowner\u003e/\u003cname\u003e lease is the merge desk holder's, never stolen: pass pr and head_sha.",
+    "description": "Take or renew an advisory lease so other agents know you are working on something: files in a repo (path:\u003crepoKey\u003e:\u003cglob\u003e) or a named resource (gpu/qwen, port:8799). Leases last ttl_minutes (default 30, max 240) and are released when you go away. Overlapping path leases in one repo conflict; steal takes an unexpired one, so only steal when the holder is clearly done or stuck. Check leases first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1617,19 +1617,6 @@
         "steal": {
           "type": "boolean",
           "description": "Take the resource even though another agent's lease on it hasn't expired."
-        },
-        "pr": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Merge desk only: the PR this run is for, with a desk/\u003cowner\u003e/\u003cname\u003e lease."
-        },
-        "head_sha": {
-          "type": "string",
-          "description": "Merge desk only: the PR head sha the run checks."
-        },
-        "base_sha": {
-          "type": "string",
-          "description": "Merge desk only: the origin/main sha the run trial-squashed on (step 2)."
         }
       },
       "required": [

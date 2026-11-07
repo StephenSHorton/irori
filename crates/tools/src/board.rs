@@ -2648,6 +2648,9 @@ const LEASE_ARGS: &[(&str, Ty)] = &[
     ("resource", Ty::Str),
     ("ttl_minutes", Ty::OptInt),
     ("steal", Ty::Bool),
+    // Accepted and ignored (card #418): the old merge desk run passed them
+    // with a desk/<owner>/<name> lease. Kept so such a call reaches coord's
+    // refusal, which says to ask "Can I merge PR #N?" instead; not in the spec.
     ("pr", Ty::OptInt),
     ("head_sha", Ty::Str),
     ("base_sha", Ty::Str),
@@ -2700,29 +2703,6 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             return map_err(e);
         }
     };
-    let mut run_line = String::new();
-    if coord::is_desk(&l.resource)
-        && let Some(pr) = a.opt_int("pr")
-    {
-        let co = s.b.coord();
-        let rk = co
-            .desks()
-            .into_iter()
-            .map(|d| d.settings.repo_key)
-            .find(|k| {
-                coord::github_repo(k)
-                    .map(|r| coord::desk_resource(&r))
-                    .as_deref()
-                    == Some(l.resource.as_str())
-            });
-        match rk.map(|rk| {
-            co.record_desk_run(&c.sender.key, &rk, pr, a.str("head_sha"), a.str("base_sha"))
-        }) {
-            Some(Ok(())) => run_line = format!(" The desk shows PR #{pr} as Merging."),
-            Some(Err(e)) => return format!("Leased {}, but {}", l.resource, map_err(e)),
-            None => {}
-        }
-    }
     let n = s.roster();
     let mut out = format!(
         "Leased {} until {} ({}). Lease again to renew; release when done.",
@@ -2742,7 +2722,7 @@ pub(crate) fn lease(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             mirrored.join(", ")
         );
     }
-    out + &run_line
+    out
 }
 
 pub(crate) fn leases(s: &Inner, _: &Caller, raw: &[u8]) -> String {

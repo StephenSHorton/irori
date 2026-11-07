@@ -1536,6 +1536,25 @@ pub async fn call_mute(w: W<'_>, on: bool) -> R<()> {
     .await
 }
 
+/// Deafens or undeafens this device in the huddle: nothing plays here and
+/// the mic is off.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_deafen(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_deafen(on);
+        Ok(())
+    })
+    .await
+}
+
+/// The mic a huddle would open, by name ("" when it can't say).
+#[tauri::command]
+#[specta::specta]
+pub async fn call_mic(w: W<'_>) -> R<String> {
+    blocking(&w, |w| Ok(w.call_mic())).await
+}
+
 /// Stops a huddle ringing here.
 #[tauri::command]
 #[specta::specta]
@@ -1652,27 +1671,6 @@ pub async fn desk_list(w: W<'_>) -> R<Vec<DeskView>> {
 #[specta::specta]
 pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
     w.desk_set(settings)
-}
-
-/// The person holds a desk's PR, or with `cleared` lifts the hold.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_hold(w: W<'_>, repo_key: String, pr: i64, note: String, cleared: bool) -> R<()> {
-    w.desk_hold(&repo_key, pr, &note, cleared)
-}
-
-/// The person pauses or resumes a desk.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_pause(w: W<'_>, repo_key: String, paused: bool) -> R<()> {
-    w.desk_pause(&repo_key, paused)
-}
-
-/// The person okays an Outside PR at one head.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_ok(w: W<'_>, repo_key: String, pr: i64, head_sha: String) -> R<()> {
-    w.desk_ok(&repo_key, pr, &head_sha)
 }
 
 // ---- talk (card #389) -----------------------------------------------------
@@ -2047,6 +2045,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_join,
             call_leave,
             call_mute,
+            call_deafen,
+            call_mic,
             call_dismiss,
             talk_conversations,
             talk_posts,
@@ -2090,9 +2090,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_running,
             desk_list,
             desk_set,
-            desk_hold,
-            desk_pause,
-            desk_ok,
             meters_history,
             usage_limits,
         ])

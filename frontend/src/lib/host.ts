@@ -532,6 +532,8 @@ export const CallService = {
   Join: (callId: string) => done(commands.callJoin(callId)),
   Leave: () => done(commands.callLeave()),
   Mute: (on: boolean) => done(commands.callMute(on)),
+  Deafen: (on: boolean) => done(commands.callDeafen(on)),
+  Mic: () => call(commands.callMic()),
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
 }
 
@@ -572,12 +574,6 @@ export const TermService = {
 export const DeskService = {
   List: () => call(commands.deskList()),
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
-  Hold: (repoKey: string, pr: number, note: string, cleared: boolean) =>
-    done(commands.deskHold(repoKey, pr, note, cleared)),
-  Pause: (repoKey: string, paused: boolean) =>
-    done(commands.deskPause(repoKey, paused)),
-  Ok: (repoKey: string, pr: number, headSha: string) =>
-    done(commands.deskOk(repoKey, pr, headSha)),
 }
 
 // Hardware meters (card #599): the last two minutes of this computer's

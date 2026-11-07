@@ -1,8 +1,7 @@
 //! Card #521 (docs/design/merge-desk.md §5, §7): every GitHub repo an
 //! agent works in has a merge desk by itself. A `repo.seen` row for a
-//! GitHub repo gives it default settings with no `repo.desk` row: on, held
-//! by nobody (so nothing merges), polled from the device that saw the repo
-//! last. The person's row turns it off, and a repo with no GitHub remote
+//! GitHub repo gives it default settings with no `repo.desk` row: on,
+//! polled from the device that saw the repo last. The person's row turns it off, and a repo with no GitHub remote
 //! gets no desk.
 
 use crate::common;
@@ -83,9 +82,7 @@ fn a_github_repo_an_agent_works_in_has_a_desk_with_no_desk_row() {
     let d = e.c.desk(REPO_A).expect("a default desk");
     assert!(d.on());
     assert!(d.is_default());
-    assert_eq!(d.settings.holder, "", "nobody holds it, so nothing merges");
     assert_eq!(d.settings.poll_device, "dev-a");
-    assert_eq!(d.settings.merge_method, MERGE_SQUASH);
     assert_eq!(d.seen_on, "dev-a");
     // It takes the poller's snapshot like any desk.
     assert!(
@@ -155,16 +152,15 @@ fn a_blank_poll_device_follows_where_the_repo_was_seen_a_picked_one_stays() {
     let e = Env::new();
     let at = |m: u64| hlc_at(plus(fixed_now(), mins(m)));
     seen_here(&e, REPO_A);
-    // The person names a holder and leaves the poll device blank.
+    // The person saves the desk and leaves the poll device blank.
     let mut s = e.c.desk(REPO_A).unwrap().settings;
-    s.holder = ALICE.into();
     s.poll_device = String::new();
     e.c.set_desk(USER, s).unwrap();
     assert_eq!(e.c.desk(REPO_A).unwrap().settings.poll_device, "dev-a");
     e.remote("dev-b", 1, at(60), "irori", kinds::REPO_SEEN, &seen(REPO_A));
     let d = e.c.desk(REPO_A).unwrap();
     assert_eq!(d.settings.poll_device, "dev-b");
-    assert_eq!(d.settings.holder, ALICE);
+    assert!(!d.is_default(), "the person's row stays theirs");
     // A device the person picks is never moved.
     let mut s = d.settings;
     s.poll_device = "dev-a".into();
@@ -202,4 +198,58 @@ fn the_snapshot_keeps_the_persons_login() {
         e.c.record_desk_snapshot(REPO_A, vec![pr(1)], false, "someone-else")
             .unwrap()
     );
+}
+
+/// Card #625: a repo.seen desk counts until the Core says which repos are
+/// the person's. A desk on any other repo is stray: off, never snapshotted,
+/// until the Core counts it again.
+#[test]
+fn a_desk_off_the_persons_repos_is_stray_until_the_core_counts_it() {
+    let e = Env::new();
+    seen_here(&e, REPO_A);
+    let s = e.c.desk(REPO_A).unwrap().settings;
+    e.c.set_desk(USER, s).unwrap();
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(
+        d.on() && !d.stray,
+        "no word from the Core: every desk counts"
+    );
+
+    // The Core: none of the person's repos.
+    assert!(e.c.set_desk_repos(Vec::<String>::new()));
+    assert!(!e.c.set_desk_repos(Vec::<String>::new()), "no change");
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(d.stray && !d.on());
+    assert!(e.c.desks()[0].stray);
+    assert!(e.c.record_desk_prs(REPO_A, vec![pr(1)], false).is_err());
+    // A resync keeps what the Core said.
+    e.c.catch_up().unwrap();
+    assert!(e.c.desk(REPO_A).unwrap().stray);
+
+    // Now it is one of theirs, in any spelling.
+    assert!(e.c.set_desk_repos(["remote:github.com/A/B/".to_string()]));
+    let d = e.c.desk(REPO_A).unwrap();
+    assert!(d.on() && !d.stray);
+    assert!(e.c.record_desk_prs(REPO_A, vec![pr(1)], false).unwrap());
+    e.c.catch_up().unwrap();
+    assert!(e.c.desk(REPO_A).unwrap().on());
+}
+
+/// Card #625: a desk made after the Core's last pass (an agent just started
+/// in a new repo) counts until the Core judges it; then it is stray unless
+/// the repo is the person's.
+#[test]
+fn a_desk_the_core_has_not_judged_yet_counts() {
+    let e = Env::new();
+    let new = "remote:github.com/c/d";
+    seen_here(&e, REPO_A);
+    // The Core judged REPO_A's desk: not ours.
+    assert!(e.c.set_desk_repos(Vec::<String>::new()));
+    assert!(e.c.desk(REPO_A).unwrap().stray);
+    seen_here(&e, new);
+    let d = e.c.desk(new).unwrap();
+    assert!(d.on() && !d.stray, "not judged yet: it counts");
+    // Its next pass judges both.
+    assert!(!e.c.judge_desk_repos([REPO_A.to_string(), new.to_string()], Vec::<String>::new()));
+    assert!(e.c.desk(new).unwrap().stray);
 }

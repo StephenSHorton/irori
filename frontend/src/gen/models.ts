@@ -67,8 +67,6 @@ export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
 export type DeliveryMode = B.DeliveryMode
 export type DeskAuthorView = B.DeskAuthorView
-export type DeskCheckLine = B.DeskCheckLine
-export type DeskMark = B.DeskMark
 export type DeskPollView = B.DeskPollView
 export type DeskPrView = B.DeskPrView
 export type DeskSettings = B.DeskSettings
@@ -277,7 +275,7 @@ export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
 
 /** CallMineView with Go's zero values for every field left out. */
 export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
 }
 
 /** CallPeerView with Go's zero values for every field left out. */
@@ -467,17 +465,7 @@ export function Delivery(p: Partial<B.Delivery> = {}): B.Delivery {
 
 /** DeskAuthorView with Go's zero values for every field left out. */
 export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorView {
-  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "outside": false, ...p } as B.DeskAuthorView
-}
-
-/** DeskCheckLine with Go's zero values for every field left out. */
-export function DeskCheckLine(p: Partial<B.DeskCheckLine> = {}): B.DeskCheckLine {
-  return { "command": "", ...p } as B.DeskCheckLine
-}
-
-/** DeskMark with Go's zero values for every field left out. */
-export function DeskMark(p: Partial<B.DeskMark> = {}): B.DeskMark {
-  return { "pr": 0, "note": "", "headSha": "", "by": "", "at": "", ...p } as B.DeskMark
+  return { "pr": 0, "card": "", "cardRef": "", "agent": "", ...p } as B.DeskAuthorView
 }
 
 /** DeskPollView with Go's zero values for every field left out. */
@@ -502,7 +490,7 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
 /** DeviceCap with Go's zero values for every field left out. */

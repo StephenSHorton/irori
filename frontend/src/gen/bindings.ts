@@ -309,6 +309,13 @@ export const commands = {
 	callLeave: () => __TAURI_INVOKE<null>("call_leave"),
 	/**  Mutes or unmutes this device's mic in the huddle. */
 	callMute: (on: boolean) => __TAURI_INVOKE<null>("call_mute", { on }),
+	/**
+	 *  Deafens or undeafens this device in the huddle: nothing plays here and
+	 *  the mic is off.
+	 */
+	callDeafen: (on: boolean) => __TAURI_INVOKE<null>("call_deafen", { on }),
+	/**  The mic a huddle would open, by name ("" when it can't say). */
+	callMic: () => __TAURI_INVOKE<string>("call_mic"),
 	/**  Stops a huddle ringing here. */
 	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
@@ -411,12 +418,6 @@ export const commands = {
 	deskList: () => __TAURI_INVOKE<DeskView[]>("desk_list"),
 	/**  The person sets up or changes a repo's merge desk. */
 	deskSet: (settings: DeskSettings) => __TAURI_INVOKE<null>("desk_set", { settings }),
-	/**  The person holds a desk's PR, or with `cleared` lifts the hold. */
-	deskHold: (repoKey: string, pr: number, note: string, cleared: boolean) => __TAURI_INVOKE<null>("desk_hold", { repoKey, pr, note, cleared }),
-	/**  The person pauses or resumes a desk. */
-	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
-	/**  The person okays an Outside PR at one head. */
-	deskOk: (repoKey: string, pr: number, headSha: string) => __TAURI_INVOKE<null>("desk_ok", { repoKey, pr, headSha }),
 	/**
 	 *  This computer's recent hardware meter samples, oldest first (card #599);
 	 *  empty on the phone.
@@ -877,6 +878,8 @@ export type CallMineView = {
 	/**  When this device joined, Unix ms. */
 	joinedAtMs: number,
 	muted: boolean,
+	/**  Deafened: nothing plays here and the mic is off. */
+	deafened: boolean,
 	/**  This device's mic is above the speech gate. */
 	speaking: boolean,
 	/**  This device's name ("" when it has none). */
@@ -1644,7 +1647,7 @@ export type Delivery = {
 /**  inbox.DeliveryMode. */
 export type DeliveryMode = "wake" | "next_turn";
 
-/**  A PR's author card and trust (slice 2's read-only verdict). */
+/**  One of our PRs' author card (slice 2's read-only verdict). */
 export type DeskAuthorView = {
 	pr: number,
 	/**  The author card's id; "" none yet. */
@@ -1653,28 +1656,6 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
-	/**  An Outside PR: never checked or merged until the person's OK. */
-	outside: boolean,
-};
-
-/**  One check line (§7). */
-export type DeskCheckLine = {
-	command: string,
-	paths?: string[],
-	/**  An agent key; "" the holder. */
-	runner?: string,
-	/**  `mac`, `windows`, `linux`; "" any. */
-	device?: string,
-};
-
-/**  A hold, a pause, an OK or the holder's run: one PR (0 for a pause). */
-export type DeskMark = {
-	pr: number,
-	/**  A hold's note; an OK's or a run's head sha. */
-	note: string,
-	headSha: string,
-	by: string,
-	at: string,
 };
 
 /**  How polling stands, on the device that polls. */
@@ -1710,12 +1691,8 @@ export type DeskSettings = {
 	repoKey: string,
 	enabled: boolean,
 	takesPrs: boolean,
-	/**  The holder's agent key; "" unheld. */
-	holder?: string,
 	pollDevice?: string,
 	trusted?: string[],
-	checks?: DeskCheckLine[],
-	mergeMethod?: string,
 	perPrOk?: boolean,
 	by?: string,
 	at?: string,
@@ -1752,12 +1729,12 @@ export type DeskView = {
 	 */
 	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
-	holds: DeskMark[],
-	paused?: DeskMark | null,
-	oks: DeskMark[],
-	run?: DeskMark | null,
 	poll: DeskPollView,
-	/**  Each PR in the snapshot: its author card and whether it is Outside. */
+	/**
+	 *  Each PR in the snapshot: its author card. The snapshot holds only
+	 *  our PRs (the person's, their members' and their agents'; card
+	 *  #625): anyone else's is left out here.
+	 */
 	authors: DeskAuthorView[],
 };
 
