@@ -268,7 +268,6 @@ function LimitsSection({
                 {/* A whole number from 0 (starts no more there) to
                     l.maxCap, saved on Enter or blur (card #703). */}
                 <WholeNumberField
-                  key={d.cap}
                   label="At most"
                   ariaLabel={`At most on ${d.name}`}
                   value={d.cap}
@@ -278,11 +277,6 @@ function LimitsSection({
               </LimitRow>
             ))}
           </ul>
-          {error && (
-            <p className="text-[12.5px] text-destructive">
-              Could not save: {error}
-            </p>
-          )}
         </>
       ) : (
         <p className="text-[12.5px] text-muted-foreground">

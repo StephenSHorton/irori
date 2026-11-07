@@ -3,7 +3,7 @@
 // the maximum, for this person on all their devices. Agents use the limit
 // and can't change it.
 
-import { useId, useState } from "react"
+import { useId, useRef, useState } from "react"
 
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -19,13 +19,11 @@ export function AgentStartsControls({
   set,
 }: {
   starts: AgentStartsView
-  set: (on: boolean, max: number) => void
+  set: (on: boolean, max: number) => Promise<void>
 }) {
   return (
     <span className="flex items-center gap-3">
-      {/* A new saved maximum starts the field over from it. */}
       <WholeNumberField
-        key={s.max}
         label="At most"
         value={s.max}
         ceiling={s.ceiling}
@@ -43,8 +41,10 @@ export function AgentStartsControls({
 
 // WholeNumberField is a box for a whole number from 0 to ceiling, saved on
 // Enter or blur; anything else is refused with a message and, on leaving,
-// goes back to the saved value. Give it key={value} so a new saved value
-// starts it over. The per-device caps in Limits use it too (card #703).
+// goes back to the saved value. It shows the saved value except while it is
+// being edited or saved: once onSave settles it shows the saved value again,
+// the new one or, if the save was refused, the old one. The per-device caps
+// in Limits use it too (card #703).
 export function WholeNumberField({
   label,
   ariaLabel,
@@ -58,16 +58,31 @@ export function WholeNumberField({
   value: number
   ceiling: number
   disabled?: boolean
-  onSave: (n: number) => void
+  onSave: (n: number) => Promise<unknown>
 }) {
   const id = useId()
-  const [draft, setDraft] = useState(String(value))
-  const n = Number(draft)
+  // null: not being edited, so the box follows the saved value.
+  const [draft, setDraft] = useState<string | null>(null)
+  // The draft being saved now, so Enter then blur sends it once.
+  const saving = useRef<string | null>(null)
+  const shown = draft ?? String(value)
+  const n = Number(shown)
   const valid =
-    draft.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= ceiling
+    shown.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= ceiling
   const save = () => {
-    if (valid && n !== value) onSave(n)
-    else setDraft(String(value))
+    if (draft === null || draft === saving.current) return
+    if (!valid || n === value) {
+      setDraft(null)
+      return
+    }
+    const sent = draft
+    saving.current = sent
+    // Typing again while it saves keeps the new draft.
+    const done = () => {
+      if (saving.current === sent) saving.current = null
+      setDraft((d) => (d === sent ? null : d))
+    }
+    onSave(n).then(done, done)
   }
   return (
     <span className="flex flex-col items-end gap-1">
@@ -82,7 +97,7 @@ export function WholeNumberField({
           min={0}
           max={ceiling}
           step={1}
-          value={draft}
+          value={shown}
           disabled={disabled}
           aria-label={ariaLabel}
           aria-invalid={!valid}
