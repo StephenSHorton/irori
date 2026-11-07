@@ -16,11 +16,13 @@ fn with_boards() -> Harness {
             board_id: "a1b2c3".into(),
             name: "Hot Wheels micro racers Decomp".into(),
             tag: "hw".into(),
+            ..Default::default()
         },
         tools::PersonalBoard {
             board_id: "d4e5f6".into(),
             name: "Buzzing Cars".into(),
             tag: "bc".into(),
+            ..Default::default()
         },
     ]);
     h
@@ -162,6 +164,7 @@ fn a_board_tagged_personal_wins_over_the_default() {
         board_id: "a1b2c3".into(),
         name: "Personal stuff".into(),
         tag: "personal".into(),
+        ..Default::default()
     });
     let out = h.okj(
         &call_a(),
@@ -173,4 +176,22 @@ fn a_board_tagged_personal_wins_over_the_default() {
         &["on \"Personal stuff\" (personal), one of Personal's boards."],
     );
     assert_eq!(private_card(&h, "Stuff").board, "a1b2c3");
+}
+
+/// Card #690: a finished Personal board isn't listed and takes no card;
+/// a live one shows its mission.
+#[test]
+fn a_finished_personal_board_leaves_the_list() {
+    let h = with_boards();
+    {
+        let mut ps = h.b.personal.lock().unwrap();
+        ps[0].mission = "Decompile the racers".into();
+        ps[1].finished = true;
+    }
+    let out = h.ok(&call_a(), "board", "{}");
+    assert!(
+        out.contains("hw ") && out.contains("Decompile the racers"),
+        "{out}"
+    );
+    assert!(!out.contains("Buzzing Cars"), "{out}");
 }

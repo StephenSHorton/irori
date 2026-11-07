@@ -77,6 +77,10 @@ pub struct PersonalBoard {
     pub name: String,
     /// Its short handle; empty for the default, which has none.
     pub tag: String,
+    /// What it is for (card #690); empty with none.
+    pub mission: String,
+    /// Finished: it takes no cards and isn't listed (card #690).
+    pub finished: bool,
 }
 
 /// The id of Personal's default board, as Core names it
@@ -331,7 +335,7 @@ impl Inner {
             .unwrap_or_else(|| PersonalBoard {
                 board_id: PERSONAL_DEFAULT.into(),
                 name: "Personal".into(),
-                tag: String::new(),
+                ..Default::default()
             })
     }
 
@@ -378,7 +382,7 @@ impl Inner {
             .b
             .personal_boards()
             .into_iter()
-            .filter(|b| !b.is_default())
+            .filter(|b| !b.is_default() && !b.finished)
             .map(|b| b.tag)
             .collect();
         if tags.is_empty() {
@@ -490,8 +494,18 @@ impl Inner {
         let all = self.b.personal_boards();
         let boards: Vec<String> = all
             .iter()
-            .filter(|b| !b.is_default())
-            .map(|b| format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80))))
+            // A finished board takes no cards, so it isn't listed (card #690).
+            .filter(|b| !b.is_default() && !b.finished)
+            .map(|b| {
+                let mut line = format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80)));
+                if !b.mission.trim().is_empty() {
+                    line.push_str(&format!(
+                        " (for: {})",
+                        crate::format::q(&one_line(&b.mission, 120))
+                    ));
+                }
+                line
+            })
             .collect();
         if boards.is_empty() {
             return None;

@@ -516,6 +516,8 @@ impl tools::Backend for ToolsView {
                 board_id: b.board_id,
                 name: b.name,
                 tag: b.tag,
+                mission: b.mission,
+                finished: b.finished,
             })
             .collect()
     }

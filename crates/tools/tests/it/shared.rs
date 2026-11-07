@@ -1082,6 +1082,7 @@ fn personal_board(r: &Rig, id: &str, name: &str, tag: &str) {
         board_id: id.into(),
         name: name.into(),
         tag: tag.into(),
+        ..Default::default()
     });
 }
 
