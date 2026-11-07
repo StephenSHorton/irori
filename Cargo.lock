@@ -3918,11 +3918,18 @@ dependencies = [
 name = "irori-share"
 version = "0.0.0"
 dependencies = [
+ "block2",
  "bytes",
+ "dispatch2",
  "libc",
  "moq-net",
  "moq-video",
+ "objc2",
+ "objc2-app-kit",
  "objc2-core-graphics",
+ "objc2-core-media",
+ "objc2-foundation",
+ "objc2-screen-capture-kit",
  "thiserror 2.0.21",
  "tokio",
  "windows-sys 0.61.2",
