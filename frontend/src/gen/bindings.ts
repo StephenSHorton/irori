@@ -409,6 +409,13 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**
+	 *  The themes new agents' names come from (card #702), each with its
+	 *  switch.
+	 */
+	namesThemes: () => __TAURI_INVOKE<NamesThemesView>("names_themes"),
+	/**  The person turns a theme on or off: the app only, never a tool. */
+	namesThemeSet: (id: string, on: boolean) => __TAURI_INVOKE<NamesThemesView>("names_theme_set", { id, on }),
 	/**  "My agents may start agents on my cards" and its maximum (card #575). */
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
@@ -2243,6 +2250,29 @@ export type MetersSample = {
 
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
+
+/**  One names theme in Settings › Agents (card #702), with its switch. */
+export type NamesThemeChoice = {
+	id: string,
+	label: string,
+	/**
+	 *  New names may come from it: every theme is on until the person
+	 *  turns it off.
+	 */
+	on: boolean,
+	/**  How many words it has. */
+	words: number,
+	/**  A few of them, for the hint. */
+	sample: string[],
+};
+
+/**
+ *  The themes new agents' names come from (card #702): the person's, on all
+ *  their devices, set here and never by a tool.
+ */
+export type NamesThemesView = {
+	themes: NamesThemeChoice[],
+};
 
 /**  What the New card form sends. */
 export type NewCardInput = {
