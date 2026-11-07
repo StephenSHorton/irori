@@ -195,12 +195,17 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
             )
             .scroll(ScrollSpec { stick_bottom: false }),
     );
+    let mut over = Vec::new();
     if for_you && m.missed.is_empty() {
         let mut o = reply_opts(&from, false, m.busy);
         o.mic = Some(crate::call::mic_button(s, f, "inbox-msg-reply", |s: &mut State| {
             &mut s.inbox.message.reply.edit
         }));
+        let n = f.layer.len();
         body = body.child(txt::composer(s, f, "inbox-msg-reply", reply_box, reply_box_mut, &o));
+        // The pickers go above the dialog: an overlay finds its anchor
+        // only in what was laid out before it.
+        over = f.layer.drain(n..).collect();
     }
     if !m.missed.is_empty() {
         body = body.child(line(k, "inbox-msg-missed", &m.missed, true));
@@ -251,4 +256,5 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         .child(body)
         .on_close(|s: &mut State| s.close_dialog())
         .build(k, f.layer);
+    f.layer.extend(over);
 }

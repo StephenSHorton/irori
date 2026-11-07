@@ -285,6 +285,27 @@ pub fn scene(s: &mut State) {
     s.go(Route::Notifications);
     s.inbox.filter = Filter::All;
     load(s);
+    // IRORI_SCENE_MESSAGE=1: the Message dialog over it, on a stand-in
+    // message from an agent (its reply box is the shared composer).
+    if std::env::var("IRORI_SCENE_MESSAGE").is_ok_and(|v| !v.is_empty()) {
+        let mut d = Delivery {
+            id: "scene-msg".into(),
+            to: "user:you".into(),
+            state: irori_window::rune_inbox::st::DELIVERED.into(),
+            ..Delivery::default()
+        };
+        d.message.from.key = "scene/oak".into();
+        d.message.from.name = "oak".into();
+        d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+        s.inbox.message = Message {
+            id: d.id.clone(),
+            d: Some(Ok(d)),
+            reply: focused_box(),
+            ..Message::default()
+        };
+        // Set directly: opening it the usual way would read it back.
+        s.dialog = Some(Dialog::Message { id: "scene-msg".into() });
+    }
 }
 
 /// The Held list over the Notifications page (`--scene held`).
