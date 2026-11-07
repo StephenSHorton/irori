@@ -22,17 +22,23 @@ import {
   suggestTag,
   validTag,
   MaxBoardTag,
+  useBoards,
+  useInvite,
   type BoardSettings,
+  type BoardSummary,
   type InviteStatus,
 } from "@/lib/boards"
 import { copyText } from "@/lib/clipboard"
 import { devices, type HomeServerView } from "@/lib/devices"
 import { plainLine, shortRepo } from "@/lib/irori"
+import { go } from "@/lib/nav"
+import { AllSpaces, Personal, spacesOf, withLine } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
-// The pieces of the Boards pages (card #96; design/v0.5-shared-boards.md
-// §8): the New board dialog (make one, or join with an invite), an open invite either side, how an
+// The pieces of the spaces' pages (card #96; design/v0.5-shared-boards.md
+// §8): New or join a space (make one, or join with an invite), an open
+// invite either side, how an
 // invite works, and a board's settings (members, what reaches my agents,
 // what my agents may do, reviewers).
 
@@ -96,7 +102,7 @@ export function NewBoard({
   onMade,
 }: {
   taken: string[]
-  onMade: () => Promise<void>
+  onMade: (b: BoardSummary) => Promise<void>
 }) {
   const [name, setName] = useState("")
   const [tag, setTag] = useState("")
@@ -110,11 +116,11 @@ export function NewBoard({
     setBusy(true)
     setError(null)
     try {
-      await actions.create(name, t)
+      const made = await actions.create(name, t)
       setName("")
       setTag("")
       setTypedTag(false)
-      await onMade()
+      await onMade(made)
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -172,36 +178,33 @@ export function NewBoard({
   )
 }
 
-// NewBoardDialog is the header's New board on Boards (card #126): make a
-// board, or join one with an invite someone sent, as two tabs. Joining
-// closes it; the invite then runs over the Boards list. join is false
-// while an invite is open: one at a time.
+// NewBoardDialog is New or join a space (card #126), opened from the
+// sidebar's space picker or the palette (card #689): make a space, or join
+// one with an invite someone sent, as two tabs. A space you make opens on
+// its own page, where you invite people. While an invite is open, either
+// side, it shows over the tabs and Join goes (one invite at a time), so
+// the joiner reads their five words here and Make a space still works.
+// Closing the dialog leaves the invite running; opening it again shows it.
 export function NewBoardDialog({
   open,
   onClose,
-  taken,
-  onMade,
-  join,
-  onJoined,
 }: {
   open: boolean
   onClose: () => void
-  taken: string[]
-  onMade: () => Promise<void>
-  join: boolean
-  onJoined: (s: InviteStatus) => void
 }) {
+  const { boards: all, reload } = useBoards()
+  const { invite, setInvite } = useInvite(open)
+  const inviting = !!invite && invite.state !== ""
   const [tab, setTab] = useState<"make" | "join">("make")
-  const t = join ? tab : "make"
+  const t = inviting ? "make" : tab
+  const close = () => {
+    setTab("make")
+    // Opening again reads the invite afresh, not this one's last state.
+    setInvite(null)
+    onClose()
+  }
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (o) return
-        setTab("make")
-        onClose()
-      }}
-    >
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -213,7 +216,18 @@ export function NewBoardDialog({
               : "Paste the invite link someone sent you."}
           </DialogDescription>
         </DialogHeader>
-        {join && (
+        {inviting && (
+          <div className="rounded-lg border border-border p-3">
+            <InvitePanel
+              s={invite}
+              onClose={() => {
+                setInvite(null)
+                void reload()
+              }}
+            />
+          </div>
+        )}
+        {!inviting && (
           <div
             className="flex gap-1"
             role="tablist"
@@ -241,23 +255,68 @@ export function NewBoardDialog({
         )}
         {t === "make" ? (
           <NewBoard
-            taken={taken}
-            onMade={async () => {
-              await onMade()
-              onClose()
+            taken={all.map((b) => b.tag)}
+            onMade={async (b) => {
+              await reload()
+              close()
+              go({ kind: "board", id: b.boardId })
             }}
           />
         ) : (
-          <JoinInvite
-            onJoined={(s) => {
-              onJoined(s)
-              setTab("make")
-              onClose()
-            }}
-          />
+          <JoinInvite onJoined={setInvite} />
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+// PickSpace is Boards with All spaces picked (card #689): boards are never
+// shown across spaces, so it asks for one. A pick shows that space's
+// boards (App's pickSpace follows it there).
+export function PickSpace({
+  boards,
+  onPick,
+}: {
+  boards: BoardSummary[]
+  onPick: (id: string) => void
+}) {
+  const spaces = spacesOf(boards).filter((s) => s.id !== AllSpaces)
+  return (
+    <section className="grid max-w-xl gap-3" aria-label="Pick a space">
+      <p className="px-1 text-[13px] text-muted-foreground">
+        Boards belong to a space. Pick one to see its boards.
+      </p>
+      <ul className="grid gap-1.5">
+        {spaces.map((s) => (
+          <li key={s.id}>
+            <button
+              type="button"
+              onClick={() => onPick(s.id)}
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 text-left text-sm glass-panel transition-colors hover:border-primary/60 focus-visible:outline-2 focus-visible:outline-primary"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium text-ink">
+                  {plainLine(s.name)}
+                </span>
+                {s.id === Personal ? (
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · you and your agents
+                  </span>
+                ) : (
+                  s.others.length > 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {withLine(s.others.map(plainLine))}
+                    </span>
+                  )
+                )}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

@@ -46,7 +46,7 @@ import { useCommands } from "@/lib/commands"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
-import { go, type Section } from "@/lib/nav"
+import { boardsFor, go, onBoards, type Section } from "@/lib/nav"
 import { boardsInSpace } from "@/lib/spaces"
 import { useNarrow } from "@/lib/media"
 import { previewFlag } from "@/lib/preview"
@@ -83,7 +83,6 @@ export function AppSidebar({
   desks = 0,
   unread = 0,
   section,
-  boardsNeedYou,
   boards,
   cards,
   openCard,
@@ -92,6 +91,7 @@ export function AppSidebar({
   onDrawer,
   space,
   onSpace,
+  onNewSpace,
   me,
 }: {
   roster: Roster
@@ -106,8 +106,6 @@ export function AppSidebar({
   unread?: number
   // Where the window is; null on a card's page.
   section: Section | null
-  // Cards on boards waiting on the person, the red count by Boards.
-  boardsNeedYou: number
   boards: BoardSummary[]
   // Every live card: the pinned ones are listed.
   cards: CardSummary[]
@@ -120,6 +118,8 @@ export function AppSidebar({
   // The space Home, Talk and Boards show (card #393), and picking one.
   space: string
   onSpace: (id: string) => void
+  // New or join a space, from the picker (card #689).
+  onNewSpace: () => void
   // You, as your profile has you: the row that opens it.
   me: { name: string; color: string; avatar: string }
 }) {
@@ -370,6 +370,7 @@ export function AppSidebar({
             boards={boards}
             space={space}
             onSpace={onSpace}
+            onNewSpace={onNewSpace}
             folded={folded}
           />
         </div>
@@ -411,15 +412,14 @@ export function AppSidebar({
             current={!openCard && section?.kind === "notes"}
             onClick={() => go({ kind: "notes" })}
           />
+          {/* Boards (card #689): the picked space's only, never across
+              spaces; with All spaces it asks for one. */}
           <NavItem
             icon={LayoutGridIcon}
-            label="Spaces"
+            label="Boards"
             folded={folded}
-            current={here({ kind: "boards" })}
-            count={boardsNeedYou}
-            countTone="destructive"
-            countTitle="Cards in your spaces waiting on you"
-            onClick={() => go({ kind: "boards" })}
+            current={!openCard && !!section && onBoards(section)}
+            onClick={() => go(boardsFor(space))}
           />
           <NavItem
             icon={BellIcon}
