@@ -63,10 +63,11 @@ const PAGES: Array<[name: string, query: string]> = [
   ["channel", "#talk/sample-ch-suzuri"],
   ["dm", "#talk/sample-dm-heron"],
   ["thread", "?thread=sample-thread-1"],
-  ["boards", "?boards"],
+  ["new-space", "?boards"],
+  ["boards", "#boards"],
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
-  ["personal", "?space=personal#boards"],
+  ["personal", "#board/personal"],
   // Board descriptions and Close board (card #690): descriptions on tiles
   // and over a board, Close board with open cards, a closed board and the
   // Closed boards folds.
@@ -81,7 +82,7 @@ const PAGES: Array<[name: string, query: string]> = [
     "?description=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net",
   ],
   ["board-proto", "#board/sample-board-mlg/sample-board-mlg-proto"],
-  ["personal-closed", "?space=personal&closed#boards"],
+  ["personal-closed", "?closed#board/personal"],
   ["board-new", "?addboard#board/sample-board-mlg"],
   // Freshness lines (card #580): a space's Home, Personal's, every log a few
   // days behind, and the space menu open with each one's.

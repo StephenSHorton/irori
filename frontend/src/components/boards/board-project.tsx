@@ -398,7 +398,9 @@ export function BoardTop({
                   : ""}
               </span>
               <span className="text-muted-foreground">
-                Read-only: reopen it to add or move cards here.
+                {x.mayClose
+                  ? "Read-only: reopen it to add or move cards here."
+                  : "Read-only: its maker or a space owner can reopen it."}
               </span>
               {x.mayClose && (
                 <Button

@@ -364,10 +364,9 @@ export function sampleSetClosed(
     throw new Error(
       `coord: not allowed: only the person who made board "${x.name}" or an owner of the space may ${closed ? "close" : "reopen"} it`
     )
-  if (!!x.closed === closed)
-    throw new Error(
-      `coord: bad state: board "${x.name}" is already ${closed ? "closed" : "open"}`
-    )
+  // As in core: closing a closed board or reopening an open one does
+  // nothing.
+  if (!!x.closed === closed) return
   if (closed) sampleClearOpen(personal ? "" : space, x, all, open, moveTo)
   x.closed = closed
   x.closedAt = closed ? new Date().toISOString() : undefined
@@ -980,7 +979,7 @@ function boardsTouched() {
 }
 
 // The boards list is one list for the whole window (card #233): the
-// sidebar's Pinned boards, the Boards page and every other reader share
+// sidebar's Pinned boards, the space picker and every other reader share
 // it, so they can never disagree. It loads when its first reader mounts,
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.

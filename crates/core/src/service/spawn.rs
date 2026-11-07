@@ -745,11 +745,12 @@ pub(crate) struct BriefBoard {
 impl BriefBoard {
     /// The board a card is on in `boards` (first board first): `board`,
     /// or the first board for `""` or one not found. None when it has no
-    /// description.
+    /// description. `space` is the shared space's own name (its first
+    /// board may be named otherwise); empty in Personal.
     pub(crate) fn pick(
         boards: &[super::spaces::SpaceBoard],
         board: &str,
-        shared: bool,
+        space: &str,
     ) -> Option<BriefBoard> {
         let b = boards
             .iter()
@@ -761,11 +762,7 @@ impl BriefBoard {
         Some(BriefBoard {
             name: b.name.clone(),
             tag: b.tag.clone(),
-            space: if shared {
-                boards[0].name.clone()
-            } else {
-                String::new()
-            },
+            space: space.to_string(),
             description: b.description.clone(),
             description_by: b.description_by.clone(),
         })
@@ -2111,12 +2108,11 @@ impl Services {
     /// The board card's brief names (card #690): board `board` of space
     /// `space` (`""` for Personal), or its first board.
     fn brief_board(&self, space: &str, board: &str) -> Option<BriefBoard> {
-        let boards = if space.is_empty() {
-            self.personal_boards()
-        } else {
-            self.space_boards(space)
-        };
-        BriefBoard::pick(&boards.ok()?, board, !space.is_empty())
+        if space.is_empty() {
+            return BriefBoard::pick(&self.personal_boards().ok()?, board, "");
+        }
+        let name = self.board(space).ok()?.verifier.membership().name.clone();
+        BriefBoard::pick(&self.space_boards(space).ok()?, board, &name)
     }
 
     /// [`Self::start_here`] for a card of `log`: the private board's or a
@@ -3561,22 +3557,25 @@ mod tests {
             description: description.into(),
             ..SpaceBoard::default()
         };
-        let boards = [sb("sp1", "Mesh", "first"), sb("bd2", "Net", "second")];
-        let got = BriefBoard::pick(&boards, "bd2", true).unwrap();
+        // The first board is renamed "Tasks": the brief names the space.
+        let boards = [sb("sp1", "Tasks", "first"), sb("bd2", "Net", "second")];
+        let got = BriefBoard::pick(&boards, "bd2", "Mesh").unwrap();
         assert_eq!((got.name.as_str(), got.space.as_str()), ("Net", "Mesh"));
         assert_eq!(got.description, "second");
         assert_eq!(
-            BriefBoard::pick(&boards, "", true).unwrap().description,
+            BriefBoard::pick(&boards, "", "Mesh").unwrap().description,
             "first"
         );
         assert_eq!(
-            BriefBoard::pick(&boards, "gone", true).unwrap().description,
+            BriefBoard::pick(&boards, "gone", "Mesh")
+                .unwrap()
+                .description,
             "first"
         );
-        assert_eq!(BriefBoard::pick(&boards, "bd2", false).unwrap().space, "");
+        assert_eq!(BriefBoard::pick(&boards, "bd2", "").unwrap().space, "");
         let bare = [sb("sp1", "Mesh", ""), sb("bd2", "Net", "")];
-        assert!(BriefBoard::pick(&bare, "bd2", true).is_none());
-        assert!(BriefBoard::pick(&[], "", true).is_none());
+        assert!(BriefBoard::pick(&bare, "bd2", "Mesh").is_none());
+        assert!(BriefBoard::pick(&[], "", "Mesh").is_none());
     }
 
     #[test]

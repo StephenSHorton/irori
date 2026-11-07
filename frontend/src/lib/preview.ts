@@ -6,7 +6,7 @@
 //                   devices, people, agents, desks,
 //                   maintenance or app
 //   ?devices        opens Settings at Devices and connections
-//   ?boards         opens the Boards dialog
+//   ?boards         opens New or join a space (card #689)
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there
 //   ?move=<card>    opens Move to another board there

@@ -208,7 +208,9 @@ describe("closing a board on the sample (card #690)", () => {
       await boards.reopen(space, id)
       expect((await find(id))?.closed).toBe(false)
       expect((await find(id))?.description).toBe("Try closing")
-      await expect(boards.reopen(space, id)).rejects.toThrow("already open")
+      // Reopening an open board does nothing, as in core.
+      await boards.reopen(space, id)
+      expect((await find(id))?.closed).toBe(false)
     } finally {
       await cards.remove(made.task.id)
       await boards.deleteFromSpace(space, id)

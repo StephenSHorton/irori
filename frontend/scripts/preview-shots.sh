@@ -76,7 +76,7 @@ shot 18-page-unknown "#card/sample-card-gone"                 # a card that isn'
 shot 19-page-ask "?open=board:task:sample-ask-2"             # an ask an agent took: its status line, Close, the thread
 shot 20-page-ask-open "?open=board:task:sample-ask-1"        # an ask nobody has taken yet
 shot 21-grid-done "?filter=done"                            # the Done tab: completed, canceled, failed, a closed ask
-shot 22-boards "?boards"                                     # the Boards dialog: two boards of your own, New board
+shot 22-boards "?boards"                                     # New or join a space (card #689), the space picker's dialog
 shot 23-grid-board "?filter=board:sample-board-mlg"          # the grid on a board's chip: mlg#1, mlg#2
 shot 24-page-shared "?open=board:task:sample-board-1"        # a shared card: mlg#1, Visible to, Withdraw
 shot 25-share-preview "?share=sample-card-10#card/sample-card-10" # Share to board: the scrubbed preview
@@ -91,6 +91,6 @@ shot 33-board-description "#board/sample-board-mlg/sample-board-mlg-net" # a boa
 shot 34-board-no-description "#board/sample-board-mlg/sample-board-mlg-art" # no description: nothing shown
 shot 35-board-close "?close=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # Close board with open cards: move or cancel
 shot 36-board-closed "#board/sample-board-mlg/sample-board-mlg-proto" # a closed board: read-only, Reopen
-shot 37-personal-closed "?space=personal&closed#boards"      # Personal's boards and its Closed boards fold
+shot 37-personal-closed "?closed#board/personal"             # Personal's boards and its Closed boards fold
 shot 38-board-new "?addboard#board/sample-board-mlg"         # New board with its optional description
 shot 39-board-edit-description "?description=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # Edit description

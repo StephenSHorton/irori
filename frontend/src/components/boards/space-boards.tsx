@@ -48,7 +48,7 @@ import {
 } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 
-import { boardSegs, RecentCards, StateBar } from "./boards-page"
+import { boardSegs, RecentCards, StateBar } from "./board-tiles"
 
 // cardsOnBoard is the space's cards on one of its boards, by the board's
 // id: a card with no inner board (or the space's own id) is on the first
@@ -176,17 +176,10 @@ export function SpaceBoards({
   )
 }
 
-// PersonalBoards is Personal's page: its boards, private to you. Nobody can
-// be invited, so it has no people or settings of its own. Under All spaces
-// (titled) it sits over the shared spaces, headed "Personal".
-export function PersonalBoards({
-  cards,
-  titled,
-}: {
-  cards: CardSummary[]
-  now: Date
-  titled?: boolean
-}) {
+// PersonalBoards is Personal's page ("#board/personal", card #689): its
+// boards, private to you. Nobody can be invited, so it has no people or
+// settings of its own.
+export function PersonalBoards({ cards }: { cards: CardSummary[]; now: Date }) {
   const { boards: list, error, reload } = usePersonalBoards()
   const tile = (x: SpaceBoard, i: number) => (
     <BoardTile
@@ -198,18 +191,13 @@ export function PersonalBoards({
     />
   )
   const closed = closedBoards(list)
-  const intro = (
-    <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
-      Personal is you, your devices and your agents. Nobody else sees it.
-    </p>
-  )
   return (
     <section className="grid gap-2" aria-label="Boards in Personal">
-      {!titled && intro}
+      <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
+        Personal is you, your devices and your agents. Nobody else sees it.
+      </p>
       <div className="flex items-center gap-2">
-        <h2 className="px-1 text-base font-semibold">
-          {titled ? "Personal" : "Boards"}
-        </h2>
+        <h2 className="px-1 text-base font-semibold">Boards</h2>
         <AddBoardButton
           onAdd={async (name, tag, description) => {
             await actions.addToPersonal(name, tag, description)
@@ -217,7 +205,6 @@ export function PersonalBoards({
           }}
         />
       </div>
-      {titled && intro}
       {error && <p className="text-xs text-destructive">{plainLine(error)}</p>}
       <ul className={tiles}>{openBoards(list).map(tile)}</ul>
       <ClosedFold count={closed.length}>
@@ -304,13 +291,13 @@ export function PersonalHeaderBar({ list }: { list: string }) {
   // board now, so that is where the page goes.
   const gone = all.length > 0 && !x
   useEffect(() => {
-    if (gone) go({ kind: "board", id: Personal })
+    if (gone) go({ kind: "board", id: Personal, board: Personal })
   }, [gone])
   if (!x) return <h1 className="text-lg font-semibold text-ink">Personal</h1>
   return (
     <ListHeader
       space="Personal"
-      onBack={() => go({ kind: "boards" })}
+      onBack={() => go({ kind: "board", id: Personal })}
       list={x}
       save={async (name) => {
         await actions.renameInPersonal(x.boardId, name)
@@ -324,7 +311,7 @@ export function PersonalHeaderBar({ list }: { list: string }) {
               run: async () => {
                 await actions.deleteFromPersonal(x.boardId)
                 await reload()
-                go({ kind: "boards" })
+                go({ kind: "board", id: Personal })
               },
             }
       }
