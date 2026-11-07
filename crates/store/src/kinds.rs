@@ -296,6 +296,15 @@ kinds! {
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
+    /// `{boardId, mission, doneWhen, by, at}`: a board's mission and done
+    /// when (card #690); the newest row stands. Stored unread by an Irori at
+    /// hello `tolerant` 1, so a space writes it only once every member
+    /// device is there.
+    SPACE_BOARD_MISSION = "space.board.mission" => Replicated, Accepts;
+    /// `{boardId, finished, by, at}`: a board finished (read-only, out of
+    /// the lists) or reopened (`finished: false`) (card #690); the newest
+    /// valid row stands. Gated like `space.board.mission`.
+    SPACE_BOARD_FINISHED = "space.board.finished" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
     /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,

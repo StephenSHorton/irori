@@ -34,14 +34,37 @@ pub const PERSONAL_BOARD: &str = "personal";
 /// Personal's default board, before any rename.
 const PERSONAL_NAME: &str = "Personal";
 
+/// Longest mission, and longest done-when, in characters (card #690).
+pub const MAX_BOARD_MISSION: usize = 280;
+
 /// One board of a space.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpaceBoard {
     /// The board's id: the space's own id for its first board.
     pub board_id: String,
     pub name: String,
     pub tag: String,
+    /// What the board is for (card #690); empty until someone writes one.
+    #[serde(default)]
+    pub mission: String,
+    /// How to tell its project is over; optional.
+    #[serde(default)]
+    pub done_when: String,
+    /// Who wrote the mission, from the row's place (never its `by`):
+    /// `person:<id>` in a space, `user` in Personal; empty with none.
+    #[serde(default)]
+    pub mission_by: String,
+    /// Finished: read-only and out of the lists (card #690).
+    #[serde(default)]
+    pub finished: bool,
+    /// When it was finished (the finish row's `at`), while it is.
+    #[serde(default)]
+    pub finished_at: String,
+    /// Whether this person may finish or reopen it now: its maker or a
+    /// space owner, anyone in Personal; never a first board.
+    #[serde(default)]
+    pub may_finish: bool,
 }
 
 /// `space.board.created` / `space.board.renamed`. A delete is a rename with
@@ -56,8 +79,94 @@ pub struct SpaceBoardRow {
     pub tag: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
+    /// A new board's mission (card #690), on its create row only: every
+    /// decoder ignores a field it doesn't know, so one row makes a board.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mission: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub done_when: String,
     pub by: String,
     pub at: String,
+}
+
+/// `space.board.mission` (card #690): a board's mission and done-when,
+/// both replaced (empty clears).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BoardMissionRow {
+    pub board_id: String,
+    pub mission: String,
+    pub done_when: String,
+    pub by: String,
+    pub at: String,
+}
+
+/// `space.board.finished` (card #690): finished, or reopened with
+/// `finished: false`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BoardFinishedRow {
+    pub board_id: String,
+    pub finished: bool,
+    pub by: String,
+    pub at: String,
+}
+
+/// Who wrote what, at a row's place, for the board fold (card #690).
+pub(crate) struct Rules<'a> {
+    /// The writer was an active member there: deletes and missions.
+    pub(crate) member: MayDelete<'a>,
+    /// The writer was a space owner there: finishes any board.
+    pub(crate) owner: MayDelete<'a>,
+    /// A device's person key (`person:<id>`; `user` in Personal).
+    pub(crate) person: &'a dyn Fn(&str) -> Option<String>,
+}
+
+/// Runs `f` with Personal's rules: every row in the private log is the
+/// person's.
+pub(crate) fn with_personal_rules<R>(f: impl FnOnce(&Rules) -> R) -> R {
+    f(&Rules {
+        member: &|_| true,
+        owner: &|_| true,
+        person: &|_| Some("user".to_string()),
+    })
+}
+
+/// Runs `f` with a space's rules, read from its verifier at each row's
+/// place.
+pub(crate) fn with_space_rules<R>(
+    v: &std::sync::Arc<irori_identity::board::BoardVerifier>,
+    f: impl FnOnce(&Rules) -> R,
+) -> R {
+    let member = member_wrote(v);
+    let owner = {
+        let v = v.clone();
+        move |at: &coord::RowPos| {
+            let Some(person) = v.person_of(&at.dev) else {
+                return false;
+            };
+            v.membership().owner_at(
+                &person,
+                &irori_identity::membership::RowAt {
+                    hlc: at.hlc,
+                    device: at.dev.clone(),
+                    seq: at.seq,
+                },
+            )
+        }
+    };
+    let person = {
+        let v = v.clone();
+        move |dev: &str| {
+            v.person_of(dev)
+                .map(|p| format!("{}{p}", kinds::PERSON_ACTOR_PREFIX))
+        }
+    };
+    f(&Rules {
+        member: &member,
+        owner: &owner,
+        person: &person,
+    })
 }
 
 /// One `space.board.*` row, with who wrote it and where it sits.
@@ -132,6 +241,7 @@ pub fn fold_space_boards(
                         board_id: r.board_id,
                         name: r.name,
                         tag: r.tag,
+                        ..Default::default()
                     },
                 );
             }
@@ -153,6 +263,126 @@ pub fn fold_space_boards(
     out
 }
 
+/// Each board's maker: the person whose device wrote its first create.
+fn makers(rows: &[&BoardRowAt], rules: &Rules) -> BTreeMap<String, Option<String>> {
+    let mut out = BTreeMap::new();
+    for row in rows.iter().filter(|r| r.kind == kinds::SPACE_BOARD_CREATED) {
+        let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(&row.payload) else {
+            continue;
+        };
+        out.entry(r.board_id)
+            .or_insert_with(|| (rules.person)(&row.at.dev));
+    }
+    out
+}
+
+/// The finished boards, each with its finish row's `at` (card #690): per
+/// board the newest valid `space.board.finished` row stands, so a reopen
+/// after a finish wins and the other way round. Valid: from the board's
+/// maker while a member, or a space owner, at the row's place; never the
+/// first board (`own`).
+fn finishes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, String> {
+    let mut sorted: Vec<&BoardRowAt> = rows.iter().collect();
+    sorted.sort_by(|a, b| a.at.cmp(&b.at));
+    let made = makers(&sorted, rules);
+    let mut state: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for row in sorted
+        .iter()
+        .filter(|r| r.kind == kinds::SPACE_BOARD_FINISHED)
+    {
+        let Ok(r) = serde_json::from_slice::<BoardFinishedRow>(&row.payload) else {
+            continue;
+        };
+        if r.board_id.is_empty() || r.board_id == own {
+            continue;
+        }
+        let Some(maker) = made.get(&r.board_id) else {
+            continue;
+        };
+        let by = (rules.person)(&row.at.dev);
+        let may = (rules.owner)(&row.at)
+            || (by.is_some() && by == *maker && (rules.member)(&row.at));
+        if may {
+            state.insert(r.board_id, r.finished.then_some(r.at));
+        }
+    }
+    state
+        .into_iter()
+        .filter_map(|(id, at)| at.map(|at| (id, at)))
+        .collect()
+}
+
+/// Folds what makes a board a project (card #690) onto `boards` (from
+/// [`fold_space_boards`], the first board first): its mission, from its
+/// create row then each newer `space.board.mission` row from a member, and
+/// whether it is finished. `me` is who may finish now: `None` in Personal
+/// (the person may), else their person key and whether they own the
+/// space.
+pub(crate) fn fold_projects(
+    boards: &mut [SpaceBoard],
+    rows: &[BoardRowAt],
+    rules: &Rules,
+    me: Option<(&str, bool)>,
+) {
+    let Some(own) = boards.first().map(|b| b.board_id.clone()) else {
+        return;
+    };
+    let mut sorted: Vec<&BoardRowAt> = rows.iter().collect();
+    sorted.sort_by(|a, b| a.at.cmp(&b.at));
+    let made = makers(&sorted, rules);
+    let done = finishes(&own, rows, rules);
+    let mut seen_create: std::collections::BTreeSet<String> = Default::default();
+    for row in sorted {
+        let (id, mission, done_when) = match row.kind.as_str() {
+            kinds::SPACE_BOARD_CREATED => {
+                let Ok(r) = serde_json::from_slice::<SpaceBoardRow>(&row.payload) else {
+                    continue;
+                };
+                if !seen_create.insert(r.board_id.clone()) {
+                    continue;
+                }
+                (r.board_id, r.mission, r.done_when)
+            }
+            kinds::SPACE_BOARD_MISSION => {
+                let Ok(r) = serde_json::from_slice::<BoardMissionRow>(&row.payload) else {
+                    continue;
+                };
+                if !(rules.member)(&row.at) {
+                    continue;
+                }
+                (r.board_id, r.mission, r.done_when)
+            }
+            _ => continue,
+        };
+        let Some(b) = boards.iter_mut().find(|b| b.board_id == id) else {
+            continue;
+        };
+        if row.kind == kinds::SPACE_BOARD_CREATED && mission.is_empty() && done_when.is_empty() {
+            continue;
+        }
+        b.mission_by = if mission.is_empty() && done_when.is_empty() {
+            String::new()
+        } else {
+            (rules.person)(&row.at.dev).unwrap_or_default()
+        };
+        b.mission = mission;
+        b.done_when = done_when;
+    }
+    for (i, b) in boards.iter_mut().enumerate() {
+        if let Some(at) = done.get(&b.board_id) {
+            b.finished = true;
+            b.finished_at = at.clone();
+        }
+        b.may_finish = i > 0
+            && match me {
+                None => true,
+                Some((me, owner)) => {
+                    owner || made.get(&b.board_id).is_some_and(|m| m.as_deref() == Some(me))
+                }
+            };
+    }
+}
+
 /// The space.board.* rows of a space's log.
 fn space_board_rows(st: &store::Store) -> store::Result<Vec<BoardRowAt>> {
     Ok(st
@@ -160,6 +390,8 @@ fn space_board_rows(st: &store::Store) -> store::Result<Vec<BoardRowAt>> {
             kinds: vec![
                 kinds::SPACE_BOARD_CREATED.into(),
                 kinds::SPACE_BOARD_RENAMED.into(),
+                kinds::SPACE_BOARD_MISSION.into(),
+                kinds::SPACE_BOARD_FINISHED.into(),
             ],
             limit: 10_000,
             ..Default::default()
@@ -200,13 +432,14 @@ pub(crate) fn member_wrote(
 pub(crate) fn board_list_in(
     st: &store::Store,
     own: &str,
-    may: MayDelete,
+    rules: &Rules,
 ) -> Option<coord::BoardList> {
     let rows = space_board_rows(st).ok()?;
     Some(coord::BoardList {
         own: own.to_string(),
-        deleted: deletes(own, &rows, may).into_iter().collect(),
+        deleted: deletes(own, &rows, rules.member).into_iter().collect(),
         tags: tag_ids(&rows),
+        finished: finishes(own, &rows, rules).into_keys().collect(),
     })
 }
 
@@ -227,11 +460,7 @@ pub(crate) fn board_tag_ids(st: &store::Store) -> Vec<(String, String)> {
 /// The tag of board `board` inside the space whose log is `st`; None when
 /// the log holds no such board, or it was deleted.
 pub(crate) fn board_tag_in(st: &store::Store, board: &str, may: MayDelete) -> Option<String> {
-    let own = SpaceBoard {
-        board_id: String::new(),
-        name: String::new(),
-        tag: String::new(),
-    };
+    let own = SpaceBoard::default();
     fold_space_boards(own, &space_board_rows(st).ok()?, may)
         .into_iter()
         .skip(1)
@@ -264,9 +493,17 @@ impl Services {
             board_id: space_id.to_string(),
             name: m.name.clone(),
             tag: m.tag.clone(),
+            ..Default::default()
         };
         let rows = space_board_rows(&b.store).map_err(Error::from)?;
-        Ok(fold_space_boards(own, &rows, &member_wrote(&b.verifier)))
+        let me = self.person_id();
+        let me_key = format!("{}{me}", kinds::PERSON_ACTOR_PREFIX);
+        let owner = m.owner(&me);
+        Ok(with_space_rules(&b.verifier, |rules| {
+            let mut out = fold_space_boards(own, &rows, rules.member);
+            fold_projects(&mut out, &rows, rules, Some((&me_key, owner)));
+            out
+        }))
     }
 
     /// What's known of each other member device of space `b` (no-server.md
@@ -377,6 +614,21 @@ impl Services {
         name: &str,
         tag: &str,
     ) -> Result<String> {
+        self.create_space_board_with(space_id, name, tag, "", "")
+    }
+
+    /// [`Services::create_space_board`] with the new board's mission and
+    /// done-when (card #690), on its create row.
+    pub(crate) fn create_space_board_with(
+        &self,
+        space_id: &str,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<String> {
+        let (mission, done_when) = (mission.trim(), done_when.trim());
+        check_mission(mission, done_when)?;
         if self.is_hidden_space(space_id) {
             return Err(Error::coord(
                 CK::NotAllowed,
@@ -405,6 +657,8 @@ impl Services {
             board_id: id.clone(),
             name: name.to_string(),
             tag: tag.to_string(),
+            mission: mission.to_string(),
+            done_when: done_when.to_string(),
             deleted: false,
             by: format!("{}{me}", kinds::PERSON_ACTOR_PREFIX),
             at: (self.now)().format_rfc3339_nano(),
@@ -458,6 +712,8 @@ impl Services {
             name: name.to_string(),
             tag: String::new(),
             deleted: false,
+            mission: String::new(),
+            done_when: String::new(),
             by: by.clone(),
             at: (self.now)().format_rfc3339_nano(),
         };
@@ -513,21 +769,239 @@ impl Services {
         Ok(())
     }
 
+    /// The member devices of space `space_id` known to be too old to store
+    /// a `space.board.mission` or `space.board.finished` row (hello
+    /// `tolerant` below [`BOARD_ROWS_TOLERANT`], card #690), as
+    /// `person/device`. One nobody has heard from doesn't count, as for the
+    /// spaces gate: finishing has no fallback.
+    pub(crate) fn board_rows_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
+        let b = self.board(space_id)?;
+        let ms = b.verifier.membership();
+        let r = self.space_readers_at(&b, ReadsLevel::Tolerant, BOARD_ROWS_TOLERANT)?;
+        Ok(r.too_old
+            .into_iter()
+            .map(|(p, d)| {
+                let who = b
+                    .verifier
+                    .profile(&p)
+                    .or_else(|| ms.person(&p).map(|x| x.name.clone()))
+                    .unwrap_or_else(|| short(&p).to_string());
+                format!("{who}/{}", short(&d))
+            })
+            .collect())
+    }
+
+    /// Board `board_id` of space `space_id`, checked for a write by this
+    /// person: an active member, a board the space holds, and every device
+    /// able to store the new rows (card #690).
+    fn project_board(
+        &self,
+        space_id: &str,
+        board_id: &str,
+    ) -> Result<(std::sync::Arc<BoardLog>, SpaceBoard)> {
+        let b = self.board(space_id)?;
+        let me = self.person_id();
+        if !b.verifier.membership().active(&me) {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("you aren't a member of space {space_id}"),
+            ));
+        }
+        let Some(x) = self
+            .space_boards(space_id)?
+            .into_iter()
+            .find(|x| x.board_id == board_id)
+        else {
+            return Err(Error::coord(
+                CK::NotFound,
+                format_args!("no board {board_id} in space {space_id}"),
+            ));
+        };
+        if let Some(why) = board_rows_refusal(&self.board_rows_not_ready(space_id)?) {
+            return Err(Error::coord(CK::NotAllowed, why));
+        }
+        Ok((b, x))
+    }
+
+    /// Sets the mission and done-when of board `board_id` in space
+    /// `space_id`, its first board too (card #690): any active member may,
+    /// as for a rename. Not on a finished board: reopen it first.
+    pub(crate) fn set_space_board_mission(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<()> {
+        let (mission, done_when) = (mission.trim(), done_when.trim());
+        check_mission(mission, done_when)?;
+        let (b, x) = self.project_board(space_id, board_id)?;
+        if x.finished {
+            return Err(finished_board(&x));
+        }
+        let by = format!("{}{}", kinds::PERSON_ACTOR_PREFIX, self.person_id());
+        let row = BoardMissionRow {
+            board_id: board_id.to_string(),
+            mission: mission.to_string(),
+            done_when: done_when.to_string(),
+            by: by.clone(),
+            at: (self.now)().format_rfc3339_nano(),
+        };
+        b.store.append(&by, kinds::SPACE_BOARD_MISSION, &row)?;
+        self.boards.moved();
+        Ok(())
+    }
+
+    /// Finishes board `board_id` of space `space_id`, or reopens it with
+    /// `finished` false (card #690). Its maker or a space owner may; never
+    /// the first board, and a finish only once no card on it is open.
+    pub(crate) fn finish_space_board(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        finished: bool,
+    ) -> Result<()> {
+        if board_id == space_id {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("a space's first board can't be finished"),
+            ));
+        }
+        let (b, x) = self.project_board(space_id, board_id)?;
+        if !x.may_finish {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!(
+                    "only the person who made board {} or an owner of the space may {} it",
+                    gocompat::quote::quote(&x.name),
+                    if finished { "finish" } else { "reopen" }
+                ),
+            ));
+        }
+        if x.finished == finished {
+            return Ok(());
+        }
+        if finished {
+            open_cards_refusal(&x, &b.coord().open_on_board(board_id))?;
+        }
+        let by = format!("{}{}", kinds::PERSON_ACTOR_PREFIX, self.person_id());
+        let row = BoardFinishedRow {
+            board_id: board_id.to_string(),
+            finished,
+            by: by.clone(),
+            at: (self.now)().format_rfc3339_nano(),
+        };
+        b.store.append(&by, kinds::SPACE_BOARD_FINISHED, &row)?;
+        b.coord().refresh_boards();
+        self.boards.moved();
+        Ok(())
+    }
+
+    /// Sets the mission and done-when of one of Personal's boards, its
+    /// default too (card #690).
+    pub(crate) fn set_personal_board_mission(
+        &self,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<()> {
+        let (mission, done_when) = (mission.trim(), done_when.trim());
+        check_mission(mission, done_when)?;
+        let x = self.personal_board(board_id)?;
+        if x.finished {
+            return Err(finished_board(&x));
+        }
+        self.append_personal_row(
+            kinds::SPACE_BOARD_MISSION,
+            BoardMissionRow {
+                board_id: board_id.to_string(),
+                mission: mission.to_string(),
+                done_when: done_when.to_string(),
+                by: format!("user:{}", self.device.id),
+                at: (self.now)().format_rfc3339_nano(),
+            },
+        )
+    }
+
+    /// Finishes one of Personal's boards, or reopens it (card #690). The
+    /// default board never finishes.
+    pub(crate) fn finish_personal_board(&self, board_id: &str, finished: bool) -> Result<()> {
+        if board_id == PERSONAL_BOARD {
+            return Err(Error::coord(
+                CK::NotAllowed,
+                format_args!("Personal's default board can't be finished"),
+            ));
+        }
+        let x = self.personal_board(board_id)?;
+        if x.finished == finished {
+            return Ok(());
+        }
+        if finished {
+            open_cards_refusal(&x, &self.coord.open_on_board(board_id))?;
+        }
+        self.append_personal_row(
+            kinds::SPACE_BOARD_FINISHED,
+            BoardFinishedRow {
+                board_id: board_id.to_string(),
+                finished,
+                by: format!("user:{}", self.device.id),
+                at: (self.now)().format_rfc3339_nano(),
+            },
+        )
+    }
+
+    fn personal_board(&self, board_id: &str) -> Result<SpaceBoard> {
+        self.personal_boards()?
+            .into_iter()
+            .find(|x| x.board_id == board_id)
+            .ok_or_else(|| {
+                Error::coord(
+                    CK::NotFound,
+                    format_args!("no board {board_id} in Personal"),
+                )
+            })
+    }
+
+    fn append_personal_row(&self, kind: &str, row: impl Serialize) -> Result<()> {
+        self.store.append("user", kind, &row)?;
+        self.coord.refresh_boards();
+        self.boards.moved();
+        Ok(())
+    }
+
     /// Personal's boards (card #558), its default first.
     pub(crate) fn personal_boards(&self) -> Result<Vec<SpaceBoard>> {
         let own = SpaceBoard {
             board_id: PERSONAL_BOARD.to_string(),
             name: PERSONAL_NAME.to_string(),
-            tag: String::new(),
+            ..Default::default()
         };
         let rows = space_board_rows(&self.store).map_err(Error::from)?;
-        Ok(fold_space_boards(own, &rows, &|_| true))
+        Ok(with_personal_rules(|rules| {
+            let mut out = fold_space_boards(own, &rows, rules.member);
+            fold_projects(&mut out, &rows, rules, None);
+            out
+        }))
     }
 
     /// Adds board `name` (tag `tag`) to Personal and returns its id. It is
     /// the person's own log, so no gate and no membership: only the tag has
     /// to be free among every space here.
     pub(crate) fn create_personal_board(&self, name: &str, tag: &str) -> Result<String> {
+        self.create_personal_board_with(name, tag, "", "")
+    }
+
+    /// [`Services::create_personal_board`] with the new board's mission and
+    /// done-when (card #690).
+    pub(crate) fn create_personal_board_with(
+        &self,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<String> {
+        let (mission, done_when) = (mission.trim(), done_when.trim());
+        check_mission(mission, done_when)?;
         let (name, tag) = (name.trim(), tag.trim());
         check_board_name(name)?;
         check_board_tag(tag)?;
@@ -541,6 +1015,8 @@ impl Services {
                 board_id: id.clone(),
                 name: name.to_string(),
                 tag: tag.to_string(),
+                mission: mission.to_string(),
+                done_when: done_when.to_string(),
                 ..Default::default()
             },
         )?;
@@ -643,6 +1119,51 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(6)]
 }
 
+fn check_mission(mission: &str, done_when: &str) -> Result<()> {
+    if mission.chars().count() <= MAX_BOARD_MISSION && done_when.chars().count() <= MAX_BOARD_MISSION
+    {
+        return Ok(());
+    }
+    Err(Error::coord(
+        CK::Invalid,
+        format_args!("a board's mission and done-when are {MAX_BOARD_MISSION} characters at most"),
+    ))
+}
+
+fn finished_board(x: &SpaceBoard) -> Error {
+    Error::coord(
+        CK::NotAllowed,
+        format_args!(
+            "board {} is finished: reopen it first",
+            gocompat::quote::quote(&x.name)
+        ),
+    )
+}
+
+/// Refuses a finish while cards on the board are open, naming them.
+fn open_cards_refusal(x: &SpaceBoard, open: &[coord::Task]) -> Result<()> {
+    if open.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<String> = open.iter().take(8).map(|t| t.short_ref()).collect();
+    let more = if open.len() > names.len() {
+        format!(" and {} more", open.len() - names.len())
+    } else {
+        String::new()
+    };
+    Err(Error::coord(
+        CK::BadState,
+        format_args!(
+            "board {} has {} open card{} ({}{more}): finish, move or close {} first",
+            gocompat::quote::quote(&x.name),
+            open.len(),
+            if open.len() == 1 { "" } else { "s" },
+            names.join(", "),
+            if open.len() == 1 { "it" } else { "them" },
+        ),
+    ))
+}
+
 fn check_board_name(name: &str) -> Result<()> {
     if irori_identity::membership::valid_board_name(name) {
         return Ok(());
@@ -713,6 +1234,21 @@ impl ReadsLevel {
 /// (card #652). Fixed at 2: [`mesh::boardmesh::TOLERANT_PROTOCOL`] rises
 /// when a later family joins, and calls must not wait on that.
 pub const CALLS_TOLERANT: i64 = 2;
+
+/// The `tolerant` level that stores unknown `space.*` rows (card #579):
+/// what a space needs of every member device before it writes a board's
+/// mission or finish (card #690). No protocol bump.
+pub const BOARD_ROWS_TOLERANT: i64 = 1;
+
+/// [`gate_refusal`] for the board rows of card #690.
+pub(crate) fn board_rows_refusal(waiting: &[String]) -> Option<String> {
+    (!waiting.is_empty()).then(|| {
+        format!(
+            "every device in the space must run Irori 0.12.4 or later first; waiting on {}",
+            waiting.join(", ")
+        )
+    })
+}
 
 /// The calls gate's answer for one space ([`super::Core::space_tolerance`]):
 /// the other member devices not known to be at [`CALLS_TOLERANT`], as
@@ -1145,6 +1681,84 @@ impl super::Core {
         self.s.rename_space_board(space_id, board_id, name)
     }
 
+    /// [`Core::create_space_board`] with the new board's mission and
+    /// done-when (card #690), on its one create row.
+    pub fn create_space_board_with(
+        &self,
+        space_id: &str,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<String> {
+        self.s
+            .create_space_board_with(space_id, name, tag, mission, done_when)
+    }
+
+    /// Sets a board's mission and done-when in space `space_id`, its first
+    /// board's too (card #690). Refused on a finished board, and until every
+    /// member device stores the row ([`BOARD_ROWS_TOLERANT`]).
+    pub fn set_space_board_mission(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<()> {
+        self.s
+            .set_space_board_mission(space_id, board_id, mission, done_when)
+    }
+
+    /// Finishes a board in space `space_id`, or reopens it with `finished`
+    /// false (card #690): its maker or a space owner, not the first board,
+    /// and a finish only with no open card on it.
+    pub fn finish_space_board(&self, space_id: &str, board_id: &str, finished: bool) -> Result<()> {
+        self.s.finish_space_board(space_id, board_id, finished)
+    }
+
+    /// The member devices of `space_id` too old to store a board's mission
+    /// or finish row (card #690).
+    pub fn board_rows_not_ready(&self, space_id: &str) -> Result<Vec<String>> {
+        self.s.board_rows_not_ready(space_id)
+    }
+
+    /// The open cards on a board of space `space_id` (`""` for Personal):
+    /// what a finish waits on (card #690).
+    pub fn open_on_board(&self, space_id: &str, board_id: &str) -> Result<Vec<coord::Task>> {
+        if space_id.is_empty() {
+            return Ok(self.s.coord.open_on_board(board_id));
+        }
+        Ok(self.s.board(space_id)?.coord().open_on_board(board_id))
+    }
+
+    /// [`Core::create_personal_board`] with a mission (card #690).
+    pub fn create_personal_board_with(
+        &self,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<String> {
+        self.s
+            .create_personal_board_with(name, tag, mission, done_when)
+    }
+
+    /// Sets the mission of one of Personal's boards (card #690).
+    pub fn set_personal_board_mission(
+        &self,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<()> {
+        self.s.set_personal_board_mission(board_id, mission, done_when)
+    }
+
+    /// Finishes or reopens one of Personal's boards; not its default
+    /// (card #690).
+    pub fn finish_personal_board(&self, board_id: &str, finished: bool) -> Result<()> {
+        self.s.finish_personal_board(board_id, finished)
+    }
+
     /// Personal's boards, its default first (card #558).
     pub fn personal_boards(&self) -> Result<Vec<SpaceBoard>> {
         self.s.personal_boards()
@@ -1200,6 +1814,7 @@ mod tests {
             board_id: "s".into(),
             name: "Wind Waker Multiplayer".into(),
             tag: "wind".into(),
+            ..Default::default()
         };
         let got = folded(
             own.clone(),
@@ -1241,6 +1856,7 @@ mod tests {
             board_id: "s".into(),
             name: "Wind".into(),
             tag: "wind".into(),
+            ..Default::default()
         };
         let got = folded(
             own,
@@ -1268,6 +1884,8 @@ mod tests {
         let moves = super::super::boards::summary_row;
         assert!(moves(&ev(kinds::SPACE_BOARD_CREATED)));
         assert!(moves(&ev(kinds::SPACE_BOARD_RENAMED)));
+        assert!(moves(&ev(kinds::SPACE_BOARD_MISSION)));
+        assert!(moves(&ev(kinds::SPACE_BOARD_FINISHED)));
         assert!(!moves(&ev(kinds::TASK_CREATED)));
     }
 
@@ -1305,6 +1923,7 @@ mod tests {
             board_id: "s".into(),
             name: "Space".into(),
             tag: "wind".into(),
+            ..Default::default()
         }
     }
 
@@ -1350,12 +1969,207 @@ mod tests {
         assert_eq!(got.len(), 2, "the board stays: {got:?}");
     }
 
+    // ---- card #690: missions and finishing ----
+
+    /// A row of `kind` with payload `p`, written by device `dev` at `seq`.
+    fn by_dev(kind: &str, p: impl Serialize, dev: &str, seq: i64) -> BoardRowAt {
+        BoardRowAt {
+            kind: kind.into(),
+            payload: serde_json::to_vec(&p).unwrap(),
+            at: coord::RowPos {
+                hlc: seq as u64,
+                dev: dev.into(),
+                seq,
+            },
+        }
+    }
+
+    fn created(id: &str, tag: &str, mission: &str, dev: &str, seq: i64) -> BoardRowAt {
+        by_dev(
+            kinds::SPACE_BOARD_CREATED,
+            SpaceBoardRow {
+                board_id: id.into(),
+                name: tag.into(),
+                tag: tag.into(),
+                mission: mission.into(),
+                ..Default::default()
+            },
+            dev,
+            seq,
+        )
+    }
+
+    fn mission(id: &str, m: &str, done: &str, dev: &str, seq: i64) -> BoardRowAt {
+        by_dev(
+            kinds::SPACE_BOARD_MISSION,
+            BoardMissionRow {
+                board_id: id.into(),
+                mission: m.into(),
+                done_when: done.into(),
+                ..Default::default()
+            },
+            dev,
+            seq,
+        )
+    }
+
+    fn finish(id: &str, finished: bool, dev: &str, seq: i64) -> BoardRowAt {
+        by_dev(
+            kinds::SPACE_BOARD_FINISHED,
+            BoardFinishedRow {
+                board_id: id.into(),
+                finished,
+                at: format!("t{seq}"),
+                ..Default::default()
+            },
+            dev,
+            seq,
+        )
+    }
+
+    /// A space where device `alice` is Alice (an owner), `bob` is Bob (a
+    /// member), and `eve` is no one.
+    fn space_rules<R>(f: impl FnOnce(&Rules) -> R) -> R {
+        let person = |d: &str| match d {
+            "alice" | "bob" => Some(format!("person:{d}")),
+            _ => None,
+        };
+        f(&Rules {
+            member: &|at: &coord::RowPos| at.dev != "eve",
+            owner: &|at: &coord::RowPos| at.dev == "alice",
+            person: &person,
+        })
+    }
+
+    fn projects(rows: &[BoardRowAt], me: Option<(&str, bool)>) -> Vec<SpaceBoard> {
+        space_rules(|r| {
+            let mut out = fold_space_boards(the_own(), rows, r.member);
+            fold_projects(&mut out, rows, r, me);
+            out
+        })
+    }
+
+    #[test]
+    fn a_mission_comes_from_the_create_then_the_newest_row_and_survives_a_rename() {
+        let rows = [
+            created("b1", "net", "Ship netcode", "bob", 1),
+            mission("b1", "Ship rollback netcode", "Two PCs play a match", "alice", 3),
+            mission("b1", "Lost to an older row", "", "bob", 2),
+            at(row(kinds::SPACE_BOARD_RENAMED, "b1", "Netcode", ""), 5),
+            mission("s", "The space's first board", "", "bob", 4),
+            // Someone who isn't a member there counts for nothing.
+            mission("b1", "Vandalised", "", "eve", 9),
+        ];
+        let got = projects(&rows, None);
+        assert_eq!(got[1].name, "Netcode");
+        assert_eq!(
+            (got[1].mission.as_str(), got[1].done_when.as_str()),
+            ("Ship rollback netcode", "Two PCs play a match")
+        );
+        assert_eq!(got[1].mission_by, "person:alice");
+        assert_eq!(got[0].mission, "The space's first board");
+        // A board with none keeps none, and nobody wrote it.
+        let got = projects(&[created("b2", "art", "", "bob", 1)], None);
+        assert_eq!((got[1].mission.as_str(), got[1].mission_by.as_str()), ("", ""));
+    }
+
+    #[test]
+    fn a_finish_and_a_reopen_take_the_newest_whatever_order_the_rows_sit_in() {
+        let base = [created("b1", "net", "", "bob", 1)];
+        let mut rows = base.to_vec();
+        rows.extend([finish("b1", true, "bob", 5), finish("b1", false, "alice", 7)]);
+        for order in [rows.clone(), rows.iter().rev().cloned().collect()] {
+            let got = projects(&order, None);
+            assert!(!got[1].finished, "the reopen is newer: {got:?}");
+        }
+        rows.push(finish("b1", true, "bob", 9));
+        let got = projects(&rows, None);
+        assert!(got[1].finished);
+        assert_eq!(got[1].finished_at, "t9");
+        let list = space_rules(|r| finishes("s", &rows, r));
+        assert_eq!(list.keys().collect::<Vec<_>>(), ["b1"]);
+    }
+
+    #[test]
+    fn only_a_boards_maker_or_a_space_owner_finishes_it_and_never_the_first() {
+        // Bob made b1, Alice (an owner) made b2.
+        let rows = [
+            created("b1", "net", "", "bob", 1),
+            created("b2", "art", "", "alice", 2),
+            // Bob finishes Alice's board: not his, and he isn't an owner.
+            finish("b2", true, "bob", 3),
+            // Alice finishes Bob's: an owner may.
+            finish("b1", true, "alice", 4),
+            // A first board never finishes, whoever writes it.
+            finish("s", true, "alice", 5),
+            finish("b2", true, "eve", 6),
+        ];
+        let got = projects(&rows, Some(("person:bob", false)));
+        assert!(!got[0].finished && got[1].finished && !got[2].finished, "{got:?}");
+        // Who may now: never the first; Bob his own; an owner any.
+        let may: Vec<bool> = got.iter().map(|b| b.may_finish).collect();
+        assert_eq!(may, [false, true, false]);
+        let got = projects(&rows, Some(("person:alice", true)));
+        let may: Vec<bool> = got.iter().map(|b| b.may_finish).collect();
+        assert_eq!(may, [false, true, true]);
+    }
+
+    /// An Irori before #690 folds a create row with a mission as it always
+    /// did: the extra fields are ignored, and a mission or finish row is
+    /// no board row it reads.
+    #[test]
+    fn an_older_fold_reads_a_create_with_a_mission_as_before() {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Old {
+            board_id: String,
+            name: String,
+            tag: String,
+        }
+        let r = created("b1", "net", "Ship it", "bob", 1);
+        let old: Old = serde_json::from_slice(&r.payload).unwrap();
+        assert_eq!((old.board_id.as_str(), old.name.as_str(), old.tag.as_str()), ("b1", "net", "net"));
+        let v: serde_json::Value = serde_json::from_slice(&r.payload).unwrap();
+        assert_eq!(v["mission"], "Ship it");
+        // No mission: no field at all.
+        let v: serde_json::Value =
+            serde_json::from_slice(&created("b2", "art", "", "bob", 1).payload).unwrap();
+        assert!(v.get("mission").is_none() && v.get("doneWhen").is_none());
+        // The tags and deletes an older device keeps never see these rows.
+        let rows = [r, mission("b1", "x", "", "bob", 2), finish("b1", true, "bob", 3)];
+        assert_eq!(tag_ids(&rows), [("net".to_string(), "b1".to_string())]);
+        assert!(deletes("s", &rows, &|_| true).is_empty());
+    }
+
+    #[test]
+    fn personal_boards_finish_by_the_person_except_the_default() {
+        let rows = [
+            created("b1", "home", "Fix the house", "d1", 1),
+            finish("b1", true, "d2", 2),
+            finish(PERSONAL_BOARD, true, "d1", 3),
+        ];
+        let own = SpaceBoard {
+            board_id: PERSONAL_BOARD.into(),
+            name: "Personal".into(),
+            ..Default::default()
+        };
+        let got = with_personal_rules(|r| {
+            let mut out = fold_space_boards(own, &rows, r.member);
+            fold_projects(&mut out, &rows, r, None);
+            out
+        });
+        assert!(!got[0].finished && !got[0].may_finish);
+        assert!(got[1].finished && got[1].may_finish);
+        assert_eq!(got[1].mission_by, "user");
+    }
+
     #[test]
     fn a_first_board_takes_a_name_from_a_rename_and_nothing_else() {
         let own = |name: &str| SpaceBoard {
             board_id: "s".into(),
             name: name.into(),
             tag: "wind".into(),
+            ..Default::default()
         };
         assert_eq!(folded(own("New name"), &[])[0].name, "New name");
         let rows = [
