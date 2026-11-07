@@ -16,6 +16,12 @@ pub const FOLDED_WIDTH: f32 = 56.0;
 /// The prefs key that keeps the fold (localStorage irori.sidebarFolded).
 pub const FOLDED_PREF: &str = "sidebar.folded";
 
+/// The sidebar's width now: [`WIDTH`], or [`FOLDED_WIDTH`] while folded
+/// (what an overlay pinned beside it should use).
+pub fn width(s: &State) -> f32 {
+    if folded(s) { FOLDED_WIDTH } else { WIDTH }
+}
+
 /// The sidebar is folded to icons.
 pub fn folded(s: &State) -> bool {
     s.prefs.get_or(FOLDED_PREF, false)

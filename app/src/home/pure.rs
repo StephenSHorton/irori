@@ -106,10 +106,8 @@ pub fn trust_from_reason(reason: &str) -> TrustNeed {
 }
 
 /// A board card waiting on the person (Home's BoardsNeedYou, cards #237,
-/// #509, #520): a decision, a PR merge or a wait no agent will end.
-pub fn board_decides(c: &CardSummary) -> bool {
-    c.scope == "board" && (c.open_blockers > 0 || c.merge_pr.is_some() || c.gone_wait.is_some())
-}
+/// #509, #520): one copy, the sidebar's.
+pub use crate::logic::sidebar::board_decides;
 
 /// Each space with board decisions Home doesn't list (not ours), in the
 /// order they first appear, with how many.
