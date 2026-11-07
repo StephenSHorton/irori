@@ -6,7 +6,7 @@ use rune::AppHandle;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
-use crate::board::State;
+use crate::ui::State;
 
 const OPEN: &str = "open";
 const QUIT: &str = "quit";

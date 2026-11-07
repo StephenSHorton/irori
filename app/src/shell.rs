@@ -5,19 +5,19 @@
 //! date, calls and voice UI.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use irori_roles::commands::version;
 use irori_roles::{datadir, host};
-use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_ROSTER_CHANGED};
+use irori_window::voice::EVENT_VOICE;
 use irori_window::{Config, Window, attachments};
 #[cfg(not(target_os = "macos"))]
 use rune::tray::{Tray, TrayEvent, TrayIcon, TrayItem, TraySpec};
 use rune::{App, AppSpec};
 
-use crate::board::{self, State};
+use crate::ui::{self, Event, State};
 
 /// The last rows' send when the app quits (the Tauri shell's).
 const QUIT: Duration = Duration::from_secs(3);
@@ -125,46 +125,78 @@ pub fn run(args: &[String]) -> Result<(), String> {
     window.set_open_file(open_path);
 
     let spec = AppSpec {
-        scenes: &[("detail", |s: &mut State| s.select_first())],
+        scenes: SCENES,
         min_size: Some((720.0, 480.0)),
-        ..AppSpec::new("Irori", (1100.0, 720.0), State::default, board::view)
+        poll: Some(ui::poll),
+        ..AppSpec::new("Irori", (1100.0, 720.0), State::default, ui::view)
     };
     let init_window = window.clone();
+    let init_data = data.clone();
     let mut app = App::new(spec)
-        .init(move || State::new(init_window))
+        .init(move || State::new(init_window, init_data, headless))
+        .on_focus(|s: &mut State, on, _| {
+            s.focused = on;
+            if on {
+                // The React app re-read on focus; the pumps are the main
+                // feed, this covers a missed one.
+                let w = s.w.clone();
+                s.data.refresh_all(w.as_deref());
+            }
+        })
         .args(rune_args);
     if startup {
         app = app.windowless();
     }
     let handle = app.handle();
 
-    // Live: the window backend's pumps say when the Board or the roster
-    // changed; the state re-reads on the UI thread.
+    // The state's own handle, for State::spawn.
     {
         let h = handle.clone();
-        // IRORI_DESK_TRACE=1 logs each refresh (the spike's live check).
+        handle.update(move |s: &mut State, _| s.handle = Some(h));
+    }
+    // Live: every event the window backend emits goes to the packages
+    // (ui::dispatch) on the UI thread. A burst of one event is one
+    // dispatch with its newest payload; dictation's words each go.
+    {
+        let h = handle.clone();
+        // IRORI_DESK_TRACE=1 logs each dispatch (the spike's live check).
         let trace = std::env::var_os("IRORI_DESK_TRACE").is_some();
-        // A burst of changes is one re-read: a refresh already queued
-        // reads them all.
-        let queued = Arc::new(AtomicBool::new(false));
-        window.set_emitter(move |name, _payload| {
-            if (name == EVENT_BOARD_CHANGED || name == EVENT_ROSTER_CHANGED)
-                && !queued.swap(true, Ordering::SeqCst)
-            {
-                let name = name.to_string();
-                let queued = queued.clone();
-                h.update(move |s: &mut State, _| {
-                    queued.store(false, Ordering::SeqCst);
-                    s.refresh();
-                    if trace {
-                        irori_core::log(&format!(
-                            "desk: {name}: {} cards, open card thread {}",
-                            s.cards.len(),
-                            s.detail.as_ref().map_or(0, |d| d.thread.len())
-                        ));
-                    }
-                });
+        let pending: Arc<Mutex<HashMap<String, serde_json::Value>>> = Arc::default();
+        window.set_emitter(move |name, payload| {
+            if name == EVENT_VOICE {
+                let ev = Event {
+                    name: name.to_string(),
+                    payload,
+                };
+                h.update(move |s: &mut State, _| ui::dispatch(s, &ev));
+                return;
             }
+            let first = {
+                let mut p = pending.lock().unwrap_or_else(|e| e.into_inner());
+                p.insert(name.to_string(), payload).is_none()
+            };
+            if !first {
+                return;
+            }
+            let pending = pending.clone();
+            let name = name.to_string();
+            h.update(move |s: &mut State, _| {
+                let payload = pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&name)
+                    .unwrap_or_default();
+                let ev = Event { name, payload };
+                ui::dispatch(s, &ev);
+                if trace {
+                    irori_core::log(&format!(
+                        "desk: {}: {} cards, open card thread {}",
+                        ev.name,
+                        s.data.cards.len(),
+                        s.card.detail.as_ref().map_or(0, |d| d.thread.len())
+                    ));
+                }
+            });
         });
     }
     // A card's Open (a desktop card's click) shows the window and the card.
@@ -172,10 +204,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let h = handle.clone();
         notifier.set_opener(move |t| {
             h.open();
-            if !t.ref_.is_empty() {
-                let id = t.ref_.trim_start_matches("task:").to_string();
-                h.update(move |s: &mut State, _| s.open_card(&id));
-            }
+            let (tab, r) = (t.tab.clone(), t.ref_.clone());
+            h.update(move |s: &mut State, _| s.open_target(&tab, &r));
         });
     }
     let pumps_stop = sys::cancel::Cancel::new();
@@ -237,6 +267,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let closed = SHUTDOWN.get().map_or(Ok(()), |f| f());
     ran.and(closed)
 }
+
+/// The headless scenes: one per page (`irori --snap x.png --scene talk`).
+const SCENES: &[(&str, fn(&mut State))] = &[
+    ("home", crate::home::scene),
+    ("board", crate::board::scene),
+    ("card", crate::card::scene),
+    // The spike's name for the card scene.
+    ("detail", crate::card::scene),
+    ("canvas", crate::canvas::scene),
+    ("talk", crate::talk::scene),
+    ("call", crate::call::scene),
+    ("spaces", crate::spaces::scene),
+    ("notes", crate::notes::scene),
+    ("settings", crate::settings::scene),
+    ("profile", crate::profile::scene),
+    ("notifications", crate::inbox::scene),
+    ("palette", crate::palette::scene),
+    ("desk", crate::desk::scene),
+    ("term", crate::term::scene),
+    ("status", crate::status::scene),
+];
 
 /// The OS opener (the Tauri opener plugin's open_path).
 fn open_path(p: &Path) -> Result<(), String> {
