@@ -364,6 +364,11 @@ fn notes(s: &State, f: &mut Frame) {
     f.layer.push(region.build(f.k));
 }
 
+/// The window's keys (AppSpec::on_key): a key nothing focused took.
+pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    crate::palette::on_key(s, ev, tx)
+}
+
 /// Drops notes whose time is up (AppSpec::poll).
 pub fn poll(s: &mut State, _t: f64, tx: &mut rune::Tx) -> bool {
     let now = Instant::now();
