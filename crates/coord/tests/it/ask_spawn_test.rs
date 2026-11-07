@@ -799,6 +799,101 @@ fn an_ask_stays_with_an_owner_that_does_not_read_moves() {
     );
 }
 
+/// Card #686: dev-a and dev-b are computers, `full` the ones with no free
+/// slot; dev-a comes first, so it is the ask home the old rule pulls to.
+fn computers(full: &[&str]) -> Arc<RwLock<AgentDevices>> {
+    Arc::new(RwLock::new(AgentDevices {
+        homes: vec!["dev-a".into(), "dev-c".into(), "dev-b".into()],
+        moves: HashSet::from(["dev-a".to_string(), "dev-b".to_string()]),
+        away: HashSet::from(["dev-c".to_string()]),
+        full: full.iter().map(|d| d.to_string()).collect(),
+        ..AgentDevices::default()
+    }))
+}
+
+/// dev-a writes that it has the ask, `moves` times so far, at `at`.
+fn moved_on_a(e: &Env, id: &str, moves: i64, at: GoTime) {
+    let seq = e.st.vector().unwrap().get("dev-a").copied().unwrap_or(0) + 1;
+    let row = coord::rows::AskMovedRow {
+        task_id: id.into(),
+        owner: "dev-a".into(),
+        moves,
+        at: at.clone(),
+    };
+    e.remote("dev-a", seq, hlc_at(at) + 1, SWEEPER_KEY, store::kinds::ASK_MOVED, &row);
+}
+
+/// Card #686: an ask whose owner is connected but full moves to the
+/// computer with room, after a short grace for the owner's own start; an
+/// away computer with room isn't it.
+#[test]
+fn an_ask_moves_off_a_full_owner_to_a_computer_with_room() {
+    let devs = computers(&["dev-a"]);
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "the owner's grace");
+    mac.clk.add(ASK_FULL_GRACE);
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "a computer with room");
+    let t = mac.c.get_task(&t.id).unwrap();
+    assert_eq!(mac.c.ask_full_wait(&t), "");
+}
+
+/// Card #686: only the first connected computer with room takes it, so two
+/// don't both write a move.
+#[test]
+fn only_the_first_computer_with_room_takes_a_full_owners_ask() {
+    let devs = computers(&["dev-a"]);
+    devs.write().unwrap().away.clear();
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.clk.add(mins(5));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "dev-c takes it");
+    devs.write().unwrap().full.insert("dev-c".into());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "dev-c filled up");
+}
+
+/// Card #686: with every computer full the ask stays where it is, and says
+/// why.
+#[test]
+fn an_ask_waits_on_its_owner_when_every_computer_is_full() {
+    let devs = computers(&["dev-a", "dev-b"]);
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.clk.add(mins(5));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a");
+    let t = mac.c.get_task(&t.id).unwrap();
+    assert_eq!(mac.c.ask_full_wait(&t), ALL_FULL);
+    assert_eq!(mac.c.room_home("", "dev-a"), None);
+    devs.write().unwrap().full.remove("dev-b");
+    assert_eq!(mac.c.ask_full_wait(&t), "", "dev-b has room now");
+}
+
+/// Card #686: an ask that just moved settles before it moves again for
+/// being full, and one that moved too often stays put: it never goes back
+/// and forth.
+#[test]
+fn an_ask_moved_for_room_settles_and_stops_moving() {
+    let devs = computers(&["dev-a"]);
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.clk.add(mins(5));
+    moved_on_a(&mac, &t.id, 1, mac.clk.now());
+    mac.clk.add(ASK_FULL_GRACE);
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "it just moved");
+    mac.clk.add(ASK_FULL_SETTLE);
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "settled");
+
+    let (mac, t) = phone_thread_on_mac(computers(&["dev-a"]));
+    mac.clk.add(mins(1));
+    moved_on_a(&mac, &t.id, MAX_FULL_MOVES, mac.clk.now());
+    mac.clk.add(mins(10));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "moved too often");
+}
+
 /// An ask whose agent Irori ended on a Claude usage limit (card #450) is
 /// no crash and doesn't wait for the person: it is spawned for again (the
 /// Core holds the start until the reset).
