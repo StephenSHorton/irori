@@ -286,6 +286,20 @@ pub fn open_store(data: &str) -> Arc<Store> {
     Arc::new(Store::open(p, DEVICE, Arc::new(hlc::Clock::new())).unwrap())
 }
 
+/// Closes the store when dropped, even after a failed assert. A test that
+/// gives its store to a [`Capture`] holds one: the service's replay thread
+/// keeps an `Arc<Store>` past the test's end (it flushes the search index
+/// after the fold opens), and Windows can't delete the TempDir while that
+/// connection is open (#672). Declare it after the TempDirs so it drops
+/// first.
+pub struct CloseStore(pub Arc<Store>);
+
+impl Drop for CloseStore {
+    fn drop(&mut self) {
+        let _ = self.0.close();
+    }
+}
+
 // --- git ---
 
 pub fn git(dir: &str, args: &[&str]) -> String {
