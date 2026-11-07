@@ -100,7 +100,6 @@ html[data-ds="irori"].dark {
   --meter-disk: oklch(0.78 0.15 140);
   --meter-net: oklch(0.74 0.15 15);
   --meter-gpu: oklch(0.72 0.17 320);
-
 }
 
 /* ---- the glass styles -------------------------------------------------- */
