@@ -4,3 +4,5 @@ crates/presence/testdata/** -text
 testdata/golden/blob/store/** binary
 # The cards' embedded sounds (crates/toast/sounds).
 *.wav binary
+# A captured `claude logs` stream and the text it replays to (card #741).
+crates/term/testdata/** -text
