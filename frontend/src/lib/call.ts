@@ -122,6 +122,29 @@ export async function setMuted(on: boolean): Promise<void> {
   await CallService.Mute(on)
 }
 
+// setDeafened turns the speaker and the mic off (or back) at once;
+// call:state confirms it. Undeafen keeps the mute it had.
+export async function setDeafened(on: boolean): Promise<void> {
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        deafened: on,
+        speaking: on ? false : shared.mine.speaking,
+      },
+    })
+  if (!inWails()) return
+  await CallService.Deafen(on)
+}
+
+// micName is the mic a huddle would open, for the start sheet ("" when it
+// can't say). It opens nothing.
+export async function micName(): Promise<string> {
+  if (!inWails()) return "MacBook Pro Microphone"
+  return CallService.Mic()
+}
+
 export async function dismissRing(callId: string): Promise<void> {
   set({ ...shared, ringing: shared.ringing.filter((r) => r.callId !== callId) })
   if (!inWails()) return
@@ -274,6 +297,7 @@ function previewMine(convId: string, name: string, ago: number): CallMineView {
     convKind: convId.includes("-dm-") ? "dm" : "channel",
     joinedAtMs: Date.now() - ago,
     muted: false,
+    deafened: false,
     speaking: false,
     device: "MacBook Pro",
     peers: previewPeers,
@@ -335,7 +359,7 @@ function previewTick(on: boolean) {
       ...shared,
       mine: {
         ...m,
-        speaking: !m.muted && n % 5 === 2,
+        speaking: !m.muted && !m.deafened && n % 5 === 2,
         peers: m.peers.map((p, i) =>
           p.phase !== "live"
             ? n > 3

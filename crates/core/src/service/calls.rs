@@ -123,6 +123,8 @@ struct Active {
     /// This device started the call: it keeps ringing for a while.
     started_here: bool,
     muted: bool,
+    /// Nothing plays here and the mic is off; `muted` is kept for after.
+    deafened: bool,
     /// Which call this is, of those this device entered.
     generation: u64,
     engine: Arc<call::Engine>,
@@ -625,6 +627,7 @@ impl Services {
                 space_id: a.space_id.clone(),
                 joined_at_ms: a.joined_at_ms,
                 muted: a.muted,
+                deafened: a.deafened,
                 speaking: st.speaking,
                 peers,
                 error: a.error.clone().or_else(|| {
@@ -868,6 +871,7 @@ impl Services {
                 started_at_ms: started_at_ms.min(now_ms()),
                 started_here,
                 muted: false,
+                deafened: false,
                 engine,
                 handle,
                 mesh: m.clone(),
@@ -1132,6 +1136,23 @@ impl Services {
         self.calls_changed();
     }
 
+    pub(crate) fn call_deafen(&self, on: bool) {
+        if let Some(a) = self.calls.inner.lock().expect("calls").mine.as_mut() {
+            a.deafened = on;
+            a.engine.set_deafened(on);
+        }
+        self.calls_changed();
+    }
+
+    /// The mic a huddle would open, by name ("" when it can't say).
+    pub(crate) fn call_mic_name(&self) -> String {
+        if self.calls.audio.is_some() {
+            // Tests' fake devices.
+            return "Test microphone".into();
+        }
+        call::device::default_mic_name()
+    }
+
     pub(crate) fn call_dismiss(&self, call_id: &str) {
         {
             let mut g = self.calls.inner.lock().expect("calls");
@@ -1206,6 +1227,8 @@ pub struct MyCall {
     /// When this device joined, Unix ms.
     pub joined_at_ms: i64,
     pub muted: bool,
+    /// Deafened: nothing plays here and the mic is off.
+    pub deafened: bool,
     /// This device's mic is above the speech gate.
     pub speaking: bool,
     /// The other devices in the call.
@@ -1274,6 +1297,18 @@ impl Core {
 
     pub fn call_mute(&self, on: bool) {
         self.s.call_mute(on)
+    }
+
+    /// Deafen: nothing from the others plays here and the mic is off.
+    /// Undeafen goes back to the mute it had.
+    pub fn call_deafen(&self, on: bool) {
+        self.s.call_deafen(on)
+    }
+
+    /// The mic a huddle would open, by name ("" when it can't say). It
+    /// opens nothing.
+    pub fn call_mic_name(&self) -> String {
+        self.s.call_mic_name()
     }
 
     /// Stops ringing for `call_id` here.

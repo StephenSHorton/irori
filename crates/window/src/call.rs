@@ -40,6 +40,8 @@ pub struct CallMineView {
     /// When this device joined, Unix ms.
     pub joined_at_ms: i64,
     pub muted: bool,
+    /// Deafened: nothing plays here and the mic is off.
+    pub deafened: bool,
     /// This device's mic is above the speech gate.
     pub speaking: bool,
     /// This device's name ("" when it has none).
@@ -137,6 +139,16 @@ impl Window {
 
     pub fn call_mute(&self, on: bool) {
         self.core.call_mute(on)
+    }
+
+    pub fn call_deafen(&self, on: bool) {
+        self.core.call_deafen(on)
+    }
+
+    /// The mic a huddle would open, by name, for the start sheet ("" when
+    /// it can't say).
+    pub fn call_mic(&self) -> String {
+        self.core.call_mic_name()
     }
 
     /// Stops ringing for `call_id` here.
@@ -282,6 +294,7 @@ impl<'a> Names<'a> {
             conv_kind,
             joined_at_ms: m.joined_at_ms,
             muted: m.muted,
+            deafened: m.deafened,
             speaking: m.speaking,
             error: m.error.filter(|e| !e.trim().is_empty()),
         }

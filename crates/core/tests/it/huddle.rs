@@ -199,6 +199,29 @@ fn own_devices_huddle_and_a_third_device_joins() {
         "{snap:?}"
     );
 
+    // Deafen: a1's voice stops coming out of a3's speaker, a3's own mic
+    // goes off (a1 sees it muted), and Undeafen brings both back.
+    a3.core.call_deafen(true);
+    let m = a3.core.call_snapshot().mine.expect("a3 is in it");
+    assert!(m.deafened && !m.muted, "{m:?}");
+    std::thread::sleep(Duration::from_millis(600));
+    let from = len(&s.recs[2]);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(loud_blocks(&s.recs[2], from), 0, "a deafened speaker plays");
+    wait_for(WAIT, "a1 sees a3's mic off", || {
+        a1.core.call_snapshot().mine.is_some_and(|m| {
+            m.peers
+                .iter()
+                .any(|p| p.device_id == a3.core.device_id() && p.muted)
+        })
+    });
+    a3.core.call_deafen(false);
+    let from = len(&s.recs[2]);
+    wait_for(WAIT, "a1's voice plays at a3 again", || {
+        loud_blocks(&s.recs[2], from) >= 10
+    });
+    assert!(!a3.core.call_snapshot().mine.expect("in it").deafened);
+
     // Mute: a1's voice stops, and the others see it.
     a1.core.call_mute(true);
     std::thread::sleep(Duration::from_millis(600));
