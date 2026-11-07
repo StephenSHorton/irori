@@ -825,6 +825,14 @@ impl Services {
             return None;
         }
         let mut v: serde_json::Value = serde_json::from_slice(&ev.payload).ok()?;
+        // A huddle's line is its speaker's own device's (card #656): a
+        // person, signing as themselves.
+        if ev.kind == kinds::CALL_SEGMENT
+            && (!ev.actor.starts_with(kinds::PERSON_ACTOR_PREFIX)
+                || v.get("by").and_then(|b| b.as_str()) != Some(ev.actor.as_str()))
+        {
+            return None;
+        }
         let dm_conv = match self.dm_spaces.get(space_id) {
             Some(d) => {
                 let m = self.board(space_id).ok()?.verifier.membership();

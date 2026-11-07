@@ -1763,3 +1763,108 @@ fn a_person_dm_huddle_line_goes_to_its_space() {
         ErrorKind::NotAllowed,
     );
 }
+
+/// What a folded mark or line can't be: a mark with no call or no words
+/// leaves a plain post, an oversized line is skipped, and only a person
+/// writes a line.
+#[test]
+fn a_bad_transcript_mark_or_line_folds_as_little_as_it_says() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let big = "x".repeat(coord::board::MAX_PERSON_TEXT + 1);
+    let fallback = |seq: i64, mark: serde_json::Value| {
+        row(
+            "dev-b",
+            seq,
+            hlc_at(fixed_now()) + seq as u64,
+            "user",
+            kinds::TALK_POST,
+            &serde_json::json!({
+                "postId": format!("fb{seq}"), "convId": c.id, "text": "0:00 hi",
+                "by": ALICE, "at": fixed_now(), "transcript": mark,
+            }),
+        )
+    };
+    let l = |text: &str| serde_json::json!({"startMs": T0, "endMs": T0, "text": text});
+    assert!(t.apply(&fallback(1, serde_json::json!({"lines": [l("hi")]}))));
+    assert!(t.apply(&fallback(
+        2,
+        serde_json::json!({"callId": "call_9", "lines": [l("  "), l(&big)]})
+    )));
+    assert!(t.apply(&fallback(
+        3,
+        serde_json::json!({"callId": "call_9", "lines": [l(" kept "), l(&big)]})
+    )));
+    let plain = t.posts(&c.id);
+    let ids: Vec<&str> = plain.iter().map(|p| p.post_id.as_str()).collect();
+    assert_eq!(ids, ["fb1", "fb2"], "no call or no words: a plain post");
+    assert!(plain.iter().all(|p| p.transcript.is_none()));
+    assert_eq!(texts(&t.call_posts("call_9")), ["kept"]);
+    assert_eq!(t.calls()[0].lines, 1, "the oversized line is gone");
+
+    let seg = |seq: i64, text: &str| {
+        row(
+            "dev-b",
+            seq,
+            hlc_at(fixed_now()) + seq as u64,
+            "user",
+            kinds::CALL_SEGMENT,
+            &serde_json::json!({
+                "callId": "call_9", "convId": c.id, "seg": seq, "startMs": T0,
+                "endMs": T0, "text": text, "by": ALICE,
+            }),
+        )
+    };
+    assert!(!t.apply(&seg(4, &big)));
+    assert!(t.apply(&seg(5, " fine ")));
+    assert_eq!(texts(&t.call_posts("call_9")), ["kept", "fine"]);
+
+    want(
+        t.write_segment(&c.id, "call_9", 0, T0, T0, "x", ALICE),
+        ErrorKind::NotAllowed,
+    );
+}
+
+/// A fallback transcript rings in a DM only when it came after where the
+/// reader has read to.
+#[test]
+fn a_fallback_rings_only_past_the_cursor() {
+    let e = Env::new();
+    let t = talk(&e);
+    let reader = "user:phone";
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(ALICE), USER)
+        .unwrap();
+    let before = post(&t, &dm, ALICE, "before");
+    e.clk.add(secs(1));
+    let fb = t
+        .post(NewPost {
+            conv_id: dm.clone(),
+            text: "0:00 hi".into(),
+            by: ALICE.into(),
+            transcript: Some(talk::TranscriptMark {
+                call_id: "call_1".into(),
+                lines: vec![talk::TranscriptLineMark {
+                    start_ms: T0,
+                    end_ms: T0,
+                    text: "hi".into(),
+                }],
+            }),
+            ..NewPost::default()
+        })
+        .unwrap();
+    e.clk.add(secs(1));
+    let after = post(&t, &dm, ALICE, "after");
+    assert!(t.notifies(&dm, &fb.post_id, reader).is_some(), "no cursor");
+    t.mark_read(&dm, &before.post_id, USER).unwrap();
+    assert!(
+        t.notifies(&dm, &fb.post_id, reader).is_some(),
+        "read up to an older post"
+    );
+    t.mark_read(&dm, &after.post_id, USER).unwrap();
+    assert!(
+        t.notifies(&dm, &fb.post_id, reader).is_none(),
+        "read past it"
+    );
+}

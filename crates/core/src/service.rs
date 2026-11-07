@@ -144,6 +144,9 @@ pub struct Options {
     /// The mic and speaker a call opens; `None` is the default devices.
     /// Tests pass fake ones.
     pub call_audio: Option<call::device::OpenerFn>,
+    /// Writes down what this device's person says in calls (card #656);
+    /// `None`: this device can't.
+    pub call_transcriber: Option<call::TranscriberFn>,
     /// Builds the transport pairing runs on (M7, [`crate::devices`]);
     /// `None` is iroh on the device key, bound when a window opens.
     pub pair_net: Option<crate::devices::PairNetFn>,
@@ -1488,7 +1491,11 @@ impl Core {
             boards: board_set,
             dm_spaces,
             dms: dm_spaces::Dms::default(),
-            calls: calls::Calls::new(opts.call_platform.clone(), opts.call_audio.clone()),
+            calls: calls::Calls::new(
+                opts.call_platform.clone(),
+                opts.call_audio.clone(),
+                opts.call_transcriber.clone(),
+            ),
             call_settings,
             invites,
         });

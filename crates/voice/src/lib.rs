@@ -118,9 +118,9 @@ pub enum Event {
     /// next partial starts a new one.
     Final(String),
     /// A settled phrase from a feed session, never empty. The times are ms
-    /// since the session started, counted in the samples fed (so they follow
-    /// the caller's clock, not the wall clock); `start_ms` includes a short
-    /// lead-in of silence and `end_ms` is where the speech stopped.
+    /// from the first sample pushed, counted in the samples fed (so they
+    /// follow the caller's clock, not the wall clock); `start_ms` includes a
+    /// short lead-in of silence and `end_ms` is where the speech stopped.
     Segment {
         text: String,
         start_ms: u64,
@@ -246,10 +246,14 @@ pub fn start_with_samples(
 }
 
 /// Starts a session that hears what is pushed into the returned [`Feed`]
-/// (mono at `input_rate`) instead of the microphone, so it needs no
-/// microphone or permission, only the model. Phrases arrive as
-/// [`Event::Segment`]. [`Session::stop`] finishes the phrase in progress
-/// (its `Segment` reaches the sink before `stop` returns), then `Ended`.
+/// (mono at `input_rate`, at least 16 kHz) instead of the microphone, so it
+/// needs no microphone or permission, only the model. Phrases arrive as
+/// [`Event::Segment`], timed from the first sample pushed, not from this
+/// call. [`Session::stop`] finishes the phrase in progress (its `Segment`
+/// reaches the sink before `stop` returns), then `Ended`.
+///
+/// Blocks while the model loads (seconds the first time): don't call it on
+/// the audio thread or an async executor.
 pub fn start_feed(
     model: &Path,
     input_rate: u32,
@@ -268,7 +272,8 @@ impl Feed {
     /// Hands over the next mono samples. Never blocks: a chunk that meets
     /// the engine taking the backlog is dropped (still counted in the
     /// times), and the backlog keeps only the newest 25 s when the engine
-    /// lags. Does nothing once the session has ended.
+    /// lags. Does nothing once the session has ended. Doesn't allocate in
+    /// steady state, so it can run on the audio thread.
     pub fn push(&self, mono: &[f32]) {
         self.0.push(mono)
     }

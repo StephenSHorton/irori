@@ -11,12 +11,19 @@
 //!
 //! A Personal channel's huddle (#663) has no space: it rings on the private
 //! mesh and its connections are proved with the mesh key.
+//!
+//! Transcripts (#656) use the fake transcriber, which calls each loud run
+//! "{label} {k}": the speaker's lines go live to the others as captions and
+//! into the log as `call.segment` rows, or into one fallback post at leave
+//! when the space isn't ready for them.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use call::device::fake::{self, Recording};
 use coord::talk::{CALL_END, CALL_START, CallMark};
+use irori_core::Core;
+use store::{Filter, kinds};
 
 use crate::common::mesh::{Dev, Edit, invited, person_with};
 use crate::common::wait_for;
@@ -44,6 +51,32 @@ fn fake_audio(loud: bool, rec: Arc<Mutex<Recording>>) -> Edit {
             let sound: fake::Gen = if loud { bursts() } else { Box::new(|_| 0.0) };
             fake::devices(sound, rec.clone())
         }));
+    })
+}
+
+/// 1 s of a 600 Hz tone then 2 s of quiet, over and over: a phrase every
+/// 3 s to the fake transcriber.
+fn talking() -> fake::Gen {
+    Box::new(|n| {
+        let t = n as f64 / 48_000.0;
+        if t % 3.0 < 1.0 {
+            0.3 * (2.0 * std::f64::consts::PI * 600.0 * t).sin() as f32
+        } else {
+            0.0
+        }
+    })
+}
+
+/// [`fake_audio`] with [`talking`] for a loud mic, and the fake transcriber
+/// labelled `label`.
+fn scribe_audio(loud: bool, rec: Arc<Mutex<Recording>>, label: &'static str) -> Edit {
+    Arc::new(move |o| {
+        let rec = rec.clone();
+        o.call_audio = Some(Arc::new(move || {
+            let sound: fake::Gen = if loud { talking() } else { Box::new(|_| 0.0) };
+            fake::devices(sound, rec.clone())
+        }));
+        o.call_transcriber = Some(call::transcribe::fake::energy(label));
     })
 }
 
@@ -82,6 +115,12 @@ struct Setup {
 /// Alice with `n` devices (the first one speaking) and Bob, in a space
 /// with a channel; every device `who` picks reaches the others in it.
 fn setup(n: usize, who: impl Fn(&Setup) -> Vec<&Dev>) -> Setup {
+    setup_with(n, false, who)
+}
+
+/// [`setup`], with the fake transcriber on every device when `scribe`
+/// (Alice's devices labelled "alice", Bob's "bob").
+fn setup_with(n: usize, scribe: bool, who: impl Fn(&Setup) -> Vec<&Dev>) -> Setup {
     let recs: Vec<_> = (0..n)
         .map(|_| Arc::new(Mutex::new(Recording::default())))
         .collect();
@@ -89,12 +128,22 @@ fn setup(n: usize, who: impl Fn(&Setup) -> Vec<&Dev>) -> Setup {
     let alice = {
         let recs = recs.clone();
         person_with("alice", n, move |i| {
-            Some(fake_audio(i == 0, recs[i].clone()))
+            Some(if scribe {
+                scribe_audio(i == 0, recs[i].clone(), "alice")
+            } else {
+                fake_audio(i == 0, recs[i].clone())
+            })
         })
     };
     let bob = {
         let r = bob_rec.clone();
-        person_with("bob", 1, move |_| Some(fake_audio(false, r.clone())))
+        person_with("bob", 1, move |_| {
+            Some(if scribe {
+                scribe_audio(false, r.clone(), "bob")
+            } else {
+                fake_audio(false, r.clone())
+            })
+        })
     };
     let space = invited(&alice[0], &bob[0]);
     for a in &alice[1..] {
@@ -349,4 +398,321 @@ fn own_devices_huddle_in_a_personal_channel() {
     for d in alice {
         d.core.close().unwrap();
     }
+}
+
+/// The `call.segment` rows in space `space`'s log on `c`.
+fn segment_rows(c: &Core, space: &str) -> Vec<store::Event> {
+    c.board_store(space)
+        .unwrap()
+        .list(&Filter {
+            kinds: vec![kinds::CALL_SEGMENT.into()],
+            ..Default::default()
+        })
+        .unwrap()
+}
+
+/// The captions in `d`'s call from device `from`.
+fn captions_from(d: &Dev, from: &str) -> Vec<irori_core::Caption> {
+    d.core.call_snapshot().mine.map_or(Vec::new(), |m| {
+        m.captions
+            .into_iter()
+            .filter(|c| c.device_id == from)
+            .collect()
+    })
+}
+
+/// Whether `d`'s call sees peer `peer` as transcribing `on`.
+fn sees_transcribing(d: &Dev, peer: &str, on: Option<bool>) -> bool {
+    d.core.call_snapshot().mine.is_some_and(|m| {
+        m.peers
+            .iter()
+            .any(|p| p.device_id == peer && p.transcribing == on)
+    })
+}
+
+/// Rings `b` in `a`'s new huddle in `ch` and waits for them to connect.
+fn huddle(a: &Dev, b: &Dev, ch: &str) -> String {
+    let call_id = a.core.call_start(ch).expect("start");
+    wait_for(WAIT, "the other device rings", || rung(b, &call_id, ch));
+    b.core.call_join(&call_id).expect("join");
+    wait_for(WAIT, "connected", || {
+        live_peers(a) == 1 && live_peers(b) == 1
+    });
+    call_id
+}
+
+/// #656: Alice speaks, Bob doesn't. Alice's lines are rows in the space's
+/// log signed by her device, show live as captions on Bob's device, fold
+/// there as the call's lines by Alice, and the end post says there's a
+/// transcript.
+#[test]
+fn a_huddle_writes_the_speakers_lines() {
+    let s = setup_with(1, true, |s| vec![&s.alice[0], &s.bob[0]]);
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let (a_dev, b_dev) = (
+        a1.core.device_id().to_string(),
+        b1.core.device_id().to_string(),
+    );
+    let call_id = huddle(a1, b1, &s.ch);
+
+    wait_for(WAIT, "bob sees alice's lines live", || {
+        captions_from(b1, &a_dev).len() >= 2
+    });
+    let c = &captions_from(b1, &a_dev)[0];
+    assert!(!c.mine && c.text.starts_with("alice "), "{c:?}");
+    assert_eq!(c.person_id, a1.core.person().id);
+    assert!(
+        c.end_ms >= c.start_ms && c.start_ms > 1_700_000_000_000,
+        "{c:?}"
+    );
+    wait_for(WAIT, "each sees the other transcribing", || {
+        sees_transcribing(b1, &a_dev, Some(true)) && sees_transcribing(a1, &b_dev, Some(true))
+    });
+    let mine = a1.core.call_snapshot().mine.unwrap();
+    assert!(mine.transcribing && mine.can_transcribe);
+    assert!(
+        mine.captions.iter().any(|c| c.mine && c.device_id == a_dev),
+        "{mine:?}"
+    );
+    // Bob is quiet: no line of his.
+    assert!(captions_from(a1, &b_dev).is_empty());
+
+    let rows = segment_rows(&a1.core, &s.space);
+    assert!(!rows.is_empty());
+    for r in &rows {
+        assert_eq!(r.actor, a1.person_actor());
+        assert_eq!(r.device_id, a_dev);
+    }
+    wait_for(WAIT, "bob folds alice's lines", || {
+        !b1.core.talk().call_posts(&call_id).is_empty()
+    });
+    let lines: Vec<_> = b1
+        .core
+        .talk()
+        .call_posts(&call_id)
+        .into_iter()
+        .filter(|p| p.call.is_none())
+        .collect();
+    assert!(!lines.is_empty());
+    for p in &lines {
+        assert!(p.text.starts_with("alice "), "{p:?}");
+        assert!(p.by.contains(&a1.core.person().id), "{p:?}");
+        assert_eq!(p.conv_id, format!("call:{call_id}"));
+    }
+
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    let end = mark(a1, &s.ch, &call_id, CALL_END).expect("the end post");
+    assert!(end.transcript, "{end:?}");
+    wait_for(WAIT, "bob has the end post", || {
+        mark(b1, &s.ch, &call_id, CALL_END).is_some_and(|m| m.transcript)
+    });
+    close(s);
+}
+
+/// #656: with "Transcribe what I say in calls" off, Alice's device writes
+/// nothing and Bob sees it isn't transcribing; turned on mid-call it
+/// writes, and turned off again it stops.
+#[test]
+fn the_switch_stops_the_transcript() {
+    let s = setup_with(1, true, |s| vec![&s.alice[0], &s.bob[0]]);
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let a_dev = a1.core.device_id().to_string();
+    a1.core.set_call_transcribe(false).unwrap();
+    let call_id = huddle(a1, b1, &s.ch);
+
+    wait_for(WAIT, "bob sees alice isn't transcribing", || {
+        sees_transcribing(b1, &a_dev, Some(false))
+    });
+    let mine = a1.core.call_snapshot().mine.unwrap();
+    assert!(!mine.transcribing && mine.can_transcribe, "{mine:?}");
+    // Two phrases' worth of talking.
+    let from = len(&s.bob_rec);
+    wait_for(WAIT, "alice's voice comes out of bob's speaker", || {
+        loud_blocks(&s.bob_rec, from) >= 10
+    });
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(captions_from(b1, &a_dev).is_empty());
+    assert!(segment_rows(&a1.core, &s.space).is_empty());
+
+    // On mid-call.
+    a1.core.set_call_transcribe(true).unwrap();
+    wait_for(WAIT, "bob sees alice transcribing", || {
+        sees_transcribing(b1, &a_dev, Some(true))
+    });
+    wait_for(WAIT, "alice's lines come", || {
+        !captions_from(b1, &a_dev).is_empty() && !segment_rows(&a1.core, &s.space).is_empty()
+    });
+
+    // Off again: once Bob hears so, no more lines.
+    a1.core.set_call_transcribe(false).unwrap();
+    wait_for(WAIT, "bob sees alice stop", || {
+        sees_transcribing(b1, &a_dev, Some(false))
+    });
+    assert!(!a1.core.call_snapshot().mine.unwrap().transcribing);
+    let (caps, rows) = (
+        captions_from(b1, &a_dev).len(),
+        segment_rows(&a1.core, &s.space).len(),
+    );
+    std::thread::sleep(Duration::from_secs(7));
+    assert_eq!(captions_from(b1, &a_dev).len(), caps);
+    assert_eq!(segment_rows(&a1.core, &s.space).len(), rows);
+
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    assert!(mark(a1, &s.ch, &call_id, CALL_END).unwrap().transcript);
+    close(s);
+}
+
+/// #656: a Personal channel's lines go to the private log and fold on the
+/// person's other device.
+#[test]
+fn a_personal_huddle_writes_to_the_private_log() {
+    let recs: Vec<_> = (0..2)
+        .map(|_| Arc::new(Mutex::new(Recording::default())))
+        .collect();
+    let alice = {
+        let recs = recs.clone();
+        person_with("alice", 2, move |i| {
+            Some(scribe_audio(i == 0, recs[i].clone(), "alice"))
+        })
+    };
+    let (mac, phone) = (&alice[0], &alice[1]);
+    let mac_dev = mac.core.device_id().to_string();
+    let ch = mac
+        .core
+        .talk_channel_create(&mac.user(), "us", "")
+        .unwrap()
+        .id;
+    wait_for(WAIT, "the channel reaches the phone", || {
+        phone
+            .core
+            .talk_conversations(&phone.user())
+            .is_ok_and(|cs| cs.iter().any(|c| c.conv_id == ch))
+    });
+    wait_for(WAIT, "the devices reach each other", || {
+        mac.core
+            .call_reachable("")
+            .contains(&phone.core.device_id().to_string())
+            && phone.core.call_reachable("").contains(&mac_dev)
+    });
+    let call_id = huddle(mac, phone, &ch);
+
+    wait_for(WAIT, "the phone sees the mac's lines", || {
+        !captions_from(phone, &mac_dev).is_empty()
+    });
+    wait_for(WAIT, "the phone folds them", || {
+        phone
+            .core
+            .talk()
+            .call_posts(&call_id)
+            .iter()
+            .any(|p| p.call.is_none() && p.text.starts_with("alice "))
+    });
+    let rows = mac
+        .core
+        .store()
+        .list(&Filter {
+            kinds: vec![kinds::CALL_SEGMENT.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows.iter().all(|r| r.device_id == mac_dev));
+
+    phone.core.call_leave().unwrap();
+    wait_for(WAIT, "the mac is alone", || live_peers(mac) == 0);
+    mac.core.call_leave().unwrap();
+    assert!(mark(mac, &ch, &call_id, CALL_END).unwrap().transcript);
+    for d in alice {
+        d.core.close().unwrap();
+    }
+}
+
+/// #656: when a device in the space may be too old for `call.segment` rows
+/// as the call begins (Alice's other device, offline, last said an old
+/// `tolerant`), the lines still show live but are kept, and written as one
+/// fallback post at leave that folds into the call on Bob's device and
+/// isn't a channel post.
+#[test]
+fn a_space_not_ready_gets_one_fallback_post() {
+    let mut s = setup_with(2, true, |s| vec![&s.alice[0], &s.bob[0]]);
+    let old = s.alice.pop().unwrap();
+    let old_dev = old.core.device_id().to_string();
+    old.core.close().unwrap();
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let a_dev = a1.core.device_id().to_string();
+    a1.core
+        .board_store(&s.space)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: old_dev,
+                core_version: "0.12.4".into(),
+                spaces: 1,
+                spawns: 1,
+                tolerant: 1,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    wait_for(WAIT, "alice's space isn't ready for call rows", || {
+        !a1.core.space_tolerance(&s.space).unwrap().ready()
+    });
+    let call_id = huddle(a1, b1, &s.ch);
+
+    wait_for(WAIT, "bob sees alice's lines live", || {
+        captions_from(b1, &a_dev).len() >= 2
+    });
+    assert!(segment_rows(&a1.core, &s.space).is_empty());
+    assert!(
+        b1.core
+            .talk()
+            .call_posts(&call_id)
+            .iter()
+            .all(|p| p.call.is_some())
+    );
+
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    assert!(segment_rows(&a1.core, &s.space).is_empty());
+    let end = mark(a1, &s.ch, &call_id, CALL_END).expect("the end post");
+    assert!(end.transcript);
+    wait_for(WAIT, "bob folds the fallback", || {
+        b1.core
+            .talk()
+            .call_posts(&call_id)
+            .iter()
+            .filter(|p| p.call.is_none())
+            .count()
+            >= 2
+    });
+    let lines: Vec<_> = b1
+        .core
+        .talk()
+        .call_posts(&call_id)
+        .into_iter()
+        .filter(|p| p.call.is_none())
+        .collect();
+    assert!(
+        lines.iter().all(|p| p.text.starts_with("alice ")),
+        "{lines:?}"
+    );
+    // One post, not a channel post.
+    let ids: std::collections::BTreeSet<_> = lines
+        .iter()
+        .map(|p| p.post_id.split('#').next().unwrap_or_default())
+        .collect();
+    assert_eq!(ids.len(), 1, "{lines:?}");
+    let posts = b1.core.talk_posts(&b1.user(), &s.ch, None, 50).unwrap();
+    assert!(posts.iter().all(|p| p.transcript.is_none()), "{posts:?}");
+    let all = a1.core.talk().posts(&s.ch);
+    assert!(all.iter().all(|p| p.transcript.is_none()));
+    close(s);
 }

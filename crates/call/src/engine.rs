@@ -208,7 +208,9 @@ impl Engine {
     }
 
     /// Hands each cleaned 10 ms chunk of the mic to `tap` (zeros while
-    /// muted), or stops with None. Never blocks.
+    /// muted, and in place of audio dropped when the engine fell behind, so
+    /// the tap's sample count keeps the call's time), or stops with None.
+    /// Never blocks.
     pub fn set_tap(&self, tap: Option<Tap>) {
         let _ = self.tx.send(Cmd::Tap(tap));
     }
@@ -279,6 +281,8 @@ struct Core {
     clicker: Option<Clicker>,
     voice: Option<Voice>,
     tap: Option<Tap>,
+    /// Dropped mic samples not yet given to the tap as zeros (under a chunk).
+    tap_gap: usize,
     sent_level: f32,
     /// The speaker played something above the speech gate until then (plus
     /// the time for it to reach the mic).
@@ -326,6 +330,7 @@ impl Core {
             clicker: cfg.probe.then(Clicker::new),
             voice: cfg.say.then(Voice::new),
             tap: None,
+            tap_gap: 0,
             sent_level: 0.0,
             playing_until: None,
             echo_raw: 0.0,
@@ -399,7 +404,10 @@ impl Core {
                     p.jb.insert(h, payload, now);
                 }
             }
-            Cmd::Tap(t) => self.tap = t,
+            Cmd::Tap(t) => {
+                self.tap = t;
+                self.tap_gap = 0;
+            }
             Cmd::Stop => {}
         }
     }
@@ -470,6 +478,16 @@ impl Core {
         // Keep the timestamps on wall time: the far end plays by them, and
         // a gap it doesn't see would look like a lasting delay.
         self.ts = self.ts.wrapping_add(((dropped / F) * F) as u32);
+        // The tap counts samples for its clock: give it zeros for the gap,
+        // in whole chunks.
+        if let Some(t) = self.tap.as_mut() {
+            self.tap_gap += dropped;
+            let zeros = [0f32; dsp::CHUNK];
+            while self.tap_gap >= dsp::CHUNK {
+                t(&zeros);
+                self.tap_gap -= dsp::CHUNK;
+            }
+        }
         let mut x = [0f32; dsp::CHUNK];
         while self.mic_in.take(&mut x) {
             // The probe times sound at the raw mic, before any cleaning.

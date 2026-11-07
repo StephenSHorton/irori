@@ -6,15 +6,18 @@
 use std::sync::Arc;
 
 /// Called on the engine thread with each 10 ms chunk (480 samples, 48 kHz
-/// mono) of the cleaned mic, after mute. Must not block.
+/// mono) of the cleaned mic, after mute; zeros stand in for audio the
+/// engine dropped, so counting samples keeps the call's time. Must not
+/// block, and neither must dropping it (the engine drops it on its thread).
 pub type Tap = Box<dyn FnMut(&[f32]) + Send>;
 
 /// One finished phrase.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Segment {
     pub text: String,
-    /// From the transcriber's start, ms.
+    /// Ms of audio since the first tapped sample.
     pub start_ms: u64,
+    /// Ms of audio since the first tapped sample.
     pub end_ms: u64,
 }
 
@@ -36,7 +39,7 @@ pub type TranscriberFn =
 /// For tests: a transcriber that hears loudness, not words.
 pub mod fake {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::thread::JoinHandle;
     use std::time::Duration;
 
@@ -57,7 +60,7 @@ pub mod fake {
 
     /// For tests: a [`TranscriberFn`] whose transcribers call each loud run
     /// (ended by [`QUIET_MS`] of quiet) "{label} {k}", k from 0, timed by
-    /// the samples heard.
+    /// the samples heard (audio dropped when its ring is full still counts).
     pub fn energy(label: &str) -> TranscriberFn {
         let label = label.to_string();
         Arc::new(move |sink| Ok(Box::new(Energy::start(&label, sink)) as Box<dyn Transcriber>))
@@ -66,6 +69,8 @@ pub mod fake {
     /// For tests: see [`energy`].
     pub struct Energy {
         prod: Option<HeapProd<f32>>,
+        /// Samples the tap dropped because the ring was full.
+        dropped: Arc<AtomicU64>,
         stop: Arc<AtomicBool>,
         thread: Option<JoinHandle<()>>,
     }
@@ -75,13 +80,16 @@ pub mod fake {
             let (prod, cons) = HeapRb::<f32>::new(48_000 * RING_SECS).split();
             let stop = Arc::new(AtomicBool::new(false));
             let st = stop.clone();
+            let dropped = Arc::new(AtomicU64::new(0));
+            let dr = dropped.clone();
             let label = label.to_string();
             let thread = std::thread::Builder::new()
                 .name("irori-fake-transcriber".into())
-                .spawn(move || run(cons, st, label, sink))
+                .spawn(move || run(cons, dr, st, label, sink))
                 .expect("spawn the fake transcriber");
             Energy {
                 prod: Some(prod),
+                dropped,
                 stop,
                 thread: Some(thread),
             }
@@ -90,20 +98,26 @@ pub mod fake {
 
     impl Transcriber for Energy {
         /// The first call gets the ring; later ones get a tap that drops.
+        /// A chunk goes in whole or is counted as dropped.
         fn tap(&mut self) -> Tap {
             match self.prod.take() {
-                Some(mut p) => Box::new(move |x: &[f32]| {
-                    let _ = p.push_slice(x);
-                }),
+                Some(mut p) => {
+                    let dropped = self.dropped.clone();
+                    Box::new(move |x: &[f32]| {
+                        if p.vacant_len() >= x.len() {
+                            p.push_slice(x);
+                        } else {
+                            dropped.fetch_add(x.len() as u64, Ordering::Relaxed);
+                        }
+                    })
+                }
                 None => Box::new(|_: &[f32]| {}),
             }
         }
 
-        fn stop(mut self: Box<Self>) {
-            self.stop.store(true, Ordering::Release);
-            if let Some(t) = self.thread.take() {
-                let _ = t.join();
-            }
+        /// Dropping does the work.
+        fn stop(self: Box<Self>) {
+            drop(self);
         }
     }
 
@@ -152,7 +166,13 @@ pub mod fake {
         }
     }
 
-    fn run(mut cons: HeapCons<f32>, stop: Arc<AtomicBool>, label: String, sink: SegmentSink) {
+    fn run(
+        mut cons: HeapCons<f32>,
+        dropped: Arc<AtomicU64>,
+        stop: Arc<AtomicBool>,
+        label: String,
+        sink: SegmentSink,
+    ) {
         let mut p = Phrases {
             label,
             sink,
@@ -168,6 +188,8 @@ pub mod fake {
                 cons.pop_slice(&mut x);
                 p.chunk(&x);
             }
+            // Dropped when the ring was full, so after what it held.
+            p.n += dropped.swap(0, Ordering::Relaxed);
             if stopping {
                 p.flush();
                 return;

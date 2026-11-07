@@ -15,7 +15,7 @@ Huddles write a transcript: each device writes down only its own person's voice,
 | Fallback | `talk.post` with a `transcript` mark | When the gate isn't ready, the speaker's device keeps its lines and writes one post with all of them when it leaves the call. An older Irori shows it as a plain post. |
 | Fold | `crates/coord/src/talk.rs` | Folds `call.segment` (and fallback posts) into a per-call index: `call_posts(call_id)` gives the lines as posts by the speaker at the phrase's time, conv `call:<id>`. |
 | Agents | `crates/tools/src/talk.rs` | `talk_read {conv:"call:<id>"}`, a huddles section in `talk_list`, and one wake for the channel's agents when the huddle ends. A person DM's transcript is never shown to an agent. |
-| Setting | `call.transcribe` private row | "Transcribe what I say in calls", per person, synced to their devices, on when no row says otherwise (decision 52). |
+| Setting | `transcribe.set` private row | "Transcribe what I say in calls", per person, synced to their devices, on when no row says otherwise (decision 52). |
 | Window | `crates/window/src/call.rs`, `frontend/src/components/talk/huddle.tsx` | A notice before the mic opens, the "Transcript on" badge, who is transcribing, live captions, the transcript pane from the end post, and the switch in Settings > App. |
 
 ## Contracts

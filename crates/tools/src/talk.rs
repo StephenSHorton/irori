@@ -137,15 +137,20 @@ pub enum Target {
     Dm(String, Option<Member>),
     /// A card's or thread's task id.
     Thread(String),
+    /// A huddle's transcript, `call:<id>` (card #656): read-only.
+    Call(String),
 }
 
 impl Target {
     pub fn id(&self) -> &str {
         match self {
-            Target::Channel(id) | Target::Dm(id, _) | Target::Thread(id) => id,
+            Target::Channel(id) | Target::Dm(id, _) | Target::Thread(id) | Target::Call(id) => id,
         }
     }
 }
+
+/// What a huddle's transcript can't be.
+const CALL_READ_ONLY: &str = "a huddle's transcript is read-only";
 
 fn talk_of(b: &dyn Backend) -> Result<&Arc<Talk>, String> {
     b.talk()
@@ -765,7 +770,8 @@ fn many_named(name: &str, what: &str, keys: &[String]) -> String {
 /// DM with them; card #538). An agent is refused a person, and anyone is
 /// refused another person's agent. A channel's name is looked up in space
 /// `space` only (empty: Personal); a name that lives in another space is
-/// refused with where it is, never followed there (card #461).
+/// refused with where it is, never followed there (card #461). `call:<id>`
+/// is a huddle's transcript (card #656).
 pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Target, String> {
     let talk = talk_of(b)?;
     let conv = trim(conv);
@@ -773,6 +779,15 @@ pub fn resolve(b: &dyn Backend, me: &str, conv: &str, space: &str) -> Result<Tar
         return Err(
             "give conv: a channel (#name), a DM (@agent, or person), or a thread (#12)".into(),
         );
+    }
+    if let Some(id) = conv.strip_prefix(ct::CALL_PREFIX) {
+        return match talk.call_conv(id) {
+            Some(_) => Ok(Target::Call(format!("{}{}", ct::CALL_PREFIX, id.trim()))),
+            None => Err(format!(
+                "no huddle {}. talk_list shows yours.",
+                one_line(id, 80)
+            )),
+        };
     }
     if ct::is_channel(conv) {
         return match talk.channel(conv) {
@@ -995,10 +1010,16 @@ pub fn open_dm(b: &dyn Backend, me: &str, key: &str) -> Result<String, String> {
 }
 
 /// Every post of `conv` (oldest first) as `reader` may read it: anyone
-/// reads a channel or a thread; a DM, its parties and the person.
+/// reads a channel or a thread; a DM, its parties and the person. A
+/// huddle's lines (`call:<id>`) go by its conversation's rule, and an agent
+/// never reads a person DM's (card #656).
 pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, String> {
     let talk = talk_of(b)?;
     let conv = trim(conv);
+    if let Some(id) = conv.strip_prefix(ct::CALL_PREFIX) {
+        call_parent(b, talk, reader, id)?;
+        return Ok(talk.call_posts(id));
+    }
     if ct::is_channel(conv) {
         if talk.channel(conv).is_none() {
             return Err(format!("no channel {}", one_line(conv, 80)));
@@ -1029,6 +1050,25 @@ pub fn posts(b: &dyn Backend, reader: &str, conv: &str) -> Result<Vec<Post>, Str
     }
 }
 
+/// The conversation huddle `id` was in, when `reader` may read its lines:
+/// as they may read that conversation, and never an agent in a person DM.
+fn call_parent(b: &dyn Backend, talk: &Talk, reader: &str, id: &str) -> Result<String, String> {
+    let parent = talk
+        .call_conv(id)
+        .ok_or_else(|| format!("no huddle {}. talk_list shows yours.", one_line(id, 80)))?;
+    if talk.pair_other(&parent).is_some() && !ct::is_person_key(reader) {
+        return Err("a huddle between two people is theirs: agents don't read it".into());
+    }
+    if ct::is_channel(&parent) {
+        if talk.channel(&parent).is_none() {
+            return Err(format!("no channel {}", one_line(&parent, 80)));
+        }
+    } else if !can_read(b, reader, &parent) {
+        posts(b, reader, &parent)?;
+    }
+    Ok(parent)
+}
+
 /// Whether `reader` may read `conv`, by [`posts`]'s rule, without listing
 /// its posts (card #643: a file served from a post asks per request).
 /// Only a DM whose members are all gone needs its mirrored messages for
@@ -1038,6 +1078,9 @@ pub fn can_read(b: &dyn Backend, reader: &str, conv: &str) -> bool {
         return false;
     };
     let conv = trim(conv);
+    if let Some(id) = conv.strip_prefix(ct::CALL_PREFIX) {
+        return call_parent(b, talk, reader, id).is_ok();
+    }
     if ct::is_channel(conv) {
         return talk.channel(conv).is_some();
     }
@@ -1072,6 +1115,9 @@ pub fn post(
     thread_from: Option<String>,
     files: &[blob::FileRef],
 ) -> Result<Posted, String> {
+    if matches!(target, Target::Call(_)) {
+        return Err(CALL_READ_ONLY.into());
+    }
     let talk = talk_of(b)?;
     let by = from.key.clone();
     let files = ct::check_files(files).map_err(|e| e.to_string())?;
@@ -1115,6 +1161,7 @@ pub fn post(
         ..Posted::default()
     };
     let (conv, title) = match target {
+        Target::Call(_) => return Err(CALL_READ_ONLY.into()),
         Target::Thread(_) => {
             return Err("a thread's posts are its comments: post with board_comment".into());
         }
@@ -1486,6 +1533,7 @@ pub(crate) fn talk_thread(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 }
                 channel = id;
             }
+            Ok(Target::Call(_)) => return err_text(CALL_READ_ONLY),
             Ok(_) => {
                 return err_text(
                     "conv is the channel the thread is about (#name); leave it out for Personal. To write in a DM or a thread, use talk_post.",
@@ -1646,7 +1694,11 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     }
     let n = s.roster();
     let now = s.now();
-    let mut out = format!("{head} in {conv}, oldest first:\n");
+    let mut out = String::new();
+    if let Target::Call(_) = &target {
+        out += &call_head(talk, &n, &conv);
+    }
+    out += &format!("{head} in {conv}, oldest first:\n");
     for p in &shown {
         out += &format!(
             "- [{}] {} ({}): {}\n",
@@ -1745,6 +1797,7 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
         };
         out += &format!("- {what}{tail}{topic}\n");
     }
+    out += &huddles(talk, &n, me(c));
     let others: Vec<String> = talk
         .channels()
         .into_iter()
@@ -1765,6 +1818,149 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
         );
     }
     out + untrusted()
+}
+
+/// The most huddles talk_list shows.
+const HUDDLES_SHOWN: usize = 10;
+
+/// Where a huddle was, for a line about it: `#name`, or the DM with whom.
+fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
+    if let Some(ch) = talk.channel(conv) {
+        return format!("#{}", one_line(&ch.name, 80));
+    }
+    match talk.pair_other(conv) {
+        Some(other) => format!("the DM with {}", n.who(&other)),
+        None => conv.to_string(),
+    }
+}
+
+/// The huddle `conv` (`call:<id>`) names, as talk_list knows it.
+fn call_info(talk: &Talk, conv: &str) -> Option<ct::CallInfo> {
+    let id = conv.strip_prefix(ct::CALL_PREFIX)?;
+    talk.calls().into_iter().find(|c| c.call_id == id)
+}
+
+/// talk_read's first line for a huddle's transcript (card #656).
+fn call_head(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
+    let Some(c) = call_info(talk, conv) else {
+        return String::new();
+    };
+    format!(
+        "The transcript of the huddle in {} ({}): each line is what its speaker said, at the time they said it.\n",
+        call_place(talk, n, &c.conv_id),
+        if c.end.is_some() { "ended" } else { "live" },
+    )
+}
+
+/// talk_list's huddles with a transcript (card #656), newest first: the
+/// person sees all of them, an agent those of the channels it is in, never
+/// a person DM's.
+fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
+    let person = ct::is_person_key(me);
+    let shown: Vec<ct::CallInfo> = talk
+        .calls()
+        .into_iter()
+        .filter(|c| c.lines > 0)
+        .filter(|c| {
+            if talk.pair_other(&c.conv_id).is_some() {
+                return person;
+            }
+            if !ct::is_channel(&c.conv_id) || talk.channel(&c.conv_id).is_none() {
+                return false;
+            }
+            person || talk.is_member(&c.conv_id, me)
+        })
+        .collect();
+    if shown.is_empty() {
+        return String::new();
+    }
+    let mut out = "Huddles with a transcript, newest first:\n".to_string();
+    for c in shown.iter().take(HUDDLES_SHOWN) {
+        let conv = format!("{}{}", ct::CALL_PREFIX, c.call_id);
+        let (unread, _) = ct::unread(
+            &talk.call_posts(&c.call_id),
+            talk.cursor(me, &conv).as_deref(),
+            me,
+        );
+        let tail = if unread > 0 {
+            format!(": {unread} unread")
+        } else {
+            String::new()
+        };
+        out += &format!(
+            "- huddle in {} (conv={conv}, {} line{}, {}){tail}\n",
+            call_place(talk, n, &c.conv_id),
+            c.lines,
+            if c.lines == 1 { "" } else { "s" },
+            if c.end.is_some() { "ended" } else { "live" },
+        );
+    }
+    if shown.len() > HUDDLES_SHOWN {
+        out += &format!("({} older not shown)\n", shown.len() - HUDDLES_SHOWN);
+    }
+    out
+}
+
+/// What a channel's agents hear when its huddle ends (card #656), the
+/// same from the device that ended it and from another person's.
+pub fn call_end_text(channel: &str, call_id: &str, lines: usize) -> String {
+    let count = if lines == 0 {
+        "its lines may still be arriving".to_string()
+    } else {
+        format!("{lines} line{}", if lines == 1 { "" } else { "s" })
+    };
+    format!(
+        "The huddle in #{} ended. talk_read conv={}{call_id} has the transcript ({count}).",
+        one_line(channel, 80),
+        ct::CALL_PREFIX,
+    )
+}
+
+/// Tells this person's agents in channel `conv` that huddle `call_id`
+/// ended and where its transcript is (card #656): one reading each, with
+/// a wake, its reference the channel (`talk:<conv>`) so a reply goes there.
+/// Nobody hears of a DM's huddle. Each call tells again: call it once per
+/// huddle (the last device out).
+pub fn tell_call_end(
+    b: &dyn Backend,
+    from: &Sender,
+    conv: &str,
+    call_id: &str,
+) -> Vec<NoticeResult> {
+    let Ok(talk) = talk_of(b) else {
+        return Vec::new();
+    };
+    let conv = trim(conv);
+    if !ct::is_channel(conv) || talk.pair_other(conv).is_some() {
+        return Vec::new();
+    }
+    let Some(ch) = talk.channel(conv) else {
+        return Vec::new();
+    };
+    let mut to: Vec<String> = Vec::new();
+    for m in talk.members(conv) {
+        // Another person's agent (a board key) hears it on its own Core.
+        if m.kind == ct::AGENT
+            && !coord::board_form(&m.key)
+            && !to.iter().any(|k| ct::canon(k) == ct::canon(&m.key))
+        {
+            to.push(m.key);
+        }
+    }
+    if to.is_empty() {
+        return Vec::new();
+    }
+    let n = Notice {
+        kind: coord::NOTICE_READING.into(),
+        reference: format!("talk:{conv}"),
+        title: format!("#{}", ch.name),
+        to,
+        by: from.key.clone(),
+        text: call_end_text(&ch.name, call_id.trim(), talk.call_posts(call_id).len()),
+        wake: true,
+        ..Notice::default()
+    };
+    crate::notice::route_notice(b.inbox(), from, &n)
 }
 
 /// " in space <tag>" for a space's channel, so two channels of one name

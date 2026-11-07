@@ -64,8 +64,12 @@ struct Node {
 }
 
 fn node(sound: dev::Gen) -> Node {
+    node_with(config(), sound)
+}
+
+fn node_with(cfg: Config, sound: dev::Gen) -> Node {
     let rec = Arc::new(Mutex::new(Recording::default()));
-    let engine = Engine::start(config(), dev::devices(sound, rec.clone())).expect("engine");
+    let engine = Engine::start(cfg, dev::devices(sound, rec.clone())).expect("engine");
     Node { engine, rec }
 }
 
@@ -231,6 +235,29 @@ fn a_muted_engine_taps_zeros() {
 }
 
 #[test]
+fn the_stand_in_voice_stays_out_of_the_tap() {
+    // No peer: what a peer sends back would reach the tap as echo residue.
+    let a = node_with(
+        Config {
+            say: true,
+            ..config()
+        },
+        silence(),
+    );
+    let (tap, heard) = listen();
+    a.engine.set_tap(Some(tap));
+    std::thread::sleep(Duration::from_millis(1500));
+    let h = heard.lock().unwrap().clone();
+    assert!(h.len() > 100, "{} chunks", h.len());
+    assert!(h.iter().all(|&(_, p)| p == 0.0));
+    let st = a.engine.stats();
+    assert!(
+        st.sent_level_dbfs > -40.0,
+        "the voice still goes out: {st:?}"
+    );
+}
+
+#[test]
 fn set_tap_none_stops_the_tap() {
     let a = node(silence());
     let (tap, heard) = listen();
@@ -260,9 +287,11 @@ fn the_fake_transcriber_writes_one_segment_per_burst() {
     assert_eq!(got.len(), 2, "{got:?}");
     assert_eq!(got[0].text, "a 0");
     assert_eq!(got[1].text, "a 1");
-    for (i, s) in got.iter().enumerate() {
-        let at = 1000 + 2000 * i as u64;
-        assert!(s.start_ms + 150 > at && s.start_ms < at + 100, "{s:?}");
+    // The fake's clock starts at the first tapped chunk, not at the device,
+    // so check the gap between the bursts (2 s apart), not when they fell.
+    let gap = got[1].start_ms - got[0].start_ms;
+    assert!((1700..=2300).contains(&gap), "{got:?}");
+    for s in &got {
         let len = s.end_ms - s.start_ms;
         assert!((150..=300).contains(&len), "{s:?}");
     }

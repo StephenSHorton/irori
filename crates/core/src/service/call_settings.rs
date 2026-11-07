@@ -1,6 +1,6 @@
 //! "Transcribe what I say in calls" (card #656): the person's switch, on
 //! a `transcribe.set` row in the private log, so it reaches all their
-//! devices. Only `actor == "user"` rows count, the newest wins, and with
+//! devices. Only `actor == "user"` rows count, the latest `at` wins, and with
 //! none it is on (decision 52). Set in the app only: no tool reaches it.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,32 +50,41 @@ impl CallSettings {
     }
 }
 
-/// The newest `user` row's switch, newest first in log order; on with none.
+/// The switch on the `user` row with the largest `at`, ties to the larger
+/// device id, so every device settles on the same row whatever order rows
+/// arrived in; on with none.
 fn newest_transcribe(st: &Store) -> bool {
     let mut f = Filter {
         kinds: vec![kinds::TRANSCRIBE_SET.into()],
         limit: store::MAX_LIST_LIMIT,
-        desc: true,
         ..Filter::default()
     };
+    let mut best: Option<((i64, u32), String, bool)> = None;
     loop {
         let Ok(page) = st.list(&f) else {
             return TRANSCRIBE_ON;
         };
-        let full = page.len() as i64 >= f.limit;
         for ev in &page {
             if ev.actor != "user" {
                 continue;
             }
-            if let Ok(r) = serde_json::from_slice::<TranscribeSet>(&ev.payload) {
-                return r.on;
+            let Ok(r) = serde_json::from_slice::<TranscribeSet>(&ev.payload) else {
+                continue;
+            };
+            let at = (r.at.secs, r.at.nanos);
+            let newer = best.as_ref().is_none_or(|(b_at, b_dev, _)| {
+                (at, ev.device_id.as_str()) > (*b_at, b_dev.as_str())
+            });
+            if newer {
+                best = Some((at, ev.device_id.clone(), r.on));
             }
         }
         match page.last() {
-            Some(last) if full => f.after = last.cursor(),
-            _ => return TRANSCRIBE_ON,
+            Some(last) if page.len() as i64 >= f.limit => f.after = last.cursor(),
+            _ => break,
         }
     }
+    best.map_or(TRANSCRIBE_ON, |(_, _, on)| on)
 }
 
 impl Services {

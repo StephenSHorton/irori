@@ -18,14 +18,22 @@
 //!
 //! Who dials: whoever joins dials every device already in the call. A
 //! device rung later learns the roster from the frames.
+//!
+//! Transcripts (card #656, docs/design/call-transcripts.md): each device
+//! writes down only its own person's voice. A transcriber hears the
+//! engine's tap; each finished phrase goes live to the peers as a control
+//! frame on the call stream, shows as a caption, and is stored as a
+//! `call.segment` row, or, when the space couldn't take one as the call
+//! began, kept for one fallback post at leave.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use coord::talk::{CallMark, NewPost, Post};
+use coord::talk::{CallMark, NewPost, Post, TranscriptLineMark, TranscriptMark};
 use iroh::endpoint::Connection;
 use irori_identity::Chain;
+use irori_net::call::{CallPeerState, ControlMsg, TranscriptLine};
 use mesh::boardmesh::{BoardMesh, CallFrame, CallHooks, LivePeer};
 use mesh::owncalls::OwnCalls;
 
@@ -45,6 +53,17 @@ const RING_AGAIN: Duration = Duration::from_secs(5);
 const MAX_DEVICES: usize = 8;
 /// How often the window hears about a call in progress (health, speaking).
 const TICK: Duration = Duration::from_millis(400);
+/// The captions a call keeps for the window.
+const CAPTIONS: usize = 40;
+/// A line's text is cut to this many bytes, so its frame fits
+/// [`irori_net::call::CONTROL_MAX`].
+const LINE_MAX: usize = 12 * 1024;
+/// Control messages queued for one peer before new ones are dropped.
+const CTL_QUEUE: usize = 64;
+/// How long a leave waits for the last lines to be written.
+const DRAIN_FOR: Duration = Duration::from_secs(10);
+/// A fallback post's text is at most this long; more lines go in another.
+const FALLBACK_MAX: usize = 64 * 1024;
 
 /// The call state on [`Services`].
 #[derive(Default)]
@@ -53,17 +72,21 @@ pub(crate) struct Calls {
     /// The phone's microphone service (Android); `None` on desktops.
     platform: Option<Arc<dyn call::Platform>>,
     audio: Option<call::device::OpenerFn>,
+    /// Starts a transcriber (card #656); `None`: this device can't.
+    transcriber: Option<call::TranscriberFn>,
 }
 
 impl Calls {
     pub(crate) fn new(
         platform: Option<Arc<dyn call::Platform>>,
         audio: Option<call::device::OpenerFn>,
+        transcriber: Option<call::TranscriberFn>,
     ) -> Self {
         Calls {
             inner: Mutex::default(),
             platform,
             audio,
+            transcriber,
         }
     }
 }
@@ -132,12 +155,117 @@ struct Active {
     /// Person ids of everyone seen in the call, this person included.
     people: BTreeSet<String>,
     error: Option<String>,
+    /// This call's transcript.
+    script: Arc<Script>,
+    /// The transcriber running now.
+    scribe: Option<Scribe>,
+    /// A transcriber failed to start: not tried again until the switch
+    /// goes off and on.
+    scribe_failed: bool,
 }
 
 struct Slot {
     person_id: String,
     conn: Option<Connection>,
     gone: bool,
+    /// The connection's control writer (card #656).
+    ctl: Option<tokio::sync::mpsc::Sender<ControlMsg>>,
+    /// Whether it writes down what its person says; None until it says.
+    transcribing: Option<bool>,
+    /// Its lines already heard, by seq.
+    seen: BTreeSet<u64>,
+}
+
+impl Slot {
+    fn new(person_id: String) -> Slot {
+        Slot {
+            person_id,
+            conn: None,
+            gone: false,
+            ctl: None,
+            transcribing: None,
+            seen: BTreeSet::new(),
+        }
+    }
+}
+
+/// A call's transcript (card #656), shared by the call, the thread that
+/// writes this device's lines and the leave.
+struct Script {
+    /// The calls gate as read on entering, for the whole call: rows in the
+    /// log, else the lines are kept for one fallback post at leave.
+    rows: bool,
+    /// Held while a transcriber starts or stops, so a leave waits for it.
+    toggle: Mutex<()>,
+    st: Mutex<ScriptState>,
+}
+
+#[derive(Default)]
+struct ScriptState {
+    /// This device's next line's seg and seq.
+    next: u64,
+    /// The newest lines, oldest first.
+    captions: VecDeque<Caption>,
+    /// Some line was heard in this call, this device's or a peer's.
+    heard: bool,
+    /// This device's lines for the fallback post.
+    fallback: Vec<TranscriptLineMark>,
+}
+
+impl Script {
+    fn caption(&self, c: Caption) {
+        let mut st = self.st.lock().expect("script");
+        st.heard = true;
+        if st.captions.len() >= CAPTIONS {
+            st.captions.pop_front();
+        }
+        st.captions.push_back(c);
+    }
+}
+
+/// A running transcriber and the thread that writes its lines.
+struct Scribe {
+    t: Box<dyn call::Transcriber>,
+    tx: std::sync::mpsc::Sender<ScribeMsg>,
+    writer: std::thread::JoinHandle<()>,
+}
+
+enum ScribeMsg {
+    Line(call::Segment),
+    /// The transcriber stopped: nothing comes after.
+    Done,
+}
+
+impl Scribe {
+    /// Stops the transcriber (its last phrase is queued before this
+    /// returns) and waits a while for the writer to finish every line.
+    /// Blocks: never under the calls lock. Take the tap off first.
+    fn finish(self) {
+        self.t.stop();
+        let _ = self.tx.send(ScribeMsg::Done);
+        drop(self.tx);
+        let until = std::time::Instant::now() + DRAIN_FOR;
+        while !self.writer.is_finished() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if self.writer.is_finished() {
+            let _ = self.writer.join();
+        } else {
+            crate::logf(format_args!("call: the transcript writer didn't finish"));
+        }
+    }
+}
+
+/// `t` cut to [`LINE_MAX`] bytes on a char boundary.
+fn cap_line(t: &str) -> &str {
+    if t.len() <= LINE_MAX {
+        return t;
+    }
+    let mut i = LINE_MAX;
+    while !t.is_char_boundary(i) {
+        i -= 1;
+    }
+    &t[..i]
 }
 
 /// What a call's frames ride and who it admits: a space's board mesh, or
@@ -491,10 +619,8 @@ impl Services {
                             if a.peers.len() >= MAX_DEVICES && !a.peers.contains_key(&d) {
                                 continue;
                             }
-                            let slot = a.peers.entry(d.clone()).or_insert(Slot {
-                                person_id: known.get(&d).cloned().unwrap_or_default(),
-                                conn: None,
-                                gone: false,
+                            let slot = a.peers.entry(d.clone()).or_insert_with(|| {
+                                Slot::new(known.get(&d).cloned().unwrap_or_default())
                             });
                             // A device that left comes back only on its own
                             // word, never on a roster someone else sent.
@@ -616,8 +742,18 @@ impl Services {
                         loss_pct,
                         speaking: es.is_some_and(|p| p.speaking),
                         muted: es.is_some_and(|p| p.jitter.muted),
+                        transcribing: s.transcribing,
                     }
                 })
+                .collect();
+            let captions = a
+                .script
+                .st
+                .lock()
+                .expect("script")
+                .captions
+                .iter()
+                .cloned()
                 .collect();
             MyCall {
                 call_id: a.call_id.clone(),
@@ -627,6 +763,9 @@ impl Services {
                 muted: a.muted,
                 speaking: st.speaking,
                 peers,
+                transcribing: a.scribe.is_some(),
+                can_transcribe: self.calls.transcriber.is_some(),
+                captions,
                 error: a.error.clone().or_else(|| {
                     st.device_failed.then(|| {
                         "The microphone or speaker stopped: leave the huddle and join again"
@@ -843,16 +982,28 @@ impl Services {
         for d in devices.iter().filter(|d| **d != me) {
             peers.insert(
                 d.clone(),
-                Slot {
-                    person_id: member_of.get(d).cloned().unwrap_or_default(),
-                    conn: None,
-                    gone: false,
-                },
+                Slot::new(member_of.get(d).cloned().unwrap_or_default()),
             );
         }
         let mut people: BTreeSet<String> = peers.values().map(|s| s.person_id.clone()).collect();
         people.insert(self.person_id());
         people.retain(|p| !p.is_empty());
+        // The calls gate, read once for the whole call (card #656): a
+        // Personal channel has no board and writes to the private log.
+        let script = Arc::new(Script {
+            rows: space.is_empty() || self.space_tolerance(space).is_ok_and(|t| t.ready()),
+            toggle: Mutex::new(()),
+            st: Mutex::new(ScriptState::default()),
+        });
+        // May block while a model loads; nothing is locked here.
+        let (scribe, scribe_failed) = if self.call_transcribe() {
+            match self.scribe_start(call_id, conv, &engine, &script) {
+                Some(sc) => (Some(sc), false),
+                None => (None, self.calls.transcriber.is_some()),
+            }
+        } else {
+            (None, false)
+        };
         let (generation, hang_up) = {
             let mut g = self.calls.inner.lock().expect("calls");
             g.generation += 1;
@@ -874,6 +1025,9 @@ impl Services {
                 peers,
                 people,
                 error,
+                script,
+                scribe,
+                scribe_failed,
             });
             g.dismissed.remove(call_id);
             g.entering = false;
@@ -935,16 +1089,22 @@ impl Services {
             if !person.is_empty() {
                 a.people.insert(person.clone());
             }
-            let slot = a.peers.entry(peer.clone()).or_insert(Slot {
-                person_id: person.clone(),
-                conn: None,
-                gone: false,
-            });
+            let slot = a
+                .peers
+                .entry(peer.clone())
+                .or_insert_with(|| Slot::new(person.clone()));
             if slot.person_id.is_empty() {
                 slot.person_id = person;
             }
             slot.conn = Some(conn.clone());
             slot.gone = false;
+            // Its control writer; first it hears whether this device
+            // transcribes.
+            let (ctl, ctl_rx) = tokio::sync::mpsc::channel(CTL_QUEUE);
+            let _ = ctl.try_send(ControlMsg::State(CallPeerState {
+                transcribe: a.scribe.is_some(),
+            }));
+            slot.ctl = Some(ctl);
             a.engine.add_peer(&peer, Arc::new(Datagrams(conn.clone())));
             let mut roster = vec![self.device.id.clone()];
             roster.extend(
@@ -954,9 +1114,9 @@ impl Services {
                     .map(|(d, _)| d.clone()),
             );
             let f = self.frame(&a.call_id, &a.conv_id, &a.space_id, "join", roster);
-            (a.engine.inlet(), a.mesh.clone(), f)
+            (a.engine.inlet(), a.mesh.clone(), f, ctl_rx)
         };
-        let (inlet, m, f) = inlet;
+        let (inlet, m, f, mut ctl_rx) = inlet;
         crate::logf(format_args!(
             "call {call_id}: {} connected to {peer} (conn {})",
             self.device.id,
@@ -965,13 +1125,35 @@ impl Services {
         // Everyone hears the roster grew, so the mesh fills in at once.
         self.tell_space(&m, f);
         self.calls_changed();
+        let (mut send, mut recv) = control;
+        let (p, cid) = (peer.clone(), call_id.to_string());
+        self.pairing.handle.spawn(async move {
+            while let Some(m) = ctl_rx.recv().await {
+                if let Err(e) = irori_net::call::write_control(&mut send, &m).await {
+                    crate::logf(format_args!("call {cid}: control to {p}: {e}"));
+                    break;
+                }
+            }
+        });
+        let (w, p, cid, c) = (
+            Arc::downgrade(self),
+            peer.clone(),
+            call_id.to_string(),
+            conn.clone(),
+        );
+        self.pairing.handle.spawn(async move {
+            while let Ok(Some(m)) = irori_net::call::read_control(&mut recv).await {
+                let Some(s) = w.upgrade() else { break };
+                s.on_control(&cid, &p, m);
+            }
+            // Held for the connection's life: dropping it would stop the
+            // peer's writes.
+            c.closed().await;
+            drop(recv);
+        });
         let w = Arc::downgrade(self);
         let cid = call_id.to_string();
         self.pairing.handle.spawn(async move {
-            // Held for the connection's life: the control stream carries
-            // nothing yet, but closing it would end the stream for the
-            // peer.
-            let _control = control;
             while let Ok(d) = conn.read_datagram().await {
                 inlet.receive(&peer, d.to_vec());
             }
@@ -993,6 +1175,7 @@ impl Services {
                 {
                     a.engine.remove_peer(&peer);
                     slot.conn = None;
+                    slot.ctl = None;
                     slot.gone = true;
                 }
             }
@@ -1010,12 +1193,17 @@ impl Services {
             loop {
                 tokio::time::sleep(TICK).await;
                 let Some(s) = w.upgrade() else { return };
+                let want = s.call_transcribe() && s.calls.transcriber.is_some();
                 let here = {
-                    let g = s.calls.inner.lock().expect("calls");
+                    let mut g = s.calls.inner.lock().expect("calls");
                     g.mine
-                        .as_ref()
+                        .as_mut()
                         .filter(|a| a.generation == generation)
                         .map(|a| {
+                            if !want {
+                                a.scribe_failed = false;
+                            }
+                            let toggle = want != a.scribe.is_some() && !(want && a.scribe_failed);
                             let mut roster = vec![s.device.id.clone()];
                             roster.extend(
                                 a.peers
@@ -1033,12 +1221,22 @@ impl Services {
                                 a.space_id.clone(),
                                 roster,
                                 ringing,
+                                toggle,
                             )
                         })
                 };
-                let Some((m, conv, space, roster, ringing)) = here else {
+                let Some((m, conv, space, roster, ringing, toggle)) = here else {
                     return;
                 };
+                if toggle {
+                    // The switch changed mid-call (card #656): starting or
+                    // stopping a transcriber blocks.
+                    let (s2, cid) = (s.clone(), call_id.clone());
+                    let _ = tokio::task::spawn_blocking(move || {
+                        s2.scribe_toggle(&cid, generation, want)
+                    })
+                    .await;
+                }
                 s.calls_changed();
                 let every = if ringing { RING_AGAIN } else { HEARTBEAT };
                 if beat.elapsed() >= every {
@@ -1052,7 +1250,7 @@ impl Services {
 
     pub(crate) fn call_leave(&self) -> Result<(), String> {
         let me = self.device.id.clone();
-        let (a, others) = {
+        let (mut a, others) = {
             let mut g = self.calls.inner.lock().expect("calls");
             let Some(a) = g.mine.take() else {
                 return Ok(());
@@ -1067,17 +1265,25 @@ impl Services {
                     .is_some_and(|l| l.devices.keys().any(|d| *d != me));
             (a, others)
         };
-        if others {
-            self.tell_space(
-                &a.mesh,
-                self.frame(&a.call_id, &a.conv_id, &a.space_id, "leave", vec![me]),
-            );
-        } else {
+        let op = if others { "leave" } else { "end" };
+        self.tell_space(
+            &a.mesh,
+            self.frame(&a.call_id, &a.conv_id, &a.space_id, op, vec![me]),
+        );
+        a.handle.leave();
+        // The transcript (card #656): every line this device heard is
+        // written before the end post, and a ticker's start or stop in
+        // progress finishes first.
+        a.engine.set_tap(None);
+        {
+            let _t = a.script.toggle.lock().expect("toggle");
+            if let Some(sc) = a.scribe.take() {
+                sc.finish();
+            }
+        }
+        self.post_fallback(&a);
+        if !others {
             // The last one out: the call is over.
-            self.tell_space(
-                &a.mesh,
-                self.frame(&a.call_id, &a.conv_id, &a.space_id, "end", vec![me]),
-            );
             // People by key in this device's form, as mentions are.
             let me = self.person_id();
             let people = a
@@ -1091,12 +1297,18 @@ impl Services {
                     }
                 })
                 .collect();
+            let transcript = a.script.st.lock().expect("script").heard
+                || self
+                    .talk
+                    .call_posts(&a.call_id)
+                    .iter()
+                    .any(|p| p.call.is_none());
             let mark = CallMark {
                 call_id: a.call_id.clone(),
                 op: "end".into(),
                 duration_ms: (now_ms() - a.started_at_ms).max(0),
                 people,
-                ..CallMark::default()
+                transcript,
             };
             if let Err(e) = self.post_call_mark(&a.conv_id, "ended the huddle", mark) {
                 crate::logf(format_args!("call {}: end post: {e}", a.call_id));
@@ -1107,8 +1319,20 @@ impl Services {
                 .expect("calls")
                 .live
                 .remove(&a.call_id);
+            // The channel's agents hear once that it has a transcript (a
+            // person DM's never reach an agent).
+            if transcript
+                && coord::talk::is_channel(&a.conv_id)
+                && let Some(me) = self.this.get().and_then(Weak::upgrade)
+            {
+                tools::talk::tell_call_end(
+                    &super::ToolsView(me),
+                    &self.user_sender(),
+                    &a.conv_id,
+                    &a.call_id,
+                );
+            }
         }
-        a.handle.leave();
         drop(a.engine);
         // Not if another call has begun since: its service is the phone's
         // one now.
@@ -1123,6 +1347,281 @@ impl Services {
         }
         self.calls_changed();
         Ok(())
+    }
+
+    /// Starts a transcriber on `engine`'s tap for call `call_id` in `conv`
+    /// (card #656), with a thread that writes each line it finishes. Blocks
+    /// while a model loads: never under the calls lock. None when this
+    /// device can't or it failed (logged).
+    fn scribe_start(
+        self: &Arc<Self>,
+        call_id: &str,
+        conv: &str,
+        engine: &call::Engine,
+        script: &Arc<Script>,
+    ) -> Option<Scribe> {
+        let f = self.calls.transcriber.clone()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        // The transcriber's thread only queues: the writer does the work.
+        let sink_tx = tx.clone();
+        let sink: call::SegmentSink = Arc::new(move |seg| {
+            let _ = sink_tx.send(ScribeMsg::Line(seg));
+        });
+        let mut t = match f(sink) {
+            Ok(t) => t,
+            Err(e) => {
+                crate::logf(format_args!("call {call_id}: no transcriber: {e}"));
+                return None;
+            }
+        };
+        let tap = t.tap();
+        // A line's times count from the first tapped sample.
+        let anchor_ms = now_ms();
+        engine.set_tap(Some(tap));
+        let w = Arc::downgrade(self);
+        let (cid, conv, sc) = (call_id.to_string(), conv.to_string(), script.clone());
+        let writer = std::thread::Builder::new()
+            .name("irori-call-transcript".into())
+            .spawn(move || {
+                while let Ok(ScribeMsg::Line(seg)) = rx.recv() {
+                    let Some(s) = w.upgrade() else { return };
+                    s.call_line(&cid, &conv, &sc, anchor_ms, seg);
+                }
+            });
+        match writer {
+            Ok(writer) => Some(Scribe { t, tx, writer }),
+            Err(e) => {
+                crate::logf(format_args!("call {call_id}: transcript writer: {e}"));
+                engine.set_tap(None);
+                t.stop();
+                None
+            }
+        }
+    }
+
+    /// One line this device's transcriber finished: to each peer live, to
+    /// the captions, and into the log (or the fallback buffer).
+    fn call_line(
+        &self,
+        call_id: &str,
+        conv: &str,
+        script: &Script,
+        anchor_ms: i64,
+        seg: call::Segment,
+    ) {
+        let text = cap_line(seg.text.trim()).to_string();
+        if text.is_empty() {
+            return;
+        }
+        let start_ms = anchor_ms + seg.start_ms as i64;
+        let end_ms = (anchor_ms + seg.end_ms as i64).max(start_ms);
+        let seq = {
+            let mut st = script.st.lock().expect("script");
+            st.next += 1;
+            st.next - 1
+        };
+        let line = TranscriptLine {
+            device_id: self.device.id.clone(),
+            seq,
+            start_ms,
+            end_ms,
+            text: text.clone(),
+        };
+        let ctls = self.call_ctls(call_id);
+        for c in ctls {
+            let _ = c.try_send(ControlMsg::Transcript(line.clone()));
+        }
+        script.caption(Caption {
+            device_id: self.device.id.clone(),
+            person_id: self.person_id(),
+            mine: true,
+            seq,
+            start_ms,
+            end_ms,
+            text: text.clone(),
+        });
+        self.calls_changed();
+        if script.rows {
+            match self.talk.write_segment(
+                conv,
+                call_id,
+                seq as i64,
+                start_ms,
+                end_ms,
+                &text,
+                &self.user_sender().key,
+            ) {
+                Ok(_) => {
+                    self.hub.publish(CoreEvent::Talk);
+                    return;
+                }
+                // Kept for the fallback post, so nothing is lost (the gate
+                // may have closed mid-call).
+                Err(e) => crate::logf(format_args!("call {call_id}: line {seq}: {e}")),
+            }
+        }
+        script
+            .st
+            .lock()
+            .expect("script")
+            .fallback
+            .push(TranscriptLineMark {
+                start_ms,
+                end_ms,
+                text,
+            });
+    }
+
+    /// The control writers of call `call_id`'s connected peers.
+    fn call_ctls(&self, call_id: &str) -> Vec<tokio::sync::mpsc::Sender<ControlMsg>> {
+        let g = self.calls.inner.lock().expect("calls");
+        g.mine
+            .as_ref()
+            .filter(|a| a.call_id == call_id)
+            .map(|a| {
+                a.peers
+                    .values()
+                    .filter(|p| !p.gone)
+                    .filter_map(|p| p.ctl.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// A control message from `peer` in call `call_id`. The speaker is the
+    /// connection's device, never the frame's.
+    fn on_control(&self, call_id: &str, peer: &str, m: ControlMsg) {
+        let mut g = self.calls.inner.lock().expect("calls");
+        let Some(a) = g.mine.as_mut().filter(|a| a.call_id == call_id) else {
+            return;
+        };
+        let Some(slot) = a.peers.get_mut(peer) else {
+            return;
+        };
+        match m {
+            ControlMsg::State(st) => {
+                slot.transcribing = Some(st.transcribe);
+                drop(g);
+            }
+            ControlMsg::Transcript(l) => {
+                let text = cap_line(l.text.trim()).to_string();
+                if text.is_empty() || !slot.seen.insert(l.seq) {
+                    return;
+                }
+                let c = Caption {
+                    device_id: peer.to_string(),
+                    person_id: slot.person_id.clone(),
+                    mine: false,
+                    seq: l.seq,
+                    start_ms: l.start_ms,
+                    end_ms: l.end_ms.max(l.start_ms),
+                    text,
+                };
+                let script = a.script.clone();
+                drop(g);
+                script.caption(c);
+            }
+        }
+        self.calls_changed();
+    }
+
+    /// The switch changed mid-call (card #656): starts a transcriber for
+    /// the call this device entered as `generation` when `on`, else stops
+    /// it; the peers hear which. Blocks.
+    fn scribe_toggle(self: &Arc<Self>, call_id: &str, generation: u64, on: bool) {
+        let here = {
+            let g = self.calls.inner.lock().expect("calls");
+            g.mine
+                .as_ref()
+                .filter(|a| a.generation == generation)
+                .map(|a| (a.script.clone(), a.engine.clone(), a.conv_id.clone()))
+        };
+        let Some((script, engine, conv)) = here else {
+            return;
+        };
+        let _t = script.toggle.lock().expect("toggle");
+        let running = if on {
+            let started = self.scribe_start(call_id, &conv, &engine, &script);
+            let failed = started.is_none();
+            let mut g = self.calls.inner.lock().expect("calls");
+            match g.mine.as_mut().filter(|a| a.generation == generation) {
+                Some(a) if a.scribe.is_none() => {
+                    a.scribe = started;
+                    a.scribe_failed = failed;
+                    !failed
+                }
+                // Left (or started) meanwhile: this one isn't wanted.
+                _ => {
+                    drop(g);
+                    if let Some(sc) = started {
+                        engine.set_tap(None);
+                        sc.finish();
+                    }
+                    return;
+                }
+            }
+        } else {
+            let sc = {
+                let mut g = self.calls.inner.lock().expect("calls");
+                g.mine
+                    .as_mut()
+                    .filter(|a| a.generation == generation)
+                    .and_then(|a| a.scribe.take())
+            };
+            if let Some(sc) = sc {
+                engine.set_tap(None);
+                sc.finish();
+            }
+            false
+        };
+        for c in self.call_ctls(call_id) {
+            let _ = c.try_send(ControlMsg::State(CallPeerState {
+                transcribe: running,
+            }));
+        }
+        self.calls_changed();
+    }
+
+    /// Writes this device's lines that weren't stored as rows as fallback
+    /// posts in the call's conversation (card #656): plain text an older
+    /// Irori shows, with a transcript mark a newer one folds into the call.
+    fn post_fallback(&self, a: &Active) {
+        let lines = std::mem::take(&mut a.script.st.lock().expect("script").fallback);
+        if lines.is_empty() {
+            return;
+        }
+        let at = |l: &TranscriptLineMark| {
+            let s = (l.start_ms - a.started_at_ms).max(0) / 1000;
+            format!("{}:{:02} {}", s / 60, s % 60, l.text)
+        };
+        let mut chunks: Vec<(String, Vec<TranscriptLineMark>)> = Vec::new();
+        for l in lines {
+            let row = at(&l);
+            match chunks.last_mut() {
+                Some((t, ls)) if t.len() + 1 + row.len() <= FALLBACK_MAX => {
+                    t.push('\n');
+                    t.push_str(&row);
+                    ls.push(l);
+                }
+                _ => chunks.push((row, vec![l])),
+            }
+        }
+        for (text, lines) in chunks {
+            let p = NewPost {
+                conv_id: a.conv_id.clone(),
+                text,
+                by: self.user_sender().key,
+                transcript: Some(TranscriptMark {
+                    call_id: a.call_id.clone(),
+                    lines,
+                }),
+                ..NewPost::default()
+            };
+            match self.talk.post(p) {
+                Ok(_) => self.hub.publish(CoreEvent::Talk),
+                Err(e) => crate::logf(format_args!("call {}: transcript post: {e}", a.call_id)),
+            }
+        }
     }
 
     pub(crate) fn call_mute(&self, on: bool) {
@@ -1213,6 +1712,29 @@ pub struct MyCall {
     pub peers: Vec<CallPeer>,
     /// Why the call isn't working, in plain words (the mic, the network).
     pub error: Option<String>,
+    /// This device writes down what its person says now (card #656).
+    pub transcribing: bool,
+    /// This device can transcribe (it has a transcriber).
+    pub can_transcribe: bool,
+    /// The newest lines said in the call, oldest first.
+    pub captions: Vec<Caption>,
+}
+
+/// One line said in a call, as a caption (card #656).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Caption {
+    /// The device that wrote it down.
+    pub device_id: String,
+    /// Its person's id, as [`CallPeer::person_id`].
+    pub person_id: String,
+    /// Said on this device.
+    pub mine: bool,
+    /// Counts from 0 per device per call.
+    pub seq: u64,
+    /// Unix ms.
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1228,6 +1750,9 @@ pub struct CallPeer {
     pub loss_pct: f64,
     pub speaking: bool,
     pub muted: bool,
+    /// Whether it writes down what its person says; None until it has said
+    /// (an older Irori never does).
+    pub transcribing: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

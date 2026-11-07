@@ -123,10 +123,11 @@ pub(crate) fn start_feed(
     opts: Options,
     sink: Sink,
 ) -> Result<(Session, Feed), StartError> {
-    if input_rate == 0 {
+    // The resampler only goes down; a slower feed would run the clock slow.
+    if (input_rate as usize) < RATE {
         return Err(StartError {
             code: ErrorCode::Other,
-            message: "the feed's sample rate is 0".into(),
+            message: format!("the feed's sample rate ({input_rate} Hz) is under 16 kHz"),
         });
     }
     let fed = Arc::new(Fed::new(input_rate as usize));
@@ -138,7 +139,9 @@ pub(crate) fn start_feed(
 }
 
 /// The push handle; the session's thread owns the [`Fed`], so pushing
-/// after it ends does nothing.
+/// after it ends does nothing. If the thread ends while a push holds the
+/// upgraded `Arc`, that push frees the backlog on the caller's thread;
+/// removing the tap before stopping (the documented order) avoids it.
 #[derive(Clone)]
 pub(crate) struct Feed {
     fed: Weak<Fed>,
@@ -174,7 +177,7 @@ impl Fed {
             rate,
             backlog: Mutex::new(Backlog {
                 rs: Resampler::new(rate),
-                samples: VecDeque::new(),
+                samples: VecDeque::with_capacity(RATE),
                 dropped: 0,
             }),
             lost: AtomicU64::new(0),
@@ -182,7 +185,8 @@ impl Fed {
     }
 
     /// Never blocks: on contention the chunk is dropped and counted. Keeps
-    /// at most [`MAX_PHRASE`] of the newest audio.
+    /// at most [`MAX_PHRASE`] of the newest audio. Allocates only when the
+    /// backlog outgrows its capacity, which `take` keeps.
     fn push(&self, mono: &[f32]) {
         let Ok(mut b) = self.backlog.try_lock() else {
             self.lost.fetch_add(mono.len() as u64, Ordering::Relaxed);
@@ -198,18 +202,17 @@ impl Fed {
         }
     }
 
-    /// The backlog, and how many 16 kHz samples were lost before it.
-    fn take(&self) -> (Vec<f32>, u64) {
+    /// Swaps the backlog into `into` (empty; its capacity becomes the
+    /// backlog's) and returns how many 16 kHz samples were lost before it.
+    fn take(&self, into: &mut VecDeque<f32>) -> u64 {
+        debug_assert!(into.is_empty());
         let lost = self.lost.swap(0, Ordering::Relaxed);
-        let (q, dropped) = {
+        let dropped = {
             let mut b = self.backlog.lock().unwrap_or_else(|e| e.into_inner());
-            (
-                std::mem::take(&mut b.samples),
-                std::mem::take(&mut b.dropped),
-            )
+            std::mem::swap(&mut b.samples, into);
+            std::mem::take(&mut b.dropped)
         };
-        let gap = dropped + lost * RATE as u64 / self.rate as u64;
-        (Vec::from(q), gap)
+        dropped + lost * RATE as u64 / self.rate as u64
     }
 }
 
@@ -335,9 +338,9 @@ fn run(
     };
     let buf: Arc<Mutex<Vec<f32>>> = Arc::default();
     let failed: Arc<Mutex<Option<String>>> = Arc::default();
+    let threads = threads(opts.max_threads);
     // The stream lives on this thread (cpal streams are not Send on every
     // platform) and stops when it drops at the end.
-    let mut fed = None;
     let _audio = match source {
         Source::Mic => match open_mic(buf.clone(), failed.clone()) {
             Ok(s) => Audio::Mic(s),
@@ -348,31 +351,24 @@ fn run(
         },
         Source::Samples(v) => Audio::Player(play(v, buf.clone(), stop.clone())),
         Source::Fed(f) => {
-            fed = Some(f);
-            Audio::Fed
+            let _ = ready.send(Ok(()));
+            let tr = |a: &[f32], pass| transcribe(&mut state, a, pass, threads);
+            run_fed(&f, &stop, opts.partials, tr, &sink);
+            return;
         }
     };
     let _ = ready.send(Ok(()));
 
-    let threads = threads(opts.max_threads);
-    let timed = fed.is_some();
     let mut phrase = Phrase::default();
     let mut gate = Gate::default();
     let mut last_partial = String::new();
-    // 16 kHz samples heard since the start: the feed's clock.
-    let mut consumed = 0u64;
-    let finish = |state: &mut whisper_rs::WhisperState, phrase: &Phrase, consumed: u64| {
-        let text = transcribe(state, &phrase.samples, Pass::Final, threads);
-        if !timed {
-            sink(Event::Final(text));
-        } else if !text.is_empty() {
-            let (start_ms, end_ms) = phrase.span(consumed);
-            sink(Event::Segment {
-                text,
-                start_ms,
-                end_ms,
-            });
-        }
+    let finish = |state: &mut whisper_rs::WhisperState, phrase: &Phrase| {
+        sink(Event::Final(transcribe(
+            state,
+            &phrase.samples,
+            Pass::Final,
+            threads,
+        )));
     };
     let mut next_tick = Instant::now() + TICK;
     loop {
@@ -384,36 +380,18 @@ fn run(
             });
             break;
         }
-        // Move what the microphone captured (or was fed) into the phrase.
-        let fresh = match &fed {
-            Some(f) => {
-                let (fresh, gap) = f.take();
-                consumed += gap;
-                fresh
-            }
-            None => buf
-                .lock()
-                .map(|mut b| std::mem::take(&mut *b))
-                .unwrap_or_default(),
-        };
+        // Move what the microphone captured into the phrase.
+        let fresh = buf
+            .lock()
+            .map(|mut b| std::mem::take(&mut *b))
+            .unwrap_or_default();
         for frame in fresh.chunks(FRAME) {
             let speech = gate.speech(frame);
             phrase.push(frame, speech);
-            consumed += frame.len() as u64;
-            if !timed {
-                continue;
-            }
-            if phrase.ended() {
-                finish(&mut state, &phrase, consumed);
-                phrase = Phrase::default();
-                last_partial.clear();
-            } else if !phrase.has_speech() && phrase.samples.len() >= samples(PAUSE) {
-                phrase.trim_silence();
-            }
         }
         if stopping {
             if phrase.has_speech() {
-                finish(&mut state, &phrase, consumed);
+                finish(&mut state, &phrase);
             }
             break;
         }
@@ -429,7 +407,7 @@ fn run(
             continue;
         }
         if phrase.ended() {
-            finish(&mut state, &phrase, consumed);
+            finish(&mut state, &phrase);
             phrase = Phrase::default();
             last_partial.clear();
         } else if opts.partials {
@@ -447,7 +425,108 @@ fn run(
 enum Audio {
     Mic(#[allow(dead_code)] cpal::Stream),
     Player(#[allow(dead_code)] JoinHandle<()>),
-    Fed,
+}
+
+/// A feed session's loop: takes what was fed every 30 ms and cuts it into
+/// phrases until `stop`, then sends the phrase in progress and `Ended`.
+/// `tr` is Whisper (a fake in tests).
+fn run_fed(
+    fed: &Fed,
+    stop: &AtomicBool,
+    partials: bool,
+    mut tr: impl FnMut(&[f32], Pass) -> String,
+    sink: &Sink,
+) {
+    let mut cut = Cutter::default();
+    // Swapped with the backlog on each take, so pushing doesn't allocate.
+    let mut fresh = VecDeque::with_capacity(RATE);
+    let mut next_tick = Instant::now() + TICK;
+    loop {
+        let stopping = stop.load(Ordering::SeqCst);
+        let gap = fed.take(&mut fresh);
+        cut.step(gap, fresh.make_contiguous(), &mut tr, sink);
+        fresh.clear();
+        if stopping {
+            cut.flush(&mut tr, sink);
+            break;
+        }
+        if partials && Instant::now() >= next_tick {
+            next_tick = Instant::now() + TICK;
+            cut.partial(&mut tr, sink);
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    sink(Event::Ended);
+}
+
+/// Cuts fed audio into phrases, on the clock of samples fed. It checks for
+/// a phrase's end after every frame, since a lagging session takes seconds
+/// of backlog at once.
+#[derive(Default)]
+struct Cutter {
+    phrase: Phrase,
+    gate: Gate,
+    /// 16 kHz samples heard since the first one fed, gaps included.
+    consumed: u64,
+    last_partial: String,
+}
+
+impl Cutter {
+    /// Takes `fresh` audio, heard after `gap` samples were lost. Audio on
+    /// either side of a gap is not one clip, so the phrase in progress is
+    /// finished at the clock before the gap.
+    fn step(
+        &mut self,
+        gap: u64,
+        fresh: &[f32],
+        tr: &mut impl FnMut(&[f32], Pass) -> String,
+        sink: &Sink,
+    ) {
+        if gap > 0 {
+            self.flush(tr, sink);
+            self.consumed += gap;
+        }
+        for frame in fresh.chunks(FRAME) {
+            let speech = self.gate.speech(frame);
+            self.phrase.push(frame, speech);
+            self.consumed += frame.len() as u64;
+            if self.phrase.ended() {
+                self.flush(tr, sink);
+            } else if !self.phrase.has_speech() && self.phrase.samples.len() >= samples(PAUSE) {
+                self.phrase.trim_silence();
+            }
+        }
+    }
+
+    /// Sends the phrase in progress as a `Segment` if it has speech (and
+    /// words), and starts a new one.
+    fn flush(&mut self, tr: &mut impl FnMut(&[f32], Pass) -> String, sink: &Sink) {
+        if self.phrase.has_speech() {
+            let text = tr(&self.phrase.samples, Pass::Final);
+            if !text.is_empty() {
+                let (start_ms, end_ms) = self.phrase.span(self.consumed);
+                sink(Event::Segment {
+                    text,
+                    start_ms,
+                    end_ms,
+                });
+            }
+        }
+        self.phrase = Phrase::default();
+        self.last_partial.clear();
+    }
+
+    /// Sends the words so far, when they changed.
+    fn partial(&mut self, tr: &mut impl FnMut(&[f32], Pass) -> String, sink: &Sink) {
+        if !self.phrase.has_speech() {
+            return;
+        }
+        let text = tr(&self.phrase.samples, Pass::Partial);
+        if !text.is_empty() && text != self.last_partial {
+            sink(Event::Partial(text.clone()));
+            self.last_partial = text;
+        }
+    }
 }
 
 /// Feeds `v` into `buf` at real time, 30 ms at a time, then silence.
@@ -909,6 +988,13 @@ mod tests {
         assert_eq!(p.speech, 0);
     }
 
+    /// Takes the backlog as a Vec, for tests.
+    fn take(f: &Fed) -> (Vec<f32>, u64) {
+        let mut q = VecDeque::new();
+        let gap = f.take(&mut q);
+        (Vec::from(q), gap)
+    }
+
     #[test]
     fn feed_backlog_keeps_the_newest() {
         let f = Fed::new(RATE);
@@ -919,26 +1005,26 @@ mod tests {
             let c: Vec<f32> = chunk.iter().map(|s| s + (k * 1000) as f32).collect();
             f.push(&c);
         }
-        let (got, gap) = f.take();
+        let (got, gap) = take(&f);
         assert_eq!(got.len(), cap);
         assert_eq!(gap, (pushes * 160 - cap) as u64);
         assert_eq!(*got.last().unwrap(), ((pushes - 1) * 1000 + 159) as f32);
         // The gap is reported once.
         f.push(&chunk);
-        assert_eq!(f.take(), (chunk.clone(), 0));
+        assert_eq!(take(&f), (chunk.clone(), 0));
     }
 
     #[test]
     fn feed_resamples_and_counts_contention() {
         let f = Fed::new(48_000);
         f.push(&[0.5f32; 480]);
-        let (got, gap) = f.take();
+        let (got, gap) = take(&f);
         assert_eq!((got.len(), gap), (160, 0));
         {
             let _held = f.backlog.lock().unwrap();
             f.push(&[0.5f32; 480]);
         }
-        let (got, gap) = f.take();
+        let (got, gap) = take(&f);
         assert_eq!((got.len(), gap), (0, 160));
     }
 
@@ -949,9 +1035,149 @@ mod tests {
             fed: Arc::downgrade(&fed),
         };
         feed.push(&[0.1; 16]);
-        assert_eq!(fed.take().0.len(), 16);
+        assert_eq!(take(&fed).0.len(), 16);
         drop(fed);
         feed.push(&[0.1; 16]);
+    }
+
+    #[test]
+    fn take_keeps_the_backlogs_capacity() {
+        let f = Fed::new(48_000);
+        let mut spare = VecDeque::with_capacity(RATE);
+        let mut caps = Vec::new();
+        for _ in 0..5 {
+            // 300 ms of 10 ms chunks, then the worker's take.
+            for _ in 0..30 {
+                f.push(&[0.1f32; 480]);
+            }
+            caps.push(f.backlog.lock().unwrap().samples.capacity());
+            assert_eq!(f.take(&mut spare), 0);
+            assert_eq!(spare.len(), 30 * 160);
+            spare.clear();
+        }
+        // Never grown: both buffers started with 1 s.
+        assert!(caps.iter().all(|&c| c == caps[0] && c >= RATE), "{caps:?}");
+    }
+
+    const LOUD: [f32; FRAME] = [0.2; FRAME];
+    const QUIET: [f32; FRAME] = [0.0; FRAME];
+
+    /// Audio of `frames`: true is a loud frame, false a quiet one.
+    fn audio(frames: &[(bool, usize)]) -> Vec<f32> {
+        let mut v = Vec::new();
+        for &(loud, n) in frames {
+            for _ in 0..n {
+                v.extend_from_slice(if loud { &LOUD } else { &QUIET });
+            }
+        }
+        v
+    }
+
+    /// A sink that records events, and a fake Whisper that names each
+    /// final by its length in ms.
+    fn recorder() -> (Sink, Arc<Mutex<Vec<Event>>>) {
+        let got: Arc<Mutex<Vec<Event>>> = Arc::default();
+        let g = got.clone();
+        (Arc::new(move |e| g.lock().unwrap().push(e)), got)
+    }
+
+    fn fake(a: &[f32], _: Pass) -> String {
+        format!("{} ms", a.len() * 1000 / RATE)
+    }
+
+    fn seg(text: &str, start_ms: u64, end_ms: u64) -> Event {
+        Event::Segment {
+            text: text.into(),
+            start_ms,
+            end_ms,
+        }
+    }
+
+    #[test]
+    fn cutter_ends_a_phrase_at_a_pause() {
+        let (sink, got) = recorder();
+        let mut c = Cutter::default();
+        // 1 s quiet, 1.5 s speech, 1 s quiet, fed in uneven pieces.
+        let a = audio(&[(false, 33), (true, 50), (false, 34)]);
+        for piece in a.chunks(7 * FRAME) {
+            c.step(0, piece, &mut fake, &sink);
+        }
+        // The silence is trimmed to 300 ms at 810 ms, so 480 ms of lead-in
+        // is left at 990 ms; the end is where the speech stopped, and the
+        // phrase is sent once 810 ms of pause is heard.
+        let got = got.lock().unwrap();
+        assert_eq!(*got, vec![seg("2790 ms", 510, 2490)]);
+    }
+
+    #[test]
+    fn cutter_cuts_a_phrase_at_max_phrase() {
+        let (sink, got) = recorder();
+        let mut c = Cutter::default();
+        let n = samples(MAX_PHRASE) / FRAME + 10;
+        c.step(0, &audio(&[(true, n)]), &mut fake, &sink);
+        let got = got.lock().unwrap();
+        assert_eq!(got.len(), 1);
+        let Event::Segment {
+            start_ms, end_ms, ..
+        } = got[0]
+        else {
+            panic!("{got:?}");
+        };
+        assert_eq!(start_ms, 0);
+        assert!((25_000..25_030).contains(&end_ms), "{end_ms}");
+    }
+
+    #[test]
+    fn cutter_finishes_a_phrase_before_a_gap() {
+        let (sink, got) = recorder();
+        let mut c = Cutter::default();
+        c.step(0, &audio(&[(true, 20)]), &mut fake, &sink);
+        // 5 s dropped by the cap, then more speech.
+        c.step(5 * RATE as u64, &audio(&[(true, 20)]), &mut fake, &sink);
+        c.flush(&mut fake, &sink);
+        let got = got.lock().unwrap();
+        assert_eq!(*got, vec![seg("600 ms", 0, 600), seg("600 ms", 5600, 6200)]);
+    }
+
+    #[test]
+    fn cutter_forgets_silence_across_a_gap() {
+        let (sink, got) = recorder();
+        let mut c = Cutter::default();
+        c.step(0, &audio(&[(false, 5)]), &mut fake, &sink);
+        c.step(
+            RATE as u64,
+            &audio(&[(true, 20), (false, 30)]),
+            &mut fake,
+            &sink,
+        );
+        // The silence before the gap isn't joined to the speech after it.
+        assert_eq!(*got.lock().unwrap(), vec![seg("1410 ms", 1150, 1750)]);
+    }
+
+    #[test]
+    fn cutter_drops_empty_text_and_short_clicks() {
+        let (sink, got) = recorder();
+        let mut c = Cutter::default();
+        let mut silent = |_: &[f32], _| String::new();
+        c.step(0, &audio(&[(true, 20), (false, 30)]), &mut silent, &sink);
+        c.step(0, &audio(&[(true, 5), (false, 30)]), &mut fake, &sink);
+        c.flush(&mut fake, &sink);
+        assert!(got.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn stopping_a_feed_sends_the_phrase_then_ended() {
+        let (sink, got) = recorder();
+        let f = Fed::new(48_000);
+        // 1 s of speech still in the backlog when stop comes.
+        let a = audio(&[(true, 34)]);
+        let loud48: Vec<f32> = a.iter().flat_map(|&s| [s; 3]).collect();
+        for c in loud48.chunks(480) {
+            f.push(c);
+        }
+        run_fed(&f, &AtomicBool::new(true), false, fake, &sink);
+        let got = got.lock().unwrap();
+        assert_eq!(*got, vec![seg("1020 ms", 0, 1020), Event::Ended]);
     }
 
     #[test]

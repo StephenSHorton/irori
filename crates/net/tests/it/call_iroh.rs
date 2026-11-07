@@ -4,8 +4,9 @@
 //!
 //! - a dial opens one connection, both sides get it, and a datagram goes
 //!   each way;
-//! - control messages cross the `call` stream both ways, and one of an
-//!   unknown `"t"` is skipped;
+//! - control messages cross the `call` stream both ways, one of an
+//!   unknown `"t"` is skipped, a too-long transcript arrives cut, and an
+//!   oversized frame is an error;
 //! - two dials at once leave one connection (`replaced`), and two dials
 //!   from one end open only one (the second is turned away, and a redial
 //!   of a live peer leaves it be);
@@ -295,6 +296,26 @@ async fn control_messages_cross_the_call_stream_both_ways() {
         .unwrap();
     assert_eq!(got, Some(m));
 
+    // A transcript too long for a frame arrives cut, on a char boundary.
+    let long = "ü".repeat(CONTROL_MAX);
+    let m = ControlMsg::Transcript(TranscriptLine {
+        device_id: a.id.clone(),
+        seq: 1,
+        start_ms: 1_762_470_000_000,
+        end_ms: 1_762_470_002_400,
+        text: long.clone(),
+    });
+    write_control(&mut a_send, &m).await.unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
+        .await
+        .unwrap()
+        .unwrap();
+    let Some(ControlMsg::Transcript(l)) = got else {
+        panic!("{got:?}");
+    };
+    assert_eq!(l.seq, 1);
+    assert!(l.text.len() < long.len() && long.starts_with(&l.text));
+
     // A clean end of the stream reads as None.
     a_send.finish().unwrap();
     let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
@@ -302,6 +323,25 @@ async fn control_messages_cross_the_call_stream_both_ways() {
         .unwrap()
         .unwrap();
     assert_eq!(got, None);
+    drop(ca.conn);
+    drop(cb.conn);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_oversized_control_frame_is_an_error() {
+    let (a, b, _ha, _hb) = connected().await;
+    let ca = a.got.lock().unwrap().remove(0);
+    let cb = b.got.lock().unwrap().remove(0);
+    let (mut a_send, _a_recv) = ca.control;
+    let (_b_send, mut b_recv) = cb.control;
+    let big = vec![b' '; CONTROL_MAX + 1];
+    write_frame(&mut a_send, &big, CONTROL_MAX + 1)
+        .await
+        .unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
+        .await
+        .unwrap();
+    assert!(got.is_err(), "{got:?}");
     drop(ca.conn);
     drop(cb.conn);
 }

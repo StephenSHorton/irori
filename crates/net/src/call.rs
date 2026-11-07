@@ -178,9 +178,10 @@ pub struct CallPeerState {
     pub transcribe: bool,
 }
 
-/// Writes one control message on a call's `call` stream.
+/// Writes one control message on a call's `call` stream. A transcript too
+/// long for [`CONTROL_MAX`] has its text cut, on a char boundary, to fit.
 pub async fn write_control(send: &mut SendStream, m: &ControlMsg) -> Result<(), String> {
-    let b = serde_json::to_vec(m).map_err(|e| e.to_string())?;
+    let b = control_bytes(m)?;
     write_frame(send, &b, CONTROL_MAX)
         .await
         .map_err(|e| e.to_string())
@@ -188,7 +189,8 @@ pub async fn write_control(send: &mut SendStream, m: &ControlMsg) -> Result<(), 
 
 /// Reads the next control message it knows from a call's `call` stream,
 /// skipping frames of an unknown `"t"` or that don't parse. `Ok(None)` is a
-/// clean end of stream.
+/// clean end of stream. After an `Err` the stream may be out of step: stop
+/// reading, but keep the `RecvStream` alive for the connection's life.
 pub async fn read_control(recv: &mut RecvStream) -> Result<Option<ControlMsg>, String> {
     loop {
         let Some(b) = read_frame(recv, CONTROL_MAX, false)
@@ -201,6 +203,36 @@ pub async fn read_control(recv: &mut RecvStream) -> Result<Option<ControlMsg>, S
             return Ok(Some(m));
         }
     }
+}
+
+/// The JSON of `m`, with a transcript's text cut to fit [`CONTROL_MAX`].
+fn control_bytes(m: &ControlMsg) -> Result<Vec<u8>, String> {
+    let b = serde_json::to_vec(m).map_err(|e| e.to_string())?;
+    let ControlMsg::Transcript(l) = m else {
+        return Ok(b);
+    };
+    if b.len() <= CONTROL_MAX {
+        return Ok(b);
+    }
+    let cut = |n: usize| {
+        let mut l = l.clone();
+        l.text.truncate(n);
+        serde_json::to_vec(&ControlMsg::Transcript(l)).map_err(|e| e.to_string())
+    };
+    // The longest prefix, cut at a char start, whose frame fits. The whole
+    // text doesn't, so search the starts; with none that fits the frame is
+    // too long anyway and `write_frame` refuses it.
+    let starts: Vec<usize> = l.text.char_indices().map(|(i, _)| i).collect();
+    let (mut lo, mut hi) = (0, starts.len().saturating_sub(1));
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if cut(starts[mid])?.len() <= CONTROL_MAX {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    cut(starts.get(lo).copied().unwrap_or(0))
 }
 
 /// A joined call. [`CallHandle::leave`], or dropping it, closes every
@@ -800,5 +832,34 @@ mod tests {
         assert_eq!(serde_json::from_value::<ControlMsg>(j).unwrap(), s);
         // An unknown "t" doesn't parse as a known kind.
         assert!(serde_json::from_str::<ControlMsg>(r#"{"t":"later","x":1}"#).is_err());
+        // A known kind with a field it doesn't know still parses.
+        assert_eq!(
+            serde_json::from_str::<ControlMsg>(r#"{"t":"state","transcribe":true,"x":1}"#).unwrap(),
+            ControlMsg::State(CallPeerState { transcribe: true })
+        );
+    }
+
+    #[test]
+    fn a_long_transcript_is_cut_to_fit() {
+        let line = |text: String| {
+            ControlMsg::Transcript(TranscriptLine {
+                device_id: "d".into(),
+                seq: 0,
+                start_ms: 0,
+                end_ms: 1,
+                text,
+            })
+        };
+        // Multi-byte chars and escapes, well over the limit.
+        let long = "é\"\n".repeat(CONTROL_MAX);
+        let b = control_bytes(&line(long.clone())).unwrap();
+        assert!(b.len() <= CONTROL_MAX, "{}", b.len());
+        let ControlMsg::Transcript(l) = serde_json::from_slice(&b).unwrap() else {
+            panic!("not a transcript");
+        };
+        assert!(!l.text.is_empty() && long.starts_with(&l.text));
+        // A short one is untouched.
+        let m = line("hi".into());
+        assert_eq!(control_bytes(&m).unwrap(), serde_json::to_vec(&m).unwrap());
     }
 }

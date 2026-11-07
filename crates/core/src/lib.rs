@@ -71,7 +71,7 @@ pub use crate::service::boards::{
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
     migrate_board_files, new_board_id, valid_board_id,
 };
-pub use crate::service::calls::{CallPeer, CallSnapshot, LiveCall, MyCall, Ringing};
+pub use crate::service::calls::{CallPeer, CallSnapshot, Caption, LiveCall, MyCall, Ringing};
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};

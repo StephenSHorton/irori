@@ -381,8 +381,9 @@ fn check_call(mut c: CallMark) -> Result<CallMark> {
     Ok(c)
 }
 
-/// A transcript mark as written: an id, and only lines with words, each
-/// ending no earlier than it starts.
+/// A transcript mark as written or folded: an id, and only lines with
+/// words and at most [`MAX_PERSON_TEXT`] bytes, each ending no earlier
+/// than it starts.
 fn check_transcript(mut t: TranscriptMark) -> Result<TranscriptMark> {
     t.call_id = t.call_id.trim().to_string();
     if t.call_id.is_empty() {
@@ -391,7 +392,7 @@ fn check_transcript(mut t: TranscriptMark) -> Result<TranscriptMark> {
     t.lines.retain_mut(|l| {
         l.text = l.text.trim().to_string();
         l.end_ms = l.end_ms.max(l.start_ms);
-        !l.text.is_empty()
+        !l.text.is_empty() && l.text.len() <= MAX_PERSON_TEXT
     });
     if t.lines.is_empty() {
         return Err(invalid("a transcript with no lines"));
@@ -1178,6 +1179,10 @@ impl Talk {
             return Err(invalid("a transcript line's seg counts from 0"));
         }
         let text = check_text(&by, text)?;
+        // A line is the person's own voice: never an agent's.
+        if !is_person_key(&by) {
+            return Err(not_allowed("only a person speaks in a huddle"));
+        }
         let space = if is_channel(&conv) {
             match self.channel(&conv) {
                 None => return Err(not_found(format!("no channel {conv}"))),
@@ -1187,9 +1192,6 @@ impl Talk {
                 Some(c) => c.space_id,
             }
         } else if let Some(other) = self.pair_other(&conv) {
-            if !is_person_key(&by) {
-                return Err(not_allowed("agents don't speak in a DM with a person"));
-            }
             let space = self.dm_space(&other)?;
             self.join_log(&conv, &space, &by, &other)?;
             space
@@ -1444,8 +1446,15 @@ impl Talk {
     pub fn notifies(&self, conv: &str, post_id: &str, reader: &str) -> Option<Post> {
         let posts = self.posts(conv);
         let cursor = self.cursor(reader, conv);
-        // A fallback transcript (card #656) is in no list, so never read.
-        let hidden = self.fallback_post(conv, post_id);
+        // A fallback transcript (card #656) is in no list, so it is unread
+        // when it came after the reader's cursor.
+        let read_to = cursor
+            .as_deref()
+            .and_then(|c| posts.iter().find(|p| p.post_id == c))
+            .map(|p| p.ord.clone());
+        let hidden = self
+            .fallback_post(conv, post_id)
+            .filter(|h| read_to.as_ref().is_none_or(|o| h.ord > *o));
         let p = since(&posts, cursor.as_deref())
             .iter()
             .find(|p| p.post_id == post_id)
@@ -1715,10 +1724,11 @@ fn fold(s: &mut State, ev: &Event) -> bool {
             if r.post_id.is_empty() || r.conv_id.is_empty() || s.ids.contains(&r.post_id) {
                 return false;
             }
+            // A mark with no usable lines leaves a plain post.
+            let transcript = r.transcript.and_then(|t| check_transcript(t).ok());
             // A huddle's posts go in its index too (card #656). One naming a
             // huddle of another conversation is shown as a plain post.
-            let call_id = r
-                .transcript
+            let call_id = transcript
                 .as_ref()
                 .map(|t| t.call_id.clone())
                 .or_else(|| r.call.as_ref().map(|c| c.call_id.clone()))
@@ -1739,7 +1749,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     .filter(|f| blob::valid_id(&f.sha256))
                     .collect(),
                 call: r.call,
-                transcript: r.transcript,
+                transcript,
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),
@@ -1782,7 +1792,13 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 return false;
             };
             let conv_ok = is_channel(&r.conv_id) || is_dm(&r.conv_id);
-            if r.call_id.is_empty() || !conv_ok || r.text.trim().is_empty() || r.seg < 0 {
+            let text = r.text.trim();
+            if r.call_id.is_empty()
+                || !conv_ok
+                || text.is_empty()
+                || text.len() > MAX_PERSON_TEXT
+                || r.seg < 0
+            {
                 return false;
             }
             let id = segment_id(&r.call_id, &ev.device_id, r.seg);
@@ -1799,7 +1815,7 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     post_id: id,
                     conv_id: format!("{CALL_PREFIX}{}", r.call_id),
                     by: r.by,
-                    text: r.text,
+                    text: text.to_string(),
                     at: at_ms(r.start_ms),
                     ord: (r.start_ms.max(0) as u64, ev.device_id.clone(), r.seg),
                     space: row_space(ev).unwrap_or_default(),

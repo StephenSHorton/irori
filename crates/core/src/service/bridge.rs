@@ -17,6 +17,8 @@
 //! - a lease release request (§5.4), to the lease's holder only;
 //! - a post in a space's channel naming one of this person's agents (card
 //!   #461), woken with `ref` `talk:<conv>` so a reply goes in the channel;
+//! - the end of a huddle with a transcript in a space's channel (card
+//!   #656), to this person's agents in the channel, once, woken;
 //! - what GitHub said of a card's PR, heard on another person's device
 //!   (card #548). This one isn't a row as it arrives: the PR poller's tick
 //!   reads the fold ([`Services::tell_pr_news`]), so a row that came ahead
@@ -248,6 +250,21 @@ impl Services {
                 .filter(|k| k.starts_with(AGENT_ACTOR_PREFIX))
                 .map(|k| self.private_key(k))
                 .collect();
+        self.send_to(b, person, who, hop, p, ref_, to);
+    }
+
+    /// [`Services::send_ref`] to agents by their keys on this device.
+    #[allow(clippy::too_many_arguments)]
+    fn send_to(
+        &self,
+        b: &BoardLog,
+        person: &str,
+        who: &str,
+        hop: i64,
+        p: Plan,
+        ref_: String,
+        to: Vec<String>,
+    ) {
         if to.is_empty() {
             return;
         }
@@ -300,6 +317,15 @@ impl Services {
         let Ok(r) = serde_json::from_slice::<coord::talk::PostRow>(&ev.payload) else {
             return;
         };
+        // A huddle's end post never names anyone ("Agents answer now" is
+        // off on it): its transcript is told apart.
+        if r.call
+            .as_ref()
+            .is_some_and(|m| m.op == coord::talk::CALL_END && m.transcript)
+        {
+            self.call_end_bridge(b, ev, &r);
+            return;
+        }
         if !r.agents_now || r.conv_id.is_empty() {
             return;
         }
@@ -364,6 +390,65 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         };
         let hop = coord::row_hop(&ev.payload);
         self.send_ref(b, &person, &who, hop, p, format!("talk:{}", r.conv_id));
+    }
+
+    /// Another person's end of a huddle with a transcript in a space's
+    /// channel (card #656): this person's agents in the channel hear it once
+    /// (the row's id), woken, as the ending device's own agents hear it from
+    /// [`tools::talk::tell_call_end`]. A person DM's is never told: it
+    /// isn't a channel, and its hidden space never bridges anyway.
+    fn call_end_bridge(&self, b: &BoardLog, ev: &Event, r: &coord::talk::PostRow) {
+        let Some(m) = r.call.as_ref() else {
+            return;
+        };
+        let Some(person) = b.verifier.person_of(&ev.device_id) else {
+            return;
+        };
+        // Only a person ends a huddle.
+        if person.is_empty()
+            || person == self.person_id()
+            || m.call_id.is_empty()
+            || !ev.actor.starts_with(PERSON_ACTOR_PREFIX)
+        {
+            return;
+        }
+        if self.talk.pair_other(&r.conv_id).is_some() {
+            return;
+        }
+        let Some(ch) = self
+            .talk
+            .channel(&r.conv_id)
+            .filter(|c| c.space_id == b.id && !c.archived)
+        else {
+            return;
+        };
+        // This person's agents go by their own keys; another person's
+        // (board keys) hear it on their own Core.
+        let mut to: Vec<String> = Vec::new();
+        for k in self.talk.members(&r.conv_id) {
+            if k.kind == coord::talk::AGENT && !coord::board_form(&k.key) && !to.contains(&k.key) {
+                to.push(k.key);
+            }
+        }
+        if to.is_empty() {
+            return;
+        }
+        let text = tools::talk::call_end_text(
+            &ch.name,
+            &m.call_id,
+            self.talk.call_posts(&m.call_id).len(),
+        );
+        let who = self.board_person_name(b, &person);
+        let p = Plan {
+            kind: row_kind::COMMENT,
+            card_id: String::new(),
+            to: Vec::new(),
+            row: format!("{}/{}", ev.device_id, ev.seq),
+            wake: true,
+            text: Box::new(move |_| text),
+        };
+        let hop = coord::row_hop(&ev.payload);
+        self.send_to(b, &person, &who, hop, p, format!("talk:{}", r.conv_id), to);
     }
 
     /// A board thread or ask that names this person (card #187): the same
