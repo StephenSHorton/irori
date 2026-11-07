@@ -115,7 +115,7 @@ export function AppSidebar({
   // Narrow windows: the drawer is open, and closing it.
   drawer?: boolean
   onDrawer?: (open: boolean) => void
-  // The space Home and Talk show (card #393), and picking one.
+  // The space Home, Talk and Boards show (card #393), and picking one.
   space: string
   onSpace: (id: string) => void
   // New or join a space, from the picker (card #689).

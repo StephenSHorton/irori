@@ -1,5 +1,5 @@
 // SpaceSwitcher sits at the top of the sidebar (card #393, mockup talk-6):
-// it picks the space Home and Talk show. All spaces is everything,
+// it picks the space Home, Talk and Boards show. All spaces is everything,
 // Needs you across all of it; Personal is you and your agents; then each
 // shared space, "with" whoever is in it. It is the one place for spaces
 // (card #689, which dropped the Spaces tab; Boards shows only the picked
@@ -97,7 +97,7 @@ export function SpaceSwitcher({
             title={
               folded
                 ? `Space: ${plainLine(cur.name)}`
-                : "Pick the space Home and Talk show, or make or join one"
+                : "Pick the space Home, Talk and Boards show, or make or join one"
             }
             className={cn(
               "flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 text-left text-sm text-ink hover:bg-secondary pointer-coarse:h-11",

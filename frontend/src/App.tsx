@@ -190,10 +190,10 @@ export function App() {
     (previewFlag("slow") !== null && previewFlag("filter") !== "done")
   // Home's idle line (card #341): a work shortage or a dispatch gap.
   const idle = useIdleReport(roster.agents)
-  const { boards } = useBoards()
+  const { boards, loaded: boardsLoaded } = useBoards()
   const { boards: personalBoards } = usePersonalBoards()
-  // The space the sidebar's switcher picked (card #393): Home and Talk
-  // show it. All spaces, the default, is everything.
+  // The space the sidebar's switcher picked (card #393): Home, Talk and
+  // Boards show it. All spaces, the default, is everything.
   const [space, setSpace] = useSpace(boards)
   const shared = space !== AllSpaces && space !== Personal
   const spaceCards = useMemo(
@@ -608,25 +608,43 @@ export function App() {
     [open, section]
   )
   // pickSpace is a pick in the space picker (or Profile). Boards show only
-  // the picked space's (card #689), so on Boards the page follows the pick.
+  // the picked space's (card #689), so on Boards the page follows the pick,
+  // closing a card open over it. From #boards (pick a space) the space's
+  // page takes its place, so Back doesn't land on #boards and bounce.
   const pickSpace = useCallback(
     (id: string) => {
       if (id === space) return
       setSpace(id)
-      if (!open && onBoards(section)) go(boardsFor(id))
+      if (section.kind === "boards") replace(boardsFor(id))
+      else if (onBoards(section)) go(boardsFor(id))
     },
-    [space, setSpace, open, section]
+    [space, setSpace, section]
   )
+  // A known space: Personal, or a shared one the boards list has. Until
+  // the list loads, useSpace keeps a stored pick it can't check yet.
+  const knownSpace = (id: string) =>
+    id === Personal || boards.some((b) => b.boardId === id)
   // And the pick follows the page: a space's page opened another way (a
-  // pinned space, the palette, a link) picks that space.
+  // pinned space, the palette, a link) picks that space. Only when the
+  // page changes, so a pick made since isn't undone.
+  const syncedPage = useRef("")
   useEffect(() => {
     if (open) return
-    if (section.kind === "boards" && space !== AllSpaces)
+    if (
+      section.kind === "boards" &&
+      space !== AllSpaces &&
+      boardsLoaded &&
+      knownSpace(space)
+    )
       replace(boardsFor(space))
-    if (section.kind !== "board" || section.id === space) return
-    if (section.id === Personal || boards.some((b) => b.boardId === section.id))
-      setSpace(section.id)
-  }, [open, section, space, boards, setSpace])
+    if (section.kind !== "board") {
+      syncedPage.current = ""
+      return
+    }
+    if (syncedPage.current === section.id) return
+    if (section.id !== space && knownSpace(section.id)) setSpace(section.id)
+    if (section.id === Personal || boardsLoaded) syncedPage.current = section.id
+  })
   const onPaletteBoard = useCallback(
     (id: string) => goTo({ kind: "board", id }),
     [goTo]
@@ -780,9 +798,9 @@ export function App() {
     setDrawer(false)
   }
 
-  // A phone (card #395, mockup talk-5): Home and Talk are tabs at the
-  // bottom (card #689 dropped Spaces), and an open conversation is the whole screen, its own
-  // header carrying Back.
+  // A phone (card #395, mockup talk-5): Home, Talk and Boards are tabs at
+  // the bottom (Boards the picked space's, card #689), and an open
+  // conversation is the whole screen, its own header carrying Back.
   const narrow = useNarrow()
   // The badge counts what Talk lists in the picked space (card #461).
   const talkWaiting =
