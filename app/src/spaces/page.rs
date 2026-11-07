@@ -281,7 +281,8 @@ pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
                 a.name.focused = true;
                 s.spaces.add = Some(a);
             })
-            .build(k);
+            .build(k)
+            .key(format!("spaces-add-board-{target}"));
     };
     let ready = !a.name.text.trim().is_empty() && !a.tag.text.trim().is_empty();
     let submit = move |s: &mut State| add_submit(s);
