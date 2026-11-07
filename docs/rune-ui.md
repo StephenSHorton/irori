@@ -69,7 +69,7 @@ target/debug/irori --scene detail --script comment.json --tree tree.json --at ma
   - The release scripts, which handle signing, notarizing, NSIS and gh.
   - `scratch-mac.sh` and `boards-live.*`.
 - **`app/macos/*.sh` and `app/nsis`:** bundle packaging and the Windows installer.
-- **Android:** there is no phone app on this branch. Rune runs on Android after small patches,
+- **Android:** a prototype only (Android, below). Rune runs on Android after small patches,
   but it isn't a product (#676, #677).
 
 ## Numbers (Mac, M-series; 2026-11-07)
@@ -102,17 +102,48 @@ Tauri's bundler off: the Mac bundle is `app/macos/package.sh` and Windows uses N
 Tauri's one remaining build job was Android packaging (`cargo tauri android build`), and the
 phone app now waits for Rune on Android.
 
-## Android
+## Android (prototype, card #680)
 
-A Rune test app ran on an API 35 emulator with no Tauri and no Gradle, from an APK built by
-hand. It needed two small Rune patches and a winit feature flag. It is not a product yet:
-- The screen goes black after the app comes back from the background.
-- There is no soft-keyboard text input, no safe-area insets and no accessibility.
-- Irori's notification, call and update Kotlin (about 640 lines) would move from Tauri's
-  plugin bridge to JNI.
+Not shipped: main's Tauri phone app stays. `app/` is a library too (`app/src/lib.rs`), and on
+Android its `android_main` runs `shell::run_android`: the same Core, window backend and
+packages as the desktop, in the app's private files dir, with no spawner
+(`set_runs_no_agents`), no tray, single instance or exit hook. Rune's Kotlin host
+(`RuneActivity`, from the Rune fork's Android shell, #677 and #679) loads `libirori_app.so` and
+takes the on-screen keyboard. The phone frame (`State::phone`) has no sidebar, pads 32 dp for
+the status bar and puts a card's comment box under its title. Join with a code
+(`app/src/phone`) shows until the phone has another device.
 
-Estimate for a usable phone client: 3–4 weeks, and it still needs a small Kotlin host and
-Gradle. The person wants it as a prototype only: #676, #677.
+```sh
+sh scripts/android-rune.sh --install     # needs the env in docs/android.md (ANDROID_HOME, JAVA_HOME, NDK)
+```
+
+It builds `target/android/irori-rune.apk` (56.5 MB, debug-signed; the library is 54 MB of
+it, plus 1.8 MB of libc++_shared). The applicationId is `com.stephenshorton.irori.rune`, so it
+never replaces a Tauri install. Gradle (`app/android`) only wraps the cargo-built library.
+The Kotlin host comes from cargo's checkout of the pinned Rune rev, so its keyboard protocol
+always matches.
+
+To pair it on an emulator without touching your own Irori, use a scratch peer on the Mac:
+`irori-dev pair-peer --home <empty dir> --claude <empty dir> [--port 24817]`. It makes a
+fresh person with a few cards, turns its home server on and opens an Add window (the API
+keeps no Add route on purpose). It prints the code and the key. On the phone, give the
+server as `10.0.2.2:24817`: the emulator's NAT hides the LAN lookup. Then type
+`words <the phone's words>` into the peer.
+
+Checked on an API 35 emulator (2026-11-07; screenshots in `docs/img/rune-android/`):
+- It paired with the scratch peer, and the Board showed the peer's cards.
+- New cards and steps ticked on the peer appeared within seconds, without a touch.
+- A comment typed with Gboard reached the peer's thread, written by the phone's device.
+- After a trip to the background, it sent its rows, redrew and caught up.
+- The Core is up 125 ms after launch.
+
+Gaps:
+- The system Back closes the app.
+- The keyboard comes back after a resume even when no field is on screen.
+- Insets are hand-padded (Rune doesn't feed `safe_area` on Android).
+- There is no settings or devices page.
+- Notifications, calls and updates have no Kotlin side. Their move from Tauri's plugin bridge
+  to JNI is costed on card #680.
 
 ## site/ and mod/
 

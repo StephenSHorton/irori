@@ -7208,7 +7208,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/StephenSHorton/rune?rev=5fd9bfa2ec89e6325d6435d95066336d93369d69#5fd9bfa2ec89e6325d6435d95066336d93369d69"
+source = "git+https://github.com/StephenSHorton/rune?rev=064a41105be2345a9465d946dfcb2b96ec415824#064a41105be2345a9465d946dfcb2b96ec415824"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -7223,6 +7223,7 @@ dependencies = [
  "futures-util",
  "half",
  "image",
+ "jni 0.22.4",
  "js-sys",
  "libc",
  "libloading 0.8.9",
@@ -7282,7 +7283,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/StephenSHorton/rune?rev=5fd9bfa2ec89e6325d6435d95066336d93369d69#5fd9bfa2ec89e6325d6435d95066336d93369d69"
+source = "git+https://github.com/StephenSHorton/rune?rev=064a41105be2345a9465d946dfcb2b96ec415824#064a41105be2345a9465d946dfcb2b96ec415824"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -7293,12 +7294,12 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/StephenSHorton/rune?rev=5fd9bfa2ec89e6325d6435d95066336d93369d69#5fd9bfa2ec89e6325d6435d95066336d93369d69"
+source = "git+https://github.com/StephenSHorton/rune?rev=064a41105be2345a9465d946dfcb2b96ec415824#064a41105be2345a9465d946dfcb2b96ec415824"
 
 [[package]]
 name = "rune-staging"
 version = "0.0.1"
-source = "git+https://github.com/StephenSHorton/rune?rev=5fd9bfa2ec89e6325d6435d95066336d93369d69#5fd9bfa2ec89e6325d6435d95066336d93369d69"
+source = "git+https://github.com/StephenSHorton/rune?rev=064a41105be2345a9465d946dfcb2b96ec415824#064a41105be2345a9465d946dfcb2b96ec415824"
 dependencies = [
  "wgpu",
 ]
@@ -7306,7 +7307,7 @@ dependencies = [
 [[package]]
 name = "rune-taffy"
 version = "0.0.1"
-source = "git+https://github.com/StephenSHorton/rune?rev=5fd9bfa2ec89e6325d6435d95066336d93369d69#5fd9bfa2ec89e6325d6435d95066336d93369d69"
+source = "git+https://github.com/StephenSHorton/rune?rev=064a41105be2345a9465d946dfcb2b96ec415824#064a41105be2345a9465d946dfcb2b96ec415824"
 dependencies = [
  "taffy",
 ]

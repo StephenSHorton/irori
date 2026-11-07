@@ -35,9 +35,7 @@ pub struct Model {
 
 /// True while this phone has no other device: it shows Join with a code.
 pub fn needs_pairing(s: &State) -> bool {
-    s.phone
-        && s.phone_pair.state != "done"
-        && !s.data.devices.iter().any(|d| !d.this && !d.revoked)
+    s.phone && s.phone_pair.state != "done" && !s.data.devices.iter().any(|d| !d.this && !d.revoked)
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {

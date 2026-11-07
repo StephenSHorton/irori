@@ -646,9 +646,9 @@ fn spawner() -> irori_core::spawn::Spawner {
 /// notifier shows nothing, and calls and updates have no Kotlin side yet.
 #[cfg(target_os = "android")]
 pub fn run_android(app: rune::android::AndroidApp) {
-    let files = app
-        .internal_data_path()
-        .unwrap_or_else(|| std::path::PathBuf::from("/data/data/com.stephenshorton.irori.rune/files"));
+    let files = app.internal_data_path().unwrap_or_else(|| {
+        std::path::PathBuf::from("/data/data/com.stephenshorton.irori.rune/files")
+    });
     rune::android::init(app);
     for (k, v) in [
         ("HOME", files.clone()),
@@ -713,16 +713,17 @@ fn run_phone() -> Result<(), String> {
     };
     let init_window = window.clone();
     let init_data = data.clone();
-    let focus_core = core.clone();
     let app = App::new(spec)
         .init(move || {
             let mut s = State::new(init_window, init_data, false);
             s.phone = true;
             s
         })
-        .on_focus(move |s: &mut State, on, _| {
+        .on_focus(|s: &mut State, on, _| {
             s.focused = on;
-            let c = focus_core.clone();
+            let Some(c) = s.w.as_ref().map(|w| w.core.clone()) else {
+                return;
+            };
             if on {
                 // Back from the background: reconnect and re-read.
                 c.kick_sync();

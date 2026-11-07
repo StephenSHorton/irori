@@ -195,7 +195,10 @@ fn serve(o: &Opts) -> Result<(), String> {
         .map_err(|e| format!("add: {e}"))?;
     println!("code: {}", st.code);
     println!("key: {}", st.fingerprint);
-    println!("server: {} (from an emulator: 10.0.2.2:{})", st.server_addr, o.port);
+    println!(
+        "server: {} (from an emulator: 10.0.2.2:{})",
+        st.server_addr, o.port
+    );
     println!("pair-peer: ready; commands: words, card, step, show, devices, status, quit");
     let _ = std::io::stdout().flush();
 
