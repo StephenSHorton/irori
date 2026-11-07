@@ -73,7 +73,7 @@ const N_WORDS: usize = {
     n
 };
 
-const ALL: [&str; N_WORDS] = {
+static ALL: [&str; N_WORDS] = {
     let mut out = [""; N_WORDS];
     let (mut k, mut i) = (0, 0);
     while i < THEMES.len() {
