@@ -160,18 +160,37 @@ fn a_reply_with_a_file_is_taken() {
     assert!(b2.question.contains("“see this file”"), "{b2:?}");
 }
 
-/// A card someone took while it waited is theirs: Irori won't start one.
+/// A card an agent took while it waited is theirs: Irori won't start one,
+/// and its question closes by itself, saying who took it (card #717), so
+/// it leaves Needs you rather than wait on an answer nothing reads.
 #[test]
 fn a_card_with_a_holder_does_not_promise_an_agent() {
     let t = rig();
     let c = t.card(NOWHERE);
     let b = t.asked(&c.id, "");
     t.w().core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
-    let res = t
-        .w()
-        .answer(&c.id, &b.id, -1, "any folder", true, &[])
+    wait("the question closes", || {
+        t.w().core.set_spawn_cap(t.w().core.spawn_cap()).ok();
+        t.get(&c.id).blockers.iter().any(|x| x.id == b.id && !x.open())
+    });
+    let done = t
+        .get(&c.id)
+        .blockers
+        .into_iter()
+        .find(|x| x.id == b.id)
+        .and_then(|x| x.resolved)
         .unwrap();
-    assert!(!res.irori_acts);
+    assert!(
+        done.answer.ends_with("took the card, so no agent needs to start for it."),
+        "{done:?}"
+    );
+    assert!(
+        t.w()
+            .answer(&c.id, &b.id, -1, "any folder", true, &[])
+            .is_err(),
+        "nothing left to answer"
+    );
+    assert!(t.started.lock().unwrap().is_empty());
 }
 
 /// A path that isn't there is still told as one, and each reply gets its
