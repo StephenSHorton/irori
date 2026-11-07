@@ -184,6 +184,32 @@ Choose B if `moq-video` pulls in too much of `moq-net`/`hang`/`kio`. For a fully
 
 **Watch:** `iroh-live` / `iroh-moq`.
 
+## Results (#657, 2026-11-06)
+
+What was built: `crates/share` (`irori-share`) on `moq-video =0.1.21` with `default-features = false, features = ["capture"]`. It is capture and encode only: a `Source` (one window or a display) becomes `Chunk`s, one Annex-B access unit each, with SPS/PPS in band on every keyframe. Capture is moq-video's (ScreenCaptureKit on the Mac, WGC on the PC), not the `screencapturekit` / `windows-capture` crates; encode is moq-video's VideoToolbox and Media Foundation backends, hardware only by default (`Settings::hardware_only`). `examples/share-dev.rs` lists windows and displays and times capture + encode; `tests/it/encode.rs` checks keyframes on request and a live bitrate change on the real hardware encoder.
+
+**Findings about moq-video 0.1.21** (from its source, unlike the survey's 0.1.10-era notes above):
+- `Encoded` is `{timestamp, payload}` only: the `keyframe` flag is gone. `irori-share` reads it from the bitstream (an IDR NAL, type 5).
+- Both hardware backends encode **H.264 High** (`kVTProfileLevel_H264_High_AutoLevel`, `eAVEncH264VProfile_High`), not Baseline/Main. WebCodecs decodes High (`avc1.64…`), so the viewer's codec string must say High.
+- VideoToolbox gets `AverageBitRate` only, no `DataRateLimits`; Media Foundation runs CBR in low-latency mode. On the Mac nothing caps a keyframe's size (see the numbers).
+- `capture::open` calls `CGPreflightScreenCaptureAccess` then `CGRequestScreenCaptureAccess` before every Mac stream, so it always goes through the persistent grant. A picker-based share can't use moq-video's capture; it needs its own `SCStream` on the picker's filter (`examples/share-picker.rs` is that, as a spike).
+- **Audio:** nothing in moq-video sets `capturesAudio`, and ScreenCaptureKit's default is off, so a share carries no sound at all, Irori's included. WGC captures no audio. Sharing audio later means turning it on with `excludesCurrentProcessAudio` set, so Irori's own call voices and chimes stay out.
+- Frame input: a captured frame goes to the encoder zero-copy (IOSurface `CVPixelBuffer` on the Mac, D3D11 texture on the PC); a CPU I420 frame (the synthetic bench) is uploaded first.
+
+**Mac numbers** (MacBook Pro M5 Max, 18 cores, macOS 26.6.2; `share-dev`, release build; CPU is the whole process as a percent of one core):
+
+| Run | Backend | fps | Bitrate (target) | Keyframes | Other frames | Keyframe ask → keyframe | Encode ms p50 / p95 | CPU |
+|---|---|---|---|---|---|---|---|---|
+| synth 1080p, 20 s, no asks | videotoolbox | 10.05 | 837 kbit/s (1451) | 1 × 594 KB | 7.5 KB | — | 4.91 / 5.24 | 0.7 % of one core |
+| synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | videotoolbox | 10.03 | 1986 kbit/s (1451 → 800) | 6 × 887 KB avg | 7.2 KB | 5 of 5 answered, 13.8 ms avg | 4.87 / 5.68 | 0.7 % |
+| synth 1080p, 20 s, ask every 2 s, 2500 kbit/s | videotoolbox | 10.04 | 4395 kbit/s (2500) | 10 × 921 KB avg | 9.4 KB | 9 of 9, 14.0 ms | 4.92 / 12.56 | 0.7 % |
+
+The synthetic picture is dense scrolling "text" plus a moving block, every frame new: harder than most real shares. P-frames sit under the target, and the live bitrate change shows within a second (about 500 → 270 kbit/s). **Keyframes are the cost:** 0.6–1 MB each, since VideoToolbox spends what it likes on an IDR. So the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. The sending layer has to ration them: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s). Captured-window numbers: _filled in from s6 below._
+
+**PC numbers:** _from #666._
+
+**Mac Screen Recording grant:** _filled in from the walk-through (`sh crates/share/grant-test.sh walk`)._
+
 ## Next steps (spikes, in order)
 1. **Picker without TCC:** test `11_content_picker` on an ad-hoc-signed build, before and after a rebuild.
 2. **Relay throughput:** 2 Mbps sustained plus bursts, relay-only, Mac↔PC, via `spike-call`.
