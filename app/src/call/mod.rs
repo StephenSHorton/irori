@@ -44,7 +44,9 @@ use rune::{El, TextEdit};
 use crate::ui::{Event, Frame, Route, State};
 
 // The pieces other packages place (Talk, the card page, the window's keys).
-pub use huddle::{huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_started};
+pub use huddle::{
+    HuddleIn, huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_started,
+};
 pub use logic::StartWhere;
 pub use mic::{Target as MicTarget, mic_button, mic_button_in, on_key};
 // Settings' voice note.
@@ -100,8 +102,12 @@ pub struct Model {
     ticker: Option<Arc<AtomicBool>>,
     /// A Start, Join or Leave is running.
     pub busy: bool,
-    /// Why the last huddle action failed (the panel, the start sheet).
+    /// Why the last huddle action failed (the conversation's header, the
+    /// start sheet).
     pub error: String,
+    /// The conversation `busy` and `error` are about: each conversation
+    /// keeps its own (React's per-ConversationView huddleError).
+    pub at: String,
     /// A Join from the ring banner: its call, and why it failed.
     pub ring_busy: String,
     pub ring_error: (String, String),
@@ -146,12 +152,18 @@ fn now_ms() -> i64 {
 
 /// Tabular figures, for timers and clocks.
 fn tnum(st: rune::tok::TextStyle) -> rune::tok::TextStyle {
-    rune::tok::TextStyle { features: "\"tnum\"", ..st }
+    rune::tok::TextStyle {
+        features: "\"tnum\"",
+        ..st
+    }
 }
 
 /// The first `n` bytes of a line, in the name's weight and colour.
 fn bold_span(n: usize, c: rune::Color) -> rune::Span {
-    rune::Span { color: Some(c), ..rune::Span::new(0, n).weight(560.0) }
+    rune::Span {
+        color: Some(c),
+        ..rune::Span::new(0, n).weight(560.0)
+    }
 }
 
 pub(crate) fn log(msg: &str) {
@@ -170,7 +182,12 @@ pub fn on_event(s: &mut State, ev: &Event) {
         EVENT_CALL_STATE => refresh(s),
         EVENT_VOICE => mic::on_voice(s, &ev.payload),
         EVENT_VOICE_DOWNLOAD => {
-            let g = |k: &str| ev.payload.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
+            let g = |k: &str| {
+                ev.payload
+                    .get(k)
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+            };
             if s.call.download.is_some() {
                 s.call.download = Some((g("done"), g("total")));
             }
@@ -222,7 +239,11 @@ fn apply(s: &mut State, v: CallView) {
     // The sheet closes when a huddle comes on in its conversation.
     if let Some(sh) = &s.call.sheet
         && (logic::in_call_here(&s.call.view, &sh.conv_id)
-            || s.call.view.live.iter().any(|l| l.conv_id == sh.conv_id && !l.people.is_empty()))
+            || s.call
+                .view
+                .live
+                .iter()
+                .any(|l| l.conv_id == sh.conv_id && !l.people.is_empty()))
     {
         s.call.sheet = None;
     }
@@ -231,7 +252,10 @@ fn apply(s: &mut State, v: CallView) {
         mic::stop(s);
     }
     watch_share(s, mine.as_ref().and_then(|m| m.share.as_ref()));
-    if mine.as_ref().is_none_or(|m| m.share.as_ref().is_none_or(|x| x.mine)) {
+    if mine
+        .as_ref()
+        .is_none_or(|m| m.share.as_ref().is_none_or(|x| x.mine))
+    {
         s.call.full = false;
         s.call.picker.open = s.call.picker.open && mine.as_ref().is_some_and(|m| m.can_share);
     }
@@ -332,6 +356,13 @@ pub fn leave(s: &mut State) {
         s.call.view.live.clear();
         return;
     }
+    s.call.at = s
+        .call
+        .view
+        .mine
+        .as_ref()
+        .map(|m| m.conv_id.clone())
+        .unwrap_or_default();
     s.call.busy = true;
     s.call.error.clear();
     s.spawn(
@@ -383,6 +414,7 @@ fn join(s: &mut State, call_id: String, conv_id: String, from_ring: bool) {
         s.call.ring_busy = call_id.clone();
         s.call.ring_error = (String::new(), String::new());
     } else {
+        s.call.at = conv_id.clone();
         s.call.busy = true;
         s.call.error.clear();
     }
@@ -414,6 +446,7 @@ fn join(s: &mut State, call_id: String, conv_id: String, from_ring: bool) {
 /// Starts a huddle in `conv_id` (the start sheet's Start huddle).
 pub fn start(s: &mut State, conv_id: &str) {
     mic::stop(s);
+    s.call.at = conv_id.to_string();
     s.call.busy = true;
     s.call.error.clear();
     let id = conv_id.to_string();
@@ -476,17 +509,14 @@ pub fn open_transcript(s: &mut State, call_id: &str) {
         q: TextEdit::new(""),
     });
     let id = call_id.to_string();
-    s.spawn(
-        move |w| w.talk_call_transcript(&id),
-        {
-            let id = call_id.to_string();
-            move |s, r| {
-                if let Some(t) = s.call.transcript.as_mut().filter(|t| t.call_id == id) {
-                    t.got = Some(r);
-                }
+    s.spawn(move |w| w.talk_call_transcript(&id), {
+        let id = call_id.to_string();
+        move |s, r| {
+            if let Some(t) = s.call.transcript.as_mut().filter(|t| t.call_id == id) {
+                t.got = Some(r);
             }
-        },
-    );
+        }
+    });
 }
 
 pub fn close_transcript(s: &mut State) {
@@ -500,14 +530,18 @@ pub fn in_call_here(s: &State, conv_id: &str) -> bool {
 
 // ---- the package contract -----------------------------------------------------
 
-#[allow(dead_code)] // the package contract; no route shows it
+#[allow(dead_code)] // the package contract (ui/mod.rs); no route shows it
 /// The package's page: the huddle this device is in, or a line saying
 /// none is (no route shows it; Talk embeds [`huddle_panel`]).
 pub fn view(s: &State, f: &mut Frame) -> El {
     if s.call.view.mine.is_some() {
         return huddle_panel(s, f);
     }
-    crate::ui::not_yet(f, "Huddle", "You're not in a huddle. Start one from a channel or a DM in Talk.")
+    crate::ui::not_yet(
+        f,
+        "Huddle",
+        "You're not in a huddle. Start one from a channel or a DM in Talk.",
+    )
 }
 
 /// Over every page: the ringing banner, the call bar, the notice before
@@ -539,7 +573,13 @@ pub fn scene(s: &mut State) {
     s.close_card();
     s.go(Route::Talk(None));
     let now = now_ms();
-    let peer = |name: &str, path: &str, rtt: f64, loss: f64, speaking: bool, muted: bool, tr: Option<bool>| CallPeerView {
+    let peer = |name: &str,
+                path: &str,
+                rtt: f64,
+                loss: f64,
+                speaking: bool,
+                muted: bool,
+                tr: Option<bool>| CallPeerView {
         name: name.into(),
         device: String::new(),
         phase: "live".into(),
@@ -551,8 +591,14 @@ pub fn scene(s: &mut State) {
         transcribing: tr,
     };
     let said = [
-        ("you", "Okay, quick one: are we tagging 0.10.0 today or waiting on #8?"),
-        ("Spencer", "#8 merged an hour ago. The only thing left is the PC transfer, it still needs the Firewall click."),
+        (
+            "you",
+            "Okay, quick one: are we tagging 0.10.0 today or waiting on #8?",
+        ),
+        (
+            "Spencer",
+            "#8 merged an hour ago. The only thing left is the PC transfer, it still needs the Firewall click.",
+        ),
         ("you", "Then let's tag at two, right after the click."),
     ];
     let captions = said
@@ -657,7 +703,9 @@ pub fn scene(s: &mut State) {
         }],
         live: vec![CallLiveView {
             call_id: "scene-call".into(),
-            conv_id: in_talk.as_ref().map_or("scene-ch".into(), |(id, _)| id.clone()),
+            conv_id: in_talk
+                .as_ref()
+                .map_or("scene-ch".into(), |(id, _)| id.clone()),
             people: vec!["you".into(), "Spencer".into(), "Aiko".into()],
         }],
         transcribe_on: true,
@@ -665,10 +713,13 @@ pub fn scene(s: &mut State) {
     };
     if let Some((id, _)) = in_talk {
         s.call.demo_in_talk = true;
-        crate::talk::on_event(s, &crate::ui::Event {
-            name: "app:start".into(),
-            payload: serde_json::Value::Null,
-        });
+        crate::talk::on_event(
+            s,
+            &crate::ui::Event {
+                name: "app:start".into(),
+                payload: serde_json::Value::Null,
+            },
+        );
         crate::talk::open(s, &id);
     }
 }

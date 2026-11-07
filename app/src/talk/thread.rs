@@ -64,7 +64,11 @@ pub fn view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
         header = header.child(badge(f, "talk-thread-state", label, tone, false, ""));
     }
     let at = logic::at_ms(&t.updated_at);
-    header = header.child(text(relative_time(at, now)).font(ts(11.0, 400.0)).color(k.c.text_muted));
+    header = header.child(
+        text(relative_time(at, now))
+            .font(ts(11.0, 400.0))
+            .color(k.c.text_muted),
+    );
 
     let mut pane = col()
         .key("talk-thread")
@@ -92,7 +96,8 @@ fn thread_cards(f: &Frame, t: &ThreadSummary) -> El {
         .flex_wrap()
         .child(text("Cards:").font(ts(11.0, 400.0)).color(k.c.text_muted));
     for c in &t.cards {
-        let (bg, fg, border) = crate::widgets::bits::tone_colors(f, logic::card_state_tone(&c.state));
+        let (bg, fg, border) =
+            crate::widgets::bits::tone_colors(f, logic::card_state_tone(&c.state));
         let id = c.id.clone();
         r = r.child(
             row()
@@ -108,10 +113,24 @@ fn thread_cards(f: &Frame, t: &ThreadSummary) -> El {
                 .max_w(360.0)
                 .fill(bg)
                 .border(1.0, border)
-                .help(format!("{} ({})", plain_line(&c.title), c.state.replacen('_', " ", 1)))
+                .help(format!(
+                    "{} ({})",
+                    plain_line(&c.title),
+                    c.state.replacen('_', " ", 1)
+                ))
                 .on_press(move |s: &mut State| s.open_card(&id))
-                .child(text(logic::thread_ref(&c.tag, &c.short)).font(ts(10.5, 500.0).mono()).color(fg))
-                .child(text(plain_line(&c.title)).font(ts(10.5, 500.0)).color(fg).max_lines(1).shrink()),
+                .child(
+                    text(logic::thread_ref(&c.tag, &c.short))
+                        .font(ts(10.5, 500.0).mono())
+                        .color(fg),
+                )
+                .child(
+                    text(plain_line(&c.title))
+                        .font(ts(10.5, 500.0))
+                        .color(fg)
+                        .max_lines(1)
+                        .shrink(),
+                ),
         );
     }
     r
@@ -119,7 +138,7 @@ fn thread_cards(f: &Frame, t: &ThreadSummary) -> El {
 
 /// Whether a thread entry shows: events stay out, but a card made from the
 /// thread is part of the answer.
-fn shown(it: &CardThreadItem) -> bool {
+pub(crate) fn shown(it: &CardThreadItem) -> bool {
     it.kind != "event" || it.made
 }
 
@@ -154,8 +173,22 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
                 .key("talk-thread-opened")
                 .gap(4.0)
                 .center_y()
-                .child(face(s, f, "talk-thread-opened-f", o, FaceOpts { inline: true, ..FaceOpts::default() }))
-                .child(text(logic::opened_line(o)).font(ts(11.0, 400.0)).color(k.c.text_muted).max_lines(1)),
+                .child(face(
+                    s,
+                    f,
+                    "talk-thread-opened-f",
+                    o,
+                    FaceOpts {
+                        inline: true,
+                        ..FaceOpts::default()
+                    },
+                ))
+                .child(
+                    text(logic::opened_line(o))
+                        .font(ts(11.0, 400.0))
+                        .color(k.c.text_muted)
+                        .max_lines(1),
+                ),
         );
     }
     top = top.child(
@@ -164,11 +197,19 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
             .w_full()
             .max_h(220.0)
             .min_h(0.0)
-            .scroll(ScrollSpec { stick_bottom: false })
-            .child(crate::text::rich_with(s, f, "talk-thread-q", &t.text, &RichOpts {
-                font: Some(ts(12.5, 400.0)),
-                ..RichOpts::default()
-            })),
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .child(crate::text::rich_with(
+                s,
+                f,
+                "talk-thread-q",
+                &t.text,
+                &RichOpts {
+                    font: Some(ts(12.5, 400.0)),
+                    ..RichOpts::default()
+                },
+            )),
     );
     if !t.told.is_empty() {
         let mut told = row()
@@ -178,9 +219,13 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
             .center_y()
             .flex_wrap()
             .child(
-                text(if t.state == THREAD_WAITING { "Asked first:" } else { "Told:" })
-                    .font(ts(11.0, 400.0))
-                    .color(k.c.text_muted),
+                text(if t.state == THREAD_WAITING {
+                    "Asked first:"
+                } else {
+                    "Told:"
+                })
+                .font(ts(11.0, 400.0))
+                .color(k.c.text_muted),
             );
         for w in &t.told {
             let key = format!("talk-told-{}", w.key);
@@ -194,8 +239,21 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
                     .radius(5.0)
                     .fill(k.c.layer_02)
                     .border(1.0, k.c.border_muted)
-                    .child(face(s, f, &format!("{key}-f"), w, FaceOpts { inline: true, ..FaceOpts::default() }))
-                    .child(text(display_name(w)).font(ts(10.5, 500.0)).color(k.c.text_muted)),
+                    .child(face(
+                        s,
+                        f,
+                        &format!("{key}-f"),
+                        w,
+                        FaceOpts {
+                            inline: true,
+                            ..FaceOpts::default()
+                        },
+                    ))
+                    .child(
+                        text(display_name(w))
+                            .font(ts(10.5, 500.0))
+                            .color(k.c.text_muted),
+                    ),
             );
         }
         top = top.child(told);
@@ -209,7 +267,11 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
     agents.extend(t.told.iter().cloned());
     agents.extend(t.answered_by.iter().cloned());
     let empty = if reading {
-        Some(crate::widgets::loading::message_rows_shape(f, "talk-thread-loading", 2))
+        Some(crate::widgets::loading::message_rows_shape(
+            f,
+            "talk-thread-loading",
+            2,
+        ))
     } else {
         None
     };
@@ -240,16 +302,33 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
         .child(top)
         .child(answers.grow(1.0).min_h(0.0));
     if let Some(e) = &s.talk.thread_error {
-        out = out.child(text(format!("Could not read the thread: {e}")).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
+        out = out.child(
+            text(format!("Could not read the thread: {e}"))
+                .font(ts(12.0, 400.0))
+                .color(status::failed())
+                .w_full()
+                .wrap(),
+        );
     }
     // A waiting thread past its device's usage limit: start one anyway
     // (cards #450, #576).
     if t.state == THREAD_WAITING
-        && let Some(b) = crate::card::start_past_limit(s, f, "talk-thread-past-limit", &t.id, &spawn_state(t), true)
+        && let Some(b) = crate::card::start_past_limit(
+            s,
+            f,
+            "talk-thread-past-limit",
+            &t.id,
+            &spawn_state(t),
+            true,
+        )
     {
         out = out.child(b);
     }
-    let mut actions = row().key("talk-thread-actions").w_full().gap(8.0).center_y();
+    let mut actions = row()
+        .key("talk-thread-actions")
+        .w_full()
+        .gap(8.0)
+        .center_y();
     let id = t.id.clone();
     actions = actions.child(if resolved {
         Button::new("Reopen")
@@ -271,10 +350,14 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
             .on_press(move |s: &mut State| {
                 let id = id.clone();
                 let done = id.clone();
-                act(s, move |w| w.resolve_thread(&id), move |s| {
-                    let open = super::open_id(s).to_string();
-                    super::open(s, &logic::open_after_resolve(&open, &done));
-                });
+                act(
+                    s,
+                    move |w| w.resolve_thread(&id),
+                    move |s| {
+                        let open = super::open_id(s).to_string();
+                        super::open(s, &logic::open_after_resolve(&open, &done));
+                    },
+                );
             })
             .build(k)
     });
@@ -292,7 +375,13 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
         ));
     }
     if !s.talk.thread_act_error.is_empty() {
-        actions = actions.child(text(s.talk.thread_act_error.clone()).font(ts(12.0, 400.0)).color(status::failed()).max_lines(2).shrink());
+        actions = actions.child(
+            text(s.talk.thread_act_error.clone())
+                .font(ts(12.0, 400.0))
+                .color(status::failed())
+                .max_lines(2)
+                .shrink(),
+        );
     }
     out.child(actions)
 }
@@ -329,10 +418,21 @@ fn event_text(s: &State, t: &str) -> String {
         .map(|w| match w.strip_prefix("task:") {
             Some(id) => {
                 let id = id.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
-                let found = s.data.card(id).map(crate::logic::card_status::card_ref).or_else(|| {
-                    s.talk.threads.iter().flat_map(|t| &t.cards).find(|c| c.id == id).map(|c| logic::thread_ref(&c.tag, &c.short))
-                });
-                found.filter(|r| r != "new" && !r.is_empty()).unwrap_or_else(|| "a card".into())
+                let found = s
+                    .data
+                    .card(id)
+                    .map(crate::logic::card_status::card_ref)
+                    .or_else(|| {
+                        s.talk
+                            .threads
+                            .iter()
+                            .flat_map(|t| &t.cards)
+                            .find(|c| c.id == id)
+                            .map(|c| logic::thread_ref(&c.tag, &c.short))
+                    });
+                found
+                    .filter(|r| r != "new" && !r.is_empty())
+                    .unwrap_or_else(|| "a card".into())
             }
             None => w.to_string(),
         })
@@ -380,10 +480,13 @@ pub fn start_view(s: &State, f: &mut Frame) -> El {
                     ask_box_mut(s).missed(&r.mentioned);
                     s.talk.ask_now = None;
                     let id = r.task.id.clone();
-                    s.spawn(|w| w.threads_all(), move |s, ts| {
-                        s.talk.threads = ts;
-                        super::open(s, &id);
-                    });
+                    s.spawn(
+                        |w| w.threads_all(),
+                        move |s, ts| {
+                            s.talk.threads = ts;
+                            super::open(s, &id);
+                        },
+                    );
                 }
                 Err(e) => {
                     ask_box_mut(s).sending = false;
@@ -401,14 +504,26 @@ pub fn start_view(s: &State, f: &mut Frame) -> El {
         c.sending,
         |s: &mut State, on| s.talk.ask_now = Some(on),
     )];
-    extra.push(super::conv::send_button(f, "talk-ask-send", c, &board, no_mentions.clone(), on_send.clone(), ask_box_mut));
+    extra.push(super::conv::send_button(
+        f,
+        "talk-ask-send",
+        c,
+        true,
+        ComposerOpts {
+            board: board.clone(),
+            no_mentions: no_mentions.clone(),
+            on_send: Some(on_send.clone()),
+            ..ComposerOpts::default()
+        },
+        ask_box_mut,
+    ));
     let opts = ComposerOpts {
-        placeholder: "Ask your agents…".into(),
-        label: "Ask the room".into(),
+        placeholder: "Ask about anything…".into(),
+        label: "Start a thread".into(),
         asking: true,
         board: board.clone(),
         popup_below: true,
-        rows: Some((2, 10)),
+        rows: Some((1, 10)),
         mic: Some(crate::call::mic_button_in(
             s,
             f,
@@ -417,7 +532,8 @@ pub fn start_view(s: &State, f: &mut Frame) -> El {
             c.sending,
         )),
         no_mentions,
-        no_files: (!board.is_empty()).then(|| "Files on a shared space's thread aren't supported yet".to_string()),
+        no_files: (!board.is_empty())
+            .then(|| "Files on a shared space's thread aren't supported yet".to_string()),
         extra,
         on_send: Some(on_send),
         ..ComposerOpts::default()
@@ -438,7 +554,13 @@ pub fn start_view(s: &State, f: &mut Frame) -> El {
         )
         .child(crate::text::composer(s, f, "talk-ask", ask_box, ask_box_mut, &opts));
     if !s.talk.ask_error.is_empty() {
-        out = out.child(text(s.talk.ask_error.clone()).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
+        out = out.child(
+            text(s.talk.ask_error.clone())
+                .font(ts(12.0, 400.0))
+                .color(status::failed())
+                .w_full()
+                .wrap(),
+        );
     }
     out.child(el().grow(1.0))
 }

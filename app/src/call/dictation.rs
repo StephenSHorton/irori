@@ -57,7 +57,9 @@ pub fn compose(anchor: &Anchor, spoken: &str) -> (String, usize) {
     let head = join_words(&anchor.before, spoken);
     // A word running into the text after gets a space; punctuation does not.
     let tail = match anchor.after.chars().next() {
-        Some(c) if !(c.is_whitespace() || ".,;:!?)]}'\"".contains(c)) => format!(" {}", anchor.after),
+        Some(c) if !(c.is_whitespace() || ".,;:!?)]}'\"".contains(c)) => {
+            format!(" {}", anchor.after)
+        }
         _ => anchor.after.clone(),
     };
     let caret = head.len();
@@ -79,7 +81,10 @@ pub struct Session {
 
 impl Session {
     pub fn new(id: u32) -> Session {
-        Session { id, ..Default::default() }
+        Session {
+            id,
+            ..Default::default()
+        }
     }
 
     /// spoken: everything said so far, as the box shows it.
@@ -185,8 +190,20 @@ mod tests {
     #[test]
     fn dictation_goes_in_at_the_caret() {
         let a = anchor_at("Ship it after the review", 8, 8);
-        assert_eq!(a, Anchor { before: "Ship it ".into(), after: "after the review".into() });
-        assert_eq!(compose(&a, "today"), ("Ship it today after the review".into(), "Ship it today".len()));
+        assert_eq!(
+            a,
+            Anchor {
+                before: "Ship it ".into(),
+                after: "after the review".into()
+            }
+        );
+        assert_eq!(
+            compose(&a, "today"),
+            (
+                "Ship it today after the review".into(),
+                "Ship it today".len()
+            )
+        );
     }
 
     #[test]
@@ -198,7 +215,10 @@ mod tests {
     #[test]
     fn spaces_only_where_words_would_touch() {
         assert_eq!(compose(&anchor_at("Hello", 5, 5), "world").0, "Hello world");
-        assert_eq!(compose(&anchor_at("", 0, 0), "First words").0, "First words");
+        assert_eq!(
+            compose(&anchor_at("", 0, 0), "First words").0,
+            "First words"
+        );
         assert_eq!(compose(&anchor_at("end.", 0, 0), "Start").0, "Start end.");
         assert_eq!(compose(&anchor_at("so,", 2, 2), "and").0, "so and,");
         assert_eq!(compose(&anchor_at("a\n", 2, 2), "b").0, "a\nb");
@@ -254,7 +274,10 @@ mod tests {
     fn errors_keep_code_and_text() {
         let mut s = Session::new(4);
         s.step(4, "error", "Allow the microphone", "mic-denied");
-        assert_eq!(s.error, Some(("mic-denied".into(), "Allow the microphone".into())));
+        assert_eq!(
+            s.error,
+            Some(("mic-denied".into(), "Allow the microphone".into()))
+        );
         assert!(settings_fix("mic-denied"));
         assert!(!settings_fix("no-model"));
         assert_eq!(error_line("no-mic", ""), "No microphone was found.");
@@ -274,7 +297,12 @@ mod tests {
 
     #[test]
     fn pick_mic_order() {
-        let m = |key: &str, live: bool, focused: bool, usable: bool| MicSeen { key: key.into(), live, focused, usable };
+        let m = |key: &str, live: bool, focused: bool, usable: bool| MicSeen {
+            key: key.into(),
+            live,
+            focused,
+            usable,
+        };
         let list = vec![m("a", false, false, true), m("b", false, false, true)];
         assert_eq!(pick_mic(&list).map(|x| x.key.as_str()), Some("b"));
         let list = vec![m("a", false, true, true), m("b", false, false, true)];

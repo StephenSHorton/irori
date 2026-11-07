@@ -8,14 +8,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use irori_window::cards::CardMention;
-use irori_window::new_card::NewCardInput;
 use irori_window::talk::{TalkConversation, TalkMember, TalkPost};
 use rune::{El, GrowthSpec, Key, ScrollSpec, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, MenuItem, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, ControlSize, MenuItem, TextInput};
 
 use super::list::ts;
 use super::logic::{self, ReplyLine};
-use super::{Making, icons, post_box, post_box_mut};
+use super::{icons, post_box, post_box_mut};
 use crate::logic::agent_status::now_ms;
 use crate::logic::names::{UNKNOWN_AGENT, name_or};
 use crate::logic::plain::plain_line;
@@ -28,41 +27,90 @@ use crate::widgets::faces::{FaceOpts, face};
 /// A window this wide (Tailwind's xl) opens a channel's members column by
 /// itself (card #639).
 const MEMBERS_ROOMY: f32 = 1280.0;
+/// Narrower than this (Tailwind's lg) the members column never shows.
+const MEMBERS_WIDE: f32 = 1024.0;
 
 /// The pane for conversation `c`.
 pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
     let k = f.k;
     let live = live_roster(&s.data.agents);
     let now = now_ms();
-    let other = if c.kind == "dm" { logic::dm_with(c) } else { vec![] };
+    let other = if c.kind == "dm" {
+        logic::dm_with(c)
+    } else {
+        vec![]
+    };
     let person = logic::dm_person(c);
     let person_name = person
-        .map(|p| name_or(&plain_line(if p.name.is_empty() { &c.name } else { &p.name }), UNKNOWN_AGENT))
+        .map(|p| {
+            name_or(
+                &plain_line(if p.name.is_empty() { &c.name } else { &p.name }),
+                UNKNOWN_AGENT,
+            )
+        })
         .unwrap_or_default();
-    let waiting = if person.is_some() { logic::waiting_text(&c.waiting, &person_name) } else { String::new() };
-    let roomy = f.cx.window_layout("body").is_some_and(|r| r[2] >= MEMBERS_ROOMY);
-    let show_members = c.kind == "channel" && s.talk.members.unwrap_or(roomy);
+    let waiting = if person.is_some() {
+        logic::waiting_text(&c.waiting, &person_name)
+    } else {
+        String::new()
+    };
+    let body_w = f.cx.window_layout("body").map(|r| r[2]);
+    let roomy = body_w.is_some_and(|w| w >= MEMBERS_ROOMY);
+    // Toggled on, the column still shows only from Tailwind's lg up.
+    let want_members = c.kind == "channel" && s.talk.members.unwrap_or(roomy);
+    let show_members = want_members && body_w.is_none_or(|w| w >= MEMBERS_WIDE);
 
     // The header.
-    let mut title = row().key("talk-conv-title").gap(8.0).center_y().min_w(0.0).shrink();
+    let mut title = row()
+        .key("talk-conv-title")
+        .gap(8.0)
+        .center_y()
+        .min_w(0.0)
+        .shrink();
     let title_font = ts(15.0, 600.0);
-    let small = |t: String| text(t).font(ts(12.0, 400.0)).color(k.c.text_muted).max_lines(1);
+    let small = |t: String| {
+        text(t)
+            .font(ts(12.0, 400.0))
+            .color(k.c.text_muted)
+            .max_lines(1)
+    };
     if c.kind == "channel" {
         title = title
             .child(icon(&icons::HASH, 16.0).color(k.c.text_muted))
-            .child(text(plain_line(&c.name)).font(title_font).color(k.c.text_base).max_lines(1).shrink());
+            .child(
+                text(plain_line(&c.name))
+                    .font(title_font)
+                    .color(k.c.text_base)
+                    .max_lines(1)
+                    .shrink(),
+            );
     } else if person.is_some() {
         title = title
             .child(icon(&crate::ui::icons::USER, 16.0).color(k.c.text_muted))
-            .child(text(person_name.clone()).font(title_font).color(k.c.text_base).max_lines(1).shrink());
+            .child(
+                text(person_name.clone())
+                    .font(title_font)
+                    .color(k.c.text_base)
+                    .max_lines(1)
+                    .shrink(),
+            );
         if !waiting.is_empty() {
             title = title.child(small(waiting.clone()));
         }
     } else if c.read_only {
-        let names: Vec<String> = other.iter().map(|m| crate::logic::names::member_name(&m.kind, &m.name)).collect();
+        let names: Vec<String> = other
+            .iter()
+            .map(|m| crate::logic::names::member_name(&m.kind, &m.name))
+            .collect();
         title = title
             .child(icon(&icons::EYE, 16.0).color(k.c.text_muted))
-            .child(text(names.join(" ↔ ")).font(title_font).color(k.c.text_base).max_lines(1).shrink());
+            .child(
+                text(names.join(" ↔ "))
+                    .font(title_font)
+                    .color(k.c.text_base)
+                    .max_lines(1)
+                    .shrink(),
+            );
     } else {
         if let Some(m) = other.first() {
             let who = logic::ref_of(m, &live);
@@ -72,7 +120,13 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
             .first()
             .map(|m| crate::logic::names::member_name(&m.kind, &m.name))
             .unwrap_or_else(|| name_or(&c.name, UNKNOWN_AGENT));
-        title = title.child(text(name).font(title_font).color(k.c.text_base).max_lines(1).shrink());
+        title = title.child(
+            text(name)
+                .font(title_font)
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink(),
+        );
         if let Some(m) = other.first() {
             title = title.child(small(logic::member_status(m, &live, now)));
         }
@@ -92,10 +146,15 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
     header = header.child(el().grow(1.0));
     // A channel, or a DM with a person that has reached them, has a huddle
     // (#654); an agent's DM and a read-only one never do.
-    let can_huddle = !c.read_only && (c.kind == "channel" || (person.is_some() && waiting.is_empty()));
+    let can_huddle =
+        !c.read_only && (c.kind == "channel" || (person.is_some() && waiting.is_empty()));
     if can_huddle {
-        let sheet_here = s.call.sheet.as_ref().is_some_and(|sh| sh.conv_id == c.conv_id);
-        if !s.call.error.is_empty() && !sheet_here && !crate::call::in_call_here(s, &c.conv_id) {
+        let sheet_here = s
+            .call
+            .sheet
+            .as_ref()
+            .is_some_and(|sh| sh.conv_id == c.conv_id);
+        if !s.call.error.is_empty() && s.call.at == c.conv_id && !sheet_here {
             header = header.child(
                 text(s.call.error.clone())
                     .key("talk-huddle-error")
@@ -122,10 +181,14 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
         header = header.child(
             Button::new(c.members.len().to_string())
                 .icon(&icons::USERS)
-                .variant(if show_members { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+                .variant(if want_members {
+                    ButtonVariant::Neutral
+                } else {
+                    ButtonVariant::Ghost
+                })
                 .control_size(ControlSize::Small)
                 .help("Who's in this channel")
-                .on_press(move |s: &mut State| s.talk.members = Some(!show_members))
+                .on_press(move |s: &mut State| s.talk.members = Some(!want_members))
                 .build(k)
                 .key("talk-members-toggle"),
         );
@@ -136,7 +199,11 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
 
     // The posts, or the share on in this huddle in their place (#658).
     let here = crate::call::in_call_here(s, &c.conv_id);
-    let stage = if here { crate::call::share_stage(s, f) } else { None };
+    let stage = if here {
+        crate::call::share_stage(s, f)
+    } else {
+        None
+    };
     let posts = match stage {
         Some(st) => st,
         None => posts_view(s, f, c, &live, now),
@@ -167,7 +234,12 @@ pub fn view(s: &State, f: &mut Frame, c: &TalkConversation) -> El {
         .child(header)
         .child(posts.grow(1.0).min_h(0.0))
         .child(foot);
-    let mut out = row().key("talk-conv").w_full().h_full().min_h(0.0).child(main);
+    let mut out = row()
+        .key("talk-conv")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(main);
     // Beside the posts: the huddle while this device is in it here, else an
     // ended huddle's transcript, else the members.
     if here {
@@ -185,12 +257,21 @@ fn leave_controls(s: &State, f: &Frame, c: &TalkConversation, person: &str) -> E
     let k = f.k;
     let mut r = row().key("talk-leave").gap(6.0).center_y();
     if !s.talk.leave_error.is_empty() {
-        r = r.child(text(s.talk.leave_error.clone()).font(ts(11.0, 400.0)).color(status::failed()).max_lines(1));
+        r = r.child(
+            text(s.talk.leave_error.clone())
+                .font(ts(11.0, 400.0))
+                .color(status::failed())
+                .max_lines(1),
+        );
     }
     if s.talk.leaving {
         let id = c.conv_id.clone();
         r = r
-            .child(text("Its messages go from your devices.").font(ts(12.0, 400.0)).color(k.c.text_muted))
+            .child(
+                text("Its messages go from your devices.")
+                    .font(ts(12.0, 400.0))
+                    .color(k.c.text_muted),
+            )
             .child(
                 Button::new("Leave")
                     .variant(ButtonVariant::Danger)
@@ -233,7 +314,13 @@ fn leave_controls(s: &State, f: &Frame, c: &TalkConversation, person: &str) -> E
 
 /// The posts, oldest first, in a scroller that keeps to the newest. The
 /// rows are a virtualized stack: only those on screen are laid out.
-fn posts_view(s: &State, f: &mut Frame, c: &TalkConversation, live: &HashMap<String, LiveAgent>, now: i64) -> El {
+fn posts_view(
+    s: &State,
+    f: &mut Frame,
+    c: &TalkConversation,
+    live: &HashMap<String, LiveAgent>,
+    now: i64,
+) -> El {
     let k = f.k;
     let p = &s.talk.posts;
     let scroller = col()
@@ -247,15 +334,28 @@ fn posts_view(s: &State, f: &mut Frame, c: &TalkConversation, live: &HashMap<Str
                 .key("talk-posts-loading")
                 .w_full()
                 .padding(12.0)
-                .child(crate::widgets::loading::post_rows_shape(f, "talk-posts-shape", 4)),
+                .child(crate::widgets::loading::post_rows_shape(
+                    f,
+                    "talk-posts-shape",
+                    4,
+                )),
         );
     }
     let mut rows: Vec<El> = Vec::new();
     if let Some(e) = &p.error {
         rows.push(
-            row().key("talk-posts-error").w_full().px(20.0).pt(12.0).child(
-                text(format!("Could not load the posts: {e}")).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap(),
-            ),
+            row()
+                .key("talk-posts-error")
+                .w_full()
+                .px(20.0)
+                .pt(12.0)
+                .child(
+                    text(format!("Could not load the posts: {e}"))
+                        .font(ts(12.0, 400.0))
+                        .color(status::failed())
+                        .w_full()
+                        .wrap(),
+                ),
         );
     }
     if p.list.is_empty() && p.error.is_none() {
@@ -266,7 +366,14 @@ fn posts_view(s: &State, f: &mut Frame, c: &TalkConversation, live: &HashMap<Str
         } else if let Some(pp) = logic::dm_person(c) {
             format!(
                 "Nothing yet. Only you and {} can read this.",
-                name_or(&plain_line(if pp.name.is_empty() { &c.name } else { &pp.name }), UNKNOWN_AGENT)
+                name_or(
+                    &plain_line(if pp.name.is_empty() {
+                        &c.name
+                    } else {
+                        &pp.name
+                    }),
+                    UNKNOWN_AGENT
+                )
             )
         } else {
             "Nothing yet. Every message here wakes the agent.".to_string()
@@ -277,17 +384,30 @@ fn posts_view(s: &State, f: &mut Frame, c: &TalkConversation, live: &HashMap<Str
                 .w_full()
                 .px(20.0)
                 .pt(12.0)
-                .child(text(what).font(ts(12.5, 400.0)).color(k.c.text_muted).w_full().wrap()),
+                .child(
+                    text(what)
+                        .font(ts(12.5, 400.0))
+                        .color(k.c.text_muted)
+                        .w_full()
+                        .wrap(),
+                ),
         );
     }
     let mut prev_day = None;
     for (i, post) in p.list.iter().enumerate() {
         let at = logic::at_ms(&post.at);
-        let (day, clock) = if at > 0 { logic::local(at) } else { ((0, 0, 0), String::new()) };
+        let (day, clock) = if at > 0 {
+            logic::local(at)
+        } else {
+            ((0, 0, 0), String::new())
+        };
         let today = logic::local(now).0;
         let new_day = at > 0 && prev_day != Some(day);
         prev_day = Some(day);
-        let mut cell = col().key(format!("talk-row-{}", post.post_id)).w_full().px(12.0);
+        let mut cell = col()
+            .key(format!("talk-row-{}", post.post_id))
+            .w_full()
+            .px(12.0);
         if i == 0 {
             cell = cell.pt(12.0);
         }
@@ -299,7 +419,11 @@ fn posts_view(s: &State, f: &mut Frame, c: &TalkConversation, live: &HashMap<Str
     }
     if !c.read_only
         && let Some(line) = logic::replying_line(
-            s.talk.replying.iter().find(|r| r.conv_id == c.conv_id).map_or(&[][..], |r| &r.agents[..]),
+            s.talk
+                .replying
+                .iter()
+                .find(|r| r.conv_id == c.conv_id)
+                .map_or(&[][..], |r| &r.agents[..]),
             now,
         )
     {
@@ -328,7 +452,11 @@ fn day_line(f: &Frame, id: &str, label: &str) -> El {
         .gap(8.0)
         .center_y()
         .child(rule())
-        .child(text(label.to_string()).font(ts(11.5, 400.0)).color(k.c.text_muted))
+        .child(
+            text(label.to_string())
+                .font(ts(11.5, 400.0))
+                .color(k.c.text_muted),
+        )
         .child(rule())
 }
 
@@ -345,8 +473,16 @@ fn replying_row(f: &Frame, line: &ReplyLine) -> El {
         .role("status")
         .label(line.text.clone())
         .child(crate::widgets::bits::spinner(f, "talk-replying-spin"))
-        .child(text(line.who.clone()).font(ts(12.5, 500.0)).color(k.c.text_base))
-        .child(text(format!("{} replying…", line.verb)).font(ts(12.5, 400.0)).color(k.c.text_muted))
+        .child(
+            text(line.who.clone())
+                .font(ts(12.5, 500.0))
+                .color(k.c.text_base),
+        )
+        .child(
+            text(format!("{} replying…", line.verb))
+                .font(ts(12.5, 400.0))
+                .color(k.c.text_muted),
+        )
 }
 
 /// One post: its author's face, name, time and text, its files and the
@@ -363,7 +499,11 @@ fn post_row(
     let k = f.k;
     let key = format!("talk-p-{}", post.post_id);
     let m = logic::member_of(&c.members, &post.by).unwrap_or_else(|| TalkMember {
-        kind: if post.by.starts_with("person:") { "person".into() } else { "agent".into() },
+        kind: if post.by.starts_with("person:") {
+            "person".into()
+        } else {
+            "agent".into()
+        },
         key: post.by.clone(),
         ..TalkMember::default()
     });
@@ -372,34 +512,71 @@ fn post_row(
     // A huddle's start or end (#654).
     if let Some(call) = &post.call {
         return if call.op == "end" {
-            crate::call::huddle_ended(f, &key, call.duration_ms, &call.people, &call.call_id, call.transcript)
+            crate::call::huddle_ended(
+                f,
+                &key,
+                call.duration_ms,
+                &call.people,
+                &call.call_id,
+                call.transcript,
+            )
         } else {
-            crate::call::huddle_started(s, f, &key, &name, &call.call_id, &c.conv_id, &c.kind, &plain_line(&c.name))
+            crate::call::huddle_started(
+                s,
+                f,
+                &key,
+                &name,
+                &call.call_id,
+                crate::call::HuddleIn {
+                    conv: &c.conv_id,
+                    kind: &c.kind,
+                    name: &plain_line(&c.name),
+                },
+            )
         };
     }
 
     // A thread started from a message here leaves one line (design b2).
     if post.thread_from.is_some() {
-        let r = crate::text::rich_with(s, f, &format!("{key}-t"), &post.text, &RichOpts {
-            font: Some(ts(12.0, 400.0)),
-            max_lines: 1,
-            ..RichOpts::default()
-        });
-        return row().key(format!("{key}-wrap")).w_full().pl(36.0).py(2.0).child(
-            row()
-                .key(key)
-                .min_w(0.0)
-                .px(8.0)
-                .py(4.0)
-                .gap(6.0)
-                .center_y()
-                .radius(6.0)
-                .border(1.0, k.c.border_muted)
-                .child(icon(&icons::MESSAGE_TEXT, 14.0).color(k.c.text_muted))
-                .child(text(format!("{name} started a thread:")).font(ts(12.0, 400.0)).color(k.c.text_muted))
-                .child(r.min_w(0.0).shrink())
-                .child(text("· in Threads").font(ts(12.0, 400.0)).color(k.c.text_muted)),
+        let r = crate::text::rich_with(
+            s,
+            f,
+            &format!("{key}-t"),
+            &post.text,
+            &RichOpts {
+                font: Some(ts(12.0, 400.0)),
+                max_lines: 1,
+                ..RichOpts::default()
+            },
         );
+        return row()
+            .key(format!("{key}-wrap"))
+            .w_full()
+            .pl(36.0)
+            .py(2.0)
+            .child(
+                row()
+                    .key(key)
+                    .min_w(0.0)
+                    .px(8.0)
+                    .py(4.0)
+                    .gap(6.0)
+                    .center_y()
+                    .radius(6.0)
+                    .border(1.0, k.c.border_muted)
+                    .child(icon(&icons::MESSAGE_TEXT, 14.0).color(k.c.text_muted))
+                    .child(
+                        text(format!("{name} started a thread:"))
+                            .font(ts(12.0, 400.0))
+                            .color(k.c.text_muted),
+                    )
+                    .child(r.min_w(0.0).shrink())
+                    .child(
+                        text("· in Threads")
+                            .font(ts(12.0, 400.0))
+                            .color(k.c.text_muted),
+                    ),
+            );
     }
 
     let who = logic::ref_of(&m, live);
@@ -408,7 +585,11 @@ fn post_row(
         .iter()
         .map(|key| {
             let mm = logic::member_of(&c.members, key).unwrap_or_else(|| TalkMember {
-                kind: if key.starts_with("person:") { "person".into() } else { "agent".into() },
+                kind: if key.starts_with("person:") {
+                    "person".into()
+                } else {
+                    "agent".into()
+                },
                 key: key.clone(),
                 ..TalkMember::default()
             });
@@ -433,12 +614,22 @@ fn post_row(
         .w_full()
         .gap(8.0)
         .center_y()
-        .child(text(name.clone()).font(ts(13.0, 500.0)).color(k.c.text_base).max_lines(1).shrink());
+        .child(
+            text(name.clone())
+                .font(ts(13.0, 500.0))
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink(),
+        );
     if m.kind == "agent" {
         head = head.child(text("AGENT").font(ts(10.5, 400.0)).color(k.c.text_muted));
     }
     if !clock.is_empty() {
-        head = head.child(text(clock.to_string()).font(ts(11.0, 400.0)).color(k.c.text_muted));
+        head = head.child(
+            text(clock.to_string())
+                .font(ts(11.0, 400.0))
+                .color(k.c.text_muted),
+        );
     }
     head = head.child(el().grow(1.0));
     let hover_btn = |key: String, label: &str, ic: &'static rune::Icon, tip: &str| {
@@ -456,7 +647,11 @@ fn post_row(
             .group_opacity(0.0, 1.0)
             .help(tip.to_string())
             .child(icon(ic, 14.0).color(k.c.text_muted))
-            .child(text(label.to_string()).font(ts(11.0, 400.0)).color(k.c.text_muted))
+            .child(
+                text(label.to_string())
+                    .font(ts(11.0, 400.0))
+                    .color(k.c.text_muted),
+            )
     };
     if channel && can_post {
         let pid = post.post_id.clone();
@@ -474,26 +669,53 @@ fn post_row(
     if can_card {
         let pid = post.post_id.clone();
         head = head.child(
-            hover_btn(format!("{key}-card"), "Make a card", &icons::SQUARE_PLUS, "Work goes on a card: make one from this message")
-                .on_press(move |s: &mut State| start_making(s, &pid)),
+            hover_btn(
+                format!("{key}-card"),
+                "Make a card",
+                &icons::SQUARE_PLUS,
+                "Work goes on a card: make one from this message",
+            )
+            .on_press(move |s: &mut State| start_making(s, &pid)),
         );
     }
 
-    let mut body = col().key(format!("{key}-body")).grow(1.0).min_w(0.0).gap(2.0).child(head);
+    let mut body = col()
+        .key(format!("{key}-body"))
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(2.0)
+        .child(head);
     if !post.text.trim().is_empty() {
-        body = body.child(crate::text::rich_with(s, f, &format!("{key}-text"), &post.text, &RichOpts {
-            font: Some(ts(13.0, 400.0)),
-            mentions: &mentions,
-            ..RichOpts::default()
-        }));
+        body = body.child(crate::text::rich_with(
+            s,
+            f,
+            &format!("{key}-text"),
+            &post.text,
+            &RichOpts {
+                font: Some(ts(13.0, 400.0)),
+                mentions: &mentions,
+                ..RichOpts::default()
+            },
+        ));
     }
     if !post.attachments.is_empty() {
-        body = body.child(crate::text::attachment_list(s, f, &format!("{key}-files"), &File::all(&post.attachments), false));
+        body = body.child(crate::text::attachment_list(
+            s,
+            f,
+            &format!("{key}-files"),
+            &File::all(&post.attachments),
+            false,
+        ));
     }
     if let Some(card) = &post.card {
         body = body.child(card_chip(s, f, &key, card));
     }
-    if let Some(a) = s.talk.asking.as_ref().filter(|a| a.post_id == post.post_id && channel) {
+    if let Some(a) = s
+        .talk
+        .asking
+        .as_ref()
+        .filter(|a| a.post_id == post.post_id && channel)
+    {
         body = body.child(thread_from(f, &key, a, c, post));
     }
     let face_el = face(s, f, &format!("{key}-face"), &who, FaceOpts::default());
@@ -523,19 +745,27 @@ fn post_row(
         .on_close(|s: &mut State| s.talk.menu = None);
     if channel && can_post {
         let (pid, author) = (post.post_id.clone(), name.clone());
-        menu = menu.item(MenuItem::new("Reply in thread").icon(&icons::MESSAGE_TEXT).on_select(move |s: &mut State| {
-            s.talk.menu = None;
-            if s.talk.asking.as_ref().is_none_or(|a| a.post_id != pid) {
-                toggle_asking(s, &pid, &author);
-            }
-        }));
+        menu = menu.item(
+            MenuItem::new("Reply in thread")
+                .icon(&icons::MESSAGE_TEXT)
+                .on_select(move |s: &mut State| {
+                    s.talk.menu = None;
+                    if s.talk.asking.as_ref().is_none_or(|a| a.post_id != pid) {
+                        toggle_asking(s, &pid, &author);
+                    }
+                }),
+        );
     }
     if can_card {
         let pid = post.post_id.clone();
-        menu = menu.item(MenuItem::new("Make a card").icon(&icons::SQUARE_PLUS).on_select(move |s: &mut State| {
-            s.talk.menu = None;
-            start_making(s, &pid);
-        }));
+        menu = menu.item(
+            MenuItem::new("Make a card")
+                .icon(&icons::SQUARE_PLUS)
+                .on_select(move |s: &mut State| {
+                    s.talk.menu = None;
+                    start_making(s, &pid);
+                }),
+        );
     }
     menu.build(k, f.layer)
 }
@@ -557,55 +787,76 @@ fn toggle_asking(s: &mut State, post_id: &str, author: &str) {
 
 /// Ask about a channel message in a new thread (design b2): the thread
 /// goes in Threads, and the channel gets a pointer to it.
-fn thread_from(f: &Frame, key: &str, a: &super::Asking, c: &TalkConversation, post: &TalkPost) -> El {
+fn thread_from(
+    f: &Frame,
+    key: &str,
+    a: &super::Asking,
+    c: &TalkConversation,
+    post: &TalkPost,
+) -> El {
     let k = f.k;
     let conv = c.conv_id.clone();
     let channel = c.name.clone();
     let post_id = post.post_id.clone();
     let line = logic::post_line(Some(post));
     let author = a.author.clone();
-    let mut out = col().key(format!("{key}-ask-form")).w_full().pt(4.0).gap(4.0).child(
-        TextInput::new(&a.edit)
-            .placeholder("Ask about this in a thread…")
-            .label("Your question for the thread")
-            .height(28.0)
-            .width(None)
-            .disabled(a.busy)
-            .on_edit(|s: &mut State| &mut s.talk.asking.get_or_insert_with(Default::default).edit)
-            .on_key(|s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
-                if matches!(ev.key, Key::Escape) {
-                    s.talk.asking = None;
-                    return true;
-                }
-                false
-            })
-            .on_submit(move |s: &mut State, _: &mut Tx| {
-                let Some(a) = s.talk.asking.as_mut() else { return };
-                let q = a.edit.text.clone();
-                if q.trim().is_empty() || a.busy {
-                    return;
-                }
-                a.busy = true;
-                a.error.clear();
-                let ask = logic::thread_text(&q, &author, &line, &channel);
-                let (conv, post_id) = (conv.clone(), post_id.clone());
-                s.spawn(
-                    move |w| w.talk_thread_from(&conv, &post_id, &ask).map(|_| ()),
-                    |s, r| match r {
-                        Ok(()) => s.talk.asking = None,
-                        Err(e) => {
-                            if let Some(a) = s.talk.asking.as_mut() {
-                                a.busy = false;
-                                a.error = e;
+    let mut out = col()
+        .key(format!("{key}-ask-form"))
+        .w_full()
+        .pt(4.0)
+        .gap(4.0)
+        .child(
+            TextInput::new(&a.edit)
+                .placeholder("Ask about this in a thread…")
+                .label("Your question for the thread")
+                .height(28.0)
+                .width(None)
+                .disabled(a.busy)
+                .on_edit(|s: &mut State| {
+                    &mut s.talk.asking.get_or_insert_with(Default::default).edit
+                })
+                .on_key(|s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
+                    if matches!(ev.key, Key::Escape) {
+                        s.talk.asking = None;
+                        return true;
+                    }
+                    false
+                })
+                .on_submit(move |s: &mut State, _: &mut Tx| {
+                    let Some(a) = s.talk.asking.as_mut() else {
+                        return;
+                    };
+                    let q = a.edit.text.clone();
+                    if q.trim().is_empty() || a.busy {
+                        return;
+                    }
+                    a.busy = true;
+                    a.error.clear();
+                    let ask = logic::thread_text(&q, &author, &line, &channel);
+                    let (conv, post_id) = (conv.clone(), post_id.clone());
+                    s.spawn(
+                        move |w| w.talk_thread_from(&conv, &post_id, &ask).map(|_| ()),
+                        |s, r| match r {
+                            Ok(()) => s.talk.asking = None,
+                            Err(e) => {
+                                if let Some(a) = s.talk.asking.as_mut() {
+                                    a.busy = false;
+                                    a.error = e;
+                                }
                             }
-                        }
-                    },
-                );
-            })
-            .build(k),
-    );
+                        },
+                    );
+                })
+                .build(k),
+        );
     if !a.error.is_empty() {
-        out = out.child(text(a.error.clone()).font(ts(11.0, 400.0)).color(status::failed()).w_full().wrap());
+        out = out.child(
+            text(a.error.clone())
+                .font(ts(11.0, 400.0))
+                .color(status::failed())
+                .w_full()
+                .wrap(),
+        );
     }
     out
 }
@@ -614,7 +865,9 @@ fn thread_from(f: &Frame, key: &str, a: &super::Asking, c: &TalkConversation, po
 fn card_chip(s: &State, f: &Frame, key: &str, id: &str) -> El {
     let k = f.k;
     let c = s.data.card(id);
-    let r = c.map(crate::logic::card_status::card_ref).unwrap_or_default();
+    let r = c
+        .map(crate::logic::card_status::card_ref)
+        .unwrap_or_default();
     let title = c.map_or("a card".to_string(), |c| plain_line(&c.title));
     let open = id.to_string();
     row()
@@ -624,9 +877,14 @@ fn card_chip(s: &State, f: &Frame, key: &str, id: &str) -> El {
         .gap(6.0)
         .center_y()
         .min_w(0.0)
+        .shrink()
         .on_press(move |s: &mut State| s.open_card(&open))
         .child(icon(&icons::ARROW_UP_RIGHT, 14.0).color(k.c.text_muted))
-        .child(text("Made a card:").font(ts(11.5, 400.0)).color(k.c.text_muted))
+        .child(
+            text("Made a card:")
+                .font(ts(11.5, 400.0))
+                .color(k.c.text_muted),
+        )
         .child(
             row()
                 .key(format!("{key}-made-chip"))
@@ -635,21 +893,36 @@ fn card_chip(s: &State, f: &Frame, key: &str, id: &str) -> El {
                 .py(2.0)
                 .radius(6.0)
                 .min_w(0.0)
+                .shrink()
                 .center_y()
                 .fill(k.c.layer_02)
                 .hover(k.c.hover)
                 .child(text(r).font(ts(11.5, 400.0).mono()).color(k.c.text_accent))
-                .child(text(title).font(ts(11.5, 400.0)).color(k.c.text_base).max_lines(1).shrink()),
+                .child(
+                    text(title)
+                        .font(ts(11.5, 400.0))
+                        .color(k.c.text_base)
+                        .max_lines(1)
+                        .shrink(),
+                ),
         )
 }
 
 /// A channel's people and agents with how each stands now.
-fn members(s: &State, f: &mut Frame, ms: &[TalkMember], live: &HashMap<String, LiveAgent>, now: i64) -> El {
+fn members(
+    s: &State,
+    f: &mut Frame,
+    ms: &[TalkMember],
+    live: &HashMap<String, LiveAgent>,
+    now: i64,
+) -> El {
     let k = f.k;
     let mut sorted: Vec<&TalkMember> = ms.iter().collect();
     sorted.sort_by(|a, b| {
         if a.kind == b.kind {
-            logic::shown_name(a).to_lowercase().cmp(&logic::shown_name(b).to_lowercase())
+            logic::shown_name(a)
+                .to_lowercase()
+                .cmp(&logic::shown_name(b).to_lowercase())
         } else if a.kind == "person" {
             std::cmp::Ordering::Less
         } else {
@@ -697,7 +970,9 @@ fn members(s: &State, f: &mut Frame, ms: &[TalkMember], live: &HashMap<String, L
         .px(12.0)
         .py(12.0)
         .border_sides([0.0, 0.0, 0.0, 1.0], k.c.border_muted)
-        .scroll(ScrollSpec { stick_bottom: false })
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
         .child(
             text(format!("MEMBERS · {}", ms.len()))
                 .font(ts(11.0, 500.0))
@@ -725,7 +1000,10 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
     } else {
         format!(
             "Message {}",
-            other.map_or_else(|| name_or(&c.name, UNKNOWN_AGENT), |m| crate::logic::names::member_name(&m.kind, &m.name))
+            other.map_or_else(
+                || name_or(&c.name, UNKNOWN_AGENT),
+                |m| crate::logic::names::member_name(&m.kind, &m.name)
+            )
         )
     };
     let boxc = post_box(s);
@@ -745,7 +1023,11 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
     let conv = c.conv_id.clone();
     let on_send: crate::text::SendFn = Rc::new(move |s: &mut State, m: Sent| {
         let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
-        let now = if channel { s.talk.agents_now.unwrap_or(logic::agents_now_for(&kinds)) } else { logic::agents_now_for(&kinds) };
+        let now = if channel {
+            s.talk.agents_now.unwrap_or(logic::agents_now_for(&kinds))
+        } else {
+            logic::agents_now_for(&kinds)
+        };
         let keys: Vec<String> = m.mentions.iter().map(|x| x.key.clone()).collect();
         let conv = conv.clone();
         post_box_mut(s).sending = true;
@@ -765,7 +1047,18 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
             },
         );
     });
-    extra.push(send_button(f, "talk-post-send", boxc, &c.space_id, None, on_send.clone(), post_box_mut));
+    extra.push(send_button(
+        f,
+        "talk-post-send",
+        boxc,
+        false,
+        ComposerOpts {
+            board: c.space_id.clone(),
+            on_send: Some(on_send.clone()),
+            ..ComposerOpts::default()
+        },
+        post_box_mut,
+    ));
     let opts = ComposerOpts {
         placeholder: placeholder.clone(),
         label: placeholder,
@@ -789,10 +1082,22 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
         .py(10.0)
         .gap(4.0)
         .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_muted)
-        .child(crate::text::composer(s, f, "talk-post", post_box, post_box_mut, &opts));
+        .child(crate::text::composer(
+            s,
+            f,
+            "talk-post",
+            post_box,
+            post_box_mut,
+            &opts,
+        ));
     if !s.talk.post_error.is_empty() {
         out = out.child(
-            text(s.talk.post_error.clone()).font(ts(12.0, 400.0)).color(status::failed()).px(4.0).w_full().wrap(),
+            text(s.talk.post_error.clone())
+                .font(ts(12.0, 400.0))
+                .color(status::failed())
+                .px(4.0)
+                .w_full()
+                .wrap(),
         );
     }
     out
@@ -805,34 +1110,36 @@ pub(crate) fn send_button(
     f: &Frame,
     key: &str,
     c: &crate::text::Composer,
-    board: &str,
-    no_mentions: Option<String>,
-    on_send: crate::text::SendFn,
+    // Files alone don't send (Start a thread asks in words).
+    needs_text: bool,
+    // What sending needs: the box's board, no_mentions and on_send.
+    o: ComposerOpts,
     get_mut: crate::text::GetMut,
 ) -> El {
-    let board = board.to_string();
     Button::new(if c.sending { "Sending…" } else { "Send" })
         .variant(ButtonVariant::Submit)
         .control_size(ControlSize::Small)
-        .disabled(c.sending || c.is_empty())
-        .on_press(move |s: &mut State| {
-            let o = ComposerOpts {
-                board: board.clone(),
-                no_mentions: no_mentions.clone(),
-                on_send: Some(on_send.clone()),
-                ..ComposerOpts::default()
-            };
-            crate::text::submit(s, get_mut, &o);
-        })
+        .disabled(c.sending || c.is_empty() || (needs_text && c.edit.text.trim().is_empty()))
+        .on_press(move |s: &mut State| crate::text::submit(s, get_mut, &o))
         .build(f.k)
         .key(key.to_string())
 }
 
-/// Make a card from post `post_id` (design §4): its form, filled.
+/// Make a card from post `post_id` (design §4): New card opens filled
+/// from it, in the channel's space (card #558); once made, the post links
+/// to the card.
 pub fn start_making(s: &mut State, post_id: &str) {
-    let Some(c) = s.talk.convs.iter().find(|c| c.conv_id == s.talk.posts.conv) else { return };
-    let Some(p) = s.talk.posts.list.iter().find(|p| p.post_id == post_id) else { return };
-    let where_ = if c.kind == "channel" { format!("#{}", c.name) } else { "a DM".to_string() };
+    let Some(c) = s.talk.convs.iter().find(|c| c.conv_id == s.talk.posts.conv) else {
+        return;
+    };
+    let Some(p) = s.talk.posts.list.iter().find(|p| p.post_id == post_id) else {
+        return;
+    };
+    let where_ = if c.kind == "channel" {
+        format!("#{}", c.name)
+    } else {
+        "a DM".to_string()
+    };
     let files: Vec<logic::PostFile> = p
         .attachments
         .iter()
@@ -843,113 +1150,18 @@ pub fn start_making(s: &mut State, post_id: &str) {
         })
         .collect();
     let (title, objective) = logic::from_post(&p.text, &where_, &files);
-    let mut t = rune::TextEdit::new(title);
-    t.focused = true;
-    s.talk.making = Some(Making {
+    // A space's channel makes its cards in the space; anywhere else they
+    // are the person's own.
+    let board = s
+        .data
+        .spaces
+        .iter()
+        .find(|b| b.board_id == c.space_id)
+        .map(|b| b.board_id.clone());
+    s.talk.card_from = Some(super::CardFrom {
         post_id: post_id.to_string(),
-        where_,
-        board: c.space_id.clone(),
-        title: t,
-        objective: rune::TextEdit::new(objective),
-        busy: false,
-        error: String::new(),
+        title,
+        objective,
     });
-}
-
-fn make_card(s: &mut State) {
-    let Some(m) = s.talk.making.as_mut() else { return };
-    if m.busy || m.title.text.trim().is_empty() {
-        return;
-    }
-    m.busy = true;
-    m.error.clear();
-    let input = NewCardInput {
-        title: m.title.text.trim().to_string(),
-        objective: m.objective.text.trim().to_string(),
-        board: m.board.clone(),
-        ..NewCardInput::default()
-    };
-    let post = m.post_id.clone();
-    s.spawn(
-        move |w| {
-            let r = w.create_card(input)?;
-            // The card's chip on the post (best effort, as on main).
-            let _ = w.talk_link_card(&post, &r.task.id);
-            Ok::<_, String>(r.task.id)
-        },
-        |s, r| match r {
-            Ok(_) => {
-                s.talk.making = None;
-                s.toast("Card made", "It's on the board, and the message links to it.");
-                super::load_posts(s);
-            }
-            Err(e) => {
-                if let Some(m) = s.talk.making.as_mut() {
-                    m.busy = false;
-                    m.error = e;
-                }
-            }
-        },
-    );
-}
-
-/// Talk's dialogs over the window: Make a card.
-pub fn overlays(s: &State, f: &mut Frame) {
-    let Some(m) = &s.talk.making else { return };
-    let k = f.k;
-    let mut body = col()
-        .key("talk-make-body")
-        .w_full()
-        .px(22.0)
-        .gap(10.0)
-        .child(text("Title").font(ts(12.0, 500.0)).color(k.c.text_muted))
-        .child(
-            TextInput::new(&m.title)
-                .label("Title")
-                .width(None)
-                .disabled(m.busy)
-                .on_edit(|s: &mut State| &mut s.talk.making.as_mut().expect("the form").title)
-                .on_submit(|s: &mut State, _: &mut Tx| make_card(s))
-                .build(k),
-        )
-        .child(text("Objective").font(ts(12.0, 500.0)).color(k.c.text_muted))
-        .child(
-            TextArea::new(&m.objective)
-                .label("Objective")
-                .width(None)
-                .auto_grow(4, 12)
-                .on_edit(|s: &mut State| &mut s.talk.making.as_mut().expect("the form").objective)
-                .build(k),
-        );
-    if !m.error.is_empty() {
-        body = body.child(text(m.error.clone()).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
-    }
-    body = body.child(
-        row()
-            .key("talk-make-actions")
-            .w_full()
-            .gap(8.0)
-            .child(el().grow(1.0))
-            .child(
-                Button::new("Cancel")
-                    .variant(ButtonVariant::Ghost)
-                    .on_press(|s: &mut State| s.talk.making = None)
-                    .build(k),
-            )
-            .child(
-                Button::new(if m.busy { "Making…" } else { "Make the card" })
-                    .variant(ButtonVariant::Submit)
-                    .disabled(m.busy || m.title.text.trim().is_empty())
-                    .on_press(make_card)
-                    .build(k)
-                    .default_button(),
-            ),
-    );
-    Dialog::new("talk-make", "Make a card")
-        .description(format!("From a message in {}. The message links to the card once it's made.", m.where_))
-        .open(true)
-        .width(520.0)
-        .child(body)
-        .on_close(|s: &mut State| s.talk.making = None)
-        .build(k, f.layer);
+    s.open_dialog(crate::ui::Dialog::NewCard { board });
 }

@@ -77,8 +77,12 @@ pub(super) fn on_voice(s: &mut State, p: &Value) {
     let str_of = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     let session = p.get("session").and_then(Value::as_u64).unwrap_or(0) as u32;
     let (kind, words, code) = (str_of("kind"), str_of("text"), str_of("code"));
-    let Some(d) = s.call.dict.as_mut() else { return };
-    let Some(sess) = d.session.as_mut() else { return };
+    let Some(d) = s.call.dict.as_mut() else {
+        return;
+    };
+    let Some(sess) = d.session.as_mut() else {
+        return;
+    };
     if sess.id != session {
         return;
     }
@@ -95,7 +99,12 @@ pub(super) fn on_voice(s: &mut State, p: &Value) {
             stop(s);
         }
     } else if matches!(kind.as_str(), "partial" | "final" | "ended") {
-        let anchor = s.call.dict.as_ref().map(|d| d.anchor.clone()).unwrap_or_default();
+        let anchor = s
+            .call
+            .dict
+            .as_ref()
+            .map(|d| d.anchor.clone())
+            .unwrap_or_default();
         let (full, caret) = dictation::compose(&anchor, &spoken);
         // The box is before + mid + after: replace only our part.
         let mid_end = full.len() - anchor.after.len();
@@ -111,7 +120,12 @@ pub(super) fn on_voice(s: &mut State, p: &Value) {
         }
     }
     if let Some((code, text)) = error {
-        let key = s.call.dict.as_ref().map(|d| d.key.clone()).unwrap_or_default();
+        let key = s
+            .call
+            .dict
+            .as_ref()
+            .map(|d| d.key.clone())
+            .unwrap_or_default();
         s.call.mic_note = Some((key, Note::Error { code, text }));
     }
     if ended {
@@ -140,7 +154,11 @@ fn begin(s: &mut State, key: &str, target: Target) {
     let v = edit.text.clone();
     // A box without focus (the shortcut's main composer) takes the words at
     // its end, so Enter sends them; a focused one at its caret.
-    let (a, b) = if edit.focused { edit.range() } else { (v.len(), v.len()) };
+    let (a, b) = if edit.focused {
+        edit.range()
+    } else {
+        (v.len(), v.len())
+    };
     let anchor = dictation::anchor_at(&v, a, b);
     let start = anchor.before.len();
     s.call.mic_note = None;
@@ -161,7 +179,11 @@ fn begin(s: &mut State, key: &str, target: Target) {
         move |_| arc.voice_start(),
         move |s, r| match r {
             Ok(id) => {
-                let mine = s.call.dict.as_mut().filter(|d| d.key == key && d.session.is_none());
+                let mine = s
+                    .call
+                    .dict
+                    .as_mut()
+                    .filter(|d| d.key == key && d.session.is_none());
                 match mine {
                     Some(d) => {
                         d.session = Some(Session::new(id));
@@ -186,7 +208,9 @@ fn begin(s: &mut State, key: &str, target: Target) {
 /// Stops the dictation running, if any; its `ended` finishes it (or 4 s
 /// on, if that never comes).
 pub(super) fn stop(s: &mut State) {
-    let Some(d) = s.call.dict.as_mut() else { return };
+    let Some(d) = s.call.dict.as_mut() else {
+        return;
+    };
     let Some(id) = d.session.as_ref().map(|x| x.id) else {
         // Still starting: the start's answer stops it.
         s.call.dict = None;
@@ -200,7 +224,12 @@ pub(super) fn stop(s: &mut State) {
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(4));
             h.update(move |s: &mut State, _| {
-                if s.call.dict.as_ref().and_then(|d| d.session.as_ref()).is_some_and(|x| x.id == id) {
+                if s.call
+                    .dict
+                    .as_ref()
+                    .and_then(|d| d.session.as_ref())
+                    .is_some_and(|x| x.id == id)
+                {
                     s.call.dict = None;
                 }
             });
@@ -286,8 +315,19 @@ pub fn mic_button_in(s: &State, f: &mut Frame, key: &str, target: Target, disabl
     } else {
         "Voice input: tap to talk, or hold and let go".to_string()
     };
-    let tip = if denied { format!("{label}. {}", st.reason) } else { label.clone() };
-    let tip = format!("{tip}  {}", if cfg!(target_os = "macos") { "⌘D" } else { "Ctrl+D" });
+    let tip = if denied {
+        format!("{label}. {}", st.reason)
+    } else {
+        label.clone()
+    };
+    let tip = format!(
+        "{tip}  {}",
+        if cfg!(target_os = "macos") {
+            "⌘D"
+        } else {
+            "Ctrl+D"
+        }
+    );
     let (glyph, ink, fill) = if busy || dl.is_some() {
         (&ic::LOADER, k.c.icon_muted, None)
     } else if denied {
@@ -313,35 +353,50 @@ pub fn mic_button_in(s: &State, f: &mut Frame, key: &str, target: Target, disabl
         b = b.fill(c);
     }
     if !disabled {
-        b = b.hover(k.c.hover).on_drag(move |s: &mut State, g: &mut Drag, _tx: &mut Tx| match g.phase {
-            Phase::Down => {
-                let mine = s.call.dict.as_ref().is_some_and(|d| d.key == key_s);
-                if s.call.dict.is_none() {
-                    begin(s, &key_s, target);
-                    if let Some(d) = s.call.dict.as_mut() {
-                        d.pressed_at = Some(Instant::now());
+        b = b
+            .hover(k.c.hover)
+            .on_drag(
+                move |s: &mut State, g: &mut Drag, _tx: &mut Tx| match g.phase {
+                    Phase::Down => {
+                        let mine = s.call.dict.as_ref().is_some_and(|d| d.key == key_s);
+                        if s.call.dict.is_none() {
+                            begin(s, &key_s, target);
+                            if let Some(d) = s.call.dict.as_mut() {
+                                d.pressed_at = Some(Instant::now());
+                            }
+                        } else if mine
+                            && s.call
+                                .dict
+                                .as_ref()
+                                .is_some_and(|d| d.phase == Phase2::Listening)
+                        {
+                            stop(s);
+                        }
                     }
-                } else if mine && s.call.dict.as_ref().is_some_and(|d| d.phase == Phase2::Listening) {
-                    stop(s);
-                }
-            }
-            Phase::Up => {
-                let held = s
-                    .call
-                    .dict
-                    .as_mut()
-                    .filter(|d| d.key == key_s)
-                    .and_then(|d| d.pressed_at.take())
-                    .is_some_and(|at| at.elapsed() >= HOLD);
-                if held {
-                    stop(s);
-                }
-            }
-            Phase::Move => {}
-        });
+                    Phase::Up => {
+                        let held = s
+                            .call
+                            .dict
+                            .as_mut()
+                            .filter(|d| d.key == key_s)
+                            .and_then(|d| d.pressed_at.take())
+                            .is_some_and(|at| at.elapsed() >= HOLD);
+                        if held {
+                            stop(s);
+                        }
+                    }
+                    Phase::Move => {}
+                },
+            );
     }
-    let note = s.call.mic_note.as_ref().filter(|(k2, _)| k2 == key).map(|(_, n)| n.clone());
-    let open = note.is_some() || (dl.is_some() && s.call.dict.is_none() && s.call.mic_note.is_none());
+    let note = s
+        .call
+        .mic_note
+        .as_ref()
+        .filter(|(k2, _)| k2 == key)
+        .map(|(_, n)| n.clone());
+    let open =
+        note.is_some() || (dl.is_some() && s.call.dict.is_none() && s.call.mic_note.is_none());
     let mut p = Popover::new(format!("call-mic-note-{key}"))
         .trigger(b)
         .open(open && (note.is_some() || dl.is_some()))
@@ -361,7 +416,11 @@ fn note_body(s: &State, k: &Kit, key: &str, target: Target, note: Option<Note>, 
     // The popover is at most 320 wide, its 12 inset inside that.
     let c = col().key("call-mic-note").w(296.0).gap(8.0);
     if let Some((done, total)) = s.call.download {
-        let pct = if total > 0 { (done as f32 / total as f32).min(1.0) } else { 0.0 };
+        let pct = if total > 0 {
+            (done as f32 / total as f32).min(1.0)
+        } else {
+            0.0
+        };
         return c
             .role("status")
             .child(
@@ -391,7 +450,14 @@ fn note_body(s: &State, k: &Kit, key: &str, target: Target, note: Option<Note>, 
                 .wrap(),
             );
             if !s.call.download_error.is_empty() {
-                c = c.child(text(s.call.download_error.clone()).role("alert").font(k.ty.small).color(k.c.danger.icon).w_full().wrap());
+                c = c.child(
+                    text(s.call.download_error.clone())
+                        .role("alert")
+                        .font(k.ty.small)
+                        .color(k.c.danger.icon)
+                        .w_full()
+                        .wrap(),
+                );
             }
             c.child(
                 row()
@@ -460,7 +526,14 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
     let m = ev.mods;
     let d_key = matches!(&ev.key, rune::Key::Command(c) if c.eq_ignore_ascii_case(&'d'));
     let on_key = d_key
-        && dictation::dictation_key("d", m.logo || (mac && m.cmd && !m.ctrl), m.ctrl, m.shift, m.alt, mac);
+        && dictation::dictation_key(
+            "d",
+            m.logo || (mac && m.cmd && !m.ctrl),
+            m.ctrl,
+            m.shift,
+            m.alt,
+            mac,
+        );
     if !on_key {
         return false;
     }
@@ -475,7 +548,9 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
             usable: d.usable,
         })
         .collect();
-    let Some(pick) = dictation::pick_mic(&seen).cloned() else { return false };
+    let Some(pick) = dictation::pick_mic(&seen).cloned() else {
+        return false;
+    };
     let target = drawn.iter().find(|d| d.key == pick.key).map(|d| d.target);
     match (&s.call.dict, target) {
         (Some(d), _) if d.key == pick.key => {
@@ -518,7 +593,13 @@ pub fn voice_note(s: &State, f: &mut Frame) -> Option<El> {
             .wrap(),
         );
     if st.state == "denied" {
-        c = c.child(text(st.reason.clone()).font(k.ty.text_xsmall).color(k.c.danger.icon).w_full().wrap());
+        c = c.child(
+            text(st.reason.clone())
+                .font(k.ty.text_xsmall)
+                .color(k.c.danger.icon)
+                .w_full()
+                .wrap(),
+        );
     }
     Some(c)
 }

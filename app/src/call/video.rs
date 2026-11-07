@@ -62,15 +62,18 @@ impl Viewer {
     /// sending here. Fast (the Core only swaps its sink and tells the
     /// sharer), so it runs on the UI thread, in order with
     /// [`Viewer::detach`].
-    pub fn attach(w: &Arc<Window>, h: Option<AppHandle<State>>, share_id: &str) -> Result<Viewer, String> {
+    pub fn attach(
+        w: &Arc<Window>,
+        h: Option<AppHandle<State>>,
+        share_id: &str,
+    ) -> Result<Viewer, String> {
         let pixels = Pixels::new();
         let look = Arc::new(AtomicU8::new(0));
         let on = Arc::new(AtomicBool::new(true));
         let (tx, rx) = channel::<Vec<u8>>();
         let sink_on = on.clone();
-        let sink: irori_core::ShareSink = Arc::new(move |b: Vec<u8>| {
-            sink_on.load(Ordering::Relaxed) && tx.send(b).is_ok()
-        });
+        let sink: irori_core::ShareSink =
+            Arc::new(move |b: Vec<u8>| sink_on.load(Ordering::Relaxed) && tx.send(b).is_ok());
         w.core.share_attach(sink)?;
         let job = Job {
             w: Arc::downgrade(w),
@@ -173,13 +176,20 @@ impl Player {
         // A backed-up queue: keep only what follows its last config, and of
         // the chunks only from the last keyframe on (or none, asking for
         // one), so the picture catches up at once.
-        let frames: Vec<ShareFrame<'_>> = batch.iter().filter_map(|b| parse_share_frame(b)).collect();
-        let chunks = frames.iter().filter(|f| matches!(f, ShareFrame::Chunk { .. })).count();
+        let frames: Vec<ShareFrame<'_>> =
+            batch.iter().filter_map(|b| parse_share_frame(b)).collect();
+        let chunks = frames
+            .iter()
+            .filter(|f| matches!(f, ShareFrame::Chunk { .. }))
+            .count();
         let mut from = 0;
         if chunks > BACKLOG {
-            let last_key = frames
-                .iter()
-                .rposition(|f| matches!(f, ShareFrame::Config { .. } | ShareFrame::Chunk { key: true, .. }));
+            let last_key = frames.iter().rposition(|f| {
+                matches!(
+                    f,
+                    ShareFrame::Config { .. } | ShareFrame::Chunk { key: true, .. }
+                )
+            });
             match last_key {
                 Some(i) => from = i,
                 None => {
@@ -191,7 +201,9 @@ impl Player {
             // A keyframe after a config in the same batch still needs that
             // config first.
             if matches!(frames[from], ShareFrame::Chunk { .. })
-                && let Some(c) = frames[..from].iter().rposition(|f| matches!(f, ShareFrame::Config { .. }))
+                && let Some(c) = frames[..from]
+                    .iter()
+                    .rposition(|f| matches!(f, ShareFrame::Config { .. }))
             {
                 self.configure(job, &frames[c]);
             }
@@ -199,13 +211,19 @@ impl Player {
         for f in &frames[from..] {
             match f {
                 ShareFrame::Config { .. } => self.configure(job, f),
-                ShareFrame::Chunk { key, timestamp_us, data } => self.chunk(job, *key, *timestamp_us, data),
+                ShareFrame::Chunk {
+                    key,
+                    timestamp_us,
+                    data,
+                } => self.chunk(job, *key, *timestamp_us, data),
             }
         }
     }
 
     fn configure(&mut self, job: &Job, f: &ShareFrame<'_>) {
-        let ShareFrame::Config { codec, description } = f else { return };
+        let ShareFrame::Config { codec, description } = f else {
+            return;
+        };
         self.config = Some((codec.to_string(), description.to_vec()));
         self.open(job);
     }
@@ -213,7 +231,9 @@ impl Player {
     fn open(&mut self, job: &Job) {
         self.dec = None;
         self.need_key = true;
-        let Some((codec, desc)) = &self.config else { return };
+        let Some((codec, desc)) = &self.config else {
+            return;
+        };
         match Decoder::new(codec, desc) {
             Ok(d) => self.dec = Some(d),
             Err(e) => {
@@ -275,11 +295,21 @@ impl Decoder {
     }
 
     /// The newest picture this access unit gave, if any.
-    fn decode(&mut self, data: &[u8], ts_us: u64, key: bool) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    fn decode(
+        &mut self,
+        data: &[u8],
+        ts_us: u64,
+        key: bool,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
         let ts = moq_net::Timestamp::from_micros(ts_us).map_err(|e| format!("{e:?}"))?;
         let payload = bytes::Bytes::copy_from_slice(data);
-        let frames = self.inner.decode(&payload, ts, key).map_err(|e| e.to_string())?;
-        let Some(f) = frames.into_iter().last() else { return Ok(None) };
+        let frames = self
+            .inner
+            .decode(&payload, ts, key)
+            .map_err(|e| e.to_string())?;
+        let Some(f) = frames.into_iter().last() else {
+            return Ok(None);
+        };
         let rgba = f
             .surface
             .to_rgba(&moq_video::convert::Config::new())

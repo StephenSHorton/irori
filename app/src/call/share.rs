@@ -18,6 +18,13 @@ use crate::ui::{Frame, State};
 pub fn start(s: &mut State, source_id: &str) {
     s.call.picker.open = false;
     let id = source_id.to_string();
+    s.call.at = s
+        .call
+        .view
+        .mine
+        .as_ref()
+        .map(|m| m.conv_id.clone())
+        .unwrap_or_default();
     s.spawn(
         move |w| w.share_start(&id),
         |s, r| {
@@ -101,7 +108,10 @@ pub(super) fn share_button(s: &State, f: &mut Frame, m: &CallMineView) -> El {
             }
         },
     );
-    let theirs = share.filter(|x| !x.mine).map(|x| logic::person_word(&x.name)).unwrap_or_default();
+    let theirs = share
+        .filter(|x| !x.mine)
+        .map(|x| logic::person_word(&x.name))
+        .unwrap_or_default();
     let mut p = Popover::new("call-picker")
         .trigger(trigger)
         .open(open)
@@ -126,11 +136,16 @@ fn picker(s: &State, k: &Kit, theirs: &str) -> El {
                 .gap(8.0)
                 .center_y()
                 .child(icon(&ic::MONITOR_UP, 16.0).color(k.c.text_base))
-                .child(text("Share a window or screen").font(rune::tok::TextStyle::new(14.0, 600.0)).color(k.c.text_base)),
+                .child(
+                    text("Share a window or screen")
+                        .font(rune::tok::TextStyle::new(14.0, 600.0))
+                        .color(k.c.text_base),
+                ),
         )
         .child(
             text(if theirs.is_empty() {
-                "Everyone in the huddle sees only what you pick, nothing else on your screen.".to_string()
+                "Everyone in the huddle sees only what you pick, nothing else on your screen."
+                    .to_string()
             } else {
                 format!("{theirs} is sharing now. Sharing yours replaces theirs; they're told.")
             })
@@ -140,13 +155,28 @@ fn picker(s: &State, k: &Kit, theirs: &str) -> El {
             .wrap(),
         );
     if !pk.error.is_empty() {
-        c = c.child(text(pk.error.clone()).role("alert").font(k.ty.small).color(k.c.danger.icon).w_full().wrap());
+        c = c.child(
+            text(pk.error.clone())
+                .role("alert")
+                .font(k.ty.small)
+                .color(k.c.danger.icon)
+                .w_full()
+                .wrap(),
+        );
     }
     match &pk.list {
-        None => c.child(text("Looking for windows…").font(k.ty.small).color(k.c.text_muted).py(8.0)),
-        Some(l) if l.is_empty() && pk.error.is_empty() => {
-            c.child(text("Nothing here to share.").font(k.ty.small).color(k.c.text_muted).py(8.0))
-        }
+        None => c.child(
+            text("Looking for windows…")
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .py(8.0),
+        ),
+        Some(l) if l.is_empty() && pk.error.is_empty() => c.child(
+            text("Nothing here to share.")
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .py(8.0),
+        ),
         Some(l) => {
             let mut rows = col().key("call-picker-rows").w_full().gap(2.0);
             for src in l {
@@ -167,15 +197,28 @@ fn picker(s: &State, k: &Kit, theirs: &str) -> El {
                         .press(k.c.pressed)
                         .on_press(move |s: &mut State| start(s, &id))
                         .child(
-                            icon(if src.kind == "display" { &ic::MONITOR } else { &ic::APP_WINDOW }, 16.0)
-                                .color(k.c.text_muted),
+                            icon(
+                                if src.kind == "display" {
+                                    &ic::MONITOR
+                                } else {
+                                    &ic::APP_WINDOW
+                                },
+                                16.0,
+                            )
+                            .color(k.c.text_muted),
                         )
                         .child(
                             col()
                                 .key("t")
                                 .grow(1.0)
                                 .min_w(0.0)
-                                .child(text(src.title.clone()).font(k.ty.small).color(k.c.text_base).truncate().w_full())
+                                .child(
+                                    text(src.title.clone())
+                                        .font(k.ty.small)
+                                        .color(k.c.text_base)
+                                        .truncate()
+                                        .w_full(),
+                                )
                                 .child(
                                     text(logic::source_line(src))
                                         .font(k.ty.text_xsmall)
@@ -192,7 +235,9 @@ fn picker(s: &State, k: &Kit, theirs: &str) -> El {
                     .w_full()
                     .max_h(288.0)
                     .min_h(0.0)
-                    .scroll(ScrollSpec { stick_bottom: false })
+                    .scroll(ScrollSpec {
+                        stick_bottom: false,
+                    })
                     .child(rows),
             )
         }
@@ -207,7 +252,11 @@ pub fn share_stage(s: &State, f: &mut Frame) -> Option<El> {
         // It fills the window (full_screen draws it).
         return Some(el().key("call-stage").grow(1.0));
     }
-    Some(if share.mine { my_share(f.k, share) } else { their_share(s, f.k, share, false) })
+    Some(if share.mine {
+        my_share(f.k, share)
+    } else {
+        their_share(s, f.k, share, false)
+    })
 }
 
 /// The stage over everything while Full screen is on; Escape leaves it.
@@ -215,7 +264,14 @@ pub(super) fn full_screen(s: &State, f: &mut Frame) {
     if !s.call.full {
         return;
     }
-    let Some(share) = s.call.view.mine.as_ref().and_then(|m| m.share.as_ref()).filter(|x| !x.mine) else {
+    let Some(share) = s
+        .call
+        .view
+        .mine
+        .as_ref()
+        .and_then(|m| m.share.as_ref())
+        .filter(|x| !x.mine)
+    else {
         return;
     };
     let stage = their_share(s, f.k, share, true);
@@ -230,7 +286,11 @@ pub(super) fn full_screen(s: &State, f: &mut Frame) {
 
 fn their_share(s: &State, k: &Kit, share: &CallShareView, full: bool) -> El {
     let name = logic::person_word(&share.name);
-    let who = if share.device.is_empty() { name.clone() } else { format!("{name} on {}", share.device) };
+    let who = if share.device.is_empty() {
+        name.clone()
+    } else {
+        format!("{name} on {}", share.device)
+    };
     let head = row()
         .key("call-stage-head")
         .w_full()
@@ -252,7 +312,10 @@ fn their_share(s: &State, k: &Kit, share: &CallShareView, full: bool) -> El {
             text(logic::quality_text(share))
                 .font(super::tnum(k.ty.text_xsmall))
                 .color(k.c.text_muted)
-                .help(format!("{} × {}, about {} kbps", share.width, share.height, share.kbps)),
+                .help(format!(
+                    "{} × {}, about {} kbps",
+                    share.width, share.height, share.kbps
+                )),
         )
         .child(round_button(
             k,
@@ -261,11 +324,19 @@ fn their_share(s: &State, k: &Kit, share: &CallShareView, full: bool) -> El {
             false,
             None,
             k.c.icon_muted,
-            if full { "Leave full screen (Esc)" } else { "Full screen" },
+            if full {
+                "Leave full screen (Esc)"
+            } else {
+                "Full screen"
+            },
             |s: &mut State| s.call.full = !s.call.full,
         ));
     let mut c = col()
-        .key(if full { "call-stage-full-body" } else { "call-stage" })
+        .key(if full {
+            "call-stage-full-body"
+        } else {
+            "call-stage"
+        })
         .label("Shared screen")
         .grow(1.0)
         .min_h(0.0)
@@ -308,7 +379,12 @@ fn picture(s: &State, k: &Kit) -> El {
     };
     match (look, s.call.viewer.as_ref()) {
         (Look::Playing, Some(v)) => {
-            box_ = box_.child(el().key("call-pixels").w_full().h_full().pixels_fit(&v.pixels, SurfaceFit::Fit));
+            box_ = box_.child(
+                el().key("call-pixels")
+                    .w_full()
+                    .h_full()
+                    .pixels_fit(&v.pixels, SurfaceFit::Fit),
+            );
         }
         (Look::Unsupported, _) => {
             box_ = box_.child(
@@ -319,7 +395,11 @@ fn picture(s: &State, k: &Kit) -> El {
             );
         }
         _ => {
-            box_ = box_.child(text("Waiting for the picture…").font(k.ty.small).color(crate::ui::theme::hex("#9d9d9d")));
+            box_ = box_.child(
+                text("Waiting for the picture…")
+                    .font(k.ty.small)
+                    .color(crate::ui::theme::hex("#9d9d9d")),
+            );
         }
     }
     box_
@@ -328,7 +408,11 @@ fn picture(s: &State, k: &Kit) -> El {
 /// MyShare: your own share, no picture of your screen, just what's sent
 /// and Stop sharing.
 fn my_share(k: &Kit, share: &CallShareView) -> El {
-    let from = if share.device.is_empty() { String::new() } else { format!("From {}. ", share.device) };
+    let from = if share.device.is_empty() {
+        String::new()
+    } else {
+        format!("From {}. ", share.device)
+    };
     col()
         .key("call-stage")
         .label("Your shared screen")
@@ -360,7 +444,11 @@ fn my_share(k: &Kit, share: &CallShareView) -> El {
                 .child(
                     text(format!(
                         "{from}Everyone in the huddle sees {} and nothing else on your screen. {}.",
-                        if share.kind == "display" { "this screen" } else { "this window" },
+                        if share.kind == "display" {
+                            "this screen"
+                        } else {
+                            "this window"
+                        },
                         logic::quality_text(share)
                     ))
                     .font(k.ty.small)

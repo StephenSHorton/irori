@@ -45,9 +45,20 @@ fn frame(k: &Kit, sub: Option<String>) -> El {
         .pt(12.0)
         .center_y()
         .child(icon(&ic::FILE_TEXT, 16.0).color(k.c.text_base))
-        .child(text("Huddle transcript").font(rune::tok::TextStyle::new(13.0, 600.0)).color(k.c.text_base));
+        .child(
+            text("Huddle transcript")
+                .font(rune::tok::TextStyle::new(13.0, 600.0))
+                .color(k.c.text_base),
+        );
     if let Some(sub) = sub {
-        head = head.child(text(sub).font(k.ty.small).color(k.c.text_muted).truncate().min_w(0.0).shrink());
+        head = head.child(
+            text(sub)
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .truncate()
+                .min_w(0.0)
+                .shrink(),
+        );
     }
     head = head.child(el().grow(1.0)).child(round_button(
         k,
@@ -92,15 +103,30 @@ fn view(_s: &State, k: &Kit, t: &TalkTranscript, q: &rune::TextEdit) -> El {
                 .placeholder("Search the transcript")
                 .label("Search the transcript")
                 .leading_icon(&ic::SEARCH)
-                .on_edit(|s: &mut State| &mut s.call.transcript.as_mut().expect("open transcript").q)
+                .on_edit(|s: &mut State| {
+                    &mut s.call.transcript.as_mut().expect("open transcript").q
+                })
                 .build(k)
                 .key("call-tr-search"),
         );
-    let mut lines = col().key("call-tr-lines").w_full().gap(10.0).px(12.0).py(12.0);
+    let mut lines = col()
+        .key("call-tr-lines")
+        .w_full()
+        .gap(10.0)
+        .px(12.0)
+        .py(12.0);
     if t.lines.is_empty() {
-        lines = lines.child(text("Nothing was written down.").font(k.ty.small).color(k.c.text_muted));
+        lines = lines.child(
+            text("Nothing was written down.")
+                .font(k.ty.small)
+                .color(k.c.text_muted),
+        );
     } else if shown.is_empty() {
-        lines = lines.child(text("No line has that.").font(k.ty.small).color(k.c.text_muted));
+        lines = lines.child(
+            text("No line has that.")
+                .font(k.ty.small)
+                .color(k.c.text_muted),
+        );
     }
     for (i, l) in shown.iter().enumerate() {
         let name = logic::person_word(&l.name);
@@ -122,9 +148,20 @@ fn view(_s: &State, k: &Kit, t: &TalkTranscript, q: &rune::TextEdit) -> El {
                                 .gap(6.0)
                                 .center_y()
                                 .child(text(name).font(k.ty.small_medium).color(k.c.text_base))
-                                .child(text(logic::clock_text(l.at_ms)).font(super::tnum(k.ty.text_xsmall)).color(k.c.text_muted)),
+                                .child(
+                                    text(logic::clock_text(l.at_ms))
+                                        .font(super::tnum(k.ty.text_xsmall))
+                                        .color(k.c.text_muted),
+                                ),
                         )
-                        .child(text(l.text.clone()).font(k.ty.small).color(k.c.text_weak).w_full().wrap().selectable(true)),
+                        .child(
+                            text(l.text.clone())
+                                .font(k.ty.small)
+                                .color(k.c.text_weak)
+                                .w_full()
+                                .wrap()
+                                .selectable(true),
+                        ),
                 ),
         );
     }
@@ -136,7 +173,9 @@ fn view(_s: &State, k: &Kit, t: &TalkTranscript, q: &rune::TextEdit) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(lines),
         )
 }

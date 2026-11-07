@@ -1,7 +1,7 @@
 //! Talk's list (talk-page.tsx `TalkPage`'s nav, `Group`, `ConvItem`,
 //! `BroadcastItem`, `ThreadItem`, `NewChannel`, `NewDm`): the search, then
-//! Threads, Channels, Direct messages, Agents talking, the Archive, and the
-//! resolved threads folded at its foot.
+//! Threads (the resolved folded at its bottom), Channels, Direct messages,
+//! Agents talking and the Archive.
 
 use std::collections::HashMap;
 
@@ -16,7 +16,7 @@ use super::logic::{self, AgentRow, Broadcast, SectionKey};
 use super::{Adding, folded, icons, open, toggle_fold};
 use crate::logic::agent_counts::{agents_of, why_waiting};
 use crate::logic::agent_status::{Who, agent_status, now_ms};
-use crate::logic::names::{member_name, name_or, UNKNOWN_AGENT};
+use crate::logic::names::{UNKNOWN_AGENT, member_name, name_or};
 use crate::logic::plain::{plain_line, relative_time};
 use crate::logic::spaces::{conv_in_space, talk_in_space, threads_space};
 use crate::logic::thread::{LiveAgent, live_roster};
@@ -45,12 +45,33 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         .iter()
         .filter(|t| conv_in_space(&t.space_id, "thread", &[], space))
         .collect();
-    let shown: Vec<&ThreadSummary> = threads.iter().copied().filter(|t| logic::talk_matches(t, &query)).collect();
-    let live_threads: Vec<&ThreadSummary> = shown.iter().copied().filter(|t| t.state != THREAD_RESOLVED).collect();
-    let resolved: Vec<&ThreadSummary> = shown.iter().copied().filter(|t| t.state == THREAD_RESOLVED).collect();
-    let pairs: Vec<(&str, &str)> = threads.iter().map(|t| (t.id.as_str(), t.state.as_str())).collect();
+    let shown: Vec<&ThreadSummary> = threads
+        .iter()
+        .copied()
+        .filter(|t| logic::talk_matches(t, &query))
+        .collect();
+    let live_threads: Vec<&ThreadSummary> = shown
+        .iter()
+        .copied()
+        .filter(|t| t.state != THREAD_RESOLVED)
+        .collect();
+    let resolved: Vec<&ThreadSummary> = shown
+        .iter()
+        .copied()
+        .filter(|t| t.state == THREAD_RESOLVED)
+        .collect();
+    let pairs: Vec<(&str, &str)> = threads
+        .iter()
+        .map(|t| (t.id.as_str(), t.state.as_str()))
+        .collect();
     let show_resolved = logic::resolved_shown(s.talk.show_resolved, open_id, &pairs) || searching;
-    let spawned: Vec<_> = s.data.agents.iter().filter(|a| !a.spawned).cloned().collect();
+    let spawned: Vec<_> = s
+        .data
+        .agents
+        .iter()
+        .filter(|a| !a.spawned)
+        .cloned()
+        .collect();
     let why = why_waiting(&agents_of(&spawned), "");
 
     let convs: Vec<&TalkConversation> = s
@@ -72,7 +93,9 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         .px(8.0)
         .py(12.0)
         .gap(2.0)
-        .scroll(ScrollSpec { stick_bottom: false });
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        });
 
     // The search and the pen.
     nav = nav.child(
@@ -104,8 +127,12 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
             ),
     );
 
-    // Threads.
-    let unread = live_threads.iter().filter(|t| logic::needs_you(&t.state, &t.no_agent)).count();
+    // Threads: the open ones, then the resolved folded at its bottom
+    // (card #687), above Channels.
+    let unread = live_threads
+        .iter()
+        .filter(|t| logic::needs_you(t.unread, &t.no_agent))
+        .count();
     nav = nav.child(group(
         f,
         "talk-g-threads",
@@ -117,19 +144,37 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         None,
         None,
     ));
-    if !fold(SectionKey::Threads) {
-        if !s.talk.threads_loaded {
-            nav = nav.child(crate::widgets::loading::list_rows_shape(f, "talk-threads-loading", 3, true));
-        } else if live_threads.is_empty() {
-            nav = nav.child(empty(
+    let rows = logic::threads_rows(
+        live_threads.len(),
+        resolved.len(),
+        !s.talk.threads_loaded,
+        fold(SectionKey::Threads),
+        show_resolved,
+    );
+    for r in rows {
+        nav = nav.child(match r {
+            logic::ThreadsRow::Loading => {
+                crate::widgets::loading::list_rows_shape(f, "talk-threads-loading", 3, true)
+            }
+            logic::ThreadsRow::Empty => empty(
                 f,
                 "talk-threads-empty",
-                if searching { "No open thread matches." } else { "No open threads. Start one with the pen above." },
-            ));
-        }
-        for t in &live_threads {
-            nav = nav.child(thread_item(f, t, t.id == open_id, &why));
-        }
+                if searching {
+                    "No open thread matches."
+                } else {
+                    "No open threads. Start one with the pen above."
+                },
+            ),
+            logic::ThreadsRow::Live(i) => {
+                thread_item(f, live_threads[i], live_threads[i].id == open_id, &why)
+            }
+            logic::ThreadsRow::ResolvedToggle => {
+                resolved_toggle(f, &threads, resolved.len(), show_resolved, open_id)
+            }
+            logic::ThreadsRow::Resolved(i) => {
+                thread_item(f, resolved[i], resolved[i].id == open_id, &why)
+            }
+        });
     }
 
     // Channels.
@@ -141,7 +186,11 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         SectionKey::Channels,
         "Channels",
         &channels,
-        if searching { "No channel matches." } else { "No channels yet. Make one with +." },
+        if searching {
+            "No channel matches."
+        } else {
+            "No channels yet. Make one with +."
+        },
         extra,
         Some(("New channel", Adding::Channel)),
         open_id,
@@ -158,7 +207,11 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         SectionKey::Dms,
         "Direct messages",
         &sections.yours,
-        if searching { "No direct message matches." } else { "No direct messages. Start one with +." },
+        if searching {
+            "No direct message matches."
+        } else {
+            "No direct messages. Start one with +."
+        },
         extra,
         Some(("New direct message", Adding::Dm)),
         open_id,
@@ -187,39 +240,6 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         );
     }
 
-    // Resolved threads, folded at the foot.
-    if !resolved.is_empty() {
-        let label = format!("Resolved threads: {}{}", resolved.len(), if show_resolved { " · hide" } else { " · show" });
-        let pairs_owned: Vec<(String, String)> =
-            threads.iter().map(|t| (t.id.clone(), t.state.clone())).collect();
-        let open_now = open_id.to_string();
-        let mut foot = col().key("talk-resolved").w_full().gap(2.0).pt(12.0).child(
-            row()
-                .key("talk-resolved-toggle")
-                .role("button")
-                .focusable(true)
-                .px(8.0)
-                .py(2.0)
-                .radius(4.0)
-                .hover(k.c.hover)
-                .on_press(move |s: &mut State| {
-                    let pairs: Vec<(&str, &str)> = pairs_owned.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-                    let (pick, close) = logic::resolved_toggle(s.talk.show_resolved, &open_now, &pairs);
-                    s.talk.show_resolved = pick;
-                    if close {
-                        open(s, "");
-                    }
-                })
-                .child(text(label).font(ts(11.0, 400.0)).color(k.c.text_muted)),
-        );
-        if show_resolved {
-            for t in &resolved {
-                foot = foot.child(thread_item(f, t, t.id == open_id, &why));
-            }
-        }
-        nav = nav.child(el().key("talk-list-spacer").grow(1.0)).child(foot);
-    }
-
     col()
         .key("talk-list-col")
         .w(WIDTH)
@@ -228,6 +248,50 @@ pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
         .border_sides([0.0, 1.0, 0.0, 0.0], k.c.border_muted)
         .fill(k.c.bg_base)
         .child(nav.grow(1.0))
+}
+
+/// "Resolved threads: N · show/hide" at the bottom of Threads; hiding
+/// them closes a resolved thread that is open.
+fn resolved_toggle(
+    f: &Frame,
+    threads: &[&ThreadSummary],
+    n: usize,
+    shown: bool,
+    open_id: &str,
+) -> El {
+    let k = f.k;
+    let label = format!(
+        "Resolved threads: {n}{}",
+        if shown { " · hide" } else { " · show" }
+    );
+    let pairs: Vec<(String, String)> = threads
+        .iter()
+        .map(|t| (t.id.clone(), t.state.clone()))
+        .collect();
+    let open_now = open_id.to_string();
+    row()
+        .key("talk-resolved-toggle")
+        .role("button")
+        .focusable(true)
+        .expanded(shown)
+        .w_full()
+        .mt(4.0)
+        .px(8.0)
+        .py(2.0)
+        .radius(4.0)
+        .hover(k.c.hover)
+        .on_press(move |s: &mut State| {
+            let pairs: Vec<(&str, &str)> = pairs
+                .iter()
+                .map(|(a, b)| (a.as_str(), b.as_str()))
+                .collect();
+            let (pick, close) = logic::resolved_toggle(s.talk.show_resolved, &open_now, &pairs);
+            s.talk.show_resolved = pick;
+            if close {
+                open(s, "");
+            }
+        })
+        .child(text(label).font(ts(11.0, 400.0)).color(k.c.text_muted))
 }
 
 /// The open DM kept with yours while open, though its agent went (card
@@ -239,7 +303,9 @@ fn kept_for(s: &State, open_id: &str, live: &HashMap<String, LiveAgent>) -> Stri
         return k.clone();
     }
     match s.talk.convs.iter().find(|c| c.conv_id == open_id) {
-        Some(c) if c.kind == "dm" && !c.read_only && !logic::dm_gone(c, live) => open_id.to_string(),
+        Some(c) if c.kind == "dm" && !c.read_only && !logic::dm_gone(c, live) => {
+            open_id.to_string()
+        }
         _ => String::new(),
     }
 }
@@ -253,18 +319,23 @@ pub fn keep_open(s: &mut State) {
     }
     let live = live_roster(&s.data.agents);
     let keep = s.talk.convs.iter().find(|c| c.conv_id == id).map(|c| {
-        if c.kind == "dm" && !c.read_only && !logic::dm_gone(c, &live) { id.clone() } else { String::new() }
+        if c.kind == "dm" && !c.read_only && !logic::dm_gone(c, &live) {
+            id.clone()
+        } else {
+            String::new()
+        }
     });
     s.talk.kept = (id, keep);
 }
 
 fn empty(f: &Frame, key: &str, what: &str) -> El {
-    row()
-        .key(key.to_string())
-        .w_full()
-        .px(8.0)
-        .py(4.0)
-        .child(text(what.to_string()).font(ts(12.0, 400.0)).color(f.k.c.text_muted).w_full().wrap())
+    row().key(key.to_string()).w_full().px(8.0).py(4.0).child(
+        text(what.to_string())
+            .font(ts(12.0, 400.0))
+            .color(f.k.c.text_muted)
+            .w_full()
+            .wrap(),
+    )
 }
 
 /// One section's name: its chevron (folds it), count, the "N new" pill
@@ -283,10 +354,22 @@ fn group(
 ) -> El {
     let k = f.k;
     let muted = k.c.text_muted;
-    let mut name = row().key(format!("{key}-name")).gap(4.0).center_y().min_w(0.0);
+    let mut name = row()
+        .key(format!("{key}-name"))
+        .gap(4.0)
+        .center_y()
+        .min_w(0.0);
     if toggle.is_some() {
         name = name.child(
-            icon(if is_folded { &icons::CHEVRON_RIGHT } else { &icons::CHEVRON_DOWN }, 12.0).color(muted),
+            icon(
+                if is_folded {
+                    &icons::CHEVRON_RIGHT
+                } else {
+                    &icons::CHEVRON_DOWN
+                },
+                12.0,
+            )
+            .color(muted),
         );
     }
     name = name.child(
@@ -309,7 +392,11 @@ fn group(
                 .center_y()
                 .fill(k.c.icon_accent)
                 .help(format!("{unread} with something new"))
-                .child(text(format!("{unread} new")).font(ts(10.0, 600.0)).color(k.c.white)),
+                .child(
+                    text(format!("{unread} new"))
+                        .font(ts(10.0, 600.0))
+                        .color(k.c.white),
+                ),
         );
     }
     if let Some(sk) = toggle {
@@ -320,7 +407,15 @@ fn group(
             .expanded(!is_folded)
             .on_press(move |s: &mut State| toggle_fold(s, sk));
     }
-    let mut h = row().key(key.to_string()).w_full().px(8.0).pt(12.0).pb(4.0).gap(4.0).center_y().child(name);
+    let mut h = row()
+        .key(key.to_string())
+        .w_full()
+        .px(8.0)
+        .pt(12.0)
+        .pb(4.0)
+        .gap(4.0)
+        .center_y()
+        .child(name);
     if let Some((what, which)) = add {
         h = h.child(el().grow(1.0)).child(
             IconButton::new(&crate::ui::icons::PLUS)
@@ -329,7 +424,11 @@ fn group(
                 .label(what)
                 .help(what)
                 .on_press(move |s: &mut State| {
-                    s.talk.adding = if s.talk.adding == which { Adding::None } else { which };
+                    s.talk.adding = if s.talk.adding == which {
+                        Adding::None
+                    } else {
+                        which
+                    };
                     s.talk.new_error.clear();
                     s.talk.new_channel.clear();
                     if s.talk.adding == Adding::Channel {
@@ -417,19 +516,33 @@ fn conv_section(
         return nav;
     }
     if !s.talk.convs_loaded {
-        return nav.child(crate::widgets::loading::list_rows_shape(f, &format!("talk-{}-loading", k_.name()), 3, true));
+        return nav.child(crate::widgets::loading::list_rows_shape(
+            f,
+            &format!("talk-{}-loading", k_.name()),
+            3,
+            true,
+        ));
     }
     // Its own new-channel or new-DM form stands in for the empty line.
     if items.is_empty() && !has_extra && !empty_line.is_empty() {
         nav = nav.child(empty(f, &format!("talk-{}-empty", k_.name()), empty_line));
     }
-    let (rows, hidden) =
-        logic::section_rows(items, false, open_id, searching || s.talk.all_shown.contains(&k_));
+    let (rows, hidden) = logic::section_rows(
+        items,
+        false,
+        open_id,
+        searching || s.talk.all_shown.contains(&k_),
+    );
     for c in rows {
         nav = nav.child(conv_item(s, f, c, c.conv_id == open_id, live, now));
     }
     if hidden > 0 {
-        nav = nav.child(show_more(f, &format!("talk-{}-more", k_.name()), hidden, k_));
+        nav = nav.child(show_more(
+            f,
+            &format!("talk-{}-more", k_.name()),
+            hidden,
+            k_,
+        ));
     }
     nav
 }
@@ -446,7 +559,11 @@ fn show_more(f: &Frame, key: &str, hidden: usize, k_: SectionKey) -> El {
         .on_press(move |s: &mut State| {
             s.talk.all_shown.insert(k_);
         })
-        .child(text(format!("Show {hidden} more")).font(ts(11.0, 400.0)).color(f.k.c.text_muted))
+        .child(
+            text(format!("Show {hidden} more"))
+                .font(ts(11.0, 400.0))
+                .color(f.k.c.text_muted),
+        )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -488,7 +605,12 @@ fn agents_section(
     }
     if !is_folded {
         if sec.hidden > 0 {
-            nav = nav.child(show_more(f, "talk-agents-more", sec.hidden, SectionKey::Agents));
+            nav = nav.child(show_more(
+                f,
+                "talk-agents-more",
+                sec.hidden,
+                SectionKey::Agents,
+            ));
         } else if sec.capped > 0 {
             nav = nav.child(empty(
                 f,
@@ -502,7 +624,10 @@ fn agents_section(
 
 /// A row's time beside its name.
 fn when(f: &Frame, key: &str, t: &str) -> El {
-    text(t.to_string()).key(key.to_string()).font(ts(10.5, 400.0)).color(f.k.c.text_muted)
+    text(t.to_string())
+        .key(key.to_string())
+        .font(ts(10.5, 400.0))
+        .color(f.k.c.text_muted)
 }
 
 /// A list row's frame: icon, name line and sub line, then the trailing
@@ -519,7 +644,12 @@ fn item_row(
     on: impl Fn(&mut State) + 'static,
 ) -> El {
     let k = f.k;
-    let mut body = col().key(format!("{key}-body")).grow(1.0).min_w(0.0).gap(1.0).child(name);
+    let mut body = col()
+        .key(format!("{key}-body"))
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(1.0)
+        .child(name);
     if let Some(sb) = sub {
         body = body.child(sb);
     }
@@ -550,7 +680,12 @@ fn item_row(
 
 fn sub_line(f: &Frame, key: &str, s: &str, color: rune::Color) -> El {
     let _ = f;
-    text(s.to_string()).key(key.to_string()).font(ts(11.0, 400.0)).color(color).max_lines(1).w_full()
+    text(s.to_string())
+        .key(key.to_string())
+        .font(ts(11.0, 400.0))
+        .color(color)
+        .max_lines(1)
+        .w_full()
 }
 
 fn lead_icon(f: &Frame, i: &'static rune::Icon) -> El {
@@ -569,7 +704,11 @@ pub fn conv_item(
 ) -> El {
     let k = f.k;
     let key = format!("talk-c-{}", c.conv_id);
-    let other = if c.kind == "dm" { logic::dm_with(c) } else { vec![] };
+    let other = if c.kind == "dm" {
+        logic::dm_with(c)
+    } else {
+        vec![]
+    };
     let person = logic::dm_person(c);
     let lead = if c.kind == "channel" {
         Some(lead_icon(f, &icons::HASH))
@@ -591,23 +730,53 @@ pub fn conv_item(
                 .key(format!("{key}-face"))
                 .size(16.0, 16.0)
                 .center()
-                .child(face(s, f, &format!("{key}-f"), &who, FaceOpts { inline: true, no_hover: true, ..FaceOpts::default() }))
+                .child(face(
+                    s,
+                    f,
+                    &format!("{key}-f"),
+                    &who,
+                    FaceOpts {
+                        inline: true,
+                        no_hover: true,
+                        ..FaceOpts::default()
+                    },
+                ))
         })
     };
     let label = if c.kind == "channel" {
         plain_line(&c.name)
     } else if let Some(p) = person {
-        name_or(&plain_line(if p.name.is_empty() { &c.name } else { &p.name }), UNKNOWN_AGENT)
+        name_or(
+            &plain_line(if p.name.is_empty() { &c.name } else { &p.name }),
+            UNKNOWN_AGENT,
+        )
     } else {
-        let names: Vec<String> = other.iter().map(|m| member_name(&m.kind, &m.name)).collect();
-        if names.is_empty() { name_or(&c.name, UNKNOWN_AGENT) } else { names.join(" ↔ ") }
+        let names: Vec<String> = other
+            .iter()
+            .map(|m| member_name(&m.kind, &m.name))
+            .collect();
+        if names.is_empty() {
+            name_or(&c.name, UNKNOWN_AGENT)
+        } else {
+            names.join(" ↔ ")
+        }
     };
-    let waiting = if person.is_some() { logic::waiting_text(&c.waiting, &label) } else { String::new() };
+    let waiting = if person.is_some() {
+        logic::waiting_text(&c.waiting, &label)
+    } else {
+        String::new()
+    };
     let last = c.kind == "dm"
         && (c.read_only
             || (person.is_some() && waiting.is_empty())
-            || other.first().is_some_and(|m| logic::status_of(m, live) == "gone"));
-    let (line, at) = if last { logic::last_line(c, now) } else { (String::new(), String::new()) };
+            || other
+                .first()
+                .is_some_and(|m| logic::status_of(m, live) == "gone"));
+    let (line, at) = if last {
+        logic::last_line(c, now)
+    } else {
+        (String::new(), String::new())
+    };
     let sub = if c.kind == "channel" {
         c.topic.as_deref().map(plain_line).unwrap_or_default()
     } else if !waiting.is_empty() {
@@ -619,21 +788,35 @@ pub fn conv_item(
     } else {
         String::new()
     };
-    let ink = if c.read_only { k.c.text_muted } else { k.c.text_base };
-    let mut name = row().key(format!("{key}-n")).w_full().gap(8.0).center_y().child(
-        text(label)
-            .font(if c.unread > 0 { ts(13.0, 500.0) } else { ts(13.0, 400.0) })
-            .color(ink)
-            .max_lines(1)
-            .grow(1.0)
-            .min_w(0.0),
-    );
+    let ink = if c.read_only {
+        k.c.text_muted
+    } else {
+        k.c.text_base
+    };
+    let mut name = row()
+        .key(format!("{key}-n"))
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(
+            text(label)
+                .font(if c.unread > 0 {
+                    ts(13.0, 500.0)
+                } else {
+                    ts(13.0, 400.0)
+                })
+                .color(ink)
+                .max_lines(1)
+                .grow(1.0)
+                .min_w(0.0),
+        );
     if !at.is_empty() {
         name = name.child(when(f, &format!("{key}-when"), &at));
     }
     // A huddle on here (#654) shows who's in it in place of the sub line.
-    let sub = crate::call::huddle_line(s, f, &c.conv_id)
-        .or_else(|| (!sub.is_empty()).then(|| sub_line(f, &format!("{key}-sub"), &sub, k.c.text_muted)));
+    let sub = crate::call::huddle_line(s, f, &c.conv_id).or_else(|| {
+        (!sub.is_empty()).then(|| sub_line(f, &format!("{key}-sub"), &sub, k.c.text_muted))
+    });
     let trail = if c.mentions > 0 {
         Some(
             row()
@@ -654,16 +837,29 @@ pub fn conv_item(
                 .radius(9.0)
                 .center()
                 .fill(k.c.icon_accent)
-                .child(text(c.unread.to_string()).font(ts(10.5, 600.0)).color(k.c.white)),
+                .child(
+                    text(c.unread.to_string())
+                        .font(ts(10.5, 600.0))
+                        .color(k.c.white),
+                ),
         )
     } else {
         None
     };
     let id = c.conv_id.clone();
-    item_row(f, &key, current, lead, name, sub, trail, move |s: &mut State| {
-        open(s, &id);
-        keep_open(s);
-    })
+    item_row(
+        f,
+        &key,
+        current,
+        lead,
+        name,
+        sub,
+        trail,
+        move |s: &mut State| {
+            open(s, &id);
+            keep_open(s);
+        },
+    )
 }
 
 /// One message an agent sent to many agents (card #486): "owl → 16
@@ -671,7 +867,10 @@ pub fn conv_item(
 fn broadcast_item(s: &State, f: &Frame, b: &Broadcast, open_id: &str, now: i64) -> El {
     let k = f.k;
     let key = format!("talk-b-{}", short_hash(&b.id));
-    let from = b.convs.first().and_then(|c| logic::member_of(&c.members, &b.by));
+    let from = b
+        .convs
+        .first()
+        .and_then(|c| logic::member_of(&c.members, &b.by));
     let to = logic::broadcast_to(b);
     let unfolded = s
         .talk
@@ -693,14 +892,40 @@ fn broadcast_item(s: &State, f: &Frame, b: &Broadcast, open_id: &str, now: i64) 
                 .grow(1.0)
                 .min_w(0.0),
         )
-        .child(when(f, &format!("{key}-when"), &relative_time(b.last_at, now)));
-    let sub = sub_line(f, &format!("{key}-sub"), &plain_line(&b.text), k.c.text_muted);
-    let chev = icon(if unfolded { &icons::CHEVRON_DOWN } else { &icons::CHEVRON_RIGHT }, 12.0).color(k.c.text_muted);
+        .child(when(
+            f,
+            &format!("{key}-when"),
+            &relative_time(b.last_at, now),
+        ));
+    let sub = sub_line(
+        f,
+        &format!("{key}-sub"),
+        &plain_line(&b.text),
+        k.c.text_muted,
+    );
+    let chev = icon(
+        if unfolded {
+            &icons::CHEVRON_DOWN
+        } else {
+            &icons::CHEVRON_RIGHT
+        },
+        12.0,
+    )
+    .color(k.c.text_muted);
     let id = b.id.clone();
     let mut out = col().key(format!("{key}-wrap")).w_full().child(
-        item_row(f, &key, false, Some(lead_icon(f, &icons::EYE)), name, Some(sub), Some(chev), move |s: &mut State| {
-            s.talk.unfolded.insert(id.clone(), !unfolded);
-        })
+        item_row(
+            f,
+            &key,
+            false,
+            Some(lead_icon(f, &icons::EYE)),
+            name,
+            Some(sub),
+            Some(chev),
+            move |s: &mut State| {
+                s.talk.unfolded.insert(id.clone(), !unfolded);
+            },
+        )
         .expanded(unfolded),
     );
     if unfolded {
@@ -721,7 +946,11 @@ fn broadcast_item(s: &State, f: &Frame, b: &Broadcast, open_id: &str, now: i64) 
                 .child(
                     text(format!("→ {}", member_name(&m.kind, &m.name)))
                         .font(ts(12.0, 400.0))
-                        .color(if current { k.c.text_base } else { k.c.text_muted })
+                        .color(if current {
+                            k.c.text_base
+                        } else {
+                            k.c.text_muted
+                        })
                         .max_lines(1),
                 );
             if current {
@@ -749,10 +978,14 @@ fn thread_item(f: &Frame, t: &ThreadSummary, current: bool, why: &str) -> El {
     let k = f.k;
     let key = format!("talk-t-{}", t.id);
     let waiting = t.state == THREAD_WAITING || t.state == THREAD_HANDED;
-    let needs = logic::needs_you(&t.state, &t.no_agent);
+    let needs = logic::needs_you(t.unread, &t.no_agent);
     let name = text(plain_line(&t.title))
         .key(format!("{key}-n"))
-        .font(if needs { ts(13.0, 500.0) } else { ts(13.0, 400.0) })
+        .font(if needs {
+            ts(13.0, 500.0)
+        } else {
+            ts(13.0, 400.0)
+        })
         .color(k.c.text_base)
         .max_lines(1)
         .w_full();
@@ -760,19 +993,30 @@ fn thread_item(f: &Frame, t: &ThreadSummary, current: bool, why: &str) -> El {
         f,
         &format!("{key}-sub"),
         &logic::state_line(t, why),
-        if waiting { crate::ui::theme::status::decide() } else { k.c.text_muted },
+        if waiting {
+            crate::ui::theme::status::decide()
+        } else {
+            k.c.text_muted
+        },
     );
     let dot = needs.then(|| {
         el().key(format!("{key}-dot"))
             .size(8.0, 8.0)
             .radius(4.0)
             .fill(k.c.icon_accent)
-            .help("Answered: waiting on you")
+            .help(logic::needs_you_why(t.unread))
     });
     let id = t.id.clone();
-    item_row(f, &key, current, Some(lead_icon(f, &icons::MESSAGE_TEXT)), name, Some(sub), dot, move |s: &mut State| {
-        open(s, &id)
-    })
+    item_row(
+        f,
+        &key,
+        current,
+        Some(lead_icon(f, &icons::MESSAGE_TEXT)),
+        name,
+        Some(sub),
+        dot,
+        move |s: &mut State| open(s, &id),
+    )
 }
 
 /// New channel: its name (lowercase, no spaces or #); it goes in the
@@ -780,48 +1024,69 @@ fn thread_item(f: &Frame, t: &ThreadSummary, current: bool, why: &str) -> El {
 fn new_channel(s: &State, f: &Frame) -> El {
     let k = f.k;
     let space = threads_space(&super::picked_space(s)).to_string();
-    let mut c = col().key("talk-new-channel").w_full().px(4.0).pb(4.0).gap(4.0).child(
-        TextInput::new(&s.talk.new_channel)
-            .placeholder("channel-name")
-            .label("New channel's name")
-            .height(28.0)
-            .width(None)
-            .on_edit(|s: &mut State| &mut s.talk.new_channel)
-            .on_key(|s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
-                if matches!(ev.key, Key::Escape) {
-                    s.talk.adding = Adding::None;
-                    return true;
-                }
-                false
-            })
-            .on_submit(move |s: &mut State, _: &mut Tx| {
-                let clean = logic::channel_name(&s.talk.new_channel.text);
-                if clean.is_empty() {
-                    return;
-                }
-                let sp = space.clone();
-                s.spawn(
-                    move |w| w.talk_channel_create(&clean, None, (!sp.is_empty()).then_some(sp.as_str())),
-                    |s, r| match r {
-                        Ok(id) => {
-                            s.talk.adding = Adding::None;
-                            s.talk.new_channel.clear();
-                            s.talk.convs_loaded = true;
-                            s.spawn(|w| w.talk_conversations(), move |s, cs| {
-                                if let Ok(cs) = cs {
-                                    s.talk.convs = cs;
-                                }
-                                open(s, &id);
-                            });
-                        }
-                        Err(e) => s.talk.new_error = e,
-                    },
-                );
-            })
-            .build(k),
-    );
+    let mut c = col()
+        .key("talk-new-channel")
+        .w_full()
+        .px(4.0)
+        .pb(4.0)
+        .gap(4.0)
+        .child(
+            TextInput::new(&s.talk.new_channel)
+                .placeholder("channel-name")
+                .label("New channel's name")
+                .height(28.0)
+                .width(None)
+                .on_edit(|s: &mut State| &mut s.talk.new_channel)
+                .on_key(|s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
+                    if matches!(ev.key, Key::Escape) {
+                        s.talk.adding = Adding::None;
+                        return true;
+                    }
+                    false
+                })
+                .on_submit(move |s: &mut State, _: &mut Tx| {
+                    let clean = logic::channel_name(&s.talk.new_channel.text);
+                    if clean.is_empty() {
+                        return;
+                    }
+                    let sp = space.clone();
+                    s.spawn(
+                        move |w| {
+                            w.talk_channel_create(
+                                &clean,
+                                None,
+                                (!sp.is_empty()).then_some(sp.as_str()),
+                            )
+                        },
+                        |s, r| match r {
+                            Ok(id) => {
+                                s.talk.adding = Adding::None;
+                                s.talk.new_channel.clear();
+                                s.talk.convs_loaded = true;
+                                s.spawn(
+                                    |w| w.talk_conversations(),
+                                    move |s, cs| {
+                                        if let Ok(cs) = cs {
+                                            s.talk.convs = cs;
+                                        }
+                                        open(s, &id);
+                                    },
+                                );
+                            }
+                            Err(e) => s.talk.new_error = e,
+                        },
+                    );
+                })
+                .build(k),
+        );
     if !s.talk.new_error.is_empty() {
-        c = c.child(text(s.talk.new_error.clone()).font(ts(11.0, 400.0)).color(crate::ui::theme::status::failed()).w_full().wrap());
+        c = c.child(
+            text(s.talk.new_error.clone())
+                .font(ts(11.0, 400.0))
+                .color(crate::ui::theme::status::failed())
+                .w_full()
+                .wrap(),
+        );
     }
     c
 }
@@ -840,9 +1105,19 @@ fn new_dm(s: &State, f: &mut Frame) -> El {
         .fill(k.c.layer_01)
         .role("listbox")
         .label("Message someone");
-    let label = |t: &str| text(t.to_string()).font(ts(11.0, 500.0)).color(k.c.text_muted);
+    let label = |t: &str| {
+        text(t.to_string())
+            .font(ts(11.0, 500.0))
+            .color(k.c.text_muted)
+    };
     if !s.talk.people.is_empty() {
-        c = c.child(row().key("talk-dm-people-h").px(8.0).pt(2.0).child(label("People")));
+        c = c.child(
+            row()
+                .key("talk-dm-people-h")
+                .px(8.0)
+                .pt(2.0)
+                .child(label("People")),
+        );
         for p in &s.talk.people {
             let key = p.key.clone();
             c = c.child(
@@ -869,9 +1144,20 @@ fn new_dm(s: &State, f: &mut Frame) -> El {
                     ),
             );
         }
-        c = c.child(row().key("talk-dm-agents-h").px(8.0).pt(4.0).child(label("Agents")));
+        c = c.child(
+            row()
+                .key("talk-dm-agents-h")
+                .px(8.0)
+                .pt(4.0)
+                .child(label("Agents")),
+        );
     }
-    let agents: Vec<_> = s.data.agents.iter().filter(|a| a.card.status != "gone").collect();
+    let agents: Vec<_> = s
+        .data
+        .agents
+        .iter()
+        .filter(|a| a.card.status != "gone")
+        .collect();
     if agents.is_empty() {
         c = c.child(empty(f, "talk-dm-none", "No agents are running."));
     }
@@ -884,11 +1170,17 @@ fn new_dm(s: &State, f: &mut Frame) -> El {
             live: true,
             ..AgentRef::default()
         };
-        let face_el = face(s, f, &format!("talk-dm-a-{}-f", a.card.key), &who, FaceOpts {
-            inline: true,
-            no_hover: true,
-            ..FaceOpts::default()
-        });
+        let face_el = face(
+            s,
+            f,
+            &format!("talk-dm-a-{}-f", a.card.key),
+            &who,
+            FaceOpts {
+                inline: true,
+                no_hover: true,
+                ..FaceOpts::default()
+            },
+        );
         c = c.child(
             row()
                 .key(format!("talk-dm-a-{}", a.card.key))
@@ -942,13 +1234,16 @@ fn start_dm(s: &mut State, kind: &str, key: &str) {
         |s, r| match r {
             Ok(id) => {
                 s.talk.adding = Adding::None;
-                s.spawn(|w| w.talk_conversations(), move |s, cs| {
-                    if let Ok(cs) = cs {
-                        s.talk.convs = cs;
-                    }
-                    open(s, &id);
-                    keep_open(s);
-                });
+                s.spawn(
+                    |w| w.talk_conversations(),
+                    move |s, cs| {
+                        if let Ok(cs) = cs {
+                            s.talk.convs = cs;
+                        }
+                        open(s, &id);
+                        keep_open(s);
+                    },
+                );
             }
             Err(e) => s.talk.new_error = e,
         },
