@@ -473,7 +473,8 @@ pub fn overlay(s: &State, f: &mut Frame) {
 /// The headless scene's page: the board's header with the view switch over
 /// the canvas. `None` unless the scene is on.
 pub fn page(s: &State, f: &mut Frame) -> Option<El> {
-    if !s.canvas.scene {
+    // A card opened from the canvas shows its page over it.
+    if !s.canvas.scene || s.nav.card.is_some() {
         return None;
     }
     let title = match &s.nav.route {
@@ -531,31 +532,49 @@ fn board_canvas(s: &State, f: &mut Frame, cards: &[&CardSummary], full: bool) ->
         gap *= 2.0;
     }
     m.dot_gap.set(gap);
-    // The minimap's scale.
     let narrow = size[0] > 0.0 && size[0] < 640.0;
+    let sig = signature(&map.graph, size);
+    if !m.touched && sig != m.fitted.get() && size[0] > 0.0 {
+        m.fitted.set(sig);
+        m.fit(b);
+    }
+    // The minimap shows the map and the view together (React Flow's
+    // MiniMap), as the view stood when this view ran.
     let mini = if b.w > 0.0 && b.h > 0.0 {
-        let pad = 8.0;
-        let scale = ((MINI_W - 2.0 * pad) / b.w).min((MINI_H - 2.0 * pad) / b.h);
+        let (pan, z) = m.camera();
+        let mut u = b;
+        if size[0] > 0.0 {
+            let v = Rect {
+                x: -pan[0] / z,
+                y: -pan[1] / z,
+                w: size[0] / z,
+                h: size[1] / z,
+            };
+            let (x0, y0) = (u.x.min(v.x), u.y.min(v.y));
+            let (x1, y1) = ((u.x + u.w).max(v.x + v.w), (u.y + u.h).max(v.y + v.h));
+            u = Rect {
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+            };
+        }
+        let pad = 6.0;
+        let scale = ((MINI_W - 2.0 * pad) / u.w).min((MINI_H - 2.0 * pad) / u.h);
         Mini {
             scale,
             off: [
-                (MINI_W - b.w * scale) / 2.0 - b.x * scale,
-                (MINI_H - b.h * scale) / 2.0 - b.y * scale,
+                (MINI_W - u.w * scale) / 2.0 - u.x * scale,
+                (MINI_H - u.h * scale) / 2.0 - u.y * scale,
             ],
         }
     } else {
         Mini::default()
     };
     m.mini.set(mini);
-    let sig = signature(&map.graph, size);
-    if !m.touched && sig != m.fitted.get() && size[0] > 0.0 {
-        m.fitted.set(sig);
-        m.fit(b);
-    } else {
-        // Keep the live values in step with what this view draws.
-        let (pan, z) = m.camera();
-        m.set_camera(pan, z);
-    }
+    // Keep the live values in step with what this view draws.
+    let (pan, z) = m.camera();
+    m.set_camera(pan, z);
 
     let mut world = el()
         .key("canvas/world")
