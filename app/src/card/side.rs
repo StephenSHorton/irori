@@ -72,7 +72,9 @@ pub fn view(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> El 
     let links = side_links(d);
     let files = card_files(d);
     let spinning = lc::busy(&lc::Work::from(now_));
-    let mut p = panel(f, "card/side").label("About the card").clip_rounded(12.0);
+    let mut p = panel(f, "card/side")
+        .label("About the card")
+        .clip_rounded(12.0);
 
     // Progress.
     let mut prog = Vec::new();
@@ -89,12 +91,15 @@ pub fn view(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> El 
         if !d.steps.is_empty() {
             let open = s.card.ui.old_steps;
             let mut fold = col().key("card/old-steps").w_full().gap(6.0).child(
-                text(format!("{} Steps done before the split", if open { "▾" } else { "▸" }))
-                    .font(f.k.ty.text_xsmall)
-                    .color(f.k.c.text_muted)
-                    .role("button")
-                    .cursor(rune::Cursor::Pointer)
-                    .on_press(|s: &mut State| s.card.ui.old_steps = !s.card.ui.old_steps),
+                text(format!(
+                    "{} Steps done before the split",
+                    if open { "▾" } else { "▸" }
+                ))
+                .font(f.k.ty.text_xsmall)
+                .color(f.k.c.text_muted)
+                .role("button")
+                .cursor(rune::Cursor::Pointer)
+                .on_press(|s: &mut State| s.card.ui.old_steps = !s.card.ui.old_steps),
             );
             if open {
                 fold = fold.child(steps(f, d, false));
@@ -107,40 +112,59 @@ pub fn view(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> El 
     prog.extend(where_lines(f, d));
     p = p.child(section(f, "card/side-progress", "Progress", false, prog));
 
-    let last_people = d.reviews.is_empty() && d.prs.is_empty() && links.is_empty() && files.is_empty();
+    let last_people =
+        d.reviews.is_empty() && d.prs.is_empty() && links.is_empty() && files.is_empty();
     let people = super::people::people(s, f, d, now_);
-    p = p.child(section(f, "card/side-people", "Who's on it", last_people, vec![people]));
+    p = p.child(section(
+        f,
+        "card/side-people",
+        "Who's on it",
+        last_people,
+        vec![people],
+    ));
 
     if !d.reviews.is_empty() {
         let mut g = col().w_full().gap(8.0);
         for (i, r) in d.reviews.iter().enumerate() {
             g = g.child(review_row(s, f, &format!("card/review{i}"), r));
         }
-        p = p.child(section(f, "card/side-review", "Review", d.prs.is_empty() && links.is_empty() && files.is_empty(), vec![g]));
+        p = p.child(section(
+            f,
+            "card/side-review",
+            "Review",
+            d.prs.is_empty() && links.is_empty() && files.is_empty(),
+            vec![g],
+        ));
     }
     if !d.prs.is_empty() {
         let mut g = col().w_full().gap(8.0);
         for (i, pr) in d.prs.iter().enumerate() {
             g = g.child(pr_row(f, &format!("card/pr{i}"), pr));
         }
-        p = p.child(section(f, "card/side-prs", "Pull requests", links.is_empty() && files.is_empty(), vec![g]));
+        p = p.child(section(
+            f,
+            "card/side-prs",
+            "Pull requests",
+            links.is_empty() && files.is_empty(),
+            vec![g],
+        ));
     }
     if !links.is_empty() {
         let mut g = row().w_full().gap(6.0).flex_wrap();
         for (i, (kind, r, label)) in links.iter().enumerate() {
             g = g.child(tt::link_chip(f, &format!("card/link{i}"), kind, r, label));
         }
-        p = p.child(section(f, "card/side-links", "Links", files.is_empty(), vec![g]));
+        p = p.child(section(
+            f,
+            "card/side-links",
+            "Links",
+            files.is_empty(),
+            vec![g],
+        ));
     }
     if !files.is_empty() {
         let list = tt::attachment_list(s, f, "card/side-file-list", &files, true).w_full();
-        p = p.child(section(
-            f,
-            "card/side-files",
-            "Files",
-            true,
-            vec![list],
-        ));
+        p = p.child(section(f, "card/side-files", "Files", true, vec![list]));
     }
     p
 }
@@ -156,16 +180,26 @@ pub fn progress_line(f: &Frame, key: &str, d: &CardDetail) -> Option<El> {
                 "{} of {} {} · {p}%",
                 c.progress.done,
                 c.progress.total,
-                if c.subtasks > 0 { "subtasks done" } else { "steps" }
+                if c.subtasks > 0 {
+                    "subtasks done"
+                } else {
+                    "steps"
+                }
             ),
             k.c.text_muted,
         ));
     }
     if !c.subtask_blocked.is_empty() && c.open_blockers == 0 {
-        parts.push((format!("blocked by {}", plain_line(&c.subtask_blocked)), k.c.warning.fg));
+        parts.push((
+            format!("blocked by {}", plain_line(&c.subtask_blocked)),
+            k.c.warning.fg,
+        ));
     }
     if c.open_blockers > 0 {
-        parts.push((format!("{} waiting on a decision", c.open_blockers), k.c.danger.fg));
+        parts.push((
+            format!("{} waiting on a decision", c.open_blockers),
+            k.c.danger.fg,
+        ));
     }
     if c.waiting_on > 0 && c.later.is_none() {
         let l = wait_label(&Wait::from(c));
@@ -190,7 +224,14 @@ pub fn progress_line(f: &Frame, key: &str, d: &CardDetail) -> Option<El> {
         spans.push(rune::Span::new(line.len(), line.len() + t.len()).color(color));
         line.push_str(&t);
     }
-    Some(rune::rich(line, spans).key(key.to_string()).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap())
+    Some(
+        rune::rich(line, spans)
+            .key(key.to_string())
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap(),
+    )
 }
 
 /// The card's checklist: done ones ticked, the current one marked (the
@@ -208,7 +249,18 @@ fn steps(f: &Frame, d: &CardDetail, spinning: bool) -> El {
                 .map(display_name)
                 .unwrap_or_else(|| st.owner.clone())
         };
-        l = l.child(step_row(f, &format!("card/step-{}", st.id), StepView { text: &st.text, done: st.done, doing: st.doing }, spinning, false, &owner));
+        l = l.child(step_row(
+            f,
+            &format!("card/step-{}", st.id),
+            StepView {
+                text: &st.text,
+                done: st.done,
+                doing: st.doing,
+            },
+            spinning,
+            false,
+            &owner,
+        ));
     }
     l
 }
@@ -221,7 +273,14 @@ pub struct StepView<'a> {
 }
 
 /// One step: its mark and words.
-pub fn step_row(f: &Frame, key: &str, st: StepView, spinning: bool, strip: bool, owner: &str) -> El {
+pub fn step_row(
+    f: &Frame,
+    key: &str,
+    st: StepView,
+    spinning: bool,
+    strip: bool,
+    owner: &str,
+) -> El {
     let k = f.k;
     let current = st.doing && !st.done;
     let mark = if current && spinning {
@@ -244,9 +303,20 @@ pub fn step_row(f: &Frame, key: &str, st: StepView, spinning: bool, strip: bool,
         (words.clone(), vec![])
     } else {
         let w = format!("{words}  · {owner}");
-        (w, vec![rune::Span::new(words.len(), words.len() + owner.len() + 4).size(12.0).color(k.c.text_muted)])
+        (
+            w,
+            vec![
+                rune::Span::new(words.len(), words.len() + owner.len() + 4)
+                    .size(12.0)
+                    .color(k.c.text_muted),
+            ],
+        )
     };
-    let font = if current || strip { ts(13.0, 500.0) } else { ts(13.0, 400.0) };
+    let font = if current || strip {
+        ts(13.0, 500.0)
+    } else {
+        ts(13.0, 400.0)
+    };
     let color = if current || strip {
         k.c.text_base
     } else if st.done {
@@ -269,14 +339,25 @@ pub fn step_row(f: &Frame, key: &str, st: StepView, spinning: bool, strip: bool,
         .items_start()
         .label(format!("{state}{words}"))
         .child(el().w(16.0).pt(2.0).child(mark))
-        .child(rune::rich(line, spans).font(font).color(color).grow(1.0).min_w(0.0).wrap())
+        .child(
+            rune::rich(line, spans)
+                .font(font)
+                .color(color)
+                .grow(1.0)
+                .min_w(0.0)
+                .wrap(),
+        )
 }
 
 /// A parent's subtasks: each with its ref, title, state, holder and
 /// progress, opening its page on a click.
 fn subtasks(s: &State, f: &Frame, list: &[CardSubtask]) -> El {
     let k = f.k;
-    let mut l = col().key("card/subtasks").w_full().gap(4.0).label("Subtasks");
+    let mut l = col()
+        .key("card/subtasks")
+        .w_full()
+        .gap(4.0)
+        .label("Subtasks");
     for st in list {
         let over = lc::over(&st.state);
         let id = st.id.clone();
@@ -289,13 +370,23 @@ fn subtasks(s: &State, f: &Frame, list: &[CardSubtask]) -> El {
             .map(|a| (a.card.status.as_str(), ms(&a.card.status_since)));
         let h = lc::holder_line(&st.holder, None, live, now_ms());
         let title = plain_line(&st.title);
-        let mut sub = row()
-            .w_full()
-            .gap(8.0)
-            .center_y()
-            .child(text(h.text).font(ts(11.0, 400.0)).color(if h.warn { k.c.warning.fg } else { k.c.text_muted }).shrink().max_lines(1));
+        let mut sub = row().w_full().gap(8.0).center_y().child(
+            text(h.text)
+                .font(ts(11.0, 400.0))
+                .color(if h.warn {
+                    k.c.warning.fg
+                } else {
+                    k.c.text_muted
+                })
+                .shrink()
+                .max_lines(1),
+        );
         if let Some(p) = p {
-            sub = sub.child(text(format!("{p}%")).font(ts(11.0, 400.0)).color(k.c.text_muted));
+            sub = sub.child(
+                text(format!("{p}%"))
+                    .font(ts(11.0, 400.0))
+                    .color(k.c.text_muted),
+            );
         }
         l = l.child(
             col()
@@ -313,20 +404,40 @@ fn subtasks(s: &State, f: &Frame, list: &[CardSubtask]) -> El {
                         .w_full()
                         .gap(8.0)
                         .center_y()
-                        .child(text(lc::ref_text(&st.tag, &st.short)).font(k.ty.text_xsmall.mono()).color(k.c.text_muted))
+                        .child(
+                            text(lc::ref_text(&st.tag, &st.short))
+                                .font(k.ty.text_xsmall.mono())
+                                .color(k.c.text_muted),
+                        )
                         .child({
-                            let t = text(if title.is_empty() { "(untitled)".into() } else { title.clone() })
-                                .font(ts(13.0, 400.0))
-                                .color(if over { k.c.text_muted } else { k.c.text_base })
-                                .grow(1.0)
-                                .min_w(0.0)
-                                .max_lines(1);
-                            if over { t.strike(0, title.len().max(10), None) } else { t }
+                            let t = text(if title.is_empty() {
+                                "(untitled)".into()
+                            } else {
+                                title.clone()
+                            })
+                            .font(ts(13.0, 400.0))
+                            .color(if over { k.c.text_muted } else { k.c.text_base })
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .max_lines(1);
+                            if over {
+                                t.strike(0, title.len().max(10), None)
+                            } else {
+                                t
+                            }
                         })
                         .child(
-                            text(if st.blocked { "BLOCKED".to_string() } else { st.state.replace('_', " ").to_uppercase() })
-                                .font(ts(11.0, 400.0).tracking(0.4))
-                                .color(if st.blocked { k.c.danger.fg } else { k.c.text_muted }),
+                            text(if st.blocked {
+                                "BLOCKED".to_string()
+                            } else {
+                                st.state.replace('_', " ").to_uppercase()
+                            })
+                            .font(ts(11.0, 400.0).tracking(0.4))
+                            .color(if st.blocked {
+                                k.c.danger.fg
+                            } else {
+                                k.c.text_muted
+                            }),
                         ),
                 )
                 .child(sub.pl(30.0)),
@@ -352,13 +463,25 @@ fn where_lines(f: &Frame, d: &CardDetail) -> Option<El> {
     if let Some(l) = &c.left_off {
         let lead = "Left off: ";
         let body = plain_line(&l.text);
-        let tail = format!(" · {}, {}", display_name(&l.by), ms(&l.at).map(|t| relative_time(t, now)).unwrap_or_default());
+        let tail = format!(
+            " · {}, {}",
+            display_name(&l.by),
+            ms(&l.at).map(|t| relative_time(t, now)).unwrap_or_default()
+        );
         let line = format!("{lead}{body}{tail}");
         let spans = vec![
-            rune::Span::new(0, lead.len()).weight(500.0).color(k.c.text_base),
+            rune::Span::new(0, lead.len())
+                .weight(500.0)
+                .color(k.c.text_base),
             rune::Span::new(lead.len() + body.len(), line.len()).color(k.c.text_muted.alpha(0.7)),
         ];
-        out = out.child(rune::rich(line, spans).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap());
+        out = out.child(
+            rune::rich(line, spans)
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     }
     if let Some(w) = &c.where_ {
         let branch = plain_line(&w.branch);
@@ -369,22 +492,33 @@ fn where_lines(f: &Frame, d: &CardDetail) -> Option<El> {
             .flex_wrap()
             .child(text("Where:").font(ts(12.0, 500.0)).color(k.c.text_base))
             .child(
-                text(if branch.is_empty() { "detached".into() } else { branch })
-                    .font(k.ty.text_xsmall.mono())
-                    .color(k.c.text_base),
+                text(if branch.is_empty() {
+                    "detached".into()
+                } else {
+                    branch
+                })
+                .font(k.ty.text_xsmall.mono())
+                .color(k.c.text_base),
             );
         if !w.head.is_empty() {
             r = r.child(
-                text(format!("@ {}", plain_line(&w.head).chars().take(7).collect::<String>()))
-                    .font(k.ty.text_xsmall.mono())
-                    .color(k.c.text_muted),
+                text(format!(
+                    "@ {}",
+                    plain_line(&w.head).chars().take(7).collect::<String>()
+                ))
+                .font(k.ty.text_xsmall.mono())
+                .color(k.c.text_muted),
             );
         }
         r = r.child(bits::badge(
             f,
             "card/where-pushed",
             if w.pushed { "Pushed" } else { "Not pushed" },
-            if w.pushed { Tone::Success } else { Tone::Warning },
+            if w.pushed {
+                Tone::Success
+            } else {
+                Tone::Warning
+            },
             false,
             "",
         ));
@@ -402,7 +536,11 @@ fn where_lines(f: &Frame, d: &CardDetail) -> Option<El> {
             .child(
                 text(format!(
                     "on {} · {} · seen {}",
-                    if device.is_empty() { "this device".into() } else { device },
+                    if device.is_empty() {
+                        "this device".into()
+                    } else {
+                        device
+                    },
                     display_name(&w.who),
                     ms(&w.at).map(|t| relative_time(t, now)).unwrap_or_default()
                 ))
@@ -423,14 +561,25 @@ fn review_row(s: &State, f: &mut Frame, key: &str, r: &CardReview) -> El {
         "changes" => ("changes asked", Tone::Warning),
         _ => ("requested", Tone::Info),
     };
-    let when = ms(&r.at).map(|t| relative_time(t, now_ms())).unwrap_or_default();
+    let when = ms(&r.at)
+        .map(|t| relative_time(t, now_ms()))
+        .unwrap_or_default();
     let mut sub = format!(" · asked by {}", display_name(&r.asked_by));
     if !r.pr.is_empty() {
         sub.push_str(&format!(" · {}", plain_line(&r.pr)));
     }
     let name = display_name(&r.reviewer);
     let line = format!("{name}{sub}");
-    let face = faces::face(s, f, &format!("{key}/face"), &r.reviewer, faces::FaceOpts { no_dot: true, ..Default::default() });
+    let face = faces::face(
+        s,
+        f,
+        &format!("{key}/face"),
+        &r.reviewer,
+        faces::FaceOpts {
+            no_dot: true,
+            ..Default::default()
+        },
+    );
     let mut c = col()
         .key(key.to_string())
         .w_full()
@@ -447,17 +596,38 @@ fn review_row(s: &State, f: &mut Frame, key: &str, r: &CardReview) -> El {
                 .center_y()
                 .child(el().w(22.0).child(face))
                 .child(
-                    rune::rich(line, vec![rune::Span::new(name.len(), name.len() + sub.len()).size(12.0).color(k.c.text_muted)])
-                        .font(ts(13.0, 400.0))
-                        .color(k.c.text_base)
-                        .grow(1.0)
-                        .min_w(0.0)
-                        .max_lines(1),
+                    rune::rich(
+                        line,
+                        vec![
+                            rune::Span::new(name.len(), name.len() + sub.len())
+                                .size(12.0)
+                                .color(k.c.text_muted),
+                        ],
+                    )
+                    .font(ts(13.0, 400.0))
+                    .color(k.c.text_base)
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .max_lines(1),
                 )
-                .child(bits::badge(f, &format!("{key}/state"), label, tone, false, &when)),
+                .child(bits::badge(
+                    f,
+                    &format!("{key}/state"),
+                    label,
+                    tone,
+                    false,
+                    &when,
+                )),
         );
     if !r.text.is_empty() {
-        c = c.child(text(r.text.clone()).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap().selectable(true));
+        c = c.child(
+            text(r.text.clone())
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap()
+                .selectable(true),
+        );
     }
     c
 }
@@ -487,7 +657,11 @@ fn pr_row(f: &Frame, key: &str, pr: &CardPR) -> El {
         .min_w(0.0)
         .gap(8.0)
         .center_y()
-        .child(text(format!("#{}", pr.number)).font(k.ty.text_xsmall.mono()).color(k.c.text_muted))
+        .child(
+            text(format!("#{}", pr.number))
+                .font(k.ty.text_xsmall.mono())
+                .color(k.c.text_muted),
+        )
         .child(
             text(plain_line(&pr.repo))
                 .font(ts(13.0, 500.0))
@@ -501,21 +675,34 @@ fn pr_row(f: &Frame, key: &str, pr: &CardPR) -> El {
         head = head.child(c);
     }
     head = head.child(el().grow(1.0)).child(
-        Button::new(if label.is_empty() { format!("#{}", pr.number) } else { label })
-            .variant(ButtonVariant::Ghost)
-            .control_size(ControlSize::Mini)
-            .icon(&icons::EXTERNAL_LINK)
-            .help(pr.url.clone())
-            .on_press_tx(move |_: &mut State, tx: &mut Tx| {
-                let _ = tx.open_url(&url);
-            })
-            .build(k),
+        Button::new(if label.is_empty() {
+            format!("#{}", pr.number)
+        } else {
+            label
+        })
+        .variant(ButtonVariant::Ghost)
+        .control_size(ControlSize::Mini)
+        .icon(&icons::EXTERNAL_LINK)
+        .help(pr.url.clone())
+        .on_press_tx(move |_: &mut State, tx: &mut Tx| {
+            let _ = tx.open_url(&url);
+        })
+        .build(k),
     );
-    let roles = [("Opened by", &pr.opened_by), ("Reviewed by", &pr.reviewed_by), ("Also touched by", &pr.touched_by)];
+    let roles = [
+        ("Opened by", &pr.opened_by),
+        ("Reviewed by", &pr.reviewed_by),
+        ("Also touched by", &pr.touched_by),
+    ];
     let known: Vec<String> = roles
         .iter()
         .filter(|(_, w)| !w.is_empty())
-        .map(|(l, w)| format!("{l} {}", w.iter().map(display_name).collect::<Vec<_>>().join(", ")))
+        .map(|(l, w)| {
+            format!(
+                "{l} {}",
+                w.iter().map(display_name).collect::<Vec<_>>().join(", ")
+            )
+        })
         .collect();
     let mut c = col()
         .key(key.to_string())
@@ -528,11 +715,15 @@ fn pr_row(f: &Frame, key: &str, pr: &CardPR) -> El {
         .fill(k.c.bg_base.alpha(0.4))
         .child(head)
         .child(
-            text(if known.is_empty() { "No agent here has worked on it yet.".into() } else { known.join("   ") })
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_muted)
-                .w_full()
-                .wrap(),
+            text(if known.is_empty() {
+                "No agent here has worked on it yet.".into()
+            } else {
+                known.join("   ")
+            })
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap(),
         );
     if !pr.error.is_empty() {
         c = c.child(note(f, plain_line(&pr.error)));

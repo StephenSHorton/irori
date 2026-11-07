@@ -241,9 +241,9 @@ pub fn attachment_list(s: &State, f: &mut Frame, key: &str, files: &[File], comp
         out = out.child(r);
     }
     if !chips.is_empty() {
-        let mut r = row().key(format!("{key}/files")).gap(8.0).flex_wrap();
+        let mut r = row().key(format!("{key}/files")).w_full().min_w(0.0).gap(8.0).flex_wrap();
         for x in chips {
-            r = r.child(file_chip(s, f, &format!("{key}/file-{}", x.sha256), x));
+            r = r.child(file_chip(s, f, &format!("{key}/file-{}", x.sha256), x).shrink());
         }
         out = out.child(r);
     }

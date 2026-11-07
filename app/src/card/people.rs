@@ -17,7 +17,11 @@ use crate::widgets::{bits, confirm, faces, spawned_actions};
 
 /// One wait as Who's on it says it (card #87).
 pub fn wait_words(w: &CardWait) -> String {
-    if w.on_this { format!("waits {}", w.text) } else { format!("waiting on {}", w.text) }
+    if w.on_this {
+        format!("waits {}", w.text)
+    } else {
+        format!("waiting on {}", w.text)
+    }
 }
 
 const NOBODY: &str = "Nobody yet. An agent that takes the card shows here.";
@@ -44,10 +48,17 @@ pub fn people(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary) -> E
 }
 
 fn face_cell(s: &State, f: &mut Frame, key: &str, who: &AgentRef, watching: bool) -> El {
-    el().w(22.0)
-        
-        .center()
-        .child(faces::face(s, f, key, who, faces::FaceOpts { watching, no_dot: true, ..Default::default() }))
+    el().w(22.0).center().child(faces::face(
+        s,
+        f,
+        key,
+        who,
+        faces::FaceOpts {
+            watching,
+            no_dot: true,
+            ..Default::default()
+        },
+    ))
 }
 
 /// Name · where, with offline and conflict chips.
@@ -55,21 +66,30 @@ fn name_line(f: &Frame, key: &str, who: &AgentRef, tail: &str) -> El {
     let k = f.k;
     let name = display_name(who);
     let line = format!("{name} {tail}");
-    let mut r = row()
-        .grow(1.0)
+    let mut r = row().grow(1.0).min_w(0.0).gap(6.0).center_y().child(
+        rune::rich(
+            line,
+            vec![
+                rune::Span::new(name.len(), name.len() + 1 + tail.len())
+                    .size(12.0)
+                    .color(k.c.text_muted),
+            ],
+        )
+        .font(ts(13.0, 400.0))
+        .color(k.c.text_base)
+        .shrink()
         .min_w(0.0)
-        .gap(6.0)
-        .center_y()
-        .child(
-            rune::rich(line, vec![rune::Span::new(name.len(), name.len() + 1 + tail.len()).size(12.0).color(k.c.text_muted)])
-                .font(ts(13.0, 400.0))
-                .color(k.c.text_base)
-                .shrink()
-                .min_w(0.0)
-                .max_lines(1),
-        );
+        .max_lines(1),
+    );
     if who.offline {
-        r = r.child(bits::badge(f, &format!("{key}/offline"), "offline", Tone::Slate, false, ""));
+        r = r.child(bits::badge(
+            f,
+            &format!("{key}/offline"),
+            "offline",
+            Tone::Slate,
+            false,
+            "",
+        ));
     }
     if !who.conflict.is_empty() {
         r = r.child(bits::badge(
@@ -98,14 +118,40 @@ fn person_row(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary, r: &
             right = right.child(rv);
         }
     } else if r.role == Role::Working && !r.step_titles.is_empty() {
-        let more = if r.step_titles.len() > 1 { format!(" +{}", r.step_titles.len() - 1) } else { String::new() };
+        let more = if r.step_titles.len() > 1 {
+            format!(" +{}", r.step_titles.len() - 1)
+        } else {
+            String::new()
+        };
         let tip = format!(
             "Owns {}: on the card until they're done",
-            r.step_titles.iter().map(|t| format!("“{t}”")).collect::<Vec<_>>().join(", ")
+            r.step_titles
+                .iter()
+                .map(|t| format!("“{t}”"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-        right = right.child(small(format!("on {}{more}", r.step_titles[0])).max_w(224.0).max_lines(1).help(tip));
+        right = right.child(
+            small(format!("on {}{more}", r.step_titles[0]))
+                .max_w(224.0)
+                .max_lines(1)
+                .help(tip),
+        );
     } else if r.role == Role::Working {
-        if w.assigned {
+        if w.assigned && w.status == crate::logic::agent_counts::NOT_ANSWERING {
+            // Card #699: not a slow agent about to take it up.
+            right = right.child(
+                text("isn't answering")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.warning.fg),
+            );
+        } else if w.assigned && w.offline {
+            right = right.child(
+                text("its device is offline")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.warning.fg),
+            );
+        } else if w.assigned {
             right = right.child(if w.waiting {
                 text("waiting for it")
                     .font(k.ty.text_xsmall)
@@ -113,7 +159,11 @@ fn person_row(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary, r: &
                     .help("The hand-over is still queued or held: it hasn't reached this agent")
             } else {
                 let t = small("offered, not taken up yet".into());
-                if w.handoff.is_empty() { t } else { t.help(w.handoff.clone()) }
+                if w.handoff.is_empty() {
+                    t
+                } else {
+                    t.help(w.handoff.clone())
+                }
             });
         } else if let Some(p) = person_status(s, f, now_, w) {
             right = right.child(p);
@@ -126,13 +176,23 @@ fn person_row(s: &State, f: &mut Frame, d: &CardDetail, now_: &CardSummary, r: &
         .min_w(0.0)
         .gap(8.0)
         .center_y()
-        .child(face_cell(s, f, &format!("{key}/face"), w, r.role == Role::Watching))
+        .child(face_cell(
+            s,
+            f,
+            &format!("{key}/face"),
+            w,
+            r.role == Role::Watching,
+        ))
         .child(name_line(f, &key, w, &format!("· {}", w.where_)))
         .child(right);
     let mut c = col().key(key.clone()).w_full().gap(4.0).child(top);
     if r.role == Role::Working && w.spawned && !w.assigned && w.status != "gone" {
         // Card #456: an agent Irori started for this card.
-        let mut sub = col().w_full().gap(4.0).pl(30.0).child(small("Irori started it for this card".into()));
+        let mut sub = col()
+            .w_full()
+            .gap(4.0)
+            .pl(30.0)
+            .child(small("Irori started it for this card".into()));
         if !lc::over(&d.summary.state) {
             sub = sub.child(spawned_actions::spawned_actions(
                 s,
@@ -183,9 +243,18 @@ fn person_status(s: &State, f: &Frame, card: &CardSummary, who: &AgentRef) -> Op
     if lc::over(&card.state) {
         return None;
     }
-    let since = s.data.agents.iter().find(|a| a.card.key == who.key).and_then(|a| ms(&a.card.status_since));
+    let since = s
+        .data
+        .agents
+        .iter()
+        .find(|a| a.card.key == who.key)
+        .and_then(|a| ms(&a.card.status_since));
     let t = agent_status(&Who::from(who), since, now_ms()).text;
-    Some(text(if t.is_empty() { "on it".into() } else { t }).font(k.ty.text_xsmall).color(k.c.text_muted))
+    Some(
+        text(if t.is_empty() { "on it".into() } else { t })
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted),
+    )
 }
 
 /// One wait (card #87): an agent waiting on this card, or a holder
@@ -193,7 +262,11 @@ fn person_status(s: &State, f: &Frame, card: &CardSummary, who: &AgentRef) -> Op
 fn wait_row(s: &State, f: &mut Frame, w: &CardWait, more: &[CardWait]) -> El {
     let k = f.k;
     let key = format!("card/wait-{}", w.id);
-    let words = std::iter::once(w).chain(more).map(wait_words).collect::<Vec<_>>().join("; ");
+    let words = std::iter::once(w)
+        .chain(more)
+        .map(wait_words)
+        .collect::<Vec<_>>()
+        .join("; ");
     row()
         .key(key.clone())
         .w_full()
@@ -211,7 +284,11 @@ fn wait_row(s: &State, f: &mut Frame, w: &CardWait, more: &[CardWait]) -> El {
 fn revive(s: &State, f: &Frame, key: &str, who: &AgentRef, gone: &[GoneSession]) -> Option<El> {
     let g = gone.iter().find(|x| x.key == who.key && x.transcript)?;
     if s.card.ui.revived.contains(&who.key) {
-        return Some(text("revived").font(f.k.ty.text_xsmall).color(f.k.c.text_muted));
+        return Some(
+            text("revived")
+                .font(f.k.ty.text_xsmall)
+                .color(f.k.c.text_muted),
+        );
     }
     let mut q = format!(
         "Run claude --bg --resume for {} in {}?",

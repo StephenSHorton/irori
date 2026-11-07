@@ -34,12 +34,18 @@ pub struct BoardTarget {
 
 /// The one picked, else the open list's, else the first. A pick that
 /// isn't among the choices (another space's) is ignored.
-pub fn board_target(space: Option<&BoardSummary>, personal: &[SpaceBoard], list: Option<&SpaceBoard>, picked: Option<&str>) -> BoardTarget {
+pub fn board_target(
+    space: Option<&BoardSummary>,
+    personal: &[SpaceBoard],
+    list: Option<&SpaceBoard>,
+    picked: Option<&str>,
+) -> BoardTarget {
     let choices = match space {
         Some(s) => boards_of(s),
         None => personal.to_vec(),
     };
-    let find = |id: Option<&str>| id.and_then(|id| choices.iter().find(|x| x.board_id == id).cloned());
+    let find =
+        |id: Option<&str>| id.and_then(|id| choices.iter().find(|x| x.board_id == id).cloned());
     let on = find(picked)
         .or_else(|| find(list.map(|l| l.board_id.as_str())))
         .or_else(|| choices.first().cloned())
@@ -86,11 +92,20 @@ fn dialog_space(s: &State) -> Option<Option<String>> {
 /// The space and the board list the dialog was opened from.
 fn context(s: &State) -> (Option<&BoardSummary>, Option<SpaceBoard>) {
     let space_id = dialog_space(s).flatten();
-    let space = space_id.as_deref().and_then(|id| s.data.spaces.iter().find(|b| b.board_id == id));
+    let space = space_id
+        .as_deref()
+        .and_then(|id| s.data.spaces.iter().find(|b| b.board_id == id));
     let list = match &s.nav.route {
-        Route::Board { space: sp, board: Some(b) } => {
+        Route::Board {
+            space: sp,
+            board: Some(b),
+        } => {
             if let Some(sb) = space {
-                if *sp == sb.board_id { boards_of(sb).into_iter().find(|x| x.board_id == *b) } else { None }
+                if *sp == sb.board_id {
+                    boards_of(sb).into_iter().find(|x| x.board_id == *b)
+                } else {
+                    None
+                }
             } else if sp == PERSONAL {
                 s.card.personal.iter().find(|x| x.board_id == *b).cloned()
             } else {
@@ -113,7 +128,13 @@ pub fn opened(s: &mut State) {
     // The title takes the keyboard as the dialog opens (autoFocus).
     s.card.new_card.title.focused = true;
     s.spawn(
-        move |w| (w.ask_repos(), w.agents_settings(&space), w.boards_personal().unwrap_or_default()),
+        move |w| {
+            (
+                w.ask_repos(),
+                w.agents_settings(&space),
+                w.boards_personal().unwrap_or_default(),
+            )
+        },
         |s, (repos, spawn, personal)| {
             s.card.new_card.repos = repos;
             s.card.new_card.spawn = Some(spawn);
@@ -141,7 +162,12 @@ pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is(irori_window::boards::EVENT_BOARDS_CHANGED) {
         let space = dialog_space(s).flatten().unwrap_or_default();
         s.spawn(
-            move |w| (w.agents_settings(&space), w.boards_personal().unwrap_or_default()),
+            move |w| {
+                (
+                    w.agents_settings(&space),
+                    w.boards_personal().unwrap_or_default(),
+                )
+            },
             |s, (spawn, personal)| {
                 s.card.new_card.spawn = Some(spawn);
                 s.card.personal = personal;
@@ -151,10 +177,18 @@ pub fn on_event(s: &mut State, ev: &Event) {
 }
 
 fn label(f: &Frame, t: &str) -> El {
-    text(t.to_string()).font(f.k.ty.small_medium).color(f.k.c.text_base)
+    text(t.to_string())
+        .font(f.k.ty.small_medium)
+        .color(f.k.c.text_base)
 }
 
-fn field(f: &Frame, edit: &TextEdit, key: &str, placeholder: &str, get: fn(&mut State) -> &mut TextEdit) -> El {
+fn field(
+    f: &Frame,
+    edit: &TextEdit,
+    key: &str,
+    placeholder: &str,
+    get: fn(&mut State) -> &mut TextEdit,
+) -> El {
     let k = f.k;
     text_input(edit, k.ty.ui)
         .key(key.to_string())
@@ -168,6 +202,20 @@ fn field(f: &Frame, edit: &TextEdit, key: &str, placeholder: &str, get: fn(&mut 
         .placeholder(placeholder.to_string(), k.c.text_faint)
         .on_edit(rune::edit_access(get))
         .on_submit(|s: &mut State, _tx: &mut Tx| create(s))
+}
+
+/// The longest title (React's maxLength).
+const TITLE_MAX: usize = 200;
+
+/// Keeps the title to [`TITLE_MAX`] characters, the caret at its end when
+/// it was cut.
+fn cap_title(t: &mut TextEdit) {
+    if let Some((cut, _)) = t.text.char_indices().nth(TITLE_MAX) {
+        let kept = t.text[..cut].to_string();
+        let focused = t.focused;
+        *t = TextEdit::new(kept);
+        t.focused = focused;
+    }
 }
 
 fn model_label(v: &str) -> String {
@@ -249,14 +297,31 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
     let fresh = n.spawn.as_ref().is_some_and(|x| x.on);
     let giving = n.assign_to.starts_with("person:");
     let members: Vec<(String, String)> = space
-        .map(|sp| sp.members.iter().filter(|m| !m.me).map(|m| (m.person_id.clone(), plain_line(&m.name))).collect())
+        .map(|sp| {
+            sp.members
+                .iter()
+                .filter(|m| !m.me)
+                .map(|m| (m.person_id.clone(), plain_line(&m.name)))
+                .collect()
+        })
         .unwrap_or_default();
-    let spawned: std::collections::HashSet<&str> = s.data.agents.iter().filter(|a| a.spawned).map(|a| a.card.key.as_str()).collect();
+    let spawned: std::collections::HashSet<&str> = s
+        .data
+        .agents
+        .iter()
+        .filter(|a| a.spawned)
+        .map(|a| a.card.key.as_str())
+        .collect();
     let agents: Vec<&crate::text::mentions::Candidate> = s
         .text
         .cands
         .iter()
-        .filter(|c| c.who.live && c.board.is_empty() && c.card.is_empty() && !spawned.contains(c.who.key.as_str()))
+        .filter(|c| {
+            c.who.live
+                && c.board.is_empty()
+                && c.card.is_empty()
+                && !spawned.contains(c.who.key.as_str())
+        })
         .collect();
 
     let title = match &board_name {
@@ -292,36 +357,59 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
         .gap(12.0)
         .px(16.0)
         .pb(16.0)
-        .child(text(desc).font(k.ty.ui).color(k.c.text_muted).w_full().wrap())
-        .child(col().w_full().gap(6.0).child(label(f, "Title")).child(field(f, &n.title, "card/new-title", "What needs doing", |s| {
-            &mut s.card.new_card.title
-        })))
         .child(
-            col().w_full().gap(6.0).child(label(f, "Goal")).child(tt::composer(
-                s,
-                f,
-                "card/new-goal",
-                goal,
-                goal_mut,
-                &ComposerOpts {
-                    placeholder: "What and why (optional)".into(),
-                    label: "Goal".into(),
-                    no_mentions: Some(String::new()),
-                    disabled: n.busy,
-                    rows: Some((2, 8)),
-                    popup_below: true,
-                    on_send: None,
-                    ..ComposerOpts::default()
-                },
-            )),
+            text(desc)
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
         )
-        .child(col().w_full().gap(6.0).child(label(f, "Done when")).child(field(
-            f,
-            &n.done_when,
-            "card/new-done",
-            "How to tell it's done (optional)",
-            |s| &mut s.card.new_card.done_when,
-        )));
+        .child(
+            col().w_full().gap(6.0).child(label(f, "Title")).child(
+                field(f, &n.title, "card/new-title", "What needs doing", |s| {
+                    &mut s.card.new_card.title
+                })
+                .on_input_change(|s: &mut State, _tx: &mut Tx| {
+                    cap_title(&mut s.card.new_card.title)
+                }),
+            ),
+        )
+        .child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(label(f, "Goal"))
+                .child(tt::composer(
+                    s,
+                    f,
+                    "card/new-goal",
+                    goal,
+                    goal_mut,
+                    &ComposerOpts {
+                        placeholder: "What and why (optional)".into(),
+                        label: "Goal".into(),
+                        no_mentions: Some(String::new()),
+                        disabled: n.busy,
+                        rows: Some((2, 8)),
+                        popup_below: true,
+                        on_send: None,
+                        ..ComposerOpts::default()
+                    },
+                )),
+        )
+        .child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(label(f, "Done when"))
+                .child(field(
+                    f,
+                    &n.done_when,
+                    "card/new-done",
+                    "How to tell it's done (optional)",
+                    |s| &mut s.card.new_card.done_when,
+                )),
+        );
     if t.choices.len() > 1
         && let Some(o) = &on
     {
@@ -330,27 +418,45 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
             .iter()
             .map(|x| {
                 let name = plain_line(&x.name);
-                let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+                let name = if name.is_empty() {
+                    "(unnamed)".to_string()
+                } else {
+                    name
+                };
                 Choice::new(
                     x.board_id.clone(),
-                    if x.tag.is_empty() { name } else { format!("{name} · {}#", plain_line(&x.tag)) },
+                    if x.tag.is_empty() {
+                        name
+                    } else {
+                        format!("{name} · {}#", plain_line(&x.tag))
+                    },
                 )
             })
             .collect();
-        body = body.child(col().w_full().gap(6.0).child(label(f, "Board")).child(choice_select(
-            s,
-            f,
-            "card/new-board",
-            "Board",
-            &o.board_id,
-            &choices,
-            n.busy,
-            460.0,
-            |s, v| s.card.new_card.picked = Some(v.to_string()),
-        )));
+        body = body.child(
+            col()
+                .w_full()
+                .gap(6.0)
+                .child(label(f, "Board"))
+                .child(choice_select(
+                    s,
+                    f,
+                    "card/new-board",
+                    "Board",
+                    &o.board_id,
+                    &choices,
+                    n.busy,
+                    460.0,
+                    |s, v| s.card.new_card.picked = Some(v.to_string()),
+                )),
+        );
     }
     let mut repo_choices = vec![Choice::new("", "No repo")];
-    repo_choices.extend(n.repos.iter().map(|r| Choice::new(r.repo_key.clone(), r.label.clone())));
+    repo_choices.extend(
+        n.repos
+            .iter()
+            .map(|r| Choice::new(r.repo_key.clone(), r.label.clone())),
+    );
     let nobody = if fresh {
         "A fresh agent"
     } else if space.is_some() {
@@ -360,29 +466,47 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
     };
     let mut who_choices = vec![Choice::new("", nobody)];
     who_choices.extend(members.iter().map(|(id, name)| {
-        Choice::new(format!("person:{id}"), if name.is_empty() { "A member".to_string() } else { name.clone() })
+        Choice::new(
+            format!("person:{id}"),
+            if name.is_empty() {
+                "A member".to_string()
+            } else {
+                name.clone()
+            },
+        )
     }));
     who_choices.extend(agents.iter().map(|c| {
         Choice::new(
             c.who.key.clone(),
-            if c.repo.is_empty() { display_name(&c.who) } else { format!("{} · {}", display_name(&c.who), c.repo) },
+            if c.repo.is_empty() {
+                display_name(&c.who)
+            } else {
+                format!("{} · {}", display_name(&c.who), c.repo)
+            },
         )
     }));
     body = body.child(
         row()
             .w_full()
             .gap(12.0)
-            .child(col().grow(1.0).min_w(0.0).gap(6.0).child(label(f, "Repo")).child(choice_select(
-                s,
-                f,
-                "card/new-repo",
-                "Repo",
-                &n.repo_key,
-                &repo_choices,
-                n.busy,
-                224.0,
-                |s, v| s.card.new_card.repo_key = v.to_string(),
-            )))
+            .child(
+                col()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(6.0)
+                    .child(label(f, "Repo"))
+                    .child(choice_select(
+                        s,
+                        f,
+                        "card/new-repo",
+                        "Repo",
+                        &n.repo_key,
+                        &repo_choices,
+                        n.busy,
+                        224.0,
+                        |s, v| s.card.new_card.repo_key = v.to_string(),
+                    )),
+            )
             .child(
                 col()
                     .grow(1.0)
@@ -415,7 +539,13 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
             .fill(k.c.layer_02)
             .child(child)
     };
-    let small = |t: &str| text(t.to_string()).font(ts(12.5, 400.0)).color(k.c.text_muted).w_full().wrap();
+    let small = |t: &str| {
+        text(t.to_string())
+            .font(ts(12.5, 400.0))
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap()
+    };
     let settings_link = |label: &str| {
         text(label.to_string())
             .font(ts(12.5, 500.0))
@@ -436,7 +566,9 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
             col()
                 .grow(1.0)
                 .gap(2.0)
-                .child(small("Irori won't start an agent for this card: your agents are off in this space."))
+                .child(small(
+                    "Irori won't start an agent for this card: your agents are off in this space.",
+                ))
                 .child(settings_link("Turn them on in Settings › Agents")),
         ));
     }
@@ -444,8 +576,13 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
         && let Some(sp) = &n.spawn
         && n.assign_to.is_empty()
     {
-        let what = format!("{} · {}", model_label(&sp.model), effort_label(&sp.effort).to_lowercase());
-        let line = format!("A fresh agent starts for this card with {what} and ends when it's done.");
+        let what = format!(
+            "{} · {}",
+            model_label(&sp.model),
+            effort_label(&sp.effort).to_lowercase()
+        );
+        let line =
+            format!("A fresh agent starts for this card with {what} and ends when it's done.");
         let at = line.find(&what).unwrap_or(0);
         body = body.child(info(
             "card/new-fresh",
@@ -460,11 +597,14 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
                         .min_w(0.0)
                         .gap(2.0)
                         .child(
-                            rune::rich(line.clone(), vec![rune::Span::new(at, at + what.len()).color(k.c.text_base)])
-                                .font(ts(12.5, 400.0))
-                                .color(k.c.text_muted)
-                                .w_full()
-                                .wrap(),
+                            rune::rich(
+                                line.clone(),
+                                vec![rune::Span::new(at, at + what.len()).color(k.c.text_base)],
+                            )
+                            .font(ts(12.5, 400.0))
+                            .color(k.c.text_muted)
+                            .w_full()
+                            .wrap(),
                         )
                         .child(settings_link("Change in Settings › Agents")),
                 ),
@@ -487,12 +627,16 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
                     .build(k),
             )
             .child(
-                Button::new(if n.busy { "Making it…" } else { "Make the card" })
-                    .variant(ButtonVariant::Submit)
-                    .control_size(ControlSize::Small)
-                    .disabled(n.busy)
-                    .on_press(create)
-                    .build(k),
+                Button::new(if n.busy {
+                    "Making it…"
+                } else {
+                    "Make the card"
+                })
+                .variant(ButtonVariant::Submit)
+                .control_size(ControlSize::Small)
+                .disabled(n.busy)
+                .on_press(create)
+                .build(k),
             ),
     );
     Dialog::new("card/new", title)
@@ -511,6 +655,16 @@ pub fn new_card_dialog(s: &State, f: &mut Frame) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_title_keeps_200_characters() {
+        let mut t = TextEdit::new("é".repeat(205));
+        cap_title(&mut t);
+        assert_eq!(t.text.chars().count(), TITLE_MAX);
+        let mut short = TextEdit::new("Ship it");
+        cap_title(&mut short);
+        assert_eq!(short.text, "Ship it");
+    }
 
     fn sb(id: &str, name: &str, tag: &str) -> SpaceBoard {
         SpaceBoard {
@@ -544,7 +698,10 @@ mod tests {
         let t = board_target(Some(&sp), &personal(), Some(&sp.boards[1]), None);
         assert_eq!(ids(&t), ["s", "n"]);
         assert_eq!(t.on.as_ref().unwrap().board_id, "n");
-        assert_eq!((t.board.as_deref(), t.space_board.as_deref()), (Some("s"), Some("n")));
+        assert_eq!(
+            (t.board.as_deref(), t.space_board.as_deref()),
+            (Some("s"), Some("n"))
+        );
     }
 
     #[test]
@@ -552,15 +709,25 @@ mod tests {
         let sp = space();
         let t = board_target(Some(&sp), &personal(), None, None);
         assert_eq!(t.on, Some(sb("s", "MLG", "mlg")));
-        assert_eq!((t.board.as_deref(), t.space_board.as_deref()), (Some("s"), Some("s")));
+        assert_eq!(
+            (t.board.as_deref(), t.space_board.as_deref()),
+            (Some("s"), Some("s"))
+        );
     }
 
     #[test]
     fn a_pick_wins_a_pick_from_elsewhere_is_ignored() {
         let sp = space();
-        assert_eq!(board_target(Some(&sp), &personal(), None, Some("n")).space_board.as_deref(), Some("n"));
         assert_eq!(
-            board_target(Some(&sp), &personal(), Some(&sp.boards[1]), Some("p-home")).space_board.as_deref(),
+            board_target(Some(&sp), &personal(), None, Some("n"))
+                .space_board
+                .as_deref(),
+            Some("n")
+        );
+        assert_eq!(
+            board_target(Some(&sp), &personal(), Some(&sp.boards[1]), Some("p-home"))
+                .space_board
+                .as_deref(),
             Some("n")
         );
     }
@@ -575,7 +742,10 @@ mod tests {
         };
         let t = board_target(Some(&one), &personal(), None, None);
         assert_eq!(t.choices.len(), 1);
-        assert_eq!((t.board.as_deref(), t.space_board.as_deref()), (Some("o"), Some("o")));
+        assert_eq!(
+            (t.board.as_deref(), t.space_board.as_deref()),
+            (Some("o"), Some("o"))
+        );
     }
 
     #[test]
@@ -583,15 +753,33 @@ mod tests {
         let p = personal();
         let t = board_target(None, &p, None, None);
         assert_eq!(ids(&t), [PERSONAL, "p-home"]);
-        assert_eq!((t.board.as_deref(), t.space_board.as_deref()), (None, Some(PERSONAL)));
-        assert_eq!(board_target(None, &p, Some(&p[1]), None).space_board.as_deref(), Some("p-home"));
-        assert_eq!(board_target(None, &p, None, Some("p-home")).space_board.as_deref(), Some("p-home"));
+        assert_eq!(
+            (t.board.as_deref(), t.space_board.as_deref()),
+            (None, Some(PERSONAL))
+        );
+        assert_eq!(
+            board_target(None, &p, Some(&p[1]), None)
+                .space_board
+                .as_deref(),
+            Some("p-home")
+        );
+        assert_eq!(
+            board_target(None, &p, None, Some("p-home"))
+                .space_board
+                .as_deref(),
+            Some("p-home")
+        );
     }
 
     #[test]
     fn personals_boards_not_loaded_yet_the_open_list_else_nothing() {
         let p = personal();
-        assert_eq!(board_target(None, &[], Some(&p[1]), None).space_board.as_deref(), Some("p-home"));
+        assert_eq!(
+            board_target(None, &[], Some(&p[1]), None)
+                .space_board
+                .as_deref(),
+            Some("p-home")
+        );
         assert_eq!(board_target(None, &[], None, None).space_board, None);
     }
 }

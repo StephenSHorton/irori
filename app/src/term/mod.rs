@@ -19,6 +19,7 @@ mod boxdraw;
 mod folders;
 mod frame;
 mod grid;
+mod height;
 mod keys;
 
 use std::sync::Arc;
@@ -35,10 +36,6 @@ use crate::ui::{Event, Frame, State};
 /// The size a shell starts at, before the view measures its box.
 const START_COLS: u16 = 100;
 const START_ROWS: u16 = 24;
-/// The terminal box's height (terminal.tsx: h-[360px] min-h-[200px]);
-/// the grip under it resizes it.
-const HEIGHT: f32 = 360.0;
-const MIN_HEIGHT: f32 = 200.0;
 
 /// Lucide's square-terminal (the tabs' icon).
 static SQUARE_TERMINAL: Icon = Icon {
@@ -63,7 +60,11 @@ pub struct Model {
     pub busy: bool,
     /// The shown terminal on screen.
     pub live: Option<Live>,
+    /// The box's height as chosen on this device (card #730), before the
+    /// window caps it.
     pub height: f32,
+    /// The grip is being dragged.
+    pub dragging: bool,
     /// The terminal's keyboard: a hidden field on its cursor.
     pub sink: TextEdit,
     /// The headless demo: a canned frame, no shell.
@@ -83,7 +84,8 @@ impl Default for Model {
             error: None,
             busy: false,
             live: None,
-            height: HEIGHT,
+            height: height::DEFAULT,
+            dragging: false,
             sink: TextEdit::new(""),
             demo: false,
         }
@@ -303,6 +305,7 @@ fn load(s: &mut State, card: &str) {
     s.term.busy = false;
     s.term.live = None;
     s.term.demo = false;
+    s.term.height = height::read(&s.prefs);
     let ts = s.win().term_list(card);
     s.term.shown = ts.last().map(|t| t.id);
     s.term.terms = Some(ts);
@@ -446,20 +449,6 @@ pub fn opened(s: &mut State, card_id: &str, info: TermInfo) {
 
 // ---- the package contract ----------------------------------------------
 
-/// The card's Terminal section as a page of its own (the card page embeds
-/// [`section`]).
-#[allow(dead_code)] // The package contract; the card page embeds `section`.
-pub fn view(s: &State, f: &mut Frame) -> El {
-    match s.nav.card.clone() {
-        Some(id) => col()
-            .key("term-page")
-            .w_full()
-            .padding(20.0)
-            .child(section(s, f, &id)),
-        None => crate::ui::not_yet(f, "Terminals", "Open a card to see its terminals."),
-    }
-}
-
 pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is("app:card-opened") {
         let Some(card) = s.nav.card.clone() else {
@@ -492,6 +481,7 @@ pub fn scene(s: &mut State) {
     release(s);
     s.term.card = Some(id.clone());
     s.term.demo = true;
+    s.term.height = height::read(&s.prefs);
     let info = TermInfo {
         id: 1,
         scope: Scope::Card(id),
@@ -709,27 +699,25 @@ fn picker(s: &State, f: &mut Frame) -> El {
 fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
     let k = f.k;
     let id = l.id;
-    let cwd = s.term.terms.iter().flatten().find(|t| t.id == id).map(|t| t.cwd.clone()).unwrap_or_default();
+    let cwd = s
+        .term
+        .terms
+        .iter()
+        .flatten()
+        .find(|t| t.id == id)
+        .map(|t| t.cwd.clone())
+        .unwrap_or_default();
+    // The window's height caps the box, so a window made smaller than
+    // the saved height still shows the grip.
+    let inner = f.cx.layout_size("main").map_or(f32::INFINITY, |m| m[1]);
+    let shown = s.term.height.min(height::max_height(inner));
     let mut c = col()
         .key(format!("term-view-{id}"))
         .w_full()
         .gap(8.0)
         .label(format!("Terminal in {cwd}"))
-        .child(grid::view(s, f, l, s.term.height))
-        .child(
-            el().key("term-grip")
-                .w_full()
-                .h(6.0)
-                .mt(-8.0)
-                .cursor(rune::Cursor::ResizeRow)
-                .help("Drag to resize")
-                .on_drag(|s: &mut State, d: &mut rune::Drag, _: &mut Tx| {
-                    if d.phase == rune::Phase::Down {
-                        d.data = s.term.height;
-                    }
-                    s.term.height = (d.data + d.dy).clamp(MIN_HEIGHT, 1600.0);
-                }),
-        );
+        .child(grid::view(s, f, l, shown))
+        .child(grip(s, f, inner, shown));
     let line = |key: &str| row().key(key.to_string()).w_full().gap(8.0).center_y();
     if let Some(clip) = &l.clip {
         let copy = clip.clone();
@@ -804,4 +792,62 @@ fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
         );
     }
     c
+}
+
+/// The handle on the box's bottom edge (card #730): drag it to set the
+/// height, double-click for the default; with focus, the arrow keys move
+/// it 16 points (Shift: 64) and Home and End go to the ends. This device
+/// remembers the height.
+fn grip(s: &State, f: &Frame, inner: f32, shown: f32) -> El {
+    let k = f.k;
+    let lit = s.term.dragging;
+    let accent = f.cx.accent();
+    el().key("term-grip")
+        .w_full()
+        .h(12.0)
+        .mt(-8.0)
+        .center()
+        .radius(4.0)
+        .cursor(rune::Cursor::ResizeRow)
+        .role("separator")
+        .label("Resize the terminal")
+        .help("Drag to change the terminal's height. Double-click: default height")
+        .focusable(true)
+        .focus_ring(2.0, 0.0, k.c.border_strong)
+        .hover_group()
+        .child(
+            el().w(40.0)
+                .h(4.0)
+                .radius(2.0)
+                .fill(if lit { accent } else { k.c.text_muted })
+                .group_opacity(if lit { 1.0 } else { 0.4 }, if lit { 1.0 } else { 0.7 }),
+        )
+        .on_drag(
+            move |s: &mut State, d: &mut rune::Drag, _: &mut Tx| match d.phase {
+                rune::Phase::Down => {
+                    d.data = shown;
+                    s.term.dragging = true;
+                }
+                rune::Phase::Move => s.term.height = height::clamp_height(d.data + d.dy, inner),
+                rune::Phase::Up => {
+                    s.term.height = height::clamp_height(d.data + d.dy, inner);
+                    s.term.dragging = false;
+                    height::save(&mut s.prefs, Some(s.term.height));
+                }
+            },
+        )
+        .on_double_press(|s: &mut State| {
+            s.term.height = height::DEFAULT;
+            height::save(&mut s.prefs, None);
+        })
+        .on_key(move |s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
+            match height::key_step(&ev.key, ev.mods.shift, s.term.height, inner) {
+                Some(h) => {
+                    s.term.height = h;
+                    height::save(&mut s.prefs, Some(h));
+                    true
+                }
+                None => false,
+            }
+        })
 }

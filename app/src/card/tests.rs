@@ -1,6 +1,8 @@
 //! The card page's pure helpers (card-detail.test.ts and the page's own).
 
-use irori_window::cards::{CardBoard, CardDetail, CardOption, CardSummary, CardThreadItem, Holding};
+use irori_window::cards::{
+    CardBoard, CardDetail, CardOption, CardSummary, CardThreadItem, Holding,
+};
 
 use super::blockers::{by_recommendation, gist};
 use super::side::card_files;
@@ -52,7 +54,10 @@ fn recommended_options_come_first_keeping_their_index() {
         ..CardOption::default()
     };
     let opts = vec![o("a", false), o("b", true), o("c", false), o("d", true)];
-    let got: Vec<(&str, usize)> = by_recommendation(&opts).into_iter().map(|(o, i)| (o.answer.as_str(), i)).collect();
+    let got: Vec<(&str, usize)> = by_recommendation(&opts)
+        .into_iter()
+        .map(|(o, i)| (o.answer.as_str(), i))
+        .collect();
     assert_eq!(got, [("b", 1), ("d", 3), ("a", 0), ("c", 2)]);
 }
 
@@ -68,8 +73,10 @@ fn gist_cuts_a_long_answer_to_one_line() {
 #[test]
 fn card_files_lists_each_file_once() {
     let item = |shas: &[&str]| -> CardThreadItem {
-        let mut it = CardThreadItem::default();
-        it.attachments = vec![Default::default(); shas.len()];
+        let mut it = CardThreadItem {
+            attachments: vec![Default::default(); shas.len()],
+            ..CardThreadItem::default()
+        };
         for (a, sha) in it.attachments.iter_mut().zip(shas) {
             a.sha256 = sha.to_string();
             a.name = format!("{sha}.png");
@@ -86,8 +93,14 @@ fn card_files_lists_each_file_once() {
 fn an_items_meta_line_joins_only_what_it_knows() {
     use super::blockers::meta_line;
     assert_eq!(meta_line(Some("oak"), "", None, ""), "Raised by oak");
-    assert_eq!(meta_line(Some("oak"), "2m ago", None, ""), "Raised by oak · 2m ago");
-    assert_eq!(meta_line(None, "2m ago", Some("ash"), "closed by You"), "2m ago · for ash to decide · closed by You");
+    assert_eq!(
+        meta_line(Some("oak"), "2m ago", None, ""),
+        "Raised by oak · 2m ago"
+    );
+    assert_eq!(
+        meta_line(None, "2m ago", Some("ash"), "closed by You"),
+        "2m ago · for ash to decide · closed by You"
+    );
     assert_eq!(meta_line(None, "", None, ""), "");
 }
 
@@ -96,6 +109,28 @@ fn each_blocker_gets_an_answer_box_and_a_resolve_note() {
     use irori_window::cards::CardBlocker;
     let mut d = card("submitted");
     d.summary.id = "c1".into();
-    d.blockers = vec![CardBlocker { id: "b1".into(), ..CardBlocker::default() }];
-    assert_eq!(super::box_keys(&d), ["c1/comment", "c1/blocker/b1", "c1/resolve/b1"]);
+    d.blockers = vec![CardBlocker {
+        id: "b1".into(),
+        ..CardBlocker::default()
+    }];
+    assert_eq!(
+        super::box_keys(&d),
+        ["c1/comment", "c1/blocker/b1", "c1/resolve/b1"]
+    );
+}
+
+#[test]
+fn an_items_files_show_each_file_once() {
+    let mut it = CardThreadItem {
+        attachments: vec![Default::default(); 3],
+        ..CardThreadItem::default()
+    };
+    for (a, sha) in it.attachments.iter_mut().zip(["x", "y", "x"]) {
+        a.sha256 = sha.to_string();
+    }
+    let got: Vec<String> = super::files_once(&it.attachments)
+        .into_iter()
+        .map(|f| f.sha256)
+        .collect();
+    assert_eq!(got, ["x", "y"]);
 }

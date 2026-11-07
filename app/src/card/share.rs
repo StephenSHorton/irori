@@ -52,7 +52,10 @@ fn share_card(s: &State) -> Option<String> {
 
 /// The share dialog opened: start on the first space, read its preview.
 pub fn opened(s: &mut State) {
-    let first = ready(s).first().map(|b| b.board_id.clone()).unwrap_or_default();
+    let first = ready(s)
+        .first()
+        .map(|b| b.board_id.clone())
+        .unwrap_or_default();
     s.card.share = Share {
         board: first,
         ..Share::default()
@@ -67,7 +70,9 @@ pub fn watch(s: &mut State) -> bool {
     if share_card(s).is_none() || !s.card.share.board.is_empty() {
         return false;
     }
-    let Some(first) = ready(s).first().map(|b| b.board_id.clone()) else { return false };
+    let Some(first) = ready(s).first().map(|b| b.board_id.clone()) else {
+        return false;
+    };
     s.card.share.board = first;
     load_preview(s);
     true
@@ -128,14 +133,25 @@ pub fn share_dialog(s: &State, f: &mut Frame) {
     let k = f.k;
     let sh = &s.card.share;
     let spaces = ready(s);
-    let pick = if sh.board.is_empty() { spaces.first().map(|b| b.board_id.clone()).unwrap_or_default() } else { sh.board.clone() };
+    let pick = if sh.board.is_empty() {
+        spaces
+            .first()
+            .map(|b| b.board_id.clone())
+            .unwrap_or_default()
+    } else {
+        sh.board.clone()
+    };
     let (preview, got_err) = match &sh.got {
         Some((b, Ok(p))) if *b == pick => (Some(p), None),
         Some((b, Err(e))) if *b == pick => (None, Some(e.clone())),
         _ => (None, None),
     };
     let error = sh.failed.clone().or(got_err);
-    let closes = if preview.is_some_and(|p| !p.subtasks.is_empty()) { " and its subtasks close" } else { " closes" };
+    let closes = if preview.is_some_and(|p| !p.subtasks.is_empty()) {
+        " and its subtasks close"
+    } else {
+        " closes"
+    };
     let mut body = col()
         .key("card/share-body")
         .w_full()
@@ -152,23 +168,44 @@ pub fn share_dialog(s: &State, f: &mut Frame) {
             .wrap(),
         );
     if spaces.len() > 1 {
-        let choices: Vec<Choice> = spaces.iter().map(|b| Choice::new(b.board_id.clone(), plain_line(&b.name))).collect();
-        let sel = choice_select(s, f, "card/share-space", "Space", &pick, &choices, sh.busy, 260.0, |s, v| {
-            s.card.share.board = v.to_string();
-            s.card.share.failed = None;
-            load_preview(s);
-        });
+        let choices: Vec<Choice> = spaces
+            .iter()
+            .map(|b| Choice::new(b.board_id.clone(), plain_line(&b.name)))
+            .collect();
+        let sel = choice_select(
+            s,
+            f,
+            "card/share-space",
+            "Space",
+            &pick,
+            &choices,
+            sh.busy,
+            260.0,
+            |s, v| {
+                s.card.share.board = v.to_string();
+                s.card.share.failed = None;
+                load_preview(s);
+            },
+        );
         body = body.child(labelled_select(f, "Space", sel));
     }
     match preview {
         Some(p) => body = body.child(preview_box(f, p)),
-        None if error.is_none() => body = body.child(text("Preparing the preview…").font(k.ty.text_xsmall).color(k.c.text_muted)),
+        None if error.is_none() => {
+            body = body.child(
+                text("Preparing the preview…")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_muted),
+            )
+        }
         None => {}
     }
     if let Some(e) = error {
         body = body.child(err_line(f, e));
     }
-    let name = preview.map(|p| plain_line(&p.board_name)).unwrap_or_default();
+    let name = preview
+        .map(|p| plain_line(&p.board_name))
+        .unwrap_or_default();
     body = body.child(
         row()
             .w_full()
@@ -183,12 +220,16 @@ pub fn share_dialog(s: &State, f: &mut Frame) {
                     .build(k),
             )
             .child(
-                Button::new(if sh.busy { "Sharing…".to_string() } else { format!("Share to {name}") })
-                    .variant(ButtonVariant::Submit)
-                    .control_size(ControlSize::Small)
-                    .disabled(sh.busy || preview.is_none())
-                    .on_press(share)
-                    .build(k),
+                Button::new(if sh.busy {
+                    "Sharing…".to_string()
+                } else {
+                    format!("Share to {name}")
+                })
+                .variant(ButtonVariant::Submit)
+                .control_size(ControlSize::Small)
+                .disabled(sh.busy || preview.is_none())
+                .on_press(share)
+                .build(k),
             ),
     );
     Dialog::new("card/share", "Share to a space")
@@ -208,14 +249,24 @@ fn labelled_select(f: &Frame, label: &str, sel: El) -> El {
     col()
         .w_full()
         .gap(6.0)
-        .child(text(label.to_string()).font(f.k.ty.small_medium).color(f.k.c.text_base))
+        .child(
+            text(label.to_string())
+                .font(f.k.ty.small_medium)
+                .color(f.k.c.text_base),
+        )
         .child(sel)
 }
 
 /// The scrubbed card as the board will hold it.
 fn preview_box(f: &Frame, p: &SharePreview) -> El {
     let k = f.k;
-    let small = |t: String| text(t).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap();
+    let small = |t: String| {
+        text(t)
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap()
+    };
     let mut b = col()
         .key("card/share-preview")
         .w_full()
@@ -224,9 +275,21 @@ fn preview_box(f: &Frame, p: &SharePreview) -> El {
         .radius(8.0)
         .border(1.0, k.c.border_base)
         .fill(k.c.layer_02)
-        .child(text(plain_line(&p.title)).font(ts(13.0, 600.0)).color(k.c.text_base).w_full().wrap());
+        .child(
+            text(plain_line(&p.title))
+                .font(ts(13.0, 600.0))
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     if !p.goal.is_empty() {
-        b = b.child(text(p.goal.clone()).font(ts(13.0, 400.0)).color(k.c.text_base).w_full().wrap());
+        b = b.child(
+            text(p.goal.clone())
+                .font(ts(13.0, 400.0))
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     }
     if !p.done_when.is_empty() {
         b = b.child(small(format!("Done when: {}", plain_line(&p.done_when))));
@@ -234,18 +297,28 @@ fn preview_box(f: &Frame, p: &SharePreview) -> El {
     if !p.steps.is_empty() {
         let mut l = col().w_full().gap(2.0).pl(8.0);
         for (i, st) in p.steps.iter().enumerate() {
-            l = l.child(text(format!("{}. {}", i + 1, plain_line(st))).font(k.ty.text_xsmall).color(k.c.text_base).w_full().wrap());
+            l = l.child(
+                text(format!("{}. {}", i + 1, plain_line(st)))
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
+            );
         }
         b = b.child(l);
     }
     if !p.links.is_empty() {
         b = b.child(
-            text(if p.links.len() == 1 { plain_line(&p.links[0]) } else { format!("{} links", p.links.len()) })
-                .font(k.ty.text_xsmall.mono())
-                .color(k.c.text_muted)
-                .help(p.links.join("\n"))
-                .w_full()
-                .max_lines(1),
+            text(if p.links.len() == 1 {
+                plain_line(&p.links[0])
+            } else {
+                format!("{} links", p.links.len())
+            })
+            .font(k.ty.text_xsmall.mono())
+            .color(k.c.text_muted)
+            .help(p.links.join("\n"))
+            .w_full()
+            .max_lines(1),
         );
     }
     if !p.subtasks.is_empty() {
@@ -273,14 +346,26 @@ fn preview_box(f: &Frame, p: &SharePreview) -> El {
                 .pl(8.0)
                 .border_sides([0.0, 0.0, 0.0, 2.0], k.c.border_base)
                 .child(
-                    rune::rich(line, vec![rune::Span::new(0, r.len()).mono().size(12.0).color(k.c.text_muted)])
-                        .font(ts(13.0, 400.0))
-                        .color(k.c.text_base)
-                        .w_full()
-                        .wrap(),
+                    rune::rich(
+                        line,
+                        vec![
+                            rune::Span::new(0, r.len())
+                                .mono()
+                                .size(12.0)
+                                .color(k.c.text_muted),
+                        ],
+                    )
+                    .font(ts(13.0, 400.0))
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
                 );
             if !st.steps.is_empty() {
-                item = item.child(small(if st.steps.len() == 1 { "1 step".into() } else { format!("{} steps", st.steps.len()) }));
+                item = item.child(small(if st.steps.len() == 1 {
+                    "1 step".into()
+                } else {
+                    format!("{} steps", st.steps.len())
+                }));
             }
             sub = sub.child(item);
         }
@@ -289,25 +374,43 @@ fn preview_box(f: &Frame, p: &SharePreview) -> El {
     if !p.kept_private.is_empty() {
         b = b.child(small(format!(
             "Not shared (ended): {}",
-            p.kept_private.iter().map(|x| plain_line(x)).collect::<Vec<_>>().join("; ")
+            p.kept_private
+                .iter()
+                .map(|x| plain_line(x))
+                .collect::<Vec<_>>()
+                .join("; ")
         )));
     }
     b = b.child(
-        text(format!("Visible to: {}", p.visible_to.iter().map(|x| plain_line(x)).collect::<Vec<_>>().join(", ")))
-            .font(k.ty.text_xsmall)
-            .color(k.c.text_base)
-            .w_full()
-            .wrap()
-            .pt(8.0)
-            .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_base),
+        text(format!(
+            "Visible to: {}",
+            p.visible_to
+                .iter()
+                .map(|x| plain_line(x))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+        .font(k.ty.text_xsmall)
+        .color(k.c.text_base)
+        .w_full()
+        .wrap()
+        .pt(8.0)
+        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_base),
     );
     if !p.dropped.is_empty() {
         b = b.child(
-            text(format!("Taken out: {}.", p.dropped.iter().map(|x| plain_line(x)).collect::<Vec<_>>().join("; ")))
-                .font(k.ty.text_xsmall)
-                .color(k.c.warning.fg)
-                .w_full()
-                .wrap(),
+            text(format!(
+                "Taken out: {}.",
+                p.dropped
+                    .iter()
+                    .map(|x| plain_line(x))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ))
+            .font(k.ty.text_xsmall)
+            .color(k.c.warning.fg)
+            .w_full()
+            .wrap(),
         );
     }
     b
@@ -364,27 +467,33 @@ pub fn transfer_button(s: &State, f: &Frame, d: &CardDetail, board: &BoardSummar
         format!("Ask {owner_name} to hand this card over to you")
     };
     Some(
-        Button::new(if offering { "Transfer ownership…" } else { "Ask to own it…" })
-            .variant(ButtonVariant::Ghost)
-            .control_size(ControlSize::Small)
-            .icon(&icons::ARROW_RIGHT_LEFT)
-            .help(help)
-            .on_press(move |s: &mut State| {
-                s.card.ui.transfer = Some(Pick {
-                    card: id.clone(),
-                    to: others[0].0.clone(),
-                    choices: others.clone(),
-                    offering,
-                    owner_name: owner_name.clone(),
-                    ..Pick::default()
-                });
-            })
-            .build(f.k),
+        Button::new(if offering {
+            "Transfer ownership…"
+        } else {
+            "Ask to own it…"
+        })
+        .variant(ButtonVariant::Ghost)
+        .control_size(ControlSize::Small)
+        .icon(&icons::ARROW_RIGHT_LEFT)
+        .help(help)
+        .on_press(move |s: &mut State| {
+            s.card.ui.transfer = Some(Pick {
+                card: id.clone(),
+                to: others[0].0.clone(),
+                choices: others.clone(),
+                offering,
+                owner_name: owner_name.clone(),
+                ..Pick::default()
+            });
+        })
+        .build(f.k),
     )
 }
 
 fn do_move(s: &mut State) {
-    let Some(p) = s.card.ui.moving.as_mut() else { return };
+    let Some(p) = s.card.ui.moving.as_mut() else {
+        return;
+    };
     if p.busy || p.to.is_empty() {
         return;
     }
@@ -406,14 +515,20 @@ fn do_move(s: &mut State) {
 }
 
 fn do_transfer(s: &mut State) {
-    let Some(p) = s.card.ui.transfer.as_mut() else { return };
+    let Some(p) = s.card.ui.transfer.as_mut() else {
+        return;
+    };
     if p.busy {
         return;
     }
     p.busy = true;
     p.error = None;
     let id = p.card.clone();
-    let to = if p.offering { p.to.clone() } else { String::new() };
+    let to = if p.offering {
+        p.to.clone()
+    } else {
+        String::new()
+    };
     s.spawn(
         move |w| w.boards_transfer_owner(&id, &to).map(|_| ()),
         |s, r| match r {
@@ -432,7 +547,11 @@ fn do_transfer(s: &mut State) {
 pub fn dialogs(s: &State, f: &mut Frame) {
     let k = f.k;
     if let Some(p) = &s.card.ui.moving {
-        let choices: Vec<Choice> = p.choices.iter().map(|(v, l)| Choice::new(v.clone(), l.clone())).collect();
+        let choices: Vec<Choice> = p
+            .choices
+            .iter()
+            .map(|(v, l)| Choice::new(v.clone(), l.clone()))
+            .collect();
         let mut body = col()
             .key("card/move-body")
             .w_full()
@@ -490,7 +609,12 @@ pub fn dialogs(s: &State, f: &mut Frame) {
             .build(k, f.layer);
     }
     if let Some(p) = &s.card.ui.transfer {
-        let pick_name = p.choices.iter().find(|c| c.0 == p.to).map(|c| c.1.clone()).unwrap_or_default();
+        let pick_name = p
+            .choices
+            .iter()
+            .find(|c| c.0 == p.to)
+            .map(|c| c.1.clone())
+            .unwrap_or_default();
         let mut body = col()
             .key("card/transfer-body")
             .w_full()
@@ -512,12 +636,26 @@ pub fn dialogs(s: &State, f: &mut Frame) {
                 .wrap(),
             );
         if p.offering && p.choices.len() > 1 {
-            let choices: Vec<Choice> = p.choices.iter().map(|(v, l)| Choice::new(v.clone(), l.clone())).collect();
-            let sel = choice_select(s, f, "card/transfer-to", "Hand it to", &p.to, &choices, p.busy, 260.0, |s, v| {
-                if let Some(p) = s.card.ui.transfer.as_mut() {
-                    p.to = v.to_string();
-                }
-            });
+            let choices: Vec<Choice> = p
+                .choices
+                .iter()
+                .map(|(v, l)| Choice::new(v.clone(), l.clone()))
+                .collect();
+            let sel = choice_select(
+                s,
+                f,
+                "card/transfer-to",
+                "Hand it to",
+                &p.to,
+                &choices,
+                p.busy,
+                260.0,
+                |s, v| {
+                    if let Some(p) = s.card.ui.transfer.as_mut() {
+                        p.to = v.to_string();
+                    }
+                },
+            );
             body = body.child(labelled_select(f, "Hand it to", sel));
         }
         if let Some(e) = &p.error {
@@ -551,16 +689,23 @@ pub fn dialogs(s: &State, f: &mut Frame) {
                     .build(k),
                 ),
         );
-        Dialog::new("card/transfer", if p.offering { "Transfer ownership" } else { "Ask to own this card" })
-            .open(true)
-            .width(440.0)
-            .fit()
-            .child(body)
-            .on_close(|s: &mut State| {
-                if !s.card.ui.transfer.as_ref().is_some_and(|p| p.busy) {
-                    s.card.ui.transfer = None;
-                }
-            })
-            .build(k, f.layer);
+        Dialog::new(
+            "card/transfer",
+            if p.offering {
+                "Transfer ownership"
+            } else {
+                "Ask to own this card"
+            },
+        )
+        .open(true)
+        .width(440.0)
+        .fit()
+        .child(body)
+        .on_close(|s: &mut State| {
+            if !s.card.ui.transfer.as_ref().is_some_and(|p| p.busy) {
+                s.card.ui.transfer = None;
+            }
+        })
+        .build(k, f.layer);
     }
 }

@@ -199,17 +199,14 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
             Some(t) if t.is_empty() => "Nothing yet.".to_string(),
             Some(t) => crate::logic::plain::plain_block(t),
         };
-        text(t)
-            .font(k.ty.mono)
-            .color(k.c.text_base)
-            .selectable(true)
-            .w_full()
-            .wrap_anywhere()
+        // The agent's screen as text (card #741): it keeps its columns,
+        // so it scrolls sideways rather than wrapping.
+        text(t).font(k.ty.mono).color(k.c.text_base).selectable(true)
     };
     let who = l.who.clone();
     rune_kit::Dialog::new("widgets-logs", format!("Logs · {}", display_name(&l.who)))
         .open(true)
-        .width(760.0)
+        .width(1024.0)
         .description("Its terminal output so far, read only. Attach to talk to it.")
         .on_close(|s: &mut State| s.widgets.logs = None)
         .child(
@@ -223,6 +220,7 @@ pub fn logs_dialog(s: &State, f: &mut Frame) {
                 .fill(k.c.bg_deep)
                 .border(1.0, k.c.border_muted)
                 .scroll(ScrollSpec { stick_bottom: true })
+                .scroll_xy()
                 .child(body),
         )
         .child(

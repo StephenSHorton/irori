@@ -17,7 +17,9 @@ use crate::logic::agent_status::{Who, agent_status, ms, now_ms};
 use crate::logic::cards::{self as lc, Work, state};
 use crate::logic::names::display_name;
 use crate::logic::plain::{plain_line, short_repo};
-use crate::logic::spawn_line::{SpawnState, SpawnTone, spawn_line, start_past_limit as past_limit_tip, usage_resets};
+use crate::logic::spawn_line::{
+    SpawnState, SpawnTone, spawn_line, start_past_limit as past_limit_tip, usage_resets,
+};
 use crate::text::{self as tt, RichOpts};
 use crate::ui::{Dialog, Frame, State, icons};
 use crate::widgets::{bits, confirm, loading};
@@ -28,8 +30,12 @@ const WIDE: f32 = 900.0;
 /// A card with its holders' status as the live roster has it now (card
 /// #317), so the page agrees with Home.
 pub(crate) fn live_card(s: &State, c: &CardSummary) -> CardSummary {
-    let live: HashMap<String, String> =
-        s.data.agents.iter().map(|a| (a.card.key.clone(), a.card.status.clone())).collect();
+    let live: HashMap<String, String> = s
+        .data
+        .agents
+        .iter()
+        .map(|a| (a.card.key.clone(), a.card.status.clone()))
+        .collect();
     match lc::with_live(&c.working, &live) {
         Some(w) => CardSummary {
             working: w,
@@ -57,8 +63,15 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             .on_press(|s: &mut State| s.back())
             .build(k),
     );
-    let wide = f.cx.layout_size("card/page").is_none_or(|[w, _]| w >= WIDE + 40.0);
-    let mut body = col().key("card/body").w_full().min_w(0.0).gap(12.0).child(back);
+    let wide =
+        f.cx.layout_size("card/page")
+            .is_none_or(|[w, _]| w >= WIDE + 40.0);
+    let mut body = col()
+        .key("card/body")
+        .w_full()
+        .min_w(0.0)
+        .gap(12.0)
+        .child(back);
 
     let detail = s.card.detail.as_ref().filter(|d| d.summary.id == id);
     match detail {
@@ -77,7 +90,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 Some(e) => panel(f, "card/error")
                     .gap(8.0)
                     .padding(20.0)
-                    .child(text("Could not open the card").font(k.ty.ui_medium).color(k.c.text_base))
+                    .child(
+                        text("Could not open the card")
+                            .font(k.ty.ui_medium)
+                            .color(k.c.text_base),
+                    )
                     .child(note(f, plain_line(e)))
                     .child(
                         row().child(
@@ -114,7 +131,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .min_h(0.0)
                 .padding(20.0)
                 .child(body)
-                .scroll(rune::ScrollSpec { stick_bottom: false }),
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                }),
         )
         .on_key(|s: &mut State, ev: &KeyEvent, _tx: &mut Tx| {
             if ev.key == Key::Escape
@@ -150,7 +169,15 @@ fn page_body(s: &State, f: &mut Frame, d: &CardDetail, mut body: El, wide: bool)
         body = body.child(r);
     }
     let mut extra = board_actions(s, f, d);
-    if let Some(b) = crate::board::order::not_yet_button(s, f, "card/not-yet", &c.id, c.later.is_some(), lc::over(&c.state), c.ask.is_some()) {
+    if let Some(b) = crate::board::order::not_yet_button(
+        s,
+        f,
+        "card/not-yet",
+        &c.id,
+        c.later.is_some(),
+        lc::over(&c.state),
+        c.ask.is_some(),
+    ) {
         extra.push(b);
     }
     if d.on_board.is_none() {
@@ -168,7 +195,9 @@ fn page_body(s: &State, f: &mut Frame, d: &CardDetail, mut body: El, wide: bool)
     }
     let over = lc::over(&c.state);
     let ready_now = if c.ready {
-        d.blockers.iter().find(|b| b.done_check && b.resolved.is_none())
+        d.blockers
+            .iter()
+            .find(|b| b.done_check && b.resolved.is_none())
     } else {
         None
     };
@@ -191,22 +220,28 @@ fn page_body(s: &State, f: &mut Frame, d: &CardDetail, mut body: El, wide: bool)
         .min_w(0.0)
         .gap(16.0)
         .child(crate::term::section(s, f, &c.id))
-        .child(
-            panel(f, "card/thread-panel").child(section(
-                f,
-                "card/thread-section",
-                "Thread",
-                true,
-                vec![thread],
-            )),
-        );
+        .child(panel(f, "card/thread-panel").child(section(
+            f,
+            "card/thread-section",
+            "Thread",
+            true,
+            vec![thread],
+        )));
     if wide {
         let mut left = col().key("card/left").grow(1.0).min_w(0.0).gap(16.0);
         if let Some(m) = main {
             left = left.child(m);
         }
         left = left.child(lower);
-        let side_w = if f.cx.layout_size("card/page").is_some_and(|[w, _]| w >= 1640.0) { 400.0 } else { 360.0 };
+        let side_w = if f
+            .cx
+            .layout_size("card/page")
+            .is_some_and(|[w, _]| w >= 1640.0)
+        {
+            400.0
+        } else {
+            360.0
+        };
         body.child(
             row()
                 .key("card/columns")
@@ -235,7 +270,11 @@ fn working_row(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
     let k = f.k;
     let w = Work::from(c);
     let busy_now = lc::working_now(&w);
-    let who = if busy_now.is_empty() { lc::running_job_now(&w) } else { busy_now.clone() };
+    let who = if busy_now.is_empty() {
+        lc::running_job_now(&w)
+    } else {
+        busy_now.clone()
+    };
     if who.is_empty() {
         return queue_row(s, f, c);
     }
@@ -244,7 +283,13 @@ fn working_row(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
         "working on this card now".to_string()
     } else {
         let since = (who.len() == 1)
-            .then(|| s.data.agents.iter().find(|a| a.card.key == who[0].key).and_then(|a| ms(&a.card.status_since)))
+            .then(|| {
+                s.data
+                    .agents
+                    .iter()
+                    .find(|a| a.card.key == who[0].key)
+                    .and_then(|a| ms(&a.card.status_since))
+            })
             .flatten();
         agent_status(&Who::status(lc::RUNNING_JOB), since, now_ms()).text
     };
@@ -283,7 +328,11 @@ fn queue_row(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
     let k = f.k;
     let st = SpawnState::from(c);
     let line = spawn_line(&st)?;
-    let resets = c.usage_limit.filter(|t| !t.is_zero()).map(|t| usage_resets(&t)).unwrap_or_default();
+    let resets = c
+        .usage_limit
+        .filter(|t| !t.is_zero())
+        .map(|t| usage_resets(&t))
+        .unwrap_or_default();
     let mut words = {
         let mut ch = line.text.chars();
         match ch.next() {
@@ -305,10 +354,24 @@ fn queue_row(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
         .center_y()
         .flex_wrap()
         .radius(8.0)
-        .border(1.0, if warn { k.c.warning.border } else { k.c.border_base })
+        .border(
+            1.0,
+            if warn {
+                k.c.warning.border
+            } else {
+                k.c.border_base
+            },
+        )
         .fill(if warn { k.c.warning.bg } else { k.c.layer_02 })
         .role("status")
-        .child(text(words).font(ts(13.0, 400.0)).color(k.c.text_base).shrink().min_w(0.0).wrap());
+        .child(
+            text(words)
+                .font(ts(13.0, 400.0))
+                .color(k.c.text_base)
+                .shrink()
+                .min_w(0.0)
+                .wrap(),
+        );
     if let Some(b) = start_past_limit(s, f, "card/past-limit", &c.id, &st, false) {
         r = r.child(b);
     }
@@ -318,7 +381,14 @@ fn queue_row(s: &State, f: &mut Frame, c: &CardSummary) -> Option<El> {
 /// Start an agent on a card or thread a usage limit keeps waiting (cards
 /// #450, #576): it tries now rather than wait for the reset. None when no
 /// usage limit stops it.
-pub fn start_past_limit(s: &State, f: &mut Frame, key: &str, id: &str, st: &SpawnState, small: bool) -> Option<El> {
+pub fn start_past_limit(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    id: &str,
+    st: &SpawnState,
+    small: bool,
+) -> Option<El> {
     let tip = past_limit_tip(st);
     if tip.is_empty() {
         return None;
@@ -328,10 +398,16 @@ pub fn start_past_limit(s: &State, f: &mut Frame, key: &str, id: &str, st: &Spaw
     let mut r = row().key(key.to_string()).gap(8.0).center_y().child(
         Button::new("Start an agent")
             .variant(ButtonVariant::Outline)
-            .control_size(if small { ControlSize::Mini } else { ControlSize::Small })
+            .control_size(if small {
+                ControlSize::Mini
+            } else {
+                ControlSize::Small
+            })
             .help(tip)
             .disabled(!asked.is_empty())
-            .on_press(move |s: &mut State| start_agent(s, &idc, "", "Asked: an agent starts in a moment."))
+            .on_press(move |s: &mut State| {
+                start_agent(s, &idc, "", "Asked: an agent starts in a moment.")
+            })
             .build(f.k),
     );
     if !asked.is_empty() {
@@ -342,7 +418,10 @@ pub fn start_past_limit(s: &State, f: &mut Frame, key: &str, id: &str, st: &Spaw
 
 /// Start an agent (`note` joins its brief); its line says how it went.
 pub(crate) fn start_agent(s: &mut State, id: &str, note: &str, ok: &'static str) {
-    s.card.ui.start_line.insert(id.to_string(), "Starting…".into());
+    s.card
+        .ui
+        .start_line
+        .insert(id.to_string(), "Starting…".into());
     let (idc, note) = (id.to_string(), note.to_string());
     let key = id.to_string();
     s.spawn(
@@ -407,22 +486,42 @@ fn header(s: &State, f: &mut Frame, c: &CardSummary, spinning: bool, extra: Vec<
         .gap(8.0)
         .child(chips)
         .child(
-            text(if title.is_empty() { "(untitled)".into() } else { title })
-                .font(ts(24.0, 600.0).tracking(-0.4).lh(30.0))
-                .color(k.c.text_base)
-                .w_full()
-                .wrap()
-                .selectable(true)
-                .role("heading"),
+            text(if title.is_empty() {
+                "(untitled)".into()
+            } else {
+                title
+            })
+            .font(ts(24.0, 600.0).tracking(-0.4).lh(30.0))
+            .color(k.c.text_base)
+            .w_full()
+            .wrap()
+            .selectable(true)
+            .role("heading"),
         );
     if let Some(p) = &c.parent {
-        h = h.child(ref_line(f, "card/parent", "Part of", &p.id, &lc::ref_text(&p.tag, &p.short), &p.title));
+        h = h.child(ref_line(
+            f,
+            "card/parent",
+            "Part of",
+            &p.id,
+            &lc::ref_text(&p.tag, &p.short),
+            &p.title,
+        ));
     }
-    if let Some(w) = crate::board::order::when_line(s, f, "card/when", &c.id, c.later.as_ref(), c.order.as_ref()) {
+    if let Some(w) =
+        crate::board::order::when_line(s, f, "card/when", &c.id, c.later.as_ref(), c.order.as_ref())
+    {
         h = h.child(w);
     }
     if let Some(t) = &c.from_thread {
-        h = h.child(ref_line(f, "card/from-thread", "From the thread", &t.id, &lc::ref_text(&t.tag, &t.short), &t.title));
+        h = h.child(ref_line(
+            f,
+            "card/from-thread",
+            "From the thread",
+            &t.id,
+            &lc::ref_text(&t.tag, &t.short),
+            &t.title,
+        ));
     }
     h
 }
@@ -437,7 +536,11 @@ fn ref_line(f: &Frame, key: &str, lead: &str, id: &str, r: &str, title: &str) ->
         .min_w(0.0)
         .gap(4.0)
         .center_y()
-        .child(text(lead.to_string()).font(ts(14.0, 400.0)).color(k.c.text_muted))
+        .child(
+            text(lead.to_string())
+                .font(ts(14.0, 400.0))
+                .color(k.c.text_muted),
+        )
         .child(card_link(f, &format!("{key}/link"), &id, r, title))
 }
 
@@ -453,8 +556,19 @@ pub(crate) fn card_link(f: &Frame, key: &str, id: &str, r: &str, title: &str) ->
         .cursor(rune::Cursor::Pointer)
         .role("link")
         .on_press(move |s: &mut State| s.open_card(&id))
-        .child(text(plain_line(r)).font(ts(13.0, 400.0).mono()).color(k.c.text_base))
-        .child(text(plain_line(title)).font(ts(14.0, 400.0)).color(k.c.text_base).max_lines(1).shrink().min_w(0.0))
+        .child(
+            text(plain_line(r))
+                .font(ts(13.0, 400.0).mono())
+                .color(k.c.text_base),
+        )
+        .child(
+            text(plain_line(title))
+                .font(ts(14.0, 400.0))
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink()
+                .min_w(0.0),
+        )
 }
 
 /// Pin or unpin: pinned cards show in their own group above the grid.
@@ -518,7 +632,13 @@ fn pause_button(s: &State, f: &Frame, c: &CardSummary) -> Vec<El> {
             .build(f.k),
     ];
     if let Some(e) = &s.card.ui.pause_error {
-        out.push(text(e.clone()).font(f.k.ty.text_xsmall).color(f.k.c.danger.fg).max_w(260.0).wrap());
+        out.push(
+            text(e.clone())
+                .font(f.k.ty.text_xsmall)
+                .color(f.k.c.danger.fg)
+                .max_w(260.0)
+                .wrap(),
+        );
     }
     out
 }
@@ -527,7 +647,11 @@ fn pause_button(s: &State, f: &Frame, c: &CardSummary) -> Vec<El> {
 fn delete_button(s: &State, f: &Frame, d: &CardDetail) -> El {
     let kids = !d.subtask_list.is_empty();
     let c = &d.summary;
-    let what = if c.short.is_empty() { "this card".to_string() } else { card_status::card_ref(c) };
+    let what = if c.short.is_empty() {
+        "this card".to_string()
+    } else {
+        card_status::card_ref(c)
+    };
     let id = c.id.clone();
     confirm::confirm_button(
         s,
@@ -575,8 +699,20 @@ fn board_actions(s: &State, f: &mut Frame, d: &CardDetail) -> Vec<El> {
                     .on_press(move |s: &mut State| start_agent(s, &id, "", ""))
                     .build(k),
             );
-            if let Some(l) = s.card.ui.start_line.get(&c.id).filter(|l| !l.is_empty() && l.as_str() != "Starting…") {
-                out.push(text(l.clone()).font(ts(12.5, 400.0)).color(k.c.danger.fg).max_w(260.0).wrap());
+            if let Some(l) = s
+                .card
+                .ui
+                .start_line
+                .get(&c.id)
+                .filter(|l| !l.is_empty() && l.as_str() != "Starting…")
+            {
+                out.push(
+                    text(l.clone())
+                        .font(ts(12.5, 400.0))
+                        .color(k.c.danger.fg)
+                        .max_w(260.0)
+                        .wrap(),
+                );
             }
         }
         if let Some(sb) = shared {
@@ -607,7 +743,12 @@ fn board_actions(s: &State, f: &mut Frame, d: &CardDetail) -> Vec<El> {
         } else {
             c.space_board.clone()
         };
-        out.push(super::share::move_button(f, d, s.card.personal.clone(), current));
+        out.push(super::share::move_button(
+            f,
+            d,
+            s.card.personal.clone(),
+            current,
+        ));
     }
     if s.data.spaces.iter().any(|b| b.ready) {
         let id = c.id.clone();
@@ -629,7 +770,17 @@ fn board_actions(s: &State, f: &mut Frame, d: &CardDetail) -> Vec<El> {
 /// private card, whose page opens.
 fn withdraw_button(s: &State, f: &Frame, d: &CardDetail) -> El {
     let family = d.summary.subtasks > 0;
-    let visible = d.on_board.as_ref().map(|b| b.visible_to.iter().map(|v| plain_line(v)).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    let visible = d
+        .on_board
+        .as_ref()
+        .map(|b| {
+            b.visible_to
+                .iter()
+                .map(|v| plain_line(v))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
     let id = d.summary.id.clone();
     let got: Arc<Mutex<String>> = Arc::default();
     let put = got.clone();
@@ -671,10 +822,20 @@ fn ask_status(s: &State, f: &mut Frame, d: &CardDetail) -> Option<El> {
     Some(
         bar(f, "card/ask-status")
             .flex_wrap()
-            .child(el().grow(1.0).min_w(192.0).child(bits::ask_line(f, "card/ask-line", a)))
-            .child(note_field(f, &s.card.ui.ask_note, "card/ask-note", "Why close it (optional)", "Why you close the ask", note_key, |s| {
-                &mut s.card.ui.ask_note
-            }))
+            .child(
+                el().grow(1.0)
+                    .min_w(192.0)
+                    .child(bits::ask_line(f, "card/ask-line", a)),
+            )
+            .child(note_field(
+                f,
+                &s.card.ui.ask_note,
+                "card/ask-note",
+                "Why close it (optional)",
+                "Why you close the ask",
+                note_key,
+                |s| &mut s.card.ui.ask_note,
+            ))
             .child(confirm::confirm_button(
                 s,
                 f,
@@ -743,10 +904,21 @@ fn close_bar(s: &State, f: &mut Frame, d: &CardDetail, ready: bool) -> El {
                 .grow(1.0)
                 .min_w(160.0),
         )
-        .child(note_field(f, &s.card.ui.close_note, "card/close-note", "Why (optional)", "Why you close the card", format!("{id}/close"), |s| {
-            &mut s.card.ui.close_note
-        }));
-    let close = |label: &str, state: &'static str, question: String, confirm: &str, cancel: Option<&str>, key: &str| {
+        .child(note_field(
+            f,
+            &s.card.ui.close_note,
+            "card/close-note",
+            "Why (optional)",
+            "Why you close the card",
+            format!("{id}/close"),
+            |s| &mut s.card.ui.close_note,
+        ));
+    let close = |label: &str,
+                 state: &'static str,
+                 question: String,
+                 confirm: &str,
+                 cancel: Option<&str>,
+                 key: &str| {
         let id = id.clone();
         let note = s.card.ui.close_note.text.clone();
         let failed = if state == state::CANCELED {
@@ -762,7 +934,11 @@ fn close_bar(s: &State, f: &mut Frame, d: &CardDetail, ready: bool) -> El {
             let dk = format!("{id}/close");
             crate::text::drafts::set_draft(s, &dk, "", &[]);
             s.spawn(
-                move |w| w.close_card(&id, state, &note).map(|_| ()).map_err(|e| (e, note, id)),
+                move |w| {
+                    w.close_card(&id, state, &note)
+                        .map(|_| ())
+                        .map_err(|e| (e, note, id))
+                },
                 move |s, r| {
                     if let Err((e, note, id)) = r {
                         // Refused (an open subtask, say): the note comes back.
@@ -820,9 +996,14 @@ fn reopen_bar(s: &State, f: &mut Frame, d: &CardDetail) -> El {
             ". Nobody holds it; reopening puts it back on the grid, open."
         }
     );
-    let mut b = bar(f, "card/reopen-bar")
-        .flex_wrap()
-        .child(text(words).font(ts(13.0, 400.0)).color(f.k.c.text_muted).grow(1.0).min_w(192.0).wrap());
+    let mut b = bar(f, "card/reopen-bar").flex_wrap().child(
+        text(words)
+            .font(ts(13.0, 400.0))
+            .color(f.k.c.text_muted)
+            .grow(1.0)
+            .min_w(192.0)
+            .wrap(),
+    );
     if !follows {
         let id = c.id.clone();
         b = b.child(confirm::confirm_button(
@@ -848,13 +1029,27 @@ fn shared_to_bar(f: &mut Frame, d: &CardDetail) -> El {
     let k = f.k;
     let name = plain_line(&t.board_name);
     let r = plain_line(&t.ref_);
-    let lead = format!("Shared to {} as ", if name.is_empty() { "a space" } else { &name });
+    let lead = format!(
+        "Shared to {} as ",
+        if name.is_empty() { "a space" } else { &name }
+    );
     let words = format!("{lead}{r}. Work it there; this private card is closed.");
-    let spans = vec![rune::Span::new(lead.len(), lead.len() + r.len()).mono().color(k.c.text_base)];
+    let spans = vec![
+        rune::Span::new(lead.len(), lead.len() + r.len())
+            .mono()
+            .color(k.c.text_base),
+    ];
     let id = t.task_id.clone();
     bar(f, "card/shared-to")
         .flex_wrap()
-        .child(rune::rich(words, spans).font(ts(13.0, 400.0)).color(k.c.text_muted).grow(1.0).min_w(192.0).wrap())
+        .child(
+            rune::rich(words, spans)
+                .font(ts(13.0, 400.0))
+                .color(k.c.text_muted)
+                .grow(1.0)
+                .min_w(192.0)
+                .wrap(),
+        )
         .child(
             Button::new(format!("Open {r}"))
                 .variant(ButtonVariant::Outline)
@@ -888,7 +1083,11 @@ fn progress_strip(s: &State, f: &mut Frame, d: &CardDetail, spinning: bool) -> E
         b = b.child(super::side::step_row(
             f,
             "card/strip-step",
-            super::side::StepView { text: &st.text, done: st.done, doing: st.doing },
+            super::side::StepView {
+                text: &st.text,
+                done: st.done,
+                doing: st.doing,
+            },
             spinning,
             true,
             "",
@@ -953,7 +1152,12 @@ fn body_shape(f: &Frame, wide: bool) -> El {
         vec![loading::message_rows_shape(f, "card/shape-rows", 4)],
     ));
     let close = bar(f, "card/shape-close")
-        .child(text("Close it by hand when the work is done.").font(ts(13.0, 400.0)).color(k.c.text_muted).grow(1.0))
+        .child(
+            text("Close it by hand when the work is done.")
+                .font(ts(13.0, 400.0))
+                .color(k.c.text_muted)
+                .grow(1.0),
+        )
         .child(loading::block(f, "card/sc1", Some(224.0), 32.0, 6.0));
     let cols = if wide {
         row()
@@ -961,10 +1165,23 @@ fn body_shape(f: &Frame, wide: bool) -> El {
             .w_full()
             .gap(16.0)
             .items_start()
-            .child(col().grow(1.0).min_w(0.0).gap(16.0).child(objective).child(thread))
+            .child(
+                col()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .gap(16.0)
+                    .child(objective)
+                    .child(thread),
+            )
             .child(col().w(360.0).child(side))
     } else {
-        col().key("card/shape-cols").w_full().gap(16.0).child(objective).child(side).child(thread)
+        col()
+            .key("card/shape-cols")
+            .w_full()
+            .gap(16.0)
+            .child(objective)
+            .child(side)
+            .child(thread)
     };
     col()
         .key("card/body-shape")
