@@ -466,7 +466,10 @@ mod tests {
         let mut f = Encoder::new(head(4, 1, true)).finish();
         assert!(header(&f).is_ok());
         f[11] = 9;
-        assert_eq!(header(&f).unwrap_err(), "terminal format v9, this app knows v1");
+        assert_eq!(
+            header(&f).unwrap_err(),
+            "terminal format v9, this app knows v1"
+        );
     }
 
     #[test]

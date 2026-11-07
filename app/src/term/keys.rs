@@ -237,7 +237,13 @@ pub fn encode(k: &KeyIn, modes: u32, is_mac: bool) -> Option<String> {
             s.push(if k.ctrl { '\x08' } else { '\x7f' });
             return Some(s);
         }
-        K::Tab => return Some(if k.shift { format!("{CSI}Z") } else { "\t".into() }),
+        K::Tab => {
+            return Some(if k.shift {
+                format!("{CSI}Z")
+            } else {
+                "\t".into()
+            });
+        }
         K::Escape => return Some("\x1b".into()),
         K::Text(_) => {}
         _ => return None,

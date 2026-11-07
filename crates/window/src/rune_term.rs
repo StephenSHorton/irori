@@ -87,7 +87,13 @@ impl Window {
         self.core.terms().select_start(id, col, row, right, kind)
     }
 
-    pub fn term_select_extend(&self, id: TermId, col: u16, row: u16, right: bool) -> Result<(), String> {
+    pub fn term_select_extend(
+        &self,
+        id: TermId,
+        col: u16,
+        row: u16,
+        right: bool,
+    ) -> Result<(), String> {
         self.core.terms().select_extend(id, col, row, right)
     }
 

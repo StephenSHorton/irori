@@ -8,7 +8,9 @@ use base64::Engine as _;
 use parking_lot::Mutex;
 use rsz_term::{Out, Pane, PaneConfig, Sink};
 
-use crate::{Link, Mouse, MouseKind, NO_TERM, OpenSpec, Scope, SelectKind, TermId, TermInfo, TermMsg, Viewer};
+use crate::{
+    Link, Mouse, MouseKind, NO_TERM, OpenSpec, Scope, SelectKind, TermId, TermInfo, TermMsg, Viewer,
+};
 
 /// Every terminal on this device.
 pub struct Terms {
@@ -190,7 +192,14 @@ impl Terms {
 
     /// Starts a selection at a visible cell (`right`: the cell's right
     /// half). The selected cells come back in frames (A_SELECTED).
-    pub fn select_start(&self, id: TermId, col: u16, row: u16, right: bool, kind: SelectKind) -> Result<(), String> {
+    pub fn select_start(
+        &self,
+        id: TermId,
+        col: u16,
+        row: u16,
+        right: bool,
+        kind: SelectKind,
+    ) -> Result<(), String> {
         let kind = match kind {
             SelectKind::Cell => rsz_term::SelectKind::Cell,
             SelectKind::Word => rsz_term::SelectKind::Word,

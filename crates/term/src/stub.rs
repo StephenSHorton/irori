@@ -49,10 +49,23 @@ impl Terms {
     pub fn screen_text(&self, _id: TermId) -> Result<String, String> {
         Err(NOT_HERE.into())
     }
-    pub fn select_start(&self, _id: TermId, _col: u16, _row: u16, _right: bool, _kind: SelectKind) -> Result<(), String> {
+    pub fn select_start(
+        &self,
+        _id: TermId,
+        _col: u16,
+        _row: u16,
+        _right: bool,
+        _kind: SelectKind,
+    ) -> Result<(), String> {
         Err(NOT_HERE.into())
     }
-    pub fn select_extend(&self, _id: TermId, _col: u16, _row: u16, _right: bool) -> Result<(), String> {
+    pub fn select_extend(
+        &self,
+        _id: TermId,
+        _col: u16,
+        _row: u16,
+        _right: bool,
+    ) -> Result<(), String> {
         Err(NOT_HERE.into())
     }
     pub fn select_clear(&self, _id: TermId) -> Result<(), String> {

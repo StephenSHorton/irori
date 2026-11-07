@@ -11,7 +11,9 @@
 
 use std::cell::Cell as StdCell;
 
-use rune::{Color, Cursor, El, PointerEvent, Span, Tx, WheelEvent, el, memo, rich, text, text_input};
+use rune::{
+    Color, Cursor, El, PointerEvent, Span, Tx, WheelEvent, el, memo, rich, text, text_input,
+};
 
 use irori_window::rune_term::{Mouse, MouseKind, SelectKind};
 
@@ -104,7 +106,10 @@ fn row_el(key: &str, cells: &[Cell], y: u16) -> El {
     while x < cells.len() {
         let c = cells[x];
         let mut j = x + 1;
-        while j < cells.len() && cells[j].bg == c.bg && (cells[j].attrs & A_SELECTED) == (c.attrs & A_SELECTED) {
+        while j < cells.len()
+            && cells[j].bg == c.bg
+            && (cells[j].attrs & A_SELECTED) == (c.attrs & A_SELECTED)
+        {
             j += 1;
         }
         let (rx, rw) = (x as f32 * cw, (j - x) as f32 * cw);
@@ -112,7 +117,12 @@ fn row_el(key: &str, cells: &[Cell], y: u16) -> El {
             row = row.child(el().absolute(rx, 0.0).w(rw).h(ch).fill(rgb(c.bg)));
         }
         if c.attrs & A_SELECTED != 0 {
-            row = row.child(el().absolute(rx, 0.0).w(rw).h(ch).fill(rgb(SELECTION.0).alpha(SELECTION.1)));
+            row = row.child(
+                el().absolute(rx, 0.0)
+                    .w(rw)
+                    .h(ch)
+                    .fill(rgb(SELECTION.0).alpha(SELECTION.1)),
+            );
         }
         x = j;
     }
@@ -125,7 +135,11 @@ fn row_el(key: &str, cells: &[Cell], y: u16) -> El {
         let hidden = c.attrs & A_HIDDEN != 0;
         let ascii = (0x21..0x7f).contains(&c.cp);
         let at = s.len();
-        s.push(if ascii && !hidden { c.cp as u8 as char } else { ' ' });
+        s.push(if ascii && !hidden {
+            c.cp as u8 as char
+        } else {
+            ' '
+        });
         let fg = fg_of(c);
         if ascii && !hidden {
             let mut sp = Span::new(at, at + 1);
@@ -135,21 +149,43 @@ fn row_el(key: &str, cells: &[Cell], y: u16) -> El {
             }
             sp.italic = c.attrs & A_ITALIC != 0;
             match spans.last_mut() {
-                Some(last) if last.end as usize == at && last.color == sp.color && last.weight == sp.weight && last.italic == sp.italic => last.end += 1,
+                Some(last)
+                    if last.end as usize == at
+                        && last.color == sp.color
+                        && last.weight == sp.weight
+                        && last.italic == sp.italic =>
+                {
+                    last.end += 1
+                }
                 _ => spans.push(sp),
             }
         } else if !hidden && c.cp > 0x7f {
             let x = i as f32 * cw;
             if let Some(rects) = boxdraw::glyph(c.cp, cw, ch) {
                 for ([rx, ry, rw, rh], a) in rects {
-                    overlays.push(el().absolute(x + rx, ry).w(rw).h(rh).fill(fg.alpha(fg.a * a)));
+                    overlays.push(
+                        el().absolute(x + rx, ry)
+                            .w(rw)
+                            .h(rh)
+                            .fill(fg.alpha(fg.a * a)),
+                    );
                 }
             } else if let Some(g) = char::from_u32(c.cp) {
-                overlays.push(text(g.to_string()).font(glyph_style(c)).color(fg).absolute(x, 0.0).h(ch));
+                overlays.push(
+                    text(g.to_string())
+                        .font(glyph_style(c))
+                        .color(fg)
+                        .absolute(x, 0.0)
+                        .h(ch),
+                );
             }
         }
         if !hidden && c.attrs & (A_UNDERLINE | A_STRIKE) != 0 && c.cp != 0 {
-            let ly = if c.attrs & A_UNDERLINE != 0 { ch - 2.0 } else { (ch / 2.0).floor() };
+            let ly = if c.attrs & A_UNDERLINE != 0 {
+                ch - 2.0
+            } else {
+                (ch / 2.0).floor()
+            };
             lines.push(el().absolute(i as f32 * cw, ly).w(cw).h(1.0).fill(fg));
         }
     }
@@ -195,7 +231,11 @@ fn glyph_style(c: &Cell) -> rune::TextStyle {
 
 fn fg_of(c: &Cell) -> Color {
     let fg = rgb(c.fg);
-    if c.attrs & A_DIM != 0 { fg.alpha(0.6) } else { fg }
+    if c.attrs & A_DIM != 0 {
+        fg.alpha(0.6)
+    } else {
+        fg
+    }
 }
 
 /// The cursor: a block with its glyph redrawn on top, an underline, a beam
@@ -216,8 +256,14 @@ fn cursor_el(g: &Grid) -> Option<El> {
         _ => {
             let cell = g.cell(h.cx, h.cy);
             let mut b = c.w(cw).h(ch).fill(ink.alpha(0.85));
-            if let Some(gl) = char::from_u32(cell.cp).filter(|g| !g.is_whitespace() && cell.cp != 0) {
-                b = b.child(text(gl.to_string()).font(glyph_style(&cell)).color(super::theme_hex(BG)).absolute(0.0, 0.0));
+            if let Some(gl) = char::from_u32(cell.cp).filter(|g| !g.is_whitespace() && cell.cp != 0)
+            {
+                b = b.child(
+                    text(gl.to_string())
+                        .font(glyph_style(&cell))
+                        .color(super::theme_hex(BG))
+                        .absolute(0.0, 0.0),
+                );
             }
             b
         }
@@ -240,14 +286,27 @@ pub fn view(s: &State, f: &mut Frame, live: &Live, height: f32) -> El {
         .min_h(0.0)
         .fill(bg)
         .radius(6.0)
-        .border(1.0, if s.term.sink.focused { k.c.border_strong } else { k.c.border_base })
+        .border(
+            1.0,
+            if s.term.sink.focused {
+                k.c.border_strong
+            } else {
+                k.c.border_base
+            },
+        )
         .clip_rounded(6.0)
-        .cursor(if live.link.is_some() { Cursor::Pointer } else { Cursor::Text })
+        .cursor(if live.link.is_some() {
+            Cursor::Pointer
+        } else {
+            Cursor::Text
+        })
         .preserve_focus_on_press(true)
         .on_layout_tx(move |s: &mut State, r: [f32; 4], tx: &mut Tx| fit(s, id, r, tx))
         .on_drag(move |s: &mut State, d: &mut rune::Drag, tx: &mut Tx| drag(s, id, d, tx))
         .on_secondary_press(move |s: &mut State, _, tx: &mut Tx| paste(s, id, tx))
-        .on_pointer_move_local(move |s: &mut State, p: PointerEvent, tx: &mut Tx| hover(s, id, p, tx))
+        .on_pointer_move_local(move |s: &mut State, p: PointerEvent, tx: &mut Tx| {
+            hover(s, id, p, tx)
+        })
         .on_wheel(move |s: &mut State, w: WheelEvent, tx: &mut Tx| wheel(s, id, w, tx));
     for y in 0..g.rows {
         let key = format!("term-row-{id}-{y}");
@@ -262,7 +321,12 @@ pub fn view(s: &State, f: &mut Frame, live: &Live, height: f32) -> El {
                 .w((l.x1.saturating_sub(l.x0)) as f32 * cw)
                 .h(ch)
                 .fill(rgb(0xb8a0c8).alpha(0.12))
-                .child(el().absolute(0.0, ch - 1.0).w_full().h(1.0).fill(rgb(0xb8a0c8)))
+                .child(
+                    el().absolute(0.0, ch - 1.0)
+                        .w_full()
+                        .h(1.0)
+                        .fill(rgb(0xb8a0c8)),
+                )
                 .help(format!("{}\n{mod_key}+click to open", l.url)),
         );
     }
@@ -278,16 +342,21 @@ pub fn view(s: &State, f: &mut Frame, live: &Live, height: f32) -> El {
             .absolute(cx, cy)
             .w(2.0)
             .h(ch)
-            .opacity(0.0)
+            .color(Color::TRANSPARENT)
+            .caret(Color::TRANSPARENT, Color::TRANSPARENT)
             .on_edit(|s: &mut State| &mut s.term.sink)
             .on_input_key(move |s: &mut State, ev: &rune::KeyEvent, tx: &mut Tx| key(s, id, ev, tx))
-            .on_input_paste(move |s: &mut State, c: &rune::ClipboardContent, _: &mut Tx| {
-                let t = c.text().to_string();
-                if !t.is_empty() {
-                    paste_text(s, id, &t);
-                }
-                true
-            })
+            // Element keys come before the window's default button (Return).
+            .on_key(move |s: &mut State, ev: &rune::KeyEvent, tx: &mut Tx| key(s, id, ev, tx))
+            .on_input_paste(
+                move |s: &mut State, c: &rune::ClipboardContent, _: &mut Tx| {
+                    let t = c.text().to_string();
+                    if !t.is_empty() {
+                        paste_text(s, id, &t);
+                    }
+                    true
+                },
+            )
             .on_input_change(move |s: &mut State, _: &mut Tx| typed(s, id)),
     );
     // A composition under way shows at the cursor (suzuri's preedit).
@@ -306,30 +375,38 @@ pub fn view(s: &State, f: &mut Frame, live: &Live, height: f32) -> El {
     if g.head.offset > 0 {
         b = b.child(
             el().absolute(0.0, 6.0).w_full().child(
-                rune::row().w_full().child(el().grow(1.0)).child(
-                    text(format!("↑ {} / {}", g.head.offset, g.head.history))
-                        .font(rune::tok::TextStyle::new(10.0, 400.0))
-                        .color(super::theme_hex("#e8e0f0"))
-                        .fill(rgb(0xb8a0c8).alpha(0.25))
-                        .radius(4.0)
-                        .px(6.0).py(1.0),
-                )
-                .child(el().w(10.0)),
+                rune::row()
+                    .w_full()
+                    .child(el().grow(1.0))
+                    .child(
+                        text(format!("↑ {} / {}", g.head.offset, g.head.history))
+                            .font(rune::tok::TextStyle::new(10.0, 400.0))
+                            .color(super::theme_hex("#e8e0f0"))
+                            .fill(rgb(0xb8a0c8).alpha(0.25))
+                            .radius(4.0)
+                            .px(6.0)
+                            .py(1.0),
+                    )
+                    .child(el().w(10.0)),
             ),
         );
     }
     if let Some(e) = &live.frame_error {
         b = b.child(
-            el().absolute(PAD_X, (height - PAD_Y - 26.0).max(0.0)).w_full().pr(2.0 * PAD_X).child(
-                text(e.clone())
-                    .font(rune::tok::TextStyle::new(12.0, 400.0))
-                    .color(Color::WHITE)
-                    .fill(rgb(0xa03c3c).alpha(0.85))
-                    .radius(4.0)
-                    .px(8.0).py(4.0)
-                    .w_full()
-                    .wrap(),
-            ),
+            el().absolute(PAD_X, (height - PAD_Y - 26.0).max(0.0))
+                .w_full()
+                .pr(2.0 * PAD_X)
+                .child(
+                    text(e.clone())
+                        .font(rune::tok::TextStyle::new(12.0, 400.0))
+                        .color(Color::WHITE)
+                        .fill(rgb(0xa03c3c).alpha(0.85))
+                        .radius(4.0)
+                        .px(8.0)
+                        .py(4.0)
+                        .w_full()
+                        .wrap(),
+                ),
         );
     }
     b
@@ -371,12 +448,14 @@ fn paste(s: &mut State, id: u32, tx: &mut Tx) {
     if live(s, id).is_none_or(|l| l.exit.is_some()) {
         return;
     }
-    tx.read_clipboard(move |s: &mut State, c: &rune::ClipboardContent, _: &mut Tx| {
-        let t = c.text().to_string();
-        if !t.is_empty() {
-            paste_text(s, id, &t);
-        }
-    });
+    tx.read_clipboard(
+        move |s: &mut State, c: &rune::ClipboardContent, _: &mut Tx| {
+            let t = c.text().to_string();
+            if !t.is_empty() {
+                paste_text(s, id, &t);
+            }
+        },
+    );
 }
 
 /// Copies the selection; false when there was none.
@@ -464,7 +543,15 @@ fn app_mouse(l: &Live, shift: bool) -> bool {
     l.grid.head.modes & MOUSE_MODES != 0 && !shift
 }
 
-fn report(w: &irori_window::Window, id: u32, kind: MouseKind, button: u8, col: u16, row: u16, m: rune::Mods) {
+fn report(
+    w: &irori_window::Window,
+    id: u32,
+    kind: MouseKind,
+    button: u8,
+    col: u16,
+    row: u16,
+    m: rune::Mods,
+) {
     w.term_mouse(
         id,
         Mouse {
@@ -600,7 +687,11 @@ fn wheel(s: &mut State, id: u32, ev: WheelEvent, tx: &mut Tx) -> bool {
     let (col, row, _, _) = cell_at(&l.grid, ev.x, ev.y);
     if app_mouse(l, ev.mods.shift) {
         // Content moving down (dy > 0) is the wheel turning up.
-        let kind = if lines > 0 { MouseKind::WheelUp } else { MouseKind::WheelDown };
+        let kind = if lines > 0 {
+            MouseKind::WheelUp
+        } else {
+            MouseKind::WheelDown
+        };
         for _ in 0..lines.unsigned_abs().min(32) {
             report(&w, id, kind, 0, col, row, ev.mods);
         }
@@ -608,9 +699,17 @@ fn wheel(s: &mut State, id: u32, ev: WheelEvent, tx: &mut Tx) -> bool {
     }
     if modes & M_ALT_SCREEN != 0 {
         if modes & M_ALT_SCROLL != 0 {
-            let lead = if modes & M_APP_CURSOR != 0 { "\x1bO" } else { "\x1b[" };
+            let lead = if modes & M_APP_CURSOR != 0 {
+                "\x1bO"
+            } else {
+                "\x1b["
+            };
             let arrow = if lines > 0 { "A" } else { "B" };
-            write(s, id, &format!("{lead}{arrow}").repeat(lines.unsigned_abs() as usize));
+            write(
+                s,
+                id,
+                &format!("{lead}{arrow}").repeat(lines.unsigned_abs() as usize),
+            );
         }
         return true;
     }
@@ -624,7 +723,11 @@ fn fit(s: &mut State, id: u32, r: [f32; 4], tx: &mut Tx) {
     let (cw, ch) = metrics();
     let cols = (((r[2] - 2.0 * PAD_X) / cw).floor() as i32).max(2) as u16;
     let rows = (((r[3] - 2.0 * PAD_Y) / ch).floor() as i32).max(1) as u16;
-    if s.term.live.as_ref().is_some_and(|l| l.id == id && l.feed.is_none() && !s.term.demo) {
+    if s.term
+        .live
+        .as_ref()
+        .is_some_and(|l| l.id == id && l.feed.is_none() && !s.term.demo)
+    {
         super::attach(s, id);
     }
     let demo = s.term.demo;

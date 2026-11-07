@@ -177,14 +177,22 @@ fn attach(s: &mut State, id: TermId) {
     let on_frame = {
         let (feed, schedule) = (feed.clone(), schedule.clone());
         move |b: Vec<u8>| {
-            feed.queue.lock().unwrap_or_else(|e| e.into_inner()).0.push(b);
+            feed.queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .0
+                .push(b);
             schedule()
         }
     };
     let on_msg = {
         let feed = feed.clone();
         move |m: TermMsg| {
-            feed.queue.lock().unwrap_or_else(|e| e.into_inner()).1.push(m);
+            feed.queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .1
+                .push(m);
             schedule()
         }
     };
@@ -199,7 +207,9 @@ fn attach(s: &mut State, id: TermId) {
 
 /// Lets go of the shown terminal's feed (the shell keeps running).
 fn release(s: &mut State) {
-    let Some(l) = s.term.live.as_mut() else { return };
+    let Some(l) = s.term.live.as_mut() else {
+        return;
+    };
     let id = l.id;
     let Some(feed) = l.feed.take() else { return };
     feed.alive.store(false, Ordering::Release);
@@ -227,7 +237,9 @@ fn drain(s: &mut State, feed: &Arc<Feed>) {
         release(s);
         return;
     }
-    let Some(l) = s.term.live.as_mut() else { return };
+    let Some(l) = s.term.live.as_mut() else {
+        return;
+    };
     let id = l.id;
     let mut info: Option<(String, bool)> = None;
     for m in msgs {
@@ -261,7 +273,11 @@ fn drain(s: &mut State, feed: &Arc<Feed>) {
         }
     }
     if let Some((title, running)) = info
-        && let Some(t) = s.term.terms.as_mut().and_then(|ts| ts.iter_mut().find(|t| t.id == id))
+        && let Some(t) = s
+            .term
+            .terms
+            .as_mut()
+            .and_then(|ts| ts.iter_mut().find(|t| t.id == id))
     {
         t.title = title;
         t.running = running;
@@ -294,28 +310,25 @@ fn load(s: &mut State, card: &str) {
         attach(s, id);
     }
     let c = card.to_string();
-    s.spawn(
-        move |w| w.term_folders(&c),
-        {
-            let card = card.to_string();
-            move |s, r: Result<Vec<Folder>, String>| {
-                if s.term.card.as_deref() != Some(card.as_str()) {
-                    return;
-                }
-                match r {
-                    Ok(fs) => {
-                        let kept = folders::remembered(&s.prefs, &card);
-                        let pick = folders::pick(kept.as_deref(), &fs)
-                            .or_else(|| fs.first().map(|f| f.path.clone()))
-                            .unwrap_or_default();
-                        s.term.choice = TextEdit::new(pick);
-                        s.term.folders = Some(fs);
-                    }
-                    Err(e) => s.term.error = Some(e),
-                }
+    s.spawn(move |w| w.term_folders(&c), {
+        let card = card.to_string();
+        move |s, r: Result<Vec<Folder>, String>| {
+            if s.term.card.as_deref() != Some(card.as_str()) {
+                return;
             }
-        },
-    );
+            match r {
+                Ok(fs) => {
+                    let kept = folders::remembered(&s.prefs, &card);
+                    let pick = folders::pick(kept.as_deref(), &fs)
+                        .or_else(|| fs.first().map(|f| f.path.clone()))
+                        .unwrap_or_default();
+                    s.term.choice = TextEdit::new(pick);
+                    s.term.folders = Some(fs);
+                }
+                Err(e) => s.term.error = Some(e),
+            }
+        }
+    });
 }
 
 /// Shows a tab.
@@ -329,7 +342,9 @@ fn show(s: &mut State, id: TermId) {
 
 /// Starts a shell in `cwd` (empty: the home folder).
 fn start(s: &mut State, cwd: String) {
-    let Some(card) = s.term.card.clone() else { return };
+    let Some(card) = s.term.card.clone() else {
+        return;
+    };
     s.term.busy = true;
     s.term.error = None;
     let scope = Scope::Card(card.clone());
@@ -361,9 +376,16 @@ fn start(s: &mut State, cwd: String) {
 
 /// New terminal: straight away when the folder is known, else the picker.
 fn new_term(s: &mut State) {
-    let Some(card) = s.term.card.clone() else { return };
+    let Some(card) = s.term.card.clone() else {
+        return;
+    };
     let kept = folders::remembered(&s.prefs, &card);
-    match s.term.folders.as_deref().and_then(|fs| folders::pick(kept.as_deref(), fs)) {
+    match s
+        .term
+        .folders
+        .as_deref()
+        .and_then(|fs| folders::pick(kept.as_deref(), fs))
+    {
         Some(p) => start(s, p),
         None => s.term.picking = true,
     }
@@ -378,7 +400,9 @@ fn close(s: &mut State, id: TermId) {
     s.spawn(
         move |w| w.term_close(id),
         move |s, _| {
-            let Some(ts) = s.term.terms.as_mut() else { return };
+            let Some(ts) = s.term.terms.as_mut() else {
+                return;
+            };
             ts.retain(|t| t.id != id);
             if s.term.shown == Some(id) {
                 let next = ts.last().map(|t| t.id);
@@ -427,14 +451,20 @@ pub fn opened(s: &mut State, card_id: &str, info: TermInfo) {
 #[allow(dead_code)] // The package contract; the card page embeds `section`.
 pub fn view(s: &State, f: &mut Frame) -> El {
     match s.nav.card.clone() {
-        Some(id) => col().key("term-page").w_full().padding(20.0).child(section(s, f, &id)),
+        Some(id) => col()
+            .key("term-page")
+            .w_full()
+            .padding(20.0)
+            .child(section(s, f, &id)),
         None => crate::ui::not_yet(f, "Terminals", "Open a card to see its terminals."),
     }
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is("app:card-opened") {
-        let Some(card) = s.nav.card.clone() else { return };
+        let Some(card) = s.nav.card.clone() else {
+            return;
+        };
         let supported = s.w.as_ref().is_some_and(|w| w.core.terms().supported());
         if supported && s.term.card.as_deref() != Some(card.as_str()) {
             load(s, &card);
@@ -455,7 +485,9 @@ pub fn scene(s: &mut State) {
         s.open_card(&id);
         return;
     }
-    let Some(id) = s.data.cards.first().map(|c| c.id.clone()) else { return };
+    let Some(id) = s.data.cards.first().map(|c| c.id.clone()) else {
+        return;
+    };
     s.open_card(&id);
     release(s);
     s.term.card = Some(id.clone());
@@ -507,7 +539,13 @@ pub fn section(s: &State, f: &mut Frame, card_id: &str) -> El {
             );
         }
         if let Some(e) = &s.term.error {
-            body = body.child(text(e.clone()).font(small(f)).color(k.c.danger.fg).w_full().wrap());
+            body = body.child(
+                text(e.clone())
+                    .font(small(f))
+                    .color(k.c.danger.fg)
+                    .w_full()
+                    .wrap(),
+            );
         }
     }
     col()
@@ -516,7 +554,8 @@ pub fn section(s: &State, f: &mut Frame, card_id: &str) -> El {
         .radius(10.0)
         .border(1.0, k.c.border_base)
         .fill(k.c.layer_01)
-        .px(20.0).py(14.0)
+        .px(20.0)
+        .py(14.0)
         .gap(10.0)
         .child(
             text("TERMINAL")
@@ -529,7 +568,12 @@ pub fn section(s: &State, f: &mut Frame, card_id: &str) -> El {
 /// The tabs and New terminal.
 fn tabs(s: &State, f: &Frame) -> El {
     let k = f.k;
-    let mut r = row().key("term-tabs").w_full().gap(4.0).center_y().flex_wrap();
+    let mut r = row()
+        .key("term-tabs")
+        .w_full()
+        .gap(4.0)
+        .center_y()
+        .flex_wrap();
     for (i, t) in s.term.terms.iter().flatten().enumerate() {
         let id = t.id;
         let on = s.term.shown == Some(id);
@@ -543,15 +587,23 @@ fn tabs(s: &State, f: &Frame) -> El {
             .key(format!("term-tab-{id}"))
             .gap(6.0)
             .center_y()
-            .px(8.0).py(4.0)
+            .px(8.0)
+            .py(4.0)
             .max_w(224.0)
             .child(icon(&SQUARE_TERMINAL, 14.0).color(ink))
-            .child(text(folders::tab_name(t, i)).font(rune::tok::TextStyle::new(12.0, 400.0)).color(ink).truncate().shrink())
+            .child(
+                text(folders::tab_name(t, i))
+                    .font(rune::tok::TextStyle::new(12.0, 400.0))
+                    .color(ink)
+                    .truncate()
+                    .shrink(),
+            )
             .help(tip)
             .on_press(move |s: &mut State| show(s, id));
         let x = el()
             .key(format!("term-tab-close-{id}"))
-            .px(4.0).py(4.0)
+            .px(4.0)
+            .py(4.0)
             .child(icon(&crate::ui::icons::X, 12.0).color(k.c.text_muted))
             .help("End this shell")
             .label("End this shell")
@@ -560,7 +612,14 @@ fn tabs(s: &State, f: &Frame) -> El {
             .key(format!("term-tabbox-{id}"))
             .center_y()
             .radius(6.0)
-            .border(1.0, if on { k.c.border_base } else { rune::Color::TRANSPARENT })
+            .border(
+                1.0,
+                if on {
+                    k.c.border_base
+                } else {
+                    rune::Color::TRANSPARENT
+                },
+            )
             .child(name)
             .child(x);
         if on {
@@ -575,7 +634,8 @@ fn tabs(s: &State, f: &Frame) -> El {
             .icon(&crate::ui::icons::PLUS)
             .disabled(s.term.busy || s.term.folders.is_none())
             .on_press(new_term)
-            .build(k),
+            .build(k)
+            .key("term-new"),
     )
 }
 
@@ -602,7 +662,9 @@ fn picker(s: &State, f: &mut Frame) -> El {
         rune_kit::TextInput::new(&s.term.choice)
             .placeholder("No checkout of this card's repo here: a folder path")
             .label("Folder")
-            .text_style(rune::tok::TextStyle::new(12.5, 400.0).family(rune::tok::Family::SystemMono))
+            .text_style(
+                rune::tok::TextStyle::new(12.5, 400.0).family(rune::tok::Family::SystemMono),
+            )
             .width(Some(448.0))
             .on_edit(|s: &mut State| &mut s.term.choice)
             .on_submit(|s: &mut State, _: &mut Tx| {
@@ -630,7 +692,8 @@ fn picker(s: &State, f: &mut Frame) -> El {
                     let c = s.term.choice.text.trim().to_string();
                     start(s, c);
                 })
-                .build(k),
+                .build(k)
+                .key("term-open"),
         )
         .child(
             Button::new("Cancel")
@@ -674,8 +737,18 @@ fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
                     row()
                         .shrink()
                         .min_w(0.0)
-                        .child(text("The program wants to copy: ").font(small(f)).color(k.c.text_muted))
-                        .child(text(clip.clone()).font(small(f).family(rune::tok::Family::SystemMono)).color(k.c.text_muted).truncate().shrink()),
+                        .child(
+                            text("The program wants to copy: ")
+                                .font(small(f))
+                                .color(k.c.text_muted),
+                        )
+                        .child(
+                            text(clip.clone())
+                                .font(small(f).family(rune::tok::Family::SystemMono))
+                                .color(k.c.text_muted)
+                                .truncate()
+                                .shrink(),
+                        ),
                 )
                 .child(
                     Button::new("Copy")
@@ -720,7 +793,13 @@ fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
         );
     }
     if let Some(e) = &l.error {
-        c = c.child(text(e.clone()).font(small(f)).color(k.c.danger.fg).w_full().wrap());
+        c = c.child(
+            text(e.clone())
+                .font(small(f))
+                .color(k.c.danger.fg)
+                .w_full()
+                .wrap(),
+        );
     }
     c
 }
