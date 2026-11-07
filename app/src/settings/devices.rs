@@ -1044,7 +1044,8 @@ fn start(s: &State, f: &mut Frame) -> El {
                             let role = r2.clone();
                             pair_run(s, move |w| w.seams.pairing.add(&role))
                         })
-                        .build(k),
+                        .build(k)
+                        .key("settings-pair-device"),
                 )
                 .child(choice(s, f, "settings-pair-role", "The new device's role", &role, &roles, 150.0, false, |s, v| {
                     s.settings.devices.role = v.to_string()

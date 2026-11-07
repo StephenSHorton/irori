@@ -244,6 +244,10 @@ pub fn dialog(s: &State, f: &mut Frame) {
     let Some(Dialog::Settings(id)) = &s.dialog else { return };
     let here = pane(id);
     let k = f.k;
+    // The panes' menus (selects) go into the layer as they build; the
+    // panel goes in before them, so they draw over it and find their
+    // triggers to anchor to (built after them, they fell to the corner).
+    let at = f.layer.len();
     let mut nav = col()
         .key("settings-nav")
         .w(216.0)
@@ -343,7 +347,8 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .modal(true, |s: &mut State| close_dialog(s))
         .modal_click_outside(true);
     let panel = k.elevate(panel, &k.elevation.overlay);
-    f.layer.push(
+    f.layer.insert(
+        at,
         el().key("settings-scrim")
             .absolute(0.0, 0.0)
             .w_full()
@@ -351,7 +356,8 @@ pub fn dialog(s: &State, f: &mut Frame) {
             .fill(k.c.scrim)
             .a11y_hidden(),
     );
-    f.layer.push(
+    f.layer.insert(
+        at + 1,
         el().key("settings-layer")
             .absolute(0.0, 0.0)
             .w_full()
