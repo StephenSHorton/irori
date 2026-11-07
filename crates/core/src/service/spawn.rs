@@ -2075,15 +2075,16 @@ impl Services {
         // The one way in to the spawner: nothing starts on a device that
         // can't run agents, and it's said before anything about trust.
         if !sp.is_ready() {
+            let why = SpawnRefusal::CantRun {
+                device: self.this_device_name(),
+            }
+            .to_string();
+            logf(format_args!(
+                "spawn {} gen {g}: couldn't start {name}: {why}",
+                t.short_ref()
+            ));
             log.co
-                .fail_own_spawn(
-                    &t.id,
-                    g,
-                    &SpawnRefusal::CantRun {
-                        device: self.this_device_name(),
-                    }
-                    .to_string(),
-                )
+                .fail_own_spawn(&t.id, g, &why)
                 .map_err(|e| e.to_string())?;
             return Ok(false);
         }
@@ -2186,7 +2187,13 @@ impl Services {
             log.board_id.as_str()
         };
         let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let logged_name = name.clone();
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
+            // Card #739: every way a request ends here is in the log.
+            logf(format_args!(
+                "spawn {} gen {g}: couldn't start {logged_name}: {r}",
+                t.short_ref()
+            ));
             log.co
                 .fail_own_spawn(&t.id, g, &r.to_string())
                 .map_err(|e| e.to_string())?;
@@ -2277,6 +2284,7 @@ impl Services {
         let got = (sp.spawn)(&req);
         // Card #739: what `claude --bg` did and how long it took, so a
         // start that never shows can be told from one Irori never made.
+        // A refusal is logged where it ends the request.
         let took = began.elapsed().as_secs_f64();
         match &got {
             Ok(s) => logf(format_args!(
@@ -2285,8 +2293,8 @@ impl Services {
                 s.prefix,
                 req.folder
             )),
-            Err(e) => logf(format_args!(
-                "spawn {} gen {g}: couldn't start {started_name} after {took:.1}s: {e}",
+            Err(_) => logf(format_args!(
+                "spawn {} gen {g}: claude --bg failed after {took:.1}s",
                 t.short_ref()
             )),
         }
@@ -2310,6 +2318,11 @@ impl Services {
             Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
                 Some(l) => {
                     let until = self.hold_usage(&l);
+                    logf(format_args!(
+                        "spawn {} gen {g}: held by a usage limit until {}",
+                        t.short_ref(),
+                        until.format_rfc3339()
+                    ));
                     // His "Start an agent" still stands after the reset.
                     if asked {
                         log.co.spawn_now(&t.id);

@@ -458,8 +458,17 @@ impl Window {
             let a = t.ask.clone().unwrap_or_default();
             let opener = self.core.private_key(&a.opener);
             let resolved = a.outcome.is_some() || coord::is_terminal(&t.state);
+            // The person's follow-up that no live agent heard (card #739):
+            // it went out again and nobody has it yet. It waits on an agent
+            // as a new thread does, so it reads Waiting, with the agent
+            // Irori starts for it, not Answered by an agent that is gone.
+            let follow_up_waits = !rests
+                && a.taker.is_empty()
+                && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED);
             let state = if resolved {
                 THREAD_RESOLVED
+            } else if follow_up_waits {
+                THREAD_WAITING
             } else if !answered.is_empty() || a.reason == coord::TAKE_ANSWERED || rests {
                 THREAD_ANSWERED
             } else if !a.taker.is_empty() {

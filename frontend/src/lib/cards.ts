@@ -70,6 +70,7 @@ import { EventInboxChanged, useLatest } from "./talk"
 import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
+import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
 export type {
   AgentRef,
@@ -241,9 +242,31 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
 
+// askSpawn is what Irori is doing to get an ask nobody took an agent
+// (card #739), from its card's spawn state: starting one, its place in a
+// queue, or why it can't. null once an agent took it or it closed, or
+// while Irori isn't getting it one. Without it a reopened thread whose
+// agent had gone read "Nobody took this yet" while its new agent started.
+export function askSpawn(
+  a: CardAsk,
+  spawn?: SpawnState | null
+): SpawnLine | null {
+  if (
+    !spawn ||
+    a.state === AskState.Taken ||
+    a.state === AskState.Handed ||
+    a.state === AskState.Closed
+  )
+    return null
+  return spawnLine(spawn)
+}
+
 // askLine is an open ask's line in place of the holder line: how many
-// it told, who it waits on, or who took it.
-export function askLine(a: CardAsk): string {
+// it told, who it waits on, or who took it; while nobody took it and
+// Irori gets it an agent, that (card #739).
+export function askLine(a: CardAsk, spawn?: SpawnState | null): string {
+  const sp = askSpawn(a, spawn)
+  if (sp) return sp.text.charAt(0).toUpperCase() + sp.text.slice(1)
   switch (a.state) {
     case AskState.Taken:
       return `${a.taker ? displayName(a.taker) : "An agent"} took it`

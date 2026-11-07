@@ -218,6 +218,7 @@ export function ThreadView({
         cardId={t.id}
         items={items}
         now={now}
+        starting={!!t.starting}
         on={{
           agents: [
             ...(t.openedBy ? [t.openedBy] : []),
