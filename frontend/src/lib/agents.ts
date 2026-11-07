@@ -116,12 +116,13 @@ export function useAgentStarts(open: boolean) {
       live = false
     }
   }, [open])
-  const set = (on: boolean, max: number) => {
+  // set settles once the change is saved or refused (an error).
+  const set = (on: boolean, max: number): Promise<void> => {
     if (!inWails()) {
       setS((p) => p && { ...p, on, max })
-      return
+      return Promise.resolve()
     }
-    AgentsService.SetStarts(on, max).then(
+    return AgentsService.SetStarts(on, max).then(
       (v) => (setS(v), setError("")),
       (e: Error) => setError(e.message)
     )
@@ -495,7 +496,8 @@ export function useLimits(open: boolean) {
       window.clearInterval(id)
     }
   }, [open])
-  const setCap = useCallback((device: string, cap: number) => {
+  // setCap settles once the cap is saved or refused (an error).
+  const setCap = useCallback((device: string, cap: number): Promise<void> => {
     if (!inWails()) {
       setL((x) =>
         x
@@ -507,9 +509,9 @@ export function useLimits(open: boolean) {
             }
           : x
       )
-      return
+      return Promise.resolve()
     }
-    AgentsService.CapSet(device, cap).then(
+    return AgentsService.CapSet(device, cap).then(
       (v) => (setL(v), setError("")),
       (e: Error) => setError(e.message)
     )

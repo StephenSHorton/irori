@@ -507,6 +507,18 @@ impl tools::Backend for ToolsView {
     fn shared_boards(&self) -> Option<&dyn tools::SharedBoards> {
         Some(self)
     }
+    fn personal_boards(&self) -> Vec<tools::PersonalBoard> {
+        self.0
+            .personal_boards()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| tools::PersonalBoard {
+                board_id: b.board_id,
+                name: b.name,
+                tag: b.tag,
+            })
+            .collect()
+    }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
     }

@@ -100,7 +100,6 @@ html[data-ds="irori"].dark {
   --meter-disk: oklch(0.78 0.15 140);
   --meter-net: oklch(0.74 0.15 15);
   --meter-gpu: oklch(0.72 0.17 320);
-
 }
 
 /* ---- the glass styles -------------------------------------------------- */
@@ -201,16 +200,21 @@ html[data-ds="irori"]
     [data-slot="card"],
     [data-slot="popover-content"],
     [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
     [data-slot="select-content"],
+    [data-slot="combobox-content"],
     [data-slot="dialog-content"],
     [data-slot="sheet-content"],
     [data-slot="hover-card-content"],
     [data-slot="command"],
     [data-slot="menubar"],
+    [data-slot="menubar-content"],
+    [data-slot="menubar-sub-content"],
     [data-slot="alert"],
     [data-slot="tabs-list"],
     [data-slot="toast-content"],
     [data-slot="context-menu-content"],
+    [data-slot="context-menu-sub-content"],
     [data-slot="tooltip-content"],
     .glass-panel
   ) {
@@ -241,6 +245,32 @@ html[data-ds="irori"]
     [data-slot="dropdown-menu-content"],
     [data-slot="context-menu-content"],
     [data-slot="combobox-content"]
+  ) {
+  --glass-bg: var(--glass-tint);
+  --popover: var(--glass-tint);
+}
+
+/* Menus, pickers, popovers and tooltips are solid off the Mac (card #688).
+   They float over the page's own text, and Windows' webview skips the
+   blur, so the sidebar and the page read straight through them. The Mac
+   (data-os, set in main.tsx) renders the blur and keeps the frost. A popup
+   made by hand rather than from components/ui takes .glass-float. */
+html[data-ds="irori"]:not([data-os="mac"])
+  :is(
+    [data-slot="popover-content"],
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="select-content"],
+    [data-slot="combobox-content"],
+    [data-slot="context-menu-content"],
+    [data-slot="context-menu-sub-content"],
+    [data-slot="menubar-content"],
+    [data-slot="menubar-sub-content"],
+    [data-slot="navigation-menu-content"],
+    [data-slot="hover-card-content"],
+    [data-slot="tooltip-content"],
+    [data-slot="command-palette"],
+    .glass-float
   ) {
   --glass-bg: var(--glass-tint);
   --popover: var(--glass-tint);
