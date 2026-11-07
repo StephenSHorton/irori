@@ -34,6 +34,11 @@ impl PrLister for FakeGh {
             v
         })
     }
+
+    /// The repo's owner: it is the person's repo (card #625).
+    fn viewer(&self) -> Result<String, String> {
+        Ok("StephenSHorton".into())
+    }
 }
 
 fn pr(n: i64) -> DeskPr {
@@ -180,9 +185,6 @@ fn only_the_person_sets_up_a_desk() {
     assert!(r.core.coord().set_desk(&r.key_a, d.clone()).is_err());
     let not_github = new_desk("remote:gitlab.com/a/b", r.core.device_id());
     assert!(r.core.coord().set_desk(&person(&r), not_github).is_err());
-    let mut bad = d.clone();
-    bad.merge_method = "fast-forward".into();
-    assert!(r.core.coord().set_desk(&person(&r), bad).is_err());
     r.core.coord().set_desk(&person(&r), d).unwrap();
     assert!(r.core.coord().desk(REPO).unwrap().on());
 }
@@ -240,6 +242,28 @@ fn checks_sum_up_the_rollup() {
         "failure"
     );
     assert_eq!(c(serde_json::json!([{"state": "ERROR"}])), "failure");
+}
+
+/// Card #625: `gh search prs --json repository` reads into each repo once,
+/// in the order first seen, any case, blanks skipped.
+#[test]
+fn a_logins_pr_search_reads_into_its_repos() {
+    use irori_core::deskwatch::parse_authored;
+    let v = serde_json::json!([
+        {"repository": {"name": "irori", "nameWithOwner": "StephenSHorton/irori"}},
+        {"repository": {"nameWithOwner": "blaizzy/mlx-video"}},
+        {"repository": {"nameWithOwner": "stephenshorton/IRORI"}},
+        {"repository": {"nameWithOwner": "  "}},
+        {"repository": {}},
+        {"title": "no repository"},
+        {"repository": {"nameWithOwner": " blaizzy/mlx-video "}}
+    ]);
+    assert_eq!(
+        parse_authored(&v),
+        ["StephenSHorton/irori", "blaizzy/mlx-video"]
+    );
+    assert!(parse_authored(&serde_json::json!({"x": 1})).is_empty());
+    assert!(parse_authored(&serde_json::json!([])).is_empty());
 }
 
 /// Live (run by hand on each machine with `--ignored`): the person's own

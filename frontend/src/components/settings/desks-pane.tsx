@@ -1,13 +1,14 @@
 // DesksPane is Settings › Merge desks (card #417, docs/design/
-// merge-desk.md §7, mockup desk-6). Every GitHub repo an agent works in
-// has a desk by itself (card #521): on, held by nobody so nothing merges,
-// polled from the device that saw the repo last. Here the person turns a
-// desk off, names its holder, the device that polls GitHub, the logins it
-// trusts besides their agents and their own, its check lines and merge
-// method. Agents can't write any of this: only you, here.
+// merge-desk.md §7, mockup desk-6). A GitHub repo the person or their
+// space members open PRs in has a desk by itself (card #521, #625): on,
+// polled from the device that saw the repo last. The desk never merges
+// (card #418): it lists PRs for review, and each agent asks the person
+// "Can I merge PR #N?" on its own card. Here the person turns a desk off,
+// picks the device that polls GitHub, and names the logins whose PRs also
+// count as ours. Agents can't write any of this: only you, here.
 
 import { useMemo, useState } from "react"
-import { GitMergeIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { GitMergeIcon, PlusIcon } from "lucide-react"
 
 import { ChoiceSelect } from "@/components/common/choice-select"
 import { Button } from "@/components/ui/button"
@@ -19,13 +20,10 @@ import {
   newDesk,
   ownerName,
   useDesks,
-  type CheckLine,
-  type MergeMethod,
   type RepoDesk,
 } from "@/lib/desk"
 import { useDevices } from "@/lib/devices"
 import { useRoster } from "@/lib/irori"
-import { nameOr, unknownAgent } from "@/lib/names"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -81,13 +79,11 @@ type Choice = { value: string; label: string }
 
 function DeskEditor({
   start,
-  agents,
   devices,
   follow,
   onDone,
 }: {
   start: RepoDesk
-  agents: Choice[]
   devices: Choice[]
   // The device that saw the repo last, by name: a blank poll device
   // follows it (card #521). "" when no device has seen the repo.
@@ -99,16 +95,11 @@ function DeskEditor({
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
   const set = (p: Partial<RepoDesk>) => setD((x) => ({ ...x, ...p }))
-  const setCheck = (i: number, p: Partial<CheckLine>) =>
-    set({ checks: d.checks.map((c, j) => (j === i ? { ...c, ...p } : c)) })
   const save = async () => {
     setSaving(true)
     setError("")
     try {
-      const checks = d.checks
-        .map((c) => ({ ...c, command: c.command.trim() }))
-        .filter((c) => c.command)
-      await deskActions.setDesk({ ...d, trusted: list(trusted), checks })
+      await deskActions.setDesk({ ...d, trusted: list(trusted) })
       onDone()
     } catch (e) {
       setError(errorText(e))
@@ -132,20 +123,8 @@ function DeskEditor({
         />
       </Field>
       <Field
-        label="Holder"
-        hint="One of your agents merges for this repo. If it goes, the desk shows unheld and nothing merges."
-      >
-        <ChoiceSelect
-          label="Holder"
-          size="sm"
-          value={d.holder || NONE}
-          onValueChange={(v) => set({ holder: v === NONE ? undefined : v })}
-          choices={[{ value: NONE, label: "Nobody (unheld)" }, ...agents]}
-        />
-      </Field>
-      <Field
         label="Polls GitHub from"
-        hint="One device asks GitHub for the open PRs every 3 minutes; it stays put when the holder changes."
+        hint="One device asks GitHub for the open PRs every 3 minutes."
       >
         <ChoiceSelect
           label="Poll device"
@@ -164,98 +143,8 @@ function DeskEditor({
         />
       </Field>
       <Field
-        label="Check lines"
-        hint="The first line with no paths always runs. A line with paths runs only when the diff touches them; a runner or device says where."
-      >
-        {d.checks.map((c, i) => (
-          <div
-            key={i}
-            className="grid gap-1 rounded-md border border-border p-2"
-            data-check={i + 1}
-          >
-            <div className="flex items-center gap-2">
-              <span className="w-4 text-[12px] text-muted-foreground">
-                {i + 1}
-              </span>
-              <Input
-                className="h-8 font-mono text-[12px]"
-                placeholder="cargo test --workspace"
-                value={c.command}
-                onChange={(e) => setCheck(i, { command: e.target.value })}
-                aria-label={`Check line ${i + 1}`}
-              />
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={`Remove check line ${i + 1}`}
-                onClick={() =>
-                  set({ checks: d.checks.filter((_, j) => j !== i) })
-                }
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-            <div className="grid gap-1 pl-6 sm:grid-cols-[1fr_150px_120px] sm:gap-2">
-              <Input
-                className="h-7 font-mono text-[11.5px]"
-                placeholder="runs when the diff touches (e.g. app/macos/**), else always"
-                value={(c.paths ?? []).join(", ")}
-                onChange={(e) => setCheck(i, { paths: list(e.target.value) })}
-                aria-label={`Paths for line ${i + 1}`}
-              />
-              <ChoiceSelect
-                label={`Runner for line ${i + 1}`}
-                size="sm"
-                value={c.runner || NONE}
-                onValueChange={(v) =>
-                  setCheck(i, { runner: v === NONE ? undefined : v })
-                }
-                choices={[{ value: NONE, label: "the holder" }, ...agents]}
-              />
-              <ChoiceSelect
-                label={`Device for line ${i + 1}`}
-                size="sm"
-                value={c.device || NONE}
-                onValueChange={(v) =>
-                  setCheck(i, {
-                    device: v === NONE ? undefined : (v as CheckLine["device"]),
-                  })
-                }
-                choices={[
-                  { value: NONE, label: "any OS" },
-                  { value: "mac", label: "Mac" },
-                  { value: "windows", label: "Windows" },
-                  { value: "linux", label: "Linux" },
-                ]}
-              />
-            </div>
-          </div>
-        ))}
-        <Button
-          size="xs"
-          variant="ghost"
-          className="w-fit"
-          onClick={() => set({ checks: [...d.checks, { command: "" }] })}
-        >
-          <PlusIcon /> Add a line
-        </Button>
-      </Field>
-      <Field label="Merge method">
-        <ChoiceSelect
-          label="Merge method"
-          size="sm"
-          value={d.mergeMethod}
-          onValueChange={(v) => set({ mergeMethod: v as MergeMethod })}
-          choices={[
-            { value: "squash", label: "Squash" },
-            { value: "merge", label: "Merge" },
-            { value: "rebase", label: "Rebase" },
-          ]}
-        />
-      </Field>
-      <Field
         label="Trusted authors"
-        hint="GitHub logins whose PRs the desk acts on, besides your agents'. Anyone else's PR waits for your OK on its queue line."
+        hint="GitHub logins whose PRs show here too, beside yours, your space members' and your agents'. Anyone else's PR isn't listed."
       >
         <Input
           className="h-8 text-[12.5px]"
@@ -263,16 +152,6 @@ function DeskEditor({
           value={trusted}
           onChange={(e) => setTrusted(e.target.value)}
           aria-label="Trusted GitHub logins"
-        />
-      </Field>
-      <Field
-        label="OK each PR"
-        hint="Off: the holder merges a trusted PR once its checks pass. On: it asks you on the queue line first."
-      >
-        <Switch
-          checked={d.perPrOk}
-          onCheckedChange={(v) => set({ perPrOk: v })}
-          aria-label="OK each PR"
         />
       </Field>
       {error && (
@@ -299,13 +178,6 @@ export function DesksPane({ open }: { open: boolean }) {
   const [editing, setEditing] = useState("")
   const [adding, setAdding] = useState("")
   const [error, setError] = useState("")
-  const agents = useMemo(
-    () =>
-      roster.agents
-        .filter((a) => a.status !== "gone")
-        .map((a) => ({ value: a.key, label: nameOr(a.name) })),
-    [roster.agents]
-  )
   const deviceChoices = useMemo(
     () =>
       devices
@@ -315,8 +187,6 @@ export function DesksPane({ open }: { open: boolean }) {
   )
   const deviceName = (id: string) =>
     deviceChoices.find((c) => c.value === id)?.label ?? "another device"
-  const nameOf = (key?: string) =>
-    key ? (agents.find((a) => a.value === key)?.label ?? unknownAgent) : ""
   const here = roster.device?.id ?? ""
   const add = () => {
     const key = githubKey(adding)
@@ -330,16 +200,16 @@ export function DesksPane({ open }: { open: boolean }) {
   }
   const shown = [...desks]
   if (editing && !shown.some((d) => d.settings.repoKey === editing)) {
-    shown.unshift({ settings: newDesk(editing, here), holds: {}, oks: {} })
+    shown.unshift({ settings: newDesk(editing, here) })
   }
   return (
     <div className="grid gap-3">
       <p className="text-[12.5px] text-muted-foreground">
-        Every GitHub repo your agents work in has a desk: its open PRs come from
-        GitHub. Nobody holds a new desk, so nothing merges until you name a
-        holder; then it merges them in turn under the repo&apos;s checks. Only
-        you change these: agents can&apos;t. Tags and releases are never the
-        desk&apos;s.
+        A GitHub repo you or your space members open PRs in has a desk: it lists
+        your PRs, your people&apos;s and your agents&apos; from GitHub, and
+        shows while one is open, for review. The desk never merges: each agent
+        asks you &ldquo;Can I merge PR #N?&rdquo; on its own card and merges on
+        your yes. Only you change these: agents can&apos;t.
       </p>
       {/* The desks wait on the first read (card #598), rather than popping
           in above the form. With no desks it takes no row, as before. */}
@@ -380,14 +250,9 @@ export function DesksPane({ open }: { open: boolean }) {
                     <span className="text-[12px] text-muted-foreground">
                       {!s.takesPrs
                         ? "No desk: this repo takes no PRs."
-                        : [
-                            d.isDefault && "on by itself",
-                            s.holder ? `held by ${nameOf(s.holder)}` : "unheld",
-                            `${s.checks.length} check line${s.checks.length === 1 ? "" : "s"}`,
-                            s.mergeMethod,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
+                        : d.isDefault
+                          ? "on by itself"
+                          : "your settings"}
                     </span>
                     <span className="ml-auto flex items-center gap-2 text-[12.5px] text-ink-2">
                       {!open && (
@@ -421,7 +286,6 @@ export function DesksPane({ open }: { open: boolean }) {
                     <DeskEditor
                       key={s.at ?? "new"}
                       start={start}
-                      agents={agents}
                       devices={deviceChoices}
                       follow={follow}
                       onDone={() => setEditing("")}
@@ -465,8 +329,8 @@ export function DesksPane({ open }: { open: boolean }) {
 // one block for a control).
 function DesksShape() {
   const desks = [
-    ["sample-org/app-repo", "held by sample-heron · 2 check lines · squash"],
-    ["sample-org/game-repo", "on by itself · unheld · 1 check line · merge"],
+    ["sample-org/app-repo", "your settings"],
+    ["sample-org/game-repo", "on by itself"],
   ]
   return (
     <div className="grid gap-3">

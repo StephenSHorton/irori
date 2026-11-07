@@ -63,6 +63,7 @@ pub mod boards_status;
 mod bridge;
 pub mod call_settings;
 pub(crate) mod calls;
+pub(crate) mod calls_share;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
@@ -2071,8 +2072,10 @@ impl Core {
             });
         }
 
-        // Merge desks' PR lists (card #415).
-        if s.desk_lister.is_some() {
+        // Merge desks' PR lists (card #415), and which repos are the
+        // person's (card #625): a device that polls none still hides
+        // stray desks.
+        {
             let s = s.clone();
             let stop = self.stop.clone();
             self.spawn("desks", move || {
@@ -2933,15 +2936,16 @@ impl Core {
 
     /// Maps each PR in `repo_key`'s merge desk snapshot to its author card
     /// (merge desk slice 2): links it, makes a "PR #n" card for a trusted
-    /// PR with none, leaves an Outside PR alone. The desk poller calls it
+    /// PR of ours with none, leaves anyone else's alone. The desk poller calls it
     /// after each poll; each PR's verdict.
     pub fn map_desk(&self, repo_key: &str) -> Vec<(i64, crate::deskmap::Verdict)> {
         self.s.map_desk(repo_key)
     }
 
-    /// Each PR's author card on `repo_key`'s desk, and whether it is an
-    /// Outside PR, from the latest snapshot. Read-only: the desk page's
-    /// view; [`Self::map_desk`] is the poller's write.
+    /// The author card of each of our PRs on `repo_key`'s desk, from the
+    /// latest snapshot; anyone else's PR has none and isn't shown (card
+    /// #625). Read-only: the desk page's view; [`Self::map_desk`] is the
+    /// poller's write.
     pub fn desk_verdicts(&self, repo_key: &str) -> Vec<crate::deskmap::DeskAuthor> {
         self.s.desk_verdicts(repo_key)
     }
@@ -3895,12 +3899,10 @@ impl Services {
         (tasks, home)
     }
 
-    /// Maps each PR in a desk's latest snapshot to its author card (merge
-    /// desk §3, slice 2): links the card that rule 1-3 found, makes a
-    /// "PR #n" card for a trusted PR with none, and leaves an untrusted one
-    /// alone (Outside PR: no card, no wake). Returns each PR's verdict.
-    /// Each PR's author on `repo_key`'s desk, worked out from the latest
-    /// snapshot without writing anything (the desk page's read).
+    /// The author of each of our PRs on `repo_key`'s desk, worked out from
+    /// the latest snapshot without writing anything (the desk page's
+    /// read). A PR that isn't ours has no entry: the page doesn't list it
+    /// (card #625).
     fn desk_verdicts(&self, repo_key: &str) -> Vec<crate::deskmap::DeskAuthor> {
         use crate::deskmap::{DeskAuthor, PrRef, Trust, Verdict, judge};
         let Some(desk) = self.coord.desk(repo_key) else {
@@ -3909,21 +3911,18 @@ impl Services {
         let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
             return Vec::new();
         };
-        let own = |k: &str| {
-            k.split_once('/')
-                .is_some_and(|(dev, _)| self.chain.is_owner(&format!("user:{dev}")))
-        };
+        let own = self.people_agent();
         let ledger = self.capture.prs(&repo);
         let (tasks, _) = self.desk_cards(false);
+        let logins = crate::deskmap::desk_logins(&desk, &self.people_logins());
         snap.prs
             .iter()
-            .map(|p| {
+            .filter_map(|p| {
                 let author = ledger
                     .iter()
                     .find(|e| e.number == p.number && e.role.as_str() == "author")
                     .map(|e| e.session.clone())
                     .unwrap_or_default();
-                let logins = crate::deskmap::desk_logins(&desk, p);
                 let trust = Trust {
                     own_agent: &own,
                     logins: &logins,
@@ -3934,7 +3933,7 @@ impl Services {
                     ..DeskAuthor::default()
                 };
                 match judge(&PrRef::of(&repo, p), &tasks, &author, &trust) {
-                    Verdict::Outside => a.outside = true,
+                    Verdict::NotOurs => return None,
                     Verdict::NewCard(_) => {}
                     Verdict::Card(m) => {
                         if let Some(t) = tasks.iter().find(|t| t.id == m.task_id) {
@@ -3946,11 +3945,16 @@ impl Services {
                         a.card = m.task_id;
                     }
                 }
-                a
+                Some(a)
             })
             .collect()
     }
 
+    /// Maps each PR in a desk's latest snapshot to its author card (merge
+    /// desk §3, slice 2): links the card that rule 1-3 found, makes a
+    /// "PR #n" card for one of our PRs with none, and leaves anyone else's
+    /// alone (not ours: no card, no wake, not shown; card #625). Returns
+    /// each PR's verdict.
     fn map_desk(&self, repo_key: &str) -> Vec<(i64, crate::deskmap::Verdict)> {
         use crate::deskmap::{PrRef, Trust, Verdict, judge, new_card_title};
         let Some(desk) = self.coord.desk(repo_key) else {
@@ -3959,12 +3963,10 @@ impl Services {
         let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
             return Vec::new();
         };
-        let own = |k: &str| {
-            k.split_once('/')
-                .is_some_and(|(dev, _)| self.chain.is_owner(&format!("user:{dev}")))
-        };
+        let own = self.people_agent();
         let ledger = self.capture.prs(&repo);
         let (mut tasks, home) = self.desk_cards(false);
+        let logins = crate::deskmap::desk_logins(&desk, &self.people_logins());
         let mut out = Vec::new();
         for p in &snap.prs {
             let pr = PrRef::of(&repo, p);
@@ -3973,7 +3975,6 @@ impl Services {
                 .find(|e| e.number == p.number && e.role.as_str() == "author")
                 .map(|e| e.session.clone())
                 .unwrap_or_default();
-            let logins = crate::deskmap::desk_logins(&desk, p);
             let trust = Trust {
                 own_agent: &own,
                 logins: &logins,
@@ -3995,20 +3996,9 @@ impl Services {
                     match self.coord.create_task("irori", nt) {
                         Ok(t) => {
                             let to = &m.author;
-                            let r = if !to.is_empty() {
-                                self.coord.assign_task("irori", &t.id, to).map(|_| ())
-                            } else if !desk.settings.holder.is_empty() {
-                                self.coord
-                                    .watch_for(
-                                        "irori",
-                                        &t.id,
-                                        std::slice::from_ref(&desk.settings.holder),
-                                    )
-                                    .map(|_| ())
-                            } else {
-                                Ok(())
-                            };
-                            if let Err(e) = r {
+                            if !to.is_empty()
+                                && let Err(e) = self.coord.assign_task("irori", &t.id, to)
+                            {
                                 logf(format_args!("desk: PR #{} card {}: {e}", p.number, t.id));
                             }
                             Some(t.id)
@@ -4019,7 +4009,7 @@ impl Services {
                         }
                     }
                 }
-                Verdict::Outside => None,
+                Verdict::NotOurs => None,
             };
             if let Some(id) = made {
                 let co = home.get(&id).unwrap_or(&self.coord);
@@ -4035,50 +4025,6 @@ impl Services {
             out.push((p.number, v));
         }
         out
-    }
-
-    /// Wakes the desk holder with the run's steps (merge-desk.md §5, card
-    /// #418) when a trusted PR is Waiting on desk and no run is on: once
-    /// per PR and head. An Outside PR never wakes it.
-    fn wake_desk_holder(&self, repo_key: &str, verdicts: &[(i64, crate::deskmap::Verdict)]) {
-        let Some(desk) = self.coord.desk(repo_key) else {
-            return;
-        };
-        let Some(repo) = coord::github_repo(repo_key) else {
-            return;
-        };
-        let Some((p, card)) = crate::deskmap::waiting_pr(&desk, verdicts) else {
-            return;
-        };
-        if !self
-            .desk_watch
-            .first_wake(repo_key, p.number, &p.head_ref_oid)
-        {
-            return;
-        }
-        let (owner, name) = repo.split_once('/').unwrap_or((repo.as_str(), ""));
-        let w = coord::DeskWake {
-            owner: owner.into(),
-            name: name.into(),
-            number: p.number as u64,
-            head_sha: p.head_ref_oid.clone(),
-            title: p.title.clone(),
-            card: if card.is_empty() {
-                String::new()
-            } else {
-                format!("task:{card}")
-            },
-            merge_method: desk.settings.merge_method.clone(),
-        };
-        let n = coord::desk_notice(
-            &desk.settings.holder,
-            &w,
-            &crate::deskmap::check_lines(&desk),
-        );
-        let from = inbox::system_sender();
-        if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
-            logf(format_args!("desk: wake holder for PR #{}: {e}", p.number));
-        }
     }
 
     /// Links a PR an agent on this device just opened to the one card it
@@ -4188,10 +4134,145 @@ impl Services {
             .collect()
     }
 
-    fn check_desks(self: &Arc<Self>) {
-        if self.desk_lister.is_none() {
-            return;
+    /// The person's GitHub login: as this run's gh said it, else as the
+    /// newest snapshot from any of their devices heard it; "" unknown.
+    pub(crate) fn own_github_login(&self) -> String {
+        let v = self.desk_watch.known_viewer();
+        if !v.is_empty() {
+            return v;
         }
+        self.coord
+            .desks()
+            .into_iter()
+            .filter_map(|d| d.prs)
+            .filter(|s| !s.viewer.trim().is_empty())
+            .max_by_key(|s| s.at.unix_milli_value())
+            .map(|s| s.viewer.trim().to_string())
+            .unwrap_or_default()
+    }
+
+    /// The GitHub logins whose PRs are ours (card #625): the person's own
+    /// and each active member's of the spaces they are active in, as each
+    /// member's profile says. Lower case, once each. A hidden DM space's
+    /// rows reach nobody here (card #538), so its other member doesn't
+    /// count through it.
+    fn people_logins(&self) -> Vec<String> {
+        let mut out = std::collections::BTreeSet::new();
+        let own = self.own_github_login();
+        if !own.is_empty() {
+            out.insert(own.to_ascii_lowercase());
+        }
+        let me = self.person_id();
+        for b in self.visible_boards() {
+            let m = b.verifier.membership();
+            if !m.active(&me) {
+                continue;
+            }
+            for p in m.members.iter().filter(|p| !p.person_id.is_empty()) {
+                if !m.active(&p.person_id) {
+                    continue;
+                }
+                let l = b.verifier.profile_github_login(&p.person_id);
+                if !l.trim().is_empty() {
+                    out.insert(l.trim().to_ascii_lowercase());
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// Whether an agent key on a card this device sees is the person's
+    /// agent or a space member's (card #625). The person's own agents read
+    /// `<device>/<session>`; a member's stay `agent:<id>` on the shared
+    /// board's card, and only members write there.
+    fn people_agent(&self) -> impl Fn(&str) -> bool + '_ {
+        move |k: &str| {
+            k.starts_with(store::kinds::AGENT_ACTOR_PREFIX)
+                || k.split_once('/')
+                    .is_some_and(|(dev, _)| self.chain.is_owner(&format!("user:{dev}")))
+        }
+    }
+
+    /// What says which repos are the person's (card #625). `lister` also
+    /// searches GitHub for each login's PRs, at most every
+    /// [`crate::deskwatch::AUTHORED_EVERY`].
+    fn desk_evidence(
+        &self,
+        lister: Option<&dyn crate::deskwatch::PrLister>,
+    ) -> crate::deskmap::RepoEvidence {
+        let logins = self.people_logins();
+        let mut pr_repos: Vec<String> = Vec::new();
+        // The ledger: PRs the person's agents opened (gh pr create).
+        let own = self.people_agent();
+        for e in self.capture.prs("") {
+            if e.role.as_str() == "author"
+                && e.source != "pr-link"
+                && !e.session.starts_with(store::kinds::AGENT_ACTOR_PREFIX)
+                && own(&e.session)
+            {
+                pr_repos.push(e.repo.clone());
+            }
+        }
+        // Cards the person and their members made that link a PR; the
+        // desk's own "PR #n" cards (made by Irori) don't count.
+        let (tasks, _) = self.desk_cards(false);
+        for t in tasks.iter().filter(|t| t.created_by != "irori") {
+            for l in &t.links {
+                if let Some((repo, _)) = coord::pr_link(l) {
+                    pr_repos.push(repo);
+                }
+            }
+        }
+        // GitHub: the repos each login opened PRs in.
+        if let Some(lister) = lister {
+            let now = std::time::Instant::now();
+            for l in &logins {
+                pr_repos.extend(self.desk_watch.authored(lister, l, now));
+            }
+        }
+        pr_repos.sort_by_key(|r| r.to_ascii_lowercase());
+        pr_repos.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        crate::deskmap::RepoEvidence { logins, pr_repos }
+    }
+
+    /// Tells coord which desks' repos are the person's (card #625); any
+    /// other desk is stray: off, never polled or listed. No rows: older
+    /// devices keep their own view until they update.
+    fn check_desk_repos(&self, lister: Option<&dyn crate::deskwatch::PrLister>) {
+        let ev = self.desk_evidence(lister);
+        let desks = self.coord.desks();
+        let ours: Vec<String> = desks
+            .iter()
+            .filter(|d| crate::deskmap::our_repo(d, &ev))
+            .map(|d| d.settings.repo_key.clone())
+            .collect();
+        let judged = desks.into_iter().map(|d| d.settings.repo_key);
+        if self.coord.judge_desk_repos(judged, ours) {
+            logf(format_args!(
+                "desks: {} of the person's repos",
+                self.coord.desks().iter().filter(|d| !d.stray).count()
+            ));
+        }
+    }
+
+    fn check_desks(self: &Arc<Self>) {
+        let Some(lister) = self.desk_lister.clone() else {
+            self.check_desk_repos(None);
+            return;
+        };
+        // The person's login, asked of gh once a run, before any desk is
+        // on: it is what makes a repo theirs. Once learned, the spaces'
+        // profiles get it so members' desks show this person's PRs.
+        let had = self.desk_watch.known_viewer();
+        let login = self.desk_watch.viewer(lister.as_ref());
+        if had.is_empty() && !login.is_empty() {
+            for b in self.boards.list() {
+                if let Err(e) = self.keep_current(&b) {
+                    logf(format_args!("board {}: github login: {e}", b.id));
+                }
+            }
+        }
+        self.check_desk_repos(Some(lister.as_ref()));
         let now = std::time::Instant::now();
         for d in self.polled_desks() {
             let k = d.settings.repo_key;
@@ -4238,11 +4319,10 @@ impl Services {
                     now,
                     at,
                 );
-                // Every good poll, not only a changed one: a card, a ledger
-                // row or an OK may have changed what a PR maps to.
+                // Every good poll, not only a changed one: a card or a ledger
+                // row may have changed what a PR maps to.
                 if wrote.is_ok() {
                     let v = self.map_desk(repo_key);
-                    self.wake_desk_holder(repo_key, &v);
                     self.post_desk(repo_key, &v);
                     // Card #421: a PR that left the list may have merged.
                     self.settle_gone_prs(repo_key);

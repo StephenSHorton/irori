@@ -870,6 +870,7 @@ impl Identity {
             person_sig: sig,
             color: String::new(),
             avatar: String::new(),
+            github_login: String::new(),
         })
     }
 

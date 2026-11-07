@@ -248,6 +248,29 @@ fn own_devices_huddle_and_a_third_device_joins() {
         "{snap:?}"
     );
 
+    // Deafen: a1's voice stops coming out of a3's speaker, a3's own mic
+    // goes off (a1 sees it muted), and Undeafen brings both back.
+    a3.core.call_deafen(true);
+    let m = a3.core.call_snapshot().mine.expect("a3 is in it");
+    assert!(m.deafened && !m.muted, "{m:?}");
+    std::thread::sleep(Duration::from_millis(600));
+    let from = len(&s.recs[2]);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(loud_blocks(&s.recs[2], from), 0, "a deafened speaker plays");
+    wait_for(WAIT, "a1 sees a3's mic off", || {
+        a1.core.call_snapshot().mine.is_some_and(|m| {
+            m.peers
+                .iter()
+                .any(|p| p.device_id == a3.core.device_id() && p.muted)
+        })
+    });
+    a3.core.call_deafen(false);
+    let from = len(&s.recs[2]);
+    wait_for(WAIT, "a1's voice plays at a3 again", || {
+        loud_blocks(&s.recs[2], from) >= 10
+    });
+    assert!(!a3.core.call_snapshot().mine.expect("in it").deafened);
+
     // Mute: a1's voice stops, and the others see it.
     a1.core.call_mute(true);
     std::thread::sleep(Duration::from_millis(600));
@@ -910,5 +933,132 @@ fn a_huddles_end_wakes_the_channels_agents_once() {
         assert_eq!(told_of(d, &dm_call), 0);
         assert!(told(d, &dm).is_empty());
     }
+    close(s);
+}
+
+/// #658: a screen share in a two-person huddle. Alice shares the test
+/// picture (the real hardware encoder, no capture), Bob watches: his sink
+/// gets a decoder config, then AVCC access units starting at a keyframe.
+/// Bob sharing replaces Alice's, and she is told who took over; Bob stops
+/// and the share is gone for both.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[test]
+fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
+    use irori_net::share::{VIEW_CHUNK, VIEW_CONFIG};
+
+    let s = setup(1, |s| vec![&s.alice[0], &s.bob[0]]);
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let call_id = a1.core.call_start(&s.ch).expect("start");
+    wait_for(WAIT, "bob rings", || rung(b1, &call_id, &s.ch));
+    b1.core.call_join(&call_id).expect("bob joins");
+    wait_for(WAIT, "connected", || {
+        live_peers(a1) == 1 && live_peers(b1) == 1
+    });
+
+    let got: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let sink: irori_core::ShareSink = {
+        let got = got.clone();
+        Arc::new(move |b| {
+            got.lock().unwrap().push(b);
+            true
+        })
+    };
+    b1.core.share_attach(sink).expect("bob watches");
+    a1.core
+        .share_start("synthetic:640x360")
+        .expect("alice shares");
+    let mine = a1.core.call_snapshot().mine.unwrap();
+    let share = mine.share.expect("alice sees her share");
+    assert!(share.now.mine);
+    assert!(mine.can_share);
+    wait_for(WAIT, "bob sees alice's share", || {
+        b1.core
+            .call_snapshot()
+            .mine
+            .and_then(|m| m.share)
+            .is_some_and(|x| !x.now.mine && x.now.info.width == 640 && x.now.info.height == 360)
+    });
+    wait_for(WAIT, "bob gets a config and 20 access units", || {
+        got.lock()
+            .unwrap()
+            .iter()
+            .filter(|b| b[0] == VIEW_CHUNK)
+            .count()
+            >= 20
+    });
+    {
+        let g = got.lock().unwrap();
+        assert_eq!(g[0][0], VIEW_CONFIG, "a config comes first");
+        let codec_len = u16::from_be_bytes([g[0][1], g[0][2]]) as usize;
+        let codec = std::str::from_utf8(&g[0][3..3 + codec_len]).unwrap();
+        assert!(codec.starts_with("avc1."), "{codec}");
+        let first = g.iter().find(|b| b[0] == VIEW_CHUNK).unwrap();
+        assert_eq!(first[1] & 1, 1, "the first access unit is a keyframe");
+        // AVCC: a 4-byte length, then the NAL unit; no start codes.
+        for b in g.iter().filter(|b| b[0] == VIEW_CHUNK) {
+            let au = &b[10..];
+            let mut i = 0;
+            while i < au.len() {
+                let n = u32::from_be_bytes(au[i..i + 4].try_into().unwrap()) as usize;
+                assert!(n > 0 && i + 4 + n <= au.len(), "bad AVCC length");
+                i += 4 + n;
+            }
+        }
+    }
+
+    // Bob looks away and back (the stage unmounts and mounts again): the
+    // sharer starts a new sender for him, and he gets a fresh config and
+    // keyframe, not a black picture.
+    b1.core.share_detach();
+    let again: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let sink2: irori_core::ShareSink = {
+        let again = again.clone();
+        Arc::new(move |b| {
+            again.lock().unwrap().push(b);
+            true
+        })
+    };
+    b1.core.share_attach(sink2).expect("bob watches again");
+    // Within a few seconds: a keyframe ask waits at most 2 s (and a sender
+    // that started its GOP numbers over would be ignored until the next
+    // unasked keyframe, 10 s on).
+    let t = std::time::Instant::now();
+    loop {
+        let ok = {
+            let g = again.lock().unwrap();
+            g.first().is_some_and(|b| b[0] == VIEW_CONFIG)
+                && g.iter().filter(|b| b[0] == VIEW_CHUNK).count() >= 5
+        };
+        if ok {
+            break;
+        }
+        assert!(
+            t.elapsed() < Duration::from_secs(6),
+            "bob got no picture within 6 s of watching again"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    // Bob shares: Alice's stops and she's told it was Bob.
+    b1.core
+        .share_start("synthetic:320x240")
+        .expect("bob shares");
+    wait_for(WAIT, "alice's share gives way to bob's", || {
+        let m = a1.core.call_snapshot().mine.unwrap();
+        m.share
+            .as_ref()
+            .is_some_and(|x| !x.now.mine && x.now.info.width == 320)
+            && matches!(
+                m.share_note,
+                Some(irori_core::CallShareNote::Replaced { .. })
+            )
+    });
+    b1.core.share_stop();
+    wait_for(WAIT, "the share is gone for both", || {
+        a1.core.call_snapshot().mine.unwrap().share.is_none()
+            && b1.core.call_snapshot().mine.unwrap().share.is_none()
+    });
+    b1.core.call_leave().unwrap();
+    a1.core.call_leave().unwrap();
     close(s);
 }

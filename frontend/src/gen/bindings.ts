@@ -309,6 +309,13 @@ export const commands = {
 	callLeave: () => __TAURI_INVOKE<null>("call_leave"),
 	/**  Mutes or unmutes this device's mic in the huddle. */
 	callMute: (on: boolean) => __TAURI_INVOKE<null>("call_mute", { on }),
+	/**
+	 *  Deafens or undeafens this device in the huddle: nothing plays here and
+	 *  the mic is off.
+	 */
+	callDeafen: (on: boolean) => __TAURI_INVOKE<null>("call_deafen", { on }),
+	/**  The mic a huddle would open, by name ("" when it can't say). */
+	callMic: () => __TAURI_INVOKE<string>("call_mic"),
 	/**  Stops a huddle ringing here. */
 	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
 	/**  "Transcribe what I say in calls" (#656): on unless turned off. */
@@ -320,6 +327,24 @@ export const commands = {
 	callTranscribeSet: (on: boolean) => __TAURI_INVOKE<null>("call_transcribe_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
+	/**  What this device can share: displays, then windows. */
+	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
+	/**  Shares a window or display (an id from share_sources) in the huddle. */
+	shareStart: (sourceId: string) => __TAURI_INVOKE<null>("share_start", { sourceId }),
+	/**  Stops this device's share. */
+	shareStop: () => __TAURI_INVOKE<null>("share_stop"),
+	/**
+	 *  Watches the huddle's share: decoder configs and H.264 access units come
+	 *  on `frames` as raw ArrayBuffers (irori_net::share's window messages).
+	 *  Replaces an earlier channel.
+	 */
+	shareAttach: (frames: Channel<ArrayBuffer>) => __TAURI_INVOKE<null>("share_attach", { frames }),
+	/**  Stops watching the share: the sharer stops sending here. */
+	shareDetach: () => __TAURI_INVOKE<null>("share_detach"),
+	/**  Asks the sharer for a keyframe (the decoder lost its place). */
+	shareKeyframe: () => __TAURI_INVOKE<null>("share_keyframe"),
+	/**  The person saw the share note. */
+	shareNoteSeen: () => __TAURI_INVOKE<null>("share_note_seen"),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
 	talkConversations: () => __TAURI_INVOKE<TalkConversation[]>("talk_conversations"),
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
@@ -420,12 +445,6 @@ export const commands = {
 	deskList: () => __TAURI_INVOKE<DeskView[]>("desk_list"),
 	/**  The person sets up or changes a repo's merge desk. */
 	deskSet: (settings: DeskSettings) => __TAURI_INVOKE<null>("desk_set", { settings }),
-	/**  The person holds a desk's PR, or with `cleared` lifts the hold. */
-	deskHold: (repoKey: string, pr: number, note: string, cleared: boolean) => __TAURI_INVOKE<null>("desk_hold", { repoKey, pr, note, cleared }),
-	/**  The person pauses or resumes a desk. */
-	deskPause: (repoKey: string, paused: boolean) => __TAURI_INVOKE<null>("desk_pause", { repoKey, paused }),
-	/**  The person okays an Outside PR at one head. */
-	deskOk: (repoKey: string, pr: number, headSha: string) => __TAURI_INVOKE<null>("desk_ok", { repoKey, pr, headSha }),
 	/**
 	 *  This computer's recent hardware meter samples, oldest first (card #599);
 	 *  empty on the phone.
@@ -902,6 +921,8 @@ export type CallMineView = {
 	/**  When this device joined, Unix ms. */
 	joinedAtMs: number,
 	muted: boolean,
+	/**  Deafened: nothing plays here and the mic is off. */
+	deafened: boolean,
 	/**  This device's mic is above the speech gate. */
 	speaking: boolean,
 	/**  This device's name ("" when it has none). */
@@ -921,6 +942,15 @@ export type CallMineView = {
 	transcribeOn: boolean,
 	/**  The latest lines said in the call, oldest first. */
 	captions: CallCaptionView[],
+	/**  The screen share on in the call, yours or another's (#658). */
+	share: CallShareView | null,
+	/**  This device can share its screen (the desktops; not the phone). */
+	canShare: boolean,
+	/**
+	 *  A line about sharing, in plain words: who took over, or why your
+	 *  share stopped.
+	 */
+	shareNote: string | null,
 };
 
 /**  Another device in the call. */
@@ -962,6 +992,34 @@ export type CallRingView = {
 	byDevice: string,
 	/**  When it rang, Unix ms. */
 	atMs: number,
+};
+
+/**  The screen share on in a call. */
+export type CallShareView = {
+	shareId: string,
+	/**  You are the one sharing (this device). */
+	mine: boolean,
+	/**  Who shares: "you" for the person, else their name. */
+	name: string,
+	/**  The sharing device's name when it is one of the person's own, else "". */
+	device: string,
+	/**  `window` or `display`. */
+	kind: string,
+	/**  The window's title, or the display's name. */
+	title: string,
+	/**  The app that owns the window ("" for a display). */
+	app: string,
+	/**  The picture's size, pixels (0 until the capture runs). */
+	width: number,
+	height: number,
+	fps: number,
+	/**  The sharer's target bitrate now, kbit/s. */
+	kbps: number,
+	/**
+	 *  How this device reaches the sharer: `direct`, `relay`, or "" (it is
+	 *  this device).
+	 */
+	path: string,
 };
 
 /**  Every call this device knows of, as the window shows them. */
@@ -1698,7 +1756,7 @@ export type Delivery = {
 /**  inbox.DeliveryMode. */
 export type DeliveryMode = "wake" | "next_turn";
 
-/**  A PR's author card and trust (slice 2's read-only verdict). */
+/**  One of our PRs' author card (slice 2's read-only verdict). */
 export type DeskAuthorView = {
 	pr: number,
 	/**  The author card's id; "" none yet. */
@@ -1707,28 +1765,6 @@ export type DeskAuthorView = {
 	cardRef: string,
 	/**  The agent behind it; "" none. */
 	agent: string,
-	/**  An Outside PR: never checked or merged until the person's OK. */
-	outside: boolean,
-};
-
-/**  One check line (§7). */
-export type DeskCheckLine = {
-	command: string,
-	paths?: string[],
-	/**  An agent key; "" the holder. */
-	runner?: string,
-	/**  `mac`, `windows`, `linux`; "" any. */
-	device?: string,
-};
-
-/**  A hold, a pause, an OK or the holder's run: one PR (0 for a pause). */
-export type DeskMark = {
-	pr: number,
-	/**  A hold's note; an OK's or a run's head sha. */
-	note: string,
-	headSha: string,
-	by: string,
-	at: string,
 };
 
 /**  How polling stands, on the device that polls. */
@@ -1764,12 +1800,8 @@ export type DeskSettings = {
 	repoKey: string,
 	enabled: boolean,
 	takesPrs: boolean,
-	/**  The holder's agent key; "" unheld. */
-	holder?: string,
 	pollDevice?: string,
 	trusted?: string[],
-	checks?: DeskCheckLine[],
-	mergeMethod?: string,
 	perPrOk?: boolean,
 	by?: string,
 	at?: string,
@@ -1806,12 +1838,12 @@ export type DeskView = {
 	 */
 	followsSeen: boolean,
 	prs?: DeskSnapshotView | null,
-	holds: DeskMark[],
-	paused?: DeskMark | null,
-	oks: DeskMark[],
-	run?: DeskMark | null,
 	poll: DeskPollView,
-	/**  Each PR in the snapshot: its author card and whether it is Outside. */
+	/**
+	 *  Each PR in the snapshot: its author card. The snapshot holds only
+	 *  our PRs (the person's, their members' and their agents'; card
+	 *  #625): anyone else's is left out here.
+	 */
 	authors: DeskAuthorView[],
 };
 
@@ -2518,6 +2550,18 @@ export type SharePreview = {
 	/**  Its ended subtasks, which stay private: "#6 Old idea (canceled)". */
 	keptPrivate: string[],
 	hash: string,
+};
+
+/**  Something that can be shared: a display or a window. */
+export type ShareSourceView = {
+	/**  Pass to `share_start`. */
+	id: string,
+	/**  `window` or `display`. */
+	kind: string,
+	title: string,
+	app: string,
+	width: number,
+	height: number,
 };
 
 /**  Where a private card was shared to (Go `core.SharedCopy`). */

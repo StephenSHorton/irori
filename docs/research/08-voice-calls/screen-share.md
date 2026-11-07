@@ -108,7 +108,7 @@ Irori is Tauri 2.12.5. [FC✓ Cargo.lock]
 | Decode in Rust, push raw frames | **No.** About 80–120 MB/s through IPC. iroh-live renders natively with egui/wgpu. [V; FC✓ `moq-media-egui` crate in workspace] |
 | MJPEG | **LAN only**, as a debug fallback. [I] |
 
-**Bitstream gotcha.** `moq-video` emits Annex-B. [V] WebCodecs reads a config with no `description` as Annex-B, and an `avcC` `description` as length-prefixed. [I] Normalise to AVCC plus a `description` in Rust. Probe `isConfigSupported('avc1.42E01F')` with `optimizeForLatency: true`.
+**Bitstream gotcha.** `moq-video` emits Annex-B. [V] WebCodecs reads a config with no `description` as Annex-B, and an `avcC` `description` as length-prefixed. [I] Normalise to AVCC plus a `description` in Rust. Probe `isConfigSupported` with `optimizeForLatency: true` and the codec string built from the encoder's own SPS (profile_idc, constraint flags, level_idc): both moq-video hardware encoders emit High, e.g. `avc1.640028` (see Results).
 
 ---
 
@@ -184,10 +184,86 @@ Choose B if `moq-video` pulls in too much of `moq-net`/`hang`/`kio`. For a fully
 
 **Watch:** `iroh-live` / `iroh-moq`.
 
+## Results (#657, 2026-11-06)
+
+What was built: `crates/share` (`irori-share`) on `moq-video =0.1.21` with `default-features = false, features = ["capture"]`, patched to `vendor/moq-video` for one fix (below). It is capture and encode only: a `Source` (one window or a display) becomes `Chunk`s, one Annex-B access unit each, with SPS/PPS in band on every keyframe. Capture is moq-video's (ScreenCaptureKit on the Mac, WGC on the PC), not the `screencapturekit` / `windows-capture` crates; encode is moq-video's VideoToolbox and Media Foundation backends. The picture is the source fitted into the 1920x1080 box with its aspect ratio kept (`share::fit`): a tall window stays tall, and the encoder is built at that size. Tools: `examples/share-dev.rs` lists windows and displays and times capture + encode; `tests/it/encode.rs` checks keyframes on request on the real hardware encoder; `examples/share-picker.rs` and `grant-test.sh` / `grant-walk.sh` test the Mac grant.
+
+**Findings about moq-video 0.1.21** (from its source, unlike the survey's 0.1.10-era notes above):
+- `Encoded` is `{timestamp, payload}` only: the `keyframe` flag is gone. `irori-share` reads it from the bitstream (an IDR NAL, type 5).
+- Both hardware backends encode **H.264 High** (`kVTProfileLevel_H264_High_AutoLevel`, `eAVEncH264VProfile_High`), not Baseline/Main. WebCodecs decodes High (`avc1.64…`), so the viewer's codec string must say High.
+- Rate control: VideoToolbox gets `AverageBitRate` only, no `DataRateLimits`, so on the Mac nothing caps a keyframe's size. Media Foundation is asked for CBR, low-latency mode, a mean bitrate and a GOP size through `ICodecAPI`; moq-video logs a refused value at debug level and carries on, so these are requests. On the PC's NVENC the keyframes came out a fifth of the Mac's size, which suggests CBR held.
+- **Two GPUs (fixed, #666):** Media Foundation's hardware list on the PC (RTX 5080 plus the Ryzen's Radeon iGPU) put `AMDh264Encoder` first; moq-video took it, while its D3D11 device is on the default adapter (the NVIDIA), and `SetOutputType` failed with `0xC00D6D76`. `vendor/moq-video` enumerates with `MFTEnum2` filtered to adapter 0's LUID and falls back to the old list. Worth sending upstream.
+- **Hardware only** (`Settings::hardware_only`) is enforced on the PC (Media Foundation is asked for hardware encoders only). On the Mac moq-video opens VideoToolbox with no encoder specification, so VideoToolbox prefers hardware but isn't made to use it; enforcing it means passing `RequireHardwareAcceleratedVideoEncoder` upstream.
+- **A resize reopens:** WGC ends a capture when the window changes size, and moq-video's `read()` then returns `None`, meaning "open again", not "ended". `irori-share` turns that into `Error::Reopen` and `Capture::reopen`; on the PC the encoder must be rebuilt too, because Media Foundation binds the first capture's D3D11 device. The share really ends with `Error::Video(SourceUnavailable)` (the window closed, Stop in the menu bar, the grant taken away).
+- **WGC ignores the size asked for** and hands over the window's own size; `Capture` scales it on the GPU to the fitted size. WGC delivers a frame only when the window changes (about 9.4 fps on a busy window at 10 fps).
+- `capture::open` checks `CGPreflightScreenCaptureAccess` before every Mac stream and calls `CGRequestScreenCaptureAccess` when there is no grant (`capture/screencapture.rs`), so it always goes through the persistent grant. A picker-based share can't use moq-video's capture; it needs its own `SCStream` on the picker's filter, as `examples/share-picker.rs` does.
+- **Audio:** nothing in moq-video sets `capturesAudio`, and ScreenCaptureKit's default is off, so a share carries no sound at all, Irori's included. WGC captures no audio. Sharing audio later means turning it on with `excludesCurrentProcessAudio` set, so Irori's own call voices and chimes stay out.
+- **Frames stay on the GPU**, with no CPU readback. On the Mac the IOSurface `CVPixelBuffer` goes to VideoToolbox as is. On the PC moq-video converts each WGC BGRA texture into a new NV12 D3D11 texture, which Media Foundation takes as is, and `Capture` scales it on the GPU first when the size differs. A CPU I420 frame (the synthetic bench) is uploaded first.
+
+**Numbers.** `share-dev`, release build. CPU is a percent of one core. On the Mac VideoToolbox encodes in a separate `VTEncoderXPCService` process launched for the client, counted separately ("enc svc"). Media Foundation encodes in-process. Capture compositing in WindowServer is shared with everything on screen and is not counted. "Ask → keyframe" runs from when the ask falls due, through the wait for the next picture, to the keyframe coming out of the encoder: what a viewer waits. At 10 fps that includes up to 100 ms of waiting for the next frame. The synthetic picture is 30 frames of dense "text" and a moving block, played in a loop: harder than most real shares.
+
+Mac: MacBook Pro, M5 Max, 18 cores, macOS 26.6.2. PC: Ryzen 7 9850X3D (8 cores), RTX 5080 (NVENC through Media Foundation), Windows 11.
+
+| Run | Backend | fps | Bitrate (target) | Keyframes | Other frames | Ask → keyframe | P-frame encode ms p50 / p95 | CPU (+ enc svc) |
+|---|---|---|---|---|---|---|---|---|
+| Mac synth 1080p, 20 s, no asks | videotoolbox | 10.04 | 837 kbit/s (1451) | 1 × 594 KB | 7.5 KB | — | 4.87 / 5.39 | 0.8 % (+0.6 %) |
+| Mac synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | videotoolbox | 10.03 | 1936 kbit/s (1451 → 800) | 6 × 855 KB avg | 7.2 KB | 5/5, 121 ms avg | 5.15 / 5.48 | 0.9 % (+0.5 %) |
+| Mac synth 1080p, 20 s, ask every 2 s, 2500 kbit/s | videotoolbox | 10.04 | 4367 kbit/s (2500) | 10 × 917 KB avg | 9.2 KB | 9/9, 119 ms | 5.13 / 5.56 | 0.9 % (+0.6 %) |
+| PC synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | mediafoundation (NVENC) | 10.03 | 915 kbit/s (1451 → 800) | 6 × 176 KB avg | 8.0 KB | 5/5, 209 ms avg | 0.67 / 0.87 | 1.5 % |
+| PC window (Discord, 1280x1392 → 992x1080), 30 s, ask every 5 s | mediafoundation | 9.37 | 611 kbit/s (749) | 6 × 52 KB | 7.2 KB | 5/5, 166 ms avg, 206 max | 0.28 / 0.45 | 0.4 % |
+| PC window (Discord), 30 s, resized twice mid-run | mediafoundation | 9.13, 2 reopens | 592 kbit/s (749) | 7 × 45 KB | 7.1 KB | 5/5, 220 ms avg, 515 max¹ | 0.29 / — | 0.8 % |
+
+The PC has no yellow WGC border (moq-video asks for borderless) and no prompt. ¹ The slow ask was the one that met a reopen; each reopen makes a keyframe of its own (the 7th). A first PC run before the aspect fix stretched the same Discord window to 1920x1080 (1005 kbit/s, 86 KB keyframes); a 320x412 Task Manager window, not scaled up, ran at 575 kbit/s and 0.7 % CPU. **No captured-window numbers on the Mac:** capture there needs the grant or the picker, and both need a person at the Mac (below). The PC rows cover real captured windows; on the Mac a captured frame reaches VideoToolbox without the synth's CPU upload, so the synth rows are an upper bound for this process's CPU.
+
+What the numbers say:
+- **CPU is not a concern** on either machine: about 1–2 % of one core all told.
+- **A keyframe takes one frame longer on the PC.** At 10 fps the ask waits up to 100 ms for the next picture on both machines; VideoToolbox makes that picture the IDR (about 120 ms all told), while Media Foundation makes the one after it (about 210 ms). A viewer joining a share waits about a fifth of a second either way.
+- **Keyframes are the cost on the Mac:** 0.6–1 MB each. VideoToolbox spends what it likes on an IDR, so the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. NVENC's CBR keeps them at 50–180 KB. The sending layer has to ration keyframes: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s).
+- P-frames sit under the target, and a live bitrate change shows within a second (about 500 → 270 kbit/s on the Mac).
+
+**The picker needs no grant (macOS 26.6.2, tested).** `examples/share-picker.rs`, bundled as `SharePicker.app`, ad hoc signed, with no Screen Recording entry at all (reset with `tccutil` first): `SCContentSharingPicker` showed with no prompt; the person picked a window; an `SCStream` on the picker's `SCContentFilter` delivered 32 frames with pictures in 3 s; `CGPreflightScreenCaptureAccess` stayed `false` before, during and after, and macOS showed no prompt or alert. The app sets `NSApplication` to the accessory policy and runs it (no Dock icon); the picker's callback came on a background queue. So the survey's open question is settled for this macOS: **the picker is per-session consent and avoids the persistent grant**, and with it an ad hoc build loses nothing on update. The catch is that it needs its own capture code: moq-video's `capture::open` always goes through the grant.
+
+**The persistent Screen Recording grant: signed vs unsigned (from the code signatures; not tested by hand).** Round two of the hand test was dropped at the person's request, and round one never switched the test apps on: their entries weren't in the Settings list yet when asked, so Irori's own entry was switched off and on again instead (back on, unchanged). What is verified:
+- TCC keeps the grant against the app's *designated requirement*. An ad hoc build's is its own code hash: `codesign -d -r-` prints `designated => cdhash H"b425…"` for one build and `cdhash H"a80d…"` for the next (only `CFBundleVersion` changed). So every update or rebuild of an ad hoc Irori no longer matches its grant, and the person must switch it on again.
+- A Developer ID build's requirement names the bundle id and Team ID, not the hash: `identifier "com.stephenshorton.irori.sharedev-devid" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = GP6632G333`. Every signed build matches it, so the grant survives updates (Apple DTS; docs/releasing.md, Signing). Since #537 Irori's releases are signed this way.
+- The live Irori already holds it on this Mac: System Settings logs `kTCCServiceScreenCapture com.stephenshorton.irori full`.
+- TCC judges the *responsible* process. An app started with `open` is its own (`responsibility_get_pid_responsible_for_pid`, printed by `share-dev grant`), and so is every process an agent starts from its shell. That's why agent sessions can't capture the screen, and why the test wraps share-dev in its own `.app`.
+- macOS 15+ re-asks apps that hold this grant from time to time (survey above); the picker has no grant to re-ask.
+
+**Recommendation for the share UI:** on macOS 14+, start a share with `SCContentSharingPicker` and capture on its filter with our own `SCStream` (as `share-picker.rs` does), feeding `share::Encoder`. No grant, no Settings trip, no re-asks, and it works on ad hoc builds too. Keep moq-video's capture (the persistent grant) for the PC, where WGC asks nothing, and as the Mac fallback below 14. `crates/share/grant-test.sh` and `grant-walk.sh` stay for anyone who wants to test the persistent grant by hand: the walk shows its own instructions on screen and notices each switch by itself.
+
+## Sending and watching (#658, 2026-11-07)
+
+What was built: a share rides the huddle's own `irori/call/1` connections (`crates/net/src/share.rs`, the wire; `crates/core/src/service/calls_share.rs`, the `ShareHub`; window commands `share_*` in `crates/window`; the stage in the frontend).
+
+- **Control** goes on the call's first bi stream, the `call` stream, which carried nothing past its open messages before: length-prefixed JSON `start` (who, which window, size, fps, kbps; sent again when the picture or rate changes), `stop`, `watch {on}` and `keyframe`. An unknown `t` is skipped, so a newer build can add messages.
+- **Video** is one uni stream per keyframe group: the label `share`, a header `{shareId, gop}`, then access units (`ts_us`, a key flag, Annex-B). GOP numbers rise through the whole share (one counter for every viewer's sender), and a viewer stops a GOP as soon as a newer one opens. A sender resets one viewer's stream, waits for the next keyframe and lowers the rate when an access unit goes out more than 500 ms behind its GOP's pace, a write blocks that long on QUIC's buffer, or its queue to that viewer fills; the GOP before a new keyframe is reset, not drained. Video streams sit below the control stream (`set_priority(-1)`); noq writes DATAGRAM frames before STREAM frames in every packet, so voice goes first anyway, and the rate cap is what keeps the path clear for it.
+- **Only watchers get video**: a viewer says `watch` when its window shows the stage, so a phone in the background costs the sharer nothing.
+- **Rate**: start at 1000 kbit/s, up a quarter every 2 s to **2500 kbit/s** while nobody falls behind (#653: 2.5 Mbit/s held on n0 with voice beside it untouched; 8 Mbit/s from the Mac didn't; the phone's first second over a relay was slow), down 30 % (to 300 at least) each time a viewer falls behind. A keyframe every 10 s unasked; asked-for keyframes at most one per 2 s, since a Mac keyframe is 0.6-1.2 MB.
+- **To the window**: the viewer's Rust turns each keyframe's SPS/PPS into an `avcC` description and the codec string (`avc1.640028` from the Mac's encoder), and every access unit into AVCC; a new config goes out whenever the parameter sets change (a resized window on the PC reopens the encoder). The window gets them as raw ArrayBuffers on a Tauri channel and feeds WebCodecs `VideoDecoder`, drawing to a canvas.
+- **One share at a time**: the newer `start` wins (its time, then the device id). A device sharing when a newer one starts stops its own and the stage says who took over. Starting a share over someone else's always counts as newer than theirs, whatever the clocks say, and a sharer that hears an older share answers with its own, so a skewed clock can't leave two shares running.
+- **Mac as sharer** uses moq-video's capture, so it needs the persistent Screen Recording grant (Developer ID builds keep it, #537); the picker path (no grant, #657) needs its own `SCStream` and is not built yet.
+
+**Checked on this Mac (M5 Max, Wi-Fi), 2026-11-07:**
+- `cargo test -p irori-core --test it huddle::a_share`: two real Cores in a two-person huddle on loopback iroh; one shares the test picture through VideoToolbox, the other's sink gets a config, then 20+ AVCC access units starting at a keyframe; the other sharing replaces it and the first is told who; stop clears both.
+- `examples/share-call-dev.rs`: sharer and viewer `ShareHub`s in one process on n0's relays, 1080p test picture (harder than a real window: 1.2 MB keyframes), delay from just before the encoder starts + the frame's time to the viewer's sink (an upper bound):
+
+| Path | Frames | Delay p50 / p95 / max | Over 1 s | Keyframes (delay p50 / max) |
+| --- | --- | --- | --- | --- |
+| direct | 201 of ~200 | 63 / 66 / 123 ms | 0 | 3 (119 / 123 ms) |
+| relay only (n0) | 280 of ~300 | 118 / 159 / 940 ms | 0 | 3 (412 / 940 ms) |
+| direct, after the review fixes | 202 of ~200 | 72 / 74 / 134 ms | 0 | 3 (117 / 134 ms) |
+| relay only (n0), after the review fixes | 280 of ~300 | 133 / 187 / 1000 ms | 0 | 3 (426 / 1000 ms) |
+
+  The worst frame each time is the first keyframe. The missing relay frames are the first second's, dropped while the first keyframe (1.2 MB) crawled through the relay and the viewer waited for it.
+- **WKWebView decodes it**: a WKWebView on macOS 26 (WebKit 605.1.15) decoded all 30 access units of `frontend/public/preview/share-fixture.bin` (this Mac's VideoToolbox output through the same conversion: `avc1.64001f`, avcC description, AVCC chunks) with `VideoDecoder` and drew them on a canvas: `docs/img/658/wkwebview-decode.png`. Chromium (the preview, WebView2's engine and Android WebView's) draws the same fixture in the stage screenshots.
+
+**Not checked here** (the person tries these in a release, #658): the PC as sharer through Media Foundation over the call (#666 measured its encoder alone), the Pixel as viewer, and a huddle between machines. A Mac sharer's keyframes (0.6-1.2 MB, VideoToolbox has no size cap) take ~0.4-0.9 s over n0; the PC's NVENC keyframes are a fifth of that.
+
 ## Next steps (spikes, in order)
 1. **Picker without TCC:** test `11_content_picker` on an ad-hoc-signed build, before and after a rebuild.
 2. **Relay throughput:** 2 Mbps sustained plus bursts, relay-only, Mac↔PC, via `spike-call`.
-3. **WebCodecs probe:** run `isConfigSupported('avc1.42E01F')` and decode an AVCC GOP in WKWebView, WebView2 and the Pixel's WebView.
+3. **WebCodecs probe:** run `isConfigSupported` for High (`avc1.640028`, or the string from the encoder's real SPS) and decode an AVCC GOP in WKWebView, WebView2 and the Pixel's WebView.
 4. **`moq-video` dependency weight:** `cargo tree` with `default-features=false` on the Mac and Windows, checking for `windows` or crypto (aws-lc-rs) conflicts.
 
 ## Sources

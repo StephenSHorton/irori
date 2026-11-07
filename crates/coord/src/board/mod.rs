@@ -19,8 +19,6 @@ mod cards;
 mod comment_edit;
 mod comments;
 mod desk;
-mod desk_person;
-mod desk_run;
 mod error;
 mod fold;
 mod idle;
@@ -85,17 +83,14 @@ pub use asks::{
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{SentBack, merge_watch, watch_text};
 pub use desk::{
-    DESK_LIMIT, Desk, DeskCheck, DeskHoldRow, DeskOkRow, DeskPauseRow, DeskPr, DeskPrsRow,
-    DeskRunRow, MERGE_MERGE, MERGE_REBASE, MERGE_SQUASH, RepoDeskRow, github_repo, new_desk,
+    DESK_LIMIT, Desk, DeskOkRow, DeskPr, DeskPrsRow, RepoDeskRow, github_repo, new_desk,
 };
-pub use desk_person::DESK_NOTE_MAX;
-pub use desk_run::{DESK_NEVER, DeskWake, NOTICE_DESK, desk_notice, desk_run_text};
 pub use error::{Error, ErrorKind, Result};
 pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
-    REASON_CONFLICT, REASON_DESK_HOLDER_CHANGED, REASON_EXPIRED, REASON_HOLDER_GONE,
-    REASON_RELEASED, REASON_STOLEN, SUB_BUFFER, followed, offer_files_in,
+    REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
+    SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
@@ -113,8 +108,8 @@ pub use prstate::{
     PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
-    DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key,
-    desk_resource, is_desk, normalize_glob, normalize_resource, overlaps, parse_resource,
+    DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,
+    normalize_glob, normalize_resource, overlaps, parse_resource,
 };
 pub use review::{
     NOTICE_REVIEW, REVIEW_REQUESTED, Review, ReviewRequest, VERDICT_APPROVED, VERDICT_CHANGES,
@@ -1935,40 +1930,34 @@ impl Coord {
             .record_desk_prs(repo_key, prs, truncated, viewer)
     }
 
-    /// The desk holder records the PR it runs under the desk lease
-    /// (`desk.run`, card #418); it must hold the lease.
-    pub fn record_desk_run(
-        &self,
-        by: &str,
-        repo_key: &str,
-        pr: i64,
-        head_sha: &str,
-        base_sha: &str,
-    ) -> Result<()> {
-        self.lock()
-            .record_desk_run(by, repo_key, pr, head_sha, base_sha)
+    /// Tells the fold which repos are the person's (card #625): those they
+    /// or a member of their spaces open PRs in, judged over every desk the
+    /// fold has now. A desk on any other repo is stray: off, never polled
+    /// or listed. Kept in memory only; the Core says it again as it
+    /// learns more. Whether the set changed.
+    pub fn set_desk_repos<I: IntoIterator<Item = String>>(&self, repos: I) -> bool {
+        let judged: Vec<String> = self.lock().desks.keys().cloned().collect();
+        self.judge_desk_repos(judged, repos)
     }
 
-    /// The person holds a desk's PR, or lifts the hold (card #417).
-    pub fn hold_desk_pr(
-        &self,
-        by: &str,
-        repo_key: &str,
-        pr: i64,
-        note: &str,
-        cleared: bool,
-    ) -> Result<()> {
-        self.lock().hold_desk_pr(by, repo_key, pr, note, cleared)
-    }
-
-    /// The person pauses or resumes a desk (card #417).
-    pub fn pause_desk(&self, by: &str, repo_key: &str, paused: bool) -> Result<()> {
-        self.lock().pause_desk(by, repo_key, paused)
-    }
-
-    /// The person okays an Outside PR at one head (card #417).
-    pub fn ok_desk_pr(&self, by: &str, repo_key: &str, pr: i64, head_sha: &str) -> Result<()> {
-        self.lock().ok_desk_pr(by, repo_key, pr, head_sha)
+    /// [`Self::set_desk_repos`] for the desks in `judged` only: a desk made
+    /// after the Core read the desks counts until it judges it.
+    pub fn judge_desk_repos<J, I>(&self, judged: J, repos: I) -> bool
+    where
+        J: IntoIterator<Item = String>,
+        I: IntoIterator<Item = String>,
+    {
+        let key = |r: String| ledger::canonical_repo_key(&r);
+        let set: std::collections::BTreeSet<String> = repos.into_iter().map(key).collect();
+        let judged: std::collections::BTreeSet<String> = judged.into_iter().map(key).collect();
+        let mut f = self.lock();
+        if f.desk_repos.as_ref() == Some(&set) && f.desk_judged == judged {
+            return false;
+        }
+        let changed = f.desk_repos.as_ref() != Some(&set);
+        f.desk_repos = Some(set);
+        f.desk_judged = judged;
+        changed
     }
 
     /// Every merge desk in this log, by repo key.

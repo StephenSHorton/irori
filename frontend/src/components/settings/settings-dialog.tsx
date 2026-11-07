@@ -91,7 +91,7 @@ export const settingsSections: {
     id: "desks",
     label: "Merge desks",
     icon: GitMergeIcon,
-    hint: "One per repo: open PRs from GitHub, merged in turn by one agent.",
+    hint: "One per repo: your open PRs from GitHub, for review. It never merges.",
   },
   {
     id: "maintenance",

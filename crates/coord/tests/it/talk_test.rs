@@ -981,6 +981,22 @@ struct PairSpaces {
     space: std::sync::Mutex<Result<String, String>>,
     asked: std::sync::atomic::AtomicUsize,
     route: Option<String>,
+    // Last: holds the dir `st` lives in; fields drop in order, and Windows
+    // can't delete an open file.
+    _env: Env,
+}
+
+impl PairSpaces {
+    fn new(space: Result<String, String>, route: Option<String>) -> PairSpaces {
+        let env = Env::on("dev-a");
+        PairSpaces {
+            st: env.st.clone(),
+            space: std::sync::Mutex::new(space),
+            asked: 0.into(),
+            route,
+            _env: env,
+        }
+    }
 }
 
 const ME: &str = "person:me";
@@ -1034,12 +1050,10 @@ impl talk::SpaceLogs for PairSpaces {
 
 fn pair_talk(e: &Env, space: Result<&str, &str>) -> (Talk, std::sync::Arc<PairSpaces>) {
     let t = talk(e);
-    let sp = std::sync::Arc::new(PairSpaces {
-        st: Env::on("dev-a").st.clone(),
-        space: std::sync::Mutex::new(space.map(str::to_string).map_err(str::to_string)),
-        asked: 0.into(),
-        route: None,
-    });
+    let sp = std::sync::Arc::new(PairSpaces::new(
+        space.map(str::to_string).map_err(str::to_string),
+        None,
+    ));
     t.set_spaces(sp.clone());
     (t, sp)
 }
@@ -1181,12 +1195,10 @@ fn dropping_a_person_dm_log_keeps_what_the_other_holds() {
 fn a_person_dm_is_found_by_its_space_before_any_row_folds() {
     let e = Env::new();
     let t = talk(&e);
-    t.set_spaces(std::sync::Arc::new(PairSpaces {
-        st: Env::on("dev-a").st.clone(),
-        space: std::sync::Mutex::new(Ok("s1".into())),
-        asked: 0.into(),
-        route: Some(THEM.into()),
-    }));
+    t.set_spaces(std::sync::Arc::new(PairSpaces::new(
+        Ok("s1".into()),
+        Some(THEM.into()),
+    )));
     let dm = talk::pair_dm_id(ME, THEM);
     assert_eq!(t.pair_other(&dm).as_deref(), Some(THEM));
     assert_eq!(post(&t, &dm, USER, "hi").space, "s1");

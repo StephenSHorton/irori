@@ -1061,59 +1061,107 @@ fn talk_through_the_window() {
     assert!(j(pc).get("spaceId").is_none(), "Personal: no spaceId");
 }
 
-/// Card #417: Settings › Merge desks sets a repo's desk once, and the desk
-/// page's holds, pause and Outside PR OK go in as the person.
+/// Card #417: Settings › Merge desks sets a repo's desk once, as the
+/// person. The desk never merges (card #418): no holder, check lines,
+/// merge method, holds or pause.
 #[test]
-fn merge_desk_settings_holds_pause_and_ok() {
-    use irori_window::desk::{DeskCheckLine, DeskSettings};
+fn merge_desk_settings() {
+    use irori_window::desk::DeskSettings;
     let r = Rig::new();
     let repo = "remote:github.com/example-org/example-app";
     assert!(r.w.desks().is_empty());
-    // No desk yet: nothing to hold.
-    assert!(r.w.desk_hold(repo, 3, "", false).is_err());
     let here = r.w.core.device_id().to_string();
     r.w.desk_set(DeskSettings {
         repo_key: repo.into(),
         enabled: true,
         takes_prs: true,
-        holder: r.key_a.clone(),
         poll_device: here.clone(),
         trusted: vec![" you ".into(), "".into()],
-        checks: vec![DeskCheckLine {
-            command: " cargo test --workspace ".into(),
-            paths: vec!["".into()],
-            ..DeskCheckLine::default()
-        }],
         ..DeskSettings::default()
     })
     .unwrap();
-    r.w.desk_hold(repo, 3, "after the playtest", false).unwrap();
-    r.w.desk_pause(repo, true).unwrap();
-    r.w.desk_ok(repo, 4, "3f2a9c1e0b7d").unwrap();
+    let d = r.w.core.coord().desk(repo).expect("the desk");
+    assert!(d.settings.by.starts_with("user:"));
+    // The desk page lists it once the Core counts the repo as the
+    // person's (card #625).
+    r.w.core.coord().set_desk_repos([repo.to_string()]);
     let d = r.w.desks();
     assert_eq!(d.len(), 1);
     let d = &d[0];
-    assert_eq!(d.settings.holder, r.key_a);
     assert_eq!(d.settings.poll_device, here);
     assert_eq!(d.settings.trusted, vec!["you".to_string()]);
-    assert_eq!(d.settings.checks[0].command, "cargo test --workspace");
-    assert!(d.settings.checks[0].paths.is_empty());
-    assert_eq!(d.settings.merge_method, "squash");
-    assert!(d.settings.by.starts_with("user:"));
-    assert_eq!(
-        (d.holds[0].pr, d.holds[0].note.as_str()),
-        (3, "after the playtest")
-    );
-    assert!(d.paused.is_some());
-    assert_eq!(d.oks[0].head_sha, "3f2a9c1e0b7d");
     assert!(d.poll.here, "this device polls it");
     assert!(d.prs.is_none(), "no poll in a rig without gh");
+}
 
-    r.w.desk_hold(repo, 3, "", true).unwrap();
-    r.w.desk_pause(repo, false).unwrap();
-    let d = &r.w.desks()[0];
-    assert!(d.holds.is_empty());
-    assert!(d.paused.is_none());
+/// Card #625: the desk page lists only the person's repos' desks, each
+/// with only their PRs: a stranger's PR isn't shown, and a stray desk (a
+/// repo nobody in their spaces opens PRs in) isn't listed.
+#[test]
+fn the_desk_page_shows_only_our_repos_and_prs() {
+    use irori_window::desk::DeskSettings;
+    let r = Rig::new();
+    let repo = "remote:github.com/example-org/example-app";
+    let upstream = "remote:github.com/blaizzy/mlx-video";
+    let co = r.w.core.coord();
+    // The person's agent linked a PR in example-app on a card: their repo,
+    // on every desk tick. Nobody here opened one in mlx-video.
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "the PR".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.add_link(
+        &r.key_a,
+        &t.id,
+        "https://github.com/example-org/example-app/pull/1",
+    )
+    .unwrap();
+    for k in [repo, upstream] {
+        r.w.desk_set(DeskSettings {
+            repo_key: k.into(),
+            enabled: true,
+            takes_prs: true,
+            poll_device: r.w.core.device_id().to_string(),
+            ..DeskSettings::default()
+        })
+        .unwrap();
+    }
+    // The Core's desk pass judged both: only example-app is ours.
+    co.set_desk_repos([repo.to_string()]);
+    let pr = |n: i64, author: &str| coord::DeskPr {
+        number: n,
+        url: format!("https://github.com/example-org/example-app/pull/{n}"),
+        title: format!("PR {n}"),
+        author: author.into(),
+        ..coord::DeskPr::default()
+    };
+    // "you" is the person's login, as their gh said it.
+    co.record_desk_snapshot(repo, vec![pr(1, "you"), pr(2, "a-stranger")], false, "you")
+        .unwrap();
+    // mlx-video's desk is stray: not listed at all.
+    assert!(co.desk(upstream).unwrap().stray);
+    let d = r.w.desks();
+    assert_eq!(
+        d.iter()
+            .map(|d| d.settings.repo_key.as_str())
+            .collect::<Vec<_>>(),
+        [repo]
+    );
+    let shown: Vec<i64> = d[0]
+        .prs
+        .as_ref()
+        .unwrap()
+        .prs
+        .iter()
+        .map(|p| p.number)
+        .collect();
+    assert_eq!(shown, [1]);
+    assert_eq!(d[0].authors.iter().map(|a| a.pr).collect::<Vec<_>>(), [1]);
 }
 
 /// Card #452: "Start an agent with this" on the person's comment puts a

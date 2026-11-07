@@ -30,6 +30,7 @@ export type CallLiveView = B.CallLiveView
 export type CallMineView = B.CallMineView
 export type CallPeerView = B.CallPeerView
 export type CallRingView = B.CallRingView
+export type CallShareView = B.CallShareView
 export type CallView = B.CallView
 export type CanvasPos = B.CanvasPos
 export type CaptureChange = B.CaptureChange
@@ -68,8 +69,6 @@ export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
 export type DeliveryMode = B.DeliveryMode
 export type DeskAuthorView = B.DeskAuthorView
-export type DeskCheckLine = B.DeskCheckLine
-export type DeskMark = B.DeskMark
 export type DeskPollView = B.DeskPollView
 export type DeskPrView = B.DeskPrView
 export type DeskSettings = B.DeskSettings
@@ -135,6 +134,7 @@ export type Scope = B.Scope
 export type SendResult = B.SendResult
 export type Sender = B.Sender
 export type SharePreview = B.SharePreview
+export type ShareSourceView = B.ShareSourceView
 export type SharedCopy = B.SharedCopy
 export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
@@ -285,7 +285,7 @@ export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
 
 /** CallMineView with Go's zero values for every field left out. */
 export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "speaking": false, "device": "", "peers": [], "error": null, "transcribing": false, "canTranscribe": false, "transcribeOn": false, "captions": [], ...p } as B.CallMineView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, "transcribing": false, "canTranscribe": false, "transcribeOn": false, "captions": [], "share": null, "canShare": false, "shareNote": null, ...p } as B.CallMineView
 }
 
 /** CallPeerView with Go's zero values for every field left out. */
@@ -296,6 +296,11 @@ export function CallPeerView(p: Partial<B.CallPeerView> = {}): B.CallPeerView {
 /** CallRingView with Go's zero values for every field left out. */
 export function CallRingView(p: Partial<B.CallRingView> = {}): B.CallRingView {
   return { "callId": "", "convId": "", "convName": "", "convKind": "", "by": "", "byDevice": "", "atMs": 0, ...p } as B.CallRingView
+}
+
+/** CallShareView with Go's zero values for every field left out. */
+export function CallShareView(p: Partial<B.CallShareView> = {}): B.CallShareView {
+  return { "shareId": "", "mine": false, "name": "", "device": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, "fps": 0, "kbps": 0, "path": "", ...p } as B.CallShareView
 }
 
 /** CallView with Go's zero values for every field left out. */
@@ -475,17 +480,7 @@ export function Delivery(p: Partial<B.Delivery> = {}): B.Delivery {
 
 /** DeskAuthorView with Go's zero values for every field left out. */
 export function DeskAuthorView(p: Partial<B.DeskAuthorView> = {}): B.DeskAuthorView {
-  return { "pr": 0, "card": "", "cardRef": "", "agent": "", "outside": false, ...p } as B.DeskAuthorView
-}
-
-/** DeskCheckLine with Go's zero values for every field left out. */
-export function DeskCheckLine(p: Partial<B.DeskCheckLine> = {}): B.DeskCheckLine {
-  return { "command": "", ...p } as B.DeskCheckLine
-}
-
-/** DeskMark with Go's zero values for every field left out. */
-export function DeskMark(p: Partial<B.DeskMark> = {}): B.DeskMark {
-  return { "pr": 0, "note": "", "headSha": "", "by": "", "at": "", ...p } as B.DeskMark
+  return { "pr": 0, "card": "", "cardRef": "", "agent": "", ...p } as B.DeskAuthorView
 }
 
 /** DeskPollView with Go's zero values for every field left out. */
@@ -510,7 +505,7 @@ export function DeskSnapshotView(p: Partial<B.DeskSnapshotView> = {}): B.DeskSna
 
 /** DeskView with Go's zero values for every field left out. */
 export function DeskView(p: Partial<B.DeskView> = {}): B.DeskView {
-  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "holds": [], "oks": [], "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
+  return { "settings": DeskSettings(), "isDefault": false, "seenOn": "", "followsSeen": false, "poll": DeskPollView(), "authors": [], ...p } as B.DeskView
 }
 
 /** DeviceCap with Go's zero values for every field left out. */
@@ -776,6 +771,11 @@ export function SharedCopy(p: Partial<B.SharedCopy> = {}): B.SharedCopy {
 /** SharePreview with Go's zero values for every field left out. */
 export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
   return { "boardId": "", "boardName": "", "title": "", "goal": "", "doneWhen": "", "steps": [], "links": [], "repo": "", "visibleTo": [], "dropped": [], "subtasks": [], "keptPrivate": [], "hash": "", ...p } as B.SharePreview
+}
+
+/** ShareSourceView with Go's zero values for every field left out. */
+export function ShareSourceView(p: Partial<B.ShareSourceView> = {}): B.ShareSourceView {
+  return { "id": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, ...p } as B.ShareSourceView
 }
 
 /** SpaceBoard with Go's zero values for every field left out. */

@@ -9,10 +9,11 @@
 // Transcripts (#656): the switch, the notice before the mic opens, live
 // captions and the transcript an ended huddle leaves.
 
-import { CallService, Events } from "./host"
+import { CallService, Events, ShareService } from "./host"
 import { inWails } from "./irori"
 import { nameOr, unknownPerson } from "./names"
 import { previewFlag } from "./preview"
+import type { CallShareView, ShareSourceView } from "./share"
 import { allowMic, loadVoiceStatus } from "./voice"
 import type {
   CallCaptionView,
@@ -139,11 +140,46 @@ export async function leaveHuddle(): Promise<void> {
   await CallService.Leave()
 }
 
-// setMuted shows the change at once; call:state confirms it.
+// setMuted shows the change at once; call:state confirms it. Unmuting
+// while deafened undeafens too: the mic was off for the deafen, and the
+// person asked for it on.
 export async function setMuted(on: boolean): Promise<void> {
-  if (shared.mine) set({ ...shared, mine: { ...shared.mine, muted: on } })
+  const deafened = !on && !!shared.mine?.deafened
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        muted: on,
+        deafened: deafened ? false : shared.mine.deafened,
+      },
+    })
   if (!inWails()) return
+  if (deafened) await CallService.Deafen(false)
   await CallService.Mute(on)
+}
+
+// setDeafened turns the speaker and the mic off (or back) at once;
+// call:state confirms it. Undeafen keeps the mute it had.
+export async function setDeafened(on: boolean): Promise<void> {
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        deafened: on,
+        speaking: on ? false : shared.mine.speaking,
+      },
+    })
+  if (!inWails()) return
+  await CallService.Deafen(on)
+}
+
+// micName is the mic a huddle would open, for the start sheet ("" when it
+// can't say). It opens nothing.
+export async function micName(): Promise<string> {
+  if (!inWails()) return "MacBook Pro Microphone"
+  return CallService.Mic()
 }
 
 export async function dismissRing(callId: string): Promise<void> {
@@ -269,6 +305,36 @@ export async function loadTranscript(callId: string): Promise<TalkTranscript> {
   return CallService.Transcript(callId)
 }
 
+// ---- screen share (#658) --------------------------------------------------------
+
+// shareSources is what this device can share: its displays and windows.
+// It can fail in plain words (a Mac without the Screen Recording grant).
+export async function shareSources(): Promise<ShareSourceView[]> {
+  if (!inWails()) return previewSources
+  return ShareService.Sources()
+}
+
+// startShare shares `sourceId` in the huddle you're in; anyone else's share
+// stops (they're told). call:state shows it.
+export async function startShare(sourceId: string): Promise<void> {
+  if (!inWails()) return previewShare(sourceId)
+  await ShareService.Start(sourceId)
+}
+
+export async function stopShare(): Promise<void> {
+  if (!inWails()) return previewShare("")
+  await ShareService.Stop()
+}
+
+// dismissShareNote clears the share's note line ("Aiko started sharing, so
+// yours stopped") at once; call:state confirms it.
+export async function dismissShareNote(): Promise<void> {
+  if (shared.mine?.shareNote)
+    set({ ...shared, mine: { ...shared.mine, shareNote: null } })
+  if (!inWails()) return
+  await ShareService.NoteSeen()
+}
+
 // ---- pure parts -----------------------------------------------------------------
 
 export type Health = "good" | "fair" | "poor" | "off"
@@ -367,8 +433,10 @@ export function convLabel(c: { convKind: string; convName: string }): string {
 // picture with sample people, and starting, joining, muting and leaving
 // change it in memory, while speaking and the links move a little each
 // tick so the dots and rings can be seen. The app never runs it.
-//   ?call=live (and share): you're in #suzuri's huddle
+//   ?call=live: you're in #suzuri's huddle
+//   ?call=share: and Spencer shares a window there (#658); sharing: you do
 //   ?call=start: Spencer's huddle is on in #netcode and rings here
+//   ?call=sheet: the open channel's Huddle start sheet (conversation.tsx)
 export const previewPeers: CallPeerView[] = [
   {
     name: "Spencer",
@@ -411,14 +479,95 @@ const previewNames: Record<string, string> = {
   "sample-ch-netcode": "netcode",
 }
 
+// The share ?call=share starts with: Spencer's terminal.
+export const previewTheirShare: CallShareView = {
+  shareId: "preview-share-1",
+  mine: false,
+  name: "Spencer",
+  device: "",
+  kind: "window",
+  title: "Windows Terminal",
+  app: "Windows Terminal",
+  // As the recorded fixture (public/preview/share-fixture.bin).
+  width: 1280,
+  height: 720,
+  fps: 10,
+  kbps: 1800,
+  path: "direct",
+}
+
+const previewSources: ShareSourceView[] = [
+  {
+    id: "preview-win-1",
+    kind: "window",
+    title: "irori · #658 share stage",
+    app: "Visual Studio Code",
+    width: 1680,
+    height: 1050,
+  },
+  {
+    id: "preview-display-1",
+    kind: "display",
+    title: "Built-in Retina Display",
+    app: "",
+    width: 3024,
+    height: 1964,
+  },
+  {
+    id: "preview-win-2",
+    kind: "window",
+    title: "Terminal: spike-call",
+    app: "Terminal",
+    width: 1280,
+    height: 800,
+  },
+]
+
+// previewShare shares a sample source as yours ("" stops it).
+function previewShare(sourceId: string) {
+  const m = shared.mine
+  if (!m) return
+  const src = previewSources.find((s) => s.id === sourceId)
+  const theirs = m.share && !m.share.mine ? m.share : null
+  set({
+    ...shared,
+    mine: {
+      ...m,
+      share: src
+        ? {
+            shareId: `preview-share-${src.id}`,
+            mine: true,
+            name: "you",
+            device: "",
+            kind: src.kind,
+            title: src.title,
+            app: src.app,
+            width: src.width,
+            height: src.height,
+            fps: 10,
+            kbps: 1800,
+            path: "",
+          }
+        : null,
+      shareNote: theirs
+        ? `${theirs.name}'s share stopped, and they were told.`
+        : null,
+    },
+  })
+}
+
 function previewMine(convId: string, name: string, ago: number): CallMineView {
   return {
+    share: null,
+    canShare: true,
+    shareNote: null,
     callId: `preview-call-${convId}`,
     convId,
     convName: name || previewNames[convId] || "",
     convKind: convId.includes("-dm-") ? "dm" : "channel",
     joinedAtMs: Date.now() - ago,
     muted: false,
+    deafened: false,
     speaking: false,
     device: "MacBook Pro",
     peers: previewPeers,
@@ -490,14 +639,31 @@ function previewTranscript(callId: string): TalkTranscript {
 }
 
 function previewSeed(flag: string | null) {
-  if (flag === "live" || flag === "share") {
+  if (flag === "live" || flag === "share" || flag === "sharing") {
+    const mine = {
+      ...previewMine("sample-ch-suzuri", "", 252_000),
+      captions: previewCaptions(3, Date.now()),
+    }
     set({
       transcribeOn: shared.transcribeOn,
       canTranscribe: shared.canTranscribe,
-      mine: {
-        ...previewMine("sample-ch-suzuri", "", 252_000),
-        captions: previewCaptions(3, Date.now()),
-      },
+      mine:
+        flag === "share"
+          ? { ...mine, share: previewTheirShare }
+          : flag === "sharing"
+            ? {
+                ...mine,
+                share: {
+                  ...previewTheirShare,
+                  shareId: "preview-share-mine",
+                  mine: true,
+                  name: "you",
+                  title: "irori · #658 share stage",
+                  app: "Visual Studio Code",
+                  path: "",
+                },
+              }
+            : mine,
       ringing: [],
       live: [
         {
@@ -550,7 +716,7 @@ function previewTick(on: boolean) {
       ...shared,
       mine: {
         ...m,
-        speaking: !m.muted && n % 5 === 2,
+        speaking: !m.muted && !m.deafened && n % 5 === 2,
         // A line is written down every few ticks, while anyone is.
         captions:
           n % 6 === 0 && transcriptOn(m)

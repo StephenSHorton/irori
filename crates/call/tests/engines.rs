@@ -176,6 +176,45 @@ fn muting_stops_the_voice_and_says_so() {
 }
 
 #[test]
+fn deafening_silences_the_speaker_and_the_mic() {
+    let a = node(bursts());
+    let b = node(bursts());
+    b.engine.set_deafened(true);
+    connect(&[("a", &a), ("b", &b)]);
+    std::thread::sleep(Duration::from_millis(1600));
+    {
+        let r = b.rec.lock().unwrap();
+        assert!(
+            onset(&r.samples, 0).is_none(),
+            "a deafened speaker plays nothing"
+        );
+        let r = a.rec.lock().unwrap();
+        assert!(
+            onset(&r.samples, 0).is_none(),
+            "a deafened mic sends nothing"
+        );
+    }
+    let st = b.engine.stats();
+    assert!(st.deafened && !st.muted, "{st:?}");
+    assert!(st.peers[0].jitter.received > 10, "still receiving: {st:?}");
+    assert!(
+        a.engine.stats().peers[0].jitter.muted,
+        "the others see it muted"
+    );
+
+    // Undeafen: a's voice plays again, from now.
+    let at = b.rec.lock().unwrap().samples.len();
+    b.engine.set_deafened(false);
+    // The next burst starts at 3 s.
+    std::thread::sleep(Duration::from_millis(2000));
+    let r = b.rec.lock().unwrap();
+    assert!(
+        onset(&r.samples, at).is_some(),
+        "heard again after Undeafen"
+    );
+}
+
+#[test]
 fn removing_a_peer_stops_sending_to_it() {
     let a = node(bursts());
     let b = node(silence());

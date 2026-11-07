@@ -1,0 +1,50 @@
+[package]
+name = "irori-share"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Irori's screen share (#657): capture one window or screen and encode H.264 on the machine's hardware encoder"
+
+[lib]
+name = "share"
+
+# moq-video does both halves: window and display capture (ScreenCaptureKit
+# on the Mac, Windows.Graphics.Capture on the PC) and H.264 on VideoToolbox
+# or Media Foundation, with frames kept on the GPU from capture to encoder
+# (screen-share.md, stack A). The workspace patches it to vendor/moq-video
+# for one Media Foundation fix (#666). Pinned exactly: it is months old and changes its API between
+# patch releases. Default features off: they add MediaCodec, NVENC and a
+# from-source OpenH264, which Cisco's patent licence doesn't cover.
+# moq-net is here only for the two types moq-video's API takes
+# (Timestamp, bandwidth::Rate); keep it on the version moq-video resolves.
+[dependencies]
+moq-video = { version = "=0.1.21", default-features = false, features = ["capture"] }
+moq-net = "=0.3.21"
+bytes.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGWindow"] }
+
+# examples/share-dev.rs: list windows, and time capture + encode at 1080p.
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+# examples/share-picker.rs: the SCContentSharingPicker spike. Already in
+# Cargo.lock through moq-video and tauri.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit = "0.3.2"
+objc2-core-media = "0.3.2"
+objc2-screen-capture-kit = "0.3.2"
+dispatch2 = "0.3.1"
+block2 = "0.6.2"

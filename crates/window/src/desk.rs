@@ -1,29 +1,15 @@
-//! Merge desks (card #417; docs/design/merge-desk.md §3, §7, §9): every
-//! desk in the person's log for the interim desk page, and the person's
-//! own writes: a desk's settings, a hold on one PR, pausing the desk and
-//! the OK on an Outside PR. Each write goes in as the person; coord
-//! refuses the same rows from an agent.
+//! Merge desks (card #417; docs/design/merge-desk.md §3, §7, §9): the
+//! desks on the person's repos for the desk page, each listing only their
+//! and their people's PRs (card #625), and the person's own write: a
+//! desk's settings. It goes in as the person; coord refuses the same row
+//! from an agent. The desk never merges (card #418): agents ask the person
+//! "Can I merge PR #N?" on their own cards.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
 use crate::ts;
-
-/// One check line (§7).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DeskCheckLine {
-    pub command: String,
-    #[serde(default)]
-    pub paths: Vec<String>,
-    /// An agent key; "" the holder.
-    #[serde(default)]
-    pub runner: String,
-    /// `mac`, `windows`, `linux`; "" any.
-    #[serde(default)]
-    pub device: String,
-}
 
 /// A repo's desk settings (`repo.desk`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
@@ -32,17 +18,10 @@ pub struct DeskSettings {
     pub repo_key: String,
     pub enabled: bool,
     pub takes_prs: bool,
-    /// The holder's agent key; "" unheld.
-    #[serde(default)]
-    pub holder: String,
     #[serde(default)]
     pub poll_device: String,
     #[serde(default)]
     pub trusted: Vec<String>,
-    #[serde(default)]
-    pub checks: Vec<DeskCheckLine>,
-    #[serde(default)]
-    pub merge_method: String,
     #[serde(default)]
     pub per_pr_ok: bool,
     #[serde(default)]
@@ -87,19 +66,6 @@ pub struct DeskSnapshotView {
     pub at: gocompat::time::GoTime,
 }
 
-/// A hold, a pause, an OK or the holder's run: one PR (0 for a pause).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DeskMark {
-    pub pr: i64,
-    /// A hold's note; an OK's or a run's head sha.
-    pub note: String,
-    pub head_sha: String,
-    pub by: String,
-    #[specta(type = ts::Time)]
-    pub at: gocompat::time::GoTime,
-}
-
 /// How polling stands, on the device that polls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -114,7 +80,7 @@ pub struct DeskPollView {
     pub error: String,
 }
 
-/// A PR's author card and trust (slice 2's read-only verdict).
+/// One of our PRs' author card (slice 2's read-only verdict).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskAuthorView {
@@ -125,8 +91,6 @@ pub struct DeskAuthorView {
     pub card_ref: String,
     /// The agent behind it; "" none.
     pub agent: String,
-    /// An Outside PR: never checked or merged until the person's OK.
-    pub outside: bool,
 }
 
 /// One repo's desk.
@@ -145,14 +109,10 @@ pub struct DeskView {
     pub follows_seen: bool,
     #[specta(optional)]
     pub prs: Option<DeskSnapshotView>,
-    pub holds: Vec<DeskMark>,
-    #[specta(optional)]
-    pub paused: Option<DeskMark>,
-    pub oks: Vec<DeskMark>,
-    #[specta(optional)]
-    pub run: Option<DeskMark>,
     pub poll: DeskPollView,
-    /// Each PR in the snapshot: its author card and whether it is Outside.
+    /// Each PR in the snapshot: its author card. The snapshot holds only
+    /// our PRs (the person's, their members' and their agents'; card
+    /// #625): anyone else's is left out here.
     pub authors: Vec<DeskAuthorView>,
 }
 
@@ -161,20 +121,8 @@ fn settings_of(r: coord::RepoDeskRow) -> DeskSettings {
         repo_key: r.repo_key,
         enabled: r.enabled,
         takes_prs: r.takes_prs,
-        holder: r.holder,
         poll_device: r.poll_device,
         trusted: r.trusted,
-        checks: r
-            .checks
-            .into_iter()
-            .map(|c| DeskCheckLine {
-                command: c.command,
-                paths: c.paths,
-                runner: c.runner,
-                device: c.device,
-            })
-            .collect(),
-        merge_method: r.merge_method,
         per_pr_ok: r.per_pr_ok,
         by: r.by,
         at: r.at,
@@ -186,7 +134,6 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
         repo_key: s.repo_key,
         enabled: s.enabled,
         takes_prs: s.takes_prs,
-        holder: crate::trim(&s.holder).to_string(),
         poll_device: s.poll_device,
         trusted: s
             .trusted
@@ -194,30 +141,15 @@ fn row_of(s: DeskSettings) -> coord::RepoDeskRow {
             .map(|t| crate::trim(t).to_string())
             .filter(|t| !t.is_empty())
             .collect(),
-        checks: s
-            .checks
-            .into_iter()
-            .map(|c| coord::DeskCheck {
-                command: crate::trim(&c.command).to_string(),
-                paths: c
-                    .paths
-                    .iter()
-                    .map(|p| crate::trim(p).to_string())
-                    .filter(|p| !p.is_empty())
-                    .collect(),
-                runner: c.runner,
-                device: c.device,
-            })
-            .collect(),
-        merge_method: s.merge_method,
         per_pr_ok: s.per_pr_ok,
         ..coord::RepoDeskRow::default()
     }
 }
 
 impl Window {
-    /// DeskService.Desks: every merge desk in the person's log, with how
-    /// polling stands when this device polls it.
+    /// DeskService.Desks: the merge desks on the person's repos (a stray
+    /// desk on a repo nobody in their spaces opens PRs in is left out, card
+    /// #625), with how polling stands when this device polls it.
     pub fn desks(&self) -> Vec<DeskView> {
         let here = self.core.device_id();
         let mut out: Vec<DeskView> = self
@@ -225,6 +157,7 @@ impl Window {
             .coord()
             .desks()
             .into_iter()
+            .filter(|d| !d.stray)
             .map(|d| {
                 let polled = d.settings.poll_device == here;
                 let poll = if polled {
@@ -238,7 +171,7 @@ impl Window {
                 } else {
                     DeskPollView::default()
                 };
-                let authors = self
+                let authors: Vec<DeskAuthorView> = self
                     .core
                     .desk_verdicts(&d.settings.repo_key)
                     .into_iter()
@@ -247,9 +180,9 @@ impl Window {
                         card: a.card,
                         card_ref: a.card_ref,
                         agent: a.agent,
-                        outside: a.outside,
                     })
                     .collect();
+                let ours: std::collections::HashSet<i64> = authors.iter().map(|a| a.pr).collect();
                 DeskView {
                     authors,
                     is_default: d.is_default(),
@@ -263,6 +196,7 @@ impl Window {
                         prs: s
                             .prs
                             .into_iter()
+                            .filter(|p| ours.contains(&p.number))
                             .map(|p| DeskPrView {
                                 number: p.number,
                                 url: p.url,
@@ -279,40 +213,6 @@ impl Window {
                                 updated_at: p.updated_at,
                             })
                             .collect(),
-                    }),
-                    holds: d
-                        .holds
-                        .into_values()
-                        .map(|h| DeskMark {
-                            pr: h.pr,
-                            note: h.note,
-                            by: h.by,
-                            at: h.at,
-                            ..DeskMark::default()
-                        })
-                        .collect(),
-                    paused: d.pause.filter(|p| p.paused).map(|p| DeskMark {
-                        by: p.by,
-                        at: p.at,
-                        ..DeskMark::default()
-                    }),
-                    oks: d
-                        .oks
-                        .into_values()
-                        .map(|o| DeskMark {
-                            pr: o.pr,
-                            head_sha: o.head_sha,
-                            by: o.by,
-                            at: o.at,
-                            ..DeskMark::default()
-                        })
-                        .collect(),
-                    run: d.run.map(|r| DeskMark {
-                        pr: r.pr,
-                        head_sha: r.head_sha,
-                        note: r.base_sha,
-                        by: r.by,
-                        at: r.at,
                     }),
                     poll,
                 }
@@ -331,36 +231,6 @@ impl Window {
         self.core
             .coord()
             .set_desk(&self.person(), row_of(s))
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Hold: the person holds PR `pr`, or lifts the hold.
-    pub fn desk_hold(
-        &self,
-        repo_key: &str,
-        pr: i64,
-        note: &str,
-        cleared: bool,
-    ) -> Result<(), String> {
-        self.core
-            .coord()
-            .hold_desk_pr(&self.person(), repo_key, pr, note, cleared)
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Pause: the person pauses or resumes the desk.
-    pub fn desk_pause(&self, repo_key: &str, paused: bool) -> Result<(), String> {
-        self.core
-            .coord()
-            .pause_desk(&self.person(), repo_key, paused)
-            .map_err(|e| e.to_string())
-    }
-
-    /// DeskService.Ok: the person okays an Outside PR at one head.
-    pub fn desk_ok(&self, repo_key: &str, pr: i64, head_sha: &str) -> Result<(), String> {
-        self.core
-            .coord()
-            .ok_desk_pr(&self.person(), repo_key, pr, head_sha)
             .map_err(|e| e.to_string())
     }
 }

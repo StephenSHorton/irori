@@ -216,10 +216,14 @@ const {
   HuddleLine,
   NoticeText,
   RingBanner,
+  StartSheet,
+  startNotice,
+  toldText,
   TranscriptOn,
 } = await import("./huddle")
 const { TranscriptView } = await import("./transcript-pane")
 const { huddleNames, transcriptNotice } = await import("@/lib/call")
+const { ShareStage } = await import("./share")
 
 describe("a huddle names people, never keys (#654)", () => {
   // Ids a huddle carries that must never show.
@@ -242,6 +246,7 @@ describe("a huddle names people, never keys (#654)", () => {
     convKind: "dm",
     joinedAtMs: 0,
     muted: true,
+    deafened: false,
     speaking: false,
     device: "",
     peers: [
@@ -258,6 +263,9 @@ describe("a huddle names people, never keys (#654)", () => {
       { name: "you", mine: true, text: "tag it", atMs: 2, endMs: 3 },
       { name: "", mine: false, text: "ok", atMs: 4, endMs: 5 },
     ],
+    share: null,
+    canShare: false,
+    shareNote: null,
   }
   const no = () => {}
 
@@ -270,12 +278,18 @@ describe("a huddle names people, never keys (#654)", () => {
             folded,
             onOpen: no,
             onMute: no,
+            onDeafen: no,
             onLeave: no,
           })
         )
       )
     const panel = html(
-      createElement(CallPanel, { mine, onMute: no, onLeave: no })
+      createElement(CallPanel, {
+        mine,
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+      })
     )
     noKeys(panel)
     expect(panel).toContain("another person")
@@ -285,7 +299,7 @@ describe("a huddle names people, never keys (#654)", () => {
 
   test("the badge, who isn't transcribed and the captions (#656)", () => {
     const panel = html(
-      createElement(CallPanel, { mine, onMute: no, onLeave: no })
+      createElement(CallPanel, { mine, onMute: no, onDeafen: no, onLeave: no })
     )
     noKeys(panel)
     expect(panel).toContain("Transcript on")
@@ -304,6 +318,7 @@ describe("a huddle names people, never keys (#654)", () => {
           captions: [],
         },
         onMute: no,
+        onDeafen: no,
         onLeave: no,
       })
     )
@@ -317,6 +332,7 @@ describe("a huddle names people, never keys (#654)", () => {
           mine,
           onOpen: no,
           onMute: no,
+          onDeafen: no,
           onLeave: no,
         })
       )
@@ -402,6 +418,103 @@ describe("a huddle names people, never keys (#654)", () => {
     )
     noKeys(row)
     expect(row).toContain("Transcript")
+  })
+
+  test("a share names its sharer, never a key (#658)", () => {
+    const share = {
+      shareId: callId,
+      mine: false,
+      // The second peer's (a key nothing names).
+      name: `person:${card}`,
+      device: "",
+      kind: "window",
+      title: "Windows Terminal",
+      app: "Windows Terminal",
+      width: 1920,
+      height: 1080,
+      fps: 10,
+      kbps: 1800,
+      path: "relay",
+    }
+    const stage = html(createElement(ShareStage, { share }))
+    noKeys(stage)
+    expect(stage).toContain("another person")
+    expect(stage).toContain("is sharing a window: Windows Terminal")
+    expect(stage).toContain("1080p · 10 fps · relay")
+    // No decoder in a server render: it says so in plain words.
+    expect(stage).toContain("can&#x27;t show shared screens")
+    const panel = html(
+      createElement(CallPanel, {
+        mine: {
+          ...mine,
+          share,
+          canShare: true,
+          shareNote: "Aiko started sharing, so yours stopped.",
+        },
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+        onShare: no,
+        onStopShare: no,
+        onShareNoteSeen: no,
+      })
+    )
+    noKeys(panel)
+    expect(panel).toContain('aria-label="sharing"')
+    expect(panel).toContain('aria-label="Share a window or screen"')
+    expect(panel).toContain("so yours stopped")
+    expect(panel).toContain('aria-label="Dismiss"')
+    const yours = html(
+      createElement(ShareStage, {
+        share: { ...share, mine: true, name: "you", path: "" },
+        onStop: no,
+      })
+    )
+    noKeys(yours)
+    expect(yours).toContain("You&#x27;re sharing a window: Windows Terminal")
+    expect(yours).toContain("Stop sharing")
+  })
+
+  test("deafened: the panel says so and offers Undeafen (#655)", () => {
+    const panel = html(
+      createElement(CallPanel, {
+        mine: { ...mine, muted: false, deafened: true },
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+      })
+    )
+    expect(panel).toContain('aria-label="deafened"')
+    expect(panel).toContain('aria-label="Undeafen"')
+    // The mic is off while deafened, so Mute offers Unmute.
+    expect(panel).toContain('aria-label="Unmute"')
+  })
+
+  test("the start sheet names who's told and gives the transcript notice (#655, #656)", () => {
+    const start = { label: "#suzuri", kind: "channel" as const }
+    const sheet = html(
+      createElement(StartSheet, { start, onStart: no, onCancel: no })
+    )
+    noKeys(sheet)
+    expect(sheet).toContain("Start a huddle in #suzuri")
+    expect(sheet).toContain("Everyone in #suzuri&#x27;s space gets a notice")
+    expect(sheet).not.toContain("No transcript.")
+    expect(sheet).toContain("Microphone")
+    // The transcript notice (#656): "Checking…" until the device says.
+    expect(sheet).toContain("Checking…")
+    expect(startNotice(start, true, true)).toContain(
+      "This huddle is transcribed. What you say is written down in #suzuri"
+    )
+    expect(
+      startNotice({ label: "Spencer", kind: "dm" }, true, false)
+    ).toContain("Your voice isn't transcribed on this device.")
+    expect(startNotice(start, false, true)).toContain("Settings > App")
+    expect(toldText({ label: "Spencer", kind: "dm" })).toContain(
+      "Spencer gets a notice"
+    )
+    expect(toldText({ label: "#me", kind: "personal" })).toContain(
+      "Your other devices"
+    )
   })
 
   test("the ringing banner, a list row's line and the end post", () => {

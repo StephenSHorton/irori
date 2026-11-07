@@ -1156,8 +1156,10 @@ async fn an_unknown_task_kind_shows_no_stall() {
         })
     })
     .await;
-    alice.net.close().await;
-    bob.net.close().await;
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }
 
 /// Card #652: a newer Irori with calls writes `call.*` rows, and Talk rows of
@@ -1199,8 +1201,10 @@ async fn unknown_call_and_talk_kinds_show_no_stall() {
         alice.mesh().live_reads().get(&bob.id).map(|r| r.tolerant),
         Some(mesh::boardmesh::TOLERANT_PROTOCOL)
     );
-    alice.net.close().await;
-    bob.net.close().await;
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }
 
 /// Card #579, done-when 2: an unknown strict kind stalls its writer, and only
@@ -1294,6 +1298,8 @@ async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     let more = refusals.load(std::sync::atomic::Ordering::SeqCst) - before;
     assert!(more <= 4, "{more} retries in 3 s");
-    alice.net.close().await;
-    bob.net.close().await;
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }

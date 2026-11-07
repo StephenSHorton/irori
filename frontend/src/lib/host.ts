@@ -532,12 +532,33 @@ export const CallService = {
   Join: (callId: string) => done(commands.callJoin(callId)),
   Leave: () => done(commands.callLeave()),
   Mute: (on: boolean) => done(commands.callMute(on)),
+  Deafen: (on: boolean) => done(commands.callDeafen(on)),
+  Mic: () => call(commands.callMic()),
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
   // "Transcribe what I say in calls" (#656), on all the person's devices.
   Transcribe: () => call(commands.callTranscribe()),
   TranscribeSet: (on: boolean) => done(commands.callTranscribeSet(on)),
   // A huddle's transcript (#656): every line, named.
   Transcript: (callId: string) => call(commands.talkCallTranscript(callId)),
+}
+
+// Screen share in a huddle (#658): the share itself shows in call:state
+// (CallMineView's share); its frames come as raw ArrayBuffers on a Channel
+// (lib/share.ts parses and plays them). Attach again replaces the earlier
+// Channel.
+export const ShareService = {
+  Sources: () => call(commands.shareSources()),
+  Start: (sourceId: string) => done(commands.shareStart(sourceId)),
+  Stop: () => done(commands.shareStop()),
+  Attach(onFrame: (frame: ArrayBuffer) => void): Promise<void> {
+    const frames = new Channel<ArrayBuffer>()
+    frames.onmessage = onFrame
+    return done(commands.shareAttach(frames))
+  },
+  Detach: () => done(commands.shareDetach()),
+  Keyframe: () => done(commands.shareKeyframe()),
+  // The shareNote line was dismissed.
+  NoteSeen: () => done(commands.shareNoteSeen()),
 }
 
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as
@@ -577,12 +598,6 @@ export const TermService = {
 export const DeskService = {
   List: () => call(commands.deskList()),
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
-  Hold: (repoKey: string, pr: number, note: string, cleared: boolean) =>
-    done(commands.deskHold(repoKey, pr, note, cleared)),
-  Pause: (repoKey: string, paused: boolean) =>
-    done(commands.deskPause(repoKey, paused)),
-  Ok: (repoKey: string, pr: number, headSha: string) =>
-    done(commands.deskOk(repoKey, pr, headSha)),
 }
 
 // Hardware meters (card #599): the last two minutes of this computer's

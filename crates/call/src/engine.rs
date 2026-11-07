@@ -98,6 +98,8 @@ pub struct Stats {
     /// This device's mic is above the speech gate (after cleaning).
     pub speaking: bool,
     pub muted: bool,
+    /// Nothing plays here and the mic is off (Deafen).
+    pub deafened: bool,
     /// How loud what this device sends is lately, dBFS.
     pub sent_level_dbfs: f32,
     /// While the speaker plays, how much quieter the cleaned mic is than
@@ -128,7 +130,17 @@ enum Cmd {
 
 struct Shared {
     muted: AtomicBool,
+    /// Deafen: the speaker plays silence and the mic is off, whatever
+    /// `muted` says, so Undeafen goes back to the mute it had.
+    deafened: AtomicBool,
     stats: Mutex<Stats>,
+}
+
+impl Shared {
+    /// The mic sends silence: muted, or deafened.
+    fn mic_off(&self) -> bool {
+        self.muted.load(Ordering::Relaxed) || self.deafened.load(Ordering::Relaxed)
+    }
 }
 
 /// A running call engine. Dropping it stops the thread and closes the
@@ -146,6 +158,7 @@ impl Engine {
         let (tx, rx) = mpsc::channel();
         let shared = Arc::new(Shared {
             muted: AtomicBool::new(cfg.muted),
+            deafened: AtomicBool::new(false),
             stats: Mutex::new(Stats::default()),
         });
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
@@ -213,6 +226,13 @@ impl Engine {
     /// Never blocks.
     pub fn set_tap(&self, tap: Option<Tap>) {
         let _ = self.tx.send(Cmd::Tap(tap));
+    }
+
+    /// Deafen: nothing from the others plays here, and the mic is off too
+    /// (the others see it muted). The streams stay open, so Undeafen is
+    /// instant.
+    pub fn set_deafened(&self, on: bool) {
+        self.shared.deafened.store(on, Ordering::Relaxed);
     }
 
     pub fn stats(&self) -> Stats {
@@ -439,6 +459,11 @@ impl Core {
                 }
                 p.pos += dsp::CHUNK;
             }
+            if self.shared.deafened.load(Ordering::Relaxed) {
+                // The peers' audio is still pulled above, so their buffers
+                // keep pace and Undeafen plays from now, not from a backlog.
+                mix.fill(0.0);
+            }
             for m in mix.iter_mut() {
                 *m = soft_clip(*m);
             }
@@ -511,7 +536,7 @@ impl Core {
             }
             // Muting silences the mic only (call-dev's stand-in voice still
             // goes out).
-            if self.shared.muted.load(Ordering::Relaxed) {
+            if self.shared.mic_off() {
                 x.fill(0.0);
             }
             // The transcriber hears this person only: no stand-in voice.
@@ -535,7 +560,7 @@ impl Core {
     }
 
     fn send_frame(&mut self) {
-        let muted = self.shared.muted.load(Ordering::Relaxed);
+        let muted = self.shared.mic_off();
         let mut buf = [0u8; 1275];
         let n = match self.enc.encode_float(&self.acc, &mut buf) {
             Ok(n) => n,
@@ -600,10 +625,12 @@ impl Core {
             })
             .collect();
         let muted = self.shared.muted.load(Ordering::Relaxed);
+        let deafened = self.shared.deafened.load(Ordering::Relaxed);
         let st = Stats {
             peers,
-            speaking: !muted && self.loud_until.is_some_and(|t| now < t),
+            speaking: !muted && !deafened && self.loud_until.is_some_and(|t| now < t),
             muted,
+            deafened,
             sent_level_dbfs: dbfs(self.sent_level),
             echo_reduction_db: (self.echo_raw > 0.0)
                 .then(|| (10.0 * (self.echo_raw / self.echo_out.max(1e-12)).log10()) as f32),

@@ -64,7 +64,7 @@ import {
   type Post,
 } from "@/lib/conversations"
 import { AgentRef } from "@/lib/models"
-import { callChannel, callMock, MockCallPanel, ShareStage } from "./call-mock"
+import { callChannel, callMock } from "./call-mock"
 import {
   CallPanel,
   HuddleButton,
@@ -73,19 +73,26 @@ import {
   HuddleStarted,
   useCallPart,
   type NoticeAsk,
+  type StartWhere,
 } from "./huddle"
+import { ShareStage } from "./share"
 import { TranscriptPane } from "./transcript-pane"
 import {
+  dismissShareNote,
   joinHuddle,
   leaveHuddle,
   liveIn,
+  setDeafened,
   setMuted,
   startHuddle,
+  startShare,
+  stopShare,
 } from "@/lib/call"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
 import { parseTime, plainLine } from "@/lib/irori"
 import { useMedia } from "@/lib/media"
+import { previewFlag } from "@/lib/preview"
 import { errorText } from "@/lib/talk"
 import { agentStatus } from "@/lib/agent-status"
 import { isOthersKey, memberName, nameOr } from "@/lib/names"
@@ -216,19 +223,19 @@ export function ConversationView({
   }
   const onMute = (on: boolean) =>
     void setMuted(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onDeafen = (on: boolean) =>
+    void setDeafened(on).catch((err: unknown) => setHuddleError(errorText(err)))
+  // Huddle's start sheet; the browser preview's ?call=sheet opens it.
+  const [sheetOpen, setSheetOpen] = useState(
+    () => typeof window !== "undefined" && previewFlag("call") === "sheet"
+  )
   const onLeave = () => void huddle(leaveHuddle)
-  // The notice before the mic opens (#656): Huddle and every Join here ask
-  // first, and only Start or Join in it opens the mic.
+  // The notice before the mic opens (#656): Huddle's start sheet says it
+  // (StartSheet), and every Join here asks first; only Start huddle or Join
+  // in it opens the mic.
   const [asking, setAsking] = useState<
     (NoticeAsk & { run: () => Promise<void> }) | null
   >(null)
-  const askStart = () =>
-    setAsking({
-      action: "start",
-      convKind: conv.kind,
-      convName: plainLine(conv.name),
-      run: () => startHuddle(conv.convId, plainLine(conv.name)),
-    })
   const askJoin = (callId: string) =>
     setAsking({
       action: "join",
@@ -242,6 +249,13 @@ export function ConversationView({
   const [transcript, setTranscript] = useState(
     mock === "transcript" ? "sample-call-1" : ""
   )
+  // Screen share (#658): the share on in this huddle takes the posts' place.
+  const share = mine?.share ?? null
+  const onShare = (id: string) =>
+    void startShare(id).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onStopShare = () =>
+    void stopShare().catch((err: unknown) => setHuddleError(errorText(err)))
+  const onShareNoteSeen = () => void dismissShareNote().catch(() => {})
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -300,6 +314,20 @@ export function ConversationView({
   // huddle; an agent's DM and a read-only one never do.
   const canHuddle =
     !conv.readOnly && (conv.kind === "channel" || (!!person && !waiting))
+  // The sheet closes when a huddle comes on here (yours or another's): its
+  // button turns into Join or In huddle and the popover goes with it.
+  const huddleOn = !!mine || livePeople > 0
+  const [wasOn, setWasOn] = useState(huddleOn)
+  if (huddleOn !== wasOn) {
+    setWasOn(huddleOn)
+    if (huddleOn) setSheetOpen(false)
+  }
+  // Who the start sheet says gets told.
+  const startWhere: StartWhere = {
+    label: conv.kind === "channel" ? `#${plainLine(conv.name)}` : personName,
+    kind:
+      conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
+  }
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")
   const leave = async () => {
@@ -398,7 +426,7 @@ export function ConversationView({
           )}
           {canHuddle && (
             <span className="ml-auto flex shrink-0 items-center gap-1.5">
-              {huddleError && (
+              {huddleError && !sheetOpen && (
                 <span
                   role="alert"
                   className="max-w-[240px] truncate text-[11px] text-destructive"
@@ -411,7 +439,19 @@ export function ConversationView({
                 mine={mine}
                 live={livePeople}
                 busy={huddleBusy}
-                onStart={askStart}
+                start={startWhere}
+                error={huddleError}
+                sheetOpen={sheetOpen}
+                onSheetOpen={(o) => {
+                  setSheetOpen(o)
+                  if (o) setHuddleError("")
+                }}
+                onStart={() =>
+                  void huddle(async () => {
+                    await startHuddle(conv.convId, plainLine(conv.name))
+                    setSheetOpen(false)
+                  })
+                }
                 onJoin={() => liveHere && askJoin(liveHere.callId)}
               />
             </span>
@@ -475,8 +515,31 @@ export function ConversationView({
             </span>
           )}
         </header>
-        {narrow && mine ? (
-          <CallPanel mine={mine} wide onMute={onMute} onLeave={onLeave} />
+        {narrow && mine && share ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ShareStage share={share} onStop={onStopShare} compact />
+            <CallPanel
+              mine={mine}
+              controlsOnly
+              onMute={onMute}
+              onDeafen={onDeafen}
+              onLeave={onLeave}
+              onShare={onShare}
+              onStopShare={onStopShare}
+              onShareNoteSeen={onShareNoteSeen}
+            />
+          </div>
+        ) : narrow && mine ? (
+          <CallPanel
+            mine={mine}
+            wide
+            onMute={onMute}
+            onDeafen={onDeafen}
+            onLeave={onLeave}
+            onShare={onShare}
+            onStopShare={onStopShare}
+            onShareNoteSeen={onShareNoteSeen}
+          />
         ) : narrow && transcript ? (
           <TranscriptPane
             callId={transcript}
@@ -484,8 +547,8 @@ export function ConversationView({
             wide
             onClose={() => setTranscript("")}
           />
-        ) : mock === "share" ? (
-          <ShareStage />
+        ) : share ? (
+          <ShareStage share={share} onStop={onStopShare} />
         ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
@@ -560,11 +623,15 @@ export function ConversationView({
         )}
       </div>
       {mine && !narrow ? (
-        mock === "share" ? (
-          <MockCallPanel channel={conv.name} sharing />
-        ) : (
-          <CallPanel mine={mine} onMute={onMute} onLeave={onLeave} />
-        )
+        <CallPanel
+          mine={mine}
+          onMute={onMute}
+          onDeafen={onDeafen}
+          onLeave={onLeave}
+          onShare={onShare}
+          onStopShare={onStopShare}
+          onShareNoteSeen={onShareNoteSeen}
+        />
       ) : transcript && !narrow ? (
         <TranscriptPane
           callId={transcript}

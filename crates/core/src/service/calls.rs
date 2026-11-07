@@ -38,6 +38,7 @@ use irori_net::call::{CallPeerState, ControlMsg, TranscriptLine};
 use mesh::boardmesh::{BoardMesh, CallFrame, CallHooks, LivePeer};
 use mesh::owncalls::OwnCalls;
 
+use super::calls_share::{ShareHub, ShareNote, ShareNow, ShareSink, ShareSource};
 use super::{Core, Services};
 use crate::events::CoreEvent;
 
@@ -147,10 +148,14 @@ struct Active {
     /// This device started the call: it keeps ringing for a while.
     started_here: bool,
     muted: bool,
+    /// Nothing plays here and the mic is off; `muted` is kept for after.
+    deafened: bool,
     /// Which call this is, of those this device entered.
     generation: u64,
     engine: Arc<call::Engine>,
     handle: irori_net::call::CallHandle,
+    /// The call's screen share, both ends (#658).
+    share: Arc<ShareHub>,
     mesh: Ride,
     peers: BTreeMap<String, Slot>,
     /// Person ids of everyone seen in the call, this person included.
@@ -444,6 +449,26 @@ fn wait_on<T: Send + 'static>(
         let _ = tx.send(f.await);
     });
     rx.recv().map_err(|_| "the network stopped".to_string())
+}
+
+/// Runs future `f()` on a thread of its own with a current-thread runtime:
+/// capture's futures (ScreenCaptureKit, WGC) aren't `Send`.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn on_own_thread<T, F, Fut>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T>,
+{
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map(|rt| rt.block_on(f()))
+            .map_err(|e| e.to_string())
+    })
+    .join()
+    .map_err(|_| "the screen capture crashed".to_string())?
 }
 
 /// A peer's datagrams, for the engine.
@@ -801,12 +826,49 @@ impl Services {
                 .iter()
                 .cloned()
                 .collect();
+            let (share_now, share_note) = a.share.view();
+            let share = share_now.map(|n| {
+                let slot = a.peers.get(&n.device_id);
+                let path = slot
+                    .and_then(|s| s.conn.as_ref().filter(|_| !s.gone))
+                    .map(|c| match irori_net::path::report(c).kind {
+                        irori_net::path::PathKind::Direct => "direct",
+                        irori_net::path::PathKind::Relay => "relay",
+                        irori_net::path::PathKind::None => "",
+                    })
+                    .unwrap_or("")
+                    .to_string();
+                CallShare {
+                    person_id: if n.mine {
+                        self.person_id()
+                    } else {
+                        slot.map(|s| s.person_id.clone()).unwrap_or_default()
+                    },
+                    now: n,
+                    path,
+                }
+            });
+            let share_note = share_note.map(|n| match n {
+                ShareNote::Replaced(d) => CallShareNote::Replaced {
+                    person_id: a
+                        .peers
+                        .get(&d)
+                        .map(|s| s.person_id.clone())
+                        .unwrap_or_default(),
+                    device_id: d,
+                },
+                ShareNote::Failed(why) => CallShareNote::Failed(why),
+            });
             MyCall {
+                share,
+                share_note,
+                can_share: CAN_SHARE,
                 call_id: a.call_id.clone(),
                 conv_id: a.conv_id.clone(),
                 space_id: a.space_id.clone(),
                 joined_at_ms: a.joined_at_ms,
                 muted: a.muted,
+                deafened: a.deafened,
                 speaking: st.speaking,
                 peers,
                 transcribing: a.scribe.is_some(),
@@ -1062,6 +1124,16 @@ impl Services {
         // The engine is up: the transcriber goes on its tap.
         let scribe = opened.and_then(|o| self.scribe_attach(o, call_id, conv, &engine, &script));
         let scribe_failed = want_scribe && scribe.is_none() && self.calls.transcriber.is_some();
+        let w = Arc::downgrade(self);
+        let share = ShareHub::new(
+            me.clone(),
+            self.pairing.handle.clone(),
+            Arc::new(move || {
+                if let Some(s) = w.upgrade() {
+                    s.calls_changed();
+                }
+            }),
+        );
         let (generation, hang_up) = {
             let mut g = self.calls.inner.lock().expect("calls");
             g.generation += 1;
@@ -1077,8 +1149,10 @@ impl Services {
                 started_at_ms: started_at_ms.min(now_ms()),
                 started_here,
                 muted: false,
+                deafened: false,
                 engine,
                 handle,
+                share,
                 mesh: m.clone(),
                 peers,
                 people,
@@ -1175,9 +1249,11 @@ impl Services {
                     .map(|(d, _)| d.clone()),
             );
             let f = self.frame(&a.call_id, &a.conv_id, &a.space_id, "join", roster);
-            (a.engine.inlet(), a.mesh.clone(), f, ctl_rx)
+            (a.engine.inlet(), a.mesh.clone(), f, ctl_rx, a.share.clone())
         };
-        let (inlet, m, f, mut ctl_rx) = inlet;
+        let (inlet, m, f, mut ctl_rx, share) = inlet;
+        // The share's messages (#658) ride the same control stream.
+        let mut share_rx = share.add_peer(&peer, conn.clone());
         crate::logf(format_args!(
             "call {call_id}: {} connected to {peer} (conn {})",
             self.device.id,
@@ -1186,26 +1262,54 @@ impl Services {
         // Everyone hears the roster grew, so the mesh fills in at once.
         self.tell_space(&m, f);
         self.calls_changed();
+        // One writer and one reader on the call stream for both the
+        // transcript (#656) and the share (#658).
         let (mut send, mut recv) = control;
         let (p, cid) = (peer.clone(), call_id.to_string());
         self.pairing.handle.spawn(async move {
-            while let Some(m) = ctl_rx.recv().await {
-                if let Err(e) = irori_net::call::write_control(&mut send, &m).await {
+            let (mut ctl_open, mut share_open) = (true, true);
+            while ctl_open || share_open {
+                let r = tokio::select! {
+                    m = ctl_rx.recv(), if ctl_open => match m {
+                        Some(m) => irori_net::call::write_control(&mut send, &m).await,
+                        None => {
+                            ctl_open = false;
+                            Ok(())
+                        }
+                    },
+                    m = share_rx.recv(), if share_open => match m {
+                        Some(m) => irori_net::share::write_msg(&mut send, &m).await,
+                        None => {
+                            share_open = false;
+                            Ok(())
+                        }
+                    },
+                };
+                if let Err(e) = r {
                     crate::logf(format_args!("call {cid}: control to {p}: {e}"));
                     break;
                 }
             }
         });
-        let (w, p, cid, c) = (
+        let (w, p, cid, c, hub) = (
             Arc::downgrade(self),
             peer.clone(),
             call_id.to_string(),
             conn.clone(),
+            Arc::downgrade(&share),
         );
         self.pairing.handle.spawn(async move {
-            while let Ok(Some(m)) = irori_net::call::read_control(&mut recv).await {
-                let Some(s) = w.upgrade() else { break };
-                s.on_control(&cid, &p, m);
+            while let Ok(Some(m)) = irori_net::call::read_call_msg(&mut recv).await {
+                match m {
+                    irori_net::call::CallMsg::Control(m) => {
+                        let Some(s) = w.upgrade() else { break };
+                        s.on_control(&cid, &p, m);
+                    }
+                    irori_net::call::CallMsg::Share(m) => {
+                        let Some(h) = hub.upgrade() else { break };
+                        h.on_msg(&p, m);
+                    }
+                }
             }
             // Held for the connection's life: dropping it would stop the
             // peer's writes.
@@ -1218,6 +1322,7 @@ impl Services {
             while let Ok(d) = conn.read_datagram().await {
                 inlet.receive(&peer, d.to_vec());
             }
+            share.remove_peer(&peer, &conn);
             let Some(s) = w.upgrade() else { return };
             crate::logf(format_args!(
                 "call {cid}: {} lost {peer} (conn {}): {:?}",
@@ -1335,6 +1440,7 @@ impl Services {
         // phrase in progress is stored but never reaches the peers live.
         // Stopping it first and sending its line before leaving would fix
         // that, at the cost of a longer leave.
+        a.share.close();
         a.handle.leave();
         // The transcript (card #656): every line this device heard is
         // written before the end post, and a ticker's start or stop in
@@ -1673,6 +1779,81 @@ impl Services {
                 transcribe: running,
             }));
         }
+    }
+
+    /// The call's share hub, while in a call.
+    fn share_hub(&self) -> Option<Arc<ShareHub>> {
+        self.calls
+            .inner
+            .lock()
+            .expect("calls")
+            .mine
+            .as_ref()
+            .map(|a| a.share.clone())
+    }
+
+    pub(crate) fn share_sources(&self) -> Result<Vec<ShareSource>, String> {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            on_own_thread(super::calls_share::sources)?
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            Err("this device can't share its screen".into())
+        }
+    }
+
+    /// Starts sharing source `id` in the call this device is in. Blocks
+    /// until the capture and the encoder are running (or failed).
+    pub(crate) fn share_start(&self, id: &str) -> Result<(), String> {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            use super::calls_share::{FPS, Picture, START_KBPS, picture_of, spawn_encoder};
+            let hub = self.share_hub().ok_or("join a huddle first")?;
+            let picture = picture_of(id)?;
+            let (kind, title, app) = match &picture {
+                Picture::Synthetic(..) => ("window".into(), "Test picture".into(), "Irori".into()),
+                Picture::Source(_) => {
+                    let found = on_own_thread(super::calls_share::sources)??
+                        .into_iter()
+                        .find(|s| s.id == id);
+                    match found {
+                        Some(s) => (s.kind, s.title, s.app),
+                        None => return Err("that window or screen is gone".into()),
+                    }
+                }
+            };
+            let info = irori_net::share::ShareInfo {
+                v: irori_net::share::SHARE_V,
+                share_id: new_call_id()?,
+                started_ms: now_ms(),
+                kind,
+                title,
+                app,
+                width: 0,
+                height: 0,
+                fps: FPS,
+                kbps: START_KBPS,
+            };
+            let ctl = hub.begin(info)?;
+            self.calls_changed();
+            if let Err(e) = spawn_encoder(Arc::downgrade(&hub), ctl.clone(), picture) {
+                hub.end(Some(&ctl), Some(e.clone()));
+                return Err(e);
+            }
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = id;
+            Err("this device can't share its screen".into())
+        }
+    }
+
+    pub(crate) fn share_stop(&self) {
+        if let Some(h) = self.share_hub() {
+            h.end(None, None);
+        }
         self.calls_changed();
     }
 
@@ -1718,12 +1899,58 @@ impl Services {
         }
     }
 
+    pub(crate) fn share_attach(&self, sink: ShareSink) -> Result<(), String> {
+        let h = self.share_hub().ok_or("you're not in a huddle")?;
+        h.attach(sink);
+        Ok(())
+    }
+
+    pub(crate) fn share_detach(&self) {
+        if let Some(h) = self.share_hub() {
+            h.detach();
+        }
+    }
+
+    pub(crate) fn share_keyframe(&self) {
+        if let Some(h) = self.share_hub() {
+            h.keyframe();
+        }
+    }
+
+    pub(crate) fn share_note_seen(&self) {
+        if let Some(h) = self.share_hub() {
+            h.clear_note();
+        }
+        self.calls_changed();
+    }
+
     pub(crate) fn call_mute(&self, on: bool) {
         if let Some(a) = self.calls.inner.lock().expect("calls").mine.as_mut() {
             a.muted = on;
             a.engine.set_muted(on);
         }
         self.calls_changed();
+    }
+
+    pub(crate) fn call_deafen(&self, on: bool) {
+        if let Some(a) = self.calls.inner.lock().expect("calls").mine.as_mut() {
+            a.deafened = on;
+            a.engine.set_deafened(on);
+        }
+        self.calls_changed();
+    }
+
+    /// The mic a huddle would open, by name ("" when it can't say).
+    pub(crate) fn call_mic_name(&self) -> String {
+        if self.calls.audio.is_some() {
+            // Tests' fake devices.
+            return "Test microphone".into();
+        }
+        if self.calls.platform.is_some() {
+            // The phone: cpal's AAudio only knows "Default Device".
+            return String::new();
+        }
+        call::device::default_mic_name()
     }
 
     pub(crate) fn call_dismiss(&self, call_id: &str) {
@@ -1800,6 +2027,8 @@ pub struct MyCall {
     /// When this device joined, Unix ms.
     pub joined_at_ms: i64,
     pub muted: bool,
+    /// Deafened: nothing plays here and the mic is off.
+    pub deafened: bool,
     /// This device's mic is above the speech gate.
     pub speaking: bool,
     /// The other devices in the call.
@@ -1812,6 +2041,12 @@ pub struct MyCall {
     pub can_transcribe: bool,
     /// The newest lines said in the call, oldest first.
     pub captions: Vec<Caption>,
+    /// The screen share on in the call, this device's or another's (#658).
+    pub share: Option<CallShare>,
+    /// Something to tell the person about sharing.
+    pub share_note: Option<CallShareNote>,
+    /// This device can share its screen (the desktops).
+    pub can_share: bool,
 }
 
 /// One line said in a call, as a caption (card #656).
@@ -1829,6 +2064,33 @@ pub struct Caption {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+}
+
+/// Whether this build can share a screen: capture and the hardware encoder
+/// are the Mac's and the PC's.
+pub const CAN_SHARE: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+
+/// The share on in a call.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CallShare {
+    pub now: ShareNow,
+    /// Who shares (this person when it is this device).
+    pub person_id: String,
+    /// How this device reaches the sharer: "direct", "relay", or "" (it is
+    /// this device, or not connected).
+    pub path: String,
+}
+
+/// Something to tell the person about sharing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallShareNote {
+    /// Someone else started sharing, so this device's share stopped.
+    Replaced {
+        device_id: String,
+        person_id: String,
+    },
+    /// This device's share stopped or couldn't start, and why.
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1896,9 +2158,61 @@ impl Core {
         self.s.call_mute(on)
     }
 
+    /// Deafen: nothing from the others plays here and the mic is off.
+    /// Undeafen goes back to the mute it had.
+    pub fn call_deafen(&self, on: bool) {
+        self.s.call_deafen(on)
+    }
+
+    /// The mic a huddle would open, by name ("" when it can't say). It
+    /// opens nothing.
+    pub fn call_mic_name(&self) -> String {
+        self.s.call_mic_name()
+    }
+
     /// Stops ringing for `call_id` here.
     pub fn call_dismiss(&self, call_id: &str) {
         self.s.call_dismiss(call_id)
+    }
+
+    /// What this device can share: its displays, then its windows. On the
+    /// Mac this needs the Screen Recording permission.
+    pub fn share_sources(&self) -> Result<Vec<ShareSource>, String> {
+        self.s.share_sources()
+    }
+
+    /// Shares source `id` (from [`Core::share_sources`]) in the huddle this
+    /// device is in, replacing any share on in it. Blocks until capture
+    /// runs.
+    pub fn share_start(&self, id: &str) -> Result<(), String> {
+        self.s.share_start(id)
+    }
+
+    /// Stops this device's share.
+    pub fn share_stop(&self) {
+        self.s.share_stop()
+    }
+
+    /// Watches the huddle's share: decoder configs and access units go to
+    /// `sink` (irori_net::share's window messages). Replaces an earlier
+    /// sink.
+    pub fn share_attach(&self, sink: ShareSink) -> Result<(), String> {
+        self.s.share_attach(sink)
+    }
+
+    /// Stops watching the share.
+    pub fn share_detach(&self) {
+        self.s.share_detach()
+    }
+
+    /// Asks the sharer for a keyframe (the window's decoder lost its place).
+    pub fn share_keyframe(&self) {
+        self.s.share_keyframe()
+    }
+
+    /// The person saw the share note: clear it.
+    pub fn share_note_seen(&self) {
+        self.s.share_note_seen()
     }
 
     /// On quit: leave any call and close the devices.

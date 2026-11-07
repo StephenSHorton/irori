@@ -1536,6 +1536,25 @@ pub async fn call_mute(w: W<'_>, on: bool) -> R<()> {
     .await
 }
 
+/// Deafens or undeafens this device in the huddle: nothing plays here and
+/// the mic is off.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_deafen(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_deafen(on);
+        Ok(())
+    })
+    .await
+}
+
+/// The mic a huddle would open, by name ("" when it can't say).
+#[tauri::command]
+#[specta::specta]
+pub async fn call_mic(w: W<'_>) -> R<String> {
+    blocking(&w, |w| Ok(w.call_mic())).await
+}
+
 /// Stops a huddle ringing here.
 #[tauri::command]
 #[specta::specta]
@@ -1567,6 +1586,68 @@ pub async fn call_transcribe_set(w: W<'_>, on: bool) -> R<()> {
 #[specta::specta]
 pub async fn talk_call_transcript(w: W<'_>, call_id: String) -> R<TalkTranscript> {
     blocking(&w, move |w| w.talk_call_transcript(&call_id)).await
+}
+
+// ---- Screen share in a huddle (#658) ------------------------------------------
+
+/// What this device can share: displays, then windows.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_sources(w: W<'_>) -> R<Vec<crate::call::ShareSourceView>> {
+    blocking(&w, |w| w.share_sources()).await
+}
+
+/// Shares a window or display (an id from share_sources) in the huddle.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_start(w: W<'_>, source_id: String) -> R<()> {
+    blocking(&w, move |w| w.share_start(&source_id)).await
+}
+
+/// Stops this device's share.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_stop(w: W<'_>) -> R<()> {
+    blocking(&w, |w| {
+        w.share_stop();
+        Ok(())
+    })
+    .await
+}
+
+/// Watches the huddle's share: decoder configs and H.264 access units come
+/// on `frames` as raw ArrayBuffers (irori_net::share's window messages).
+/// Replaces an earlier channel.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_attach(w: W<'_>, frames: tauri::ipc::Channel<RawFrame>) -> R<()> {
+    let sink: irori_core::ShareSink =
+        std::sync::Arc::new(move |b| frames.send(RawFrame(b)).is_ok());
+    w.core.share_attach(sink)
+}
+
+/// Stops watching the share: the sharer stops sending here.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_detach(w: W<'_>) -> R<()> {
+    w.core.share_detach();
+    Ok(())
+}
+
+/// Asks the sharer for a keyframe (the decoder lost its place).
+#[tauri::command]
+#[specta::specta]
+pub async fn share_keyframe(w: W<'_>) -> R<()> {
+    w.core.share_keyframe();
+    Ok(())
+}
+
+/// The person saw the share note.
+#[tauri::command]
+#[specta::specta]
+pub async fn share_note_seen(w: W<'_>) -> R<()> {
+    w.core.share_note_seen();
+    Ok(())
 }
 
 // ---- Settings › Agents (card #448) ------------------------------------------
@@ -1674,27 +1755,6 @@ pub async fn desk_list(w: W<'_>) -> R<Vec<DeskView>> {
 #[specta::specta]
 pub async fn desk_set(w: W<'_>, settings: DeskSettings) -> R<()> {
     w.desk_set(settings)
-}
-
-/// The person holds a desk's PR, or with `cleared` lifts the hold.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_hold(w: W<'_>, repo_key: String, pr: i64, note: String, cleared: bool) -> R<()> {
-    w.desk_hold(&repo_key, pr, &note, cleared)
-}
-
-/// The person pauses or resumes a desk.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_pause(w: W<'_>, repo_key: String, paused: bool) -> R<()> {
-    w.desk_pause(&repo_key, paused)
-}
-
-/// The person okays an Outside PR at one head.
-#[tauri::command]
-#[specta::specta]
-pub async fn desk_ok(w: W<'_>, repo_key: String, pr: i64, head_sha: String) -> R<()> {
-    w.desk_ok(&repo_key, pr, &head_sha)
 }
 
 // ---- talk (card #389) -----------------------------------------------------
@@ -2069,10 +2129,19 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_join,
             call_leave,
             call_mute,
+            call_deafen,
+            call_mic,
             call_dismiss,
             call_transcribe,
             call_transcribe_set,
             talk_call_transcript,
+            share_sources,
+            share_start,
+            share_stop,
+            share_attach,
+            share_detach,
+            share_keyframe,
+            share_note_seen,
             talk_conversations,
             talk_posts,
             talk_post,
@@ -2115,9 +2184,6 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_running,
             desk_list,
             desk_set,
-            desk_hold,
-            desk_pause,
-            desk_ok,
             meters_history,
             usage_limits,
         ])

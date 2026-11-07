@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use irori_core::{CallSnapshot, LiveCall, MyCall, Ringing};
+use irori_core::{CallShare, CallShareNote, CallSnapshot, LiveCall, MyCall, Ringing, ShareSource};
 use serde::Serialize;
 use specta::Type;
 
@@ -49,6 +49,8 @@ pub struct CallMineView {
     /// When this device joined, Unix ms.
     pub joined_at_ms: i64,
     pub muted: bool,
+    /// Deafened: nothing plays here and the mic is off.
+    pub deafened: bool,
     /// This device's mic is above the speech gate.
     pub speaking: bool,
     /// This device's name ("" when it has none).
@@ -66,6 +68,13 @@ pub struct CallMineView {
     pub transcribe_on: bool,
     /// The latest lines said in the call, oldest first.
     pub captions: Vec<CallCaptionView>,
+    /// The screen share on in the call, yours or another's (#658).
+    pub share: Option<CallShareView>,
+    /// This device can share its screen (the desktops; not the phone).
+    pub can_share: bool,
+    /// A line about sharing, in plain words: who took over, or why your
+    /// share stopped.
+    pub share_note: Option<String>,
 }
 
 /// One line said in the call (#656).
@@ -82,6 +91,61 @@ pub struct CallCaptionView {
     pub at_ms: i64,
     /// When it ended, Unix ms.
     pub end_ms: i64,
+}
+
+/// The screen share on in a call.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallShareView {
+    pub share_id: String,
+    /// You are the one sharing (this device).
+    pub mine: bool,
+    /// Who shares: "you" for the person, else their name.
+    pub name: String,
+    /// The sharing device's name when it is one of the person's own, else "".
+    pub device: String,
+    /// `window` or `display`.
+    pub kind: String,
+    /// The window's title, or the display's name.
+    pub title: String,
+    /// The app that owns the window ("" for a display).
+    pub app: String,
+    /// The picture's size, pixels (0 until the capture runs).
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    /// The sharer's target bitrate now, kbit/s.
+    pub kbps: u32,
+    /// How this device reaches the sharer: `direct`, `relay`, or "" (it is
+    /// this device).
+    pub path: String,
+}
+
+/// Something that can be shared: a display or a window.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareSourceView {
+    /// Pass to `share_start`.
+    pub id: String,
+    /// `window` or `display`.
+    pub kind: String,
+    pub title: String,
+    pub app: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl From<ShareSource> for ShareSourceView {
+    fn from(s: ShareSource) -> Self {
+        ShareSourceView {
+            id: s.id,
+            kind: s.kind,
+            title: s.title,
+            app: s.app,
+            width: s.width,
+            height: s.height,
+        }
+    }
 }
 
 /// Another device in the call.
@@ -180,6 +244,16 @@ impl Window {
         self.core.call_mute(on)
     }
 
+    pub fn call_deafen(&self, on: bool) {
+        self.core.call_deafen(on)
+    }
+
+    /// The mic a huddle would open, by name, for the start sheet ("" when
+    /// it can't say).
+    pub fn call_mic(&self) -> String {
+        self.core.call_mic_name()
+    }
+
     /// Stops ringing for `call_id` here.
     pub fn call_dismiss(&self, call_id: &str) {
         self.core.call_dismiss(crate::trim(call_id))
@@ -195,6 +269,30 @@ impl Window {
     /// person's devices; a call this device is in follows at once.
     pub fn call_transcribe_set(&self, on: bool) -> Result<(), String> {
         self.core.set_call_transcribe(on)
+    }
+
+    /// What this device can share: displays, then windows.
+    pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
+        Ok(self
+            .core
+            .share_sources()?
+            .into_iter()
+            .map(ShareSourceView::from)
+            .collect())
+    }
+
+    /// Shares source `id` in the huddle this device is in. Blocking: the
+    /// capture and encoder start first.
+    pub fn share_start(&self, id: &str) -> Result<(), String> {
+        let id = crate::trim(id);
+        if id.is_empty() {
+            return Err("pick a window or screen".into());
+        }
+        self.core.share_start(id)
+    }
+
+    pub fn share_stop(&self) {
+        self.core.share_stop()
     }
 
     /// Leaves any call and closes the devices: the shell calls it as the
@@ -223,6 +321,10 @@ impl<'a> Names<'a> {
             ids.extend(m.peers.iter().map(|p| p.person_id.as_str()));
             // A speaker who has left is still in the captions.
             ids.extend(m.captions.iter().map(|c| c.person_id.as_str()));
+            ids.extend(m.share.iter().map(|x| x.person_id.as_str()));
+            if let Some(CallShareNote::Replaced { person_id, .. }) = &m.share_note {
+                ids.push(person_id);
+            }
         }
         ids.extend(s.ringing.iter().map(|r| r.by_person.as_str()));
         ids.extend(
@@ -360,10 +462,50 @@ impl<'a> Names<'a> {
             conv_id: m.conv_id,
             conv_name,
             conv_kind,
+            share: m.share.map(|x| self.share(x)),
+            can_share: m.can_share,
+            share_note: m.share_note.map(|n| match n {
+                CallShareNote::Replaced { person_id, .. } => {
+                    let who = self.person(&person_id);
+                    if who == "you" {
+                        "Your other device started sharing, so this one stopped".into()
+                    } else {
+                        format!("{who} started sharing, so yours stopped")
+                    }
+                }
+                CallShareNote::Failed(why) => why,
+            }),
             joined_at_ms: m.joined_at_ms,
             muted: m.muted,
+            deafened: m.deafened,
             speaking: m.speaking,
             error: m.error.filter(|e| !e.trim().is_empty()),
+        }
+    }
+
+    fn share(&self, x: CallShare) -> CallShareView {
+        let i = x.now.info;
+        CallShareView {
+            name: if x.now.mine {
+                "you".into()
+            } else {
+                self.person(&x.person_id)
+            },
+            device: if x.now.mine {
+                String::new()
+            } else {
+                self.device(&x.person_id, &x.now.device_id)
+            },
+            mine: x.now.mine,
+            share_id: i.share_id,
+            kind: i.kind,
+            title: i.title,
+            app: i.app,
+            width: i.width,
+            height: i.height,
+            fps: i.fps,
+            kbps: i.kbps,
+            path: x.path,
         }
     }
 

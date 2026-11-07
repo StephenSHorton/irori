@@ -205,6 +205,35 @@ pub async fn read_control(recv: &mut RecvStream) -> Result<Option<ControlMsg>, S
     }
 }
 
+/// One message on the call stream. The transcript's messages (#656) and
+/// the screen share's (#658) share the stream and its framing; each names
+/// its kind in `t`, and the two sets of names don't overlap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallMsg {
+    Control(ControlMsg),
+    /// A share message, or [`crate::share::ShareMsg::Unknown`] for any
+    /// other kind (a newer build's).
+    Share(crate::share::ShareMsg),
+}
+
+/// Reads one message of either kind; `None` when the stream ended. After
+/// an `Err` stop reading, but keep the stream (as [`read_control`]).
+pub async fn read_call_msg(recv: &mut RecvStream) -> Result<Option<CallMsg>, String> {
+    let max = CONTROL_MAX.max(crate::share::MSG_MAX);
+    let Some(b) = read_frame(recv, max, false)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    if let Ok(m) = serde_json::from_slice::<ControlMsg>(&b) {
+        return Ok(Some(CallMsg::Control(m)));
+    }
+    Ok(Some(CallMsg::Share(
+        serde_json::from_slice(&b).unwrap_or(crate::share::ShareMsg::Unknown),
+    )))
+}
+
 /// The JSON of `m`, with a transcript's text cut to fit [`CONTROL_MAX`].
 fn control_bytes(m: &ControlMsg) -> Result<Vec<u8>, String> {
     let b = serde_json::to_vec(m).map_err(|e| e.to_string())?;

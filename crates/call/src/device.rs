@@ -53,6 +53,20 @@ pub fn ring(rate: u32) -> (HeapProd<f32>, HeapCons<f32>) {
     HeapRb::<f32>::new((rate as f32 * RING_SECS) as usize).split()
 }
 
+/// The name of the mic a call would open ("MacBook Pro Microphone"), or ""
+/// when there is none or it can't say. It only asks: nothing is opened.
+pub fn default_mic_name() -> String {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    cpal::default_host()
+        .default_input_device()
+        // Not `to_string`: its Display errors (and ToString panics) when
+        // the device can't be described, as on a Mac with no mic.
+        .and_then(|d| d.description().ok())
+        .map(|d| d.name().to_string())
+        .unwrap_or_default()
+}
+
 /// The default mic and speaker, through cpal.
 pub fn default_devices() -> Opener {
     Box::new(open_default)
