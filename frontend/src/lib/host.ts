@@ -532,6 +532,8 @@ export const CallService = {
   Join: (callId: string) => done(commands.callJoin(callId)),
   Leave: () => done(commands.callLeave()),
   Mute: (on: boolean) => done(commands.callMute(on)),
+  Deafen: (on: boolean) => done(commands.callDeafen(on)),
+  Mic: () => call(commands.callMic()),
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
 }
 

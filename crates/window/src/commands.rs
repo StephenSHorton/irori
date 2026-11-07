@@ -1536,6 +1536,25 @@ pub async fn call_mute(w: W<'_>, on: bool) -> R<()> {
     .await
 }
 
+/// Deafens or undeafens this device in the huddle: nothing plays here and
+/// the mic is off.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_deafen(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| {
+        w.call_deafen(on);
+        Ok(())
+    })
+    .await
+}
+
+/// The mic a huddle would open, by name ("" when it can't say).
+#[tauri::command]
+#[specta::specta]
+pub async fn call_mic(w: W<'_>) -> R<String> {
+    blocking(&w, |w| Ok(w.call_mic())).await
+}
+
 /// Stops a huddle ringing here.
 #[tauri::command]
 #[specta::specta]
@@ -2026,6 +2045,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_join,
             call_leave,
             call_mute,
+            call_deafen,
+            call_mic,
             call_dismiss,
             talk_conversations,
             talk_posts,

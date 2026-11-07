@@ -309,6 +309,13 @@ export const commands = {
 	callLeave: () => __TAURI_INVOKE<null>("call_leave"),
 	/**  Mutes or unmutes this device's mic in the huddle. */
 	callMute: (on: boolean) => __TAURI_INVOKE<null>("call_mute", { on }),
+	/**
+	 *  Deafens or undeafens this device in the huddle: nothing plays here and
+	 *  the mic is off.
+	 */
+	callDeafen: (on: boolean) => __TAURI_INVOKE<null>("call_deafen", { on }),
+	/**  The mic a huddle would open, by name ("" when it can't say). */
+	callMic: () => __TAURI_INVOKE<string>("call_mic"),
 	/**  Stops a huddle ringing here. */
 	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
@@ -871,6 +878,8 @@ export type CallMineView = {
 	/**  When this device joined, Unix ms. */
 	joinedAtMs: number,
 	muted: boolean,
+	/**  Deafened: nothing plays here and the mic is off. */
+	deafened: boolean,
 	/**  This device's mic is above the speech gate. */
 	speaking: boolean,
 	/**  This device's name ("" when it has none). */

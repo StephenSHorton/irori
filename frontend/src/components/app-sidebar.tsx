@@ -34,7 +34,7 @@ import {
 import { Face } from "@/components/profile/face"
 import { SettingsMenu } from "@/components/settings/settings-menu"
 import { CallBar, useCallPart } from "@/components/talk/huddle"
-import { leaveHuddle, setMuted } from "@/lib/call"
+import { leaveHuddle, setDeafened, setMuted } from "@/lib/call"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
@@ -554,6 +554,7 @@ export function AppSidebar({
             folded={folded}
             onOpen={() => go({ kind: "talk", id: huddle.convId })}
             onMute={(on) => void setMuted(on).catch(() => {})}
+            onDeafen={(on) => void setDeafened(on).catch(() => {})}
             onLeave={() => void leaveHuddle().catch(() => {})}
           />
         )}
