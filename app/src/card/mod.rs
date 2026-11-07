@@ -287,7 +287,8 @@ pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
 /// The headless scene: the first card that needs you, else the newest;
 /// `IRORI_CARD_SCENE` picks a card ("#12" or an id; "blocker", "ready",
 /// "working" or "shared" for the first such), "new" or "share", or
-/// "demo-blocker" (the default card with two made-up open items).
+/// "demo-blocker" (the default card with made-up open items, waits,
+/// people and a review) or "demo-ready" (a made-up done check).
 pub fn scene(s: &mut State) {
     let want = std::env::var("IRORI_CARD_SCENE").unwrap_or_default();
     match want.as_str() {
@@ -360,6 +361,9 @@ pub fn scene(s: &mut State) {
     }
     if want == "demo-blocker" {
         demo_blockers(s);
+    }
+    if want == "demo-ready" {
+        demo_ready(s);
     }
 }
 
@@ -487,6 +491,42 @@ fn demo_blockers(s: &mut State) {
         text: "The keystore path is hard-coded; read it from the env.".into(),
         ..Default::default()
     });
+    assign_slots(s);
+}
+
+/// The scene's done check (card #112): an agent finished and brought
+/// proof, so the page leads with Ready for you, Done and Not done.
+fn demo_ready(s: &mut State) {
+    use irori_window::cards::{AgentRef, CardBlocker, CardOption};
+    let Some(d) = s.card.detail.as_mut() else { return };
+    let oak = AgentRef {
+        key: "demo/oak".into(),
+        name: "oak".into(),
+        status: "idle".into(),
+        live: true,
+        where_: "Macbook Pro".into(),
+        ..AgentRef::default()
+    };
+    d.blockers.insert(
+        0,
+        CardBlocker {
+            id: "demo-done".into(),
+            question: "Is it done?".into(),
+            context: "The APK builds with `scripts/android-apk.sh` and the emulator shows the app after a resume.".into(),
+            raised_by: oak.clone(),
+            state: "open".into(),
+            done_check: true,
+            options: vec![CardOption {
+                answer: "Done".into(),
+                by: oak,
+                recommended: true,
+                ..CardOption::default()
+            }],
+            ..CardBlocker::default()
+        },
+    );
+    d.summary.ready = true;
+    d.summary.open_blockers += 1;
     assign_slots(s);
 }
 

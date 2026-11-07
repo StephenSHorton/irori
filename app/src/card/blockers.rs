@@ -231,6 +231,26 @@ fn take(s: &State, get: crate::text::Get) -> Sent {
     }
 }
 
+/// An item's small line: who raised a done check, when, who decides and
+/// how it ended, joined by " · " with nothing left dangling when the
+/// time is unknown.
+pub(crate) fn meta_line(raiser: Option<&str>, raised: &str, decider: Option<&str>, by: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(r) = raiser {
+        parts.push(format!("Raised by {r}"));
+    }
+    if !raised.is_empty() {
+        parts.push(raised.to_string());
+    }
+    if let Some(d) = decider {
+        parts.push(format!("for {d} to decide"));
+    }
+    if !by.is_empty() {
+        parts.push(by.to_string());
+    }
+    parts.join(" · ")
+}
+
 /// Sends an answer: `option` is a picked recommendation's index, or -1
 /// for own words.
 fn send(s: &mut State, card: &str, b: &CardBlocker, option: i64) {
@@ -549,19 +569,8 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     }
     // Who raised it, when, who decides, how it ended.
     let raised = ms(&b.at).map(|t| relative_time(t, now_ms())).unwrap_or_default();
-    let mut meta = String::new();
-    if b.done_check {
-        meta.push_str(&format!("Raised by {} · ", display_name(&b.raised_by)));
-    }
-    meta.push_str(&raised);
-    if let Some(dc) = &b.decider
-        && r.is_none()
-    {
-        meta.push_str(&format!(" · for {} to decide", display_name(dc)));
-    }
-    if !by.is_empty() {
-        meta.push_str(&format!(" · {by}"));
-    }
+    let decider = b.decider.as_ref().filter(|_| r.is_none()).map(|dc| display_name(dc));
+    let meta = meta_line(b.done_check.then(|| display_name(&b.raised_by)).as_deref(), &raised, decider.as_deref(), &by);
     if !meta.is_empty() {
         item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
     }
