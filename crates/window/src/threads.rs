@@ -119,6 +119,10 @@ pub struct ThreadSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub opened_by: Option<AgentRef>,
+    /// An agent wrote in it after the person last opened or replied in it
+    /// (card #719): Talk's count counts it and its list marks it. An
+    /// agent's own thread is unread until the person first opens it.
+    pub unread: bool,
 }
 
 fn is_zero(n: &i64) -> bool {
@@ -437,6 +441,7 @@ impl Window {
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
         let p = self.people();
+        let me = self.core.user_sender().key;
         let mut open = Vec::new();
         let mut done = Vec::new();
         for (co, t, private) in found {
@@ -446,13 +451,19 @@ impl Window {
             let raw = co.comments(&t.id).unwrap_or_default();
             // People, not agents: on a board, any member (card #134).
             let mut answered: Vec<String> = Vec::new();
+            let mut said: Vec<Said> = Vec::new();
             // The newest reply by an agent and post by a person (card #739).
-            let (mut agent_at, mut person_at) = (i64::MIN, i64::MIN);
             // Irori's own lines (say why its agent can't start) aren't one.
+            let (mut agent_at, mut person_at) = (i64::MIN, i64::MIN);
             for c in &raw {
                 if !c.msg_id.is_empty() {
                     continue;
                 }
+                said.push(Said {
+                    at: c.at.unix_nano(),
+                    id: c.id.clone(),
+                    agent: !co.is_any_person(&c.by),
+                });
                 if co.is_any_person(&c.by) {
                     person_at = person_at.max(c.at.unix_nano());
                     continue;
@@ -468,6 +479,7 @@ impl Window {
             // An agent's own thread (card #631) waits on the person until
             // they write in it: no agent is handed or started for it.
             let rests = co.agent_thread_rests(&t);
+
             let cs = self.priv_comments(raw);
             let t = self.priv_task(t);
             let a = t.ask.clone().unwrap_or_default();
@@ -484,6 +496,8 @@ impl Window {
                 && a.taker.is_empty()
                 && (a.reason == coord::TAKE_REOPENED || a.reason == coord::TAKE_UNCLAIMED)
                 && (answered.is_empty() || person_at > agent_at);
+            let cursor = self.core.talk().cursor(&me, &read_conv(&t.id));
+            let unread = !resolved && thread_unread(&said, cursor.as_deref(), !opener.is_empty());
             let state = if resolved {
                 THREAD_RESOLVED
             } else if follow_up_waits {
@@ -566,6 +580,7 @@ impl Window {
                 },
 
                 space_id: space.to_string(),
+                unread,
                 ..ThreadSummary::default()
             };
             let mut s = s;
@@ -610,6 +625,33 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// BoardService.ReadThread: the person has the thread open (card
+    /// #719), so what is in it now is read: its newest reply, or its
+    /// opening words when nobody has replied yet. Kept with DMs' read
+    /// cursors, so the person's other devices see it read too.
+    pub fn read_thread(&self, id: &str) -> Result<(), String> {
+        let id = crate::trim(id);
+        let co = self.read(id);
+        let t = co
+            .get_task(id)
+            .filter(is_thread)
+            .ok_or_else(|| format!("no thread {id}"))?;
+        let newest = co
+            .comments(&t.id)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|c| c.msg_id.is_empty())
+            .max_by(|x, y| {
+                x.at.unix_nano()
+                    .cmp(&y.at.unix_nano())
+                    .then_with(|| x.id.cmp(&y.id))
+            })
+            .map(|c| c.id)
+            .unwrap_or_else(|| t.id.clone());
+        self.core
+            .talk_mark_read(&read_conv(&t.id), &newest, &self.core.user_sender().key)
+    }
+
     /// BoardService.ResolveThread: the person is done with it.
     pub fn resolve_thread(&self, id: &str) -> Result<(), String> {
         let id = crate::trim(id);
@@ -618,6 +660,36 @@ impl Window {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
+}
+
+/// The read cursor that keeps how far the person has read thread `id`
+/// (card #719): Talk's, beside the DMs' and channels'.
+fn read_conv(id: &str) -> String {
+    format!("thread:{id}")
+}
+
+/// One reply in a thread, for [`thread_unread`].
+#[derive(Debug, Clone)]
+struct Said {
+    at: i64,
+    id: String,
+    agent: bool,
+}
+
+/// Whether a thread waits unread on the person (card #719): an agent
+/// replied after the newest of where they last read it (`cursor`: a reply's
+/// id, or the thread's own when it had none) and their own newest reply.
+/// An agent's own thread (`agent_opened`) is unread until the person first
+/// reads or replies in it.
+fn thread_unread(said: &[Said], cursor: Option<&str>, agent_opened: bool) -> bool {
+    let pos = |s: &Said| (s.at, s.id.clone());
+    let read = said.iter().find(|s| Some(s.id.as_str()) == cursor).map(pos);
+    let replied = said.iter().filter(|s| !s.agent).map(pos).max();
+    let seen = read.max(replied);
+    if said.iter().any(|s| s.agent && Some(pos(s)) > seen) {
+        return true;
+    }
+    agent_opened && cursor.is_none() && !said.iter().any(|s| !s.agent)
 }
 
 /// "Agents answer now"'s default for a composer's mentions (card #391):
@@ -633,4 +705,67 @@ pub fn agents_now_default(mentions: &[ts::Mention]) -> bool {
         .filter(|m| !m.key.is_empty() && m.key != "irori")
         .collect();
     coord::agents_now_default(&ms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Said, thread_unread};
+
+    fn agent(at: i64, id: &str) -> Said {
+        Said {
+            at,
+            id: id.into(),
+            agent: true,
+        }
+    }
+    fn person(at: i64, id: &str) -> Said {
+        Said {
+            at,
+            id: id.into(),
+            agent: false,
+        }
+    }
+
+    /// Card #719: a thread is unread when an agent wrote after the person
+    /// last read or replied in it.
+    #[test]
+    fn unread_is_an_agent_reply_after_the_person_looked() {
+        // Nobody answered yet: nothing to read.
+        assert!(!thread_unread(&[], None, false));
+        // An agent answered, never opened: unread.
+        let one = [agent(1, "c1")];
+        assert!(thread_unread(&one, None, false));
+        // Opened since the answer: read.
+        assert!(!thread_unread(&one, Some("c1"), false));
+        // Opened before any answer (the cursor is the thread's own id),
+        // then an agent answered: unread.
+        assert!(thread_unread(&one, Some("t"), false));
+        // A new agent reply after the read one brings it back.
+        let two = [agent(1, "c1"), agent(2, "c2")];
+        assert!(thread_unread(&two, Some("c1"), false));
+        assert!(!thread_unread(&two, Some("c2"), false));
+        // The person's own reply reads what came before it, cursor or not.
+        let replied = [agent(1, "c1"), person(2, "c2")];
+        assert!(!thread_unread(&replied, None, false));
+        let again = [agent(1, "c1"), person(2, "c2"), agent(3, "c3")];
+        assert!(thread_unread(&again, None, false));
+        assert!(thread_unread(&again, Some("c1"), false));
+        // Same instant: the id breaks the tie.
+        assert!(thread_unread(&[agent(5, "b"), person(5, "a")], None, false));
+        assert!(!thread_unread(
+            &[agent(5, "a"), person(5, "b")],
+            None,
+            false
+        ));
+    }
+
+    /// An agent's own thread waits unread until the person first opens or
+    /// replies in it.
+    #[test]
+    fn an_agents_own_thread_is_unread_until_opened() {
+        assert!(thread_unread(&[], None, true));
+        assert!(!thread_unread(&[], Some("t"), true));
+        assert!(!thread_unread(&[person(1, "c1")], None, true));
+        assert!(thread_unread(&[agent(1, "c1")], Some("t"), true));
+    }
 }

@@ -69,6 +69,7 @@ unchanged.
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
+| `/?term&open=board:task:sample-card-1` | the card page's Terminal section (card #730) with one blank stand-in shell (no shell runs, nothing is drawn): the box at its remembered height and the grip under it; drag it or focus it and press the arrow keys (Shift: bigger steps, Home and End: the ends, double-click: the default) |
 | `/?open=board:task:sample-card-2` | a blocker with recommended answers |
 | `/?open=board:task:sample-card-5` | a done card with a reviewed PR |
 | `/?open=board:task:sample-card-12` | Ready for you: an agent says it's done, its proof (screenshot, then how it was checked) at the top; Done closes it, Not done sends your words back (cards #112, #140) |
@@ -93,6 +94,7 @@ unchanged.
 | `/?newcard` | New card (card #456, sa-5): "A fresh agent" by default on your own board, with the model and effort it starts with; `?newcard&spawn=off` shows "Any free agent" instead |
 | `/?settings=agents` | Settings › Agents: the spawning switch, model and effort (#448), and the permissions (#449) |
 | `/?settings=agents&agentstarts=full` | "My agents may start agents" at its maximum (card #575): "100 of 100 in use"; `agentstarts=off` shows it switched off |
+| `/?settings=agents&namesoff=movies,anime` | Settings › Agents › Agent names (card #702): a switch per theme, each with its count and a few of its names; `namesoff` turns those off (all are on without it) |
 | `/?idle=gap` | Home's idle line as a dispatch gap: idle agents and two cards nobody was handed, with why (card #341); `/` alone reads "1 agent idle; 3 cards nobody took: #14, #25, #6." over the Stuck rows (card #487) |
 | `/?spawn=states` | Home's rows grouped Needs you, Stuck, Working, Waiting, Idle (card #487), with an agent starting, a device at its cap and agents that can't start; #51 reads "Waiting for a free Dolphin slot" |
 | `/#notifications` | The Notifications page (card #377): unread items, a done check and a decision with their live buttons, an agent's ask; `/?notifications=all#notifications` shows All, with a resolved blocker's outcome and read items; `?notifications=none` an empty history |

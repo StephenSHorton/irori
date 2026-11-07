@@ -159,6 +159,8 @@ export const commands = {
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
+	/**  The person has a thread open: what is in it now is read (card #719). */
+	boardReadThread: (id: string) => __TAURI_INVOKE<null>("board_read_thread", { id }),
 	/**  Resolve on a thread: the person is done with it. */
 	boardResolveThread: (id: string) => __TAURI_INVOKE<null>("board_resolve_thread", { id }),
 	/**  A resolved thread is live again (card #169). */
@@ -409,6 +411,13 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**
+	 *  The themes new agents' names come from (card #702), each with its
+	 *  switch.
+	 */
+	namesThemes: () => __TAURI_INVOKE<NamesThemesView>("names_themes"),
+	/**  The person turns a theme on or off: the app only, never a tool. */
+	namesThemeSet: (id: string, on: boolean) => __TAURI_INVOKE<NamesThemesView>("names_theme_set", { id, on }),
 	/**  "My agents may start agents on my cards" and its maximum (card #575). */
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
@@ -2244,6 +2253,29 @@ export type MetersSample = {
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
 
+/**  One names theme in Settings › Agents (card #702), with its switch. */
+export type NamesThemeChoice = {
+	id: string,
+	label: string,
+	/**
+	 *  New names may come from it: every theme is on until the person
+	 *  turns it off.
+	 */
+	on: boolean,
+	/**  How many words it has. */
+	words: number,
+	/**  A few of them, for the hint. */
+	sample: string[],
+};
+
+/**
+ *  The themes new agents' names come from (card #702): the person's, on all
+ *  their devices, set here and never by a tool.
+ */
+export type NamesThemesView = {
+	themes: NamesThemeChoice[],
+};
+
 /**  What the New card form sends. */
 export type NewCardInput = {
 	title?: string,
@@ -3039,6 +3071,12 @@ export type ThreadSummary = {
 	 *  started for it.
 	 */
 	openedBy?: AgentRef | null,
+	/**
+	 *  An agent wrote in it after the person last opened or replied in it
+	 *  (card #719): Talk's count counts it and its list marks it. An
+	 *  agent's own thread is unread until the person first opens it.
+	 */
+	unread: boolean,
 };
 
 /**  Who an action's notice went to. */

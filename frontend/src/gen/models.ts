@@ -107,6 +107,8 @@ export type MetersMem = B.MetersMem
 export type MetersNet = B.MetersNet
 export type MetersSample = B.MetersSample
 export type Mode = B.Mode
+export type NamesThemeChoice = B.NamesThemeChoice
+export type NamesThemesView = B.NamesThemesView
 export type NewCardInput = B.NewCardInput
 export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
@@ -645,6 +647,16 @@ export function MetersSample(p: Partial<B.MetersSample> = {}): B.MetersSample {
   return { "atMs": 0, "cpu": MetersCpu(), "mem": MetersMem(), "disks": [], "net": MetersNet(), "gpus": [], ...p } as B.MetersSample
 }
 
+/** NamesThemeChoice with Go's zero values for every field left out. */
+export function NamesThemeChoice(p: Partial<B.NamesThemeChoice> = {}): B.NamesThemeChoice {
+  return { "id": "", "label": "", "on": false, "words": 0, "sample": [], ...p } as B.NamesThemeChoice
+}
+
+/** NamesThemesView with Go's zero values for every field left out. */
+export function NamesThemesView(p: Partial<B.NamesThemesView> = {}): B.NamesThemesView {
+  return { "themes": [], ...p } as B.NamesThemesView
+}
+
 /** NewCardInput with Go's zero values for every field left out. */
 export function NewCardInput(p: Partial<B.NewCardInput> = {}): B.NewCardInput {
   return { ...p } as B.NewCardInput
@@ -892,7 +904,7 @@ export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, "unread": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::roster::{TrustSet, copy_capped, find_claude, hide_console, lossy, strip_ansi};
+use crate::roster::{TrustSet, copy_capped, find_claude, hide_console, strip_ansi};
 
 /// How long `claude --bg` may take to print its id (it returns in about a
 /// second; the first one also starts Claude Code's background service).
@@ -309,7 +309,9 @@ fn session_arg(id: &str) -> Result<&str, String> {
 }
 
 /// A spawned session's recent terminal output, read only (card #456,
-/// sa-2's Logs): `claude logs <id>`, colours removed.
+/// sa-2's Logs): `claude logs <id>` as text. Its output is a TUI repaint
+/// stream, so it is replayed through the terminal engine (card #741), not
+/// stripped of its escapes, and its newest part is the part kept.
 pub fn logs(id: &str) -> Result<String, String> {
     logs_with(&find_claude()?, id)
 }
@@ -323,11 +325,11 @@ pub(crate) fn logs_with(bin: &Path, id: &str) -> Result<String, String> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     hide_console(&mut cmd);
-    let (ok, text) = run(cmd)?;
+    let (ok, out) = run_bytes(cmd, Keep::Tail(LOGS_CAP))?;
     if !ok {
-        return Err(format!("claude logs {id}: {text}"));
+        return Err(format!("claude logs {id}: {}", plain_text(&out)));
     }
-    Ok(text)
+    Ok(term::replay_text(&out))
 }
 
 /// The argv a card's terminal tab runs to attach to a spawned session
@@ -592,8 +594,34 @@ fn plain_word(s: &str, max: usize) -> bool {
 }
 
 /// Runs `cmd` to its end (or [`SPAWN_WAIT`]), returning success and its
-/// output. Never kills it: a slow exit may be the session starting.
-fn run(mut cmd: std::process::Command) -> Result<(bool, String), String> {
+/// output, colours removed. Never kills it: a slow exit may be the session
+/// starting.
+fn run(cmd: std::process::Command) -> Result<(bool, String), String> {
+    let (ok, out) = run_bytes(cmd, Keep::Head)?;
+    Ok((ok, plain_text(&out)))
+}
+
+/// Output as plain text: escapes removed, blanks trimmed.
+fn plain_text(out: &[u8]) -> String {
+    strip_ansi(&String::from_utf8_lossy(out)).trim().to_string()
+}
+
+/// The most of `claude logs` kept: its newest 4 MiB. It prints a ring of
+/// recent output (about 200 KiB seen), and replaying needs the whole of
+/// it, as a row stays as it was last painted.
+const LOGS_CAP: usize = 4 << 20;
+
+/// Which part of a command's output [`run_bytes`] keeps.
+#[derive(Clone, Copy)]
+enum Keep {
+    /// The first 64 KiB, as the other commands print their answer first.
+    Head,
+    /// The last this many bytes, for a log whose newest part matters.
+    Tail(usize),
+}
+
+/// [`run`] with the output as bytes, as `keep` says.
+fn run_bytes(mut cmd: std::process::Command, keep: Keep) -> Result<(bool, Vec<u8>), String> {
     let mut child = cmd.spawn().map_err(|e| format!("start claude: {e}"))?;
     let out = Arc::new(Mutex::new(Vec::<u8>::new()));
     let mut readers = Vec::new();
@@ -611,7 +639,10 @@ fn run(mut cmd: std::process::Command) -> Result<(bool, String), String> {
     .flatten()
     {
         let out = out.clone();
-        readers.push(std::thread::spawn(move || copy_capped(pipe, &out)));
+        readers.push(std::thread::spawn(move || match keep {
+            Keep::Head => copy_capped(pipe, &out),
+            Keep::Tail(cap) => copy_tail(pipe, &out, cap),
+        }));
     }
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -624,12 +655,41 @@ fn run(mut cmd: std::process::Command) -> Result<(bool, String), String> {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
-    let text = strip_ansi(&lossy(&out)).trim().to_string();
+    let out = std::mem::take(&mut *out.lock().unwrap_or_else(|e| e.into_inner()));
+    let out = match keep {
+        Keep::Head => out,
+        Keep::Tail(cap) => tail(out, cap),
+    };
     match status {
-        Ok(Ok(s)) => Ok((s.success(), text)),
+        Ok(Ok(s)) => Ok((s.success(), out)),
         Ok(Err(e)) => Err(format!("claude --bg: {e}")),
-        Err(_) => Ok((true, text)),
+        Err(_) => Ok((true, out)),
     }
+}
+
+/// Copies `r` into `out`, keeping only its last `cap` bytes.
+fn copy_tail(mut r: Box<dyn std::io::Read + Send>, out: &Mutex<Vec<u8>>, cap: usize) {
+    let mut buf = [0u8; 8192];
+    while let Ok(n) = r.read(&mut buf) {
+        if n == 0 {
+            return;
+        }
+        let mut o = out.lock().unwrap_or_else(|e| e.into_inner());
+        o.extend_from_slice(&buf[..n]);
+        // Trim in halves of the cap, not on every read.
+        if o.len() > cap + cap / 2 {
+            let cut = o.len() - cap;
+            o.drain(..cut);
+        }
+    }
+}
+
+/// The last `cap` bytes of what [`copy_tail`] kept.
+fn tail(mut out: Vec<u8>, cap: usize) -> Vec<u8> {
+    if out.len() > cap {
+        out.drain(..out.len() - cap);
+    }
+    out
 }
 
 /// The short id in `claude --bg`'s "backgrounded · <id> · <name>" line.
@@ -891,6 +951,73 @@ mod tests {
         let t = cfg(&base, &[&repo]);
         assert!(trusted_in(&t, &repo).is_ok());
         assert!(trusted_in(&t, &repo.join("sub")).is_ok() || !repo.join("sub").exists());
+    }
+
+    /// Card #731, checked live on Claude Code 2.1.319: a folder outside git
+    /// follows its nearest trusted ancestor, however deep; a git repo (and
+    /// any folder in it) doesn't; nothing counts in an untrusted tree.
+    #[test]
+    fn ancestors_count_outside_git_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base = plain(std::fs::canonicalize(tmp.path()).unwrap());
+        let home = base.join("home");
+        let deep = home.join("a").join("b").join("c");
+        let repo = home.join("projects").join("rune");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        let other = base.join("elsewhere").join("x");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::create_dir_all(base.join("elsewhere").join("r").join(".git")).unwrap();
+
+        let t = cfg(&base, &[&home]);
+        assert!(
+            trusted_in(&t, &deep).is_ok(),
+            "a plain folder deep under a trusted one"
+        );
+        for d in [&repo, &repo.join("src")] {
+            let e = trusted_in(&t, d).unwrap_err();
+            assert!(
+                e.contains(&repo.display().to_string()),
+                "names the repo: {e}"
+            );
+        }
+        assert!(trusted_in(&t, &other).is_err(), "an untrusted tree");
+        assert!(trusted_in(&t, &base.join("elsewhere").join("r")).is_err());
+
+        let t = cfg(&base, &[&home, &repo]);
+        assert!(trusted_in(&t, &repo).is_ok());
+        assert!(
+            trusted_in(&t, &repo.join("src")).is_ok(),
+            "inside a trusted repo"
+        );
+        assert!(trusted_in(&TrustSet::load_file(&base.join("none.json")), &deep).is_err());
+    }
+
+    /// Windows keys in `.claude.json` (`C:/...`, or backslashes) match the
+    /// folder however it is written, and a parent counts for a plain folder.
+    #[test]
+    fn windows_style_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let f = tmp.path().join(".claude.json");
+        std::fs::write(
+            &f,
+            r#"{"projects":{"C:/Users/me":{"hasTrustDialogAccepted":true},
+                "C:\\work\\api":{"hasTrustDialogAccepted":true},
+                "C:/work/web":{"hasTrustDialogAccepted":false}}}"#,
+        )
+        .unwrap();
+        let t = TrustSet::load_file(&f);
+        assert!(t.has("C:/work/api") && t.has("C:/work/api/"));
+        assert!(t.has(r"C:\Users\me\") && t.has("C:/Users/me"));
+        assert!(!t.has("C:/work/web"), "false isn't trust");
+        assert!(!t.has("C:/Users/me/projects/rune"), "has is exact");
+        assert!(t.covers("C:/Users/me/projects/notes"));
+        assert!(!t.covers("C:/work/web/x") && !t.covers("D:/Users/me"));
+        if cfg!(windows) {
+            assert!(t.covers(r"C:\Users\me\projects\notes"));
+            assert!(t.has(r"c:\work\API"), "Windows paths ignore case");
+        }
     }
 
     #[test]
@@ -1434,6 +1561,61 @@ echo 'test result: ok'
             logs_with(&bin, "abc & calc").is_err(),
             "never a metacharacter"
         );
+    }
+
+    /// `claude logs` prints a TUI repaint stream (card #741): it is
+    /// replayed through the terminal engine, and its newest part is kept
+    /// when it is over 64 KiB.
+    #[test]
+    fn logs_replay_a_captured_repaint_stream_and_keep_its_tail() {
+        let fixture =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../term/testdata/claude-logs.bin");
+        let bytes = std::fs::read(&fixture).unwrap();
+        // The prompt is "❯", a no-break space, a colour, then its text.
+        let newest = "itsed do eius modt-em";
+        // The newest prompt is past the first 64 KiB, which is all the old
+        // head-keeping copy read.
+        let at = bytes
+            .windows(newest.len())
+            .position(|w| w == newest.as_bytes())
+            .unwrap();
+        assert!(at > 64 << 10, "{at}");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        #[cfg(windows)]
+        let bin = {
+            let p = dir.join("claude.cmd");
+            std::fs::write(
+                &p,
+                format!("@echo off\r\ntype \"{}\"\r\n", fixture.display()),
+            )
+            .unwrap();
+            p
+        };
+        #[cfg(not(windows))]
+        let bin = {
+            use std::os::unix::fs::PermissionsExt;
+            let p = dir.join("claude");
+            std::fs::write(&p, format!("#!/bin/sh\ncat '{}'\n", fixture.display())).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let out = logs_with(&bin, "0a1b2c3d").unwrap();
+        assert_eq!(out, term::replay_text(&bytes));
+        let last = out.lines().rev().find(|l| l.starts_with('❯')).unwrap();
+        assert_eq!(last, format!("❯\u{a0}{newest}"));
+        assert!(!out.contains('\x1b'), "{out}");
+        // Spaces from the stream's ESC[nC gaps survive.
+        assert!(out.contains("▓▓▓      41%  porin"), "{out}");
+    }
+
+    #[test]
+    fn copy_tail_keeps_the_last_bytes() {
+        let data: Vec<u8> = (0..100_000u32).map(|n| (n % 251) as u8).collect();
+        let out = Mutex::new(Vec::new());
+        copy_tail(Box::new(std::io::Cursor::new(data.clone())), &out, 10_000);
+        let kept = tail(out.into_inner().unwrap(), 10_000);
+        assert_eq!(kept, data[data.len() - 10_000..]);
     }
 
     #[test]
