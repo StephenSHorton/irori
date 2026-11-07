@@ -130,8 +130,22 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
     let resolved = t.state == THREAD_RESOLVED;
     let detail = s.talk.thread.as_ref().filter(|d| d.summary.id == t.id);
     let reading = detail.is_none() && s.talk.thread_error.is_none();
-    let items: Vec<CardThreadItem> =
-        detail.map(|d| d.thread.iter().filter(|it| shown(it)).cloned().collect()).unwrap_or_default();
+    // A made card's line names it by its ref, never by its id.
+    let items: Vec<CardThreadItem> = detail
+        .map(|d| {
+            d.thread
+                .iter()
+                .filter(|it| shown(it))
+                .map(|it| {
+                    let mut it = it.clone();
+                    if it.kind == "event" {
+                        it.text = event_text(s, &it.text);
+                    }
+                    it
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut top = col().key("talk-thread-top").w_full().gap(4.0);
     if let Some(o) = &t.opened_by {
@@ -306,6 +320,24 @@ fn act(
             Err(e) => s.talk.thread_act_error = e,
         }
     });
+}
+
+/// An event's words with each `task:<id>` as the card's ref ("#12"), so
+/// it reads as a ref chip and never as an id.
+fn event_text(s: &State, t: &str) -> String {
+    t.split(' ')
+        .map(|w| match w.strip_prefix("task:") {
+            Some(id) => {
+                let id = id.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
+                let found = s.data.card(id).map(crate::logic::card_status::card_ref).or_else(|| {
+                    s.talk.threads.iter().flat_map(|t| &t.cards).find(|c| c.id == id).map(|c| logic::thread_ref(&c.tag, &c.short))
+                });
+                found.filter(|r| r != "new" && !r.is_empty()).unwrap_or_else(|| "a card".into())
+            }
+            None => w.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// What a thread says about starting its agent, as the card package's
