@@ -1,5 +1,5 @@
 //! The window's services on a scratch Core (tests/common), and the TS
-//! shapes in frontend/src/gen/bindings.ts checked against the real
+//! shapes (checked against frontend/src/gen/bindings.ts until #674) and the real
 //! JSON of the values the commands send.
 
 use std::collections::BTreeSet;
@@ -517,6 +517,11 @@ fn ts_fields(src: &str, name: &str) -> Vec<(String, bool)> {
 /// Every key the value sends is in the TS type, and every field the type
 /// requires is sent.
 fn check_shape(src: &str, name: &str, v: &serde_json::Value) {
+    // The React frontend and its bindings.ts are gone on rune-ui (#674):
+    // the Rune window reads the Rust types, so there is no TS to match.
+    if src.is_empty() {
+        return;
+    }
     let obj = v
         .as_object()
         .unwrap_or_else(|| panic!("{name}: not an object: {v}"));
@@ -537,10 +542,9 @@ fn check_shape(src: &str, name: &str, v: &serde_json::Value) {
 }
 
 #[test]
-fn ts_shapes_match_the_json() {
-    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
-        .unwrap()
-        .replace("\r\n", "\n");
+/// Every area type serializes (its TS shape check went with the frontend, #674).
+fn area_types_serialize() {
+    let src = String::new(); // no TS bindings since the frontend went (#674)
     let r = Rig::new();
     let co = r.w.core.coord();
     let a = r.key_a.clone();
@@ -885,9 +889,7 @@ fn not_done_goes_back_to_the_agent() {
 /// talk_posts send.
 #[test]
 fn talk_through_the_window() {
-    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
-        .unwrap()
-        .replace("\r\n", "\n");
+    let src = String::new(); // no TS bindings since the frontend went (#674)
     let r = Rig::new();
     let w = &r.w;
     let ch = w
@@ -927,7 +929,6 @@ fn talk_through_the_window() {
     assert_eq!(row.agents.len(), 1);
     assert_eq!(row.agents[0].key, r.key_a);
     assert!(!row.agents[0].name.is_empty() && row.agents[0].name != r.key_a);
-    assert!(src.contains("talkReplying"), "bindings are regenerated");
 
     // A thread's reply is a comment on it.
     let (t, _) = w
@@ -1380,9 +1381,7 @@ fn an_agents_message_to_the_person_serves_its_file() {
 /// its name; the TS shape of what call:state sends.
 #[test]
 fn huddles_through_the_window() {
-    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
-        .unwrap()
-        .replace("\r\n", "\n");
+    let src = String::new(); // no TS bindings since the frontend went (#674)
     let r = Rig::new();
     let w = &r.w;
     assert_eq!(
@@ -1546,9 +1545,7 @@ fn huddles_through_the_window() {
 /// post says it has one; an unknown huddle is refused.
 #[test]
 fn a_huddles_transcript_through_the_window() {
-    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
-        .unwrap()
-        .replace("\r\n", "\n");
+    let src = String::new(); // no TS bindings since the frontend went (#674)
     let r = Rig::new();
     let w = &r.w;
     let ch = w.talk_channel_create("standup", None, None).unwrap();
