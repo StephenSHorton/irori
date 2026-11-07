@@ -136,6 +136,8 @@ pub fn on_event(s: &mut State, ev: &Event) {
 /// The headless scene (`irori --snap x.png --scene profile`).
 pub fn scene(s: &mut State) {
     s.close_card();
+    // The shared spaces open a few seconds in; the page lists them.
+    crate::spaces::wait_for_spaces(s);
     s.go(Route::Profile);
 }
 
@@ -170,12 +172,12 @@ fn pick_file(s: &mut State, path: std::path::PathBuf) {
 }
 
 fn choose(s: &mut State, tx: &mut Tx) {
-    let opts = rune::FileDialogOptions { title: "Your picture".into(), ..Default::default() }.filter("Pictures", &["png", "jpg", "jpeg"]);
+    let opts = rune::FileDialogOptions { title: "Your picture".into(), ..Default::default() }.filter("Pictures", &["png", "jpg", "jpeg", "webp"]);
     tx.open_file(opts, |s: &mut State, r, _| match r {
         Ok(Some(p)) => pick_file(s, p),
         Ok(None) => {}
         Err(e) => {
-            s.profile.error = format!("Couldn't open the file picker ({e}). Drop a PNG or JPEG on your face instead.")
+            s.profile.error = format!("Couldn't open the file picker ({e}). Drop a PNG, JPEG or WebP on your face instead.")
         }
     });
     let _ = s;

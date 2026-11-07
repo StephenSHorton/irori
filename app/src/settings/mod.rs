@@ -94,7 +94,6 @@ pub enum Act {
     TrustRepo(String),
     RemoveDevice(String),
     ResetDevice,
-    ClearDone(i64),
 }
 
 /// An open confirm: the alert dialog over Settings.
@@ -161,7 +160,6 @@ pub fn load(s: &mut State) {
         "people" => people::load(s),
         "agents" => agents::load(s),
         "desks" => desks::load(s),
-        "maintenance" => general::load_clear(s),
         "app" => general::load_app(s),
         _ => {}
     }
@@ -234,6 +232,9 @@ pub fn on_event(s: &mut State, ev: &Event) {
 pub fn scene(s: &mut State) {
     s.close_card();
     let p = std::env::var("IRORI_SCENE_PANE").unwrap_or_default();
+    // The Core's spaces open after the first frame; the People and
+    // Agents panes list them.
+    crate::spaces::wait_for_spaces(s);
     s.open_dialog(Dialog::Settings(pane(&p).id.to_string()));
 }
 
@@ -466,16 +467,6 @@ fn run_confirm(s: &mut State) {
                 fail(s, e)
             }
         }),
-        Act::ClearDone(secs) => s.spawn(
-            move |w| w.clear_done(secs, &[], ""),
-            move |s, r: Result<i64, String>| match r {
-                Ok(n) => {
-                    s.settings.general.cleared = Some(n);
-                    general::load_clear(s);
-                }
-                Err(e) => fail(s, e),
-            },
-        ),
     }
 }
 
@@ -525,7 +516,7 @@ pub fn hint(f: &Frame, s: &str) -> El {
 
 /// A muted paragraph (text-[12.5px] text-muted-foreground).
 pub fn muted_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.ui).color(f.k.c.text_muted).w_full().wrap()
+    text(s.to_string()).font(rune::tok::TextStyle::new(12.5, 400.0)).color(f.k.c.text_muted).w_full().wrap()
 }
 
 pub fn error_line(f: &Frame, s: &str) -> El {

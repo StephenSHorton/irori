@@ -496,7 +496,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         for _ in 0..3 {
             match it.next() {
                 Some(c) => r = r.child(c),
-                None => r = r.child(el().grow(1.0)),
+                None => r = r.child(el().w(0.0).grow(1.0).min_w(0.0).padding(8.0).border(1.0, rune::Color::TRANSPARENT)),
             }
         }
         grid = grid.child(r);
@@ -668,8 +668,9 @@ fn swatch(
     }
     col()
         .key(format!("settings-swatch-{id}"))
+        // Width 0 and grow: three equal columns, a short last row too.
+        .w(0.0)
         .grow(1.0)
-        
         .min_w(0.0)
         .gap(6.0)
         .padding(8.0)

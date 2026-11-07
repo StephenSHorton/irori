@@ -44,10 +44,16 @@ pub struct Join {
 pub struct Model {
     pub name: NameEdit,
     pub join: Join,
+    /// The spaces are read: "No spaces yet" only after that (card #598).
+    pub spaces_read: bool,
 }
 
 pub fn load(s: &mut State) {
     load_name(s, |s| &mut s.settings.people.name);
+    s.spawn(|w| w.boards_list(), |s, v| {
+        s.data.spaces = v;
+        s.settings.people.spaces_read = true;
+    });
     // An invite opened elsewhere shows here in place of the form.
     crate::spaces::reload_invite_now(s);
 }
@@ -149,7 +155,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let mut out = col().key("settings-people").w_full().gap(12.0).child(your_name(s, f));
     let spaces: Vec<_> = s.data.spaces.iter().filter(|b| !b.leaving).collect();
-    if spaces.is_empty() {
+    if spaces.is_empty() && !s.settings.people.spaces_read {
+        out = out.child(super::loading(f, "settings-people-loading", "Loading your spaces"));
+    } else if spaces.is_empty() {
         out = out.child(muted_line(f, "No spaces yet. Make one on the Spaces page, then invite people to it."));
     } else {
         let mut list = col().key("settings-people-list").w_full().gap(6.0).role("list").label("People in your spaces");

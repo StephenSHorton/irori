@@ -4,11 +4,11 @@
 
 use irori_window::settings::{EVENT_LAUNCH_AT_LOGIN, NotifyOptions};
 use rune::{Drag, El, Phase, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize};
+use rune_kit::{Button, ButtonVariant};
 
 use crate::ui::{Event, Frame, State};
 
-use super::{Act, Confirm, choice, confirm_button, error_line, heading, hint, labeled, loading, muted_line, ruled, toggle};
+use super::{choice, error_line, heading, hint, labeled, loading, muted_line, ruled, toggle};
 
 #[derive(Default)]
 pub struct Model {
@@ -22,20 +22,8 @@ pub struct Model {
     pub launch: Option<bool>,
     pub launch_read: bool,
     pub launch_err: Option<String>,
-    pub transcribe: Option<bool>,
-    pub transcribe_err: Option<String>,
-    /// Clear done: the age picked, the count it takes, the last clear.
-    /// None for the default, Older than a week.
-    pub clear_age: Option<usize>,
-    pub clear_count: Option<i64>,
-    pub clear_err: Option<String>,
-    pub cleared: Option<i64>,
-}
-
-impl Model {
-    pub fn age(&self) -> usize {
-        self.clear_age.unwrap_or(1).min(CLEAR_AGES.len() - 1)
-    }
+    /// The transcribe switch is read (into the call package's state).
+    pub transcribe_read: bool,
 }
 
 pub const CORNERS: &[(&str, &str)] = &[
@@ -247,7 +235,12 @@ pub fn load_app(s: &mut State) {
     });
     // The voice note reads the call package's status, read afresh here.
     crate::call::refresh_voice(s);
-    s.spawn(|w| w.call_transcribe(), |s, t| s.settings.general.transcribe = Some(t));
+    // TranscribeSwitch reads into the call package's own state, which
+    // the huddle's notices read too.
+    s.spawn(|w| w.call_transcribe(), |s, t| {
+        s.call.view.transcribe_on = t;
+        s.settings.general.transcribe_read = true;
+    });
 }
 
 const LAUNCH_HINT: &str = "Irori starts in the tray when you sign in. The tray offers it too.";
@@ -298,24 +291,13 @@ pub fn app(s: &State, f: &mut Frame) -> El {
         out = out.child(v);
     }
     // TranscribeSwitch (#656): on all the person's devices.
-    let mut tr = col().gap(4.0);
-    tr = tr.child(match m.transcribe {
-        None => loading(f, "settings-transcribe-loading", "Loading huddle transcripts"),
-        Some(on) => toggle(f, "settings-transcribe", TRANSCRIBE_LABEL, Some(TRANSCRIBE_HINT), on, false, |s, v| {
-            s.settings.general.transcribe = Some(v);
-            s.settings.general.transcribe_err = None;
-            s.spawn(move |w| w.call_transcribe_set(v).map(|_| w.call_transcribe()), |s, r| match r {
-                Ok(on) => s.settings.general.transcribe = Some(on),
-                Err(e) => {
-                    s.settings.general.transcribe_err = Some(e);
-                    s.spawn(|w| w.call_transcribe(), |s, on| s.settings.general.transcribe = Some(on));
-                }
-            });
-        }),
-    });
-    if let Some(e) = &m.transcribe_err {
-        tr = tr.child(error_line(f, e));
-    }
+    let tr = if !m.transcribe_read {
+        loading(f, "settings-transcribe-loading", "Loading huddle transcripts")
+    } else {
+        toggle(f, "settings-transcribe", TRANSCRIBE_LABEL, Some(TRANSCRIBE_HINT), crate::call::transcribe_on(s), false, |s, v| {
+            crate::call::set_transcribe(s, v)
+        })
+    };
     out = out.child(ruled(f, "settings-transcribe-box", tr));
     // Updates: UpdateStatusLine and Keep this device up to date.
     out = out.child(crate::status::update_section(s, f));
@@ -342,88 +324,10 @@ pub fn app(s: &State, f: &mut Frame) -> El {
 
 // ---- Maintenance --------------------------------------------------------------
 
-const DAY: i64 = 24 * 60 * 60;
-
-/// The ages a clear can take (card #138): (label, seconds, phrase).
-pub const CLEAR_AGES: &[(&str, i64, &str)] = &[
-    ("Older than a day", DAY, "closed more than a day ago"),
-    ("Older than a week", 7 * DAY, "closed more than a week ago"),
-    ("Older than a month", 30 * DAY, "closed more than a month ago"),
-    ("All", 0, ""),
-];
-
-fn plural(n: i64) -> String {
-    format!("{n} done {}", if n == 1 { "card" } else { "cards" })
-}
-
-/// What a clear by this age takes: "3 done cards closed more than a week
-/// ago", "all 3 done cards".
-pub fn clear_what(age: usize, count: i64) -> String {
-    let (_, _, phrase) = CLEAR_AGES[age.min(CLEAR_AGES.len() - 1)];
-    if phrase.is_empty() { format!("all {}", plural(count)) } else { format!("{} {phrase}", plural(count)) }
-}
-
-pub fn load_clear(s: &mut State) {
-    let secs = CLEAR_AGES[s.settings.general.age()].1;
-    s.spawn(move |w| w.clear_done_count(secs, ""), |s, n| {
-        s.settings.general.clear_count = Some(n);
-        s.settings.general.clear_err = None;
-    });
-}
-
+/// Settings > Maintenance (maintenance-pane.tsx, card #138): the board's
+/// own Clear done (every scope), which counts itself when it shows.
 pub fn maintenance(s: &State, f: &mut Frame) -> El {
-    let k = f.k;
-    let m = &s.settings.general;
-    let mut ages = row().key("settings-clear-ages").gap(4.0).flex_wrap().role("group").label("Clear done cards by age");
-    for (i, (label, _, _)) in CLEAR_AGES.iter().enumerate() {
-        ages = ages.child(
-            Button::new(*label)
-                .variant(if m.age() == i { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
-                .control_size(ControlSize::Small)
-                .on_press(move |s: &mut State| {
-                    s.settings.general.clear_age = Some(i);
-                    s.settings.general.cleared = None;
-                    s.settings.general.clear_count = None;
-                    load_clear(s);
-                })
-                .build(k)
-                .key(format!("settings-clear-age-{i}")),
-        );
-    }
-    let count = m.clear_count;
-    let what = clear_what(m.age(), count.unwrap_or(0));
-    let line = match count {
-        None => "Counting…".to_string(),
-        Some(0) => "Nothing to clear.".to_string(),
-        Some(_) => format!("Clears {what}."),
-    };
-    let n = count.unwrap_or(0);
-    let secs = CLEAR_AGES[m.age()].1;
-    let mut act = row()
-        .key("settings-clear-act")
-        .gap(8.0)
-        .center_y()
-        .flex_wrap()
-        .child(text(line).font(k.ty.ui).color(k.c.text_muted))
-        .child(confirm_button(
-            s,
-            f,
-            Confirm {
-                id: "clear-done".into(),
-                question: format!(
-                    "Clear {what}? They leave the app's lists, in your spaces too. Agents still find them with search and show. Nothing is deleted."
-                ),
-                label: if n > 0 { format!("Clear {n}") } else { "Clear".into() },
-                danger: false,
-                act: Act::ClearDone(secs),
-            },
-            &if n > 0 { format!("Clear {n}…") } else { "Clear".into() },
-            n == 0,
-        ));
-    if let Some(c) = m.cleared {
-        act = act.child(hint(f, &format!("Cleared {}.", plural(c))).w(200.0));
-    }
-    let mut sec = col()
+    col()
         .key("settings-maintenance")
         .w_full()
         .gap(8.0)
@@ -432,12 +336,7 @@ pub fn maintenance(s: &State, f: &mut Frame) -> El {
             f,
             "Cleared cards leave the app's lists, here and in your spaces. They stay in Irori's log, so agents still find them with search and show. To clear or delete single cards, use Select on Closed.",
         ))
-        .child(ages)
-        .child(act);
-    if let Some(e) = &m.clear_err {
-        sec = sec.child(error_line(f, e));
-    }
-    sec
+        .child(crate::board::clear::clear_done(s, f, "settings-clear", "", false))
 }
 
 #[cfg(test)]
@@ -449,12 +348,5 @@ mod tests {
         assert_eq!(version_label("dev"), "dev");
         assert_eq!(version_label("0.12.3"), "v0.12.3");
         assert_eq!(version_label("v0.12.3"), "v0.12.3");
-    }
-
-    #[test]
-    fn a_clear_says_what_it_takes() {
-        assert_eq!(clear_what(1, 3), "3 done cards closed more than a week ago");
-        assert_eq!(clear_what(0, 1), "1 done card closed more than a day ago");
-        assert_eq!(clear_what(3, 2), "all 2 done cards");
     }
 }

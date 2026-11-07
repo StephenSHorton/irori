@@ -70,10 +70,6 @@ pub struct Model {
     /// The live launch-at-login state, from `settings:launch-at-login`
     /// (the settings package reads its own; this one follows the tray).
     pub launch_at_login: Option<bool>,
-
-    /// `/` was pressed (ui/keys.rs): the page with a search field focuses
-    /// it and clears this.
-    pub focus_search: bool,
 }
 
 fn now_ms() -> i64 {
