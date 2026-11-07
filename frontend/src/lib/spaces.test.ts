@@ -12,8 +12,8 @@ import {
   threadsSpace,
   withLine,
   cardsOnPersonal,
-  finishedBoards,
-  liveBoards,
+  closedBoards,
+  openBoards,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -181,22 +181,22 @@ describe("cardsOnPersonal", () => {
   })
 })
 
-// Card #690: finished boards leave the lists for the Archived boards fold.
-describe("liveBoards and finishedBoards", () => {
+// Card #690: closed boards leave the lists for the Closed boards fold.
+describe("openBoards and closedBoards", () => {
   const list = [
-    { boardId: "s", finished: false },
+    { boardId: "s", closed: false },
     { boardId: "n" },
-    { boardId: "p", finished: true },
-    { boardId: "a", finished: false },
+    { boardId: "p", closed: true },
+    { boardId: "a", closed: false },
   ]
-  test("live keeps the first board and the unfinished, in order", () => {
-    expect(liveBoards(list).map((x) => x.boardId)).toEqual(["s", "n", "a"])
-    expect(finishedBoards(list).map((x) => x.boardId)).toEqual(["p"])
+  test("open keeps the first board and the unclosed, in order", () => {
+    expect(openBoards(list).map((x) => x.boardId)).toEqual(["s", "n", "a"])
+    expect(closedBoards(list).map((x) => x.boardId)).toEqual(["p"])
   })
-  test("the first board is never finished, even if a row says so", () => {
-    const odd = [{ boardId: "s", finished: true }, { boardId: "n" }]
-    expect(liveBoards(odd).map((x) => x.boardId)).toEqual(["s", "n"])
-    expect(finishedBoards(odd)).toEqual([])
-    expect(liveBoards([])).toEqual([])
+  test("the first board is never closed, even if a row says so", () => {
+    const odd = [{ boardId: "s", closed: true }, { boardId: "n" }]
+    expect(openBoards(odd).map((x) => x.boardId)).toEqual(["s", "n"])
+    expect(closedBoards(odd)).toEqual([])
+    expect(openBoards([])).toEqual([])
   })
 })

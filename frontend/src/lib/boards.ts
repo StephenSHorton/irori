@@ -15,8 +15,9 @@ import {
   type SummaryMember,
 } from "./models"
 import {
-  over,
   sampleBoardGone,
+  sampleCancel,
+  sampleMoveBoard,
   sampleOpenOn,
   sampleShare,
   sampleTransferOwner,
@@ -170,29 +171,18 @@ export function suggestTag(name: string): string {
   return validTag(t) ? t : ""
 }
 
-// MaxMission mirrors core's MAX_BOARD_MISSION (card #690): a board's
-// mission and its done-when are this many characters at most.
-export const MaxMission = 280
+// MaxBoardDescription mirrors core's MAX_BOARD_DESCRIPTION (card #690): a
+// board's description is this many characters at most.
+export const MaxBoardDescription = 2000
 
-// QuietDays is how long nothing on a board must have moved before a board
-// with no done-when looks finished (card #690).
-export const QuietDays = 3
+// ClosedBoardNote mirrors core's CLOSED_BOARD_NOTE: the note on a card
+// canceled because its board closed.
+export const ClosedBoardNote = "its board was closed"
 
-// looksFinished is whether a board's quiet "Looks finished?" line shows
-// (card #690): it has a card and none is open, and either it has a
-// done-when or nothing on it has moved for QuietDays. cards are every card
-// on the board, done ones too. It only suggests: nothing finishes by
-// itself.
-export function looksFinished(
-  cards: readonly { state: string; updatedAt: string }[],
-  doneWhen: string | undefined,
-  now: Date
-): boolean {
-  if (cards.length === 0 || cards.some((c) => !over(c))) return false
-  if (doneWhen?.trim()) return true
-  const newest = Math.max(...cards.map((c) => Date.parse(c.updatedAt) || 0))
-  return now.getTime() - newest >= QuietDays * 24 * 3600_000
-}
+// OpenCards is what Close board does with the board's open cards (card
+// #690): keep refuses while any is open, move takes them (each with its
+// family) to another open board, cancel ends them.
+export type OpenCards = "keep" | "move" | "cancel"
 
 // ---- sample mode ------------------------------------------------------------
 
@@ -251,50 +241,39 @@ function boardsState(): BoardSummary[] {
       ready: true,
       pinned: true,
       pinRank: 1,
-      // A space with a second board (card #392).
-      // Each board a project (card #690): MLG and Netcode say what they
-      // are for, Art doesn't yet, the trailer's cards are all done, and
-      // the prototype is finished.
+      // A space with a second board (card #392). MLG and Netcode say what
+      // they are for, Art has no description, and the prototype is closed
+      // (card #690).
       boards: [
         {
           boardId: "sample-board-mlg",
           name: "MLG",
           tag: "mlg",
-          mission:
-            "Ship a two-player boat race people can play over the internet by the spring demo.",
-          mayFinish: false,
+          description:
+            "A two-player boat race people can play over the internet, ready for the spring demo.",
         },
         {
           boardId: "sample-board-mlg-net",
           name: "Netcode",
           tag: "net",
-          mission:
-            "Make both clients agree on every boat, every frame, on a normal home connection.",
-          doneWhen: "Two players across town finish a race with no desync.",
-          mayFinish: true,
+          description:
+            "Both clients agree on every boat, every frame, on a normal home connection, so two players across town can race with no desync.\n\nRollback first, then lag compensation. Anything about matchmaking or lobbies goes on the MLG board, not here: this board is only the sync between two running games. Keep the repro captures attached to their cards so whoever picks one up can replay it.",
+          mayClose: true,
         },
         {
           boardId: "sample-board-mlg-art",
           name: "Art",
           tag: "art",
-          mayFinish: true,
-        },
-        {
-          boardId: "sample-board-mlg-trailer",
-          name: "Launch trailer",
-          tag: "trailer",
-          mission: "A one-minute trailer for the demo page.",
-          mayFinish: true,
+          mayClose: true,
         },
         {
           boardId: "sample-board-mlg-proto",
           name: "Prototype",
           tag: "proto",
-          mission: "Find out if racing boats on one screen is fun.",
-          doneWhen: "We pick a direction for the real game.",
-          finished: true,
-          finishedAt: new Date(Date.now() - 4 * 24 * 3600_000).toISOString(),
-          mayFinish: true,
+          description: "Find out if racing boats on one screen is fun.",
+          closed: true,
+          closedAt: new Date(Date.now() - 4 * 24 * 3600_000).toISOString(),
+          mayClose: true,
         },
       ],
     }),
@@ -349,43 +328,103 @@ function boardsOfSample(b: BoardSummary): SpaceBoard[] {
   return b.boards
 }
 
-function checkMission(mission: string, doneWhen: string) {
-  if ([...mission].length > MaxMission || [...doneWhen].length > MaxMission)
+function checkDescription(description: string) {
+  if ([...description].length > MaxBoardDescription)
     throw new Error(
-      `coord: invalid input: a board's mission and done-when are ${MaxMission} characters at most`
+      `coord: invalid input: a board's description is ${MaxBoardDescription} characters at most`
     )
 }
 
-// sampleFinish is core's finish_space_board on the sample: never a first
-// board (or Personal's default), only by who may, and only once none of
-// its cards is open.
-function sampleFinish(space: string, boardId: string, finished: boolean) {
+// cardList is core's card_list: up to eight refs, then "and N more".
+function cardList(refs: string[]): string {
+  const shown = refs.slice(0, 8).join(", ")
+  return refs.length > 8 ? `${shown} and ${refs.length - 8} more` : shown
+}
+
+// sampleSetClosed is core's close and reopen on the sample (card #690):
+// never a first board (or Personal's default), only by who may, and a
+// close first keeps, moves or cancels the board's open cards.
+export function sampleSetClosed(
+  space: string,
+  boardId: string,
+  closed: boolean,
+  open: OpenCards = "keep",
+  moveTo = ""
+) {
   const personal = space === Personal
+  const all = personal ? samplePersonal : boardsOfSample(sampleFind(space))
   const x = sampleList(space, boardId)
-  const first = personal
-    ? boardId === Personal
-    : boardsOfSample(sampleFind(space))[0]?.boardId === boardId
-  if (first)
+  if (all[0]?.boardId === boardId)
     throw new Error(
       personal
-        ? "coord: not allowed: Personal's default board can't be finished"
-        : "coord: not allowed: a space's first board can't be finished"
+        ? "coord: not allowed: Personal's default board is never closed"
+        : "coord: not allowed: a space's first board is never closed"
     )
-  if (!x.mayFinish)
+  if (!x.mayClose)
     throw new Error(
-      `coord: not allowed: only the person who made board "${x.name}" or an owner of the space may ${finished ? "finish" : "reopen"} it`
+      `coord: not allowed: only the person who made board "${x.name}" or an owner of the space may ${closed ? "close" : "reopen"} it`
     )
-  if (finished) {
-    const open = sampleOpenOn(personal ? "" : space, boardId)
-    if (open > 0)
-      throw new Error(
-        `coord: bad state: board "${x.name}" has ${open} open card${open === 1 ? "" : "s"}: finish, move or close ${open === 1 ? "it" : "them"} first`
-      )
-  }
-  x.finished = finished
-  x.finishedAt = finished ? new Date().toISOString() : undefined
+  if (!!x.closed === closed)
+    throw new Error(
+      `coord: bad state: board "${x.name}" is already ${closed ? "closed" : "open"}`
+    )
+  if (closed) sampleClearOpen(personal ? "" : space, x, all, open, moveTo)
+  x.closed = closed
+  x.closedAt = closed ? new Date().toISOString() : undefined
   if (personal) samplePersonal = [...samplePersonal]
   sampleMoved()
+}
+
+// sampleClearOpen is core's clear_open on the sample: board x's open cards
+// kept (refused while any is open), moved or canceled.
+function sampleClearOpen(
+  space: string,
+  x: SpaceBoard,
+  all: SpaceBoard[],
+  open: OpenCards,
+  moveTo: string
+) {
+  const cards = sampleOpenOn(space, x.boardId)
+  if (!cards.length) return
+  const ref = (c: { tag?: string; short?: string }) =>
+    `${c.tag ?? ""}#${c.short ?? ""}`
+  if (open === "keep") {
+    const n = cards.length
+    throw new Error(
+      `coord: bad state: board "${x.name}" has ${n} open card${n === 1 ? "" : "s"} (${cardList(cards.map(ref))}): move or cancel them, or close the board with them moved or canceled`
+    )
+  }
+  if (open === "cancel") {
+    for (const c of cards) sampleCancel(c.id, ClosedBoardNote)
+    return
+  }
+  const to = moveTo.trim()
+  if (!to) throw new Error("coord: invalid input: pick a board to move them to")
+  const target = all.find((b) => b.boardId === to)
+  if (!target)
+    throw new Error(`coord: not found: no board ${to} to move the cards to`)
+  if (target.boardId === x.boardId)
+    throw new Error(
+      "coord: invalid input: pick another board to move the cards to"
+    )
+  if (target.closed)
+    throw new Error(
+      `coord: not allowed: board "${target.tag || target.name}" is closed: reopen it first, or pick another board`
+    )
+  const here = new Set(cards.map((c) => c.id))
+  const stuck = cards.flatMap((c) =>
+    c.ask && c.ask.state !== "closed"
+      ? [`${ref(c)} is an open ask`]
+      : c.parent && !here.has(c.parent.id)
+        ? [`${ref(c)} is a subtask whose parent isn't open on this board`]
+        : []
+  )
+  if (stuck.length)
+    throw new Error(
+      `coord: bad state: board "${x.name}" stays open: ${cardList(stuck)} can't move. Close or cancel ${stuck.length === 1 ? "it" : "them"} first, or close the board canceling its cards`
+    )
+  // A parent's subtasks go with it.
+  for (const c of cards) sampleMoveBoard(c.id, target.boardId)
 }
 
 // sampleBoard is a sample board by id, for cards.ts.
@@ -395,25 +434,25 @@ export function sampleBoard(id: string): BoardSummary | undefined {
 
 setSampleBoards(sampleBoard)
 
-// Personal's boards on the sample (card #558), its default first.
+// Personal's boards on the sample (card #558), its default first: House
+// says what it is for, and Taxes 2025 is closed (card #690).
 let samplePersonal: SpaceBoard[] = [
-  { boardId: Personal, name: "Personal", tag: "", mayFinish: false },
+  { boardId: Personal, name: "Personal", tag: "" },
   {
     boardId: "sample-personal-home",
     name: "House",
     tag: "home",
-    mission: "Keep the house running: repairs, bills and the garden.",
-    mayFinish: true,
+    description: "Keep the house running: repairs, bills and the garden.",
+    mayClose: true,
   },
   {
     boardId: "sample-personal-tax",
     name: "Taxes 2025",
     tag: "tax",
-    mission: "File the 2025 return.",
-    doneWhen: "The return is filed and the refund is in.",
-    finished: true,
-    finishedAt: new Date(Date.now() - 12 * 24 * 3600_000).toISOString(),
-    mayFinish: true,
+    description: "File the 2025 return and get the refund in.",
+    closed: true,
+    closedAt: new Date(Date.now() - 12 * 24 * 3600_000).toISOString(),
+    mayClose: true,
   },
 ]
 
@@ -513,24 +552,17 @@ export const boards = {
     return samplePersonal.map((x) => ({ ...x }))
   },
 
-  // addToPersonal makes one of Personal's boards, with its mission and
-  // done-when (card #690; both may be "").
+  // addToPersonal makes one of Personal's boards, with its description
+  // (card #690; "" for none).
   async addToPersonal(
     name: string,
     tag: string,
-    mission = "",
-    doneWhen = ""
+    description = ""
   ): Promise<SpaceBoard[]> {
+    const d = description.trim()
     if (inWails())
-      return (
-        (await BoardsService.AddToPersonal(
-          name,
-          tag,
-          mission.trim(),
-          doneWhen.trim()
-        )) ?? []
-      )
-    checkMission(mission.trim(), doneWhen.trim())
+      return (await BoardsService.AddToPersonal(name, tag, d)) ?? []
+    checkDescription(d)
     const t = tag.trim().toLowerCase()
     if (!validTag(t))
       throw new Error(
@@ -547,9 +579,8 @@ export const boards = {
         boardId: `sample-personal-${t}`,
         name: name.trim(),
         tag: t,
-        mission: mission.trim(),
-        doneWhen: doneWhen.trim(),
-        mayFinish: true,
+        description: d || undefined,
+        mayClose: true,
       },
     ]
     sampleMoved()
@@ -578,19 +609,12 @@ export const boards = {
     spaceId: string,
     name: string,
     tag: string,
-    mission = "",
-    doneWhen = ""
+    description = ""
   ): Promise<BoardSummary> {
-    if (inWails())
-      return BoardsService.AddToSpace(
-        spaceId,
-        name,
-        tag,
-        mission.trim(),
-        doneWhen.trim()
-      )
+    const d = description.trim()
+    if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag, d)
     const b = sampleFind(spaceId)
-    checkMission(mission.trim(), doneWhen.trim())
+    checkDescription(d)
     const t = tag.trim().toLowerCase()
     if (
       boardsState().some(
@@ -606,9 +630,8 @@ export const boards = {
         boardId: `${spaceId}-${t}`,
         name: name.trim(),
         tag: t,
-        mission: mission.trim(),
-        doneWhen: doneWhen.trim(),
-        mayFinish: true,
+        description: d || undefined,
+        mayClose: true,
       },
     ]
     sampleMoved()
@@ -650,41 +673,58 @@ export const boards = {
     return boards.personal()
   },
 
-  // setMission writes a board's mission and done-when (card #690): any
-  // member may; "" clears one. space is the space's id, or Personal.
-  async setMission(
+  // setDescription writes a board's description (card #690): any member
+  // may; "" clears it. space is the space's id, or Personal.
+  async setDescription(
     space: string,
     boardId: string,
-    mission: string,
-    doneWhen: string
+    description: string
   ): Promise<void> {
-    const m = mission.trim()
-    const d = doneWhen.trim()
+    const d = description.trim()
     if (inWails()) {
       if (space === Personal)
-        await BoardsService.SetMissionInPersonal(boardId, m, d)
-      else await BoardsService.SetMissionInSpace(space, boardId, m, d)
+        await BoardsService.SetDescriptionInPersonal(boardId, d)
+      else await BoardsService.SetDescriptionInSpace(space, boardId, d)
     } else {
-      checkMission(m, d)
+      checkDescription(d)
       const x = sampleList(space, boardId)
-      x.mission = m
-      x.doneWhen = d
+      if (x.closed)
+        throw new Error(
+          `coord: not allowed: board "${x.tag || x.name}" is closed: reopen it first, or pick another board`
+        )
+      x.description = d || undefined
       if (space === Personal) samplePersonal = [...samplePersonal]
       sampleMoved()
     }
     boardsTouched()
   },
 
-  // finish makes a board read-only and takes it out of the lists (card
-  // #690). Its maker or a space owner may (anyone in Personal); never a
-  // first board, and only once none of its cards is open.
-  async finish(space: string, boardId: string): Promise<void> {
-    return setFinished(space, boardId, true)
+  // close makes a board read-only and puts it under Closed boards (card
+  // #690), its open cards first kept (refused while any is open), moved
+  // to board moveTo (a board id; the space's id is its first board,
+  // Personal Personal's default) or canceled. Its maker or a space owner
+  // may (anyone in Personal); never a first board.
+  async close(
+    space: string,
+    boardId: string,
+    open: OpenCards,
+    moveTo = ""
+  ): Promise<void> {
+    if (inWails()) {
+      if (space === Personal)
+        await BoardsService.CloseInPersonal(boardId, open, moveTo)
+      else await BoardsService.CloseInSpace(space, boardId, open, moveTo)
+    } else sampleSetClosed(space, boardId, true, open, moveTo)
+    boardsTouched()
   },
 
-  // reopen brings a finished board back as it was, mission and all.
+  // reopen brings a closed board back as it was, its description too.
   async reopen(space: string, boardId: string): Promise<void> {
-    return setFinished(space, boardId, false)
+    if (inWails()) {
+      if (space === Personal) await BoardsService.ReopenInPersonal(boardId)
+      else await BoardsService.ReopenInSpace(space, boardId)
+    } else sampleSetClosed(space, boardId, false)
+    boardsTouched()
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {
@@ -925,19 +965,6 @@ export const boards = {
     if (inWails()) return BoardsService.CancelInvite()
     setSampleInvite(InviteStatus({}))
   },
-}
-
-async function setFinished(
-  space: string,
-  boardId: string,
-  finished: boolean
-): Promise<void> {
-  if (inWails()) {
-    if (space === Personal)
-      await BoardsService.FinishInPersonal(boardId, finished)
-    else await BoardsService.FinishInSpace(space, boardId, finished)
-  } else sampleFinish(space, boardId, finished)
-  boardsTouched()
 }
 
 // ---- hooks ------------------------------------------------------------------

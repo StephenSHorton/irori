@@ -59,21 +59,21 @@ describe("boardTarget", () => {
     ).toBe("p-home")
   })
 
-  test("a finished board is never on offer (card #690)", () => {
+  test("a closed board is never on offer (card #690)", () => {
     const s = BoardSummary({
       ...space,
       boards: [
         ...space.boards,
-        { boardId: "p", name: "Proto", tag: "proto", finished: true },
+        { boardId: "p", name: "Proto", tag: "proto", closed: true },
       ],
     })
     const t = boardTarget(s, personal, s.boards[2], "p")
     expect(t.choices.map((x) => x.boardId)).toEqual(["s", "n"])
-    // From the finished board's list: the space's first board.
+    // From the closed board's list: the space's first board.
     expect(t.spaceBoard).toBe("s")
     const mine = [
       ...personal,
-      { boardId: "p-tax", name: "Taxes", tag: "tax", finished: true },
+      { boardId: "p-tax", name: "Taxes", tag: "tax", closed: true },
     ]
     expect(
       boardTarget(undefined, mine, mine[2], null).choices.map((x) => x.boardId)

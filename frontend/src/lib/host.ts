@@ -407,39 +407,42 @@ export const BoardsService = {
     spaceId: string,
     name: string,
     tag: string,
-    mission: string,
-    doneWhen: string
-  ) => call(commands.boardsAddToSpace(spaceId, name, tag, mission, doneWhen)),
+    description: string
+  ) => call(commands.boardsAddToSpace(spaceId, name, tag, description)),
   RenameInSpace: (spaceId: string, boardId: string, name: string) =>
     call(commands.boardsRenameInSpace(spaceId, boardId, name)),
   Personal: () => call(commands.boardsPersonal()),
-  AddToPersonal: (
-    name: string,
-    tag: string,
-    mission: string,
-    doneWhen: string
-  ) => call(commands.boardsAddToPersonal(name, tag, mission, doneWhen)),
+  AddToPersonal: (name: string, tag: string, description: string) =>
+    call(commands.boardsAddToPersonal(name, tag, description)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
   DeleteInSpace: (spaceId: string, boardId: string) =>
     call(commands.boardsDeleteInSpace(spaceId, boardId)),
   DeleteInPersonal: (boardId: string) =>
     call(commands.boardsDeleteInPersonal(boardId)),
-  // A board's mission and done-when, and finishing or reopening it (card
-  // #690).
-  SetMissionInSpace: (
+  // A board's description, and closing or reopening it (card #690).
+  // openCards is "keep", "move" or "cancel"; moveTo is the board a move
+  // goes to.
+  SetDescriptionInSpace: (
     spaceId: string,
     boardId: string,
-    mission: string,
-    doneWhen: string
+    description: string
   ) =>
-    call(commands.boardsSetMissionInSpace(spaceId, boardId, mission, doneWhen)),
-  FinishInSpace: (spaceId: string, boardId: string, finished: boolean) =>
-    call(commands.boardsFinishInSpace(spaceId, boardId, finished)),
-  SetMissionInPersonal: (boardId: string, mission: string, doneWhen: string) =>
-    call(commands.boardsSetMissionInPersonal(boardId, mission, doneWhen)),
-  FinishInPersonal: (boardId: string, finished: boolean) =>
-    call(commands.boardsFinishInPersonal(boardId, finished)),
+    call(commands.boardsSetDescriptionInSpace(spaceId, boardId, description)),
+  CloseInSpace: (
+    spaceId: string,
+    boardId: string,
+    openCards: string,
+    moveTo: string
+  ) => call(commands.boardsCloseInSpace(spaceId, boardId, openCards, moveTo)),
+  ReopenInSpace: (spaceId: string, boardId: string) =>
+    call(commands.boardsReopenInSpace(spaceId, boardId)),
+  SetDescriptionInPersonal: (boardId: string, description: string) =>
+    call(commands.boardsSetDescriptionInPersonal(boardId, description)),
+  CloseInPersonal: (boardId: string, openCards: string, moveTo: string) =>
+    call(commands.boardsCloseInPersonal(boardId, openCards, moveTo)),
+  ReopenInPersonal: (boardId: string) =>
+    call(commands.boardsReopenInPersonal(boardId)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),

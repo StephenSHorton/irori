@@ -53,18 +53,16 @@ export function boardsOf(s: BoardSummary): SpaceBoard[] {
   )
 }
 
-// liveBoards is a space's (or Personal's) boards that aren't finished, its
+// openBoards is a space's (or Personal's) boards that aren't closed, its
 // first board always (card #690): what the pickers, tiles and counts
-// offer. finishedBoards is the rest, for the Archived boards fold. The
-// first board never finishes, so it is never among them.
-export function liveBoards<T extends { finished?: boolean }>(list: T[]): T[] {
-  return list.filter((x, i) => i === 0 || !x.finished)
+// offer. closedBoards is the rest, for the Closed boards fold. The first
+// board is never closed, so it is never among them.
+export function openBoards<T extends { closed?: boolean }>(list: T[]): T[] {
+  return list.filter((x, i) => i === 0 || !x.closed)
 }
 
-export function finishedBoards<T extends { finished?: boolean }>(
-  list: T[]
-): T[] {
-  return list.filter((x, i) => i > 0 && !!x.finished)
+export function closedBoards<T extends { closed?: boolean }>(list: T[]): T[] {
+  return list.filter((x, i) => i > 0 && !!x.closed)
 }
 
 // withLine is "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.

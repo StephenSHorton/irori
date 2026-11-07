@@ -25,11 +25,11 @@
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
-//   ?addboard       opens New board (with its mission) on a space's or
-//                   Personal's boards (card #690)
-//   ?mission=<board> opens that board's Edit mission on its page
-//   ?finish=<board> opens that board's Finish dialog on its page
-//   ?archived       opens the Archived boards fold under a space's tiles
+//   ?addboard       opens New board (with its optional description) on a
+//                   space's or Personal's boards (card #690)
+//   ?description=<board> opens that board's Edit description on its page
+//   ?close=<board>  opens that board's Close board dialog on its page
+//   ?closed         opens the Closed boards fold under a space's tiles
 //   ?slots          shows two check.sh runs in the sidebar's Check slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 //   ?filter=done    the grid on that filter tab (App.tsx)

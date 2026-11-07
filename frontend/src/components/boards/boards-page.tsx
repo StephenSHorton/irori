@@ -14,7 +14,7 @@ import {
   Personal,
   boardsInSpace,
   boardsOf,
-  liveBoards,
+  openBoards,
 } from "@/lib/spaces"
 import { TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine, relativeTime } from "@/lib/irori"
@@ -314,7 +314,7 @@ function BoardTile({
         </span>
         {b.ready && (
           <span className="truncate text-xs text-ink-2">
-            {liveBoards(boardsOf(b))
+            {openBoards(boardsOf(b))
               .map((x) => plainLine(x.name))
               .join(" · ")}
           </span>

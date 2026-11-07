@@ -1,9 +1,9 @@
 // A space's boards (card #558): a space is a group of people, a board is a
 // list of tasks. SpaceBoards is what a space opens on: a tile per board,
-// each opening that board's list, and Add board; finished boards (card
-// #690) fold away under Archived boards. ListHeaderBar is the header over
-// one open board: which space it's in, and renaming, its mission,
-// finishing or deleting the board. Leave, Invite and Space settings stay
+// each opening that board's list, and Add board; closed boards (card
+// #690) fold away under Closed boards. ListHeaderBar is the header over
+// one open board: which space it's in, and renaming, describing, closing
+// or deleting the board. Leave, Invite and Space settings stay
 // on the space. Personal has the same page and list, over the person's
 // own log.
 
@@ -13,9 +13,9 @@ import { ChevronRightIcon, EllipsisIcon } from "lucide-react"
 import { BoardView, ScopeOwn } from "@/components/cards/board-view"
 import {
   AddBoardButton,
-  ArchivedFold,
   askBoard,
   BoardTop,
+  ClosedFold,
 } from "@/components/boards/board-project"
 import type { Filter } from "@/components/cards/card-grid"
 import type { BoardView as View } from "@/components/canvas/switch"
@@ -42,8 +42,8 @@ import { go } from "@/lib/nav"
 import {
   boardsOf,
   cardsOnPersonal,
-  finishedBoards,
-  liveBoards,
+  closedBoards,
+  openBoards,
   Personal,
 } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
@@ -86,7 +86,7 @@ function BoardTile({
   cards: CardSummary[]
   onOpen: () => void
 }) {
-  const mission = (x.mission ?? "").trim()
+  const description = plainLine(x.description ?? "")
   const decide = cards.filter((c) => c.openBlockers > 0).length
   return (
     <li>
@@ -109,18 +109,18 @@ function BoardTile({
               default
             </span>
           )}
-          {x.finished && (
+          {x.closed && (
             <span className="ml-auto rounded bg-muted px-1 text-[11px] text-muted-foreground">
-              Finished
+              Closed
             </span>
           )}
         </span>
-        {mission && (
-          <span className="line-clamp-2 text-xs text-muted-foreground">
-            {plainLine(mission)}
+        {description && (
+          <span className="line-clamp-2 text-xs break-words text-muted-foreground">
+            {description}
           </span>
         )}
-        {!x.finished && <StateBar segs={boardSegs(cards, 0)} />}
+        {!x.closed && <StateBar segs={boardSegs(cards, 0)} />}
         <RecentCards cards={recent(cards)} />
         {decide > 0 && (
           <span className="text-xs text-destructive">
@@ -154,24 +154,24 @@ export function SpaceBoards({
       onOpen={() => go({ kind: "board", id: b.boardId, board: x.boardId })}
     />
   )
-  const finished = finishedBoards(list)
+  const closed = closedBoards(list)
   return (
     <section className="grid gap-2" aria-label="Boards in this space">
       <div className="flex items-center gap-2">
         <h2 className="px-1 text-base font-semibold">Boards</h2>
         {b.ready && (
           <AddBoardButton
-            onAdd={async (name, tag, mission, doneWhen) => {
-              await actions.addToSpace(b.boardId, name, tag, mission, doneWhen)
+            onAdd={async (name, tag, description) => {
+              await actions.addToSpace(b.boardId, name, tag, description)
               await reloadBoards()
             }}
           />
         )}
       </div>
-      <ul className={tiles}>{liveBoards(list).map(tile)}</ul>
-      <ArchivedFold count={finished.length}>
-        <ul className={tiles}>{finished.map((x) => tile(x, -1))}</ul>
-      </ArchivedFold>
+      <ul className={tiles}>{openBoards(list).map(tile)}</ul>
+      <ClosedFold count={closed.length}>
+        <ul className={tiles}>{closed.map((x) => tile(x, -1))}</ul>
+      </ClosedFold>
     </section>
   )
 }
@@ -197,7 +197,7 @@ export function PersonalBoards({
       onOpen={() => go({ kind: "board", id: Personal, board: x.boardId })}
     />
   )
-  const finished = finishedBoards(list)
+  const closed = closedBoards(list)
   const intro = (
     <p className="max-w-2xl px-1 text-[13px] text-muted-foreground">
       Personal is you, your devices and your agents. Nobody else sees it.
@@ -211,18 +211,18 @@ export function PersonalBoards({
           {titled ? "Personal" : "Boards"}
         </h2>
         <AddBoardButton
-          onAdd={async (name, tag, mission, doneWhen) => {
-            await actions.addToPersonal(name, tag, mission, doneWhen)
+          onAdd={async (name, tag, description) => {
+            await actions.addToPersonal(name, tag, description)
             await reload()
           }}
         />
       </div>
       {titled && intro}
       {error && <p className="text-xs text-destructive">{plainLine(error)}</p>}
-      <ul className={tiles}>{liveBoards(list).map(tile)}</ul>
-      <ArchivedFold count={finished.length}>
-        <ul className={tiles}>{finished.map((x) => tile(x, -1))}</ul>
-      </ArchivedFold>
+      <ul className={tiles}>{openBoards(list).map(tile)}</ul>
+      <ClosedFold count={closed.length}>
+        <ul className={tiles}>{closed.map((x) => tile(x, -1))}</ul>
+      </ClosedFold>
     </section>
   )
 }
@@ -268,10 +268,8 @@ export function PersonalList({
           <BoardTop
             space={Personal}
             board={x}
-            boards={liveBoards(all)}
+            boards={openBoards(all)}
             open={shown}
-            doneScope={ScopeOwn}
-            onBoard={(done) => cardsOnPersonal(done, list)}
             now={now}
             onOpen={onOpen}
           />
@@ -289,7 +287,7 @@ export function PersonalList({
       now={now}
       empty={
         <p className="px-1 text-[12.5px] text-muted-foreground">
-          {x?.finished
+          {x?.closed
             ? "No open cards: its done cards are under Closed."
             : "No open cards on this board. Make one with New card."}
         </p>
@@ -319,7 +317,7 @@ export function PersonalHeaderBar({ list }: { list: string }) {
         await reload()
       }}
       remove={
-        x.boardId === Personal || x.finished
+        x.boardId === Personal || x.closed
           ? undefined
           : {
               into: all[0]?.name ?? "Personal",
@@ -353,7 +351,7 @@ export function ListHeaderBar({
         await reloadBoards()
       }}
       remove={
-        !first || first.boardId === x.boardId || x.finished
+        !first || first.boardId === x.boardId || x.closed
           ? undefined
           : {
               into: first.name,
@@ -370,10 +368,11 @@ export function ListHeaderBar({
 
 // ListHeader is the header over one board's list: the space it's in (back
 // to the space's page), its name and tag, Rename, which any member may use
-// (card #558), Edit mission and Finish (card #690, which the board's page
-// opens), and Delete (card #563). The space keeps its own name, and the
-// default board can't be deleted, so it has no remove. A finished board is
-// read-only: no Rename, mission or Delete; its page has Reopen.
+// (card #558), Edit description and Close board (card #690, which the
+// board's page opens), and Delete (card #563). The space keeps its own
+// name, and the default board can't be deleted, so it has no remove. A
+// closed board is read-only: no Rename, description or Delete; its page has
+// Reopen.
 function ListHeader({
   space,
   onBack,
@@ -397,7 +396,7 @@ function ListHeader({
     setName(x.name)
     setRenaming(true)
   }
-  const finished = !!x.finished
+  const closed = !!x.closed
   const rename = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -453,9 +452,9 @@ function ListHeader({
               {plainLine(x.tag)}#
             </span>
           )}
-          {finished && (
+          {closed && (
             <span className="hidden self-center rounded bg-muted px-1 text-[11px] font-normal text-muted-foreground sm:inline">
-              Finished
+              Closed
             </span>
           )}
         </h1>
@@ -465,7 +464,7 @@ function ListHeader({
           {plainLine(error)}
         </span>
       )}
-      {!renaming && !finished && (
+      {!renaming && !closed && (
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button
             variant="ghost"
@@ -492,12 +491,14 @@ function ListHeader({
               <DropdownMenuItem className="sm:hidden" onClick={start}>
                 Rename
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => askBoard("mission", x.boardId)}>
-                Edit mission…
+              <DropdownMenuItem
+                onClick={() => askBoard("description", x.boardId)}
+              >
+                Edit description…
               </DropdownMenuItem>
-              {x.mayFinish && (
-                <DropdownMenuItem onClick={() => askBoard("finish", x.boardId)}>
-                  Finish board…
+              {x.mayClose && (
+                <DropdownMenuItem onClick={() => askBoard("close", x.boardId)}>
+                  Close board…
                 </DropdownMenuItem>
               )}
               {remove && (

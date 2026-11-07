@@ -2079,6 +2079,31 @@ export function sampleCards(now: Date): CardDetail[] {
       // Blake made it (card #268).
       owner: "sample-person-0",
     }),
+    // A second open card on Netcode, for Close board's list (card #690).
+    card({
+      id: "sample-board-net-2",
+      short: "2",
+      title: "Roll back a boat when a late input arrives",
+      goal: "A late input rewinds and replays the boat, with no visible snap.",
+      scope: "board",
+      scopeLabel: "MLG · Netcode",
+      board: "sample-board-mlg",
+      tag: "net",
+      spaceBoard: "sample-board-mlg-net",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "net",
+        spaceBoard: "sample-board-mlg-net",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: true,
+        canTransfer: true,
+      }),
+      state: TaskState.Submitted,
+      working: [],
+      owner: "sample-me",
+      updatedAt: at(95),
+    }),
     // Blake's agent kite works Blake's card (card #268): the owner chip says
     // Blake.
     card({
@@ -2139,57 +2164,7 @@ export function sampleCards(now: Date): CardDetail[] {
       owner: "sample-person-left",
       updatedAt: at(300),
     }),
-    // Boards are projects (card #690): the trailer's cards are all done
-    // and nothing has moved for days, so its board looks finished; the
-    // prototype is finished, its cards kept as they were.
-    card({
-      id: "sample-board-trailer-1",
-      short: "1",
-      title: "Cut the one-minute trailer",
-      goal: "A minute of racing for the demo page.",
-      scope: "board",
-      scopeLabel: "MLG",
-      board: "sample-board-mlg",
-      tag: "trailer",
-      spaceBoard: "sample-board-mlg-trailer",
-      onBoard: CardBoard({
-        id: "sample-board-mlg",
-        name: "MLG",
-        tag: "trailer",
-        spaceBoard: "sample-board-mlg-trailer",
-        visibleTo: ["Stephen", "Blake"],
-        canWithdraw: false,
-        canTransfer: true,
-      }),
-      state: TaskState.Completed,
-      working: [],
-      owner: "sample-me",
-      updatedAt: at(7200),
-    }),
-    card({
-      id: "sample-board-trailer-2",
-      short: "2",
-      title: "Pick the trailer music",
-      goal: "Licensed music that fits a minute.",
-      scope: "board",
-      scopeLabel: "MLG",
-      board: "sample-board-mlg",
-      tag: "trailer",
-      spaceBoard: "sample-board-mlg-trailer",
-      onBoard: CardBoard({
-        id: "sample-board-mlg",
-        name: "MLG",
-        tag: "trailer",
-        spaceBoard: "sample-board-mlg-trailer",
-        visibleTo: ["Stephen", "Blake"],
-        canWithdraw: false,
-        canTransfer: true,
-      }),
-      state: TaskState.Completed,
-      working: [],
-      owner: "sample-person-0",
-      updatedAt: at(8640),
-    }),
+    // The closed Prototype board's cards (card #690), kept as they were.
     card({
       id: "sample-board-proto-1",
       short: "1",
@@ -2238,7 +2213,7 @@ export function sampleCards(now: Date): CardDetail[] {
       owner: "sample-person-0",
       updatedAt: at(7200),
     }),
-    // Personal's finished board (card #690).
+    // Personal's closed board (card #690).
     card({
       id: "sample-card-tax-1",
       short: "1",

@@ -126,7 +126,7 @@ import {
   TransferButton,
   WithdrawButton,
 } from "./share-dialog"
-import { boardsOf, liveBoards, Personal } from "@/lib/spaces"
+import { boardsOf, openBoards, Personal } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -782,19 +782,19 @@ function DeleteButton({
   )
 }
 
-// useOnFinishedBoard says whether the card sits on a finished board
-// (card #690), in a space or in Personal.
-function useOnFinishedBoard(detail: CardDetail): boolean {
+// useOnClosedBoard says whether the card sits on a closed board (card
+// #690), in a space or in Personal.
+function useOnClosedBoard(detail: CardDetail): boolean {
   const { boards } = useBoards()
   const { boards: personal } = usePersonalBoards()
   if (detail.onBoard || detail.board) {
     const space = boards.find((b) => b.boardId === detail.board)
     if (!space) return false
     const id = detail.spaceBoard || space.boardId
-    return !!boardsOf(space).find((x) => x.boardId === id)?.finished
+    return !!boardsOf(space).find((x) => x.boardId === id)?.closed
   }
   const id = detail.spaceBoard || Personal
-  return !!personal.find((x) => x.boardId === id)?.finished
+  return !!personal.find((x) => x.boardId === id)?.closed
 }
 
 // ReopenBar is a finished card's line under the page header: how it ended
@@ -806,14 +806,14 @@ function ReopenBar({ detail }: { detail: CardDetail }) {
   const held = detail.working.length > 0
   const followsSubtasks =
     (detail.subtaskList?.length ?? 0) > 0 && detail.subtaskList.every(over)
-  const boardDone = useOnFinishedBoard(detail)
-  if (boardDone) {
-    // A finished board is read-only (card #690): its cards stay done, and a
+  const boardClosed = useOnClosedBoard(detail)
+  if (boardClosed) {
+    // A closed board is read-only (card #690): its cards stay done, and a
     // comment doesn't reopen them.
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
         <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
-          {overLabel(detail)}. Its board is finished: reopen the board to reopen
+          {overLabel(detail)}. Its board is closed: reopen the board to reopen
           this card.
         </span>
       </div>
@@ -932,7 +932,7 @@ function BoardActions({
 }
 
 // SpaceMove is Move on a shared card (card #558): to another of its
-// space's boards, never a finished one (card #690).
+// space's boards, never a closed one (card #690).
 function SpaceMove({
   detail,
   space,
@@ -945,7 +945,7 @@ function SpaceMove({
     !detail.spaceBoard || detail.spaceBoard === space.boardId
       ? all[0].boardId
       : detail.spaceBoard
-  const live = liveBoards(all)
+  const live = openBoards(all)
   if (!live.some((b) => b.boardId !== current)) return null
   return (
     <MoveBoardButton
@@ -959,11 +959,11 @@ function SpaceMove({
 }
 
 // PersonalMove is Move on a private card (card #563): to another of
-// Personal's boards that isn't finished, once there is one.
+// Personal's boards that isn't closed, once there is one.
 function PersonalMove({ detail }: { detail: CardDetail }) {
   const { boards: all } = usePersonalBoards()
   const current = detail.spaceBoard || Personal
-  const boards = liveBoards(all)
+  const boards = openBoards(all)
   if (!boards.some((b) => b.boardId !== current)) return null
   return (
     <MoveBoardButton

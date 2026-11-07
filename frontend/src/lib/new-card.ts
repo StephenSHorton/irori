@@ -3,7 +3,7 @@
 // offered. The board whose list is open is the default, else the first.
 
 import type { BoardSummary, SpaceBoard } from "./boards"
-import { boardsOf, liveBoards } from "./spaces"
+import { boardsOf, openBoards } from "./spaces"
 
 export type BoardTarget = {
   // The boards to pick from, in the space's order.
@@ -18,7 +18,7 @@ export type BoardTarget = {
 
 // boardTarget is the boards on offer and the one the card goes on: the
 // one picked, else the open list's, else the first. A pick that isn't
-// among the choices (another space's) is ignored. A finished board (card
+// among the choices (another space's) is ignored. A closed board (card
 // #690) is never on offer: from one's list, the card goes on the first.
 export function boardTarget(
   space: BoardSummary | undefined,
@@ -26,13 +26,13 @@ export function boardTarget(
   list: SpaceBoard | undefined,
   picked: string | null
 ): BoardTarget {
-  const choices = liveBoards(space ? boardsOf(space) : personal)
+  const choices = openBoards(space ? boardsOf(space) : personal)
   const find = (id: string | null | undefined) =>
     id ? choices.find((x) => x.boardId === id) : undefined
   const on =
     find(picked) ??
     find(list?.boardId) ??
     choices[0] ??
-    (list?.finished ? undefined : list)
+    (list?.closed ? undefined : list)
   return { choices, on, board: space?.boardId, spaceBoard: on?.boardId }
 }

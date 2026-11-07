@@ -57,7 +57,7 @@ import {
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
-import { boardsOf, liveBoards } from "@/lib/spaces"
+import { boardsOf, openBoards } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { FreshnessLine } from "@/components/common/freshness-line"
@@ -168,17 +168,15 @@ export function BoardPage({
               <BoardTop
                 space={b.boardId}
                 board={open}
-                boards={liveBoards(boardsOf(b))}
+                boards={openBoards(boardsOf(b))}
                 open={shown}
-                doneScope={b.boardId}
-                onBoard={(done) => cardsOnBoard(b, done, open.boardId)}
                 now={now}
                 onOpen={onOpen}
               />
             )}
-            {/* A finished board is read-only (card #690): no new threads
+            {/* A closed board is read-only (card #690): no new threads
                 or cards from its page. */}
-            {!open?.finished && (
+            {!open?.closed && (
               <AskBox
                 board={boardId}
                 onThread={(id) => {
@@ -190,7 +188,7 @@ export function BoardPage({
           </>
         }
         empty={
-          open?.finished ? (
+          open?.closed ? (
             <p className="px-1 text-[12.5px] text-muted-foreground">
               No open cards: its done cards are under Closed.
             </p>
@@ -392,7 +390,7 @@ export function BoardHeaderBar({
       )}
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline">
         {b.ready
-          ? `${boardCount(liveBoards(boardsOf(b)).length)} · ${b.people.map(plainLine).join(", ")}`
+          ? `${boardCount(openBoards(boardsOf(b)).length)} · ${b.people.map(plainLine).join(", ")}`
           : "Its cards are still arriving from your other device"}
       </span>
       {error && (

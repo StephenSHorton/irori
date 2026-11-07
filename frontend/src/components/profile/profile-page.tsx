@@ -18,7 +18,7 @@ import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
 import { meChanged } from "@/lib/profile"
 import { useYourName } from "@/lib/settings"
-import { boardsOf, liveBoards, Personal, withLine } from "@/lib/spaces"
+import { boardsOf, openBoards, Personal, withLine } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 
@@ -303,7 +303,7 @@ export function ProfilePage({
                   ))}
                 </span>
               }
-              boards={liveBoards(boardsOf(b)).map((x) => ({
+              boards={openBoards(boardsOf(b)).map((x) => ({
                 id: x.boardId,
                 name: plainLine(x.name) || plainLine(x.tag),
               }))}
