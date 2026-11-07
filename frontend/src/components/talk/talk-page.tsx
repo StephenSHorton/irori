@@ -1013,7 +1013,7 @@ export function ThreadsSection({
           {live.map(item)}
         </Rows>
       )}
-      {!folded && resolved.length > 0 && (
+      {!folded && !loading && resolved.length > 0 && (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-1">
           <button
             type="button"

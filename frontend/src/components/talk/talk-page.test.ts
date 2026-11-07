@@ -129,7 +129,7 @@ describe("Resolved threads sit at the bottom of Threads (card #687)", () => {
   const section = (
     live: ThreadSummary[],
     resolved: ThreadSummary[],
-    p: { folded?: boolean; showResolved?: boolean } = {}
+    p: { folded?: boolean; showResolved?: boolean; loading?: boolean } = {}
   ) => {
     // Loading's preview flag reads the page's address.
     const was = globalThis.window
@@ -140,7 +140,7 @@ describe("Resolved threads sit at the bottom of Threads (card #687)", () => {
         createElement(ThreadsSection, {
           live,
           resolved,
-          loading: false,
+          loading: !!p.loading,
           folded: !!p.folded,
           onFold: () => {},
           searching: false,
@@ -183,6 +183,11 @@ describe("Resolved threads sit at the bottom of Threads (card #687)", () => {
     expect(html).toContain("Threads")
     expect(html).not.toContain("Resolved threads")
     expect(html).not.toContain("Live ask")
+  })
+  test("while Threads loads, its skeleton shows without the toggle", () => {
+    expect(section([], [done], { loading: true })).not.toContain(
+      "Resolved threads"
+    )
   })
   test("no resolved threads, no toggle", () => {
     expect(section([t({})], [])).not.toContain("Resolved threads")
