@@ -367,6 +367,7 @@ impl Dev {
             own_devices: None,
             files: Some(self.files.clone()),
             dms: None,
+            calls: None,
         });
         m.set_intervals(iv);
         hook(&m);
@@ -1155,8 +1156,55 @@ async fn an_unknown_task_kind_shows_no_stall() {
         })
     })
     .await;
-    alice.net.close().await;
-    bob.net.close().await;
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
+}
+
+/// Card #652: a newer Irori with calls writes `call.*` rows, and Talk rows of
+/// kinds this build doesn't know. This build (tolerant 2) stores them, keeps
+/// taking that writer's rows, says nothing is stalled, and its hello tells
+/// the newer one it's at 2, so the calls gate there would let it write.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unknown_call_and_talk_kinds_show_no_stall() {
+    let (alice, bob, _casey) = stall_board().await;
+    let rows = [
+        alice.append_newer("call.started"),
+        alice.append_newer("call.segment"),
+        alice.append_newer("call.ended"),
+        alice.append_newer("talk.future"),
+    ];
+    let after = alice.note("Alice");
+    alice.mesh().kick();
+    eventually("the rows past the call rows reach this build", || {
+        bob.has(&after)
+    })
+    .await;
+    for r in &rows {
+        assert!(bob.has(r), "{} wasn't stored", r.kind);
+    }
+    assert!(
+        bob.mesh().stalled().is_empty(),
+        "{:?}",
+        bob.mesh().stalled()
+    );
+    eventually("alice hears bob at tolerant 2, caught up", || {
+        alice
+            .mesh()
+            .heard()
+            .iter()
+            .any(|h| h.tolerant >= 2 && h.vector.get(&alice.id).copied() == Some(after.seq))
+    })
+    .await;
+    assert_eq!(
+        alice.mesh().live_reads().get(&bob.id).map(|r| r.tolerant),
+        Some(mesh::boardmesh::TOLERANT_PROTOCOL)
+    );
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }
 
 /// Card #579, done-when 2: an unknown strict kind stalls its writer, and only
@@ -1250,6 +1298,8 @@ async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     let more = refusals.load(std::sync::atomic::Ordering::SeqCst) - before;
     assert!(more <= 4, "{more} retries in 3 s");
-    alice.net.close().await;
-    bob.net.close().await;
+    for d in [&alice, &bob] {
+        d.mesh().close();
+        d.net.close().await;
+    }
 }

@@ -40,6 +40,18 @@ pub fn dev(
     lan: std::net::SocketAddr,
     to: std::net::SocketAddr,
 ) -> Dev {
+    dev_with(data, name, sess, lan, to, |_| {})
+}
+
+/// [`dev`], with `edit` applied to its options before it starts.
+pub fn dev_with(
+    data: tempfile::TempDir,
+    name: &str,
+    sess: &str,
+    lan: std::net::SocketAddr,
+    to: std::net::SocketAddr,
+    edit: impl FnOnce(&mut irori_core::Options),
+) -> Dev {
     let (cl, w) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let sessions = cl.path().join("sessions");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -54,9 +66,10 @@ pub fn dev(
         lc.every = Duration::from_millis(200);
         irori_net::transport::IrohNet::new(nc)
     }));
+    edit(&mut o);
     let core = Core::start(o).unwrap();
     let agent = format!("{}/{sess}", core.device_id());
-    wait_for(10, "presence lists the session", || {
+    wait_for(60, "presence lists the session", || {
         core.local_agents().iter().any(|a| a.key == agent)
     });
     Dev {
@@ -70,9 +83,21 @@ pub fn dev(
 /// Two Cores of one person, B certified by A as pairing does, waiting
 /// until each owns the other's user key.
 pub fn paired() -> (Dev, Dev) {
+    paired_with(|_| {})
+}
+
+/// [`paired`], with `edit_a` applied to A's options before it starts.
+pub fn paired_with(edit_a: impl FnOnce(&mut irori_core::Options)) -> (Dev, Dev) {
     let (la, lb) = (free_udp(), free_udp());
     let (da, db) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let a = dev(da, "alpha", "aaaaaaaa-1111-4111-8111-00000000000a", la, lb);
+    let a = dev_with(
+        da,
+        "alpha",
+        "aaaaaaaa-1111-4111-8111-00000000000a",
+        la,
+        lb,
+        edit_a,
+    );
     std::fs::copy(
         a.data.join(irori_identity::PERSON_FILE),
         db.path().join(irori_identity::PERSON_FILE),

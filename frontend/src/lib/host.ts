@@ -248,10 +248,16 @@ export const BoardService = {
   Close: (id: string, state: string, note: string) =>
     call(commands.boardClose(id, state, note)),
   Delete: (id: string) => done(commands.boardDelete(id)),
+  // Another board in the card's space (card #563).
+  Move: (id: string, board: string) => call(commands.boardMove(id, board)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
+  // Not yet and Start now (card #570).
+  NotYet: (id: string, until: string, why: string) =>
+    done(commands.boardNotYet(id, until, why)),
+  StartNow: (id: string) => done(commands.boardStartNow(id)),
   MovePin: (id: string, before: string) =>
     done(commands.boardMovePin(id, before)),
   Place: (id: string, x: number, y: number) =>
@@ -299,6 +305,25 @@ export const TalkService = {
     agentsNow: boolean,
     threadFrom: string | null
   ) => call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
+  // A post with files (card #643): the text may be empty then.
+  PostWithFiles: (
+    convId: string,
+    text: string,
+    mentions: string[],
+    agentsNow: boolean,
+    threadFrom: string | null,
+    files: B.UploadFile[]
+  ) =>
+    call(
+      commands.talkPostWithFiles(
+        convId,
+        text,
+        mentions,
+        agentsNow,
+        threadFrom,
+        files
+      )
+    ),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),
@@ -315,6 +340,8 @@ export const TalkService = {
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
   // Everyone the person can DM, and leaving a DM with one of them (#538).
   DmPeople: () => call(commands.talkDmPeople()),
+  // Who is replying in each channel and DM (#645).
+  Replying: () => call(commands.talkReplying()),
   DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
@@ -324,11 +351,8 @@ export const TalkService = {
 
 // NotesService is the window's notes_* commands (card #411).
 export const NotesService = {
-  List: (scope: string, removed = false) =>
-    call(commands.notesList(scope, removed)),
-  Waiting: () => call(commands.notesWaiting()),
+  List: (removed = false) => call(commands.notesList(removed)),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
-  Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) =>
     call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
@@ -388,6 +412,10 @@ export const BoardsService = {
     call(commands.boardsAddToPersonal(name, tag)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
+  DeleteInSpace: (spaceId: string, boardId: string) =>
+    call(commands.boardsDeleteInSpace(spaceId, boardId)),
+  DeleteInPersonal: (boardId: string) =>
+    call(commands.boardsDeleteInPersonal(boardId)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),
@@ -486,8 +514,7 @@ export const UpdateService = {
   RestartToUpdate: () => done(commands.updateRestartToUpdate()),
   // Keep this device up to date (card #578): null where it doesn't apply.
   GetKeepUpToDate: () => call(commands.updateGetKeepUpToDate()),
-  SetKeepUpToDate: (on: boolean) =>
-    call(commands.updateSetKeepUpToDate(on)),
+  SetKeepUpToDate: (on: boolean) => call(commands.updateSetKeepUpToDate(on)),
 }
 
 // Voice input (card #240): Whisper on this device; words arrive as
@@ -498,6 +525,38 @@ export const VoiceService = {
   Start: () => call(commands.voiceStart()),
   Stop: (session: number) => done(commands.voiceStop(session)),
   OpenSettings: (code: string) => done(commands.voiceOpenSettings(code)),
+}
+
+// Huddles (#654): voice calls in a channel or person DM; every change
+// arrives as call:state.
+export const CallService = {
+  State: () => call(commands.callState()),
+  Start: (convId: string) => call(commands.callStart(convId)),
+  Join: (callId: string) => done(commands.callJoin(callId)),
+  Leave: () => done(commands.callLeave()),
+  Mute: (on: boolean) => done(commands.callMute(on)),
+  Deafen: (on: boolean) => done(commands.callDeafen(on)),
+  Mic: () => call(commands.callMic()),
+  Dismiss: (callId: string) => done(commands.callDismiss(callId)),
+}
+
+// Screen share in a huddle (#658): the share itself shows in call:state
+// (CallMineView's share); its frames come as raw ArrayBuffers on a Channel
+// (lib/share.ts parses and plays them). Attach again replaces the earlier
+// Channel.
+export const ShareService = {
+  Sources: () => call(commands.shareSources()),
+  Start: (sourceId: string) => done(commands.shareStart(sourceId)),
+  Stop: () => done(commands.shareStop()),
+  Attach(onFrame: (frame: ArrayBuffer) => void): Promise<void> {
+    const frames = new Channel<ArrayBuffer>()
+    frames.onmessage = onFrame
+    return done(commands.shareAttach(frames))
+  },
+  Detach: () => done(commands.shareDetach()),
+  Keyframe: () => done(commands.shareKeyframe()),
+  // The shareNote line was dismissed.
+  NoteSeen: () => done(commands.shareNoteSeen()),
 }
 
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as
@@ -537,10 +596,15 @@ export const TermService = {
 export const DeskService = {
   List: () => call(commands.deskList()),
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
-  Hold: (repoKey: string, pr: number, note: string, cleared: boolean) =>
-    done(commands.deskHold(repoKey, pr, note, cleared)),
-  Pause: (repoKey: string, paused: boolean) =>
-    done(commands.deskPause(repoKey, paused)),
-  Ok: (repoKey: string, pr: number, headSha: string) =>
-    done(commands.deskOk(repoKey, pr, headSha)),
+}
+
+// Hardware meters (card #599): the last two minutes of this computer's
+// readings, oldest first.
+export const MetersService = {
+  History: () => call(commands.metersHistory()),
+}
+
+// Claude usage left (card #599): the newest reading of the plan's windows.
+export const UsageService = {
+  Limits: () => call(commands.usageLimits()),
 }

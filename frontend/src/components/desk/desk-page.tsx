@@ -1,8 +1,10 @@
 // DeskPage is the interim merge desk page (card #417, docs/design/
 // merge-desk.md §1, §11 slice 3, mockup desk-2): every desk down the
-// left, and the open desk's queue: every open PR on GitHub with its
-// state, author card, and Stephen's holds and OKs. The queue panel is
-// DeskPanel so slice 8 can move it into the desk's Talk channel as is.
+// left, and the open desk's queue: every open PR of ours on GitHub (the
+// person's, their space members' and their agents'; card #625) with its
+// state and author card, for review. The desk never merges (card #418):
+// each agent asks the person "Can I merge PR #N?" on its own card. A desk
+// with none of ours open is left off the list.
 
 import { useState, type ReactNode } from "react"
 import {
@@ -12,24 +14,18 @@ import {
   GitMergeIcon,
   GitPullRequestDraftIcon,
   GitPullRequestIcon,
-  HandIcon,
-  PauseIcon,
-  PlayIcon,
   SettingsIcon,
-  ShieldAlertIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import {
-  deskActions,
   deskOn,
   deskQueue,
+  deskShown,
   inputsOf,
   ownerName,
-  paused,
   queueCount,
   stateLabel,
   type Desk,
@@ -44,7 +40,6 @@ import { cn } from "@/lib/utils"
 export function StateChip({ s }: { s: DeskState }) {
   const label = stateLabel[s]
   switch (s) {
-    case "merging":
     case "running":
       return (
         <Badge variant="info">
@@ -52,7 +47,7 @@ export function StateChip({ s }: { s: DeskState }) {
           {label}
         </Badge>
       )
-    case "waiting":
+    case "ready":
       return <Badge variant="slate">{label}</Badge>
     case "rebase":
       return <Badge variant="warning">{label}</Badge>
@@ -61,23 +56,6 @@ export function StateChip({ s }: { s: DeskState }) {
     case "draft":
       return (
         <Badge variant="outline" className="text-muted-foreground">
-          {label}
-        </Badge>
-      )
-    case "held":
-      return (
-        <Badge variant="outline" className="border-warning/60 text-warning">
-          <HandIcon />
-          {label}
-        </Badge>
-      )
-    case "outside":
-      return (
-        <Badge
-          variant="outline"
-          className="border-destructive/60 text-destructive"
-        >
-          <ShieldAlertIcon />
           {label}
         </Badge>
       )
@@ -104,34 +82,21 @@ function clock(at: string | undefined): string {
 }
 
 // QueueLineRow is one PR: its number (to GitHub), title, author, author
-// card, and state, with the person's Hold and, on an Outside PR, OK.
+// card, and state.
 function QueueLineRow({
   l,
-  repoKey,
   nameOf,
   onOpenCard,
   onError,
 }: {
   l: QueueLine
-  repoKey: string
   nameOf: (key: string) => string
   onOpenCard: (id: string) => void
   onError: (e: string) => void
 }) {
-  const [holding, setHolding] = useState(false)
-  const [note, setNote] = useState("")
   const dim = l.state === "draft" || l.state === "merged"
-  const run = (p: Promise<void>) =>
-    p.catch((e: unknown) => onError(errorText(e)))
-  const canHold = l.state !== "merged" && l.state !== "merging"
   return (
-    <div
-      className={cn(
-        "group grid rounded-md",
-        l.state === "merging" && "bg-info-foreground/50"
-      )}
-      data-pr={l.pr}
-    >
+    <div className="grid rounded-md" data-pr={l.pr}>
       <div
         className={cn(
           "flex items-center gap-2 px-2 py-1 text-[12.5px]",
@@ -185,71 +150,7 @@ function QueueLineRow({
       </div>
       <div className="-mt-1 flex min-h-5 flex-wrap items-center gap-2 pr-2 pb-0.5 pl-[72px] text-[11px] text-muted-foreground">
         <span className="min-w-0 truncate">{l.note}</span>
-        <span className="ml-auto flex items-center gap-1">
-          {l.canOk && (
-            <Button
-              size="xs"
-              variant="outline"
-              title="Let the desk check and merge this PR at this head; a new push needs a new OK"
-              onClick={() => run(deskActions.ok(repoKey, l.pr, l.headSha))}
-            >
-              OK this PR
-            </Button>
-          )}
-          {l.state === "held" ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => run(deskActions.hold(repoKey, l.pr, "", true))}
-            >
-              Unhold
-            </Button>
-          ) : (
-            canHold &&
-            !holding && (
-              <Button
-                size="xs"
-                variant="ghost"
-                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                title="Not this one yet: the holder skips it"
-                onClick={() => setHolding(true)}
-              >
-                <HandIcon /> Hold
-              </Button>
-            )
-          )}
-        </span>
       </div>
-      {holding && (
-        <form
-          className="flex items-center gap-2 pr-2 pb-1.5 pl-[72px]"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setHolding(false)
-            void run(deskActions.hold(repoKey, l.pr, note.trim(), false))
-            setNote("")
-          }}
-        >
-          <Input
-            autoFocus
-            className="h-7 text-[12px]"
-            placeholder="Why (optional), e.g. after the playtest"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <Button size="xs" type="submit">
-            Hold
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost"
-            type="button"
-            onClick={() => setHolding(false)}
-          >
-            Cancel
-          </Button>
-        </form>
-      )}
     </div>
   )
 }
@@ -267,8 +168,8 @@ function QueueHead({ count, right }: { count: ReactNode; right?: ReactNode }) {
 }
 
 // DeskPanel is one desk's queue (§1, §3): never blank. Before the first
-// poll it says so; with no open PRs it says GitHub has none and when it
-// last asked; when GitHub can't be asked it keeps the last list.
+// poll it says so; with no open PRs of ours it says so and when it last
+// asked; when GitHub can't be asked it keeps the last list.
 export function DeskPanel({
   desk,
   now,
@@ -318,7 +219,8 @@ export function DeskPanel({
       )}
       {snap?.truncated && (
         <div className="px-3 pt-2.5 text-[12px] text-warning">
-          Showing the first {snap.prs.length}; GitHub has more.
+          Showing {snap.prs.length} of ours; GitHub has more open PRs than it
+          listed.
         </div>
       )}
       {error && (
@@ -336,12 +238,11 @@ export function DeskPanel({
         <div className="grid justify-items-center gap-1 px-4 py-6 text-center">
           <CircleCheckIcon className="size-6 text-success" />
           <div className="text-[13.5px] font-medium text-ink">
-            No open PRs on GitHub
+            No open PRs of yours on {repo}
           </div>
           <div className="text-[11.5px] text-muted-foreground">
-            Last poll {clock(lastPoll)} ·{" "}
-            <span className="font-mono">gh pr list --repo {repo}</span> returned
-            none
+            Last poll {clock(lastPoll)} · the desk shows here again once you or
+            your people open one
           </div>
         </div>
       ) : (
@@ -350,7 +251,6 @@ export function DeskPanel({
             <QueueLineRow
               key={`${l.state === "merged" ? "m" : "o"}${l.pr}`}
               l={l}
-              repoKey={desk.settings.repoKey}
               nameOf={nameOf}
               onOpenCard={onOpenCard}
               onError={setError}
@@ -362,76 +262,30 @@ export function DeskPanel({
   )
 }
 
-// DeskHeader: whose desk it is, its holder, and Pause desk.
+// DeskHeader: whose desk it is, and its settings.
 function DeskHeader({
   desk,
-  nameOf,
   onSettings,
 }: {
   desk: Desk
-  nameOf: (key: string) => string
   onSettings: () => void
 }) {
-  const [error, setError] = useState("")
-  const p = paused(desk)
-  const holder = desk.settings.holder
   return (
-    <div className="grid gap-1">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="flex items-center gap-1.5 text-[17px] font-semibold text-ink">
-          <GitMergeIcon className="size-5" />
-          <span className="font-mono">{ownerName(desk.settings.repoKey)}</span>
-        </span>
-        <span className="text-[12.5px] text-muted-foreground">
-          {holder ? (
-            <>
-              held by <span className="text-ink-2">{nameOf(holder)}</span>
-            </>
-          ) : (
-            <span className="text-warning">
-              unheld: nothing merges until you pick a holder
-            </span>
-          )}
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant={p ? "default" : "outline"}
-            title={
-              p
-                ? "Let the holder take the desk lease again"
-                : "The holder takes no lease; the queue keeps following GitHub"
-            }
-            onClick={() =>
-              deskActions
-                .pause(desk.settings.repoKey, !p)
-                .catch((e: unknown) => setError(errorText(e)))
-            }
-          >
-            {p ? <PlayIcon /> : <PauseIcon />}
-            {p ? "Resume desk" : "Pause desk"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            title="Merge desk settings"
-            onClick={onSettings}
-          >
-            <SettingsIcon />
-          </Button>
-        </span>
-      </div>
-      {p && (
-        <p className="text-[12px] text-warning">
-          Paused{desk.pause?.at ? ` ${clock(desk.pause.at)}` : ""}: the holder
-          takes no lease; the queue still follows GitHub.
-        </p>
-      )}
-      {error && (
-        <p className="text-[12px] text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="flex items-center gap-1.5 text-[17px] font-semibold text-ink">
+        <GitMergeIcon className="size-5" />
+        <span className="font-mono">{ownerName(desk.settings.repoKey)}</span>
+      </span>
+      <span className="ml-auto flex items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Merge desk settings"
+          onClick={onSettings}
+        >
+          <SettingsIcon />
+        </Button>
+      </span>
     </div>
   )
 }
@@ -454,17 +308,22 @@ export function DeskPage({
   nameOf: (key: string) => string
   now: Date
 }) {
-  const on = desks.filter(deskOn)
-  const desk = on.find((d) => d.settings.repoKey === open) ?? on[0]
+  // Only desks with an open PR of ours are listed (card #625). A link to
+  // one that has none left opens it anyway, with its calm empty queue.
+  const on = desks.filter(deskShown)
+  const desk =
+    desks.find((d) => deskOn(d) && !!open && d.settings.repoKey === open) ??
+    on[0]
   if (!desk) {
     return (
       <div className="grid justify-items-start gap-2 p-5 text-[13px] text-ink-2 glass-panel">
         <span className="text-[15px] font-medium text-ink">
-          No merge desks yet
+          No open PRs right now
         </span>
-        A merge desk lists a repo&apos;s open PRs from GitHub and lets one agent
-        merge them in turn. Every GitHub repo gets one by itself once an agent
-        works in it.
+        A merge desk lists a repo&apos;s open PRs from GitHub for review. It
+        never merges: each agent asks you &ldquo;Can I merge PR #N?&rdquo; on
+        its own card. A desk shows here while you or your people have a PR open
+        in a repo you work in.
         <Button size="sm" onClick={onSettings}>
           Merge desk settings
         </Button>
@@ -497,9 +356,7 @@ export function DeskPage({
                   {ownerName(d.settings.repoKey)}
                 </span>
                 <span className="text-[11.5px] text-muted-foreground">
-                  {d.settings.holder ? nameOf(d.settings.holder) : "unheld"}
-                  {n !== undefined && ` · ${n} open`}
-                  {paused(d) && " · paused"}
+                  {n !== undefined && `${n} open`}
                 </span>
               </button>
             )
@@ -507,7 +364,7 @@ export function DeskPage({
         </nav>
       )}
       <div className="grid min-w-0 flex-1 content-start gap-3 overflow-y-auto pb-6 mac:overscroll-none">
-        <DeskHeader desk={desk} nameOf={nameOf} onSettings={onSettings} />
+        <DeskHeader desk={desk} onSettings={onSettings} />
         <DeskPanel
           desk={desk}
           now={now}
@@ -515,9 +372,9 @@ export function DeskPage({
           onOpenCard={onOpenCard}
         />
         <p className="text-[11.5px] text-muted-foreground">
-          Order: Merging, then Waiting on desk oldest first, then the rest. Each
-          PR&apos;s thread is its author&apos;s card. Holds, pause and OKs are
-          yours alone; agents can&apos;t write them.
+          Order: Ready for review oldest first, then the rest. Each PR&apos;s
+          thread is its author&apos;s card. The desk never merges: each agent
+          asks you before it merges its own PR.
         </p>
       </div>
     </div>

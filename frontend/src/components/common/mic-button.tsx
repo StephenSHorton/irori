@@ -11,7 +11,15 @@ import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react"
 
 import { composerIcon } from "@/components/attachments/file-attach"
 import { Button } from "@/components/ui/button"
+import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { Popover, PopoverContent } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { isMac, shortcutKeys } from "@/lib/commands"
+import { DictationShortcut, registerMic } from "@/lib/mic-shortcut"
 import { cn } from "@/lib/utils"
 import {
   anchorAt,
@@ -34,6 +42,7 @@ import {
   type Session,
 } from "@/lib/voice"
 import { errorText } from "@/lib/talk"
+import { onHuddleMic, sharedCall, subscribeCall } from "@/lib/call"
 
 type Phase = "idle" | "starting" | "listening" | "stopping"
 
@@ -47,11 +56,13 @@ const HoldMs = 500
 // sends as usual; nothing is sent by voice. Typing, or the box being
 // cleared by Send, stops listening. Speech is transcribed on this device
 // (Whisper); the first press asks before the one-time model download.
+// Cmd+D (Ctrl+D off a Mac) toggles it too (card #634, lib/mic-shortcut).
 export function MicButton({
   target,
   value,
   onText,
   disabled,
+  main,
 }: {
   // The box: its selection decides where the words go.
   target: RefObject<HTMLTextAreaElement | null>
@@ -59,13 +70,18 @@ export function MicButton({
   // Puts the box's new text in, with the caret after the words.
   onText: (text: string, caret: number) => void
   disabled?: boolean
+  // The main composer of its page or dialog: the shortcut starts it when
+  // no box has focus.
+  main?: boolean
 }) {
   const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
+  // A huddle has the mic (#654): dictation waits until it ends.
+  // Only whether there is one, so a call's health doesn't render it again.
+  const inCallNow = () => !!sharedCall().mine
+  const inCall = useSyncExternalStore(subscribeCall, inCallNow, inCallNow)
   const [phase, setPhase] = useState<Phase>("idle")
   const [note, setNote] = useState<
-    | { kind: "download" }
-    | { kind: "error"; code: string; text: string }
-    | null
+    { kind: "download" } | { kind: "error"; code: string; text: string } | null
   >(null)
   const session = useRef<Session | null>(null)
   const anchor = useRef<Anchor>({ before: "", after: "" })
@@ -109,24 +125,37 @@ export function MicButton({
           }
         }
         if (next.error) {
-          setNote({ kind: "error", code: next.error.code, text: next.error.text })
+          setNote({
+            kind: "error",
+            code: next.error.code,
+            text: next.error.text,
+          })
         }
         if (next.ended) finish()
       }),
     [finish]
   )
 
-  const stop = useCallback(() => {
+  const stop = useCallback((): Promise<void> => {
     const s = session.current
-    if (!s) return
+    if (!s) return Promise.resolve()
     setPhase("stopping")
-    void stopVoice(s.id).catch(() => {})
+    const done = stopVoice(s.id).catch(() => {})
     // ended normally follows within a moment; don't wait on it forever.
     const id = s.id
     window.setTimeout(() => {
       if (session.current?.id === id) finish()
     }, 4000)
+    return done
   }, [finish])
+
+  // A huddle takes the mic (#654): dictation stops first, whichever way
+  // the huddle starts (the header, the ring banner, a start post).
+  useEffect(() => onHuddleMic(() => stop()), [stop])
+  // And if this device is in one anyway, dictation doesn't run beside it.
+  useEffect(() => {
+    if (inCall && session.current) void stop()
+  }, [inCall, stop])
 
   // The person typed, or Send cleared the box: stop listening.
   useEffect(() => {
@@ -152,7 +181,12 @@ export function MicButton({
     }
     const t = target.current
     const v = valueRef.current
-    anchor.current = anchorAt(v, t?.selectionStart ?? v.length, t?.selectionEnd ?? v.length)
+    // A box without focus (the shortcut's main composer) takes the words
+    // at its end, so Enter sends them; a focused one at its caret.
+    const focused = !!t && document.activeElement === t
+    anchor.current = focused
+      ? anchorAt(v, t.selectionStart ?? v.length, t.selectionEnd ?? v.length)
+      : anchorAt(v, v.length, v.length)
     composed.current = v
     setNote(null)
     setPhase("starting")
@@ -161,12 +195,14 @@ export function MicButton({
       const id = await startVoice()
       session.current = newSession(id)
       setPhase("listening")
+      // A huddle began while it was starting: it has the mic.
+      if (sharedCall().mine) void stop()
     } catch (err) {
       finish()
       const text = errorText(err)
       setNote({ kind: "error", code: codeOf(text), text })
     }
-  }, [voice.status, target, finish])
+  }, [voice.status, target, finish, stop])
 
   const fetchModel = useCallback(async () => {
     const ok = await downloadModel()
@@ -176,6 +212,39 @@ export function MicButton({
     }
   }, [begin])
 
+  // The shortcut: the latest phase and actions, for the window listener.
+  const phaseRef = useRef(phase)
+  const actions = useRef({ begin, stop })
+  const usableRef = useRef(false)
+  useLayoutEffect(() => {
+    phaseRef.current = phase
+    actions.current = { begin, stop }
+    const s = voice.status
+    usableRef.current =
+      !disabled &&
+      !inCall &&
+      !voice.download &&
+      !!s &&
+      s.state !== "unsupported"
+  })
+  useEffect(
+    () =>
+      registerMic({
+        box: () => target.current,
+        button: () => button.current,
+        main: !!main,
+        live: () => phaseRef.current !== "idle",
+        usable: () => usableRef.current,
+        toggle: () => {
+          const p = phaseRef.current
+          if (p === "idle") {
+            if (usableRef.current) void actions.current.begin()
+          } else if (p === "listening") actions.current.stop()
+        },
+      }),
+    [target, main]
+  )
+
   const st = voice.status
   if (!st || st.state === "unsupported") return null
 
@@ -184,63 +253,86 @@ export function MicButton({
   const dl = voice.download
   const label = live
     ? "Stop voice input"
-    : st.state === "needs-model"
-      ? "Voice input (downloads the speech model first)"
-      : "Voice input: tap to talk, or hold and let go"
+    : inCall
+      ? "Voice input is off during a huddle"
+      : st.state === "needs-model"
+        ? "Voice input (downloads the speech model first)"
+        : "Voice input: tap to talk, or hold and let go"
+
+  const keys = shortcutKeys(DictationShortcut)
+  const popover = note !== null || !!dl
 
   return (
     <Popover
-      open={note !== null || !!dl}
+      open={popover}
       onOpenChange={(open) => {
         if (!open && !dl) setNote(null)
       }}
     >
-      <Button
-        ref={button}
-        type="button"
-        size="icon-sm"
-        variant="ghost"
-        className={cn(
-          composerIcon,
-          live && "bg-destructive/15 text-destructive hover:bg-destructive/25",
-          st.state === "denied" && !live && "text-muted-foreground"
-        )}
-        title={st.state === "denied" && !live ? `${label}. ${st.reason}` : label}
-        aria-label={label}
-        aria-pressed={live}
-        disabled={disabled || busy || !!dl}
-        // Keep the caret where it is in the box.
-        onMouseDown={(e) => e.preventDefault()}
-        onPointerDown={(e) => {
-          if (e.button !== 0) return
-          if (phase === "idle") {
-            pressedAt.current = Date.now()
-            void begin()
-          } else if (live) {
-            pressedAt.current = null
-            stop()
+      <Tooltip disabled={popover}>
+        <TooltipTrigger
+          render={
+            <Button
+              ref={button}
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className={cn(
+                composerIcon,
+                live &&
+                  "bg-destructive/15 text-destructive hover:bg-destructive/25",
+                st.state === "denied" && !live && "text-muted-foreground"
+              )}
+              aria-label={label}
+              aria-keyshortcuts={isMac() ? "Meta+D" : "Control+D"}
+              aria-pressed={live}
+              disabled={disabled || (inCall && !live) || busy || !!dl}
+              // Keep the caret where it is in the box.
+              onMouseDown={(e) => e.preventDefault()}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return
+                if (phase === "idle") {
+                  pressedAt.current = Date.now()
+                  void begin()
+                } else if (live) {
+                  pressedAt.current = null
+                  stop()
+                }
+              }}
+              onPointerUp={() => {
+                const at = pressedAt.current
+                pressedAt.current = null
+                if (at !== null && Date.now() - at >= HoldMs) stop()
+              }}
+              onClick={(e) => {
+                // Keyboard (Enter or Space on the button): a toggle.
+                if (e.detail !== 0) return
+                if (phase === "idle") void begin()
+                else if (live) stop()
+              }}
+            >
+              {busy || dl ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : st.state === "denied" && !live ? (
+                <MicOffIcon />
+              ) : (
+                <MicIcon className={cn(live && "animate-pulse")} />
+              )}
+            </Button>
           }
-        }}
-        onPointerUp={() => {
-          const at = pressedAt.current
-          pressedAt.current = null
-          if (at !== null && Date.now() - at >= HoldMs) stop()
-        }}
-        onClick={(e) => {
-          // Keyboard (Enter or Space on the button): a toggle.
-          if (e.detail !== 0) return
-          if (phase === "idle") void begin()
-          else if (live) stop()
-        }}
-      >
-        {busy || dl ? (
-          <LoaderCircleIcon className="animate-spin" />
-        ) : st.state === "denied" && !live ? (
-          <MicOffIcon />
-        ) : (
-          <MicIcon className={cn(live && "animate-pulse")} />
-        )}
-      </Button>
+        />
+        <TooltipContent side="top" align="end">
+          <span>
+            {label}
+            {st.state === "denied" && !live && `. ${st.reason}`}
+          </span>
+          <KbdGroup>
+            {keys.map((k) => (
+              <Kbd key={k}>{k}</Kbd>
+            ))}
+          </KbdGroup>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         anchor={button}
         side="top"
@@ -253,8 +345,9 @@ export function MicButton({
         ) : note?.kind === "download" ? (
           <>
             <p className="text-foreground">
-              Voice input turns speech into text on this device; no audio leaves it.
-              It needs the speech model, a one-time {megabytes(st.modelBytes)} download.
+              Voice input turns speech into text on this device; no audio leaves
+              it. It needs the speech model, a one-time{" "}
+              {megabytes(st.modelBytes)} download.
             </p>
             {voice.downloadError && (
               <p className="text-destructive" role="alert">
@@ -280,7 +373,9 @@ export function MicButton({
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={() => void openVoiceSettings(note.code).catch(() => {})}
+                  onClick={() =>
+                    void openVoiceSettings(note.code).catch(() => {})
+                  }
                 >
                   Open Settings
                 </Button>
@@ -304,7 +399,10 @@ function DownloadProgress({ done, total }: { done: number; total: number }) {
         Downloading the speech model… {megabytes(done)} of {megabytes(total)}
       </p>
       <div className="h-1.5 w-full overflow-hidden bg-muted">
-        <div className="h-full bg-primary transition-[width]" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-primary transition-[width]"
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   )
@@ -314,7 +412,8 @@ function DownloadProgress({ done, total }: { done: number; total: number }) {
 // command rejects with the engine's message only).
 function codeOf(text: string): string {
   const t = text.toLowerCase()
-  if (t.includes("microphone access") || t.includes("allow")) return "mic-denied"
+  if (t.includes("microphone access") || t.includes("allow"))
+    return "mic-denied"
   if (t.includes("microphone")) return "no-mic"
   if (t.includes("model")) return "no-model"
   return "other"

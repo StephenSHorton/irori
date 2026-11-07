@@ -15,7 +15,10 @@ const row = (state: string): WindDownRow => ({
   error: "",
 })
 
-const run = (states: string[], more: Partial<WindDownStatus> = {}): WindDownStatus => ({
+const run = (
+  states: string[],
+  more: Partial<WindDownStatus> = {}
+): WindDownStatus => ({
   id: "wd_1",
   scope: "this",
   pauseAfter: true,
@@ -35,17 +38,17 @@ describe("Home's Wind down line (card #484)", () => {
   })
 
   test("while it runs it says so", () => {
-    expect(windDownLine(run(["done", "winding", "waiting"], { finished: false }))).toBe(
-      "Winding down 3 agents, 1 confirmed so far"
-    )
+    expect(
+      windDownLine(run(["done", "winding", "waiting"], { finished: false }))
+    ).toBe("Winding down 3 agents, 1 confirmed so far")
     expect(windDownLine(run(["done"]))).toBe("Wound down 1 agent, 1 confirmed")
   })
 
   test("a run none of whose sends went out says so, not 'Winding down' for ever", () => {
     const failed = { ...row("no_answer"), deliveryId: "", error: "no route" }
-    expect(windDownLine({ ...run([]), finished: false, rows: [failed, failed] })).toBe(
-      "Wind down reached none of 2 agents"
-    )
+    expect(
+      windDownLine({ ...run([]), finished: false, rows: [failed, failed] })
+    ).toBe("Wind down reached none of 2 agents")
   })
 
   test("no run, no line", () => {

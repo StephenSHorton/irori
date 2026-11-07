@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { MenuIcon, PlusIcon } from "lucide-react"
 
+import { MetersStrip } from "@/components/meters/meters-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PauseAgentsButton } from "@/components/pause-agents-button"
@@ -42,8 +43,8 @@ export function AppHeader({
   onMenu?: () => void
 }) {
   return (
-    <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pl-[var(--safe-left)] pr-[var(--safe-right)] glass-panel">
-      <div className="mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
+    <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] glass-panel">
+      <div className="@container/header mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
         {onMenu && (
           <Button
             variant="ghost"
@@ -66,11 +67,17 @@ export function AppHeader({
           </span>
         )}
         {roster.source === "sample" && (
-          <Badge variant="warning" className="hidden sm:inline-flex" title="Not connected to the Irori app">
+          <Badge
+            variant="warning"
+            className="hidden sm:inline-flex"
+            title="Not connected to the Irori app"
+          >
             Sample data
           </Badge>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* This computer's meters (card #599): desktop only. */}
+          <MetersStrip crowded={Boolean(bar)} />
           {actions}
           {/* Pause agents (card #665): every device, one click each way. */}
           <PauseAgentsButton />

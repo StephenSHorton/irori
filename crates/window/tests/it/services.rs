@@ -81,7 +81,8 @@ fn board_cards_and_answers() {
 
     let a = r.w.answer(&t.id, &bl.id, 0, "", false, &[]).unwrap();
     assert_eq!(a.told.to, vec![r.key_a.clone()]);
-    assert_eq!(a.card.blockers[0].state, "answered");
+    assert!(!a.resolved, "answered, not resolved: it waits on the agent");
+    assert_eq!(r.w.card(&t.id).unwrap().blockers[0].state, "answered");
     assert_eq!(r.w.cards()[0].waiting, 1);
 
     let c =
@@ -117,7 +118,8 @@ fn board_cards_and_answers() {
     let check_id = check.id.clone();
     // Done closes it, as the person.
     let a = r.w.answer(&t.id, &check_id, 0, "", false, &[]).unwrap();
-    assert_eq!(a.card.summary.state, coord::COMPLETED);
+    assert!(a.resolved);
+    assert_eq!(r.w.card(&t.id).unwrap().summary.state, coord::COMPLETED);
     // In one step (card #315): the check reads answered Done.
     let ct = co.get_task(&t.id).unwrap();
     let res = ct
@@ -832,7 +834,8 @@ fn not_done_goes_back_to_the_agent() {
         r.w.answer(&t.id, &check, -1, "the tests still fail", false, &[])
             .unwrap();
     assert_eq!(a.told.to, vec![r.key_a.clone()]);
-    assert_ne!(a.card.summary.state, coord::COMPLETED);
+    assert!(!a.resolved);
+    assert_ne!(r.w.card(&t.id).unwrap().summary.state, coord::COMPLETED);
     let cards = r.w.cards();
     assert_eq!(cards.len(), 1);
     assert!(!cards[0].ready, "answered: it is back with the agent");
@@ -890,10 +893,12 @@ fn talk_through_the_window() {
     let ch = w
         .talk_channel_create("general", Some("the room"), None)
         .unwrap();
-    let p = w.talk_post(&ch, "hello room", &[], true, None).unwrap();
-    assert!(w.talk_post(&ch, "  ", &[], true, None).is_err());
+    let p = w
+        .talk_post(&ch, "hello room", &[], true, None, &[])
+        .unwrap();
+    assert!(w.talk_post(&ch, "  ", &[], true, None, &[]).is_err());
     let from = w
-        .talk_post(&ch, "about that", &[], false, Some(p.clone()))
+        .talk_post(&ch, "about that", &[], false, Some(p.clone()), &[])
         .unwrap();
     let posts = w.talk_posts(&ch, None, 0).unwrap();
     assert_eq!(posts.len(), 2);
@@ -908,9 +913,21 @@ fn talk_through_the_window() {
     };
     let dm = w.talk_dm(&agent).unwrap();
     assert_eq!(w.talk_dm(&agent).unwrap(), dm, "one DM per pair");
-    let id = w.talk_post(&dm, "got a minute?", &[], true, None).unwrap();
+    let id = w
+        .talk_post(&dm, "got a minute?", &[], true, None, &[])
+        .unwrap();
     let ds = w.core.inbox().for_agent(&r.key_a, false, 10);
     assert!(ds.iter().any(|d| d.message_id == id), "{ds:?}");
+    // The DM's agent shows as replying (card #645), by name.
+    let rs = w.talk_replying();
+    let row = rs
+        .iter()
+        .find(|r| r.conv_id == dm)
+        .expect("replying in the DM");
+    assert_eq!(row.agents.len(), 1);
+    assert_eq!(row.agents[0].key, r.key_a);
+    assert!(!row.agents[0].name.is_empty() && row.agents[0].name != r.key_a);
+    assert!(src.contains("talkReplying"), "bindings are regenerated");
 
     // A thread's reply is a comment on it.
     let (t, _) = w
@@ -926,7 +943,9 @@ fn talk_through_the_window() {
             &[],
         )
         .unwrap();
-    let cid = w.talk_post(&t.id, "still slow", &[], false, None).unwrap();
+    let cid = w
+        .talk_post(&t.id, "still slow", &[], false, None, &[])
+        .unwrap();
     let tp = w.talk_posts(&t.id, None, 50).unwrap();
     assert_eq!(tp.len(), 2);
     assert_eq!(tp[1].post_id, cid);
@@ -949,6 +968,60 @@ fn talk_through_the_window() {
     check_shape(&src, "TalkConversation", &j(c));
     check_shape(&src, "TalkMember", &j(&c.members[0]));
     check_shape(&src, "TalkPost", &j(&posts[1]));
+
+    // Card #643: a picture alone in a channel and in a DM. The posts carry
+    // it, and the route and the attachment calls find it on the post.
+    {
+        use base64::Engine as _;
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let up = |name: &str| irori_window::board::UploadFile {
+            name: name.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(png),
+        };
+        let id = w
+            .talk_post(&ch, "", &[], true, None, &[up("shot.png")])
+            .unwrap();
+        let ps = w.talk_posts(&ch, None, 50).unwrap();
+        let p = ps.iter().find(|p| p.post_id == id).unwrap();
+        assert_eq!(p.text, "");
+        assert_eq!(p.attachments.len(), 1);
+        assert_eq!(p.attachments[0].name, "shot.png");
+        check_shape(&src, "TalkPost", &j(p));
+        let sha = p.attachments[0].sha256.clone();
+        let info = w.attachment_info(&sha).unwrap();
+        assert_eq!((info.name.as_str(), info.here), ("shot.png", true));
+        let ok = w.serve_attachment(&Request {
+            method: "GET".into(),
+            path: format!("{}{sha}", attachments::ROUTE),
+            ..Request::default()
+        });
+        assert_eq!(ok.status, 200);
+        assert_eq!(ok.body, png);
+        assert_eq!(ok.get("Content-Type"), Some("image/png"));
+
+        // A DM with an agent: the message carries it as well.
+        let id = w
+            .talk_post(&dm, "this one", &[], true, None, &[up("dm.png")])
+            .unwrap();
+        let ps = w.talk_posts(&dm, None, 50).unwrap();
+        let p = ps.iter().find(|p| p.post_id == id).unwrap();
+        assert_eq!(p.attachments.len(), 1);
+        let ds = w.core.inbox().for_agent(&r.key_a, false, 10);
+        let d = ds.iter().find(|d| d.message_id == id).unwrap();
+        assert_eq!(d.message.attachments.len(), 1);
+        assert!(w.attachment_info(&p.attachments[0].sha256).is_ok());
+
+        // Nothing at all is still refused, and a file nobody posted isn't
+        // served.
+        assert!(w.talk_post(&ch, " ", &[], true, None, &[]).is_err());
+        let none = w.serve_attachment(&Request {
+            method: "GET".into(),
+            path: format!("{}{}", attachments::ROUTE, "e".repeat(64)),
+            ..Request::default()
+        });
+        assert_eq!(none.status, 404);
+        assert!(w.attachment_info(&"e".repeat(64)).is_err());
+    }
 
     // Card #538: nobody to DM yet, a person you share no space with is
     // refused, and an agent's DM is no person DM to leave. A row that isn't
@@ -988,59 +1061,107 @@ fn talk_through_the_window() {
     assert!(j(pc).get("spaceId").is_none(), "Personal: no spaceId");
 }
 
-/// Card #417: Settings › Merge desks sets a repo's desk once, and the desk
-/// page's holds, pause and Outside PR OK go in as the person.
+/// Card #417: Settings › Merge desks sets a repo's desk once, as the
+/// person. The desk never merges (card #418): no holder, check lines,
+/// merge method, holds or pause.
 #[test]
-fn merge_desk_settings_holds_pause_and_ok() {
-    use irori_window::desk::{DeskCheckLine, DeskSettings};
+fn merge_desk_settings() {
+    use irori_window::desk::DeskSettings;
     let r = Rig::new();
     let repo = "remote:github.com/example-org/example-app";
     assert!(r.w.desks().is_empty());
-    // No desk yet: nothing to hold.
-    assert!(r.w.desk_hold(repo, 3, "", false).is_err());
     let here = r.w.core.device_id().to_string();
     r.w.desk_set(DeskSettings {
         repo_key: repo.into(),
         enabled: true,
         takes_prs: true,
-        holder: r.key_a.clone(),
         poll_device: here.clone(),
         trusted: vec![" you ".into(), "".into()],
-        checks: vec![DeskCheckLine {
-            command: " cargo test --workspace ".into(),
-            paths: vec!["".into()],
-            ..DeskCheckLine::default()
-        }],
         ..DeskSettings::default()
     })
     .unwrap();
-    r.w.desk_hold(repo, 3, "after the playtest", false).unwrap();
-    r.w.desk_pause(repo, true).unwrap();
-    r.w.desk_ok(repo, 4, "3f2a9c1e0b7d").unwrap();
+    let d = r.w.core.coord().desk(repo).expect("the desk");
+    assert!(d.settings.by.starts_with("user:"));
+    // The desk page lists it once the Core counts the repo as the
+    // person's (card #625).
+    r.w.core.coord().set_desk_repos([repo.to_string()]);
     let d = r.w.desks();
     assert_eq!(d.len(), 1);
     let d = &d[0];
-    assert_eq!(d.settings.holder, r.key_a);
     assert_eq!(d.settings.poll_device, here);
     assert_eq!(d.settings.trusted, vec!["you".to_string()]);
-    assert_eq!(d.settings.checks[0].command, "cargo test --workspace");
-    assert!(d.settings.checks[0].paths.is_empty());
-    assert_eq!(d.settings.merge_method, "squash");
-    assert!(d.settings.by.starts_with("user:"));
-    assert_eq!(
-        (d.holds[0].pr, d.holds[0].note.as_str()),
-        (3, "after the playtest")
-    );
-    assert!(d.paused.is_some());
-    assert_eq!(d.oks[0].head_sha, "3f2a9c1e0b7d");
     assert!(d.poll.here, "this device polls it");
     assert!(d.prs.is_none(), "no poll in a rig without gh");
+}
 
-    r.w.desk_hold(repo, 3, "", true).unwrap();
-    r.w.desk_pause(repo, false).unwrap();
-    let d = &r.w.desks()[0];
-    assert!(d.holds.is_empty());
-    assert!(d.paused.is_none());
+/// Card #625: the desk page lists only the person's repos' desks, each
+/// with only their PRs: a stranger's PR isn't shown, and a stray desk (a
+/// repo nobody in their spaces opens PRs in) isn't listed.
+#[test]
+fn the_desk_page_shows_only_our_repos_and_prs() {
+    use irori_window::desk::DeskSettings;
+    let r = Rig::new();
+    let repo = "remote:github.com/example-org/example-app";
+    let upstream = "remote:github.com/blaizzy/mlx-video";
+    let co = r.w.core.coord();
+    // The person's agent linked a PR in example-app on a card: their repo,
+    // on every desk tick. Nobody here opened one in mlx-video.
+    let t = co
+        .create_task(
+            &r.key_a,
+            coord::NewTask {
+                title: "the PR".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.add_link(
+        &r.key_a,
+        &t.id,
+        "https://github.com/example-org/example-app/pull/1",
+    )
+    .unwrap();
+    for k in [repo, upstream] {
+        r.w.desk_set(DeskSettings {
+            repo_key: k.into(),
+            enabled: true,
+            takes_prs: true,
+            poll_device: r.w.core.device_id().to_string(),
+            ..DeskSettings::default()
+        })
+        .unwrap();
+    }
+    // The Core's desk pass judged both: only example-app is ours.
+    co.set_desk_repos([repo.to_string()]);
+    let pr = |n: i64, author: &str| coord::DeskPr {
+        number: n,
+        url: format!("https://github.com/example-org/example-app/pull/{n}"),
+        title: format!("PR {n}"),
+        author: author.into(),
+        ..coord::DeskPr::default()
+    };
+    // "you" is the person's login, as their gh said it.
+    co.record_desk_snapshot(repo, vec![pr(1, "you"), pr(2, "a-stranger")], false, "you")
+        .unwrap();
+    // mlx-video's desk is stray: not listed at all.
+    assert!(co.desk(upstream).unwrap().stray);
+    let d = r.w.desks();
+    assert_eq!(
+        d.iter()
+            .map(|d| d.settings.repo_key.as_str())
+            .collect::<Vec<_>>(),
+        [repo]
+    );
+    let shown: Vec<i64> = d[0]
+        .prs
+        .as_ref()
+        .unwrap()
+        .prs
+        .iter()
+        .map(|p| p.number)
+        .collect();
+    assert_eq!(shown, [1]);
+    assert_eq!(d[0].authors.iter().map(|a| a.pr).collect::<Vec<_>>(), [1]);
 }
 
 /// Card #452: "Start an agent with this" on the person's comment puts a
@@ -1144,7 +1265,7 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     seen("remote:github.com/t/game-repo", &game);
     let ch = w.talk_channel_create("Game-Repo", None, None).unwrap();
     let p = w
-        .talk_post(&ch, "main is red after #212", &[], true, None)
+        .talk_post(&ch, "main is red after #212", &[], true, None, &[])
         .unwrap();
     assert_eq!(w.channel_repo(&ch), "remote:github.com/t/game-repo");
     let other = w.talk_channel_create("general", None, None).unwrap();
@@ -1181,4 +1302,160 @@ fn a_thread_from_a_repo_channel_names_its_channel_and_repo() {
     let res = w.talk_thread_from(&ch, &p, "And now?").unwrap();
     let a = w.core.coord().get_task(&res.task.id).unwrap().ask.unwrap();
     assert_eq!((a.channel.as_str(), a.repo_key.as_str()), (ch.as_str(), ""));
+}
+
+/// Card #643: a file on a message an agent sent the person shows on the
+/// DM mirrored from it, and the window resolves and serves it as
+/// attachment_get would: from the message, not from any post's row.
+#[test]
+fn an_agents_message_to_the_person_serves_its_file() {
+    let r = Rig::new();
+    let w = &r.w;
+    let me = w.core.user_sender().key;
+    let dir = tempfile::tempdir().unwrap();
+    let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+    let path = dir.path().join("graph.png");
+    std::fs::write(&path, png).unwrap();
+    let f = w
+        .core
+        .attach_files(&r.key_b, &[path.to_string_lossy().into_owned()])
+        .unwrap()
+        .remove(0);
+    let sha = f.sha256.clone();
+    // The person DMs beta; beta answers with the file.
+    let dm = w
+        .talk_dm(&irori_window::talk::TalkMemberRef {
+            kind: "agent".into(),
+            key: r.key_b.clone(),
+        })
+        .unwrap();
+    assert_eq!(dm, coord::talk::dm_id(&r.key_b, &me));
+    let asked = w
+        .talk_post(&dm, "send me the graph", &[], true, None, &[])
+        .unwrap();
+    let from = inbox::Sender::new(&r.key_b, "beta", "agent");
+    let to = inbox::Address::new(inbox::addr::REPLY, &asked);
+    let (m, _) = w
+        .core
+        .inbox()
+        .send_with(
+            &from,
+            &to,
+            "the graph",
+            inbox::SendOptions {
+                attachments: vec![inbox::FileRef {
+                    sha256: f.sha256,
+                    name: f.name,
+                    size: f.size,
+                    mime: f.mime,
+                    device: f.device,
+                }],
+                ..inbox::SendOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        w.core.talk().attachments(&sha).is_empty(),
+        "on the message alone, no post row"
+    );
+
+    let ps = w.talk_posts(&dm, None, 50).unwrap();
+    let p = ps.iter().find(|p| p.post_id == m.id).expect("mirrored");
+    assert_eq!(p.attachments.len(), 1);
+    assert_eq!(p.attachments[0].sha256, sha);
+    let info = w.attachment_info(&sha).unwrap();
+    assert_eq!((info.name.as_str(), info.here), ("graph.png", true));
+    let ok = w.serve_attachment(&Request {
+        method: "GET".into(),
+        path: format!("{}{sha}", attachments::ROUTE),
+        ..Request::default()
+    });
+    assert_eq!(ok.status, 200);
+    assert_eq!(ok.body, png);
+}
+
+/// Huddles (#654) through the window: nothing on at first, and a snapshot
+/// named for the person: their own devices as "you" with the device's name,
+/// someone nothing names as "another person" (never a key), a channel by
+/// its name; the TS shape of what call:state sends.
+#[test]
+fn huddles_through_the_window() {
+    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let r = Rig::new();
+    let w = &r.w;
+    assert_eq!(w.call_state(), irori_window::call::CallView::default());
+    assert!(w.call_start("  ").is_err());
+
+    let ch = w.talk_channel_create("standup", None, None).unwrap();
+    let me = w.core.chain().person_id();
+    let here = w.core.device_id().to_string();
+    let label = w
+        .core
+        .device_labels()
+        .get(&here)
+        .cloned()
+        .unwrap_or_default();
+    let stranger = "p0123456789abcdef".to_string();
+    let peer = |device: &str, person: &str| irori_core::CallPeer {
+        device_id: device.into(),
+        person_id: person.into(),
+        phase: "live".into(),
+        path: "direct".into(),
+        rtt_ms: 26.0,
+        ..Default::default()
+    };
+    let v = w.call_view(irori_core::CallSnapshot {
+        mine: Some(irori_core::MyCall {
+            call_id: "call-1".into(),
+            conv_id: ch.clone(),
+            joined_at_ms: 5,
+            peers: vec![peer(&here, &me), peer("dev-x", &stranger)],
+            error: Some("  ".into()),
+            ..Default::default()
+        }),
+        ringing: vec![irori_core::Ringing {
+            call_id: "call-2".into(),
+            conv_id: ch.clone(),
+            by_person: stranger.clone(),
+            ..Default::default()
+        }],
+        live: vec![irori_core::LiveCall {
+            call_id: "call-1".into(),
+            conv_id: ch.clone(),
+            devices: vec![
+                (here.clone(), me.clone()),
+                ("dev-y".into(), me.clone()),
+                ("dev-x".into(), stranger.clone()),
+            ],
+            ..Default::default()
+        }],
+    });
+    let m = v.mine.as_ref().unwrap();
+    assert_eq!(
+        (m.conv_kind.as_str(), m.conv_name.as_str()),
+        ("channel", "standup")
+    );
+    assert_eq!(m.device, label);
+    assert_eq!(m.peers[0].name, "you");
+    assert_eq!(m.peers[0].device, label);
+    assert_eq!(m.peers[1].name, "another person");
+    assert_eq!(
+        m.peers[1].device, "",
+        "another person's device has no name here"
+    );
+    assert_eq!(m.error, None, "a blank error is none");
+    assert_eq!(v.ringing[0].by, "another person");
+    assert_eq!(v.ringing[0].conv_name, "standup");
+    assert_eq!(v.live[0].people, ["you", "another person"]);
+    let json = serde_json::to_string(&v).unwrap();
+    assert!(!json.contains(&stranger) && !json.contains(&me), "{json}");
+    check_shape(&src, "CallView", &serde_json::to_value(&v).unwrap());
+    check_shape(&src, "CallMineView", &serde_json::to_value(m).unwrap());
+    check_shape(
+        &src,
+        "CallPeerView",
+        &serde_json::to_value(&m.peers[0]).unwrap(),
+    );
 }

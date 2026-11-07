@@ -3,6 +3,7 @@
 // its row, and every other card is one compact row in one of four
 // states. Pure, so the order and the words are tested without a window.
 
+import { laterOf } from "@/lib/later"
 import { NotAnswering } from "./agent-counts"
 import { spawnLine } from "./spawn-line"
 import {
@@ -42,7 +43,7 @@ import { waitLine, waitName } from "./wait-name"
 // - Idle: held, its holders idle a while with nothing named (card #305).
 // - Done.
 export type RowState =
-  "needs" | "stuck" | "working" | "waiting" | "idle" | "done"
+  "needs" | "stuck" | "working" | "waiting" | "idle" | "later" | "done"
 
 // RowGroups is Home's group order.
 export const RowGroups: readonly RowState[] = [
@@ -51,6 +52,7 @@ export const RowGroups: readonly RowState[] = [
   "working",
   "waiting",
   "idle",
+  "later",
   "done",
 ]
 
@@ -60,6 +62,7 @@ export const rowStateLabel: Record<RowState, string> = {
   working: "Working",
   waiting: "Waiting",
   idle: "Idle",
+  later: "Not yet",
   done: "Done",
 }
 
@@ -109,6 +112,9 @@ type Row = RowLine & { nobody?: boolean }
 
 function row(c: CardSummary, now: number): Row {
   if (over(c)) return { state: "done", line: overLabel(c) }
+  // Card #570: parked, so nothing is asked of anyone until it comes back.
+  const parked = laterOf(c)
+  if (parked) return { state: "later", line: `Back ${parked.line}` }
   if (needsYou(c)) {
     if (c.noAgent && !c.ready && !c.openBlockers)
       return { state: "needs", line: c.noAgent }
@@ -162,7 +168,9 @@ function row(c: CardSummary, now: number): Row {
       line: `Waiting on ${waitName(c) || "an agent"}, who is gone`,
     }
   if (c.waitingOn) return { state: "waiting", line: waitLine(c) }
-  if (c.waiting > 0)
+  // With nobody on it, an agent starting for the answer (or why one
+  // can't) says more (card #557: a split card whose lead went).
+  if (c.waiting > 0 && (held.length > 0 || !spawnLine(c)))
     return { state: "waiting", line: "Your answer is with the agent" }
   const who = held.map(displayName).slice(0, 2).join(", ")
   if (busy(c))
@@ -333,7 +341,9 @@ export const GIVEN_QUESTION = "OK to start an agent on this?"
 // a permission prompt nobody is there to answer, or its agents kept going
 // away before finishing, so Irori stopped starting them, or another person
 // gave them the card and Irori stopped to ask (card #573).
-export function spawnNeed(c: CardSummary): "permission" | "crashed" | "given" | null {
+export function spawnNeed(
+  c: CardSummary
+): "permission" | "crashed" | "given" | null {
   const q = c.blockerQuestion ?? ""
   if (q.startsWith(WAITING_PERMISSION)) return "permission"
   if (q.startsWith("Its agent crashed") && q.endsWith(": start another?"))

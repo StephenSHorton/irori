@@ -7,11 +7,21 @@
 # file in it leaks a folder on the PC and passes everywhere else. By Nov 5
 # that had put 175,000 folders in %TEMP%.
 #
+# TMPDIR covers a build as well as the tests, and rustc and the linker can
+# leave their own temp files (.tmpWQYphzlibclang_rt.osx.a on the Mac, card
+# #607). So check.sh builds first with `cargo test --no-run` and guards
+# only the run. Don't skip names like .tmpXXXXXX instead: that is also what
+# a leaked TempDir is called.
+#
 # The folder is outside the repo on purpose: tests that make git repos in
 # temp would otherwise find this one above them.
 
 temp_clean() {
   tc_dir=$(mktemp -d /tmp/irori-temp.XXXXXX)
+  # So scripts/check-stop.sh can remove it when it stops the run (#609).
+  if [ -n "${check_state:-}" ] && [ -f "$check_state" ]; then
+    echo "tc_dir=$tc_dir" >>"$check_state"
+  fi
   tc_native=$tc_dir
   if command -v cygpath >/dev/null 2>&1; then
     tc_native=$(cygpath -m "$tc_dir")

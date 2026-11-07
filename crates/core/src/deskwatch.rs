@@ -4,8 +4,7 @@
 //! GitHub for the repo's open PRs (`gh pr list`, the person's own gh) every
 //! [`DESK_EVERY`] and hands the list to coord, which writes a `desk.prs`
 //! snapshot only when it changed. Exactly one device polls a desk, so two
-//! never write competing snapshots, and the queue never goes blind when the
-//! holder changes.
+//! never write competing snapshots.
 //!
 //! A failed poll keeps the previous snapshot: the queue is empty only when
 //! GitHub's list was. Failures back off (3, 6, 12, then 15 minutes) and the
@@ -21,7 +20,7 @@ use coord::{DESK_LIMIT, DeskPr};
 use gocompat::time::GoTime;
 use serde::Serialize;
 
-use crate::prwatch::{gh_path, run_gh};
+use crate::prwatch::{gh_path, run_gh, run_gh_raw};
 
 /// How often the Core looks for desks that are due.
 pub const DESK_TICK: Duration = Duration::from_secs(30);
@@ -42,7 +41,32 @@ pub trait PrLister: Send + Sync {
     fn viewer(&self) -> Result<String, String> {
         Ok(String::new())
     }
+
+    /// The repos (`owner/name`) `login` has opened PRs in, open or not,
+    /// newest first, at most [`AUTHORED_LIMIT`] PRs' worth: which repos are
+    /// the person's (card #625). Empty when unknown.
+    fn authored_repos(&self, login: &str) -> Result<Vec<String>, String> {
+        let _ = login;
+        Ok(Vec::new())
+    }
+
+    /// PR `number`'s failing GitHub checks, each Actions job's failed log
+    /// fetched for the first [`crate::deskpost::MAX_LOGS`] (card #420).
+    fn failed_checks(
+        &self,
+        _repo: &str,
+        _number: i64,
+    ) -> Result<Vec<crate::deskpost::FailedCheck>, String> {
+        Ok(Vec::new())
+    }
 }
+
+/// How many of a login's PRs one search reads (card #625).
+pub const AUTHORED_LIMIT: usize = 1000;
+/// How often a login's PR repos are searched again (card #625): GitHub's
+/// search API allows 30 calls a minute, and a repo rarely becomes one of
+/// the person's.
+pub const AUTHORED_EVERY: Duration = Duration::from_secs(30 * 60);
 
 /// The person's own `gh`: `gh pr list --repo <owner/name> --state open
 /// --limit <limit> --json <DESK_FIELDS>`.
@@ -85,6 +109,102 @@ impl PrLister for GhLister {
         )?;
         Ok(v["login"].as_str().unwrap_or_default().to_string())
     }
+
+    /// `gh pr view <n> --json statusCheckRollup`, then `gh run view --job
+    /// <id> --log-failed` for each failing Actions job. A log gh can't give
+    /// is left out; the check is still named and linked.
+    fn failed_checks(
+        &self,
+        repo: &str,
+        number: i64,
+    ) -> Result<Vec<crate::deskpost::FailedCheck>, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let n = number.to_string();
+        let v = run_gh(
+            &gh,
+            &[
+                "pr",
+                "view",
+                &n,
+                "--repo",
+                repo,
+                "--json",
+                "statusCheckRollup",
+            ],
+            "gh couldn't read this PR's checks",
+        )?;
+        let mut checks = crate::deskpost::failing_checks(&v["statusCheckRollup"]);
+        for c in checks.iter_mut().take(crate::deskpost::MAX_LOGS) {
+            let Some(job) = crate::deskpost::actions_job(&c.url).map(str::to_string) else {
+                continue;
+            };
+            // The job's own log comes as soon as the job ends, while the
+            // rest of its run may go on; `run view --log-failed` only once
+            // the whole run is done, so it is the fallback (an older gh).
+            let api = format!("repos/{repo}/actions/jobs/{job}/logs");
+            let got = run_gh_raw(
+                &gh,
+                &["api", &api, "--allow-escape-sequences"],
+                "gh couldn't fetch the job's log",
+            )
+            .or_else(|_| {
+                run_gh_raw(
+                    &gh,
+                    &["run", "view", "--job", &job, "--repo", repo, "--log-failed"],
+                    "gh couldn't fetch the job's log",
+                )
+            });
+            match got {
+                Ok(out) => c.log = String::from_utf8_lossy(&out).into_owned(),
+                Err(e) => crate::logf(format_args!("desk: PR #{number} job {job} log: {e}")),
+            }
+        }
+        Ok(checks)
+    }
+
+    /// `gh search prs --author <login> --sort updated --limit
+    /// AUTHORED_LIMIT --json repository`.
+    fn authored_repos(&self, login: &str) -> Result<Vec<String>, String> {
+        let Some(gh) = gh_path() else {
+            return Err("gh (the GitHub CLI) isn't installed here".into());
+        };
+        let limit = AUTHORED_LIMIT.to_string();
+        let v = run_gh(
+            &gh,
+            &[
+                "search",
+                "prs",
+                "--author",
+                login,
+                "--sort",
+                "updated",
+                "--limit",
+                &limit,
+                "--json",
+                "repository",
+            ],
+            "gh couldn't search this login's PRs",
+        )?;
+        Ok(parse_authored(&v))
+    }
+}
+
+/// Reads `gh search prs --json repository`'s answer: each repo once, in
+/// the order first seen.
+pub fn parse_authored(v: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in v.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let r = p["repository"]["nameWithOwner"]
+            .as_str()
+            .unwrap_or_default()
+            .trim();
+        if !r.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(r)) {
+            out.push(r.to_string());
+        }
+    }
+    out
 }
 
 /// Reads `gh pr list --json DESK_FIELDS`'s answer. A missing field reads
@@ -126,29 +246,33 @@ pub fn parse_pr_list(v: &serde_json::Value) -> Result<Vec<DeskPr>, String> {
 
 /// Sums up GitHub's statusCheckRollup: "failure" when any check failed,
 /// else "pending" when any is still running, else "success"; "" when the
-/// repo has no checks on GitHub (the desk's own check line is what counts
-/// there, slice 4).
+/// repo has no checks on GitHub.
 pub fn checks_of(rollup: &serde_json::Value) -> String {
     let Some(items) = rollup.as_array().filter(|a| !a.is_empty()) else {
         return String::new();
     };
     let mut pending = false;
     for c in items {
-        let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
-        // A CheckRun has status and conclusion; a StatusContext has state.
-        let (status, conclusion, state) = (up("status"), up("conclusion"), up("state"));
-        let failed = matches!(
-            conclusion.as_str(),
-            "FAILURE" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED" | "STARTUP_FAILURE"
-        ) || matches!(state.as_str(), "FAILURE" | "ERROR");
-        if failed {
+        if check_failed(c) {
             return "failure".into();
         }
+        let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
+        let (status, state) = (up("status"), up("state"));
         let running = (!status.is_empty() && status != "COMPLETED")
             || matches!(state.as_str(), "PENDING" | "EXPECTED");
         pending |= running;
     }
     if pending { "pending" } else { "success" }.into()
+}
+
+/// Whether one statusCheckRollup item failed. A CheckRun has status and
+/// conclusion; a StatusContext has state.
+pub fn check_failed(c: &serde_json::Value) -> bool {
+    let up = |k: &str| c[k].as_str().unwrap_or_default().to_ascii_uppercase();
+    matches!(
+        up("conclusion").as_str(),
+        "FAILURE" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED" | "STARTUP_FAILURE"
+    ) || matches!(up("state").as_str(), "FAILURE" | "ERROR")
 }
 
 /// The wait before the next poll after `failures` failures in a row.
@@ -188,42 +312,123 @@ struct Slot {
 #[derive(Default)]
 pub(crate) struct DeskWatch {
     slots: Mutex<HashMap<String, Slot>>,
-    /// The (PR, head) each desk's holder was last woken for (card #418),
-    /// so a poll that finds the same PR still waiting doesn't wake it again.
-    woke: Mutex<HashMap<String, (i64, String)>>,
     /// The login this device's gh is signed in as, once learned (card
     /// #521); asked again after a failure, never after a success.
     viewer: Mutex<Option<String>>,
+    /// Each login's PR repos as the last search found them, and when to
+    /// search again (card #625).
+    authored: Mutex<HashMap<String, (Instant, Vec<String>)>>,
+    /// Polls that couldn't fetch a PR's failing checks in full, by
+    /// `repo\0pr\0head` (card #420).
+    tries: Mutex<HashMap<String, u32>>,
+    /// Posts that went out as inbox notices, by `task\0tag` (card #420).
+    fallbacks: Mutex<std::collections::HashSet<String>>,
 }
 
+/// Polls a "checks failed" post waits for its checks and logs before it
+/// goes up with what it has.
+pub const FETCH_TRIES: u32 = 3;
+
 impl DeskWatch {
+    /// The person's GitHub login if this run has learned it, without
+    /// asking gh.
+    pub(crate) fn known_viewer(&self) -> String {
+        let v = self.viewer.lock().unwrap_or_else(|e| e.into_inner());
+        v.clone().unwrap_or_default()
+    }
+
+    /// The repos `login` opened PRs in, searched again every
+    /// [`AUTHORED_EVERY`] (sooner after a failure: the next tick). A failed
+    /// search keeps what the last one found.
+    pub(crate) fn authored(&self, lister: &dyn PrLister, login: &str, now: Instant) -> Vec<String> {
+        let key = login.to_ascii_lowercase();
+        {
+            let a = self.authored.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((next, repos)) = a.get(&key)
+                && now < *next
+            {
+                return repos.clone();
+            }
+        }
+        let heard = lister.authored_repos(login);
+        let mut a = self.authored.lock().unwrap_or_else(|e| e.into_inner());
+        match heard {
+            Ok(repos) => {
+                a.insert(key, (now + AUTHORED_EVERY, repos.clone()));
+                repos
+            }
+            Err(e) => {
+                crate::log(&format!("desk: search {login}'s PRs: {e}"));
+                let old = a.get(&key).map(|x| x.1.clone()).unwrap_or_default();
+                // Try again in a few minutes, not every tick.
+                a.insert(key, (now + DESK_EVERY, old.clone()));
+                old
+            }
+        }
+    }
+
     /// The person's GitHub login as `lister` says, asked once per run.
     /// "" while it can't be learned.
     pub(crate) fn viewer(&self, lister: &dyn PrLister) -> String {
-        let mut v = self.viewer.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(login) = v.as_ref() {
+        if let Some(login) = self
+            .viewer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             return login.clone();
         }
+        // gh runs unlocked: it may take its whole timeout, and the desk page
+        // and the profile writer read [`Self::known_viewer`] meanwhile.
         match lister.viewer() {
             Ok(login) if !login.trim().is_empty() => {
                 let login = login.trim().to_string();
-                *v = Some(login.clone());
+                *self.viewer.lock().unwrap_or_else(|e| e.into_inner()) = Some(login.clone());
                 login
             }
             _ => String::new(),
         }
     }
 
-    /// Whether the holder of `repo_key`'s desk should be woken for `pr` at
-    /// `head`: true once per (PR, head), recording it.
-    pub(crate) fn first_wake(&self, repo_key: &str, pr: i64, head: &str) -> bool {
-        let mut w = self.woke.lock().unwrap_or_else(|e| e.into_inner());
-        let k = (pr, head.to_string());
-        if w.get(&coord::canonical_repo_key(repo_key)) == Some(&k) {
-            return false;
+    /// Notes one more poll that couldn't fetch PR `pr`'s failing checks at
+    /// `head` in full; whether to wait for the next poll rather than post
+    /// what it has (true for the first [`FETCH_TRIES`] - 1).
+    pub(crate) fn fetch_again(&self, repo_key: &str, pr: i64, head: &str) -> bool {
+        let mut t = self.tries.lock().unwrap_or_else(|e| e.into_inner());
+        let k = format!("{}\0{pr}\0{head}", coord::canonical_repo_key(repo_key));
+        let n = t.entry(k.clone()).or_insert(0);
+        *n += 1;
+        if *n < FETCH_TRIES {
+            return true;
         }
-        w.insert(coord::canonical_repo_key(repo_key), k);
-        true
+        t.remove(&k);
+        false
+    }
+
+    /// PR `pr`'s failing checks at `head` were fetched in full: no more
+    /// tries are kept for it.
+    pub(crate) fn fetched(&self, repo_key: &str, pr: i64, head: &str) {
+        let mut t = self.tries.lock().unwrap_or_else(|e| e.into_inner());
+        t.remove(&format!(
+            "{}\0{pr}\0{head}",
+            coord::canonical_repo_key(repo_key)
+        ));
+    }
+
+    /// Whether post `tag` on card `task_id` already went out as an inbox
+    /// notice because its board refused the comment. Comments are the
+    /// record of what was said; a refused one leaves none, so this keeps
+    /// the notice from going out again each poll (once more after a
+    /// restart).
+    pub(crate) fn fell_back(&self, task_id: &str, tag: &str) -> bool {
+        let f = self.fallbacks.lock().unwrap_or_else(|e| e.into_inner());
+        f.contains(&format!("{task_id}\0{tag}"))
+    }
+
+    /// Notes post `tag` on card `task_id` went out as a notice.
+    pub(crate) fn fall_back(&self, task_id: &str, tag: &str) {
+        let mut f = self.fallbacks.lock().unwrap_or_else(|e| e.into_inner());
+        f.insert(format!("{task_id}\0{tag}"));
     }
 
     /// Whether `repo_key` is due at `now` (always, before its first poll).

@@ -19,9 +19,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::frames::{
-    FRAME_BOARD_SECRET, FRAME_DM_SECRET, FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING, FRAME_PONG,
-    FRAME_ROW_AT, FRAME_ROWS, FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row, batches,
-    decode_frame,
+    FRAME_BOARD_SECRET, FRAME_CALL, FRAME_DM_SECRET, FRAME_HELLO, FRAME_PERSON_SECRET, FRAME_PING,
+    FRAME_PONG, FRAME_ROW_AT, FRAME_ROWS, FRAME_VECTOR, Frame, MAX_BATCH_ROWS, PROTOCOL, Row,
+    batches, decode_frame,
 };
 use crate::node::{FORKED_SELF, HELD_BYTES_CAP, HELD_ROWS_CAP, MIN_PEER_SCHEMA, Node, within};
 use crate::transport::PeerConn;
@@ -73,6 +73,8 @@ struct SessState {
     hello_recv: bool,
     p_epoch: i64,
     p_pub: String,
+    /// The `calls` the peer's hello said (card #663).
+    p_calls: i64,
     sent_key: String,
     /// board id -> the `epoch/maker` whose `board.secret` or `dm.secret`
     /// went on this connection.
@@ -151,6 +153,15 @@ impl Session {
 
     pub(crate) fn hello_done(&self) -> bool {
         self.lock().hello_recv
+    }
+
+    /// The `calls` the peer's hello said; 0 before its hello.
+    pub(crate) fn peer_calls(&self) -> i64 {
+        self.lock().p_calls
+    }
+
+    pub(crate) fn is_ended(&self) -> bool {
+        self.lock().ended
     }
 
     /// The epoch and person key the peer's hello carried.
@@ -465,6 +476,11 @@ impl Session {
                         self.n.take_board_secret(&f);
                     }
                 }
+                FRAME_CALL => {
+                    if self.n.certified(&self.conn.id()) {
+                        self.n.take_call(self, &f);
+                    }
+                }
                 FRAME_ROW_AT => {
                     // Only the asker's own rows: it is checking its history.
                     if f.device_id == self.conn.id()
@@ -580,6 +596,7 @@ impl Session {
             g.hello_recv = true;
             g.p_epoch = f.epoch;
             g.p_pub = f.person_pub.clone();
+            g.p_calls = f.calls;
             g.peer_vec = f.vector.clone();
         }
         n.note_vector(&peer, &f.vector);

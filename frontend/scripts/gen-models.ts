@@ -92,7 +92,9 @@ if (import.meta.main) {
   if (process.argv.includes("--check")) {
     const have = readFileSync(out, "utf8").replace(/\r\n/g, "\n")
     if (have !== want) {
-      console.error("src/gen/models.ts is stale: run `bun scripts/gen-models.ts`")
+      console.error(
+        "src/gen/models.ts is stale: run `bun scripts/gen-models.ts`"
+      )
       process.exit(1)
     }
   } else {

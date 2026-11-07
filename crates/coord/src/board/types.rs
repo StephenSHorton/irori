@@ -254,6 +254,10 @@ pub struct Blocker {
     /// the other person, Decline leaves it with its owner.
     #[serde(skip_serializing_if = "omit")]
     pub transfer: bool,
+    /// What brings a held card back (card #570): this item is its Not yet.
+    /// [`Blocker::back`] reads it. Empty on every other item.
+    #[serde(skip_serializing_if = "omit")]
+    pub later: String,
     /// The row's reason: Task.reason while this is the first open item.
     #[serde(skip)]
     pub(crate) reason: String,
@@ -267,6 +271,15 @@ pub struct Blocker {
     /// #50): a recommendation logged before it was for options gone now.
     #[serde(skip)]
     pub(crate) options_at: RowPos,
+    /// Raises with this item's question that folded into it (card #570).
+    /// Another device may have one of them as the item, so a close names
+    /// them too. Never decides anything here.
+    #[serde(skip)]
+    pub(crate) merged: Vec<String>,
+    /// The device whose row put each file on it (card #659), by hash: on a
+    /// shared board a file counts only where that device offered it.
+    #[serde(skip)]
+    pub(crate) file_devs: Vec<(String, String)>,
 }
 
 impl Blocker {
@@ -376,6 +389,11 @@ pub struct Ask {
     /// #454): its `ch_` id. Its newest lines go in a spawned agent's brief.
     #[serde(skip_serializing_if = "omit")]
     pub channel: String,
+    /// The agent that opened this thread itself (card #631); empty for the
+    /// person's own. It holds the thread from the start, and no agent is
+    /// handed or started for it until its person writes in it.
+    #[serde(skip_serializing_if = "omit")]
+    pub opener: String,
 }
 
 impl Ask {
@@ -533,6 +551,10 @@ pub struct Task {
     /// answered blocker that went to one of them has nobody to act on it.
     #[serde(skip)]
     pub left: Vec<String>,
+    /// Whether a Not yet hold was ever raised on it (card #570). Kept when
+    /// the closed item is trimmed.
+    #[serde(skip)]
+    pub was_held: bool,
     #[serde(skip_serializing_if = "omit")]
     pub parent: String,
     /// A helper's part (spawned agents §3): the subtask was split off
@@ -617,6 +639,30 @@ impl Task {
             }
             return s;
         }
+        // An agent's own thread (card #631): its opener holds it.
+        if a.thread && !a.opener.is_empty() {
+            return if a.taker == a.opener {
+                format!(
+                    "a thread agent {} opened with the person; it holds it and hears their replies; only the person resolves it",
+                    a.opener
+                )
+            } else if a.taker.is_empty() && a.reason == "answered" {
+                format!(
+                    "a thread agent {} opened with the person; no agent is started for it until the person writes in it; answer their follow-ups with board_comment",
+                    a.opener
+                )
+            } else if !a.taker.is_empty() {
+                format!(
+                    "a thread agent {} opened, which the person wrote in; Irori handed it to {}: answer it with board_comment",
+                    a.opener, a.taker
+                )
+            } else {
+                format!(
+                    "a thread agent {} opened, which the person wrote in: answer it with board_comment if you can",
+                    a.opener
+                )
+            };
+        }
         if a.thread {
             return match a.reason.as_str() {
                 "answered" => "the person's thread, answered: it stays open until the person resolves it; answer their follow-ups with board_comment".into(),
@@ -697,6 +743,13 @@ pub struct NewTask {
     /// else the side of this device (the first it runs), else none.
     /// Ignored on a shared board.
     pub side: String,
+    /// Cards this one comes after (card #570), by short ref or id: one
+    /// wait each, all checked before anything is written.
+    pub after: Vec<String>,
+    /// Makes the card held as Not yet from the start (card #570), for
+    /// `block_reason` (or the title when that is empty). Not with
+    /// `blocked_by`.
+    pub later: Option<super::later::Back>,
 }
 
 /// Narrows `list_tasks`; zero values mean any.
@@ -840,6 +893,8 @@ pub const NOTICE_STEP_OWNER: &str = "step_owner";
 pub const NOTICE_COMMENT: &str = "comment";
 pub const NOTICE_UNBLOCKED: &str = "unblocked";
 pub const NOTICE_RETURNED: &str = "returned";
+/// The card went to Not yet with the agent on it (card #570): it is off it.
+pub const NOTICE_PARKED: &str = "parked";
 pub const NOTICE_REOPENED: &str = "reopened";
 pub const NOTICE_ANSWERED: &str = "answered";
 pub const NOTICE_WATCHED: &str = "watched";
@@ -969,6 +1024,10 @@ pub struct BoardView {
     pub blocked: Vec<Card>,
     pub working: Vec<Card>,
     pub open: Vec<Card>,
+    /// Cards held as Not yet (card #570). Left out when there are none,
+    /// so the shape older readers know doesn't change.
+    #[serde(skip_serializing_if = "omit")]
+    pub later: Vec<Card>,
     pub done: Vec<Card>,
     pub done_total: i64,
     pub leases: Vec<LeaseCard>,

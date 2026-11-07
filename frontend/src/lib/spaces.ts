@@ -46,7 +46,8 @@ export function spacesOf(boards: BoardSummary[]): Space[] {
 // joined space that isn't ready yet can have an empty name on its first
 // board, so each field falls back to the space's.
 export function boardsOf(s: BoardSummary): SpaceBoard[] {
-  if (!s.boards.length) return [{ boardId: s.boardId, name: s.name, tag: s.tag }]
+  if (!s.boards.length)
+    return [{ boardId: s.boardId, name: s.name, tag: s.tag }]
   return s.boards.map((x, i) =>
     i === 0 ? { ...x, name: x.name || s.name, tag: x.tag || s.tag } : x
   )
@@ -69,7 +70,10 @@ export function known(id: string, boards: BoardSummary[]): string {
 
 // cardsOnPersonal is Personal's cards on one of its boards (card #558). A
 // card with no inner board is on the default board.
-export function cardsOnPersonal(cards: CardSummary[], boardId: string): CardSummary[] {
+export function cardsOnPersonal(
+  cards: CardSummary[],
+  boardId: string
+): CardSummary[] {
   return cards.filter((c) => !c.board && (c.spaceBoard || Personal) === boardId)
 }
 

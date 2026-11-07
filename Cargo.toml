@@ -35,6 +35,8 @@ members = [
   "crates/notify",
   "crates/update",
   "crates/voice",
+  "crates/call",
+  "crates/share",
   "crates/term",
 ]
 
@@ -82,6 +84,8 @@ irori-mesh = { path = "crates/mesh" }
 irori-tools = { path = "crates/tools" }
 irori-window = { path = "crates/window" }
 irori-voice = { path = "crates/voice" }
+irori-call = { path = "crates/call" }
+irori-share = { path = "crates/share" }
 irori-term = { path = "crates/term" }
 # suzuri's terminal core (inline-terminals.md section 3, card #369), at a
 # suzuri term tag; keep it, the portable-pty patch below and frontend's
@@ -189,6 +193,11 @@ whisper-rs-sys = { git = "https://github.com/StephenSHorton/whisper-rs", branch 
 # SDK), for irori-lan and iroh's netwatch, which needs ^0.46.1 (#269).
 # Drop it when netwatch moves to netdev 0.47.
 netdev = { path = "vendor/netdev" }
+# moq-video 0.1.21 with one fix in src/encode/backend/mediafoundation.rs: it
+# picks a hardware H.264 encoder on the default GPU (MFTEnum2 + adapter LUID).
+# On a PC with two GPUs the plain list put the AMD iGPU's encoder first, and
+# SetOutputType failed with 0xC00D6D76 (#666). Drop when upstream has it.
+moq-video = { path = "vendor/moq-video" }
 # suzuri's ConPTY flags for portable-pty (inline-terminals.md S-1; S0 #365
 # showed the git patch finds vendor/portable-pty). Same rev as rsz-term.
 portable-pty = { git = "https://github.com/StephenSHorton/suzuri", tag = "term-v0.10.0" }

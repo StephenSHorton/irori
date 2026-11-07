@@ -83,6 +83,10 @@ impl Services {
             m.recheck();
             m.kick();
         }
+        // Call connections too (#654): a removed member's huddle audio stops
+        // now, not at the next refeed.
+        let _g = self.pairing.handle.enter();
+        self.mesh.net.recheck();
     }
 
     /// An owner removes member `person_id` from board `board_id` (§4.3),

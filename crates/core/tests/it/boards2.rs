@@ -343,6 +343,9 @@ fn sync_out_returns_once_the_other_member_holds_the_row() {
 
     a.close().unwrap();
     b.close().unwrap();
+    // Opened by hand, so the Cores don't close them.
+    ba.log.close().unwrap();
+    bb.log.close().unwrap();
 }
 
 /// The stage 2 path end to end on loopback, with board gossip on: Alice's

@@ -14,34 +14,50 @@ const home = (p: Partial<HomeServerView>) =>
 
 describe("issue 9: warnings with public relays", () => {
   test("invite: no warning behind CGNAT with public relays on", () => {
-    expect(inviteReachLine(home({ reach: "cgnat", line: CGNAT, publicRelays: true }))).toBe("")
+    expect(
+      inviteReachLine(home({ reach: "cgnat", line: CGNAT, publicRelays: true }))
+    ).toBe("")
   })
   test("invite: no warning with the home server off and public relays on", () => {
-    expect(inviteReachLine(home({ on: false, running: false, publicRelays: true }))).toBe("")
+    expect(
+      inviteReachLine(home({ on: false, running: false, publicRelays: true }))
+    ).toBe("")
   })
   test("invite: today's lines with public relays off", () => {
-    expect(inviteReachLine(home({ reach: "cgnat", line: CGNAT, publicRelays: false }))).toContain(
-      "can't be reached from outside your home yet",
-    )
-    expect(inviteReachLine(home({ on: false, running: false, publicRelays: false }))).toContain(
-      "Your home server is off",
-    )
-    expect(inviteReachLine(home({ reach: "outside", publicRelays: false }))).toBe("")
+    expect(
+      inviteReachLine(
+        home({ reach: "cgnat", line: CGNAT, publicRelays: false })
+      )
+    ).toContain("can't be reached from outside your home yet")
+    expect(
+      inviteReachLine(home({ on: false, running: false, publicRelays: false }))
+    ).toContain("Your home server is off")
+    expect(
+      inviteReachLine(home({ reach: "outside", publicRelays: false }))
+    ).toBe("")
   })
   test("devices: CGNAT says public relays cover it when on", () => {
-    const l = homeLine(home({ reach: "cgnat", line: CGNAT, publicRelays: true }))
+    const l = homeLine(
+      home({ reach: "cgnat", line: CGNAT, publicRelays: true })
+    )
     expect(l).toContain("public relays connect your devices")
     expect(l).not.toContain("can't reach this PC")
   })
   test("devices: port-forward keeps the router steps after the relays line", () => {
-    const l = homeLine(home({ reach: "forward", line: FORWARD, publicRelays: true }))
+    const l = homeLine(
+      home({ reach: "forward", line: FORWARD, publicRelays: true })
+    )
     expect(l).toContain("public relays connect your devices")
     expect(l).toContain("For a direct connection: Turn on UPnP")
     expect(l).not.toContain("can't reach this PC")
   })
   test("devices: lines unchanged with public relays off, and other lines always", () => {
-    expect(homeLine(home({ reach: "cgnat", line: CGNAT, publicRelays: false }))).toBe(CGNAT)
+    expect(
+      homeLine(home({ reach: "cgnat", line: CGNAT, publicRelays: false }))
+    ).toBe(CGNAT)
     const moved = "Port 25817 was taken, so the server moved to port 25818."
-    expect(homeLine(home({ reach: "home", line: moved, publicRelays: true }))).toBe(moved)
+    expect(
+      homeLine(home({ reach: "home", line: moved, publicRelays: true }))
+    ).toBe(moved)
   })
 })

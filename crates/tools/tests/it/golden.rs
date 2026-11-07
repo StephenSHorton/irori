@@ -42,10 +42,15 @@ fn key(k: &str) -> String {
     .to_string()
 }
 
-/// Masks ids (ULIDs, with or without msg_/dlv_/wake_) by first appearance.
+/// Masks ids (ULIDs, with or without msg_/dlv_/wake_) by first appearance,
+/// and the random part of hold and after item ids (card #570: b2-k7q2xm,
+/// or b3-x9y8z7-k7q2xm for a hold that carries an older one's) the same
+/// way, so the same item must recur where it did.
 struct Masker {
     re: regex::Regex,
+    item: regex::Regex,
     seen: HashMap<String, usize>,
+    items: HashMap<String, usize>,
 }
 
 impl Masker {
@@ -55,10 +60,27 @@ impl Masker {
                 r"(?:msg_|dlv_|wake_)?(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9A-HJKMNP-TV-Z]{11,25}…)",
             )
             .unwrap(),
+            item: regex::Regex::new(r"\b(b[0-9]+)-([0-9a-z]{6}(?:-[0-9a-z]{6})?)\b").unwrap(),
             seen: HashMap::new(),
+            items: HashMap::new(),
         }
     }
     fn mask(&mut self, s: &str) -> String {
+        let s = self.mask_ids(s);
+        let mut out = String::new();
+        let mut last = 0;
+        for c in self.item.captures_iter(&s) {
+            let m = c.get(0).unwrap();
+            out.push_str(&s[last..m.start()]);
+            let n = self.items.len() + 1;
+            let k = *self.items.entry(c[2].to_string()).or_insert(n);
+            out.push_str(&format!("{}-<item {k}>", &c[1]));
+            last = m.end();
+        }
+        out.push_str(&s[last..]);
+        out
+    }
+    fn mask_ids(&mut self, s: &str) -> String {
         let mut out = String::new();
         let mut last = 0;
         for m in self.re.find_iter(s) {
@@ -218,11 +240,43 @@ fn budget_texts_match_go() {
     check("budget");
 }
 
+/// IRORI_BLESS=1: rewrite the parts of the goldens this build's tool text
+/// changes, instead of failing on them (architecture.md §6.2).
+fn bless() -> bool {
+    std::env::var_os("IRORI_BLESS").is_some_and(|v| v == "1")
+}
+
 #[test]
 fn specs_and_instructions_match_go() {
-    let want = golden("specs.json");
     let h = new_harness();
-    for client in ["", "claude", "grok", "other"] {
+    const CLIENTS: [&str; 4] = ["", "claude", "grok", "other"];
+    if bless() {
+        // Only where the text differs, so a value in other escapes keeps
+        // its bytes. Go wrote this file with HTML escaping off.
+        let set = |v: &mut gocompat::json::Value, t: &str| {
+            if v.as_str() != Some(t) {
+                *v = gocompat::json::Value::string_with(t, false);
+            }
+        };
+        let p = manifest_dir().join("../../testdata/golden/tools/specs.json");
+        gocompat::json::rewrite_indented(&p, |v| {
+            let specs = v.get_mut("specs").expect("specs");
+            for client in CLIENTS {
+                let got = String::from_utf8(h.set.specs_json(client)).unwrap();
+                set(specs.get_mut(client).expect("client"), &got);
+            }
+            for (k, text) in [
+                ("instructions", tools::INSTRUCTIONS),
+                ("boardInstructions", tools::BOARD_INSTRUCTIONS),
+                ("askInstructions", tools::ASK_INSTRUCTIONS),
+            ] {
+                set(v.get_mut(k).expect(k), text);
+            }
+        })
+        .unwrap();
+    }
+    let want = golden("specs.json");
+    for client in CLIENTS {
         let got = String::from_utf8(h.set.specs_json(client)).unwrap();
         assert_eq!(
             got,

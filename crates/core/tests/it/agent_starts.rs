@@ -186,7 +186,7 @@ fn no_tool_changes_the_limit_and_a_forged_row_is_ignored() {
             !name.contains("limit") && !name.contains("setting"),
             "{name}"
         );
-        // agents_pause's `on` is Pause agents (card #665, decision 52), the
+        // agents_pause's `on` is Pause agents (card #665, decision 56), the
         // one switch agents may set; it never touches this limit.
         if name.starts_with("agent") && name != "agents_pause" {
             let props = s["inputSchema"]["properties"].as_object().unwrap();

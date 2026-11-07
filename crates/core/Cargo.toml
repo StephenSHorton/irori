@@ -18,6 +18,7 @@ irori-home.workspace = true
 irori-mesh.workspace = true
 irori-meshseam.workspace = true
 irori-net.workspace = true
+irori-call.workspace = true
 irori-pair.workspace = true
 iroh = "1.4.1"
 irori-identity.workspace = true
@@ -39,6 +40,11 @@ sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 zeroize.workspace = true
+
+# Screen share (#658): capture and the hardware encoder exist on the Mac and
+# the PC only; the phone views.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+irori-share.workspace = true
 
 [dev-dependencies]
 irori-toast.workspace = true

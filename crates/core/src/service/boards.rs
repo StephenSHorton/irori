@@ -1449,10 +1449,11 @@ impl Services {
                     // The other boards in this space (card #392), read from
                     // the log itself: a card on one shows its tag.
                     board_tag: Some({
-                        let st = Arc::downgrade(&st);
+                        let (st, vt) = (Arc::downgrade(&st), v.clone());
+                        let may = super::spaces::member_wrote;
                         Arc::new(move |board: &str| {
                             let st = st.upgrade()?;
-                            super::spaces::board_tag_in(&st, board)
+                            super::spaces::board_tag_in(&st, board, &may(&vt))
                         })
                     }),
                     no_cards: Some({
@@ -1464,6 +1465,13 @@ impl Services {
                         Arc::new(move || {
                             st.upgrade()
                                 .map_or_else(Vec::new, |st| super::spaces::board_tags_in(&st))
+                        })
+                    }),
+                    board_view: Some({
+                        let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
+                        Arc::new(move || {
+                            let st = st.upgrade()?;
+                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
                         })
                     }),
                     ..Default::default()
@@ -2132,17 +2140,24 @@ impl Services {
         }
         // None yet, or the person renamed themself (card #183), picked a
         // colour (card #385) or an avatar (card #393): the board shows the
-        // newest of each.
+        // newest of each. The GitHub login (card #625) once this device's gh
+        // has said it: members' merge desks show this person's PRs by it.
+        // A profile that has one keeps it, so two devices signed in to
+        // different accounts don't take turns rewriting it.
         let color = self.person_color.chosen();
         let avatar = self.person_avatar.chosen();
+        let had = v.profile_github_login(&me.id);
+        let login = self.own_github_login();
         if v.profile(&me.id)
             .is_none_or(|n| n != self.ident.current().name)
             || v.profile_color(&me.id) != color
             || v.profile_avatar(&me.id) != avatar
+            || (had.is_empty() && !login.is_empty())
         {
             let mut prof = self.ident.member_profile_row(epoch)?;
             prof.color = color;
             prof.avatar = avatar;
+            prof.github_login = if had.is_empty() { login } else { had };
             b.store.append("irori", kinds::MEMBER_PROFILE, &prof)?;
         }
         Ok(())

@@ -170,6 +170,10 @@ pub struct Membership {
     /// fold order: what [`Membership::owner_at`] reads.
     #[serde(skip)]
     pub owner_changes: Vec<(String, RowAt, bool)>,
+    /// The same for who was an active member: what
+    /// [`Membership::active_at`] reads.
+    #[serde(skip)]
+    pub active_changes: Vec<(String, RowAt, bool)>,
 }
 
 impl Membership {
@@ -192,6 +196,15 @@ impl Membership {
             .iter()
             .rfind(|(p, when, _)| p == person_id && when < at)
             .is_some_and(|(_, _, owner)| *owner)
+    }
+    /// Whether the person was an active member just before the row at
+    /// `at` in fold order: a board delete stands for someone who has since
+    /// left, and not for someone already gone (card #563).
+    pub fn active_at(&self, person_id: &str, at: &RowAt) -> bool {
+        self.active_changes
+            .iter()
+            .rfind(|(p, when, _)| p == person_id && when < at)
+            .is_some_and(|(_, _, active)| *active)
     }
 }
 
@@ -509,6 +522,27 @@ pub fn fold_membership(
         });
     };
     let mut owner_changes: Vec<(String, RowAt, bool)> = Vec::new();
+    let mut active_changes: Vec<(String, RowAt, bool)> = Vec::new();
+    let note_active = |people: &BTreeMap<String, BoardPerson>,
+                       changes: &mut Vec<(String, RowAt, bool)>,
+                       d: &MRow| {
+        let p = if d.kind == kinds::BOARD_CREATED {
+            &d.by
+        } else {
+            &d.who
+        };
+        if p.is_empty() {
+            return;
+        }
+        let was = changes
+            .iter()
+            .rfind(|(q, _, _)| q == p)
+            .is_some_and(|(_, _, a)| *a);
+        let now = people.get(p).is_some_and(|x| x.state == MEMBER_ACTIVE);
+        if was != now {
+            changes.push((p.clone(), d.at.clone(), now));
+        }
+    };
     // Records what the previous row did to its person's ownership, at that
     // row's place (the creator's own row names them in `by`).
     let note_owner = |people: &BTreeMap<String, BoardPerson>,
@@ -534,6 +568,7 @@ pub fn fold_membership(
     for (i, d) in ds.iter().enumerate() {
         if i > 0 {
             note_owner(&people, &mut owner_changes, &ds[i - 1]);
+            note_active(&people, &mut active_changes, &ds[i - 1]);
         }
         let gate = d.kind == kinds::BOARD_MEMBER_REMOVED || d.kind == kinds::BOARD_MEMBER_LEFT;
         if !gate && past(&d.at) {
@@ -705,11 +740,13 @@ pub fn fold_membership(
     }
     if let Some(d) = ds.last() {
         note_owner(&people, &mut owner_changes, d);
+        note_active(&people, &mut active_changes, d);
     }
     m.name = name;
     m.open_cards = open_cards;
     m.conflicts = conflicts;
     m.owner_changes = owner_changes;
+    m.active_changes = active_changes;
     m.members = order
         .iter()
         .filter_map(|id| people.get(id).cloned())

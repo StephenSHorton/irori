@@ -260,14 +260,12 @@ fn answer_leaves_blocker_open() {
     let res =
         r.w.answer(&t.id, &bl.id, -1, "Which one is cheaper to run?", true, &[])
             .unwrap();
-    let b = blocker(&res.card, &bl.id);
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    let card = r.w.card(&t.id).unwrap();
+    let b = blocker(&card, &bl.id);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     assert_eq!(b.state, BLOCKER_ANSWERED);
     assert!(b.resolved.is_none());
-    assert_eq!(
-        (res.card.summary.open_blockers, res.card.summary.waiting),
-        (0, 1)
-    );
+    assert_eq!((card.summary.open_blockers, card.summary.waiting), (0, 1));
     assert_eq!(b.sent_to.as_ref().unwrap().name, "alpha");
     assert_eq!(res.told.to, std::slice::from_ref(&r.key_a));
     assert_eq!(res.told.mode, "wake");
@@ -368,16 +366,20 @@ fn answer_resolves_when_nobody_can_act() {
     let b1 = raise(&r, &ended, &t.id, "Ship it?", &[]);
     let b2 = raise(&r, &ended, &t.id, "Which region?", &[]);
     let res = r.w.answer(&t.id, &b1.id, -1, "yes", true, &[]).unwrap();
-    let b = blocker(&res.card, &b1.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved, "nobody runs for it: resolved in place");
+    let b = blocker(&card, &b1.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!((rs.answer.as_str(), rs.note.as_str()), ("yes", ""));
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     let res = r.w.answer(&t.id, &b2.id, -1, "eu-west", true, &[]).unwrap();
-    let b = blocker(&res.card, &b2.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved);
+    let b = blocker(&card, &b2.id);
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(b.resolved.as_ref().unwrap().answer, "eu-west");
-    assert_eq!(res.card.summary.state, coord::WORKING);
+    assert_eq!(card.summary.state, coord::WORKING);
 
     // The person's own item on a card a live agent holds.
     let t2 = another_held_task(&r);
@@ -385,11 +387,13 @@ fn answer_resolves_when_nobody_can_act() {
     let res =
         r.w.answer(&t2.id, &mine.id, -1, "checked", false, &[])
             .unwrap();
-    let b = blocker(&res.card, &mine.id);
+    let card = r.w.card(&t2.id).unwrap();
+    assert!(res.resolved, "the person's own item resolves");
+    let b = blocker(&card, &mine.id);
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(b.resolved.as_ref().unwrap().answer, "checked");
-    assert_ne!(res.card.summary.state, coord::BLOCKED);
-    assert_eq!(res.card.summary.waiting, 0);
+    assert_ne!(card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.waiting, 0);
     assert_eq!(r.w.decide_count(), 0);
 }
 
@@ -418,12 +422,13 @@ fn resolve_blocker_by_person() {
     r.w.answer(&t.id, &b2.id, -1, "whatever is free", false, &[])
         .unwrap();
     let res = r.w.resolve_blocker(&t.id, &b1.id, "", &[]).unwrap();
-    let b = blocker(&res.card, &b1.id);
+    let card = r.w.card(&t.id).unwrap();
+    let b = blocker(&card, &b1.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!((rs.answer.as_str(), rs.option), ("postgres", 0));
     assert_eq!((rs.note.as_str(), rs.by.name.as_str()), ("", "You"));
-    assert_eq!(res.card.summary.state, coord::BLOCKED);
+    assert_eq!(card.summary.state, coord::BLOCKED);
     assert_eq!(res.told.mode, "next_turn");
 
     let res =
@@ -434,12 +439,14 @@ fn resolve_blocker_by_person() {
             &[],
         )
         .unwrap();
-    let b = blocker(&res.card, &b2.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(res.resolved);
+    let b = blocker(&card, &b2.id);
     let rs = b.resolved.as_ref().unwrap();
     assert_eq!(b.state, BLOCKER_RESOLVED);
     assert_eq!(rs.answer, "whatever is free");
     assert_eq!(rs.note, "I'll pick one myself later.");
-    assert_eq!(res.card.summary.state, coord::WORKING);
+    assert_eq!(card.summary.state, coord::WORKING);
     let twice = r.w.resolve_blocker(&t.id, &b2.id, "", &[]).unwrap_err();
     assert!(
         twice.starts_with(coord::ErrorKind::BadState.text()),
@@ -600,7 +607,9 @@ fn revised_blocker_shows_in_its_thread() {
     assert!(raw.contains("\"revised\":true"), "{raw}");
     // The pick is from the revised options.
     let res = r.w.answer(&t.id, &bl.id, 0, "", true, &[]).unwrap();
-    let b = blocker(&res.card, &bl.id);
+    let card = r.w.card(&t.id).unwrap();
+    assert!(!res.resolved, "answered: it waits on the agent");
+    let b = blocker(&card, &bl.id);
     assert_eq!(b.state, BLOCKER_ANSWERED);
     assert_eq!(b.thread.last().unwrap().text, "Yes");
 }
@@ -833,6 +842,45 @@ fn a_thread_from_the_header_box() {
         done.cards.iter().all(|c| c.id != id),
         "not in Closed either"
     );
+}
+
+/// Card #631: a thread an agent opened shows as that agent's, waiting on
+/// the person (answered, its words last), never as told to its opener; the
+/// person's reply goes to it, and they resolve it.
+#[test]
+fn a_thread_an_agent_opened_shows_as_its() {
+    let r = Rig::new();
+    let (t, _) =
+        r.w.core
+            .coord()
+            .post_agent_thread(
+                &r.key_a,
+                coord::NewAsk {
+                    text: "Should the beta ship today?".into(),
+                    thread: true,
+                    ..coord::NewAsk::default()
+                },
+            )
+            .unwrap();
+    let ts = r.w.threads("");
+    assert_eq!(ts.len(), 1);
+    let s = &ts[0];
+    assert_eq!(
+        s.opened_by.as_ref().map(|a| a.key.as_str()),
+        Some(r.key_a.as_str())
+    );
+    assert_eq!(s.state, "answered", "waits on the person");
+    assert!(s.told.is_empty(), "{:?}", s.told);
+    assert_eq!(
+        s.last_by.as_ref().map(|a| a.key.as_str()),
+        Some(r.key_a.as_str())
+    );
+    assert_eq!(s.last_text, "Should the beta ship today?");
+    assert!(s.no_agent.is_empty() && s.starting.is_empty(), "{s:?}");
+    let c = r.w.comment(&t.id, "Yes, today.", "wake", &[], &[]).unwrap();
+    assert_eq!(c.told.to, vec![r.key_a.clone()], "its opener hears it");
+    r.w.resolve_thread(&t.id).unwrap();
+    assert_eq!(r.w.threads("")[0].state, "resolved");
 }
 
 /// Card #124: files go with a thread, a reply in it, and a new card; the
@@ -1361,6 +1409,62 @@ fn a_wait_on_a_card_is_never_a_question() {
 /// Card #481: #392 waited on #396, #396 on #394 and #394 on #392. Each
 /// card's summary names the same loop, none of it counts as a decision,
 /// and it's gone once one of the cards is done.
+/// A wait on a card from another device of the person's, which couldn't
+/// see the rest of the loop: this device refuses one itself (card #570).
+fn wait_from_afar(r: &Rig, id: &str, on: &coord::Task) {
+    let core = &r.w.core;
+    let now = || gocompat::time::GoTime::from_system(std::time::SystemTime::now());
+    let dev = "dev-far";
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+    let add = core
+        .identity()
+        .cert_for(
+            dev,
+            &hex::encode(key.verifying_key().to_bytes()),
+            "laptop",
+            irori_identity::ROLE_DESKTOP,
+            now(),
+        )
+        .unwrap();
+    core.store()
+        .append("irori", store::kinds::PERSON_DEVICE_ADDED, &add)
+        .unwrap();
+
+    let bb = coord::BlockedBy {
+        kind: coord::BLOCKED_ON_TASK.into(),
+        reference: on.id.clone(),
+    };
+    let by = format!("user:{dev}");
+    let row = coord::rows::TaskStateRow {
+        task_id: id.into(),
+        state: coord::BLOCKED.into(),
+        reason: "after it".into(),
+        blocked_by: Some(bb.clone()),
+        blocker: Some(coord::rows::BlockerRow {
+            id: "b1".into(),
+            question: "after it".into(),
+            on: Some(bb),
+            ..Default::default()
+        }),
+        by: by.clone(),
+        at: now(),
+        ..Default::default()
+    };
+    let mut ev = store::Event {
+        device_id: dev.into(),
+        seq: 1,
+        hlc: store::Timestamp::from_unix_ms(unix_ms() + 1),
+        actor: by,
+        kind: store::kinds::TASK_STATUS.into(),
+        payload: gocompat::json::marshal(&row).unwrap(),
+        sig: Vec::new(),
+    };
+    use ed25519_dalek::Signer as _;
+    ev.sig = key.sign(&store::signing_bytes(&ev)).to_bytes().to_vec();
+    core.store().insert(&ev).unwrap();
+    core.coord().handle(&ev).unwrap();
+}
+
 #[test]
 fn cards_that_wait_on_each_other_name_the_loop() {
     let r = Rig::new();
@@ -1395,7 +1499,9 @@ fn cards_that_wait_on_each_other_name_the_loop() {
     wait_on(&t4.id, &t8.id);
     wait_on(&t8.id, &t6.id);
     assert!(summary(&t4.id).wait_loop.is_empty());
-    wait_on(&t6.id, &t4.id);
+    // This device refuses the closing wait, so another device that
+    // couldn't see the rest writes it (card #570).
+    wait_from_afar(&r, &t6.id, &t4);
 
     let ids =
         |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
@@ -1406,6 +1512,8 @@ fn cards_that_wait_on_each_other_name_the_loop() {
         let s = summary(&t.id);
         assert_eq!((s.open_blockers, s.waiting_on), (0, 1), "{}", t.title);
         assert!(s.wait_stuck.is_none());
+        // Card #570: a loop is named as a loop, never shown as an order.
+        assert!(s.order.is_none(), "{}: {:?}", t.title, s.order);
     }
     let s = summary(&t4.id);
     let named = s.wait_loop.iter().find(|c| c.id == t6.id).unwrap();
@@ -1421,6 +1529,80 @@ fn cards_that_wait_on_each_other_name_the_loop() {
         .unwrap();
     for t in [&t4, &t8] {
         assert!(ids(&t.id).is_empty(), "{}", t.title);
+    }
+}
+
+/// Card #570, finding 5: a loop through a parent (K is P's subtask and
+/// after X, and X waits on P) is named on every card of it.
+#[test]
+fn a_loop_through_a_parent_is_named() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let summary = |id: &str| r.w.cards().into_iter().find(|c| c.id == id).unwrap();
+    let card = |title: &str| {
+        co.create_task(
+            &me(&r),
+            coord::NewTask {
+                title: title.into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let (p, x) = (card("Parent"), card("X"));
+    let (_, kids) = co
+        .split(
+            &me(&r),
+            &p.id,
+            vec![coord::NewSubtask {
+                title: "K".into(),
+                ..Default::default()
+            }],
+            Vec::new(),
+        )
+        .unwrap();
+    let k = &kids[0];
+    co.add_after(&me(&r), &k.id, std::slice::from_ref(&x.id))
+        .unwrap();
+    assert!(summary(&k.id).wait_loop.is_empty());
+    wait_from_afar(&r, &x.id, &p);
+    let ids =
+        |id: &str| -> Vec<String> { summary(id).wait_loop.iter().map(|c| c.id.clone()).collect() };
+    let ring = ids(&x.id);
+    assert_eq!(ring.len(), 3, "{ring:?}");
+    for id in [&p.id, &k.id, &x.id] {
+        assert_eq!(ids(id), ring);
+        assert!(summary(id).wait_stuck.is_none());
+    }
+}
+
+/// Card #570, finding 5: a loop of more than 64 cards is still a loop.
+#[test]
+fn a_loop_of_70_cards_is_named() {
+    let r = Rig::new();
+    let co = r.w.core.coord();
+    let ts: Vec<coord::Task> = (0..70)
+        .map(|i| {
+            co.create_task(
+                &me(&r),
+                coord::NewTask {
+                    title: format!("c{i}"),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        })
+        .collect();
+    for i in 1..70 {
+        co.add_after(&me(&r), &ts[i].id, std::slice::from_ref(&ts[i - 1].id))
+            .unwrap();
+    }
+    wait_from_afar(&r, &ts[0].id, &ts[69]);
+    let cards = r.w.cards();
+    for i in [0, 30, 69] {
+        let s = cards.iter().find(|c| c.id == ts[i].id).unwrap();
+        assert_eq!(s.wait_loop.len(), 70, "c{i}");
+        assert!(s.wait_stuck.is_none(), "c{i}");
     }
 }
 
@@ -1597,7 +1779,7 @@ fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
     let ws: Vec<&str> = d.summary.watching.iter().map(|w| w.key.as_str()).collect();
     assert_eq!(ws, [r.key_b.as_str()]);
 
-    let res =
+    let _ =
         r.w.answer(
             &t.id,
             &check,
@@ -1607,9 +1789,10 @@ fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
             &[],
         )
         .unwrap();
+    let card = r.w.card(&t.id).unwrap();
     // Not resolved in place: the card is back on the Board, and the
     // person's words are on the check's thread for the next agent's brief.
-    assert_eq!(res.card.summary.state, coord::SUBMITTED);
+    assert_eq!(card.summary.state, coord::SUBMITTED);
     let cs = co.comments(&t.id).unwrap_or_default();
     assert!(
         cs.iter()

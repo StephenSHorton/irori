@@ -391,6 +391,54 @@ fn renaming_a_board_in_a_space_from_the_window() {
     assert!(e.contains("no board"), "{e}");
 }
 
+/// Card #563: Move and Delete from the window. The grid shows each card on
+/// its new board, and deleting a board leaves every card on the first.
+#[test]
+fn moving_a_card_and_deleting_a_board_from_the_window() {
+    use irori_window::new_card::NewCardInput;
+    let r = Rig::new();
+    let w = &r.w;
+    let wind = w.boards_create("Wind", "wind").unwrap();
+    let id = wind.board_id;
+    let s = w.boards_add_to_space(&id, "Netcode", "net").unwrap();
+    let net = s.boards[1].board_id.clone();
+    let make = |title: &str, space_board: &str| {
+        w.create_card(NewCardInput {
+            title: title.into(),
+            board: id.clone(),
+            space_board: space_board.into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .task
+    };
+    let a = make("sails", "");
+    let b = make("rollback", &net);
+    let t = w.move_card(&a.id, &net).unwrap();
+    assert_eq!(t.short_ref(), "net#2");
+    let grid = w.cards();
+    let c = grid.iter().find(|c| c.id == a.id).unwrap();
+    assert_eq!(
+        (c.tag.as_str(), c.space_board.as_str()),
+        ("net", net.as_str())
+    );
+
+    let t = w.move_card(&a.id, &id).unwrap();
+    assert_eq!(t.short_ref(), "wind#2");
+    w.move_card(&a.id, &net).unwrap();
+
+    let e = w.boards_delete_in_space(&id, &id).unwrap_err();
+    assert!(e.contains("first board"), "{e}");
+    let s = w.boards_delete_in_space(&id, &net).unwrap();
+    assert_eq!(s.boards.len(), 1);
+    let grid = w.cards();
+    for card in [&a, &b] {
+        let c = grid.iter().find(|c| c.id == card.id).unwrap();
+        assert_eq!(c.tag, "wind", "no card lost: {c:?}");
+        assert_eq!(c.space_board, id);
+    }
+}
+
 /// A Rig on loopback iroh with no LAN lookup (the invite tests).
 /// Personal from the window (card #558): its boards listed, added and
 /// renamed; a card made on one shows its tag and board, numbered from 1,
@@ -1178,7 +1226,9 @@ fn a_thread_from_a_space_channel_lands_in_the_space() {
     let ch = w
         .talk_channel_create("general", None, Some(&b.board_id))
         .unwrap();
-    let p = w.talk_post(&ch, "main is red", &[], true, None).unwrap();
+    let p = w
+        .talk_post(&ch, "main is red", &[], true, None, &[])
+        .unwrap();
 
     let res = w.talk_thread_from(&ch, &p, "Why is main red?").unwrap();
     let id = res.task.id.clone();
@@ -1215,7 +1265,9 @@ fn a_private_thread_from_a_space_channel_leaves_no_pointer() {
     let ch = w
         .talk_channel_create("general", None, Some(&b.board_id))
         .unwrap();
-    let p = w.talk_post(&ch, "main is red", &[], true, None).unwrap();
+    let p = w
+        .talk_post(&ch, "main is red", &[], true, None, &[])
+        .unwrap();
     w.boards_set_threads(&b.board_id, "private").unwrap();
 
     let res = w.talk_thread_from(&ch, &p, "Between us: why?").unwrap();
@@ -1323,4 +1375,39 @@ fn boards_pin_to_the_sidebar() {
     let cards = w.cards();
     assert_eq!(cards.len(), 1);
     assert!(cards[0].pinned);
+}
+
+/// Card #643: a picture posted in a space's channel is offered in the
+/// space's log with the post and the window serves it; once the person
+/// leaves the space, its posts go and the file no longer resolves.
+#[test]
+fn a_space_channel_posts_file_goes_with_the_space() {
+    use base64::Engine as _;
+    let r = Rig::new();
+    let w = &r.w;
+    let b = w.boards_create("MLG", "mlg").unwrap();
+    let ch = w
+        .talk_channel_create("general", None, Some(&b.board_id))
+        .unwrap();
+    let up = irori_window::board::UploadFile {
+        name: "shot.png".into(),
+        data: base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\nspace"),
+    };
+    let id = w.talk_post(&ch, "", &[], true, None, &[up]).unwrap();
+    let ps = w.talk_posts(&ch, None, 50).unwrap();
+    let p = ps.iter().find(|p| p.post_id == id).unwrap();
+    assert_eq!(p.attachments.len(), 1);
+    let sha = p.attachments[0].sha256.clone();
+    let st = w.core.board_store(&b.board_id).unwrap();
+    assert_eq!(
+        mesh::files::holders_in(&st, &sha).unwrap(),
+        vec![w.core.device_id().to_string()],
+        "offered in the space's log"
+    );
+    assert!(w.attachment_info(&sha).is_ok());
+
+    w.boards_leave(&b.board_id).unwrap();
+    assert!(w.core.talk().channel(&ch).is_none(), "gone with the space");
+    let e = w.attachment_info(&sha).unwrap_err();
+    assert_eq!(e, irori_window::attachments::NO_ATTACHMENT);
 }

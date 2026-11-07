@@ -7,15 +7,87 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*) check_pc=1 ;;
+  *) check_pc="" ;;
+esac
+
+# The PC: voice builds whisper.cpp, which needs cmake and libclang
+# (docs/releasing.md, Build tools). Without them the build fails deep in
+# whisper-rs-sys after minutes; stop now and say what to set (card #609).
+# The Mac has both from Homebrew and Xcode.
+if [ -n "$check_pc" ]; then
+  check_missing=""
+  if [ -n "${CMAKE:-}" ]; then
+    # cmake-rs runs $CMAKE as given: a path, or a name on PATH.
+    [ -f "$CMAKE" ] || command -v "$CMAKE" >/dev/null 2>&1 ||
+      check_missing="$check_missing CMAKE (no file or command $CMAKE)"
+  elif ! command -v cmake >/dev/null 2>&1; then
+    check_missing="$check_missing CMAKE"
+  fi
+  # Where clang-sys looks: LIBCLANG_PATH (the dll or its folder), else
+  # llvm-config, else PATH. Its Windows names are libclang.dll and clang.dll.
+  check_dll=""
+  if [ -n "${LIBCLANG_PATH:-}" ]; then
+    for f in "$LIBCLANG_PATH" "$LIBCLANG_PATH/libclang.dll" "$LIBCLANG_PATH/clang.dll"; do
+      if [ -f "$f" ]; then check_dll=1; fi
+    done
+    [ -n "$check_dll" ] ||
+      check_missing="$check_missing LIBCLANG_PATH (no libclang.dll in $LIBCLANG_PATH)"
+  elif ! command -v llvm-config >/dev/null 2>&1; then
+    check_ifs=$IFS
+    IFS=:
+    for d in $PATH; do
+      if [ -f "$d/libclang.dll" ] || [ -f "$d/clang.dll" ]; then check_dll=1; fi
+    done
+    IFS=$check_ifs
+    [ -n "$check_dll" ] || check_missing="$check_missing LIBCLANG_PATH"
+  fi
+  if [ -n "$check_missing" ]; then
+    cat >&2 <<EOF
+check: voice builds whisper.cpp, which needs cmake and libclang. Not set:$check_missing
+Set them first (docs/releasing.md, Build tools):
+  python -m pip install --user cmake libclang
+  export CMAKE="\$HOME/AppData/Roaming/Python/Python312/Scripts/cmake.exe"
+  export LIBCLANG_PATH="\$(python -c "import clang,os;print(os.path.join(os.path.dirname(clang.__file__),'native'))")"
+EOF
+    exit 1
+  fi
+fi
+
 # At most CHECK_SLOTS (default 2) runs build at once on this device; the
 # rest wait their turn (card #437). Without Irori it does nothing.
 . scripts/check-slot.sh
 # temp_clean: a test run may leave nothing in its temp folder (card #556).
 . scripts/check-temp.sh
 
+# This run can be stopped alone, by scripts/check-stop.sh from this
+# worktree (card #609): `pkill -f check.sh` would stop every agent's run.
+# The state file is in this worktree's git dir, so each worktree has one.
+check_state=$(git rev-parse --git-path check.pid 2>/dev/null || true)
+if [ -n "$check_state" ]; then
+  printf 'pid=%s\nwinpid=%s\n' "$$" "$(cat "/proc/$$/winpid" 2>/dev/null || true)" >"$check_state"
+fi
+echo "check: pid $$, stop with \`sh scripts/check-stop.sh\` (this worktree's run only)"
+check_exit() {
+  slot_release
+  # A run stopped inside temp_clean never reaches its rm.
+  if [ -n "${tc_dir:-}" ]; then rm -rf "$tc_dir"; fi
+  if [ -n "$check_state" ] && grep -qx "pid=$$" "$check_state" 2>/dev/null; then
+    rm -f "$check_state"
+  fi
+}
+trap 'check_exit' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+slot_take
+
 (
   cd frontend
   bun install --frozen-lockfile
+  # Same files as `bun run format` (card #615). end-of-line auto: a Windows
+  # checkout (core.autocrlf) has CRLF, and git stores LF either way.
+  bunx prettier --check --end-of-line auto "**/*.{ts,tsx}"
   # src/gen/models.ts follows src/gen/bindings.ts (cargo xtask bindings).
   bun scripts/gen-models.ts --check
   bun run build
@@ -24,12 +96,29 @@ cd "$(dirname "$0")/.."
   bun test
 )
 sh scripts/one-test-binary.sh
-cargo fmt --all --check
+if [ -n "$check_pc" ]; then
+  # cargo fmt hands rustfmt every file of a crate with its full path in one
+  # command line, and from a deep worktree (~/.claude/jobs/...) that passes
+  # Windows' 32K limit: os error 206. Batches of 40 relative paths fit.
+  # New files count, files deleted but not yet staged don't (as cargo fmt).
+  git ls-files --cached --others --exclude-standard -- '*.rs' ':!vendor' ':!.claude' |
+    while IFS= read -r f; do if [ -f "$f" ]; then printf '%s\n' "$f"; fi; done |
+    xargs -n 40 rustfmt --edition 2024 --check
+else
+  cargo fmt --all --check
+fi
 cargo clippy --workspace --all-targets -- -D warnings
-temp_clean cargo test --workspace
+# Build before the guard: rustc and the linker use the temp folder too and
+# can leave a file there (.tmpXXXXXXlibclang_rt.osx.a, card #607).
+cargo test --workspace --no-run
+# Every crate's tests run even when one fails, so one failure can't hide
+# another (card #609); the run still fails at the end.
+temp_clean cargo test --workspace --no-fail-fast
 # frontend/src/gen/bindings.ts is what the window's commands generate (D10).
 cargo xtask bindings --check
 # Timing-sensitive, as in Go: capture's tests once more on one thread.
+# -p builds with its own features, so it gets its own build first (#607).
+cargo test -p irori-capture --no-run
 temp_clean cargo test -p irori-capture -- --test-threads=1
 sh scripts/no-third-party.sh
 

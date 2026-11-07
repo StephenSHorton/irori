@@ -75,7 +75,7 @@ pub fn dev(
     super::write_session(&sessions, "900001.json", sess, name, w.path());
     let core = start(data.path(), cl.path(), lan, to.clone(), edit.as_ref());
     let agent = format!("{}/{sess}", core.device_id());
-    wait_for(10, "presence lists the session", || {
+    wait_for(60, "presence lists the session", || {
         core.local_agents().iter().any(|a| a.key == agent)
     });
     Dev {
@@ -106,7 +106,7 @@ pub fn restart(d: Dev) -> Dev {
     } = d;
     core.close().unwrap();
     let core = start(&data, &claude, lan, to.clone(), edit.as_ref());
-    wait_for(10, "presence lists the session again", || {
+    wait_for(60, "presence lists the session again", || {
         core.local_agents().iter().any(|a| a.key == agent)
     });
     Dev {

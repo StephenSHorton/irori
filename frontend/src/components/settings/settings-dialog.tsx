@@ -87,7 +87,7 @@ export const settingsSections: {
     id: "desks",
     label: "Merge desks",
     icon: GitMergeIcon,
-    hint: "One per repo: open PRs from GitHub, merged in turn by one agent.",
+    hint: "One per repo: your open PRs from GitHub, for review. It never merges.",
   },
   {
     id: "maintenance",
@@ -379,9 +379,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
             />
           </div>
         )}
-        {keep.error && (
-          <p className="text-xs text-destructive">{keep.error}</p>
-        )}
+        {keep.error && <p className="text-xs text-destructive">{keep.error}</p>}
       </div>
       {version && (
         <div className="flex items-center justify-between gap-3 border-t border-border pt-3">

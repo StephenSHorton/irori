@@ -859,3 +859,101 @@ fn board_pin_refuses_a_second_key() {
         .is_err()
     );
 }
+
+/// A member.profile signed by `p`'s key, as its device writes it.
+fn signed_profile(p: &BPerson, name: &str, login: &str) -> MemberProfile {
+    let mut prof = MemberProfile {
+        person_id: p.pid.clone(),
+        name: name.into(),
+        person_epoch: 1,
+        github_login: login.into(),
+        ..Default::default()
+    };
+    prof.person_sig = sign_hex(&p.keys[&1], &prof.body());
+    prof
+}
+
+/// Card #625: member.profile carries the person's GitHub login. The newest
+/// non-empty one counts: a device that can't learn it (an older build, a
+/// phone) writes a profile without it, which never blanks it, and an old
+/// row with no such field still decodes and counts.
+#[test]
+fn board_profile_keeps_the_newest_github_login() {
+    let mut f = BFold::new();
+    let s = f.person("stephen", "pc");
+    let root = f.cert(&s, 1, "pc", "pc");
+    f.feed(&[&root]);
+    assert_eq!(f.v.profile_github_login(&s.pid), "", "no profile yet");
+
+    let p = f.row(
+        "pc",
+        "irori",
+        kinds::MEMBER_PROFILE,
+        &signed_profile(&s, "Stephen", " StephenSHorton "),
+    );
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile(&s.pid).as_deref(), Some("Stephen"));
+    assert_eq!(f.v.profile_github_login(&s.pid), "StephenSHorton");
+
+    // A later profile with no login keeps it, though its name counts.
+    let p = f.row(
+        "pc",
+        "irori",
+        kinds::MEMBER_PROFILE,
+        &signed_profile(&s, "Steve", ""),
+    );
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile(&s.pid).as_deref(), Some("Steve"));
+    assert_eq!(f.v.profile_github_login(&s.pid), "StephenSHorton");
+
+    // An old-shape row, written before the field: decodes, counts, keeps it.
+    let old = signed_profile(&s, "Old build", "");
+    let raw = serde_json::json!({
+        "personId": old.person_id,
+        "name": old.name,
+        "personEpoch": 1,
+        "personSig": old.person_sig,
+    });
+    let p = f.row("pc", "irori", kinds::MEMBER_PROFILE, &raw);
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile(&s.pid).as_deref(), Some("Old build"));
+    assert_eq!(f.v.profile_github_login(&s.pid), "StephenSHorton");
+
+    // A later non-empty login replaces it.
+    let p = f.row(
+        "pc",
+        "irori",
+        kinds::MEMBER_PROFILE,
+        &signed_profile(&s, "Stephen", "stephen-alt"),
+    );
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile_github_login(&s.pid), "stephen-alt");
+
+    // A profile the person didn't sign counts for nothing.
+    let mut forged = signed_profile(&s, "Stephen", "someone-else");
+    forged.person_sig = sign_hex(&rand_key(), &forged.body());
+    let p = f.row("pc", "irori", kinds::MEMBER_PROFILE, &forged);
+    f.feed(&[&p]);
+    assert_eq!(f.v.profile_github_login(&s.pid), "stephen-alt");
+}
+
+/// The login is outside personSig, as the colour and avatar are: the
+/// field is omitted when empty, so the row reads as before.
+#[test]
+fn a_profile_with_no_github_login_serializes_as_before() {
+    let p = MemberProfile {
+        person_id: "p".into(),
+        name: "n".into(),
+        person_epoch: 1,
+        ..Default::default()
+    };
+    let v: serde_json::Value = serde_json::from_slice(&to_json(&p)).unwrap();
+    assert!(v.get("githubLogin").is_none(), "{v}");
+    let p = MemberProfile {
+        github_login: "you".into(),
+        ..p
+    };
+    let v: serde_json::Value = serde_json::from_slice(&to_json(&p)).unwrap();
+    assert_eq!(v["githubLogin"], "you");
+    assert_eq!(p.body().person_id, "p");
+}

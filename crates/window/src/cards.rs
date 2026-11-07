@@ -27,6 +27,9 @@ pub const MAX_THREAD_VIEW: usize = 300;
 /// The blocker id of an input_required card's question.
 pub const NOTE_ITEM: &str = "note";
 const NOTE_QUESTION: &str = "The agent on it is waiting on your input.";
+/// What a helper's finished part waits on while Irori starts its card's
+/// next lead (card #557): "Waiting on its next lead".
+const NEXT_LEAD: &str = "its next lead";
 /// How recent agents' messages to each other on a card must be for its
 /// tile to show them talking (card #22).
 pub const TALK_WINDOW_MS: i64 = 5 * 60 * 1000;
@@ -280,16 +283,10 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_question: String,
-    /// The card the first wait is on, by id (Home counts the cards that
-    /// wait on a red main's card by it, card #436).
+    /// The card the first wait is on, by id.
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub wait_task: String,
-    /// A "main is red" card's failing test (card #436): Home leads with
-    /// it while it is open.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    #[specta(optional)]
-    pub main_red: String,
     /// Where the first wait's chain of cards ends at the person (card
     /// #347): "your answer on #12". A PR never waits on the person (card
     /// #471): agents merge it, or another member's agents approve it.
@@ -434,6 +431,15 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub owner: String,
+    /// The card is held back as Not yet (card #570): why, and what brings
+    /// it back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub later: Option<crate::later::CardLater>,
+    /// The run of cards it is in, each after the one before (card #570).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub order: Option<crate::later::CardOrder>,
 }
 
 /// A card's first wait whose agent is gone, on a card nobody holds (card
@@ -1260,6 +1266,24 @@ impl People {
         r
     }
 
+    /// Who `key` is, by name.
+    pub(crate) fn name_of(&self, key: &str) -> String {
+        self.ref_(key).name
+    }
+
+    /// This device's id.
+    pub(crate) fn self_id(&self) -> &str {
+        &self.self_id
+    }
+
+    /// Device `id`'s name, when this device knows one.
+    pub(crate) fn device_name(&self, id: &str) -> Option<&str> {
+        self.names
+            .get(id)
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+    }
+
     fn ref_plain(&self, key: &str) -> AgentRef {
         // A message bridged from a shared board comes from
         // board:<boardId>/<cardId> or board:<boardId>/person:<personId>
@@ -1481,6 +1505,27 @@ fn wait_on_of(co: &coord::Coord, p: &People, on: &coord::BlockedBy) -> CardWaitO
     w
 }
 
+/// Who a helper part's "Part done" waits on (card #557): the lead on its
+/// card now, or "its next lead" while Irori starts one, not the agent that
+/// led when it was asked. None when no lead is on it or coming: the wait
+/// then names what it was raised on.
+fn part_lead_name(
+    co: &coord::Coord,
+    p: &People,
+    t: &Task,
+    question: &str,
+    on: &coord::BlockedBy,
+) -> Option<String> {
+    if on.kind != coord::BLOCKED_ON_AGENT || question != coord::PART_QUESTION {
+        return None;
+    }
+    let lead = co.part_lead(&t.id)?;
+    Some(match lead.first() {
+        Some(k) => p.ref_(k).name,
+        None => NEXT_LEAD.into(),
+    })
+}
+
 /// A version wait in words: "Irori 0.11.0" for the pill, and with its
 /// devices for the wait row and the tooltip, "Irori 0.11.0 on
 /// Stephens-MacBook-Pro-2.local and DESKTOP-STEPHEN" (card #485). A device
@@ -1620,7 +1665,6 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         pinned: t.pinned,
         pin_rank: t.pin_rank,
         paused: t.paused,
-        main_red: coord::main_red_test(t).unwrap_or_default().to_string(),
         cant_start: t
             .spawn_request()
             .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
@@ -1769,6 +1813,7 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
     }
     s.ask = card_ask(t, p, None);
     s.search_text = search_text(t, p);
+    s.later = crate::later::later_of(t, p);
     if let Some(ret) = &t.returned
         && t.holders.is_empty()
     {
@@ -2010,6 +2055,8 @@ impl Window {
         };
         let mut out = Vec::with_capacity(tasks.len());
         let placed = co.positions();
+        let loops = co.order_loops();
+        let follows = crate::later::Followers::of(tasks.iter());
         // Threads (card #116) live in their own panel, not the grid.
         for t in tasks.iter().filter(|t| !crate::threads::is_thread(t)) {
             let mut s = card_summary(t, &p);
@@ -2023,7 +2070,7 @@ impl Window {
             }
             s.stale = s.subtasks == 0 && stale(&s, &last, now);
             s.talking = talking(&co.comments(&t.id).unwrap_or_default(), &p, now);
-            family_of(co, &p, t, &mut s);
+            family_of(co, (&loops, &follows), &p, t, &mut s);
             out.push(s);
         }
         // Every board's: "All" includes them (v0.5 §8).
@@ -2316,10 +2363,13 @@ impl Window {
                 continue;
             }
             let placed = co.positions();
-            for t in co.list_tasks(&coord::TaskFilter {
+            let loops = co.order_loops();
+            let open = co.list_tasks(&coord::TaskFilter {
                 open: true,
                 ..Default::default()
-            }) {
+            });
+            let follows = crate::later::Followers::of(open.iter());
+            for t in open {
                 // A board's threads show in its Threads panel (card #134).
                 if t.withdrawn || crate::threads::is_thread(&t) {
                     continue;
@@ -2363,7 +2413,7 @@ impl Window {
                     cs.pinned = true;
                     cs.pin_rank = *r;
                 }
-                family_of(&co, p, &t, &mut cs);
+                family_of(&co, (&loops, &follows), p, &t, &mut cs);
                 out.push(cs);
                 tasks.push(t);
             }
@@ -2429,7 +2479,8 @@ impl Window {
             let board = d.summary.board.clone();
             self.board_owner(&board, raw, &mut d.summary);
         }
-        family_of(&co, &p, &t, &mut d.summary);
+        let follows = crate::later::Followers::read(&co);
+        family_of(&co, (&co.order_loops(), &follows), &p, &t, &mut d.summary);
         for kid in &t.subtasks {
             let Some(mut k) = co.get_task(kid) else {
                 continue;
@@ -2543,7 +2594,14 @@ impl Window {
                             && bl.options.is_empty()
                             && (bl.status.is_empty() || bl.status == coord::BLOCKER_OPEN)
                     })
-                    .map(|on| wait_on_of(&co, &p, on)),
+                    .map(|on| {
+                        let mut w = wait_on_of(&co, &p, on);
+                        if let Some(lead) = part_lead_name(&co, &p, &t, &bl.question, on) {
+                            w.gone = false;
+                            w.label = lead;
+                        }
+                        w
+                    }),
                 gone_agent: stranded
                     .iter()
                     .find(|s| s.blocker_id == bl.id)
@@ -3178,27 +3236,53 @@ fn wait_you(co: &coord::Coord, first: &str) -> String {
 
 /// A card summary's family fields (its parent, the subtask a decision
 /// waits on), from the log the card lives in (card #161: a board's for a
-/// board card).
-fn family_of(co: &coord::Coord, p: &People, t: &Task, s: &mut CardSummary) {
+/// board card). `loops` is [`coord::Coord::order_loops`], read once for
+/// the whole list.
+fn family_of(
+    co: &coord::Coord,
+    (loops, follows): (&coord::OrderLoops, &crate::later::Followers),
+    p: &People,
+    t: &Task,
+    s: &mut CardSummary,
+) {
+    crate::later::fill_later_card(co, s);
+    s.order = crate::later::order_of(co, follows, loops, t);
     s.wait_pr = wait_pr(co, t);
     s.merge_pr = merge_pr(co, t);
     s.gone_wait = gone_wait(co, p, t);
     s.wait_you = wait_you(co, &s.wait_task);
-    if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
-        let card = |id: &str| {
-            co.get_task(id).map(|k| CardRef {
-                id: k.id.clone(),
-                short: k.short.clone(),
-                tag: k.tag.clone(),
-                title: k.title.clone(),
-            })
-        };
+    // A helper's "Part done" waits on its card's lead, not on the agent
+    // that led when it was asked (card #557): a gone lead's part waits on
+    // the one on the card now, or the next one Irori starts.
+    let first_wait = t
+        .blockers
+        .iter()
+        .find(|b| b.open() && b.question == s.wait_question)
+        .and_then(|b| b.on.as_ref())
+        .filter(|on| on.kind == s.wait_kind);
+    if let Some(lead) = first_wait.and_then(|on| part_lead_name(co, p, t, &s.wait_question, on)) {
+        s.wait_gone = false;
+        s.wait_on = lead;
+    }
+    let card = |id: &str| {
+        co.get_task(id).map(|k| CardRef {
+            id: k.id.clone(),
+            short: k.short.clone(),
+            tag: k.tag.clone(),
+            title: k.title.clone(),
+        })
+    };
+    // A loop counts parents on their open subtasks and has no length cap,
+    // as the circle check does (card #570).
+    if let Some(ring) = loops.get(&t.id) {
+        s.wait_loop = ring.iter().filter_map(|id| card(id)).collect();
+    } else if !coord::is_terminal(&t.state) && !coord::task_waits(t).is_empty() {
         let ch = coord::wait_chain(&|id: &str| co.get_task(id), &t.id);
-        s.wait_loop = ch.loop_ids.iter().filter_map(|id| card(id)).collect();
         // A chain that ends at a card on an open PR waits on the PR, not
         // on nobody (card #471): the sweep hands an unheld one out to be
         // merged, or another member's agents approve it.
-        if !ch.stuck.is_empty()
+        if ch.loop_ids.is_empty()
+            && !ch.stuck.is_empty()
             && !co
                 .get_task(&ch.stuck)
                 .is_some_and(|k| wait_pr(co, &k).is_some())

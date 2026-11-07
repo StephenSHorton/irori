@@ -25,7 +25,7 @@ pub(crate) enum Got {
 }
 
 /// The roster as coord's resolver reads it.
-fn cards(s: &Inner) -> Vec<coord::roster::AgentCard> {
+pub(crate) fn cards(s: &Inner) -> Vec<coord::roster::AgentCard> {
     s.b.agents()
         .into_iter()
         .map(|a| coord::roster::AgentCard {

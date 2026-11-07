@@ -52,21 +52,23 @@ fn clip(s: &str, n: usize) -> String {
     out
 }
 
-/// Whether `text` names card t by its short ref.
-fn names(text: &str, t: &Task) -> bool {
-    !t.short.is_empty()
-        && text.contains('#')
-        && card_refs(text)
-            .iter()
-            .any(|(tag, n)| *n == t.short && tag.as_ref().is_none_or(|g| *g == t.tag))
-}
-
 /// A card's own text, where it names other cards.
 fn card_text(t: &Task) -> String {
     format!("{}\n{}\n{}", t.title, t.objective, t.done_criteria)
 }
 
 impl Fold {
+    /// Whether `text` names card t by a ref: the one it holds, or one it
+    /// held before a move or a board delete (card #563).
+    fn names(&self, text: &str, t: &Task) -> bool {
+        text.contains('#')
+            && card_refs(text).iter().any(|(tag, n)| {
+                self.ref_hits(tag.as_deref(), n)
+                    .iter()
+                    .any(|h| h.id == t.id)
+            })
+    }
+
     /// The cards around t: its parent and the parent's other subtasks, its
     /// own subtasks, the thread it came from and the cards made from it,
     /// cards it waits on or that wait on it, and cards that name it or that
@@ -92,12 +94,12 @@ impl Fold {
                 .blocked_by
                 .as_ref()
                 .is_some_and(|b| b.kind == BLOCKED_ON_TASK && b.reference == t.id);
-            if waits || names(&own, o) || names(&card_text(o), t) {
+            if waits || self.names(&own, o) || self.names(&card_text(o), t) {
                 out.insert(o.id.clone());
             }
         }
         for c in self.comments.values() {
-            if c.at.unix_nano() >= since && names(&c.text, t) {
+            if c.at.unix_nano() >= since && self.names(&c.text, t) {
                 out.insert(c.task_id.clone());
             }
         }
@@ -123,7 +125,7 @@ impl Fold {
                     .is_some_and(|o| o.id == t.parent || o.parent == t.parent)
         };
         self.said_lines(&self.near(t, since), since, |c| {
-            if t.subtasks.contains(&c.task_id) || names(&c.text, t) {
+            if t.subtasks.contains(&c.task_id) || self.names(&c.text, t) {
                 2
             } else {
                 u8::from(family(&c.task_id))

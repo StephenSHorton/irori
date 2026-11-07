@@ -77,9 +77,10 @@ impl InviteBoards for Boards {
 }
 
 struct Person {
-    _tmp: tempfile::TempDir,
     ident: Arc<Identity>,
     boards: Arc<Boards>,
+    // Last: fields drop in order, and Windows can't delete an open file.
+    _tmp: tempfile::TempDir,
 }
 
 impl Person {

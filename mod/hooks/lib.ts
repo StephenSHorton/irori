@@ -4,7 +4,7 @@
 import type { AttachEvent, AttachView, PausedCard, Policy, ToolSpec, TrackedAppend } from '../types'
 
 /** Matches .claude-plugin/plugin.json; sent to `irori attach` and shown by /irori. */
-export const MOD_VERSION = '0.6.0'
+export const MOD_VERSION = '0.7.0'
 /** hello's `v` from which `irori attach --standby` is safe: the Core refuses it while another attach is live. */
 export const STANDBY_SINCE = 3
 
@@ -352,3 +352,37 @@ export function pausedRefusal(paused: readonly PausedCard[], tool: string): stri
   return `Not run: ${by} paused ${refs}. Your tools are off until they resume it, except Irori's own: answer ${by} on the card (board_comment) and wait.`
 }
 
+
+/** Where the mod posts Claude usage (card #599). */
+export const USAGE_PATH = '/v1/usage/limits'
+/** The Core takes at most this many windows in one reading. */
+export const MAX_USAGE_WINDOWS = 8
+
+/** One rate-limit window as Claude Code measures it (its `SessionRateLimit`). */
+export type RateLimit = { kind: string; percentUsed: number; resetsAt?: string }
+
+/**
+ * The `POST /v1/usage/limits` body for a measurement's rate-limit windows
+ * (card #599), or null when there is nothing to send: no window, or none
+ * well formed. Rows that aren't a window are left out; the Core checks the rest.
+ */
+export function usageBody(rateLimits: unknown): { rateLimits: RateLimit[] } | null {
+  if (!Array.isArray(rateLimits)) return null
+  const out: RateLimit[] = []
+  for (const r of rateLimits) {
+    if (!r || typeof r !== 'object') continue
+    const { kind, percentUsed, resetsAt } = r as Record<string, unknown>
+    if (typeof kind !== 'string' || !kind || typeof percentUsed !== 'number' || !Number.isFinite(percentUsed)) continue
+    out.push(typeof resetsAt === 'string' && resetsAt ? { kind, percentUsed, resetsAt } : { kind, percentUsed })
+    if (out.length >= MAX_USAGE_WINDOWS) break
+  }
+  return out.length ? { rateLimits: out } : null
+}
+
+/**
+ * Whether a `session.measure` carries a reading to post: its rate-limit
+ * windows moved (the first measurement names every unit it has).
+ */
+export function measureMovedLimits(changed: unknown): boolean {
+  return Array.isArray(changed) && changed.includes('rateLimits')
+}

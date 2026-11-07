@@ -39,19 +39,33 @@ describe("themes pass WCAG AA", () => {
     for (const m of modes)
       test(`${t.id} ${m}`, () => {
         for (const [what, ratio] of Object.entries(checks(themeTokens(t, m))))
-          expect({ what, ok: ratio >= AA, ratio }).toMatchObject({ what, ok: true })
+          expect({ what, ok: ratio >= AA, ratio }).toMatchObject({
+            what,
+            ok: true,
+          })
       })
 })
 
 describe("custom colours are guarded", () => {
-  const picks = ["#ff0000", "#ffff00", "#00ff00", "#0000ff", "#ffffff", "#000000", "#808080"]
+  const picks = [
+    "#ff0000",
+    "#ffff00",
+    "#00ff00",
+    "#0000ff",
+    "#ffffff",
+    "#000000",
+    "#808080",
+  ]
   for (const accent of picks)
     for (const tint of ["#000000", "#ffffff", "#ff00ff"])
       for (const m of modes)
         test(`${accent} on ${tint} ${m}`, () => {
           const k = customTokens({ base: "blue", accent, tint }, m)
           for (const [what, ratio] of Object.entries(checks(k)))
-            expect({ what, ok: ratio >= AA, ratio }).toMatchObject({ what, ok: true })
+            expect({ what, ok: ratio >= AA, ratio }).toMatchObject({
+              what,
+              ok: true,
+            })
         })
 })
 
@@ -63,14 +77,20 @@ test("hex round-trips through OKLCH", () => {
 test("design/themes.css is up to date (bun scripts/gen-themes.ts)", async () => {
   // LF line ends, like gen-models --check and xtask bindings --check: a
   // Windows checkout with core.autocrlf=true has CRLF here (#344).
-  const file = (await Bun.file(new URL("../design/themes.css", import.meta.url)).text()).replace(/\r\n/g, "\n")
+  const file = (
+    await Bun.file(new URL("../design/themes.css", import.meta.url)).text()
+  ).replace(/\r\n/g, "\n")
   expect(file).toBe(themesCSS())
 })
 
 test("index.html's pre-paint lists match", async () => {
-  const html = await Bun.file(new URL("../../index.html", import.meta.url)).text()
+  const html = await Bun.file(
+    new URL("../../index.html", import.meta.url)
+  ).text()
   const list = (name: string) =>
-    JSON.parse(new RegExp(`var ${name} = (\\[[^\\]]*\\])`).exec(html)![1]) as string[]
+    JSON.parse(
+      new RegExp(`var ${name} = (\\[[^\\]]*\\])`).exec(html)![1]
+    ) as string[]
   expect(list("themes")).toEqual(themes.map((t) => t.id))
   expect(list("glasses")).toEqual(glassStyles.map((g) => g.id))
   expect(html).toContain(`data-theme="${defaults.theme}"`)
@@ -79,8 +99,13 @@ test("index.html's pre-paint lists match", async () => {
 
 test("clean keeps what it knows and defaults the rest", () => {
   expect(clean(null)).toEqual({ theme: "blue", mode: "dark", glass: "frost" })
-  expect(clean({ theme: "nope", mode: "sepia" as never, glass: "x" })).toEqual(defaults)
-  const c = clean({ theme: "custom", custom: { base: "forest", accent: "#ff8800", tint: "#112233" } })
+  expect(clean({ theme: "nope", mode: "sepia" as never, glass: "x" })).toEqual(
+    defaults
+  )
+  const c = clean({
+    theme: "custom",
+    custom: { base: "forest", accent: "#ff8800", tint: "#112233" },
+  })
   expect(c.theme).toBe("custom")
   expect(c.css).toContain('[data-theme="custom"].dark')
   // A custom theme without colours falls back to the default.

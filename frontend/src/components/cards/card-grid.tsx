@@ -1,3 +1,4 @@
+import { follows, laterOf } from "@/lib/later"
 import { LayersIcon, PinIcon, UserIcon } from "lucide-react"
 import {
   useContext,
@@ -294,7 +295,10 @@ export function MemberBar({
 }: {
   filter: Filter
   onFilter: (f: Filter) => void
-  members: (OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>)[]
+  members: (OwnerMember &
+    Partial<
+      Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">
+    >)[]
   now: Date
 }) {
   if (members.length < 2) return null
@@ -319,7 +323,9 @@ export function MemberBar({
               (m.me
                 ? "Your cards: made by you or your agents"
                 : `${name}'s cards: made by them or their agents`) +
-              (m.presence ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}` : "")
+              (m.presence
+                ? `\n${m.me ? "You" : name}: ${presenceLine(withPresence(m), now)}`
+                : "")
             }
           >
             <span className="relative inline-flex">
@@ -345,9 +351,15 @@ export function MemberBar({
 // withPresence fills the counts presenceLine reads, for a member from a
 // summary that has none.
 function withPresence(
-  m: OwnerMember & Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
+  m: OwnerMember &
+    Partial<Pick<SummaryMember, "presence" | "lastSeen" | "working" | "free">>
 ): SummaryMember {
-  return { ...m, presence: m.presence ?? "", working: m.working ?? 0, free: m.free ?? 0 }
+  return {
+    ...m,
+    presence: m.presence ?? "",
+    working: m.working ?? 0,
+    free: m.free ?? 0,
+  }
 }
 
 // CardGrid is the cards of shared work, one button each; a button opens
@@ -517,6 +529,8 @@ function CardTile({
   const blocked = card.openBlockers > 0
   const title = plainLine(card.title) || "(untitled)"
   const label = workLabel(withLive(card, live))
+  const parked = laterOf(card)
+  const quiet = !!parked || follows(card)
   return (
     <button
       type="button"
@@ -532,7 +546,7 @@ function CardTile({
         // The accent edge is 2px wider than the border: take it off the
         // padding so the tile's contents don't move.
         card.accent && "pl-3",
-        dim && "opacity-60"
+        (dim || quiet) && "opacity-60"
       )}
       // A card everyone on is on one device wears its colour on the left
       // edge (card #22); the status colours stay where they mean something.
@@ -615,7 +629,12 @@ function CardTile({
           Left off: {plainLine(card.leftOff.text)}
         </span>
       )}
-      {!blocked && !!card.waitingOn && (
+      {parked && (
+        <span className="text-xs text-muted-foreground">
+          Back {plainLine(parked.line)}
+        </span>
+      )}
+      {!quiet && !blocked && !!card.waitingOn && (
         <span className="flex gap-1.5 text-xs text-muted-foreground">
           <span aria-hidden>●</span>
           <span className="line-clamp-2">{waitTip(card)}</span>
@@ -629,7 +648,7 @@ function CardTile({
       )}
       {card.ask && (openAsk(card) || closed) ? (
         <AskLine ask={card.ask} />
-      ) : closed && p === null ? null : p === null ? (
+      ) : quiet || (closed && p === null) ? null : p === null ? (
         <HolderLine holder={card.holder} returned={card.returned} />
       ) : (
         <>
@@ -647,7 +666,12 @@ function CardTile({
           )}
         </>
       )}
-      <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span
+        className={cn(
+          "flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground",
+          quiet && "hidden"
+        )}
+      >
         {p !== null && (
           <>
             <span className="tabular-nums">
@@ -982,7 +1006,11 @@ export function EmptyCards() {
 }
 
 // PartOf is a subtask's "part of #12" chip, naming its parent card.
-function PartOf({ parent }: { parent: { short: string; tag?: string; title: string } }) {
+function PartOf({
+  parent,
+}: {
+  parent: { short: string; tag?: string; title: string }
+}) {
   return (
     <span
       className="font-mono text-[11px] text-muted-foreground"

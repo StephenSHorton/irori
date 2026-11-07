@@ -74,7 +74,14 @@ pub(crate) fn sync_reason(t: &mut Task) {
 
 /// Resolves every open item as closed, with note as the answer.
 pub(crate) fn close_open(t: &mut Task, by: &str, note: &str, at: GoTime) {
-    for b in t.blockers.iter_mut().filter(|b| b.open()) {
+    close_named(t, &[], by, note, at);
+}
+
+/// Resolves the open items named in ids as closed, with note as the
+/// answer; no ids names every open item (a row from before card #635).
+pub(crate) fn close_named(t: &mut Task, ids: &[String], by: &str, note: &str, at: GoTime) {
+    let named = |b: &Blocker| ids.is_empty() || ids.contains(&b.id);
+    for b in t.blockers.iter_mut().filter(|b| b.open() && named(b)) {
         b.resolved = Some(Resolution {
             answer: note.into(),
             option: -1,
@@ -120,6 +127,9 @@ fn nobody_on(t: &Task) -> bool {
         && t.state != SUBMITTED
         && t.state != WORKING
         && t.open_ask().is_none()
+        // Held as Not yet (card #570): an answer on another item, or Irori
+        // finding nobody on it, doesn't end that.
+        && t.parked().is_none()
 }
 
 /// Closes card t's open "OK to start an agent on this?": what it asked no
@@ -183,6 +193,16 @@ pub(crate) fn add_files(mut fs: Vec<FileRef>, more: &[FileRef]) -> Vec<FileRef> 
         }
     }
     fs
+}
+
+/// Records `dev` as the writer of each of `b`'s files that has none yet
+/// (card #659): the row that first put a file on the item.
+fn note_file_devs(b: &mut Blocker, dev: &str) {
+    for f in &b.attachments {
+        if !b.file_devs.iter().any(|(s, _)| *s == f.sha256) {
+            b.file_devs.push((f.sha256.clone(), dev.to_string()));
+        }
+    }
 }
 
 fn capped<T>(mut v: Vec<T>, n: usize) -> Vec<T> {
@@ -666,8 +686,20 @@ impl Fold {
                 }
                 b.at = at;
                 b.on = br.on.clone();
+                // Only when the row has one (card #570): an older device's
+                // revise rewrites the row without it.
+                if !br.later.is_empty() {
+                    b.later = br.later.clone();
+                    t.was_held = true;
+                }
+                let b = &mut t.blockers[i];
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
+                // A file carried over keeps the device that first put it
+                // on the item: a revise re-sends the item's files.
+                b.file_devs
+                    .retain(|(s, _)| b.attachments.iter().any(|f| f.sha256 == *s));
+                note_file_devs(b, &ev.device_id);
                 b.asked = pos;
                 let (id, q) = (b.id.clone(), b.question.clone());
                 // Asking on the card again, it's back on it (card #481).
@@ -687,8 +719,13 @@ impl Fold {
                 return none();
             }
             if let Some(i) = open_with_question(t, &br.question) {
+                t.was_held |= !br.later.is_empty();
                 let b = &mut t.blockers[i];
                 b.on = br.on.clone();
+                if !br.later.is_empty() {
+                    b.later = br.later.clone();
+                }
+                b.merged.push(br.id.clone());
                 if !brings_new(b, &br.links, &br.attachments) {
                     return none();
                 }
@@ -697,6 +734,7 @@ impl Fold {
                     add_files(b.attachments.clone(), &br.attachments),
                     MAX_ATTACHMENTS,
                 );
+                note_file_devs(b, &ev.device_id);
                 return Folded::line(format!("added to the blocker: {}", b.question));
             }
             let seq = self.blocker_seq.entry(t.id.clone()).or_default();
@@ -716,8 +754,10 @@ impl Fold {
                 attachments: capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS),
                 done_check: br.done_check,
                 transfer: br.transfer,
+                later: br.later.clone(),
                 ..Blocker::default()
             };
+            note_file_devs(&mut nb, &ev.device_id);
             if br.replace {
                 nb.asked = pos.clone();
             }
@@ -727,6 +767,7 @@ impl Fold {
             // An agent that asks on a card it left is back on it: its
             // answer has someone to go to (card #481).
             t.left.retain(|w| w != &p.by);
+            t.was_held |= !nb.later.is_empty();
             t.blockers.push(nb);
             return Folded::raised(format!("raised a blocker: {}", br.question), &br.id);
         }
@@ -773,6 +814,18 @@ impl Fold {
         format!(
             "b{}",
             self.blocker_seq.get(task_id).copied().unwrap_or(0) + 1
+        )
+    }
+
+    /// An item id another device can't pick too (card #570): `b3-k7q2xm`.
+    /// Old folds read its number as 0, so the counter, which also names
+    /// reason-only items, stays the same on every device.
+    pub(crate) fn fresh_blocker_id(&self, task_id: &str) -> String {
+        let r = super::util::new_id(&self.stamp());
+        format!(
+            "{}-{}",
+            self.next_blocker_id(task_id),
+            r[r.len() - 6..].to_ascii_lowercase()
         )
     }
 
@@ -1315,9 +1368,22 @@ impl Fold {
                 "a choice only the person can make goes on a card: ask_close it with outcome card (it stays yours), then board_block that card, one blocker per question; a question about what they meant goes on its thread (board_comment)",
             ));
         }
-        let mut nb = self.check_blocker(bb.as_ref(), &t.id)?;
-        self.decider_default(by, t, &mut nb);
         let same_q = open_with_question(t, q);
+        // The fold keeps a same-question item's options and takes this
+        // row's `on`, so an optionless one becomes a wait (card #570).
+        let edge = opts.is_empty() || same_q.is_some_and(|i| t.blockers[i].options.is_empty());
+        let mut nb = self.check_wait(bb.as_ref(), &t.id, edge)?;
+        self.decider_default(by, t, &mut nb);
+        // Same words as the hold: a row would rewrite the hold's `on` (card #570).
+        if let Some(i) = same_q
+            && !t.blockers[i].later.is_empty()
+        {
+            return Err(invalid(format!(
+                "{} is Not yet with {} asking that: ask something else, or change or end the hold",
+                t.short_ref(),
+                t.blockers[i].id
+            )));
+        }
         if let Some(i) = same_q
             && t.state == BLOCKED
             && (nb.is_none() && !reason_only || t.blockers[i].on == nb)
@@ -1456,10 +1522,25 @@ impl Fold {
         check_text("the context", &cx, 0, max_cx)?;
         let now = self.stamp();
         let opts = clean_options(&r.options, &by, now)?;
+        // A hold has no options: they'd drop it as a wait (card #570).
+        if !b.later.is_empty() && !opts.is_empty() {
+            return Err(invalid(format!(
+                "{bid} is the card's Not yet hold, which takes no options: ask the person in a separate blocker"
+            )));
+        }
+        // Without options a task wait is an edge again.
+        if opts.is_empty() && !b.options.is_empty() {
+            self.check_edge(&t.id, b.on.as_ref())?;
+        }
         if q == b.question && cx == b.context && same_options(&opts, &b.options) {
             return Err(invalid(format!(
                 "that asks the same question with the same options: answer the person on the blocker (board_comment blocker_id={bid}), then resolve it (board_unblock) or revise it with options that fit what you know now, or none"
             )));
+        }
+        // A hold is reworded as a new item, never a replace: one crossing
+        // the hold's close would leave the card blocked with nothing open.
+        if !b.later.is_empty() {
+            return self.reword_hold(&by, &t, &b, q, cx);
         }
         self.write(
             &by,
@@ -1480,6 +1561,7 @@ impl Fold {
                     on: b.on.clone(),
                     links: b.links.clone(),
                     attachments: b.attachments.clone(),
+                    later: b.later.clone(),
                     ..BlockerRow::default()
                 }),
                 by: by.clone(),
@@ -1517,6 +1599,13 @@ impl Fold {
         let b = &t.blockers[i];
         if !b.open() {
             return Err(bad_state(format!("blocker {} is already resolved", b.id)));
+        }
+        // A hold has no options, as in revise (card #570).
+        if !b.later.is_empty() {
+            return Err(invalid(format!(
+                "{} is the card's Not yet hold, which takes no options: ask the person in a separate blocker",
+                b.id
+            )));
         }
         match option_index(&b.options, &answer) {
             Some(j) if b.options[j].recommended => return Ok(t),
@@ -1634,6 +1723,10 @@ impl Fold {
         if !b.open() {
             return Err(bad_state(format!("blocker {} is already resolved", b.id)));
         }
+        // Held on the person's word (card #570): only a person ends it.
+        if a.resolve && b.back() == Some(super::later::Back::Word) && !self.is_person(&by) {
+            return Err(super::later::word_refusal(&t));
+        }
         // An ownership item (card #432): Accept or Decline moves the card
         // (or not) and resolves it; only the person it asks may.
         if b.transfer
@@ -1722,6 +1815,22 @@ impl Fold {
             super::comments::check_person_text("the answer", &text, 1)?;
         } else {
             check_text("the answer", &text, 1, MAX_OWN_ANSWER)?;
+        }
+        // A reply on a hold is a plain comment on the card (card #570): an
+        // ANSWERED hold arms v0.12.3's answered_left, which ends it.
+        if !a.resolve && !b.later.is_empty() {
+            let (cm, mut n) = self.add_comment_full(&by, id, &text, a.wake, a.files, "", &ms)?;
+            super::mention::without_mentioned(&mut n, &ms);
+            let mut ns = vec![n];
+            ns.extend(self.mention_notice(
+                &by,
+                id,
+                &ms,
+                &cm.text,
+                &format!("comment:{}", cm.id),
+                "",
+            )?);
+            return Ok((self.tasks[id].clone(), ns));
         }
         let mut n = Notice {
             kind: NOTICE_ANSWERED.into(),
@@ -1851,6 +1960,11 @@ impl Fold {
                 ..BlockerResolvedRow::default()
             },
         )?;
+        // Ending a hold on a parent ends what its subtasks took from it
+        // (card #570).
+        if !b.later.is_empty() {
+            self.close_kid_parks(&by, &t, std::slice::from_ref(&b), &text)?;
+        }
         let nt = self.tasks[id].clone();
         let mut s = String::new();
         if last.is_some() {
@@ -2070,6 +2184,7 @@ impl Fold {
         let mut seq = self.step_seq.get(id).copied().unwrap_or(0);
         let mut used: Vec<String> = Vec::new();
         let mut out = Vec::with_capacity(input.len());
+        let mut new_owner = false;
         for s in &input {
             let mut sid = String::new();
             if !s.id.is_empty() && t.steps.iter().any(|o| o.id == s.id) && !used.contains(&s.id) {
@@ -2093,7 +2208,9 @@ impl Fold {
             // A new step owner co-holds the card: kept to its side (card #496).
             let owner = self.check_owner(&s.owner)?;
             if !owner.is_empty() && !t.steps.iter().any(|o| o.id == sid && o.owner == owner) {
+                self.parked_owner_refusal(&by, &t)?;
                 self.check_side_assign(&by, &t, &owner)?;
+                new_owner = true;
             }
             out.push(Step {
                 spawn: had || (s.spawn && may_spawn),
@@ -2106,6 +2223,9 @@ impl Fold {
         }
         if out == t.steps {
             return Ok(t);
+        }
+        if new_owner {
+            self.end_park(&by, id, "the person gave a step")?;
         }
         let at = self.stamp();
         self.write(
@@ -2317,7 +2437,9 @@ impl Fold {
         }
         // A step owner co-holds the card: kept to its side (card #496).
         if !owner.is_empty() {
+            self.parked_owner_refusal(&by, &t)?;
             self.check_side_assign(&by, &t, &owner)?;
+            self.end_park(&by, id, "the person gave a step")?;
         }
         let at = self.stamp();
         self.write(
@@ -2548,6 +2670,76 @@ impl Fold {
                 super::error::ErrorKind::BadState,
                 format!(
                     "coord: edit {}: the change didn't apply, so the card still says what it did; tell the person on the card",
+                    now.short_ref()
+                ),
+            ));
+        }
+        Ok(now.clone())
+    }
+}
+
+impl Fold {
+    /// Moves card `id` to `board` (`""`: the space's first), with its
+    /// subtasks (card #563): parent first, one row each, each claiming the
+    /// next number there. A subtask can't move alone, or `relink` would
+    /// leave a family across two boards.
+    pub(crate) fn move_task(&mut self, by: &str, id: &str, board: &str) -> Result<Task> {
+        let by = trim_space(by).to_string();
+        if by.is_empty() {
+            return Err(invalid("by is required"));
+        }
+        let board = self.own_board(trim_space(board));
+        let t = self.open_task(id)?.clone();
+        if t.open_ask().is_some() {
+            return Err(bad_state(format!(
+                "{} is an open ask: ask_close it with outcome card and the title it should have",
+                t.short_ref()
+            )));
+        }
+        if !t.parent.is_empty() {
+            return Err(bad_state(format!(
+                "{} is a subtask of {}: move its parent and it goes along",
+                t.short_ref(),
+                self.short_of(&t.parent)
+            )));
+        }
+        if !board.is_empty() && self.board_tag(&board).is_none() {
+            return Err(not_found(format!("board {}", quote(&board))));
+        }
+        // Only the ones not there yet: this also brings together a family
+        // that came apart, and a card already there keeps its number.
+        let mut kids: Vec<&Task> = self.tasks.values().filter(|k| k.parent == id).collect();
+        kids.sort_by(|a, b| a.id.cmp(&b.id));
+        let family: Vec<String> = std::iter::once(&t)
+            .chain(kids)
+            .filter(|k| k.board != board)
+            .map(|k| k.id.clone())
+            .collect();
+        if family.is_empty() {
+            return Ok(t);
+        }
+        for task_id in &family {
+            let (num, at) = (self.next_short(&board), self.stamp());
+            self.write(
+                &by,
+                self.ask_kind(kinds::TASK_EDITED),
+                &TaskEditedRow {
+                    task_id: task_id.clone(),
+                    board: Some(board.clone()),
+                    num,
+                    by: by.clone(),
+                    at,
+                    ..TaskEditedRow::default()
+                },
+            )?;
+        }
+        // The fold may hold an edit back (card #318): say so, never "Moved".
+        let now = &self.tasks[id];
+        if now.board != board {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!(
+                    "coord: move {}: the change didn't apply, so the card is still where it was; tell the person on the card",
                     now.short_ref()
                 ),
             ));

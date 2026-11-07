@@ -295,19 +295,24 @@ kinds! {
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
-    /// `{repoKey, enabled, takesPrs, holder?, pollDevice, trusted[],
-    /// checks[], mergeMethod, perPrOk, by, at}`: person only.
+    /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,
+    /// at}`: person only. Older rows also carry `holder`, `checks` and
+    /// `mergeMethod`, no longer written or read (card #418).
     REPO_DESK = "repo.desk" => Replicated, Refuses;
     /// `{repoKey, truncated, prs[], by, at}`: Irori's snapshot of the
     /// repo's open PRs, written on change by the poll device.
     DESK_PRS = "desk.prs" => Replicated, Refuses;
-    /// `{repoKey, pr, note?, cleared?, by, at}`: person only.
+    /// `{repoKey, pr, note?, cleared?, by, at}`: no longer written (card
+    /// #418, the desk never merges); old rows are folded past.
     DESK_HOLD = "desk.hold" => Replicated, Refuses;
-    /// `{repoKey, paused, by, at}`: person only.
+    /// `{repoKey, paused, by, at}`: no longer written (card #418); old
+    /// rows are folded past.
     DESK_PAUSE = "desk.pause" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, by, at}`: person only.
+    /// `{repoKey, pr, headSha, by, at}`: legacy, read only. Old rows still
+    /// decode; nothing writes it since card #625 removed Outside PR's OK.
     DESK_OK = "desk.ok" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, baseSha?, by, at}`: the holder's run.
+    /// `{repoKey, pr, headSha, baseSha?, by, at}`: the old desk holder's
+    /// merge run, no longer written (card #418); old rows are folded past.
     DESK_RUN = "desk.run" => Replicated, Refuses;
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;
@@ -386,21 +391,27 @@ pub fn board_accepted(kind: &str) -> bool {
     !is_local(kind) && kind_board(kind) == Board::Accepts
 }
 
-/// The tolerant reader (docs/design/no-server.md §3.5): a pulled `task.*` or
-/// `space.*` row of a kind this build has never heard of. A board log stores
-/// it, so a newer Irori's kind doesn't stall this device, and it folds after
-/// the update. A kind the registry names keeps its verdict, and any other
-/// unknown family stays refused: stalling on a membership or revoke row
-/// fails closed, and skipping one fails open.
+/// The row families the tolerant reader stores unknown kinds of: content,
+/// never membership. `task.` and `space.` since v0.12.4 (card #579, the
+/// hello's `tolerant` 1); `talk.` and `call.` since `tolerant` 2 (card #652,
+/// ahead of calls, #571).
+pub const TOLERATED_FAMILIES: [&str; 4] = ["task.", "space.", "talk.", "call."];
+
+/// The tolerant reader (docs/design/no-server.md §3.5): a pulled row of a
+/// [`TOLERATED_FAMILIES`] kind this build has never heard of. A board log
+/// stores it, so a newer Irori's kind doesn't stall this device, and it
+/// folds after the update. A kind the registry names keeps its verdict, and
+/// any other unknown family stays refused: stalling on a membership or
+/// revoke row fails closed, and skipping one fails open.
 ///
 /// A kind stored this way must never become [`Board::Refuses`], or the build
 /// that says so stalls on rows already in the log: `tests/board.rs` pins the
-/// `task.*` and `space.*` kinds that are refused today.
+/// kinds of these families that are refused today.
 pub fn board_tolerated(kind: &str) -> bool {
-    let named = kind
-        .strip_prefix("task.")
-        .or_else(|| kind.strip_prefix("space."));
-    named.is_some_and(|n| !n.is_empty()) && !index().contains_key(kind)
+    TOLERATED_FAMILIES
+        .iter()
+        .any(|f| kind.strip_prefix(f).is_some_and(|n| !n.is_empty()))
+        && !index().contains_key(kind)
 }
 
 /// Go `IsBoardIdentityKind`: board.*, member.* and agent.card, which a board

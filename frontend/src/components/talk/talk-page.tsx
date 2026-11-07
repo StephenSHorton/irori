@@ -12,7 +12,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   EyeIcon,
-  GitMergeIcon,
   HashIcon,
   MessageSquareTextIcon,
   PlusIcon,
@@ -35,14 +34,15 @@ import {
   dmGone,
   dmPerson,
   dmWith,
+  isYou,
   listed,
+  memberOf,
   readAll,
   talkApi,
   waitingText,
   type Conversation as Conv,
   type Person,
 } from "@/lib/conversations"
-import { talkDesks, type Desk, type TalkDesk } from "@/lib/desk"
 import { AgentRef } from "@/lib/models"
 import { AllSpaces, convInSpace } from "@/lib/spaces"
 import { LiveRoster } from "@/lib/thread"
@@ -73,6 +73,8 @@ import {
 } from "./threads"
 import { agentStatus } from "@/lib/agent-status"
 import { ConversationView, memberStatus, statusOf } from "./conversation"
+import { HuddleLine, useCallPart } from "./huddle"
+import { huddleNames } from "@/lib/call"
 import { memberName, nameOr } from "@/lib/names"
 
 // talkMatches is whether a thread fits the list's search: its title, what
@@ -115,11 +117,8 @@ export function TalkPage({
   why = "",
   board = "",
   space = AllSpaces,
-  desks = [],
-  onOpenDesk,
   threadsLoading = false,
   conversationsLoading = false,
-  desksLoading = false,
 }: {
   // Every log's, each with its space (card #558).
   threads: ThreadSummary[]
@@ -127,12 +126,6 @@ export function TalkPage({
   // skeleton till then, not "No open threads", and never on a reload.
   threadsLoading?: boolean
   conversationsLoading?: boolean
-  // The desks listed at the top of Channels have their own first read.
-  desksLoading?: boolean
-  // Merge desks, listed in Channels (card #521); opening one opens its
-  // queue on the desk page until it is a Talk channel (slice 8).
-  desks?: Desk[]
-  onOpenDesk?: (repoKey: string) => void
   // Channels and DMs (Talk 1, #389).
   conversations: Conv[]
   // The live agents a new DM can go to.
@@ -204,15 +197,14 @@ export function TalkPage({
     items: Conv[],
     empty: string,
     extra?: ReactNode,
-    add?: { onAdd: () => void; label: string },
-    lead: TalkDesk[] = []
+    add?: { onAdd: () => void; label: string }
   ) => {
     const { rows, hidden } = convRows(k, items)
     const { unread, markAll } = sectionHeader(k, folded(k), items)
     return (
       <Group
         label={label}
-        count={items.length + lead.length}
+        count={items.length}
         unread={unread}
         folded={folded(k)}
         onToggle={searching ? undefined : () => toggleFold(k)}
@@ -229,18 +221,8 @@ export function TalkPage({
       >
         {extra}
         {!folded(k) && (
-          <Rows
-            loading={conversationsLoading || (k === "channels" && desksLoading)}
-            label={label}
-          >
-            {lead.map((d) => (
-              <DeskItem
-                key={d.repoKey}
-                d={d}
-                onClick={() => onOpenDesk?.(d.repoKey)}
-              />
-            ))}
-            {items.length === 0 && lead.length === 0 && !extra && (
+          <Rows loading={conversationsLoading} label={label}>
+            {items.length === 0 && !extra && (
               <p className="px-2 py-1 text-[12px] text-muted-foreground">
                 {empty}
               </p>
@@ -408,8 +390,7 @@ export function TalkPage({
         {
           onAdd: () => setAdding(adding === "channel" ? "" : "channel"),
           label: "New channel",
-        },
-        talkDesks(desks, space, query)
+        }
       )}
       {convSection(
         "dms",
@@ -670,39 +651,6 @@ function Group({
 
 // ConvItem is a channel or a DM in the list, with its unread count (a red
 // @ when it mentions you).
-// DeskItem is a merge desk's row in Channels (card #521): the repo's
-// owner/name, its open PRs underneath, and how many Outside PRs wait on
-// the person.
-export function DeskItem({ d, onClick }: { d: TalkDesk; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-desk={d.repoKey}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-ink-2 hover:bg-secondary/60"
-    >
-      <GitMergeIcon
-        className="size-4 shrink-0 text-muted-foreground"
-        aria-hidden
-      />
-      <span className="grid min-w-0 flex-1">
-        <span className="min-w-0 truncate">{d.name}</span>
-        <span className="truncate text-[11px] text-muted-foreground">
-          {d.sub}
-        </span>
-      </span>
-      {d.needYou > 0 && (
-        <span
-          className="shrink-0 rounded-full bg-primary px-1.5 text-[10.5px] font-semibold text-primary-foreground tabular-nums"
-          title={`${d.needYou} Outside PR${d.needYou === 1 ? "" : "s"} waiting for your OK`}
-        >
-          {d.needYou}
-        </span>
-      )}
-    </button>
-  )
-}
-
 export function ConvItem({
   c,
   current,
@@ -749,6 +697,8 @@ export function ConvItem({
       (!!person && !waiting) ||
       (!!other[0] && statusOf(other[0], live) === "gone"))
   const { line, when } = last ? lastLine(c, now) : { line: "", when: "" }
+  // A huddle on here (#654): who's in it.
+  const huddle = useCallPart((s) => huddleNames(s, c.convId).join(", "))
   const sub =
     c.kind === "channel"
       ? c.topic
@@ -785,10 +735,14 @@ export function ConvItem({
           </span>
           {when && <When text={when} />}
         </span>
-        {sub && (
-          <span className="truncate text-[11px] text-muted-foreground">
-            {sub}
-          </span>
+        {huddle ? (
+          <HuddleLine names={huddle} />
+        ) : (
+          sub && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              {sub}
+            </span>
+          )
         )}
       </span>
       {c.mentions > 0 ? (
@@ -815,13 +769,11 @@ export function lastLine(c: Conv, now: Date): { line: string; when: string } {
   const at = parseTime(c.lastAt)
   const when = at ? relativeTime(at, now) : ""
   if (!text) return { line: "", when }
-  const by = c.lastBy ? c.members.find((m) => m.key === c.lastBy) : undefined
-  const who =
-    c.readOnly && by
-      ? `${memberName(by)}: `
-      : by?.kind === "person"
-        ? "You: "
-        : ""
+  const by = c.lastBy ? memberOf(c.members, c.lastBy) : undefined
+  // "You: " only for the person themselves: in a DM with another person
+  // (card #538) their post is theirs, not yours.
+  const mine = by?.kind === "person" && (isYou(by.key) || by.name === "you")
+  const who = c.readOnly && by ? `${memberName(by)}: ` : mine ? "You: " : ""
   return { line: `${who}${text}`, when }
 }
 
@@ -851,7 +803,7 @@ function BroadcastItem({
   onToggle: () => void
   onOpen: (id: string) => void
 }) {
-  const from = b.convs[0].members.find((m) => m.key === b.by)
+  const from = memberOf(b.convs[0].members, b.by)
   const to = broadcastTo(b)
   const when = parseTime(b.lastAt)
   const Chevron = unfolded ? ChevronDownIcon : ChevronRightIcon

@@ -66,7 +66,9 @@ impl Inner {
             return Err(Error::other("inbox: no sender; join first"));
         }
         let text = trim(text);
-        if text.is_empty() {
+        // Files alone make a message too: a Talk DM of a pasted
+        // screenshot goes to the agent as one (card #643).
+        if text.is_empty() && o.attachments.is_empty() {
             return Err(Error::sentinel(ErrorKind::Empty));
         }
         let n = text.chars().count();

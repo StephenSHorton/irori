@@ -5,14 +5,18 @@ import {
   dmGone,
   dmPerson,
   fromPost,
+  isYou,
   listed,
+  memberOf,
+  postLine,
   readAll,
+  replyingLine,
   talkApi,
   talkWaiting,
   waitingText,
   type Conversation,
 } from "./conversations"
-import { TalkConversation } from "./models"
+import { TalkConversation, TalkPost, type FileRef } from "./models"
 
 const conv = (p: Partial<Conversation>): Conversation => TalkConversation(p)
 
@@ -99,6 +103,148 @@ describe("Make a card from a message (design §4, card #390)", () => {
     const f = fromPost("x".repeat(200), "a DM")
     expect(f.title.length).toBe(80)
     expect(f.title.endsWith("…")).toBe(true)
+  })
+  test("a message of files alone takes its first file's name (card #643)", () => {
+    const f = fromPost("", "#suzuri", [ref("shot.png"), ref("log.txt")])
+    expect(f.title).toBe("shot.png")
+    expect(f.objective).toBe(
+      `file: shot.png (10 B, sha256=${"a".repeat(64)})\n` +
+        `file: log.txt (10 B, sha256=${"a".repeat(64)})\n\n` +
+        "(From a message in #suzuri.)"
+    )
+  })
+})
+
+const ref = (name: string): FileRef => ({
+  sha256: "a".repeat(64),
+  name,
+  size: 10,
+  device: "d",
+})
+
+describe("files on a post (card #643)", () => {
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+  const file = (name: string, type = "image/png") =>
+    new File([new Uint8Array(1234)], name, { type })
+
+  test("the sample keeps each file's name and size, with its own sha", async () => {
+    const id = await talkApi.post(
+      "sample-ch-releases",
+      "the installer",
+      true,
+      null,
+      [],
+      [file("a.png"), file("b.png")]
+    )
+    const p = (await talkApi.posts("sample-ch-releases")).find(
+      (x) => x.postId === id
+    )
+    expect(p?.attachments.map((f) => [f.name, f.size, f.mime])).toEqual([
+      ["a.png", 1234, "image/png"],
+      ["b.png", 1234, "image/png"],
+    ])
+    const [a, b] = p?.attachments ?? []
+    expect(a.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(a.sha256).not.toBe(b.sha256)
+  })
+
+  test("files alone make a post, and the list shows the file's name", async () => {
+    const id = await talkApi.post(
+      "sample-ch-irori",
+      "  ",
+      true,
+      null,
+      [],
+      [file("shot.png")]
+    )
+    const p = (await talkApi.posts("sample-ch-irori")).find(
+      (x) => x.postId === id
+    )
+    expect(p?.attachments[0]?.name).toBe("shot.png")
+    const c = (await talkApi.conversations()).find(
+      (x) => x.convId === "sample-ch-irori"
+    )
+    expect(c?.lastText).toBe("📎 shot.png")
+  })
+
+  test("in the window, files take the with-files command and nothing else does", async () => {
+    // The host stands in for Tauri: invoke records each command.
+    const w = window as unknown as { __TAURI_INTERNALS__?: unknown }
+    const calls: [string, Record<string, unknown>][] = []
+    w.__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args: Record<string, unknown>) => {
+        calls.push([cmd, args])
+        return Promise.resolve(`id-${calls.length}`)
+      },
+    }
+    try {
+      expect(await talkApi.post("c1", "hello", true, "p0", ["agent:x"])).toBe(
+        "id-1"
+      )
+      expect(
+        await talkApi.post(
+          "c1",
+          "",
+          false,
+          null,
+          [],
+          [
+            new File([new Uint8Array([104, 105])], "a.txt"),
+            new File([new Uint8Array([33])], "b.txt"),
+          ]
+        )
+      ).toBe("id-2")
+    } finally {
+      delete w.__TAURI_INTERNALS__
+    }
+    expect(calls).toEqual([
+      [
+        "talk_post",
+        {
+          convId: "c1",
+          text: "hello",
+          mentions: ["agent:x"],
+          agentsNow: true,
+          threadFrom: "p0",
+        },
+      ],
+      [
+        "talk_post_with_files",
+        {
+          convId: "c1",
+          text: "",
+          mentions: [],
+          agentsNow: false,
+          threadFrom: null,
+          files: [
+            { name: "a.txt", data: btoa("hi") },
+            { name: "b.txt", data: btoa("!") },
+          ],
+        },
+      ],
+    ])
+  })
+
+  test("no text and no files is refused", async () => {
+    await expect(talkApi.post("sample-ch-irori", " ", true)).rejects.toThrow()
+  })
+
+  test("postLine: the text, else the first file and how many more", () => {
+    expect(postLine(undefined)).toBe("")
+    expect(postLine(TalkPost({ text: " a\n b " }))).toBe("a b")
+    expect(
+      postLine(TalkPost({ attachments: [ref("x.png"), ref("y.png")] }))
+    ).toBe("📎 x.png +1")
+  })
+
+  test("the sample's suzuri channel and heron DM each have a picture", async () => {
+    for (const id of ["sample-ch-suzuri", "sample-dm-heron"]) {
+      const ps = await talkApi.posts(id)
+      expect(
+        ps.some((p) => p.attachments.some((f) => f.mime === "image/png"))
+      ).toBe(true)
+    }
   })
 })
 
@@ -206,5 +352,74 @@ describe("a DM with another person (card #538)", () => {
       members: [m("person", "user", "you"), m("person", "person:bob", "Bob")],
     })
     expect(dmGone(bob, new Map())).toBe(false)
+  })
+})
+
+describe("replyingLine (card #645)", () => {
+  const now = Date.parse("2026-11-06T12:00:00Z")
+  const ago = (s: number) => new Date(now - s * 1000).toISOString()
+  const a = (name: string, s = 5, key = `k-${name}`) => ({
+    key,
+    name,
+    since: ago(s),
+  })
+
+  test("nobody: no row", () => {
+    expect(replyingLine([], now)).toBeNull()
+  })
+
+  test("one agent is replying", () => {
+    expect(replyingLine([a("jasmine")], now)?.text).toBe("jasmine is replying…")
+  })
+
+  test("several share one row", () => {
+    expect(replyingLine([a("jasmine"), a("kestrel")], now)).toEqual({
+      who: "jasmine and kestrel",
+      verb: "are",
+      text: "jasmine and kestrel are replying…",
+    })
+    expect(replyingLine([a("a"), a("b"), a("c")], now)?.who).toBe("a, b and c")
+  })
+
+  test("past 30 minutes an agent drops off", () => {
+    expect(
+      replyingLine([a("jasmine", 31 * 60), a("kestrel", 60)], now)?.text
+    ).toBe("kestrel is replying…")
+    expect(replyingLine([a("jasmine", 31 * 60)], now)).toBeNull()
+  })
+
+  test("never a key, never twice", () => {
+    const key =
+      "3dc30c94c6a74af3c59d39f4ca02d6f1/7ff86a62-6cc4-4916-be2d-602034fc281a"
+    expect(replyingLine([a(key), a(" ")], now)).toBeNull()
+    expect(
+      replyingLine([a("oak", 5, "k1"), a("oak", 5, "k1")], now)?.text
+    ).toBe("oak is replying…")
+  })
+})
+
+describe("the person in a DM an agent opened (card #642)", () => {
+  const you = { kind: "person", key: "user", name: "you" }
+  const jasmine = { kind: "agent", key: "dev/s1", name: "jasmine" }
+  test("their posts by user:<device> are theirs, not an unknown agent", () => {
+    expect(memberOf([you, jasmine], "user:mac")).toBe(you)
+    expect(memberOf([jasmine, you], "user:phone")).toBe(you)
+  })
+  test("an exact key wins, and agents are found as before", () => {
+    const mac = { kind: "person", key: "user:mac", name: "you" }
+    expect(memberOf([you, mac], "user:mac")).toBe(mac)
+    expect(memberOf([you, jasmine], "dev/s1")).toBe(jasmine)
+    expect(memberOf([you, jasmine], "dev/s2")).toBeUndefined()
+  })
+  test("the person not listed is still you; another person is not", () => {
+    expect(memberOf([jasmine], "user:mac")).toEqual({
+      kind: "person",
+      key: "user:mac",
+      name: "you",
+    })
+    expect(memberOf([jasmine], "person:bob")).toBeUndefined()
+    expect(isYou("user")).toBe(true)
+    expect(isYou("person:bob")).toBe(false)
+    expect(isYou("username/s1")).toBe(false)
   })
 })

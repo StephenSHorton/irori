@@ -103,6 +103,10 @@ crate::go_struct! {
         /// An ownership offer or request (card #432). Older folds see a
         /// plain question.
         pub transfer: bool = "transfer" "omit",
+        /// What brings a held card back (card #570), as `later::Back`
+        /// encodes it. Always a string: older folds skip it, and a type
+        /// they can't read would fail the whole row.
+        pub later: String = "later" "omit",
     }
 }
 
@@ -116,6 +120,9 @@ crate::go_struct! {
         pub state: String = "state" "omit",
         pub review: String = "review" "omit",
         pub merged_at: GoTime = "mergedAt",
+        /// GitHub's mergeCommit oid on a MERGED row (card #421). Older
+        /// devices skip it.
+        pub merge_sha: String = "mergeSha" "omit",
         pub error: String = "error" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
@@ -212,6 +219,11 @@ crate::go_struct! {
         pub note: String = "note" "omit",
         pub restored: String = "restored",
         pub at: GoTime = "at",
+        /// The items its writer saw open (card #635): only these close. A
+        /// close from another device can land after a new item was raised,
+        /// such as the person's done check. Older rows close every open
+        /// item, and older folds ignore it.
+        pub blocker_ids: Vec<String> = "blockerIds" "omit",
     }
 }
 
@@ -519,6 +531,11 @@ crate::go_struct! {
         /// A thread's "Agents answer now" (card #391): set only by the
         /// person, on a thread.
         pub agents_now: Option<bool> = "agentsNow" "omit",
+        /// A move (card #563): the board the card goes to, `""` for the
+        /// space's first, and the number it claims there. An older device
+        /// drops both and folds an edit that changes nothing.
+        pub board: Option<String> = "board" "omit",
+        pub num: i64 = "num" "omit",
         pub at: GoTime = "at",
     }
 }

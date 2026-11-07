@@ -30,7 +30,6 @@ import { NeedsYou } from "@/components/cards/needs-you"
 import { nobodyTook, needsOf } from "@/lib/needs"
 import { cardRef } from "@/components/cards/bits"
 import { idleLine, whyWaiting } from "@/lib/agent-counts"
-import { mainRedText, mainReds, type MainRed } from "@/lib/main-red"
 import {
   asFilter,
   EmptyCards,
@@ -63,7 +62,7 @@ import { previewFlag } from "@/lib/preview"
 import { onOpen } from "@/lib/settings"
 import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
-import { deskOn, deskQueue, inputsOf, useDesks } from "@/lib/desk"
+import { deskShown, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
 import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
@@ -72,10 +71,12 @@ import { WindDownLine } from "@/components/home/wind-down-line"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
-import { PersonalHeaderBar, PersonalList } from "@/components/boards/space-boards"
+import {
+  PersonalHeaderBar,
+  PersonalList,
+} from "@/components/boards/space-boards"
 import { BoardsPage } from "@/components/boards/boards-page"
 import { NotesPage } from "@/components/notes/notes-page"
-import { useNotesWaiting } from "@/lib/notes"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -99,6 +100,8 @@ import {
 } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
 import { spawnedKeys } from "@/lib/roster-groups"
+import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
+import { startCallState } from "@/lib/call"
 
 // PageState is the history entry of a card's page. fromGrid: the grid is
 // the entry behind it, so Back is the browser's back.
@@ -219,18 +222,16 @@ export function App() {
   // #390), Notes (card #413), Boards, or one board's page; in the address
   // so back and forward move between them. ?boards in the preview starts
   // on Boards, ?talk on Talk, ?thread=<id> on Talk with that thread open,
-  // and ?notes on Notes (?notes=<board tag> on that board's tab).
+  // and ?notes on Notes.
   const [section, setSection] = useState<Section>(() => {
     const thread = previewFlag("thread")
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
-    const notesTab = previewFlag("notes")
-    if (notesTab !== null) return { kind: "notes", tab: notesTab }
+    if (previewFlag("notes") !== null) return { kind: "notes" }
     return previewFlag("boards") !== null
       ? { kind: "boards" }
       : sectionFromHash(window.location.hash)
   })
-  const notesWaiting = useNotesWaiting()
   // A board page's own tab (All, Needs a decision, Closed).
   // A board page starts on All; the preview's ?filter=owner:<id> starts it
   // on one member's cards (card #268).
@@ -242,7 +243,11 @@ export function App() {
   // Closed pages each page's own cards (card #161): Home's, or the board's.
   // Personal's lists are your own cards, closed ones too (card #558).
   const onPersonal = section.kind === "board" && section.id === Personal
-  const doneScope = onPersonal ? ScopeOwn : section.kind === "board" ? section.id : homeScope
+  const doneScope = onPersonal
+    ? ScopeOwn
+    : section.kind === "board"
+      ? section.id
+      : homeScope
   const done = useDoneCards(
     section.kind === "board" ? boardFilter === "done" : filter === "done",
     doneScope
@@ -561,6 +566,8 @@ export function App() {
   // card's page and other dialogs too; Cmd+P no longer prints. Capture, so
   // it comes before a field or a dialog takes the key.
   const [palette, setPalette] = useState(false)
+  // Huddles (#654): follow call:state for every page.
+  useEffect(() => startCallState(), [])
   useEffect(() => {
     const mac = isMac()
     const onKey = (e: KeyboardEvent) => {
@@ -637,7 +644,7 @@ export function App() {
       group: "Go to",
       order: 2,
       keywords: ["rules", "gotchas", "decisions", "knowledge", "memory"],
-      run: () => goTo({ kind: "notes", tab: "" }),
+      run: () => goTo({ kind: "notes" }),
     },
     {
       id: "nav.boards",
@@ -765,22 +772,10 @@ export function App() {
             roster={roster}
             held={held.held.length}
             talk={talkWaiting}
-            desks={{
-              on: desks.desks.filter(deskOn).length,
-              needYou: desks.desks
-                .filter(deskOn)
-                .reduce(
-                  (n, d) =>
-                    n +
-                    deskQueue(inputsOf(d)).filter((l) => l.state === "outside")
-                      .length,
-                  0
-                ),
-            }}
+            desks={desks.desks.filter(deskShown).length}
             onHeld={() => openHeld("")}
             unread={unreadNotifications}
             section={open ? null : section}
-            notesWaiting={notesWaiting}
             boardsNeedYou={boardDecide.length}
             boards={boards}
             cards={spaceCards}
@@ -823,7 +818,11 @@ export function App() {
                     section.id === Personal ? (
                       <PersonalHeaderBar list={section.board ?? Personal} />
                     ) : (
-                      <BoardHeaderBar key={section.id} boardId={section.id} list={section.board} />
+                      <BoardHeaderBar
+                        key={section.id}
+                        boardId={section.id}
+                        list={section.board}
+                      />
                     )
                   ) : undefined
                 }
@@ -841,6 +840,7 @@ export function App() {
               )}
             >
               <UpdateBanner />
+              <Ringing onJoined={(id) => goTo({ kind: "talk", id })} />
               {error && (
                 <p
                   className="border-destructive/50! px-3 py-2 text-sm text-destructive glass-panel"
@@ -875,7 +875,6 @@ export function App() {
                   conversations={conversations}
                   threadsLoading={threadsLoading}
                   conversationsLoading={conversationsLoading}
-                  desksLoading={!desks.loaded}
                   agents={roster.agents.map((a) => ({
                     key: a.key,
                     name: a.name,
@@ -889,16 +888,12 @@ export function App() {
                   )}
                   board={threadsSpace(space)}
                   space={space}
-                  desks={desks.desks}
-                  onOpenDesk={(repo) => go({ kind: "desk", repo })}
                 />
               ) : section.kind === "notes" ? (
                 <Scroll>
                   <NotesPage
-                    tab={section.tab}
                     boards={boards}
                     roster={roster}
-                    onTab={(tab) => go({ kind: "notes", tab })}
                     onOpen={openCard}
                     now={now}
                   />
@@ -1003,7 +998,6 @@ export function App() {
                   now={now}
                   header={
                     <>
-                      <MainRedLines reds={mainReds(cards)} onOpen={openCard} />
                       <SpawnNotice />
                       <WindDownLine onOpen={() => setWindDown(true)} />
                       <AskBox
@@ -1050,6 +1044,12 @@ export function App() {
                 />
               )}
             </main>
+            {narrow && (
+              <PhoneCallBar
+                here={!open && section.kind === "talk" ? section.id : ""}
+                onOpen={(id) => goTo({ kind: "talk", id })}
+              />
+            )}
             {narrow && (
               <PhoneTabs
                 at={phoneTab(section)}
@@ -1157,33 +1157,6 @@ function BoardsNeedYou({
         </button>
       ))}
     </p>
-  )
-}
-
-// MainRedLines lead Home while a test fails on clean main (card #436): one
-// card owns each red test and every card that hit it waits on that card,
-// so the person sees the bottleneck before anything else.
-function MainRedLines({
-  reds,
-  onOpen,
-}: {
-  reds: MainRed[]
-  onOpen: (id: string) => void
-}) {
-  if (reds.length === 0) return null
-  return (
-    <div className="flex flex-col gap-1" role="status">
-      {reds.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => onOpen(r.id)}
-          className="border-destructive/50! px-3 py-2 text-left text-sm text-destructive underline-offset-2 glass-panel hover:underline"
-        >
-          {mainRedText(r)}
-        </button>
-      ))}
-    </div>
   )
 }
 

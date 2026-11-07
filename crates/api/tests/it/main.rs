@@ -13,4 +13,5 @@ mod common;
 mod gone_live;
 mod pair;
 mod slots;
+mod usage;
 mod v03;

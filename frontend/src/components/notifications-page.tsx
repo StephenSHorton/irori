@@ -13,8 +13,15 @@ import { useEffect, useState, type ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Loading } from "@/components/ui/loading"
-import { BlockerAnswer, OwnWords, Said, useAct } from "@/components/cards/needs-you"
+import {
+  BlockerAnswer,
+  OwnWords,
+  Said,
+  useAct,
+} from "@/components/cards/needs-you"
 import { useCard } from "@/lib/cards"
+import { AnswersShape } from "@/components/common/loading-shapes"
+import { askKey, askPatch, instant } from "@/lib/optimistic"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { previewFlag } from "@/lib/preview"
 import {
@@ -84,10 +91,17 @@ export function NotificationsPage({
         <h2 id="notifications" className="text-base font-semibold">
           Notifications
           {unread > 0 && (
-            <span className="font-medium text-muted-foreground"> · {unread} unread</span>
+            <span className="font-medium text-muted-foreground">
+              {" "}
+              · {unread} unread
+            </span>
           )}
         </h2>
-        <div className="ml-auto flex gap-1" role="tablist" aria-label="Which notifications">
+        <div
+          className="ml-auto flex gap-1"
+          role="tablist"
+          aria-label="Which notifications"
+        >
           {(
             [
               ["unread", "Unread"],
@@ -145,7 +159,13 @@ export function NotificationsPage({
           <ul className="grid min-w-0 gap-2.5" aria-label="Notifications">
             {items.slice(0, limit).map((n) => (
               <li key={n.key} className="min-w-0">
-                <Item n={n} now={now} onRead={() => open(n)} onOpenCard={onOpenCard} onOpenMessage={onOpenMessage} />
+                <Item
+                  n={n}
+                  now={now}
+                  onRead={() => open(n)}
+                  onOpenCard={onOpenCard}
+                  onOpenMessage={onOpenMessage}
+                />
               </li>
             ))}
           </ul>
@@ -226,7 +246,10 @@ function Item({
   }
   return (
     <article
-      className={cn("glass-panel grid min-w-0 gap-2 px-4 py-3", n.read && "opacity-80")}
+      className={cn(
+        "grid min-w-0 gap-2 px-4 py-3 glass-panel",
+        n.read && "opacity-80"
+      )}
       // Opening it, any click inside, marks it read.
       onClickCapture={onRead}
       onFocusCapture={onRead}
@@ -234,9 +257,15 @@ function Item({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
         {!n.read && (
-          <span className="size-2 shrink-0 rounded-full bg-primary" aria-hidden title="Unread" />
+          <span
+            className="size-2 shrink-0 rounded-full bg-primary"
+            aria-hidden
+            title="Unread"
+          />
         )}
-        <Badge variant={kindTone[n.kind] ?? "secondary"}>{kindLabel[n.kind] ?? "Notification"}</Badge>
+        <Badge variant={kindTone[n.kind] ?? "secondary"}>
+          {kindLabel[n.kind] ?? "Notification"}
+        </Badge>
         {n.card && (
           <button
             type="button"
@@ -247,11 +276,19 @@ function Item({
             {n.card.short ? cardRef(n.card) : plainLine(n.card.title)}
           </button>
         )}
-        <span className="ml-auto shrink-0 tabular-nums" title={at(n.at)?.toLocaleString()}>
+        <span
+          className="ml-auto shrink-0 tabular-nums"
+          title={at(n.at)?.toLocaleString()}
+        >
           {relativeTime(at(n.at), now)}
         </span>
       </div>
-      <h3 className={cn("min-w-0 text-[15px] leading-snug break-words", n.read ? "font-medium" : "font-semibold")}>
+      <h3
+        className={cn(
+          "min-w-0 text-[15px] leading-snug break-words",
+          n.read ? "font-medium" : "font-semibold"
+        )}
+      >
         {plainLine(n.title)}
       </h3>
       {n.body && n.kind !== Kind.DoneCheck && !asksOnCard(n) && (
@@ -259,13 +296,26 @@ function Item({
           {n.body}
         </p>
       )}
-      <Live n={n} now={now} onOpenCard={openCard} onOpenMessage={() => onOpenMessage(n.deliveryId)} />
+      <Live
+        n={n}
+        now={now}
+        onOpenCard={openCard}
+        onOpenMessage={() => onOpenMessage(n.deliveryId)}
+      />
     </article>
   )
 }
 
 // Outcome is how the thing ended, and when.
-function Outcome({ line, when, now }: { line: string; when?: string; now: Date }) {
+function Outcome({
+  line,
+  when,
+  now,
+}: {
+  line: string
+  when?: string
+  now: Date
+}) {
   const t = when ? at(when) : null
   return (
     <p className="text-[13px] break-words text-muted-foreground" role="status">
@@ -302,29 +352,62 @@ function Live({
   if (waitedSummary(n))
     return (
       <span className="flex flex-wrap gap-1.5">
-        <Button size="sm" variant="outline" onClick={() => go({ kind: "talk", id: "" })}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => go({ kind: "talk", id: "" })}
+        >
           Open messages
         </Button>
       </span>
     )
   if ((n.kind === Kind.Message || n.kind === Kind.Held) && n.deliveryId)
     return <DeliveryLive n={n} now={now} onOpen={onOpenMessage} />
-  if (n.taskId) return n.card ? <OpenCard onOpen={onOpenCard} /> : <Outcome line="The card is gone" now={now} />
+  if (n.taskId)
+    return n.card ? (
+      <OpenCard onOpen={onOpenCard} />
+    ) : (
+      <Outcome line="The card is gone" now={now} />
+    )
   return null
 }
 
 // CardLive is a card's blocker, done check or question as it stands now.
-function CardLive({ n, now, onOpen }: { n: Notification; now: Date; onOpen: () => void }) {
+function CardLive({
+  n,
+  now,
+  onOpen,
+}: {
+  n: Notification
+  now: Date
+  onOpen: () => void
+}) {
   const { detail, error } = useCard(n.card?.id ?? "")
   if (!n.card) return <Outcome line="The card is gone" now={now} />
   if (error) return <OpenCard onOpen={onOpen} />
-  if (!detail) return null
-  const b = n.blockerId ? detail.blockers.find((x) => x.id === n.blockerId) : undefined
+  // The item's answers are on their way (card #644): their shape now,
+  // not a gap that jumps when they come.
+  if (!detail)
+    return (
+      <Loading loading label="Loading the answers">
+        <AnswersShape />
+      </Loading>
+    )
+  const b = n.blockerId
+    ? detail.blockers.find((x) => x.id === n.blockerId)
+    : undefined
   if (b) {
-    if (blockerOpen(b)) return <BlockerAnswer cardId={detail.id} b={b} onOpen={onOpen} />
+    // "Answer…" opens the card to answer there (card #644); a pick is
+    // answered here.
+    if (blockerOpen(b))
+      return (
+        <BlockerAnswer cardId={detail.id} b={b} onOpen={onOpen} answerOpens />
+      )
     return (
       <>
-        {!b.doneCheck && <p className="text-sm break-words">{plainLine(b.question)}</p>}
+        {!b.doneCheck && (
+          <p className="text-sm break-words">{plainLine(b.question)}</p>
+        )}
         <Outcome line={blockerOutcome(b)} when={b.resolved?.at} now={now} />
         <OpenCard onOpen={onOpen} />
       </>
@@ -336,43 +419,61 @@ function CardLive({ n, now, onOpen }: { n: Notification; now: Date; onOpen: () =
   return (
     <>
       {n.body && <p className="text-sm break-words">{plainLine(n.body)}</p>}
-      {!asks && <Outcome line="Answered; the card has moved on" when={detail.updatedAt} now={now} />}
+      {!asks && (
+        <Outcome
+          line="Answered; the card has moved on"
+          when={detail.updatedAt}
+          now={now}
+        />
+      )}
       <OpenCard onOpen={onOpen} />
     </>
   )
 }
 
 // AskLive is an agent's ask: its buttons while it waits, else its answer.
+// A pick shows as the answer at once and saves in the background (card
+// #644); a refusal (answered on another device, out of time) brings the
+// buttons back and says why in a toast.
 function AskLive({ n }: { n: Notification }) {
-  const act = useAct()
   const a = n.ask!
   const ask = n.key.startsWith("ask:") ? n.key.slice(4) : ""
   if (!a.open) return <Outcome line={askOutcome(a)} now={new Date()} />
+  const pick = (l: string) =>
+    instant({
+      key: askKey(ask),
+      patch: askPatch(n.key, l),
+      send: () => answerAsk(ask, l),
+      failed: "Your answer wasn't sent",
+    })
   return (
-    <>
-      {!act.done && (
-        <span className="flex flex-wrap gap-1.5" role="group" aria-label="Answers">
-          {a.actions.map((l, i) => (
-            <Button
-              key={l}
-              size="sm"
-              variant={i === 0 ? "default" : "outline"}
-              disabled={act.busy || !ask}
-              onClick={() => void act.run(() => answerAsk(ask, l), `Answered “${l}”.`)}
-            >
-              {l}
-            </Button>
-          ))}
-        </span>
-      )}
-      <Said error={act.error} done={act.done} />
-    </>
+    <span className="flex flex-wrap gap-1.5" role="group" aria-label="Answers">
+      {a.actions.map((l, i) => (
+        <Button
+          key={l}
+          size="sm"
+          variant={i === 0 ? "default" : "outline"}
+          disabled={!ask}
+          onClick={() => void pick(l)}
+        >
+          {l}
+        </Button>
+      ))}
+    </span>
   )
 }
 
 // DeliveryLive is a message to the person, or one Irori held, as it
 // stands now.
-function DeliveryLive({ n, now, onOpen }: { n: Notification; now: Date; onOpen: () => void }) {
+function DeliveryLive({
+  n,
+  now,
+  onOpen,
+}: {
+  n: Notification
+  now: Date
+  onOpen: () => void
+}) {
   const held = n.kind === Kind.Held
   const [d, setD] = useState<Delivery | null>(null)
   const [gone, setGone] = useState(false)
@@ -392,13 +493,18 @@ function DeliveryLive({ n, now, onOpen }: { n: Notification; now: Date; onOpen: 
   if (gone) return <Outcome line="The message is gone" now={now} />
   if (!d) return null
   const ended = deliveryOutcome(d, held)
-  if (ended) return <Outcome line={ended} when={d.decidedAt || d.updatedAt} now={now} />
+  if (ended)
+    return <Outcome line={ended} when={d.decidedAt || d.updatedAt} now={now} />
   if (act.done) return <Said error={null} done={act.done} />
   if (held)
     return (
       <>
         <span className="flex flex-wrap gap-1.5">
-          <Button size="sm" disabled={act.busy} onClick={() => void act.run(() => talk.release(d.id), "Released.")}>
+          <Button
+            size="sm"
+            disabled={act.busy}
+            onClick={() => void act.run(() => talk.release(d.id), "Released.")}
+          >
             Release
           </Button>
           <Button
@@ -427,14 +533,20 @@ function DeliveryLive({ n, now, onOpen }: { n: Notification; now: Date; onOpen: 
         />
       ) : (
         <span className="flex flex-wrap gap-1.5">
-          <Button size="sm" disabled={act.busy} onClick={() => setReplying(true)}>
+          <Button
+            size="sm"
+            disabled={act.busy}
+            onClick={() => setReplying(true)}
+          >
             Reply…
           </Button>
           <Button
             size="sm"
             variant="outline"
             disabled={act.busy}
-            onClick={() => void act.run(() => talk.markRead(d.id), "Marked read.")}
+            onClick={() =>
+              void act.run(() => talk.markRead(d.id), "Marked read.")
+            }
           >
             Mark read
           </Button>

@@ -146,6 +146,7 @@ const CARD_WRITES: &[&str] = &[
     "board_split",
     "board_watch",
     "board_unwatch",
+    "board_later",
 ];
 
 /// Arguments that name things rather than say them: not scrubbed.
@@ -159,6 +160,8 @@ const NOT_TEXT: &[&str] = &[
     "attach",
     "adopt",
     "pick",
+    "after",
+    "not_after",
 ];
 
 /// A request waiting on the person.
@@ -367,18 +370,20 @@ impl Inner {
             .board_coord(&b.board_id, &[agent.to_string(), assign_to.to_string()])
             .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
         // Given to a member: made and given in one step, so no sweep sees
-        // it unheld and starts its author's agent first (card #573).
-        let (t, given) = if keys[1].starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
-            let (t, n) = co
-                .create_and_assign(&keys[0], task, &keys[1])
-                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
-            (t, Some(n))
-        } else {
-            let t = co
-                .create_task(&keys[0], task)
-                .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
-            (t, None)
-        };
+        // it unheld and starts its author's agent first (card #573). A card
+        // held from the start isn't given (card #570): nobody takes it yet.
+        let (t, given) =
+            if task.later.is_none() && keys[1].starts_with(store::kinds::PERSON_ACTOR_PREFIX) {
+                let (t, n) = co
+                    .create_and_assign(&keys[0], task, &keys[1])
+                    .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+                (t, Some(n))
+            } else {
+                let t = co
+                    .create_task(&keys[0], task)
+                    .map_err(|e| map_err(e).trim_start_matches("Error: ").to_string())?;
+                (t, None)
+            };
         let n = self.roster();
         let mut out = format!(
             "Created {} (task:{}) on {}.",
@@ -386,8 +391,19 @@ impl Inner {
             t.id,
             b.label()
         );
+        // Card #570: a card that waits from the start isn't taken now.
+        let waits = crate::board::waits_from_start(self, &t);
+        if !waits.is_empty() {
+            out += &waits;
+            if !assign_to.is_empty() && t.parked().is_some() {
+                out += " It isn't assigned: Irori hands it out once it comes back.";
+                return Ok(format!("{out}\n{}", b.visible_to()));
+            }
+        }
         if assign_to.is_empty() {
-            out += " Take it up with board_join, or hand it over with board_assign.";
+            if waits.is_empty() {
+                out += " Take it up with board_join, or hand it over with board_assign.";
+            }
         } else {
             let assigned = match given {
                 Some(notice) => Ok((t.clone(), notice)),
@@ -458,6 +474,7 @@ impl Inner {
 
 /// board_create with `board` (§7.3): Trusted and Autonomous create it now,
 /// Ask me asks the person first.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_on_board(
     s: &Inner,
     c: &Caller,
@@ -466,6 +483,8 @@ pub(crate) fn create_on_board(
     repo: String,
     assign_to: String,
     waits: Option<(String, coord::BlockedBy)>,
+    after: Vec<String>,
+    later: crate::board::NewLater,
 ) -> String {
     let b = match s.find_board(board) {
         Ok(b) => b,
@@ -482,12 +501,22 @@ pub(crate) fn create_on_board(
         shared: a.bool("shared"),
         links: a.strs("links"),
         steps: steps_of(&a.steps("steps")),
-        block_reason: waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+        block_reason: match &later {
+            Some((_, why)) => why.clone(),
+            None => waits.as_ref().map(|w| w.0.clone()).unwrap_or_default(),
+        },
         blocked_by: waits.map(|w| w.1),
         board: b.space_board.clone(),
+        after,
+        later: later.map(|l| l.0),
         ..NewTask::default()
     };
-    let mut texts: Vec<&str> = vec![&task.title, &task.objective, &task.done_criteria];
+    let mut texts: Vec<&str> = vec![
+        &task.title,
+        &task.objective,
+        &task.done_criteria,
+        &task.block_reason,
+    ];
     texts.extend(task.links.iter().map(String::as_str));
     texts.extend(task.steps.iter().map(|st| st.text.as_str()));
     let reasons = reasons_in(&texts);
@@ -527,6 +556,73 @@ pub(crate) fn create_on_board(
         Ok(out) => out,
         Err(e) => err_text(&e),
     }
+}
+
+// --- talk_thread in a space ---
+
+/// talk_thread in space `space`'s own log (card #631): scrubbed like any
+/// write there, and only where the agent may write without asking. The
+/// agents it names, by the log's keys, are woken; this person's own hear
+/// it from the returned notice, the others' from their devices' bridge.
+pub(crate) fn thread_on_board(
+    s: &Inner,
+    c: &Caller,
+    space: &str,
+    text: &str,
+    given: &[String],
+    channel: &str,
+) -> Result<(Task, String), String> {
+    let b = s.find_board(space)?;
+    let reasons = reasons_in(&[text]);
+    if !reasons.is_empty() {
+        return Err(refusal(&b, &reasons));
+    }
+    if s.b.inbox().autonomy(&b.board_id) == inbox::autonomy::ASK {
+        return Err(err_text(&format!(
+            "your autonomy on {} is Ask me, so you can't open a thread there yourself: open it in Personal (leave out space), or ask your person.",
+            b.label()
+        )));
+    }
+    let sb = s
+        .shared()
+        .ok_or_else(|| err_text("shared spaces aren't on here"))?;
+    let mut agents = crate::mention::cards(s);
+    agents.extend(sb.board_mentionables(&b.board_id));
+    let res = coord::mentions::resolve(&agents, &c.sender.key, text, given);
+    let mut keys = vec![c.sender.key.clone()];
+    keys.extend(res.mentions.iter().map(|m| m.key.clone()));
+    let (co, logk) = sb
+        .board_coord(&b.board_id, &keys)
+        .map_err(|e| err_text(map_err(e).trim_start_matches("Error: ")))?;
+    let mentions = res
+        .mentions
+        .iter()
+        .zip(logk.iter().skip(1))
+        .map(|(m, k)| coord::Mention {
+            key: k.clone(),
+            ..m.clone()
+        })
+        .collect();
+    let (t, n) = co
+        .post_agent_thread(
+            &logk[0],
+            coord::NewAsk {
+                text: text.to_string(),
+                thread: true,
+                mentions,
+                channel: channel.to_string(),
+                ..coord::NewAsk::default()
+            },
+        )
+        .map_err(|e| err_text(map_err(e).trim_start_matches("Error: ")))?;
+    let names = s.roster();
+    let mut out = String::new();
+    if let Some(n) = n {
+        out += &s.told(&s.tell(&c.sender, n), &names);
+    }
+    out += &crate::mention::mention_line(&[], &res.misses, &names);
+    out += &format!("\n{}", b.visible_to());
+    Ok((t, out))
 }
 
 // --- board_share ---
@@ -845,7 +941,7 @@ pub(crate) fn reply_on_card(s: &Inner, c: &Caller, did: &str, text: &str) -> Opt
 /// answered.
 fn reply_in_channel(s: &Inner, c: &Caller, did: &str, conv: &str, text: &str) -> String {
     let target = crate::talk::Target::Channel(conv.to_string());
-    let p = match crate::talk::post(s.b.as_ref(), &c.sender, &target, text, &[], true, None) {
+    let p = match crate::talk::post(s.b.as_ref(), &c.sender, &target, text, &[], true, None, &[]) {
         Ok(p) => p,
         Err(e) => return err_text(&e),
     };

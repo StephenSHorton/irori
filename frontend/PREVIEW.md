@@ -7,11 +7,37 @@ installed app.
 ```sh
 cd frontend
 bun install --frozen-lockfile   # once
-bun run preview:look            # http://127.0.0.1:9246/
+bun run preview:look            # prints its URL, e.g. http://127.0.0.1:9246/
 ```
 
-It binds 127.0.0.1 only (no firewall prompt) and uses port 9246, so it never
-collides with `wails3 dev` on 9245. Stop it with Ctrl+C.
+It binds 127.0.0.1 only (no firewall prompt) on the first free port from 9246
+up, so it never collides with `wails3 dev` on 9245 or with another worktree's
+preview (card #610). It writes the URL to `frontend/.preview-url`
+(gitignored); `check:phone`, `loading-shots.ts` and `preview-shots.sh` read it,
+so each worktree shoots its own preview. They don't fall back to 9246: with no
+`.preview-url` they stop and say to start the preview. Stop it with Ctrl+C,
+which removes the file. A preview killed harder leaves it behind, and another
+worktree's preview may later take that port; so the dev server answers
+`/__preview-root` with the folder it serves (`vite.config.ts`), and the shot
+scripts refuse a preview that isn't this checkout's. The next `preview:look`
+rewrites the file. A `PREVIEW_URL` you set yourself skips that check.
+
+Vite runs as `node node_modules/vite/bin/vite.js --strictPort`
+(`scripts/preview-look.ts`), not `bunx vite`, which can exit silently in a
+worktree.
+
+## Which browser
+
+Look at the preview with a headless Chrome or Edge on this machine
+(`--headless --dump-dom` or `--screenshot`, or the scripts below), not
+through the Claude in Chrome extension: the extension may be connected to a
+browser on another device, where this machine's 127.0.0.1 is connection
+refused even though `curl` reaches it. If you do use the extension, check
+which browser it is connected to first.
+
+The preview only proves Chromium. The Mac app draws in WebKit: to check a
+layout there, load the preview in a small Swift program with a `WKWebView`
+and save its `takeSnapshot`. It needs no screen-recording permission.
 
 ## How it works
 
@@ -30,13 +56,16 @@ unchanged.
 | `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
 | `/?talk` | Talk (card #390): the Threads list beside the new-thread box; `#talk` in the address does the same |
 | `/?thread=sample-thread-1` | Talk with a thread open: sample-heron's answer, the reply box, Resolve (cards #116, #390); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
-| `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card |
+| `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, a picture inline under sample-heron's post (card #643), the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card. The composer takes files (card #643): the clip, a drop or a paste; with files Send works on no text; `?voice=ready` shows its mic |
 | `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar, Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
-| `/#talk/sample-dm-heron` | a DM with an agent (unread until opened); `/#talk/sample-dm-otter-badger` two agents' DM, read-only |
+| `/?replying#talk/sample-ch-suzuri` | agents replying (card #645): "sample-heron and sample-otter are replying…" under the channel's posts; `/?replying#talk/sample-dm-heron` "sample-heron is replying…" in a DM |
+| `/#talk/sample-dm-heron` | a DM with an agent (unread until opened), its newest post with a picture inline (card #643); `/#talk/sample-dm-otter-badger` two agents' DM, read-only |
 | `/#talk/sample-dm-gone-3` | an archived DM open (card #473): gone agents' DMs, read or not, sit in the Archive at the bottom, which folded lists no rows and shows only its count, "Archive · N", muted: no "N new" pill, no Mark all read (card #514); open it and its unread rows keep their marks, with Mark all read beside its name |
 | `/#talk/sample-dm-spencer` | a DM with another member's agent on a shared board (card #478): "BillingEng1 · Spencer", "Spencer's agent · idle", never its `board:<board>/<card>` key; with your DMs, not the Archive |
 | `/#talk/sample-dm-spencer-2` | another member's agent whose state this device doesn't know (card #478): "an agent of Spencer's", only "Spencer's agent" under it, no live dot, not gone |
 | `/#talk/sample-dm-owl-3` | Agents talking (card #486): sample-owl's message to 16 agents is one row, "sample-owl → 15 agents", unfolded to its recipients because one of them is open; tansy answered, so its DM is its own row. Every row says its last line, with the time beside the name; the section lists the newest 8, up to 50 with Show more |
+| `/?later=1` | Not yet and order (card #570): cards that follow another hang under it, and cards held back fold into "4 not yet" at the end; `/?later=only` the same with nothing else on Home, `&notyet` opens the fold; `/?later=board#board/sample-board-mlg` them on a board page; `&open=board:task:sample-card-later-90` a held card's page, `&open=board:task:sample-card-order-82` a card in an order; `/?later=hold&open=board:task:sample-card-1` the Not yet control |
+| `/?call=start#talk/sample-ch-suzuri` | Huddles (#654): `start` and `live` are the real components on lib/call.ts's stand-in. `start`: Spencer's huddle on in netcode (its list row, Join in its header) and ringing here (the banner, Join or Dismiss); Huddle in suzuri opens its start sheet (who's told, the mic, no transcript; `sheet` opens it on load, e.g. `?call=sheet#talk/sample-ch-netcode`) and Start huddle starts one. `live`: you're in suzuri's huddle (the panel with each device's link and health, Mute, Deafen and Leave, the bar above your name or above the phone's tabs; speaking and the links move). suzuri also shows an earlier huddle's start and end posts. `share` (#658): Spencer shares a window, and the real share stage takes the posts' place (who shares what, the quality line, Full screen, whose view it is) beside the panel, whose Share button opens the picker (sharing one makes it yours); the picture is `public/preview/share-fixture.bin` played through the same decoder as the app (each Channel message with a u32 BE length before it, looped at its timestamps), or the #571 terminal picture while there is none. `sharing`: your own share, with Stop sharing. Still the #571 mock-up, nothing wired: `transcript` the ended huddle's post with its transcript beside it and an agent acting on it. At phone width `live` is the whole page, and `share` the stage over the huddle's controls |
 | `/?open=board:task:sample-card-7` | a parent card's page: its subtasks, one blocked, and the steps done before the split |
 | `/?open=board:task:sample-card-9` | a subtask's page, with "Part of #7" under the title |
 | `/?open=board:task:sample-card-1` | a card's page with blockers, a PR and a long thread |
@@ -51,7 +80,6 @@ unchanged.
 | `/?open=board:task:sample-card-named` | the same wait named as a blocker on another agent: Home reads "Waiting on agent sample-kestrel" (card #305) |
 | `/?loop=1` | a wait loop (card #481): Home's Needs you has one Stuck row, "#70, #72 and #71 wait on each other", with Open #70/#72/#71; `&open=board:task:sample-card-loop-71` shows a wait as a grey "Waiting on #70 Talk 4: Spaces" line with Stop waiting and no answer box; `sample-card-loop-72` shows it beside a red question |
 | `/?gone=1` | items whose agent is gone on cards nobody holds (card #485): `&open=board:task:sample-card-gone-73` shows an amber "Waiting on kestrel (gone)" wait with Hand to an agent beside Stop waiting; `sample-card-gone-74` shows piranha's done check with the amber "Waiting on piranha (gone)" line and Hand to an agent. Home's Needs you (card #520) has a Gone row for #73 ("#73 waits on kestrel (gone)") and #75 (an outside wait piranha raised), each with Hand to an agent and Open #N; #74 shows once, as its done check |
-| `/?red=1` | main is red (card #436): Home leads with "Main is red: attach_exe fails on clean main; 2 cards wait on #60", and the line opens #60 |
 | `/?winddown` | a finished Wind down (card #484): Home's one line "Wound down 43 agents, 23 confirmed · Pause all is on", which opens the dialog with each agent's answer; × dismisses it until the next run. No DM is opened per agent |
 | `/?settings=agents&spawn=limit` | Settings › Agents with a Claude usage limit holding the queue (card #450): caps per device, today's count and cost, then the idle limit, crashes and failed starts in a row (card #576) |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
@@ -85,9 +113,13 @@ unchanged.
 | `/?android&update=available` | the phone's update bar (card #270): Update downloads, checks SHA256SUMS and opens Android's install screen; `update=ready` says Install, `update=error` Try again |
 | `/?refs` | Home's Working rows with a cross-board ref, `agility#1234` (card #586): at sm+ the list's ref column widens to fit it whole and every title in the list stays lined up |
 | `/?refs=long` | the same plus `platform-infrastructure#98765`: the ref column stops at 10rem, the ref is cut with "…" and its full ref on hover |
-| `/?notes` | Notes (card #413): Mine, with New from agents at the top (two proposals and an agent's proposed edit, each with Keep / Accept, Edit, Remove), the kind chips, and the live notes with their tags, source chip, author and who kept them; one says Still true? |
-| `/?notes=mlg` | Notes on the MLG board's tab: kite's proposal waits on anyone's Accept |
+| `/?notes` | Notes (card #413; one list, no approvals since #616): the kind chips, and the notes with their tags, source chip and author, agents' among them, each with Edit and Remove; one says Still true?, and one is tagged `board:mlg` (a note about a space) |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
+| `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage left first, 5-hour 62% and Weekly 39% with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 62% · 39% left" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
+| `/?meters=open&usage=none` | Claude usage left before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |
+| `/?meters=open&usage=stale` | a usage reading 40 minutes old: "as of 14:05" beside Claude usage left |
+| `/?meters=open&gpu=none` | a machine with no GPU: no GPU rows, no GPU in the strip |
+| `/?android` at desktop width | no meters strip: the phone never shows it (it's also hidden under 768 px) |
 | `/?empty` | no cards yet |
 | `/?theme=hearth` | a theme without saving it (`blue`, the default, `hearth`, `midnight`, `forest`, `sakura`, `mono`; card #275); add it to any row above |
 | `/?mode=light` | light (or `dark`, `system`) without saving it (dark is the default); add it to any row above |
@@ -113,7 +145,7 @@ as a 390 x 844 phone (touch, no hover) in a headless Chrome. It fails when the
 page or anything on it reaches past the right edge, warns about text cut short
 or ending in "…", and saves a PNG of each page to `frontend/preview-shots/phone/`
 (card #479). `bun run check:phone home card-1` checks only those; `PREVIEW_URL`
-points it at another port, `PHONE_HEIGHT=2600` shows more of a long page.
+points it at another preview, `PHONE_HEIGHT=2600` shows more of a long page.
 
 Don't shoot a phone width with `--window-size=390,…` (as `preview-shots.sh`
 does for desktop sizes): Chrome won't make a headless window narrower than
@@ -128,10 +160,15 @@ With the preview running, `bun scripts/loading-shots.ts` saves each loading
 skeleton (card #598) in dark and light, with and without Reduce Motion, to
 `frontend/preview-shots/loading/`; `SHOT_LOADED=1` shoots the loaded pages
 to compare, `SHOT_FRAMES=25` adds frames for a GIF of the shimmer.
+`SHOT_WIDTH=390 SHOT_HEIGHT=844` shoots them as a phone, at 390 through
+device emulation (any `SHOT_WIDTH` under 768 is a phone; `SHOT_MOBILE=0`
+turns that off).
 
 
 With the preview running, `sh scripts/preview-shots.sh` (Git Bash) saves
 PNGs of every row above to `frontend/preview-shots/` (gitignored) using the
-installed Chrome or Edge, headless, with a throwaway profile. On macOS set
-`BROWSER_EXE` to Chrome's binary; `PREVIEW_MODE=light` shoots the light
-palette and `PREVIEW_URL` points it at another port.
+installed Chrome or Edge, headless, with a throwaway profile (on macOS it
+finds Chrome or Edge in /Applications; `BROWSER_EXE` picks another);
+`PREVIEW_MODE=light` shoots the light palette and `PREVIEW_URL` points it at
+another preview. It shoots desktop widths only and refuses one under 500 px:
+use `check:phone` for a phone.

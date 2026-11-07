@@ -25,7 +25,7 @@
 //! | `capturetools` | `capture.go` (timeline, why, agent resolution) |
 //! | `attachments` | `attachments.go` |
 //! | [`notify`] | `notify.go` |
-//! | [`talk`] | (Rust only, card #389) talk_post, talk_read, talk_list, talk_join, talk_leave |
+//! | [`talk`] | (Rust only, card #389) talk_post, talk_thread (#631), talk_read, talk_list, talk_join, talk_leave |
 //!
 //! Wiring notes (for the merge):
 //! - The Core implements [`Backend`] (Go's `core.Core` does). Optional
@@ -51,6 +51,7 @@ mod board;
 mod capturetools;
 mod explore;
 mod format;
+mod later;
 mod mention;
 mod messages;
 mod notes;
@@ -72,7 +73,7 @@ use gocompat::time::GoTime;
 pub use attachments::Attacher;
 pub use explore::spawned_lines;
 pub use format::{clip, clip_mcp, one_line};
-pub use notes::{NotesBackend, ToolNote};
+pub use notes::NotesBackend;
 pub use notify::{Action, Note, Notifier};
 pub use observe::redact;
 pub use shared::{
@@ -378,7 +379,7 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 57] = [
+    let list: [(&'static str, Handler); 59] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
@@ -407,6 +408,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("board_status", board::board_status),
         ("board_link", board::board_link),
         ("board_edit", board::board_edit),
+        ("board_later", later::board_later),
         ("board_steps", board::board_steps),
         ("board_step", board::board_step),
         ("board_recommend", board::board_recommend),
@@ -430,6 +432,7 @@ fn handlers() -> HashMap<&'static str, Handler> {
         ("waits", waits::waits),
         ("wait_cancel", waits::wait_cancel),
         ("talk_post", talk::talk_post),
+        ("talk_thread", talk::talk_thread),
         ("talk_read", talk::talk_read),
         ("talk_list", talk::talk_list),
         ("talk_join", talk::talk_join),
@@ -635,6 +638,13 @@ pub(crate) fn map_err(err: impl Into<ToolErr>) -> String {
             } else if ce.is(C::NotAllowed) && e.to_string().contains(coord::ASK_THE_PERSON) {
                 // A card on another side (card #496): the refusal says what to do.
                 err_text(&e)
+            } else if ce.is(C::NotAllowed)
+                && (e.contains("only a person brings it back")
+                    || e.contains("when the person brings it back"))
+            {
+                // A Not yet card (card #570): the refusal says what brings
+                // it back, and nobody else should be asked.
+                err_text(&format!("{e}."))
             } else if ce.is(C::NotAllowed) {
                 err_text(&format!(
                     "{e}. show #<n> (or task:<id>) lists its holders and creator; comment on it or message them instead."

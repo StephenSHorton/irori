@@ -170,8 +170,10 @@ impl Services {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains(&t.id);
-        // A card given to the person starts only on their own yes.
-        if person || co.given_to_me(t) {
+        // A card given to the person starts only on their own yes. An
+        // agent's own thread starts one only once the person writes in it
+        // (card #631): that agent is theirs.
+        if person || co.given_to_me(t) || t.ask.as_ref().is_some_and(|a| !a.opener.is_empty()) {
             return false;
         }
         let asked = self
