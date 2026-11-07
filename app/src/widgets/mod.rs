@@ -38,8 +38,7 @@
 //! - [`spawned_actions::spawned_actions(s, f, key, &who, card_id,
 //!   &[Action])`](spawned_actions::spawned_actions): Attach, Logs, Stop,
 //!   End for an agent Irori started (`spawned_actions::ALL`). Attach opens
-//!   the card and dispatches [`spawned_actions::EVENT_TERM_OPENED`]
-//!   (`{cardId, term}`) for the term package.
+//!   the card and shows the new tab in its terminal (`term::opened`).
 //! - [`done_rounds`]: `sent_back_signs(f, key, &blocker) -> Option`,
 //!   `earlier_round(s, f, key, &blocker, compact) -> Option`,
 //!   `round_signs`.

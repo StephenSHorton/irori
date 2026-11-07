@@ -12,12 +12,7 @@ use rune_kit::{Button, ButtonVariant, ControlSize};
 use super::confirm::{Ask, confirm_button};
 use crate::logic::names::display_name;
 use crate::logic::plain::plain_line;
-use crate::ui::{Event, Frame, State, icons};
-
-/// The name of the event Attach raises once a card's terminal has a new
-/// tab (lib/agents.ts TermOpened): payload `{cardId, term}`, the term
-/// package shows it.
-pub const EVENT_TERM_OPENED: &str = "widgets:term-opened";
+use crate::ui::{Frame, State, icons};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -58,12 +53,10 @@ fn attach(s: &mut State, who: AgentRef, card_id: String) {
         },
         move |s, r| match r {
             Ok(term) => {
+                // The card's terminal shows the new tab (lib/agents.ts
+                // TermOpened): opening the card loads its terminals first.
                 s.open_card(&card_id);
-                let ev = Event {
-                    name: EVENT_TERM_OPENED.into(),
-                    payload: serde_json::json!({ "cardId": card_id, "term": term }),
-                };
-                crate::ui::dispatch(s, &ev);
+                crate::term::opened(s, &card_id, term);
                 line(
                     s,
                     &key,

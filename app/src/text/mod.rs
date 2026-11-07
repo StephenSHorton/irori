@@ -93,7 +93,7 @@ use irori_window::threads::RefTarget;
 use rune::{El, ScrollSpec, col, row, text};
 
 pub use attach::{File, attachment_list};
-pub use composer::{Composer, ComposerOpts, Get, GetMut, SendFn, Sent, composer, open_draft, sent};
+pub use composer::{Composer, ComposerOpts, Get, GetMut, SendFn, Sent, composer, open_draft, sent, submit};
 pub use render::{RichOpts, code, copy_button, link_chip, ref_dot, rich_line, rich_text, rich_with};
 
 use crate::ui::{Event, Frame, State};
