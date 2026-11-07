@@ -47,9 +47,7 @@ use crate::ui::{Event, Frame, Route, State};
 pub use huddle::{huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_started};
 pub use logic::StartWhere;
 pub use mic::{Target as MicTarget, mic_button, on_key};
-// Settings' (P8) voice note: its general pane reads the voice status and
-// the transcribe switch itself for now.
-#[allow(unused_imports)]
+// Settings' voice note.
 pub use mic::{refresh_voice, voice_note};
 pub use share::share_stage;
 pub use transcript::transcript_pane;

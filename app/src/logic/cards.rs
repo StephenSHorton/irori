@@ -313,6 +313,13 @@ pub struct RefStatus {
     pub progress: Option<(i64, i64)>,
 }
 
+impl RefStatus {
+    /// Done, failed, canceled or resolved: its title steps back.
+    pub fn closed(&self) -> bool {
+        matches!(self.label, "Done" | "Failed" | "Canceled" | "Resolved")
+    }
+}
+
 /// What [`ref_status`] reads: a card (live or looked up) or a thread.
 #[derive(Clone, Debug, Default)]
 pub struct RefOf {
@@ -928,6 +935,8 @@ pub(crate) mod tests {
         assert_eq!(c(state::COMPLETED, false, n).tone, Tone::Success);
         assert_eq!(c(state::FAILED, false, n).label, "Failed");
         assert_eq!(c(state::CANCELED, false, n).label, "Canceled");
+        assert!(c(state::CANCELED, false, n).closed());
+        assert!(!c(state::WORKING, false, n).closed());
         assert_eq!(c(state::WORKING, false, &|x| x.ready = true).label, "Ready");
         assert_eq!(c(state::COMPLETED, true, n).label, "Done");
         assert_eq!(c(state::WORKING, false, &|x| x.progress = Some((2, 5))).progress, Some((2, 5)));

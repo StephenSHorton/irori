@@ -428,9 +428,9 @@ fn restart(s: &mut State, id: TermId) {
     start(s, cwd);
 }
 
-/// A terminal opened for a card elsewhere (an agent's Attach, card #456;
-/// the React app's `irori:term-opened` event): its tab, shown.
-#[allow(dead_code)] // For the agents' Attach (P3/P2 call it).
+/// A terminal opened for a card elsewhere (an agent's Attach, card #456,
+/// widgets::spawned_actions; the React app's `irori:term-opened` event):
+/// its tab, shown.
 pub fn opened(s: &mut State, card_id: &str, info: TermInfo) {
     let card = card_id.trim_start_matches("task:");
     if s.term.card.as_deref() != Some(card) {

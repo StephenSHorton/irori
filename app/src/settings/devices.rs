@@ -29,22 +29,8 @@ pub const MAX_DEVICE_NAME: usize = 40;
 pub const MAX_SIDE: usize = 40;
 pub const MAX_SIDES: usize = 8;
 
-/// The colours a device (or a person) can wear (internal/devcolor.Palette),
-/// with the window's shade of each (index.css --device-*).
-pub const DEVICE_COLORS: &[(&str, (f32, f32, f32))] = &[
-    ("teal", (0.76, 0.12, 185.0)),
-    ("orange", (0.74, 0.14, 50.0)),
-    ("pink", (0.74, 0.14, 350.0)),
-    ("lime", (0.8, 0.15, 125.0)),
-    ("cyan", (0.78, 0.11, 215.0)),
-    ("indigo", (0.7, 0.13, 275.0)),
-    ("sand", (0.78, 0.06, 80.0)),
-];
-
-/// A device colour's shade; None for "" or one unknown.
-pub fn device_color(name: &str) -> Option<Color> {
-    DEVICE_COLORS.iter().find(|(n, _)| *n == name).map(|(_, (l, c, h))| rune::color::oklch(*l, *c, *h))
-}
+// The palette and its shades are the faces' (one table for the window).
+pub use crate::widgets::faces::{DEVICE_COLORS, device_color};
 
 /// coord::devname::clean: one line, trimmed, at most MAX_DEVICE_NAME
 /// characters.

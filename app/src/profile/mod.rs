@@ -174,7 +174,9 @@ fn choose(s: &mut State, tx: &mut Tx) {
     tx.open_file(opts, |s: &mut State, r, _| match r {
         Ok(Some(p)) => pick_file(s, p),
         Ok(None) => {}
-        Err(_) => s.profile.error = "Drop a PNG or JPEG on your face to use it as your picture.".into(),
+        Err(e) => {
+            s.profile.error = format!("Couldn't open the file picker ({e}). Drop a PNG or JPEG on your face instead.")
+        }
     });
     let _ = s;
 }

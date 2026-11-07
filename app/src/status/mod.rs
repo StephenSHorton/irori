@@ -31,7 +31,7 @@ use irori_window::update::{EVENT_UPDATE_STATUS, UpdateStatus};
 use irori_window::usage::{EVENT_USAGE_CHANGED, UsageLimits};
 use rune::tok::TextStyle;
 use rune::{Align, Color, El, col, el, icon, oklch, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Spinner, Switch, popover};
+use rune_kit::{Button, ButtonVariant, ControlSize, Placement, Spinner, popover};
 
 use crate::ui::{Event, Frame, State, icons, theme};
 use sparkline::{Max, sparkline};
@@ -56,7 +56,6 @@ pub struct Model {
     /// This platform updates itself.
     pub supported: bool,
     /// A manual check is in flight.
-    #[allow(dead_code)] // Read by update_section (the settings package's).
     pub checking: bool,
     /// The last manual check found nothing newer.
     pub up_to_date: bool,
@@ -67,7 +66,6 @@ pub struct Model {
     /// Keep this device up to date: None where the device doesn't update
     /// itself, or until it's read.
     pub keep: Option<bool>,
-    #[allow(dead_code)] // Read by update_section (the settings package's).
     pub keep_error: Option<String>,
     /// The live launch-at-login state, from `settings:launch-at-login`
     /// (the settings package reads its own; this one follows the tray).
@@ -174,7 +172,6 @@ fn dismiss(s: &mut State) {
 }
 
 /// Check for updates: checks and downloads, never installs.
-#[allow(dead_code)] // Reached through update_section (the settings package's).
 fn check(s: &mut State) {
     s.status.checking = true;
     s.status.up_to_date = false;
@@ -190,7 +187,6 @@ fn check(s: &mut State) {
     );
 }
 
-#[allow(dead_code)] // Reached through update_section (the settings package's).
 fn set_keep(s: &mut State, on: bool) {
     // The switch moves at once; the reply settles it.
     s.status.keep = Some(on);
@@ -702,9 +698,8 @@ fn usage_section(s: &State, f: &Frame, now: i64) -> El {
 // ---- Settings > App: Updates ----------------------------------------------------
 
 /// The Updates block of Settings > App (the React AppPane's "Updates":
-/// UpdateStatusLine, then the Keep this device up to date switch). The
-/// settings package puts it in its dialog.
-#[allow(dead_code)] // The settings package's dialog calls it.
+/// UpdateStatusLine, then the Keep this device up to date switch), in
+/// Settings > App.
 pub fn update_section(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let mut c = col()
@@ -712,23 +707,23 @@ pub fn update_section(s: &State, f: &mut Frame) -> El {
         .w_full()
         .gap(4.0)
         .pt(12.0)
-        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak)
+        .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_base)
         .child(text("Updates").font(k.ty.ui_medium).color(k.c.text_strong))
         .child(status_line(s, f));
     if let Some(on) = s.status.keep {
-        c = c.child(
-            col().pt(8.0).child(
-                Switch::new(on)
-                    .label("Keep this device up to date")
-                    .description(
-                        "Checks every few hours and restarts Irori when no agent is working. \
-                         If that hasn't happened within a day, it asks you.",
-                    )
-                    .on_toggle(move |s: &mut State| set_keep(s, !on))
-                    .build(k)
-                    .key("status-keep"),
+        // Laid out as Settings' other switches: words left, switch right.
+        c = c.child(col().pt(8.0).child(crate::settings::toggle(
+            f,
+            "status-keep",
+            "Keep this device up to date",
+            Some(
+                "Checks every few hours and restarts Irori when no agent is working. \
+                 If that hasn't happened within a day, it asks you.",
             ),
-        );
+            on,
+            false,
+            |s, v| set_keep(s, v),
+        )));
         if let Some(e) = &s.status.keep_error {
             c = c.child(text(e.clone()).font(small(f)).color(theme::status::failed()).wrap());
         }
@@ -738,7 +733,6 @@ pub fn update_section(s: &State, f: &mut Frame) -> El {
 
 /// The version line (UpdateStatusLine): the running version plus Check
 /// for updates, or Restart now when an update is ready.
-#[allow(dead_code)] // Through update_section.
 pub fn status_line(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let st = &s.status.update;

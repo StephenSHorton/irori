@@ -7,12 +7,15 @@
 use irori_window::cards::{CardBlocker, CardDetail};
 use irori_window::notifications::{Notification, NotificationCard};
 use irori_window::rune_inbox::{Delivery, GIVEN_QUESTION};
-use rune::{El, ScrollSpec, TextEdit, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Kit, TextArea};
+use std::rc::Rc;
+
+use rune::{El, ScrollSpec, col, el, row, text};
+use rune_kit::{Button, ButtonVariant, ControlSize, Kit};
 
 use super::notify::{self, Filter, Tone, kind};
 use super::words::{self, plain_line};
 use super::{Act, PAGE_SIZE};
+use crate::text::{self as txt, Composer, ComposerOpts, SendFn, Sent};
 use crate::ui::{Dialog, Frame, Route, State};
 
 // ---- shared bits (the dialogs use them too) --------------------------------
@@ -268,7 +271,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 }
 
 /// One notification: its frame, then what it can still do or how it ended.
-fn item(s: &State, f: &Frame, n: &Notification, now: i64) -> El {
+fn item(s: &State, f: &mut Frame, n: &Notification, now: i64) -> El {
     let k = f.k;
     let key = n.key.clone();
     let mut head = row().w_full().gap(8.0).center_y().flex_wrap();
@@ -365,7 +368,7 @@ fn open_card_button(k: &Kit, key: &str, card: &str) -> El {
 }
 
 /// What the item can still do, or how it ended (Live).
-fn live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
+fn live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let k = f.k;
     let key = n.key.as_str();
     let card_id = n.card.as_ref().map_or(n.task_id.as_str(), |c| c.id.as_str());
@@ -588,7 +591,7 @@ fn answer(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, done
 }
 
 /// A message to the person, or one Irori held, as it stands now.
-fn delivery_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
+fn delivery_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let k = f.k;
     let key = n.key.as_str();
     let held = n.kind == kind::HELD;
@@ -634,7 +637,7 @@ fn delivery_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
             if p.is_empty() { "the agent".to_string() } else { p }
         };
         if s.inbox.replying.as_deref() == Some(key) {
-            out.push(own_words(k, key, &id, &from, &s.inbox.reply, busy));
+            out.push(own_words(s, f, key, &id, &from, busy));
         } else {
             let (k1, k2, i2, k3, i3) = (key.to_string(), key.to_string(), id.clone(), key.to_string(), id.clone());
             out.push(buttons(
@@ -643,7 +646,7 @@ fn delivery_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
                     button(k, format!("inbox-reply-{key}"), "Reply…", ButtonVariant::Submit, busy, move |s: &mut State| {
                         opened(s, &k1);
                         s.inbox.replying = Some(k1.clone());
-                        s.inbox.reply = super::focused_edit();
+                        s.inbox.reply = super::focused_box();
                     }),
                     button(k, format!("inbox-read-{key}"), "Mark read", ButtonVariant::Outline, busy, move |s: &mut State| {
                         opened(s, &k2);
@@ -664,37 +667,39 @@ fn delivery_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
     out
 }
 
-/// OwnWords: the fold-out reply box.
-// TODO(text::composer): the shared composer replaces this plain box.
-fn own_words(k: &Kit, key: &str, id: &str, from: &str, edit: &TextEdit, busy: bool) -> El {
-    let send = {
+/// OwnWords: the fold-out reply box (the shared composer: mentions,
+/// files and the mic), with Reply and Cancel.
+fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bool) -> El {
+    let k = f.k;
+    let on_send: SendFn = {
         let (key, id) = (key.to_string(), id.to_string());
-        move |s: &mut State| {
-            let t = s.inbox.reply.text.clone();
-            if t.trim().is_empty() {
+        Rc::new(move |s: &mut State, m: Sent| {
+            if m.text.trim().is_empty() && m.files.is_empty() {
                 return;
             }
             let i = id.clone();
-            run(s, &key, "Replied.", move |w| w.inbox_reply(&i, &t, &[]).map(|_| ()));
+            let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
+            run(s, &key, "Replied.", move |w| w.inbox_reply_files(&i, &m.text, &ms, &m.files).map(|_| ()));
             s.inbox.replying = None;
-        }
-    };
-    let submit = send.clone();
-    let field = TextArea::new(edit)
-        .placeholder(format!("Reply to {from}"))
-        .label(format!("Your reply to {from}"))
-        .auto_grow(1, 6)
-        .disabled(busy)
-        .on_edit(|s: &mut State| &mut s.inbox.reply)
-        .on_submit(move |s: &mut State, _| submit(s))
-        .on_key(|s: &mut State, ev: &rune::KeyEvent, _| {
-            if ev.key == rune::Key::Escape {
-                s.inbox.replying = None;
-                return true;
-            }
-            false
         })
-        .build(k);
+    };
+    let o = ComposerOpts {
+        placeholder: format!("Reply to {from}"),
+        label: format!("Your reply to {from}"),
+        on_send: Some(on_send),
+        rows: Some((1, 6)),
+        popup_below: true,
+        disabled: busy,
+        mic: Some(crate::call::mic_button(s, f, &format!("inbox-reply-{key}"), |s: &mut State| {
+            &mut s.inbox.reply.edit
+        })),
+        ..ComposerOpts::default()
+    };
+    let field = txt::composer(s, f, &format!("inbox-reply-box-{key}"), reply_box, reply_box_mut, &o);
+    let send = {
+        let o = o.clone();
+        move |s: &mut State| txt::submit(s, reply_box_mut, &o)
+    };
     row()
         .key(format!("inbox-own-words-{key}"))
         .w_full()
@@ -707,10 +712,18 @@ fn own_words(k: &Kit, key: &str, id: &str, from: &str, edit: &TextEdit, busy: bo
             format!("inbox-send-{key}"),
             if busy { "Sending…" } else { "Reply" },
             ButtonVariant::Submit,
-            busy || edit.text.trim().is_empty(),
+            busy || s.inbox.reply.is_empty(),
             send,
         ))
         .child(button(k, format!("inbox-cancel-{key}"), "Cancel", ButtonVariant::Ghost, busy, |s: &mut State| {
             s.inbox.replying = None;
         }))
+}
+
+fn reply_box(s: &State) -> &Composer {
+    &s.inbox.reply
+}
+
+fn reply_box_mut(s: &mut State) -> &mut Composer {
+    &mut s.inbox.reply
 }

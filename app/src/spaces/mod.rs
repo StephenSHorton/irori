@@ -37,6 +37,7 @@ use irori_window::invites::{EVENT_INVITE_CHANGED, InviteStatus};
 use crate::ui::{Event, Frame, Route, State};
 
 pub use board::board_page;
+pub use parts::invite_panel;
 pub use logic::{ALL_SPACES, PERSONAL};
 pub use switcher::switcher;
 

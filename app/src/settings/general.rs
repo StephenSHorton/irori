@@ -3,7 +3,6 @@
 //! cards/clear-done.tsx) and lib/settings.ts.
 
 use irori_window::settings::{EVENT_LAUNCH_AT_LOGIN, NotifyOptions};
-use irori_window::voice::VoiceStatus;
 use rune::{Drag, El, Phase, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
@@ -23,7 +22,6 @@ pub struct Model {
     pub launch: Option<bool>,
     pub launch_read: bool,
     pub launch_err: Option<String>,
-    pub voice: Option<VoiceStatus>,
     pub transcribe: Option<bool>,
     pub transcribe_err: Option<String>,
     /// Clear done: the age picked, the count it takes, the last clear.
@@ -247,19 +245,14 @@ pub fn load_app(s: &mut State) {
             }
         }
     });
-    s.spawn(|w| (w.voice_status(), w.call_transcribe()), |s, (v, t)| {
-        s.settings.general.voice = Some(v);
-        s.settings.general.transcribe = Some(t);
-    });
+    // The voice note reads the call package's status, read afresh here.
+    crate::call::refresh_voice(s);
+    s.spawn(|w| w.call_transcribe(), |s, t| s.settings.general.transcribe = Some(t));
 }
 
 const LAUNCH_HINT: &str = "Irori starts in the tray when you sign in. The tray offers it too.";
 const TRANSCRIBE_LABEL: &str = "Transcribe what I say in calls";
 const TRANSCRIBE_HINT: &str = "Huddles write down what each person says, on their own device. Turn this off and your voice isn't written down; you still hear and speak.";
-
-pub fn megabytes(n: u64) -> String {
-    format!("{} MB", (n as f64 / 1_000_000.0).round())
-}
 
 /// The version as shown: "dev" as it is, else "v1.2.3".
 pub fn version_label(v: &str) -> String {
@@ -301,28 +294,8 @@ pub fn app(s: &State, f: &mut Frame) -> El {
         out = out.child(error_line(f, e));
     }
     // VoiceNote: where the audio goes, and whether the model is here.
-    if let Some(v) = m.voice.as_ref().filter(|v| v.state != "unsupported") {
-        let model = if v.state == "needs-model" {
-            format!(
-                "The speech model ({}) downloads the first time you press the mic.",
-                megabytes(v.model_bytes)
-            )
-        } else {
-            format!("The speech model ({}) is downloaded.", megabytes(v.model_bytes))
-        };
-        let mut voice = col()
-            .gap(4.0)
-            .child(heading(f, "Voice input"))
-            .child(hint(
-                f,
-                &format!(
-                    "The mic in the text boxes turns speech into text you can edit before sending. Speech is transcribed on this device with Whisper: no audio leaves it, and nothing is sent until you press Send. {model}"
-                ),
-            ));
-        if v.state == "denied" {
-            voice = voice.child(error_line(f, &v.reason));
-        }
-        out = out.child(ruled(f, "settings-voice", voice));
+    if let Some(v) = crate::call::voice_note(s, f) {
+        out = out.child(v);
     }
     // TranscribeSwitch (#656): on all the person's devices.
     let mut tr = col().gap(4.0);
@@ -344,10 +317,8 @@ pub fn app(s: &State, f: &mut Frame) -> El {
         tr = tr.child(error_line(f, e));
     }
     out = out.child(ruled(f, "settings-transcribe-box", tr));
-    // Updates: the status line and Keep this device up to date are the
-    // status package's (P11, updater/*).
-    let updates = update_section(s, f);
-    out = out.child(ruled(f, "settings-updates", col().gap(4.0).child(heading(f, "Updates")).child(updates)));
+    // Updates: UpdateStatusLine and Keep this device up to date.
+    out = out.child(crate::status::update_section(s, f));
     let version = &s.data.version;
     if !version.is_empty() {
         out = out.child(ruled(
@@ -367,14 +338,6 @@ pub fn app(s: &State, f: &mut Frame) -> El {
         ));
     }
     out
-}
-
-/// The update section's slot. TODO(P11): `crate::status::update_section(s, f)`
-/// once the status package exposes it (UpdateStatusLine and Keep this
-/// device up to date).
-fn update_section(s: &State, f: &mut Frame) -> El {
-    let _ = s;
-    hint(f, "Update status and Keep this device up to date come with the status package (P11).")
 }
 
 // ---- Maintenance --------------------------------------------------------------
@@ -493,10 +456,5 @@ mod tests {
         assert_eq!(clear_what(1, 3), "3 done cards closed more than a week ago");
         assert_eq!(clear_what(0, 1), "1 done card closed more than a day ago");
         assert_eq!(clear_what(3, 2), "all 2 done cards");
-    }
-
-    #[test]
-    fn model_sizes_in_megabytes() {
-        assert_eq!(megabytes(147_951_465), "148 MB");
     }
 }

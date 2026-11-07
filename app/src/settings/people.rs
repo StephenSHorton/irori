@@ -2,7 +2,7 @@
 //! YourName, lib/settings.ts useYourName): your one name (card #183),
 //! everyone on your spaces, space by space, and joining with an invite.
 
-use rune::{El, TextEdit, Tx, col, el, row, text};
+use rune::{El, TextEdit, Tx, col, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, TextInput};
 
 use crate::ui::{Event, Frame, Route, State};
@@ -31,13 +31,25 @@ impl NameEdit {
     }
 }
 
+/// JoinInvite's form (boards/parts.tsx): the link pasted, a join on its
+/// way, and why the last one failed.
+#[derive(Default)]
+pub struct Join {
+    pub link: TextEdit,
+    pub busy: bool,
+    pub error: Option<String>,
+}
+
 #[derive(Default)]
 pub struct Model {
     pub name: NameEdit,
+    pub join: Join,
 }
 
 pub fn load(s: &mut State) {
     load_name(s, |s| &mut s.settings.people.name);
+    // An invite opened elsewhere shows here in place of the form.
+    crate::spaces::reload_invite_now(s);
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -197,27 +209,74 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         }
         out = out.child(list);
     }
-    // Join with an invite someone sent you, and the invite in progress:
-    // the spaces package's (P7, boards/parts.tsx JoinInvite, InvitePanel).
-    // TODO(P7): `crate::spaces::join_invite(s, f)` here once it exists.
-    out.child(super::ruled(
-        f,
-        "settings-join",
-        row()
-            .w_full()
-            .gap(12.0)
-            .center_y()
-            .child(hint(f, "Got an invite? Join it from the Spaces page.").grow(1.0).min_w(0.0))
-            .child(
-                Button::new("Open Spaces")
-                    .variant(ButtonVariant::Outline)
-                    .control_size(ControlSize::Small)
-                    .on_press(|s: &mut State| {
-                        s.close_dialog();
-                        s.go(Route::Spaces);
-                    })
-                    .build(k),
-            )
-            .child(el()),
-    ))
+    // Join with an invite someone sent you, or the invite in progress
+    // in its place (the spaces package's InvitePanel).
+    let open = s.spaces.invite.as_ref().filter(|i| !i.state.is_empty());
+    out.child(match open {
+        Some(inv) => super::ruled(f, "settings-invite", crate::spaces::invite_panel(s, f, inv)),
+        None => join_invite(s, f),
+    })
+}
+
+/// JoinInvite: paste the irori-invite: link someone sent, then Join.
+fn join_invite(s: &State, f: &Frame) -> El {
+    let k = f.k;
+    let j = &s.settings.people.join;
+    let ok = !j.busy && !j.link.text.trim().is_empty();
+    let mut c = col()
+        .key("settings-join")
+        .w_full()
+        .gap(8.0)
+        .child(
+            row()
+                .w_full()
+                .gap(6.0)
+                .center_y()
+                .child(
+                    TextInput::new(&j.link)
+                        .placeholder("irori-invite:…")
+                        .label("The invite link someone sent you")
+                        .width(None)
+                        .text_style(rune::tok::TextStyle::new(13.0, 400.0).mono())
+                        .on_edit(|s: &mut State| &mut s.settings.people.join.link)
+                        .on_submit(|s: &mut State, _: &mut Tx| join_submit(s))
+                        .build(k)
+                        .key("settings-join-link")
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
+                .child(Button::new("Join").disabled(!ok).on_press(join_submit).build(k).key("settings-join-go")),
+        )
+        .child(hint(f, "Paste the link, then give whoever sent it the five words you'll see."));
+    if let Some(e) = &j.error {
+        c = c.child(super::error_line(f, e));
+    }
+    super::ruled(f, "settings-join-box", c)
+}
+
+fn join_submit(s: &mut State) {
+    let j = &mut s.settings.people.join;
+    let link = j.link.text.trim().to_string();
+    if j.busy || link.is_empty() {
+        return;
+    }
+    j.busy = true;
+    j.error = None;
+    s.spawn(
+        move |w| w.boards_join_invite(&link),
+        |s, r| {
+            let j = &mut s.settings.people.join;
+            j.busy = false;
+            match r {
+                Ok(st) => {
+                    j.link = TextEdit::default();
+                    s.spaces.invite = Some(st);
+                    s.spaces.words.clear();
+                    s.spaces.words_error = None;
+                }
+                Err(e) => j.error = Some(crate::spaces::logic::error_text(&e)),
+            }
+        },
+    );
+
 }
