@@ -367,6 +367,9 @@ export const AgentsService = {
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
+  // Pause agents (card #665): no device starts agents while it is on.
+  Pause: () => call(commands.agentsPause()),
+  PauseSet: (on: boolean) => call(commands.agentsPauseSet(on)),
   End: (key: string) => done(commands.agentsEnd(key)),
   OfferSet: (key: string, on: boolean) =>
     done(commands.agentsOfferSet(key, on)),

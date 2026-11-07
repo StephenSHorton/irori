@@ -413,6 +413,13 @@ export const commands = {
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
 	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
+	/**  Pause agents (card #665): whether this device starts no agents now. */
+	agentsPause: () => __TAURI_INVOKE<AgentsPauseView>("agents_pause"),
+	/**
+	 *  The person turns Pause agents on or off for this device (their agents
+	 *  use the agents_pause tool).
+	 */
+	agentsPauseSet: (on: boolean) => __TAURI_INVOKE<AgentsPauseView>("agents_pause_set", { on }),
 	/**
 	 *  Settings › Agents' caps per device, today's count and cost, and any
 	 *  usage-limit hold (card #450).
@@ -633,6 +640,21 @@ export type AgentsLimits = {
 	heldUntil?: number | null,
 	/**  Cards queued here for a slot. */
 	queued: number,
+};
+
+/**
+ *  Pause agents (card #665): this device starts or restarts no agent while
+ *  it is on. Each device has its own; the person's agents may set it too.
+ */
+export type AgentsPauseView = {
+	on: boolean,
+	/**  When it went on, in ms; 0 when off. */
+	since: number | null,
+	/**
+	 *  Who set it last, for people: "the person on <device>" or an agent's
+	 *  name; empty when never set.
+	 */
+	by: string,
 };
 
 /**  What Settings › Agents shows for one board. */

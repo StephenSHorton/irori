@@ -4,6 +4,7 @@ import { MenuIcon, PlusIcon } from "lucide-react"
 import { MetersStrip } from "@/components/meters/meters-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PauseAgentsButton } from "@/components/pause-agents-button"
 import type { Roster } from "@/lib/irori"
 import type { Section } from "@/lib/nav"
 
@@ -78,6 +79,8 @@ export function AppHeader({
           {/* This computer's meters (card #599): desktop only. */}
           <MetersStrip crowded={Boolean(bar)} />
           {actions}
+          {/* Pause agents (card #665): every device, one click each way. */}
+          <PauseAgentsButton />
           {onWindDown && roster.source !== "sample" && (
             <Button
               size="sm"

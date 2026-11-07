@@ -380,7 +380,9 @@ impl Services {
     /// and is left out of the choice.
     pub(crate) fn spawn_device(&self, t: &Task) -> Option<String> {
         let me = self.device.id.clone();
-        let here = self.can_run_here();
+        // Pause agents here (card #665): nothing is started here, and a
+        // card only this device would run waits.
+        let here = self.can_run_here() && !self.agents_paused();
         if t.open_ask().is_some() || (t.spawn && !t.parent.is_empty()) || t.repo_key.is_empty() {
             return here.then_some(me);
         }
@@ -429,6 +431,12 @@ impl Services {
             };
             let (usable, online) = state(dev);
             if !usable || cant.contains(dev) {
+                continue;
+            }
+            // Pause agents on that device (card #665): never asked; the card
+            // waits for it, or starts on another device that has its repo.
+            if self.agents_paused_on(dev) {
+                waits_for_machine = true;
                 continue;
             }
             // Only a device that runs the card's side (its device.sides

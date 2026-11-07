@@ -42,6 +42,9 @@ pub enum Why {
     SwitchOff,
     /// Pause all, on the device that would start it.
     Paused { device: String },
+    /// Pause agents (card #665) on the device that would start it, since
+    /// when.
+    AgentsPaused { device: String, since: String },
     /// The device that would start it can't run agents (card #541's words).
     CantRun { device: String },
     /// No computer can start it now: card #541's line, without its
@@ -130,6 +133,10 @@ impl fmt::Display for Why {
             Why::Paused { device } => {
                 write!(f, "Pause all is on on {device}; it starts once that's off")
             }
+            Why::AgentsPaused { device, since } => write!(
+                f,
+                "Pause agents is on on {device} (since {since}); it starts once that's off"
+            ),
             Why::CantRun { device } => write!(f, "{device} can't run agents"),
             Why::NoComputer(line) => write!(f, "{line}"),
             Why::OlderMember { people } if people.is_empty() => write!(
@@ -243,7 +250,7 @@ fn step_marked(t: &Task) -> bool {
 
 impl Services {
     /// A device's name for the person; `""` when this device has none.
-    fn named_device(&self, dev: &str) -> String {
+    pub(crate) fn named_device(&self, dev: &str) -> String {
         if dev == self.device.id {
             return self.this_device_name();
         }
@@ -290,6 +297,14 @@ impl Services {
         if self.inbox.policy().paused {
             return Why::Paused {
                 device: self.this_device_name(),
+            };
+        }
+        // Pause agents here (card #665), and no other device takes it.
+        let pause = self.agents_pause();
+        if pause.on && self.spawn_device(t).is_none() {
+            return Why::AgentsPaused {
+                device: self.this_device_name(),
+                since: pause.since.format_rfc3339(),
             };
         }
         let spawner = self
@@ -605,6 +620,13 @@ mod tests {
             ),
             (Why::SwitchOff, "Settings › Agents"),
             (Why::Paused { device: dev() }, "Pause all"),
+            (
+                Why::AgentsPaused {
+                    device: dev(),
+                    since: "2026-11-07T01:00:00Z".into(),
+                },
+                "Pause agents is on on Mac (since 2026-11-07T01:00:00Z)",
+            ),
             (Why::CantRun { device: dev() }, "Mac can't run agents"),
             (
                 Why::NoComputer(no_computer_words(
