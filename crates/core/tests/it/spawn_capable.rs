@@ -140,6 +140,17 @@ impl Rig {
         });
     }
 
+    /// The phone would give its work to the Mac now. Its list of computers
+    /// that run agents is read again apart from the `spawn.host` rows
+    /// [`Rig::phone_sees_mac`] waits on: under load the phone can hold the
+    /// Mac's row and still post with the list from before it (card #670).
+    fn phone_sends_to_mac(&self) {
+        let mac = self.mac_id();
+        wait_for(WAIT, "the phone would send work to the Mac", || {
+            self.phone.core.coord().agent_home("").as_deref() == Some(mac.as_str())
+        });
+    }
+
     fn thread(&self, text: &str) -> Task {
         self.phone
             .core
@@ -206,6 +217,7 @@ fn a_thread_from_the_phone_starts_on_the_mac() {
     let r = Rig::new();
     r.mac_spawner();
     r.phone_sees_mac();
+    r.phone_sends_to_mac();
     let t = r.thread("Why is the sync stuck?");
     assert_eq!(
         t.ask.as_ref().unwrap().owner,
@@ -257,6 +269,7 @@ fn with_the_mac_offline_the_phone_says_so_and_the_thread_starts_when_it_is_back(
     let r = Rig::new();
     r.mac_spawner();
     r.phone_sees_mac();
+    r.phone_sends_to_mac();
     let label = r.phone.core.device_label(&r.mac_id());
     let feed = r.phone.core.feed(&[irori_core::Topic::Board]);
     r.mac.core.close().unwrap();
