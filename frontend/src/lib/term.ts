@@ -177,10 +177,11 @@ export function termHost(
 // page's section handing it to the bottom panel, card #734, or a remount),
 // the two calls are separate invokes that may land in either order; a
 // detach landing last would leave the new view blank. So each shell's
-// attach and detach go out one after another, each after the last ended.
+// attach and detach go out one after another, each after the last ended
+// (exported for its test).
 const pending = new Map<number, Promise<unknown>>()
 
-function inTurn<T>(id: number, call: () => Promise<T>): Promise<T> {
+export function inTurn<T>(id: number, call: () => Promise<T>): Promise<T> {
   const prev = pending.get(id) ?? Promise.resolve()
   const next = prev.catch(() => {}).then(call)
   const tail = next.catch(() => {})
