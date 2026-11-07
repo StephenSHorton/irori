@@ -287,7 +287,7 @@ pub fn dialog(s: &State, f: &mut Frame) {
                 col()
                     .key("home/wd/scroll")
                     .w_full()
-                    .max_h(420.0)
+                    .max_h(380.0)
                     .min_h(0.0)
                     .scroll(rune::ScrollSpec { stick_bottom: false })
                     .child(list),
@@ -335,11 +335,24 @@ pub fn dialog(s: &State, f: &mut Frame) {
     rune_kit::Dialog::new("home-wd", "Wind down all agents")
         .open(true)
         .width(640.0)
-        .description(
-            "Each agent finishes the step in hand, pushes its work, posts a hand-off on each card it holds and leaves it, releases its leases and answers you. Nothing is cut: a busy agent stops at its next safe point.",
-        )
+        .fit()
         .on_close(close)
-        .child(body)
-        .child(foot)
+        .child(
+            col()
+                .key("home/wd/inner")
+                .w_full()
+                .px(16.0)
+                .pb(16.0)
+                .gap(12.0)
+                .child(
+                    text("Each agent finishes the step in hand, pushes its work, posts a hand-off on each card it holds and leaves it, releases its leases and answers you. Nothing is cut: a busy agent stops at its next safe point.")
+                        .font(k.ty.ui)
+                        .color(k.c.text_muted)
+                        .w_full()
+                        .wrap(),
+                )
+                .child(body)
+                .child(foot),
+        )
         .build(k, f.layer);
 }

@@ -22,6 +22,7 @@ pub mod held;
 mod icons;
 pub mod needs;
 pub mod pure;
+pub mod sample;
 pub mod wind_down;
 
 use std::collections::{HashMap, HashSet};
