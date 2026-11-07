@@ -250,17 +250,7 @@ pub struct LiveAgent {
     pub updated_at: Option<i64>,
     pub status_since: Option<i64>,
     pub device_state: String,
-    #[allow(dead_code)]
-    pub device_via: String,
     pub last_tool: String,
-    // thread.ts LiveAgent's whole shape, which Talk fills too; the hover
-    // card reads these from the roster itself (widgets::agent_hover).
-    #[allow(dead_code)]
-    pub offers_cards: bool,
-    #[allow(dead_code)]
-    pub spawned: bool,
-    #[allow(dead_code)]
-    pub here: bool,
 }
 
 /// The live roster by key.
@@ -275,11 +265,7 @@ pub fn live_roster(agents: &[RosterAgent]) -> HashMap<String, LiveAgent> {
                     updated_at: ms(&a.card.updated_at),
                     status_since: ms(&a.card.status_since),
                     device_state: a.card.device_state.clone(),
-                    device_via: a.card.device_via.clone(),
                     last_tool: a.card.last_tool.clone(),
-                    offers_cards: a.offers_cards,
-                    spawned: a.spawned,
-                    here: a.here,
                 },
             )
         })
@@ -814,8 +800,8 @@ mod tests {
         let elm = agent("mac/elm", "elm");
         let c = comment();
         let l = working_line(
-            &[oak.clone()],
-            &[c.clone()],
+            std::slice::from_ref(&oak),
+            std::slice::from_ref(&c),
             &roster(&[("mac/oak", "busy", 1)]),
             at(2),
             false,
@@ -843,8 +829,8 @@ mod tests {
         );
         assert_eq!(l.unwrap().text, "oak and elm are working…");
         let l = working_line(
-            &[oak.clone()],
-            &[c.clone()],
+            std::slice::from_ref(&oak),
+            std::slice::from_ref(&c),
             &roster(&[("mac/oak", "idle", 20)]),
             at(30),
             false,
@@ -864,7 +850,7 @@ mod tests {
         };
         assert!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[c.clone(), reply],
                 &roster(&[("mac/oak", "idle", 20)]),
                 at(30),
@@ -876,8 +862,8 @@ mod tests {
         );
         assert!(
             working_line(
-                &[oak.clone()],
-                &[c.clone()],
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
                 &roster(&[("mac/oak", "idle", 20)]),
                 at(20) + STOPPED_GRACE - 1,
                 false,
@@ -888,8 +874,8 @@ mod tests {
         );
         assert!(
             working_line(
-                &[oak.clone()],
-                &[c.clone()],
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
                 &roster(&[("mac/oak", "idle", -5)]),
                 at(30),
                 false,
@@ -903,7 +889,7 @@ mod tests {
         waiting.heard_by = vec![];
         assert!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[waiting],
                 &roster(&[("mac/oak", "idle", 20)]),
                 at(30),
@@ -915,8 +901,8 @@ mod tests {
         );
         assert!(
             working_line(
-                &[oak.clone()],
-                &[c.clone()],
+                std::slice::from_ref(&oak),
+                std::slice::from_ref(&c),
                 &roster(&[("mac/oak", "busy", 1)]),
                 at(2),
                 true,
@@ -936,7 +922,7 @@ mod tests {
         assert!(
             working_line(
                 &[gone, away],
-                &[c.clone()],
+                std::slice::from_ref(&c),
                 &roster(&[("mac/oak", "busy", 1)]),
                 at(2),
                 false,
@@ -976,7 +962,7 @@ mod tests {
             &busy,
             at(0),
             false,
-            Some(&[elm.clone()]),
+            Some(std::slice::from_ref(&elm)),
             None,
         )
         .unwrap();
@@ -984,17 +970,28 @@ mod tests {
             (l.tone, l.who.as_str(), l.verb),
             (LineTone::Working, "elm", "is")
         );
-        assert!(working_line(&[oak.clone()], &[], &busy, at(0), false, Some(&[]), None).is_none());
+        assert!(
+            working_line(
+                std::slice::from_ref(&oak),
+                &[],
+                &busy,
+                at(0),
+                false,
+                Some(&[]),
+                None
+            )
+            .is_none()
+        );
         let shell = roster(&[("mac/oak", "shell", 0)]);
         assert_eq!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[],
                 &shell,
                 at(0),
                 false,
                 Some(&[]),
-                Some(&[oak.clone()])
+                Some(std::slice::from_ref(&oak))
             ),
             Some(WorkingLine {
                 text: "oak is running a job…".into(),
@@ -1006,7 +1003,7 @@ mod tests {
         );
         assert!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[],
                 &shell,
                 at(0),
@@ -1029,13 +1026,13 @@ mod tests {
         let now = at(12 * 60);
         assert_eq!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[],
                 &since(0),
                 now,
                 false,
                 Some(&[]),
-                Some(&[oak.clone()])
+                Some(std::slice::from_ref(&oak))
             )
             .unwrap()
             .text,
@@ -1043,13 +1040,13 @@ mod tests {
         );
         assert_eq!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[],
                 &since(11 * 60 + 30),
                 now,
                 false,
                 Some(&[]),
-                Some(&[oak.clone()])
+                Some(std::slice::from_ref(&oak))
             )
             .unwrap()
             .text,
@@ -1065,7 +1062,7 @@ mod tests {
         let later = at(60);
         assert_eq!(
             working_line(
-                &[oak.clone()],
+                std::slice::from_ref(&oak),
                 &[c.clone()],
                 &roster(&[("mac/oak", "shell", 5)]),
                 later,

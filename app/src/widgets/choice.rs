@@ -35,6 +35,8 @@ impl Choice {
 
 /// A select named `label` (its accessible name), showing `value`'s
 /// words; `on_change` gets the picked value.
+// Eight callers in other packages pass these positionally.
+#[allow(clippy::too_many_arguments)]
 pub fn choice_select(
     s: &State,
     f: &mut Frame,

@@ -189,8 +189,11 @@ pub struct ComposerOpts {
     pub asking: bool,
     /// Esc with no picker open (a fold-out box's Cancel). The field's
     /// editor takes Esc before the window's on_key would see it.
-    pub on_escape: Option<Rc<dyn Fn(&mut State)>>,
+    pub on_escape: Option<OnEscape>,
 }
+
+/// A box's own Esc handler.
+pub type OnEscape = Rc<dyn Fn(&mut State)>;
 
 /// The picker rows a box offers: the agents (own board's, or this shared
 /// board's) and "the agent on #N" for each card an agent is live on.
@@ -661,20 +664,17 @@ pub fn composer(
         .items_end()
         .child(boxed);
     if !o.hide_files {
-        let pick_file: Arc<dyn Fn(&mut State, &mut Tx)> =
-            Arc::new(move |_s: &mut State, tx: &mut Tx| {
-                let opts = FileDialogOptions {
-                    title: "Add files".into(),
-                    ..FileDialogOptions::default()
-                };
-                tx.open_file(opts, move |s: &mut State, r, _tx| match r {
-                    Ok(Some(path)) => add_paths(s, get_mut, vec![path]),
-                    Ok(None) => {}
-                    Err(e) => {
-                        get_mut(s).refused = Some(format!("Couldn't open the file picker: {e}"))
-                    }
-                });
+        let pick_file: attach::OnPick = Arc::new(move |_s: &mut State, tx: &mut Tx| {
+            let opts = FileDialogOptions {
+                title: "Add files".into(),
+                ..FileDialogOptions::default()
+            };
+            tx.open_file(opts, move |s: &mut State, r, _tx| match r {
+                Ok(Some(path)) => add_paths(s, get_mut, vec![path]),
+                Ok(None) => {}
+                Err(e) => get_mut(s).refused = Some(format!("Couldn't open the file picker: {e}")),
             });
+        });
         let full = c.files.len() >= MAX_UPLOAD_FILES || c.sending || o.disabled;
         line = line.child(el().pb(4.0).child(attach::attach_button(
             f,
@@ -709,7 +709,7 @@ pub fn composer(
     }
 
     let mut out = col().key(key.to_string()).w_full().min_w(0.0).gap(6.0);
-    let remove: Arc<dyn Fn(&mut State, u64)> = Arc::new(move |s: &mut State, id: u64| {
+    let remove: attach::Remove = Arc::new(move |s: &mut State, id: u64| {
         get_mut(s).files.retain(|p| p.id != id);
     });
     if let Some(files) = attach::pending_files(
@@ -783,7 +783,7 @@ fn picker(
             items.push(
                 PopupItem::new(i.to_string(), c.title.clone())
                     .leading(
-                        row().gap(6.0).center_y().child(ref_dot(f, &st)).child(
+                        row().gap(6.0).center_y().child(ref_dot(f, st)).child(
                             text(c.r#ref.clone())
                                 .font(k.ty.small.mono())
                                 .color(k.c.text_muted),

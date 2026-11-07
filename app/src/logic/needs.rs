@@ -646,7 +646,7 @@ pub fn needs_of<'a>(cards: &'a [CardSummary], held: &'a [Delivery]) -> Vec<Need<
             kind: NeedKind::Held(d),
         });
     }
-    out.sort_by(|a, b| b.at.cmp(&a.at));
+    out.sort_by_key(|n| std::cmp::Reverse(n.at));
     if !quiet.is_empty() {
         out.push(Need {
             id: HELD_QUIET.into(),

@@ -369,11 +369,7 @@ mod tests {
         }
     }
     fn report(idle: u32, unoffered: Vec<UnofferedCard>) -> IdleReport {
-        IdleReport {
-            idle,
-            unoffered,
-            ..IdleReport::default()
-        }
+        IdleReport { idle, unoffered }
     }
 
     #[test]

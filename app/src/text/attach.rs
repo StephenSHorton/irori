@@ -72,6 +72,12 @@ fn ext(name: &str) -> String {
     }
 }
 
+/// Takes a pending file off the box by its id.
+pub type Remove = Arc<dyn Fn(&mut State, u64)>;
+
+/// Opens the file picker (the paperclip).
+pub type OnPick = Arc<dyn Fn(&mut State, &mut Tx)>;
+
 /// A file should get a thumbnail: by the attaching device's type, else
 /// its name, and no bigger than MAX_PREVIEW. The route has the last word.
 pub fn looks_like_image(f: &File) -> bool {
@@ -662,7 +668,7 @@ pub fn pending_files(
     files: &[Pending],
     refused: Option<&str>,
     disabled: bool,
-    remove: Arc<dyn Fn(&mut State, u64)>,
+    remove: Remove,
 ) -> Option<El> {
     let k = f.k;
     if files.is_empty() {
@@ -744,13 +750,7 @@ pub fn pending_files(
 
 /// The clip: opens the file picker. With `why`, files are off here: the
 /// clip shows disabled with the reason.
-pub fn attach_button(
-    f: &Frame,
-    key: &str,
-    why: Option<&str>,
-    full: bool,
-    on_pick: Arc<dyn Fn(&mut State, &mut Tx)>,
-) -> El {
+pub fn attach_button(f: &Frame, key: &str, why: Option<&str>, full: bool, on_pick: OnPick) -> El {
     let b = IconButton::new(&icons::PAPERCLIP)
         .variant(IconButtonVariant::Ghost)
         .control_size(ControlSize::Small);

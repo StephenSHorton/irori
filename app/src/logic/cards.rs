@@ -1128,7 +1128,7 @@ pub(crate) mod tests {
         };
 
         let rows = people_rows(
-            &[otter.clone()],
+            std::slice::from_ref(&otter),
             &[],
             &[wait(
                 "w1",
@@ -1145,7 +1145,7 @@ pub(crate) mod tests {
 
         let rows = people_rows(
             &[],
-            &[wren.clone()],
+            std::slice::from_ref(&wren),
             &[
                 wait("w1", &wren, "until done", true),
                 wait("w2", &wren, "#3", false),
@@ -1156,8 +1156,8 @@ pub(crate) mod tests {
         assert_eq!((rows[0].role, rows[0].waits.len()), (Role::Watching, 2));
 
         let rows = people_rows(
-            &[otter.clone()],
-            &[heron.clone()],
+            std::slice::from_ref(&otter),
+            std::slice::from_ref(&heron),
             &[wait("w1", &wren, "until done", true)],
             steps,
         );
@@ -1173,7 +1173,7 @@ pub(crate) mod tests {
                 with(otter.clone(), |a| a.assigned = true),
                 with(otter.clone(), |a| a.steps = vec!["s1".into()]),
             ],
-            &[otter.clone()],
+            std::slice::from_ref(&otter),
             &[],
             steps,
         );

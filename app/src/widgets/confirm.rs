@@ -12,6 +12,9 @@ use rune_kit::{Button, ButtonVariant, ControlSize};
 
 use crate::ui::{Frame, State};
 
+/// A confirm step's work, off the UI thread.
+pub type Work = Arc<dyn Fn(&Window) -> Result<(), String> + Send + Sync>;
+
 /// What a confirm step asks and does.
 #[derive(Clone)]
 pub struct Ask {
@@ -24,7 +27,7 @@ pub struct Ask {
     /// The red confirm (End, Delete).
     pub danger: bool,
     /// The work, off the UI thread.
-    pub work: Arc<dyn Fn(&Window) -> Result<(), String> + Send + Sync>,
+    pub work: Work,
     /// What follows a success, on the UI thread.
     pub done: Arc<dyn Fn(&mut State) + Send + Sync>,
 }
