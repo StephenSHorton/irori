@@ -202,6 +202,14 @@ export const commands = {
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	notesList: (removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { removed }),
+	storageReport: () => __TAURI_INVOKE<StorageReport>("storage_report"),
+	storageLog: () => __TAURI_INVOKE<LogPart[]>("storage_log"),
+	storageItems: (kind: string) => __TAURI_INVOKE<StorageItem[]>("storage_items", { kind }),
+	storageClean: (kind: string, ids: string[]) => __TAURI_INVOKE<StorageCleaned>("storage_clean", { kind, ids }),
+	storageCleared: () => __TAURI_INVOKE<ClearedCard[]>("storage_cleared"),
+	storageUnclear: (ids: string[]) => __TAURI_INVOKE<number>("storage_unclear", { ids }),
+	threadsClearCount: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear_count", { olderThanSecs }),
+	threadsClear: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear", { olderThanSecs }),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
 	noteRemove: (id: string, why: string) => __TAURI_INVOKE<NoteView>("note_remove", { id, why }),
@@ -1750,6 +1758,17 @@ export type CheckSlot = {
 	until: string,
 };
 
+/**  A card or thread the person cleared from the lists (#138). */
+export type ClearedCard = {
+	id: string,
+	short: string,
+	title: string,
+	/**  Its space's name, "" for Personal. */
+	board: string,
+	thread: boolean,
+	updatedAt: string,
+};
+
 /**  coord.Comment. */
 export type Comment = {
 	id: string,
@@ -2141,6 +2160,14 @@ export type LogFreshness = {
 	with?: string,
 	/**  Another device holds this log at all. */
 	shared: boolean,
+};
+
+/**  A share of Irori's log by what its rows are. */
+export type LogPart = {
+	/**  conversations, messages, cards, talk, notes, code, agents or other. */
+	part: string,
+	rows: number,
+	bytes: number,
 };
 
 /**
@@ -2662,6 +2689,70 @@ export type Step = {
 	doing?: boolean,
 	/**  The agent doing the step (card #86). */
 	owner?: string,
+};
+
+/**  What a clean did. */
+export type StorageCleaned = {
+	removed: number,
+	freed: number,
+	kept: StorageKept[],
+};
+
+/**  One item of a kind: a file, a folder, a space, a tree. */
+export type StorageItem = {
+	/**
+	 *  What a clean names it by: an attachment's hash, a file name, a tree's
+	 *  folder, a card id.
+	 */
+	id: string,
+	/**  What the person reads. */
+	name: string,
+	bytes: number,
+	/**  Last changed (a file), or when it was attached. */
+	at: string,
+	/**  A second line: the cards it belongs to, who sent it, ... */
+	detail: string,
+	/**  The cards it belongs to, as short refs (`#12`, `mlg#4`), to open. */
+	cards: string[],
+	/**  Whether a clean takes it. */
+	cleanable: boolean,
+	/**  Why it stays, when it does. */
+	keep: string,
+	/**
+	 *  An attachment this device attached itself: other devices may have
+	 *  no copy, so deleting it here may lose it.
+	 */
+	onlyHere: boolean,
+};
+
+/**  One item a clean left. */
+export type StorageKept = {
+	id: string,
+	why: string,
+};
+
+/**  One kind of thing Irori keeps, as the page's overview lists it. */
+export type StorageKind = {
+	/**  [`LOG`], [`FILES`], ... */
+	id: string,
+	/**  Bytes on disk (0 until measured, see `measured`). */
+	bytes: number,
+	/**  How many items it holds (files, rows, trees). */
+	items: number,
+	/**
+	 *  Whether `bytes` is known: build output and Claude's folder are
+	 *  measured when the page asks for their items.
+	 */
+	measured: boolean,
+	/**  Where it is on disk. */
+	path: string,
+};
+
+/**  What Irori keeps on this device. */
+export type StorageReport = {
+	/**  Irori's data folder. */
+	dir: string,
+	kinds: StorageKind[],
 };
 
 /**  One subtask as Share would write it under its parent (card #180). */

@@ -17,6 +17,10 @@ use crate::store::valid_id;
 /// (decision D6): 256 MiB.
 pub const MAX_FILE_SIZE: u64 = 256 << 20;
 
+/// The list of attachments the person let go here (card #728), one id a
+/// line, in the store's folder.
+const DROPPED: &str = "dropped";
+
 /// An attachment as a message or a comment carries it. `device` is where
 /// it was attached; `name` comes from that device and is only a hint until
 /// [`safe_name`] has reduced it.
@@ -237,7 +241,10 @@ impl Files {
                 fin.to_string_lossy(),
                 os_text(&e)
             ))
-        })
+        })?;
+        // Here again: the person fetched or attached it (card #728).
+        let _ = self.mark_dropped(id, false);
+        Ok(())
     }
 
     /// Go `Partial`: the partial file of a fetch of `id`, opened for
@@ -283,6 +290,92 @@ impl Files {
             return Err(Error::new(ErrorKind::Mismatch, error::MISMATCH));
         }
         self.place_file(&p, id)
+    }
+
+    /// Every stored attachment and its size, by id (the Storage page, card
+    /// #728). Partial fetches and stray names are left out.
+    pub fn list(&self) -> Vec<(String, u64)> {
+        let mut out = Vec::new();
+        let Ok(top) = fs::read_dir(&self.dir) else {
+            return out;
+        };
+        for sub in top.flatten() {
+            let name = sub.file_name().to_string_lossy().into_owned();
+            if name.len() != 2 || !sub.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let Ok(rd) = fs::read_dir(sub.path()) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let id = e.file_name().to_string_lossy().into_owned();
+                if !valid_id(&id) || !id.starts_with(&name) {
+                    continue;
+                }
+                if let Ok(m) = e.metadata()
+                    && m.is_file()
+                {
+                    out.push((id, m.len()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Deletes a stored attachment here (the person, from the Storage page,
+    /// card #728) and returns its size. It is marked as let go, so the
+    /// small-file pick-up (card #580) doesn't bring it back unasked; a
+    /// fetch the person asks for, or attaching the same file again, clears
+    /// the mark. Not there is NotFound.
+    pub fn remove(&self, id: &str) -> Result<u64> {
+        let n = self.size(id)?;
+        self.mark_dropped(id, true)?;
+        let p = self.path(id);
+        if let Err(e) = fs::remove_file(&p) {
+            let _ = self.mark_dropped(id, false);
+            return Err(path_err("remove", &p.to_string_lossy(), &e));
+        }
+        Ok(n)
+    }
+
+    /// Whether the person let `id` go here ([`Files::remove`]) and hasn't
+    /// fetched or attached it since.
+    pub fn dropped(&self, id: &str) -> bool {
+        self.dropped_ids().iter().any(|d| d == id)
+    }
+
+    fn dropped_ids(&self) -> Vec<String> {
+        fs::read_to_string(self.dir.join(DROPPED))
+            .map(|s| {
+                s.lines()
+                    .map(str::trim)
+                    .filter(|l| valid_id(l))
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn mark_dropped(&self, id: &str, on: bool) -> Result<()> {
+        let mut ids = self.dropped_ids();
+        let had = ids.iter().any(|d| d == id);
+        if had == on {
+            return Ok(());
+        }
+        if on {
+            ids.push(id.to_string());
+        } else {
+            ids.retain(|d| d != id);
+        }
+        let p = self.dir.join(DROPPED);
+        let tmp = self.dir.join("partial").join(format!("{DROPPED}.tmp"));
+        let mut text = ids.join("\n");
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        fs::write(&tmp, text).map_err(|e| path_err("write", &tmp.to_string_lossy(), &e))?;
+        fs::rename(&tmp, &p).map_err(|e| path_err("rename", &p.to_string_lossy(), &e))
     }
 
     /// Go `DropPartial`: removes a fetch's partial file.

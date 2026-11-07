@@ -66,6 +66,7 @@ export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type CheckSlot = B.CheckSlot
+export type ClearedCard = B.ClearedCard
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
@@ -96,6 +97,7 @@ export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
+export type LogPart = B.LogPart
 export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
@@ -142,6 +144,11 @@ export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
+export type StorageCleaned = B.StorageCleaned
+export type StorageItem = B.StorageItem
+export type StorageKept = B.StorageKept
+export type StorageKind = B.StorageKind
+export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
 export type TalkCall = B.TalkCall
@@ -475,6 +482,11 @@ export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
   return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
 }
 
+/** ClearedCard with Go's zero values for every field left out. */
+export function ClearedCard(p: Partial<B.ClearedCard> = {}): B.ClearedCard {
+  return { "id": "", "short": "", "title": "", "board": "", "thread": false, "updatedAt": "", ...p } as B.ClearedCard
+}
+
 /** Comment with Go's zero values for every field left out. */
 export function Comment(p: Partial<B.Comment> = {}): B.Comment {
   return { "id": "", "taskId": "", "by": "", "text": "", "wake": false, "at": "", "device": "", ...p } as B.Comment
@@ -593,6 +605,11 @@ export function Link(p: Partial<B.Link> = {}): B.Link {
 /** LogFreshness with Go's zero values for every field left out. */
 export function LogFreshness(p: Partial<B.LogFreshness> = {}): B.LogFreshness {
   return { "log": "", "shared": false, ...p } as B.LogFreshness
+}
+
+/** LogPart with Go's zero values for every field left out. */
+export function LogPart(p: Partial<B.LogPart> = {}): B.LogPart {
+  return { "part": "", "rows": 0, "bytes": 0, ...p } as B.LogPart
 }
 
 /** Mention with Go's zero values for every field left out. */
@@ -803,6 +820,31 @@ export function StartedAgent(p: Partial<B.StartedAgent> = {}): B.StartedAgent {
 /** Step with Go's zero values for every field left out. */
 export function Step(p: Partial<B.Step> = {}): B.Step {
   return { "id": "", "text": "", "done": false, ...p } as B.Step
+}
+
+/** StorageCleaned with Go's zero values for every field left out. */
+export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageCleaned {
+  return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
+}
+
+/** StorageItem with Go's zero values for every field left out. */
+export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, ...p } as B.StorageItem
+}
+
+/** StorageKept with Go's zero values for every field left out. */
+export function StorageKept(p: Partial<B.StorageKept> = {}): B.StorageKept {
+  return { "id": "", "why": "", ...p } as B.StorageKept
+}
+
+/** StorageKind with Go's zero values for every field left out. */
+export function StorageKind(p: Partial<B.StorageKind> = {}): B.StorageKind {
+  return { "id": "", "bytes": 0, "items": 0, "measured": false, "path": "", ...p } as B.StorageKind
+}
+
+/** StorageReport with Go's zero values for every field left out. */
+export function StorageReport(p: Partial<B.StorageReport> = {}): B.StorageReport {
+  return { "dir": "", "kinds": [], ...p } as B.StorageReport
 }
 
 /** SubtaskPreview with Go's zero values for every field left out. */

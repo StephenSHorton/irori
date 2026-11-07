@@ -111,6 +111,8 @@ impl Prefetch {
                 self.cap(),
             )
             || self.files.has(&o.sha256)
+            // The person deleted it here from Storage (card #728).
+            || self.files.dropped(&o.sha256)
         {
             return None;
         }
