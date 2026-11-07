@@ -1264,12 +1264,12 @@ async fn a_real_stall_shows_on_the_stalled_device_and_starves_nobody() {
     })
     .await;
 
-    // The pull's rows go in before its refusal is logged, so Casey's row
-    // can be on Bob while the log hook hasn't run yet (card #675): wait
-    // for both.
+    // A pull's rows go in before pull_loop logs its refusals, and on_rows
+    // fires after that, so Casey's row can be on Bob before either hook
+    // has run (card #675): wait for all three.
     eventually(
-        "the row behind the stall lands and the stall is logged",
-        || bob.has(&row) && first_had_casey.get().is_some(),
+        "the row behind the stall lands, the stall is logged, on_rows fires",
+        || bob.has(&row) && first_had_casey.get().is_some() && landings.load(Ordering::SeqCst) >= 1,
     )
     .await;
     assert_eq!(
