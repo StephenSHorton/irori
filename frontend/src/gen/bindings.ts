@@ -318,6 +318,24 @@ export const commands = {
 	callMic: () => __TAURI_INVOKE<string>("call_mic"),
 	/**  Stops a huddle ringing here. */
 	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
+	/**  What this device can share: displays, then windows. */
+	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
+	/**  Shares a window or display (an id from share_sources) in the huddle. */
+	shareStart: (sourceId: string) => __TAURI_INVOKE<null>("share_start", { sourceId }),
+	/**  Stops this device's share. */
+	shareStop: () => __TAURI_INVOKE<null>("share_stop"),
+	/**
+	 *  Watches the huddle's share: decoder configs and H.264 access units come
+	 *  on `frames` as raw ArrayBuffers (irori_net::share's window messages).
+	 *  Replaces an earlier channel.
+	 */
+	shareAttach: (frames: Channel<ArrayBuffer>) => __TAURI_INVOKE<null>("share_attach", { frames }),
+	/**  Stops watching the share: the sharer stops sending here. */
+	shareDetach: () => __TAURI_INVOKE<null>("share_detach"),
+	/**  Asks the sharer for a keyframe (the decoder lost its place). */
+	shareKeyframe: () => __TAURI_INVOKE<null>("share_keyframe"),
+	/**  The person saw the share note. */
+	shareNoteSeen: () => __TAURI_INVOKE<null>("share_note_seen"),
 	/**  Talk's list: channels, DMs and open threads, with unread counts. */
 	talkConversations: () => __TAURI_INVOKE<TalkConversation[]>("talk_conversations"),
 	/**  Up to `limit` posts before `before` (none: the newest), oldest first. */
@@ -888,6 +906,15 @@ export type CallMineView = {
 	peers: CallPeerView[],
 	/**  Why the call isn't working, in plain words. */
 	error: string | null,
+	/**  The screen share on in the call, yours or another's (#658). */
+	share: CallShareView | null,
+	/**  This device can share its screen (the desktops; not the phone). */
+	canShare: boolean,
+	/**
+	 *  A line about sharing, in plain words: who took over, or why your
+	 *  share stopped.
+	 */
+	shareNote: string | null,
 };
 
 /**  Another device in the call. */
@@ -924,6 +951,34 @@ export type CallRingView = {
 	byDevice: string,
 	/**  When it rang, Unix ms. */
 	atMs: number,
+};
+
+/**  The screen share on in a call. */
+export type CallShareView = {
+	shareId: string,
+	/**  You are the one sharing (this device). */
+	mine: boolean,
+	/**  Who shares: "you" for the person, else their name. */
+	name: string,
+	/**  The sharing device's name when it is one of the person's own, else "". */
+	device: string,
+	/**  `window` or `display`. */
+	kind: string,
+	/**  The window's title, or the display's name. */
+	title: string,
+	/**  The app that owns the window ("" for a display). */
+	app: string,
+	/**  The picture's size, pixels (0 until the capture runs). */
+	width: number,
+	height: number,
+	fps: number,
+	/**  The sharer's target bitrate now, kbit/s. */
+	kbps: number,
+	/**
+	 *  How this device reaches the sharer: `direct`, `relay`, or "" (it is
+	 *  this device).
+	 */
+	path: string,
 };
 
 /**  Every call this device knows of, as the window shows them. */
@@ -2441,6 +2496,18 @@ export type SharePreview = {
 	/**  Its ended subtasks, which stay private: "#6 Old idea (canceled)". */
 	keptPrivate: string[],
 	hash: string,
+};
+
+/**  Something that can be shared: a display or a window. */
+export type ShareSourceView = {
+	/**  Pass to `share_start`. */
+	id: string,
+	/**  `window` or `display`. */
+	kind: string,
+	title: string,
+	app: string,
+	width: number,
+	height: number,
 };
 
 /**  Where a private card was shared to (Go `core.SharedCopy`). */

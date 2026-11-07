@@ -62,6 +62,7 @@ pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
 pub(crate) mod calls;
+pub(crate) mod calls_share;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;

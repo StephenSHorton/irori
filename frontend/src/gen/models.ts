@@ -29,6 +29,7 @@ export type CallLiveView = B.CallLiveView
 export type CallMineView = B.CallMineView
 export type CallPeerView = B.CallPeerView
 export type CallRingView = B.CallRingView
+export type CallShareView = B.CallShareView
 export type CallView = B.CallView
 export type CanvasPos = B.CanvasPos
 export type CaptureChange = B.CaptureChange
@@ -132,6 +133,7 @@ export type Scope = B.Scope
 export type SendResult = B.SendResult
 export type Sender = B.Sender
 export type SharePreview = B.SharePreview
+export type ShareSourceView = B.ShareSourceView
 export type SharedCopy = B.SharedCopy
 export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
@@ -275,7 +277,7 @@ export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
 
 /** CallMineView with Go's zero values for every field left out. */
 export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, ...p } as B.CallMineView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, "share": null, "canShare": false, "shareNote": null, ...p } as B.CallMineView
 }
 
 /** CallPeerView with Go's zero values for every field left out. */
@@ -286,6 +288,11 @@ export function CallPeerView(p: Partial<B.CallPeerView> = {}): B.CallPeerView {
 /** CallRingView with Go's zero values for every field left out. */
 export function CallRingView(p: Partial<B.CallRingView> = {}): B.CallRingView {
   return { "callId": "", "convId": "", "convName": "", "convKind": "", "by": "", "byDevice": "", "atMs": 0, ...p } as B.CallRingView
+}
+
+/** CallShareView with Go's zero values for every field left out. */
+export function CallShareView(p: Partial<B.CallShareView> = {}): B.CallShareView {
+  return { "shareId": "", "mine": false, "name": "", "device": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, "fps": 0, "kbps": 0, "path": "", ...p } as B.CallShareView
 }
 
 /** CallView with Go's zero values for every field left out. */
@@ -756,6 +763,11 @@ export function SharedCopy(p: Partial<B.SharedCopy> = {}): B.SharedCopy {
 /** SharePreview with Go's zero values for every field left out. */
 export function SharePreview(p: Partial<B.SharePreview> = {}): B.SharePreview {
   return { "boardId": "", "boardName": "", "title": "", "goal": "", "doneWhen": "", "steps": [], "links": [], "repo": "", "visibleTo": [], "dropped": [], "subtasks": [], "keptPrivate": [], "hash": "", ...p } as B.SharePreview
+}
+
+/** ShareSourceView with Go's zero values for every field left out. */
+export function ShareSourceView(p: Partial<B.ShareSourceView> = {}): B.ShareSourceView {
+  return { "id": "", "kind": "", "title": "", "app": "", "width": 0, "height": 0, ...p } as B.ShareSourceView
 }
 
 /** SpaceBoard with Go's zero values for every field left out. */

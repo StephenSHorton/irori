@@ -3551,6 +3551,7 @@ dependencies = [
  "irori-presence",
  "irori-scrub",
  "irori-search",
+ "irori-share",
  "irori-store",
  "irori-sys",
  "irori-term",
@@ -3797,6 +3798,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
+ "bytes",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
