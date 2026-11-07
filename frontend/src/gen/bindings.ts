@@ -183,13 +183,21 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
-	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsAddToSpace: (spaceId: string, name: string, tag: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag, description }),
 	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
 	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
-	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsAddToPersonal: (name: string, tag: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag, description }),
 	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsDeleteInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_delete_in_space", { spaceId, boardId }),
 	boardsDeleteInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_delete_in_personal", { boardId }),
+	boardsSetDescriptionInSpace: (spaceId: string, boardId: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_set_description_in_space", { spaceId, boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInSpace: (spaceId: string, boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<BoardSummary>("boards_close_in_space", { spaceId, boardId, openCards, moveTo }),
+	boardsReopenInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_reopen_in_space", { spaceId, boardId }),
+	boardsSetDescriptionInPersonal: (boardId: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_set_description_in_personal", { boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInPersonal: (boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_close_in_personal", { boardId, openCards, moveTo }),
+	boardsReopenInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_reopen_in_personal", { boardId }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -2673,6 +2681,20 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+	/**
+	 *  The board's description (card #690): optional free text, often
+	 *  the end result it is for. Absent with none.
+	 */
+	description?: string,
+	/**  Closed: read-only and out of the pickers and tiles (card #690). */
+	closed?: boolean,
+	/**  When it was closed (RFC 3339), while it is. */
+	closedAt?: string,
+	/**
+	 *  Whether this person may close or reopen it: its maker or a space
+	 *  owner (anyone in Personal), never a first board.
+	 */
+	mayClose?: boolean,
 };
 
 /**

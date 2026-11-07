@@ -109,6 +109,12 @@ unchanged.
 | `/?spaces=open` | the space picker open: All spaces, Personal, each shared space, then Space settings (a shared pick) and New or join a space (card #689) |
 | `/#board/personal` | Personal's page: its boards and Add board (card #689; it was on the Spaces page) |
 | `/#boards` | Boards with All spaces picked: pick a space to see its boards (card #689); with a space picked (`?space=sample-board-mlg#boards`) it opens that space's page |
+| `/#board/sample-board-mlg` (descriptions) | MLG's tiles, MLG's and Netcode's descriptions two lines under their names (Art has none, so nothing), and "Closed boards · 1" folded under them (card #690); `?closed#board/sample-board-mlg` opens it on the closed Prototype, with its Closed badge; `?addboard#board/sample-board-mlg` opens New board with its optional Description |
+| `/#board/sample-board-mlg/sample-board-mlg-net` | a board's long description at its top, three lines and More (card #690); the header's ⋯ has Edit description… and Close board…; `?description=sample-board-mlg-net` opens Edit description |
+| `/#board/sample-board-mlg/sample-board-mlg-art` | a board with no description: nothing over its cards, and no prompt to add one (card #690) |
+| `/?close=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net` | Close board with two open cards (card #690): each with Open, "Move them to [MLG]" (picked) or "Cancel them", then Close board; `?close=sample-board-mlg-art` on Art's page has none open, a plain confirm |
+| `/#board/sample-board-mlg/sample-board-mlg-proto` | a closed board (card #690): read-only, no ask box or Rename, "Closed 4d ago" and Reopen board |
+| `/?closed#board/personal` | Personal's tiles, House with its description, and its Closed boards fold open on Taxes 2025 (card #690) |
 | `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
 | `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
 | `/#board/sample-board-mlg` | MLG, shared with Blake (card #268): each card's owner chip (Stephen, Blake, Former member) and the Mine / Blake chips |

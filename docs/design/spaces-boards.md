@@ -48,3 +48,7 @@ Stephen first held these for a server design (b3). Decision 48 dropped the serve
 - Window: an inner board's tag and board reach `CardSummary` (`card_place`), New card can go on any board, subtasks stay on their parent's board, and `summary_row` follows `space.board.*`.
 - Talk: a thread from a space channel lands in the space's log, agent Talk tools reach space threads, All spaces lists them, and `talk_post` on a space's card goes through the shared-space fence like `board_comment`.
 - Agents: `board_share` and `board_create` onto an inner board land on that board, and labels name a card's own board.
+
+## 6. Descriptions and closing (card #690)
+
+A board may have a description (optional free text, often the end result it is for), and can be closed (read-only, out of the lists) when it has served its purpose; closing moves its open cards to another board or cancels them. Neither a space's first board nor Personal's default board closes. Rows, who may and the gate: [board.md](board.md#board-descriptions-and-closing).

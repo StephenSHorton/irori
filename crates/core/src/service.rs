@@ -520,6 +520,8 @@ impl tools::Backend for ToolsView {
                 board_id: b.board_id,
                 name: b.name,
                 tag: b.tag,
+                description: b.description,
+                closed: b.closed,
             })
             .collect()
     }
@@ -1255,7 +1257,9 @@ impl Core {
                         let st = Arc::downgrade(&st);
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
+                            spaces::with_personal_rules(|r| {
+                                spaces::board_list_in(&st, spaces::PERSONAL_BOARD, r)
+                            })
                         })
                     }),
                     ..Default::default()
