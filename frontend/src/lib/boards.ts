@@ -16,6 +16,9 @@ import {
 } from "./models"
 import {
   sampleBoardGone,
+  sampleCancel,
+  sampleMoveBoard,
+  sampleOpenOn,
   sampleShare,
   sampleTransferOwner,
   sampleWithdraw,
@@ -168,6 +171,19 @@ export function suggestTag(name: string): string {
   return validTag(t) ? t : ""
 }
 
+// MaxBoardDescription mirrors core's MAX_BOARD_DESCRIPTION (card #690): a
+// board's description is this many characters at most.
+export const MaxBoardDescription = 2000
+
+// ClosedBoardNote mirrors core's CLOSED_BOARD_NOTE: the note on a card
+// canceled because its board closed.
+export const ClosedBoardNote = "its board was closed"
+
+// OpenCards is what Close board does with the board's open cards (card
+// #690): keep refuses while any is open, move takes them (each with its
+// family) to another open board, cancel ends them.
+export type OpenCards = "keep" | "move" | "cancel"
+
 // ---- sample mode ------------------------------------------------------------
 
 // sampleAvatar is a friend's picture in the samples (card #393).
@@ -225,11 +241,40 @@ function boardsState(): BoardSummary[] {
       ready: true,
       pinned: true,
       pinRank: 1,
-      // A space with a second board (card #392).
+      // A space with a second board (card #392). MLG and Netcode say what
+      // they are for, Art has no description, and the prototype is closed
+      // (card #690).
       boards: [
-        { boardId: "sample-board-mlg", name: "MLG", tag: "mlg" },
-        { boardId: "sample-board-mlg-net", name: "Netcode", tag: "net" },
-        { boardId: "sample-board-mlg-art", name: "Art", tag: "art" },
+        {
+          boardId: "sample-board-mlg",
+          name: "MLG",
+          tag: "mlg",
+          description:
+            "A two-player boat race people can play over the internet, ready for the spring demo.",
+        },
+        {
+          boardId: "sample-board-mlg-net",
+          name: "Netcode",
+          tag: "net",
+          description:
+            "Both clients agree on every boat, every frame, on a normal home connection, so two players across town can race with no desync.\n\nRollback first, then lag compensation. Anything about matchmaking or lobbies goes on the MLG board, not here: this board is only the sync between two running games. Keep the repro captures attached to their cards so whoever picks one up can replay it.",
+          mayClose: true,
+        },
+        {
+          boardId: "sample-board-mlg-art",
+          name: "Art",
+          tag: "art",
+          mayClose: true,
+        },
+        {
+          boardId: "sample-board-mlg-proto",
+          name: "Prototype",
+          tag: "proto",
+          description: "Find out if racing boats on one screen is fun.",
+          closed: true,
+          closedAt: new Date(Date.now() - 4 * 24 * 3600_000).toISOString(),
+          mayClose: true,
+        },
       ],
     }),
     BoardSummary({
@@ -266,6 +311,121 @@ function sampleFind(id: string): BoardSummary {
   return b
 }
 
+// sampleList is one board of a sample space or of Personal (space
+// Personal), as core's project_board finds it.
+function sampleList(space: string, boardId: string): SpaceBoard {
+  const list =
+    space === Personal ? samplePersonal : boardsOfSample(sampleFind(space))
+  const x = list.find((b) => b.boardId === boardId)
+  if (!x) throw new Error(`core: no such board: ${boardId}`)
+  return x
+}
+
+// boardsOfSample is a sample space's boards, its first written out.
+function boardsOfSample(b: BoardSummary): SpaceBoard[] {
+  if (!b.boards.length)
+    b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+  return b.boards
+}
+
+function checkDescription(description: string) {
+  if ([...description].length > MaxBoardDescription)
+    throw new Error(
+      `coord: invalid input: a board's description is ${MaxBoardDescription} characters at most`
+    )
+}
+
+// cardList is core's card_list: up to eight refs, then "and N more".
+function cardList(refs: string[]): string {
+  const shown = refs.slice(0, 8).join(", ")
+  return refs.length > 8 ? `${shown} and ${refs.length - 8} more` : shown
+}
+
+// sampleSetClosed is core's close and reopen on the sample (card #690):
+// never a first board (or Personal's default), only by who may, and a
+// close first keeps, moves or cancels the board's open cards.
+export function sampleSetClosed(
+  space: string,
+  boardId: string,
+  closed: boolean,
+  open: OpenCards = "keep",
+  moveTo = ""
+) {
+  const personal = space === Personal
+  const all = personal ? samplePersonal : boardsOfSample(sampleFind(space))
+  const x = sampleList(space, boardId)
+  if (all[0]?.boardId === boardId)
+    throw new Error(
+      personal
+        ? "coord: not allowed: Personal's default board is never closed"
+        : "coord: not allowed: a space's first board is never closed"
+    )
+  if (!x.mayClose)
+    throw new Error(
+      `coord: not allowed: only the person who made board "${x.name}" or an owner of the space may ${closed ? "close" : "reopen"} it`
+    )
+  // As in core: closing a closed board or reopening an open one does
+  // nothing.
+  if (!!x.closed === closed) return
+  if (closed) sampleClearOpen(personal ? "" : space, x, all, open, moveTo)
+  x.closed = closed
+  x.closedAt = closed ? new Date().toISOString() : undefined
+  if (personal) samplePersonal = [...samplePersonal]
+  sampleMoved()
+}
+
+// sampleClearOpen is core's clear_open on the sample: board x's open cards
+// kept (refused while any is open), moved or canceled.
+function sampleClearOpen(
+  space: string,
+  x: SpaceBoard,
+  all: SpaceBoard[],
+  open: OpenCards,
+  moveTo: string
+) {
+  const cards = sampleOpenOn(space, x.boardId)
+  if (!cards.length) return
+  const ref = (c: { tag?: string; short?: string }) =>
+    `${c.tag ?? ""}#${c.short ?? ""}`
+  if (open === "keep") {
+    const n = cards.length
+    throw new Error(
+      `coord: bad state: board "${x.name}" has ${n} open card${n === 1 ? "" : "s"} (${cardList(cards.map(ref))}): move or cancel them, or close the board with them moved or canceled`
+    )
+  }
+  if (open === "cancel") {
+    for (const c of cards) sampleCancel(c.id, ClosedBoardNote)
+    return
+  }
+  const to = moveTo.trim()
+  if (!to) throw new Error("coord: invalid input: pick a board to move them to")
+  const target = all.find((b) => b.boardId === to)
+  if (!target)
+    throw new Error(`coord: not found: no board ${to} to move the cards to`)
+  if (target.boardId === x.boardId)
+    throw new Error(
+      "coord: invalid input: pick another board to move the cards to"
+    )
+  if (target.closed)
+    throw new Error(
+      `coord: not allowed: board "${target.tag || target.name}" is closed: reopen it first, or pick another board`
+    )
+  const here = new Set(cards.map((c) => c.id))
+  const stuck = cards.flatMap((c) =>
+    c.ask && c.ask.state !== "closed"
+      ? [`${ref(c)} is an open ask`]
+      : c.parent && !here.has(c.parent.id)
+        ? [`${ref(c)} is a subtask whose parent isn't open on this board`]
+        : []
+  )
+  if (stuck.length)
+    throw new Error(
+      `coord: bad state: board "${x.name}" stays open: ${cardList(stuck)} can't move. Close or cancel ${stuck.length === 1 ? "it" : "them"} first, or close the board canceling its cards`
+    )
+  // A parent's subtasks go with it.
+  for (const c of cards) sampleMoveBoard(c.id, target.boardId)
+}
+
 // sampleBoard is a sample board by id, for cards.ts.
 export function sampleBoard(id: string): BoardSummary | undefined {
   return boardsState().find((x) => x.boardId === id)
@@ -273,10 +433,26 @@ export function sampleBoard(id: string): BoardSummary | undefined {
 
 setSampleBoards(sampleBoard)
 
-// Personal's boards on the sample (card #558), its default first.
+// Personal's boards on the sample (card #558), its default first: House
+// says what it is for, and Taxes 2025 is closed (card #690).
 let samplePersonal: SpaceBoard[] = [
   { boardId: Personal, name: "Personal", tag: "" },
-  { boardId: "sample-personal-home", name: "House", tag: "home" },
+  {
+    boardId: "sample-personal-home",
+    name: "House",
+    tag: "home",
+    description: "Keep the house running: repairs, bills and the garden.",
+    mayClose: true,
+  },
+  {
+    boardId: "sample-personal-tax",
+    name: "Taxes 2025",
+    tag: "tax",
+    description: "File the 2025 return and get the refund in.",
+    closed: true,
+    closedAt: new Date(Date.now() - 12 * 24 * 3600_000).toISOString(),
+    mayClose: true,
+  },
 ]
 
 setSamplePersonal((id) => samplePersonal.find((x) => x.boardId === id))
@@ -375,8 +551,17 @@ export const boards = {
     return samplePersonal.map((x) => ({ ...x }))
   },
 
-  async addToPersonal(name: string, tag: string): Promise<SpaceBoard[]> {
-    if (inWails()) return (await BoardsService.AddToPersonal(name, tag)) ?? []
+  // addToPersonal makes one of Personal's boards, with its description
+  // (card #690; "" for none).
+  async addToPersonal(
+    name: string,
+    tag: string,
+    description = ""
+  ): Promise<SpaceBoard[]> {
+    const d = description.trim()
+    if (inWails())
+      return (await BoardsService.AddToPersonal(name, tag, d)) ?? []
+    checkDescription(d)
     const t = tag.trim().toLowerCase()
     if (!validTag(t))
       throw new Error(
@@ -389,7 +574,13 @@ export const boards = {
       throw new Error(`core: the tag "${t}" is already a board's`)
     samplePersonal = [
       ...samplePersonal,
-      { boardId: `sample-personal-${t}`, name: name.trim(), tag: t },
+      {
+        boardId: `sample-personal-${t}`,
+        name: name.trim(),
+        tag: t,
+        description: d || undefined,
+        mayClose: true,
+      },
     ]
     sampleMoved()
     return boards.personal()
@@ -416,10 +607,13 @@ export const boards = {
   async addToSpace(
     spaceId: string,
     name: string,
-    tag: string
+    tag: string,
+    description = ""
   ): Promise<BoardSummary> {
-    if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag)
+    const d = description.trim()
+    if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag, d)
     const b = sampleFind(spaceId)
+    checkDescription(d)
     const t = tag.trim().toLowerCase()
     if (
       boardsState().some(
@@ -431,7 +625,13 @@ export const boards = {
       b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
     b.boards = [
       ...b.boards,
-      { boardId: `${spaceId}-${t}`, name: name.trim(), tag: t },
+      {
+        boardId: `${spaceId}-${t}`,
+        name: name.trim(),
+        tag: t,
+        description: d || undefined,
+        mayClose: true,
+      },
     ]
     sampleMoved()
     return b
@@ -470,6 +670,60 @@ export const boards = {
     sampleBoardGone(boardId, "")
     sampleMoved()
     return boards.personal()
+  },
+
+  // setDescription writes a board's description (card #690): any member
+  // may; "" clears it. space is the space's id, or Personal.
+  async setDescription(
+    space: string,
+    boardId: string,
+    description: string
+  ): Promise<void> {
+    const d = description.trim()
+    if (inWails()) {
+      if (space === Personal)
+        await BoardsService.SetDescriptionInPersonal(boardId, d)
+      else await BoardsService.SetDescriptionInSpace(space, boardId, d)
+    } else {
+      checkDescription(d)
+      const x = sampleList(space, boardId)
+      if (x.closed)
+        throw new Error(
+          `coord: not allowed: board "${x.tag || x.name}" is closed: reopen it first, or pick another board`
+        )
+      x.description = d || undefined
+      if (space === Personal) samplePersonal = [...samplePersonal]
+      sampleMoved()
+    }
+    boardsTouched()
+  },
+
+  // close makes a board read-only and puts it under Closed boards (card
+  // #690), its open cards first kept (refused while any is open), moved
+  // to board moveTo (a board id; the space's id is its first board,
+  // Personal Personal's default) or canceled. Its maker or a space owner
+  // may (anyone in Personal); never a first board.
+  async close(
+    space: string,
+    boardId: string,
+    open: OpenCards,
+    moveTo = ""
+  ): Promise<void> {
+    if (inWails()) {
+      if (space === Personal)
+        await BoardsService.CloseInPersonal(boardId, open, moveTo)
+      else await BoardsService.CloseInSpace(space, boardId, open, moveTo)
+    } else sampleSetClosed(space, boardId, true, open, moveTo)
+    boardsTouched()
+  },
+
+  // reopen brings a closed board back as it was, its description too.
+  async reopen(space: string, boardId: string): Promise<void> {
+    if (inWails()) {
+      if (space === Personal) await BoardsService.ReopenInPersonal(boardId)
+      else await BoardsService.ReopenInSpace(space, boardId)
+    } else sampleSetClosed(space, boardId, false)
+    boardsTouched()
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {
@@ -714,8 +968,18 @@ export const boards = {
 
 // ---- hooks ------------------------------------------------------------------
 
+// touched are readers to tell when this window changed a board itself,
+// so the header and the page over it (separate readers of Personal's
+// boards) never disagree, whether or not a boards:changed follows.
+const touched = new Set<() => void>()
+
+function boardsTouched() {
+  void reloadBoards()
+  for (const fn of touched) fn()
+}
+
 // The boards list is one list for the whole window (card #233): the
-// sidebar's Pinned boards, the Boards page and every other reader share
+// sidebar's Pinned boards, the space picker and every other reader share
 // it, so they can never disagree. It loads when its first reader mounts,
 // again on every boards:changed (a board opened, went or was renamed, or
 // a board synced from another device got its rows), and on reload.
@@ -821,7 +1085,13 @@ export function usePersonalBoards(): {
   }, [])
   useEffect(() => {
     void reload()
-    return onBoardsMoved(() => void reload())
+    const on = () => void reload()
+    touched.add(on)
+    const off = onBoardsMoved(on)
+    return () => {
+      touched.delete(on)
+      off()
+    }
   }, [reload])
   return { ...state, reload }
 }

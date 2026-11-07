@@ -2,8 +2,9 @@
 //! The window resolves an Irori ask with the answer, so the reply is on no
 //! comment: a reply that isn't a folder still comes back quoted, with why
 //! it is asked again, the answer doesn't say nobody will act on it, and a
-//! folder's path starts the agent there. A card that names no repo is
-//! never asked about (card #600), so these use a repo no device has.
+//! folder's path, alone or in a sentence (card #681), starts the agent
+//! there. A card that names no repo is never asked about (card #600), so
+//! these use a repo no device has.
 
 use crate::common;
 
@@ -228,4 +229,22 @@ fn a_wrong_path_is_said_so_each_time() {
         b3.context
     );
     assert!(b3.context.contains("clone it first"), "{}", b3.context);
+}
+
+/// Card #681: a folder in a sentence is read as the folder, as Stephen
+/// wrote it on #677 ("put the clone in ~/projects/rune").
+#[test]
+fn a_folder_in_a_sentence_starts_the_agent_there() {
+    let t = rig();
+    let c = t.card(NOWHERE);
+    let b = t.asked(&c.id, "");
+    let dir = tempfile::tempdir().unwrap();
+    let said = format!("put the clone in {}, thanks", dir.path().display());
+    let res = t.w().answer(&c.id, &b.id, -1, &said, true, &[]).unwrap();
+    assert!(res.irori_acts);
+    wait("its agent started", || {
+        t.w().core.set_spawn_cap(t.w().core.spawn_cap()).ok();
+        !t.started.lock().unwrap().is_empty()
+    });
+    assert_eq!(Path::new(&t.started.lock().unwrap()[0].folder), dir.path());
 }

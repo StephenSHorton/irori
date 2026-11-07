@@ -6,7 +6,7 @@
 //                   devices, people, agents, desks,
 //                   maintenance or app
 //   ?devices        opens Settings at Devices and connections
-//   ?boards         opens the Boards dialog
+//   ?boards         opens New or join a space (card #689)
 //   ?share=<card>   opens Share to board on that card's page
 //   ?transfer=<card> opens Transfer ownership (or Ask to own it) there
 //   ?move=<card>    opens Move to another board there
@@ -25,6 +25,11 @@
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
+//   ?addboard       opens New board (with its optional description) on a
+//                   space's or Personal's boards (card #690)
+//   ?description=<board> opens that board's Edit description on its page
+//   ?close=<board>  opens that board's Close board dialog on its page
+//   ?closed         opens the Closed boards fold under a space's tiles
 //   ?slots          shows two check.sh runs in the sidebar's Check slots
 //   ?from=<card>    the grid as that card's Back leaves it (App.tsx)
 //   ?filter=done    the grid on that filter tab (App.tsx)
@@ -36,6 +41,8 @@
 //   ?gpu=none       the meters on a machine with no GPU (lib/meters.ts)
 //   ?usage=none     Claude usage left with no reading yet; ?usage=stale
 //                   one from 40 minutes ago (lib/usage.ts)
+//   ?term           a card page's Terminal section with one blank stand-in
+//                   shell and its height handle (lib/term.ts, card #730)
 
 import { inWails } from "./irori"
 

@@ -13,6 +13,7 @@ import {
   CardDetail,
   CardHolder,
   CardOption,
+  CardPermission,
   CardPR,
   CardRef,
   CardResolution,
@@ -102,19 +103,20 @@ function sampleAccent(working: AgentRef[]): {
 export function sampleHolder(working: AgentRef[]): CardHolder {
   if (!working.length) return CardHolder({ state: Holding.HoldNobody })
   const who = working.find((w) => !w.assigned) ?? working[0]
+  // The order of holder_line in crates/window/src/cards.rs (card #699).
   const state =
     who.status === "person"
       ? Holding.HoldPerson
-      : who.waiting
-        ? Holding.HoldWaiting
-        : who.assigned
-          ? Holding.HoldAssigned
-          : who.status === "gone"
-            ? Holding.HoldGone
-            : who.status === "unresponsive"
-              ? Holding.HoldSilent
-              : who.offline
-                ? Holding.HoldOffline
+      : who.status === "gone"
+        ? Holding.HoldGone
+        : who.status === "unresponsive"
+          ? Holding.HoldSilent
+          : who.offline
+            ? Holding.HoldOffline
+            : who.waiting
+              ? Holding.HoldWaiting
+              : who.assigned
+                ? Holding.HoldAssigned
                 : who.status === "idle"
                   ? Holding.HoldIdle
                   : Holding.HoldActive
@@ -200,6 +202,7 @@ export function sampleCards(now: Date): CardDetail[] {
       waitQuestion: c.waitQuestion ?? wait?.question,
       waitTask: c.waitTask ?? wait?.waitsOn?.taskId,
       blockerQuestion: needs[0]?.question ?? "",
+      permissionWait: needs.some((b) => !!b.permission) || undefined,
       ready: needs.some((b) => b.doneCheck) || undefined,
     })
   }
@@ -474,24 +477,127 @@ export function sampleCards(now: Date): CardDetail[] {
               }),
             ],
             blockers: [
+              // Card #682: its hook waits on the prompt, so the card
+              // answers it.
               CardBlocker({
                 id: "b-perm",
                 question:
-                  "Waiting for your permission: sample-thyme is stopped on a prompt",
+                  "Waiting for your permission: sample-thyme wants to use Bash: cargo test -p irori-net --test it board_iroh -- --test-threads=1",
                 context:
-                  "sample-thyme, the agent Irori started for #58, is waiting for a permission nobody is there to give. Attach to it to answer the prompt, or add the command to the space's allow list in Settings › Agents and start a fresh agent.",
+                  "sample-thyme, the agent Irori started for #58, is stopped on a permission prompt. Allow once or Deny answers it from here; Always allow also adds the rule to the board's allow list. Or attach to it and answer in its terminal.",
                 raisedBy: AgentRef({
                   key: "irori",
                   name: "Irori",
                   status: "person",
                 }),
                 at: at(2),
-                options: [],
+                options: [
+                  CardOption({
+                    answer: "Allow once",
+                    why: "Lets the agent run it this time; it asks again next time.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                  CardOption({
+                    answer: "Always allow",
+                    why: "Also adds Bash(cargo test -p irori-net --test it board_iroh -- --test-threads=1) to the board's allow list in Settings › Agents.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                  CardOption({
+                    answer: "Deny",
+                    why: "Tells the agent no; it goes on without it.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(2),
+                  }),
+                ],
                 resolved: null,
                 state: "open",
+                permission: CardPermission({
+                  agent: AgentRef({
+                    ...agent(
+                      "sample06-synthetic-session",
+                      "sample-thyme",
+                      "waiting"
+                    ),
+                    spawned: true,
+                  }),
+                  tool: "Bash",
+                  input:
+                    "cargo test -p irori-net --test it board_iroh -- --test-threads=1",
+                  rule: "Bash(cargo test -p irori-net --test it board_iroh -- --test-threads=1)",
+                  answerable: true,
+                }),
               }),
             ],
             updatedAt: at(2),
+          }),
+          // Card #682, as on #675: a bypass agent stopped on one of Claude
+          // Code's safety checks (rm on a target it can't resolve). No rule
+          // skips it, so no Always allow, and Claude Code denies it by
+          // itself 2 minutes after asking.
+          card({
+            id: "sample-card-spawn-safety",
+            short: "59",
+            title: "Flaky net test on the PC",
+            goal: "Find the race in the stall assertion.",
+            working: [
+              AgentRef({
+                ...agent(
+                  "sample07-synthetic-session",
+                  "sample-woodruff",
+                  "waiting"
+                ),
+                spawned: true,
+              }),
+            ],
+            blockers: [
+              CardBlocker({
+                id: "b-safety",
+                question:
+                  'Waiting for your permission: sample-woodruff wants to use Bash: for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                context:
+                  "sample-woodruff, the agent Irori started for #59, is stopped on a permission prompt. Allow once or Deny answers it from here. Or attach to it and answer in its terminal. It is one of Claude Code's safety checks, which it asks even in bypass mode and no allow rule skips; it denies the call by itself 2 minutes after asking.",
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
+                at: at(0),
+                options: [
+                  CardOption({
+                    answer: "Allow once",
+                    why: "Lets the agent run it this time; it asks again next time.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                  CardOption({
+                    answer: "Deny",
+                    why: "Tells the agent no; it goes on without it.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                ],
+                resolved: null,
+                state: "open",
+                permission: CardPermission({
+                  agent: AgentRef({
+                    ...agent(
+                      "sample07-synthetic-session",
+                      "sample-woodruff",
+                      "waiting"
+                    ),
+                    spawned: true,
+                  }),
+                  tool: "Bash",
+                  input:
+                    'TMPW=$(cygpath -u "$TEMP"); for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                  answerable: true,
+                  expires: new Date(Date.now() + 100_000).toISOString(),
+                }),
+              }),
+            ],
+            updatedAt: at(0),
           }),
           // #71 was given by Spencer: nothing starts without the yes.
           card({
@@ -1973,6 +2079,31 @@ export function sampleCards(now: Date): CardDetail[] {
       // Blake made it (card #268).
       owner: "sample-person-0",
     }),
+    // A second open card on Netcode, for Close board's list (card #690).
+    card({
+      id: "sample-board-net-2",
+      short: "2",
+      title: "Roll back a boat when a late input arrives",
+      goal: "A late input rewinds and replays the boat, with no visible snap.",
+      scope: "board",
+      scopeLabel: "MLG · Netcode",
+      board: "sample-board-mlg",
+      tag: "net",
+      spaceBoard: "sample-board-mlg-net",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "net",
+        spaceBoard: "sample-board-mlg-net",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: true,
+        canTransfer: true,
+      }),
+      state: TaskState.Submitted,
+      working: [],
+      owner: "sample-me",
+      updatedAt: at(95),
+    }),
     // Blake's agent kite works Blake's card (card #268): the owner chip says
     // Blake.
     card({
@@ -2032,6 +2163,67 @@ export function sampleCards(now: Date): CardDetail[] {
       working: [],
       owner: "sample-person-left",
       updatedAt: at(300),
+    }),
+    // The closed Prototype board's cards (card #690), kept as they were.
+    card({
+      id: "sample-board-proto-1",
+      short: "1",
+      title: "Two boats on one screen",
+      goal: "Two boats race on one screen with two pads.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "proto",
+      spaceBoard: "sample-board-mlg-proto",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "proto",
+        spaceBoard: "sample-board-mlg-proto",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: false,
+        canTransfer: true,
+      }),
+      state: TaskState.Completed,
+      working: [],
+      owner: "sample-me",
+      updatedAt: at(12960),
+    }),
+    card({
+      id: "sample-board-proto-2",
+      short: "2",
+      title: "Playtest the prototype with five people",
+      goal: "Notes on what was fun and what wasn't.",
+      scope: "board",
+      scopeLabel: "MLG",
+      board: "sample-board-mlg",
+      tag: "proto",
+      spaceBoard: "sample-board-mlg-proto",
+      onBoard: CardBoard({
+        id: "sample-board-mlg",
+        name: "MLG",
+        tag: "proto",
+        spaceBoard: "sample-board-mlg-proto",
+        visibleTo: ["Stephen", "Blake"],
+        canWithdraw: false,
+        canTransfer: true,
+      }),
+      state: TaskState.Completed,
+      working: [],
+      owner: "sample-person-0",
+      updatedAt: at(7200),
+    }),
+    // Personal's closed board (card #690).
+    card({
+      id: "sample-card-tax-1",
+      short: "1",
+      title: "File the 2025 return",
+      goal: "Filed, with the receipts attached.",
+      tag: "tax",
+      spaceBoard: "sample-personal-tax",
+      state: TaskState.Completed,
+      working: [],
+      updatedAt: at(60 * 24 * 13),
     }),
     // An agent Irori couldn't start: its repo isn't trusted for agents on
     // this computer (card #449), so Needs you shows Trust and start.

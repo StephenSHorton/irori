@@ -159,6 +159,8 @@ export const commands = {
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
+	/**  The person has a thread open: what is in it now is read (card #719). */
+	boardReadThread: (id: string) => __TAURI_INVOKE<null>("board_read_thread", { id }),
 	/**  Resolve on a thread: the person is done with it. */
 	boardResolveThread: (id: string) => __TAURI_INVOKE<null>("board_resolve_thread", { id }),
 	/**  A resolved thread is live again (card #169). */
@@ -181,13 +183,21 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
-	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsAddToSpace: (spaceId: string, name: string, tag: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag, description }),
 	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
 	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
-	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsAddToPersonal: (name: string, tag: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag, description }),
 	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsDeleteInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_delete_in_space", { spaceId, boardId }),
 	boardsDeleteInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_delete_in_personal", { boardId }),
+	boardsSetDescriptionInSpace: (spaceId: string, boardId: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_set_description_in_space", { spaceId, boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInSpace: (spaceId: string, boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<BoardSummary>("boards_close_in_space", { spaceId, boardId, openCards, moveTo }),
+	boardsReopenInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_reopen_in_space", { spaceId, boardId }),
+	boardsSetDescriptionInPersonal: (boardId: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_set_description_in_personal", { boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInPersonal: (boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_close_in_personal", { boardId, openCards, moveTo }),
+	boardsReopenInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_reopen_in_personal", { boardId }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -409,6 +419,13 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**
+	 *  The themes new agents' names come from (card #702), each with its
+	 *  switch.
+	 */
+	namesThemes: () => __TAURI_INVOKE<NamesThemesView>("names_themes"),
+	/**  The person turns a theme on or off: the app only, never a tool. */
+	namesThemeSet: (id: string, on: boolean) => __TAURI_INVOKE<NamesThemesView>("names_theme_set", { id, on }),
 	/**  "My agents may start agents on my cards" and its maximum (card #575). */
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
@@ -1159,6 +1176,11 @@ export type CardBlocker = {
 	 *  agent's answer and the proof it replaces.
 	 */
 	previous?: CardRound | null,
+	/**
+	 *  A spawned agent stopped on a permission prompt (card #682): the
+	 *  window shows what is waiting and buttons, never an answer box.
+	 */
+	permission?: CardPermission | null,
 };
 
 /**  The shared board a card lives on (v0.5 §8). */
@@ -1334,6 +1356,28 @@ export type CardPR = {
 	checkedAt: string,
 };
 
+/**  What a spawned agent's permission prompt waits on (card #682). */
+export type CardPermission = {
+	/**  The agent on the prompt. */
+	agent: AgentRef,
+	/**  The tool waiting, e.g. `Bash`; empty when unknown. */
+	tool: string,
+	/**  The command, path or URL; empty when unknown. */
+	input: string,
+	/**  The rule Always allow adds; empty: no Always allow. */
+	rule: string,
+	/**
+	 *  Whether Irori can answer the prompt from the card (its hook waits
+	 *  on it): Allow once and Deny. Else only Attach answers it.
+	 */
+	answerable: boolean,
+	/**
+	 *  When Claude Code denies the call by itself, for a safety check it
+	 *  asks even in bypass mode (RFC 3339); empty when it waits.
+	 */
+	expires: string,
+};
+
 /**  Done steps over all steps; total 0 means no bar. */
 export type CardProgress = {
 	done: number,
@@ -1445,6 +1489,11 @@ export type CardSummary = {
 	progress: CardProgress,
 	openBlockers: number,
 	blockerQuestion: string,
+	/**
+	 *  An open item is Irori's "Waiting for your permission" (cards #449,
+	 *  #682): Needs you shows it as a permission row with its buttons.
+	 */
+	permissionWait?: boolean,
 	/**
 	 *  An agent says it's done and it waits on the person's Done (card
 	 *  #112): the grid shows "Ready for you" for it.
@@ -1967,6 +2016,11 @@ export type GoneSession = {
 	goneAt: string,
 	reason: string,
 	transcript: boolean,
+	/**
+	 *  Whether Claude Code will start `claude --bg --resume` in `cwd`: the
+	 *  spawn's rule ([`crate::spawn::trusted_in`]), so a git repo needs its
+	 *  own entry even under a trusted parent (card #731).
+	 */
 	trusted: boolean,
 };
 
@@ -2211,6 +2265,29 @@ export type MetersSample = {
 
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
+
+/**  One names theme in Settings › Agents (card #702), with its switch. */
+export type NamesThemeChoice = {
+	id: string,
+	label: string,
+	/**
+	 *  New names may come from it: every theme is on until the person
+	 *  turns it off.
+	 */
+	on: boolean,
+	/**  How many words it has. */
+	words: number,
+	/**  A few of them, for the hint. */
+	sample: string[],
+};
+
+/**
+ *  The themes new agents' names come from (card #702): the person's, on all
+ *  their devices, set here and never by a tool.
+ */
+export type NamesThemesView = {
+	themes: NamesThemeChoice[],
+};
 
 /**  What the New card form sends. */
 export type NewCardInput = {
@@ -2604,6 +2681,20 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+	/**
+	 *  The board's description (card #690): optional free text, often
+	 *  the end result it is for. Absent with none.
+	 */
+	description?: string,
+	/**  Closed: read-only and out of the pickers and tiles (card #690). */
+	closed?: boolean,
+	/**  When it was closed (RFC 3339), while it is. */
+	closedAt?: string,
+	/**
+	 *  Whether this person may close or reopen it: its maker or a space
+	 *  owner (anyone in Personal), never a first board.
+	 */
+	mayClose?: boolean,
 };
 
 /**
@@ -3007,6 +3098,12 @@ export type ThreadSummary = {
 	 *  started for it.
 	 */
 	openedBy?: AgentRef | null,
+	/**
+	 *  An agent wrote in it after the person last opened or replied in it
+	 *  (card #719): Talk's count counts it and its list marks it. An
+	 *  agent's own thread is unread until the person first opens it.
+	 */
+	unread: boolean,
 };
 
 /**  Who an action's notice went to. */

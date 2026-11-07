@@ -246,6 +246,11 @@ pub struct CardSummary {
     pub progress: CardProgress,
     pub open_blockers: i64,
     pub blocker_question: String,
+    /// An open item is Irori's "Waiting for your permission" (cards #449,
+    /// #682): Needs you shows it as a permission row with its buttons.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub permission_wait: bool,
     /// An agent says it's done and it waits on the person's Done (card
     /// #112): the grid shows "Ready for you" for it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -662,6 +667,31 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub previous: Option<CardRound>,
+    /// A spawned agent stopped on a permission prompt (card #682): the
+    /// window shows what is waiting and buttons, never an answer box.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub permission: Option<CardPermission>,
+}
+
+/// What a spawned agent's permission prompt waits on (card #682).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardPermission {
+    /// The agent on the prompt.
+    pub agent: AgentRef,
+    /// The tool waiting, e.g. `Bash`; empty when unknown.
+    pub tool: String,
+    /// The command, path or URL; empty when unknown.
+    pub input: String,
+    /// The rule Always allow adds; empty: no Always allow.
+    pub rule: String,
+    /// Whether Irori can answer the prompt from the card (its hook waits
+    /// on it): Allow once and Deny. Else only Attach answers it.
+    pub answerable: bool,
+    /// When Claude Code denies the call by itself, for a safety check it
+    /// asks even in bypass mode (RFC 3339); empty when it waits.
+    pub expires: String,
 }
 
 /// The done check the person sent back before this one (card #476).
@@ -1778,6 +1808,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             if bl.done_check {
                 s.ready = true;
             }
+            if irori_core::spawn_waiting::is_permission_wait(bl) {
+                s.permission_wait = true;
+            }
             if s.open_blockers == 1 {
                 s.blocker_question = bl.question.clone();
             }
@@ -1958,18 +1991,21 @@ pub(crate) fn holder_line(working: &[AgentRef]) -> CardHolder {
         .position(|r| holds(r) && !r.assigned)
         .unwrap_or(first);
     let w = working[i].clone();
+    // An agent that is gone, not answering or offline says so before
+    // "Offered" or "Not picked up" (card #699): a dead agent never takes
+    // the card up, and reading as a slow one hid #677's for 16 minutes.
     let state = if w.status == "person" {
         Holding::Person
-    } else if w.waiting {
-        Holding::Waiting
-    } else if w.assigned {
-        Holding::Assigned
     } else if w.status == "gone" {
         Holding::Gone
     } else if w.status == coord::roster::NOT_ANSWERING {
         Holding::Silent
     } else if w.offline {
         Holding::Offline
+    } else if w.waiting {
+        Holding::Waiting
+    } else if w.assigned {
+        Holding::Assigned
     } else if w.status == "idle" {
         Holding::Idle
     } else {
@@ -2630,6 +2666,7 @@ impl Window {
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
+                permission: permission_of(&p, bl),
                 ..CardBlocker::default()
             };
             for o in &bl.options {
@@ -3342,6 +3379,28 @@ fn family_of(
     }
 }
 
+/// The window's view of a permission wait (card #682); an older Irori's
+/// untyped one (found by its question) shows as one Irori can't answer.
+fn permission_of(p: &People, bl: &coord::Blocker) -> Option<CardPermission> {
+    if !irori_core::spawn_waiting::is_permission_wait(bl) {
+        return None;
+    }
+    let w = bl.permission.clone().unwrap_or_default();
+    let answerable = !w.request.is_empty() && bl.open();
+    Some(CardPermission {
+        agent: if w.agent.is_empty() {
+            AgentRef::default()
+        } else {
+            p.ref_(&w.agent)
+        },
+        tool: w.tool,
+        input: w.input,
+        rule: if answerable { w.rule } else { String::new() },
+        answerable,
+        expires: w.expires,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3428,6 +3487,29 @@ mod tests {
         assert_eq!(holder_line(&[r("gone", false)]).state, Holding::Gone);
         assert_eq!(holder_line(&[r("person", false)]).state, Holding::Person);
         assert_eq!(holder_line(&[r("busy", false)]).state, Holding::Active);
+        // Card #699: an offered agent that is gone, not answering or
+        // offline reads as that, not as Offered or Not picked up.
+        assert_eq!(holder_line(&[r("idle", true)]).state, Holding::Assigned);
+        assert_eq!(holder_line(&[r("gone", true)]).state, Holding::Gone);
+        assert_eq!(
+            holder_line(&[r(coord::roster::NOT_ANSWERING, true)]).state,
+            Holding::Silent
+        );
+        let off = AgentRef {
+            offline: true,
+            ..r("idle", true)
+        };
+        assert_eq!(holder_line(&[off]).state, Holding::Offline);
+        let unsent_gone = AgentRef {
+            waiting: true,
+            ..r("gone", true)
+        };
+        assert_eq!(holder_line(&[unsent_gone]).state, Holding::Gone);
+        let unsent = AgentRef {
+            waiting: true,
+            ..r("idle", true)
+        };
+        assert_eq!(holder_line(&[unsent]).state, Holding::Waiting);
     }
 
     /// Card #480: a failed row from before #480 names the key and the

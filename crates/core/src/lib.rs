@@ -79,7 +79,9 @@ pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
 pub use crate::service::spaces::{
-    CALLS_TOLERANT, PERSONAL_BOARD, SpaceBoard, SpaceTolerance, fold_space_boards,
+    BOARD_ROWS_TOLERANT, BoardClosedRow, BoardDescribedRow, CALLS_TOLERANT, CLOSED_BOARD_NOTE,
+    MAX_BOARD_DESCRIPTION, OpenCards, PERSONAL_BOARD, SpaceBoard, SpaceTolerance,
+    fold_space_boards,
 };
 pub use crate::service::spawn;
 pub use crate::service::spawn_agents;
@@ -87,6 +89,7 @@ pub use crate::service::spawn_capable;
 pub use crate::service::spawn_limits;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
+pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};

@@ -207,12 +207,16 @@ impl Services {
                 .map(|(d, t)| (d.clone(), t.unix_nano()))
                 .collect()
         };
+        let homes: Vec<String> = ranked.into_iter().map(|(_, _, d)| d).collect();
+        let (full, free) = self.full_devices(&homes, &hosts);
         let agents = AgentDevices {
-            homes: ranked.into_iter().map(|(_, _, d)| d).collect(),
+            homes,
             cant,
             away,
             away_since,
             moves,
+            full,
+            free,
         };
         let moved = {
             let mut cur = self.spawn.agents.write().unwrap_or_else(|e| e.into_inner());
@@ -240,6 +244,48 @@ impl Services {
                     ..coord::Change::default()
                 }));
         }
+    }
+
+    /// Whether this device had no free agent slot at the last sweep (card
+    /// #686).
+    pub(crate) fn full_here(&self) -> bool {
+        self.spawn
+            .agents
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .full
+            .contains(&self.device.id)
+    }
+
+    /// The computers of `homes` with no free agent slot now (card #686),
+    /// as `spawn_device` judges one for a card: its agents paused, a usage
+    /// limit holding its starts, or its spawned agents and starting
+    /// requests at its cap. A thread waiting on one moves to one with room.
+    fn full_devices(
+        &self,
+        homes: &[String],
+        hosts: &std::collections::HashMap<String, super::spawn_remote::SpawnHost>,
+    ) -> (HashSet<String>, std::collections::BTreeMap<String, i64>) {
+        let me = self.device.id.as_str();
+        let now = (self.now)();
+        let mut full = HashSet::new();
+        let mut free = std::collections::BTreeMap::new();
+        for d in homes {
+            let host = hosts.get(d.as_str());
+            let held = if d.as_str() == me {
+                self.usage_held().is_some()
+            } else {
+                host.and_then(|h| h.held_until)
+                    .is_some_and(|u| u.secs > now.secs)
+            };
+            let left = self.cap_on(d, host) - self.spawned_on(d);
+            if held || self.agents_paused_on(d) || left <= 0 {
+                full.insert(d.clone());
+            } else {
+                free.insert(d.clone(), left);
+            }
+        }
+        (full, free)
     }
 
     /// What the person reads while no computer can start an agent; empty

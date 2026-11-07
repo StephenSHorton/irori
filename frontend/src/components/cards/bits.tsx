@@ -198,6 +198,19 @@ export function StatePill({ card }: { card: CardSummary }) {
         Offered
       </Badge>
     )
+  // Card #699: offered to an agent that is gone, not answering or offline,
+  // nobody is working it; the holder line says which.
+  if (
+    card.holder.who.assigned &&
+    (card.holder.state === Holding.HoldGone ||
+      card.holder.state === Holding.HoldSilent ||
+      card.holder.state === Holding.HoldOffline)
+  )
+    return (
+      <Badge variant="warning" className="rounded-full">
+        Not taken up
+      </Badge>
+    )
   // Held, its holders idle a while, and nothing named that it waits on
   // (card #305): not calm Waiting, so the person can tell.
   if (idleUnnamed(card))
@@ -243,8 +256,9 @@ export function holderText(
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
       // An agent Irori started ends when its work is done (card #456,
-      // spawned agents §10): finished, not lost.
-      return h.who.spawned
+      // spawned agents §10): finished, not lost. One that ended before it
+      // took the card up died (card #699).
+      return h.who.spawned && !h.who.assigned
         ? `${who}${more} · agent finished`
         : `${who}${more} · gone`
   }
@@ -265,7 +279,10 @@ export function HolderLine({
   returned?: AgentRef | null
   className?: string
 }) {
-  const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
+  const finished =
+    holder.state === Holding.HoldGone &&
+    !!holder.who.spawned &&
+    !holder.who.assigned
   // The live roster's status and when it began, as the hover card and
   // Who's on it read them (cards #317, #489).
   const live = useContext(LiveRoster).get(holder.who.key)

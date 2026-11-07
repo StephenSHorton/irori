@@ -281,6 +281,7 @@ export const BoardService = {
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),
   ThreadsAll: () => call(commands.boardThreadsAll()),
   CardRef: (r: string) => call(commands.boardCardRef(r)),
+  ReadThread: (id: string) => done(commands.boardReadThread(id)),
   ResolveThread: (id: string) => done(commands.boardResolveThread(id)),
   ReopenThread: (id: string) => done(commands.boardReopenThread(id)),
   CommentModify: (id: string, commentId: string) =>
@@ -367,6 +368,10 @@ export const AgentsService = {
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
+  // The themes new agents' names come from (card #702), each with a switch.
+  NamesThemes: () => call(commands.namesThemes()),
+  NamesThemeSet: (id: string, on: boolean) =>
+    call(commands.namesThemeSet(id, on)),
   // Pause agents (card #665): no device starts agents while it is on.
   Pause: () => call(commands.agentsPause()),
   PauseSet: (on: boolean) => call(commands.agentsPauseSet(on)),
@@ -403,19 +408,46 @@ export const BoardsService = {
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
   Rename: (boardId: string, name: string) =>
     call(commands.boardsRename(boardId, name)),
-  AddToSpace: (spaceId: string, name: string, tag: string) =>
-    call(commands.boardsAddToSpace(spaceId, name, tag)),
+  AddToSpace: (
+    spaceId: string,
+    name: string,
+    tag: string,
+    description: string
+  ) => call(commands.boardsAddToSpace(spaceId, name, tag, description)),
   RenameInSpace: (spaceId: string, boardId: string, name: string) =>
     call(commands.boardsRenameInSpace(spaceId, boardId, name)),
   Personal: () => call(commands.boardsPersonal()),
-  AddToPersonal: (name: string, tag: string) =>
-    call(commands.boardsAddToPersonal(name, tag)),
+  AddToPersonal: (name: string, tag: string, description: string) =>
+    call(commands.boardsAddToPersonal(name, tag, description)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
   DeleteInSpace: (spaceId: string, boardId: string) =>
     call(commands.boardsDeleteInSpace(spaceId, boardId)),
   DeleteInPersonal: (boardId: string) =>
     call(commands.boardsDeleteInPersonal(boardId)),
+  // A board's description, and closing or reopening it (card #690).
+  // openCards is "keep", "move" or "cancel"; moveTo is the board a move
+  // goes to.
+  SetDescriptionInSpace: (
+    spaceId: string,
+    boardId: string,
+    description: string
+  ) =>
+    call(commands.boardsSetDescriptionInSpace(spaceId, boardId, description)),
+  CloseInSpace: (
+    spaceId: string,
+    boardId: string,
+    openCards: string,
+    moveTo: string
+  ) => call(commands.boardsCloseInSpace(spaceId, boardId, openCards, moveTo)),
+  ReopenInSpace: (spaceId: string, boardId: string) =>
+    call(commands.boardsReopenInSpace(spaceId, boardId)),
+  SetDescriptionInPersonal: (boardId: string, description: string) =>
+    call(commands.boardsSetDescriptionInPersonal(boardId, description)),
+  CloseInPersonal: (boardId: string, openCards: string, moveTo: string) =>
+    call(commands.boardsCloseInPersonal(boardId, openCards, moveTo)),
+  ReopenInPersonal: (boardId: string) =>
+    call(commands.boardsReopenInPersonal(boardId)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),

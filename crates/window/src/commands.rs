@@ -16,7 +16,8 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, RunningAgent,
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
+    RunningAgent,
 };
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
@@ -784,6 +785,13 @@ pub async fn board_threads_all(w: W<'_>) -> R<Vec<crate::threads::ThreadSummary>
     blocking(&w, move |w| Ok(w.threads_all())).await
 }
 
+/// The person has a thread open: what is in it now is read (card #719).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_read_thread(w: W<'_>, id: String) -> R<()> {
+    w.read_thread(&id)
+}
+
 /// Resolve on a thread: the person is done with it.
 #[tauri::command]
 #[specta::specta]
@@ -847,8 +855,43 @@ pub async fn boards_add_to_space(
     space_id: String,
     name: String,
     tag: String,
+    description: String,
 ) -> R<BoardSummary> {
-    w.boards_add_to_space(&space_id, &name, &tag)
+    w.boards_add_to_space_with(&space_id, &name, &tag, &description)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_description_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    description: String,
+) -> R<BoardSummary> {
+    w.boards_set_description_in_space(&space_id, &board_id, &description)
+}
+
+/// `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690).
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_close_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    open_cards: String,
+    move_to: String,
+) -> R<BoardSummary> {
+    w.boards_close_in_space(&space_id, &board_id, &open_cards, &move_to)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_reopen_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+) -> R<BoardSummary> {
+    w.boards_reopen_in_space(&space_id, &board_id)
 }
 
 #[tauri::command]
@@ -886,8 +929,41 @@ pub async fn boards_personal(w: W<'_>) -> R<Vec<SpaceBoard>> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn boards_add_to_personal(w: W<'_>, name: String, tag: String) -> R<Vec<SpaceBoard>> {
-    w.boards_add_to_personal(&name, &tag)
+pub async fn boards_add_to_personal(
+    w: W<'_>,
+    name: String,
+    tag: String,
+    description: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_add_to_personal_with(&name, &tag, &description)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_description_in_personal(
+    w: W<'_>,
+    board_id: String,
+    description: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_set_description_in_personal(&board_id, &description)
+}
+
+/// `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690).
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_close_in_personal(
+    w: W<'_>,
+    board_id: String,
+    open_cards: String,
+    move_to: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_close_in_personal(&board_id, &open_cards, &move_to)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_reopen_in_personal(w: W<'_>, board_id: String) -> R<Vec<SpaceBoard>> {
+    w.boards_reopen_in_personal(&board_id)
 }
 
 #[tauri::command]
@@ -1696,6 +1772,21 @@ pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsVie
     w.agents_starts_set(on, max)
 }
 
+/// The themes new agents' names come from (card #702), each with its
+/// switch.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_themes(w: W<'_>) -> R<NamesThemesView> {
+    blocking(&w, |w| Ok(w.names_themes())).await
+}
+
+/// The person turns a theme on or off: the app only, never a tool.
+#[tauri::command]
+#[specta::specta]
+pub async fn names_theme_set(w: W<'_>, id: String, on: bool) -> R<NamesThemesView> {
+    blocking(&w, move |w| w.names_theme_set(&id, on)).await
+}
+
 /// The person changes them: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
@@ -2047,6 +2138,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_threads,
             board_threads_all,
             board_card_ref,
+            board_read_thread,
             board_resolve_thread,
             board_reopen_thread,
             board_thread_agents_now,
@@ -2068,6 +2160,12 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_rename_in_personal,
             boards_delete_in_space,
             boards_delete_in_personal,
+            boards_set_description_in_space,
+            boards_close_in_space,
+            boards_reopen_in_space,
+            boards_set_description_in_personal,
+            boards_close_in_personal,
+            boards_reopen_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,
@@ -2194,6 +2292,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
+            names_themes,
+            names_theme_set,
             agents_starts,
             agents_starts_set,
             agents_pause,

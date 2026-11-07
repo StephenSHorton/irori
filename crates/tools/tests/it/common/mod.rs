@@ -141,6 +141,9 @@ pub struct TestBackend {
     pub board_agents: Mutex<Vec<tools::BoardAgent>>,
     /// Names for keys nothing else names (card #538).
     pub known: Mutex<BTreeMap<String, String>>,
+    /// Personal's boards past its default (card #698), which the private
+    /// coord's board_tag reads too; empty: only the default.
+    pub personal: Arc<Mutex<Vec<tools::PersonalBoard>>>,
 }
 
 impl TestBackend {
@@ -201,6 +204,16 @@ impl Backend for TestBackend {
     }
     fn known_names(&self) -> BTreeMap<String, String> {
         self.known.lock().unwrap().clone()
+    }
+    fn personal_boards(&self) -> Vec<tools::PersonalBoard> {
+        let mut out = vec![tools::PersonalBoard {
+            board_id: tools::PERSONAL_DEFAULT.into(),
+            name: "Personal".into(),
+            tag: String::new(),
+            ..Default::default()
+        }];
+        out.extend(self.personal.lock().unwrap().iter().cloned());
+        out
     }
 }
 
@@ -331,6 +344,7 @@ pub fn new_harness_setup(
         )
         .unwrap(),
     );
+    let personal: Arc<Mutex<Vec<tools::PersonalBoard>>> = Arc::default();
     let co = Arc::new(
         Coord::new(
             st.clone(),
@@ -338,6 +352,22 @@ pub fn new_harness_setup(
             coord::Options {
                 now: Some(now.clone()),
                 done_check: DONE_CHECK.with(|c| c.replace(false)),
+                // Personal's boards (card #698), as the Core reads them
+                // from the private log.
+                board_tag: Some({
+                    let p = personal.clone();
+                    Arc::new(move |id: &str| {
+                        p.lock()
+                            .unwrap()
+                            .iter()
+                            .find(|b| b.board_id == id)
+                            .map(|b| b.tag.clone())
+                    })
+                }),
+                board_tags: Some({
+                    let p = personal.clone();
+                    Arc::new(move || p.lock().unwrap().iter().map(|b| b.tag.clone()).collect())
+                }),
                 ..coord::Options::default()
             },
         )
@@ -371,6 +401,7 @@ pub fn new_harness_setup(
         talk,
         board_agents: Mutex::new(Vec::new()),
         known: Mutex::new(BTreeMap::new()),
+        personal,
         st,
         ib,
         co,
