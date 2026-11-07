@@ -197,6 +197,32 @@ pub fn ask_outcome(a: &NotificationAsk) -> String {
     }
 }
 
+// ---- a permission prompt (cards/permission-prompt.tsx, card #682) -------------
+
+pub const ALLOW_ONCE: &str = "Allow once";
+pub const ALWAYS_ALLOW: &str = "Always allow";
+pub const DENY: &str = "Deny";
+
+/// A permission prompt's buttons, in the order they come in whatever
+/// order the item's options are, each with its option's index. Always
+/// allow only when a rule helps (`rule` non-empty).
+pub fn permission_answers(b: &CardBlocker, rule: &str) -> Vec<(&'static str, usize)> {
+    [ALLOW_ONCE, ALWAYS_ALLOW, DENY]
+        .into_iter()
+        .filter(|a| *a != ALWAYS_ALLOW || !rule.is_empty())
+        .filter_map(|a| b.options.iter().position(|o| o.answer == a).map(|i| (a, i)))
+        .collect()
+}
+
+/// What a permission pick says while the card catches up.
+pub fn permission_said(answer: &str, name: &str, rule: &str) -> String {
+    match answer {
+        DENY => format!("Denied: {name} goes on without it."),
+        ALWAYS_ALLOW => format!("Allowed, and {rule} is on the board's allow list."),
+        _ => format!("Allowed once: {name} goes on."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +392,30 @@ mod tests {
         assert_eq!(kind_label("zzz"), "Notification");
         assert_eq!(kind_tone("ask"), Tone::Destructive);
         assert_eq!(kind_tone("zzz"), Tone::Secondary);
+    }
+
+    #[test]
+    fn a_permission_prompts_buttons_come_in_their_order() {
+        use irori_window::cards::CardOption;
+        let opt = |a: &str| CardOption {
+            answer: a.into(),
+            ..CardOption::default()
+        };
+        let b = CardBlocker {
+            options: vec![opt(DENY), opt(ALWAYS_ALLOW), opt(ALLOW_ONCE)],
+            ..CardBlocker::default()
+        };
+        assert_eq!(
+            permission_answers(&b, "Bash(cargo test:*)"),
+            vec![(ALLOW_ONCE, 2), (ALWAYS_ALLOW, 1), (DENY, 0)]
+        );
+        // No rule helps (a bypass agent's safety check): no Always allow.
+        assert_eq!(permission_answers(&b, ""), vec![(ALLOW_ONCE, 2), (DENY, 0)]);
+        assert_eq!(permission_said(DENY, "kestrel", ""), "Denied: kestrel goes on without it.");
+        assert_eq!(
+            permission_said(ALWAYS_ALLOW, "kestrel", "Bash(ls:*)"),
+            "Allowed, and Bash(ls:*) is on the board's allow list."
+        );
+        assert_eq!(permission_said(ALLOW_ONCE, "kestrel", ""), "Allowed once: kestrel goes on.");
     }
 }

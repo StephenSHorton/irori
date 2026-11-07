@@ -187,18 +187,6 @@ pub fn fresh_line(s: &State, k: &Kit, log: &str) -> Option<El> {
     )
 }
 
-/// The same in a few words, for a tile or a menu row.
-pub fn fresh_short(s: &State, k: &Kit, log: &str, font: TextStyle) -> Option<El> {
-    let f = s.spaces.fresh.get(log);
-    let now = logic::now_ms();
-    let t = logic::short_line(f, now);
-    if t.is_empty() {
-        return None;
-    }
-    let color = if logic::stale(f, now) { warning(k) } else { k.c.text_muted };
-    Some(text(t).font(font).color(color).help(logic::fresh_line(f, now)))
-}
-
 /// A confirm step (common/confirm-button.tsx `ConfirmDialog`): the confirm
 /// label as the title, the question under it, Cancel and the confirm.
 pub fn confirm(

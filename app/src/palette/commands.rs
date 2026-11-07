@@ -89,21 +89,41 @@ fn go_to(s: &mut State, r: Route) {
 /// Every command that applies now. `dark` is the theme showing.
 pub fn commands(s: &State, dark: bool) -> Vec<Command> {
     let mut out = vec![
-        Command::new("nav.home", "Home", |s| go_to(s, Route::Home)).go_to(1).words(&["my cards", "start"]),
+        // Back and Forward (card #733): the window's history.
+        Command::new("nav.back", "Back", |s| s.back())
+            .go_to(5)
+            .keys("Mod+[")
+            .words(&["previous", "history"]),
+        Command::new("nav.forward", "Forward", |s| s.nav.forward())
+            .go_to(5)
+            .keys("Mod+]")
+            .words(&["next", "history"]),
+        Command::new("nav.home", "Home", |s| go_to(s, Route::Home))
+            .go_to(1)
+            .keys("Mod+1")
+            .words(&["my cards", "start"]),
         Command::new("nav.talk", "Talk", |s| go_to(s, Route::Talk(None)))
             .go_to(2)
+            .keys("Mod+2")
             .words(&["threads", "asks", "conversations", "messages"]),
         Command::new("nav.desk", "Merge desks", |s| go_to(s, Route::Desk(None)))
             .go_to(2)
             .words(&["prs", "pull requests", "review", "github"]),
         Command::new("nav.notes", "Notes", |s| go_to(s, Route::Notes))
             .go_to(2)
+            .keys("Mod+3")
             .words(&["rules", "gotchas", "decisions", "knowledge", "memory"]),
-        Command::new("nav.boards", "Spaces", |s| go_to(s, Route::Spaces))
-            .go_to(2)
-            .words(&["shared", "projects", "boards"]),
+        // Boards (card #689): the picked space's page, or pick a space.
+        Command::new("nav.boards", "Boards", |s| {
+            let r = Route::boards_for(&crate::spaces::current(s));
+            go_to(s, r)
+        })
+        .go_to(2)
+        .keys("Mod+4")
+        .words(&["space", "lists", "projects"]),
         Command::new("nav.notifications", "Notifications", |s| go_to(s, Route::Notifications))
             .go_to(3)
+            .keys("Mod+5")
             .words(&["mentions", "history", "alerts"]),
         Command::new("nav.held", "Held messages", |s| s.open_dialog(Dialog::Held { from: None }))
             .go_to(3)
@@ -127,13 +147,23 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
     out.push(
         Command::new("card.new", title, move |s| s.open_dialog(Dialog::NewCard { board: target.clone() }))
             .order(1)
+            .keys("Mod+N")
             .words(&["create", "add", "task"]),
     );
     out.push(
-        // Goes to Spaces with New space open (App.tsx setNewBoard).
-        Command::new("board.new", "New space", crate::spaces::open_new_space)
+        // New or join a space (card #689): its dialog over the page.
+        Command::new("board.new", "New or join a space", crate::spaces::open_new_space)
             .order(2)
-            .words(&["create", "add", "join", "invite", "board"]),
+            .words(&["create", "add", "join", "invite", "board", "spaces"]),
+    );
+    // The sidebar's fold (app-sidebar.tsx).
+    let folded = crate::ui::sidebar::folded(s);
+    out.push(
+        Command::new("sidebar.fold", if folded { "Open the sidebar" } else { "Fold the sidebar" }, move |s| {
+            crate::ui::sidebar::set_folded(s, !folded)
+        })
+        .keys("Mod+B")
+        .words(&["nav", "collapse", "expand"]),
     );
     // The open space's own commands (board-page.tsx).
     if let Some((space, _)) = &on_board
@@ -174,8 +204,9 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
             );
         }
         out.push(
+            // Cmd+F (card #733); "/" works too, and the box itself shows it.
             Command::new("search.cards", "Search cards on this page", crate::board::search::focus)
-                .keys("/")
+                .keys("Mod+F")
                 .words(&["find", "filter", "search"]),
         );
     }
@@ -204,6 +235,7 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
     out.push(
         Command::new("settings.open", "Settings", |s| s.open_dialog(Dialog::Settings(String::new())))
             .go_to(4)
+            .keys("Mod+,")
             .words(&["preferences", "options", "open settings"]),
     );
     for (id, label) in SETTINGS_SECTIONS {
@@ -266,7 +298,7 @@ mod tests {
         assert!(ids(&s).contains(&"view.canvas".to_string()));
         assert!(!ids(&s).contains(&"view.list".to_string()));
         let search = commands(&s, true).into_iter().find(|c| c.id == "search.cards").unwrap();
-        assert_eq!(search.shortcut, Some("/"));
+        assert_eq!(search.shortcut, Some("Mod+F"));
         (search.run)(&mut s);
         assert!(s.board.query.focused);
         // Not on Notes, nor over a card.
@@ -278,11 +310,43 @@ mod tests {
     }
 
     #[test]
-    fn new_space_opens_its_dialog() {
+    fn new_or_join_a_space_opens_its_dialog_where_you_are() {
         let mut s = State::default();
+        s.go(Route::Notes);
         let c = commands(&s, true).into_iter().find(|c| c.id == "board.new").unwrap();
+        assert_eq!(c.title, "New or join a space");
+        (c.run)(&mut s);
+        assert_eq!(s.nav.route, Route::Notes);
+        assert_eq!(s.dialog, Some(Dialog::NewSpace));
+        assert!(s.spaces.new_space.is_some());
+    }
+
+    #[test]
+    fn boards_goes_to_the_picked_spaces_page() {
+        let mut s = State::default();
+        let c = commands(&s, true).into_iter().find(|c| c.id == "nav.boards").unwrap();
+        assert_eq!(c.title, "Boards");
+        assert_eq!(c.shortcut, Some("Mod+4"));
+        // All spaces: pick a space.
         (c.run)(&mut s);
         assert_eq!(s.nav.route, Route::Spaces);
-        assert!(s.spaces.new_space.is_some());
+        s.prefs.set(crate::spaces::SPACE_PREF, crate::spaces::PERSONAL);
+        (c.run)(&mut s);
+        assert_eq!(s.nav.route, Route::boards_for(crate::spaces::PERSONAL));
+    }
+
+    #[test]
+    fn the_sidebar_folds_from_the_palette() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = State {
+            prefs: crate::ui::prefs::Prefs::load(dir.path()),
+            ..State::default()
+        };
+        let c = commands(&s, true).into_iter().find(|c| c.id == "sidebar.fold").unwrap();
+        assert_eq!(c.title, "Fold the sidebar");
+        (c.run)(&mut s);
+        assert!(crate::ui::sidebar::folded(&s));
+        let c = commands(&s, true).into_iter().find(|c| c.id == "sidebar.fold").unwrap();
+        assert_eq!(c.title, "Open the sidebar");
     }
 }

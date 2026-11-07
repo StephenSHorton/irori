@@ -10,7 +10,7 @@ use irori_window::boards::{BoardSummary, SpaceBoard};
 use irori_window::cards::CardSummary;
 
 use super::logic::{self, PERSONAL, boards_of, plain_line};
-use super::page::{add_board, board_tile, clamp, tile_width};
+use super::page::{add_board, board_tile, clamp, personal_boards, tile_width};
 use super::ui::{self as u, t12, t125};
 use super::{Ask, Header, parts};
 use crate::ui::{Dialog, Frame, Route, State, icons};
@@ -67,7 +67,10 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
         return el();
     };
     if space == PERSONAL {
-        return personal_page(s, f, board.as_deref().unwrap_or(PERSONAL));
+        return match board {
+            Some(list) => personal_page(s, f, list),
+            None => personal_home(s, f),
+        };
     }
     let k = f.k;
     let Some(b) = s.data.spaces.iter().find(|x| x.board_id == *space) else {
@@ -81,10 +84,12 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
                     .px(24.0)
                     .gap(8.0)
                     .child(
-                        Button::new("Spaces")
+                        // BackHome: the Spaces page it went back to is gone
+                        // (card #689).
+                        Button::new("Home")
                             .variant(ButtonVariant::Ghost)
                             .icon(&icons::ARROW_LEFT)
-                            .on_press(|s: &mut State| s.go(Route::Spaces))
+                            .on_press(|s: &mut State| s.go(Route::Home))
                             .build(k)
                             .self_start(),
                     )
@@ -260,6 +265,30 @@ fn space_boards(s: &State, f: &Frame, b: &BoardSummary) -> El {
         .child(tiles)
 }
 
+/// Personal's page ("board/personal", card #689): its title, New card,
+/// and its boards as tiles with + Add board.
+fn personal_home(s: &State, f: &mut Frame) -> El {
+    let k = f.k;
+    let head = bar("spaces-board-header")
+        .child(text("Personal").font(title_font()).color(k.c.text_base))
+        .child(el().grow(1.0));
+    col()
+        .key("spaces-board-page")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(head.child(new_card(f, None)))
+        .child(
+            col()
+                .key("spaces-personal-scroll")
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .scroll(rune::ScrollSpec { stick_bottom: false })
+                .child(col().w_full().px(24.0).pt(8.0).pb(24.0).child(personal_boards(s, f))),
+        )
+}
+
 /// One of Personal's boards open: the same list a space's board has, over
 /// the person's own cards on it.
 fn personal_page(s: &State, f: &mut Frame, list: &str) -> El {
@@ -278,7 +307,10 @@ fn personal_page(s: &State, f: &mut Frame, list: &str) -> El {
                 s,
                 f,
                 "Personal".into(),
-                Route::Spaces,
+                Route::Board {
+                    space: PERSONAL.into(),
+                    board: None,
+                },
                 x,
                 Target::Personal(x.board_id.clone()),
                 remove,
@@ -689,7 +721,10 @@ fn delete_board(s: &mut State, target: Target) {
             space: space.clone(),
             board: None,
         },
-        _ => Route::Spaces,
+        _ => Route::Board {
+            space: PERSONAL.into(),
+            board: None,
+        },
     };
     s.spawn(
         move |w| match &target {

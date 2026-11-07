@@ -194,6 +194,8 @@ impl State {
 
     pub fn back(&mut self) {
         self.nav.back();
+        let ev = Event { name: "app:route-changed".into(), payload: serde_json::Value::Null };
+        dispatch(self, &ev);
     }
 
     /// Opens a card's page over the current page (`task:` optional).
@@ -361,6 +363,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
             Dialog::WindDown => crate::home::wind_down_dialog(s, &mut f),
             Dialog::Settings(_) => crate::settings::dialog(s, &mut f),
             Dialog::Share { .. } => crate::card::share_dialog(s, &mut f),
+            Dialog::NewSpace => crate::spaces::new_space_dialog(s, &mut f),
         }
     }
     crate::call::overlay(s, &mut f);

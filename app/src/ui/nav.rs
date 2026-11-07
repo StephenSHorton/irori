@@ -15,7 +15,8 @@ pub enum Route {
     Notes,
     /// Merge desks, for one repo or all.
     Desk(Option<String>),
-    /// The spaces page.
+    /// Boards with All spaces picked (card #689): boards are never shown
+    /// across spaces, so it asks for one ("#boards").
     Spaces,
     /// A space's page, or one board's card list in it.
     Board { space: String, board: Option<String> },
@@ -34,6 +35,25 @@ impl Route {
             Route::Spaces | Route::Board { .. } => "spaces",
             Route::Profile => "profile",
             Route::Notifications => "notifications",
+        }
+    }
+
+    /// Whether it is under the Boards tab: a space's page or one of its
+    /// boards, Personal's, or the pick-a-space page (lib/nav.ts onBoards).
+    pub fn on_boards(&self) -> bool {
+        matches!(self, Route::Spaces | Route::Board { .. })
+    }
+
+    /// Where the Boards tab goes with `space` picked (lib/nav.ts
+    /// boardsFor): a shared space's page, Personal's, or with All spaces
+    /// the page that asks for a space.
+    pub fn boards_for(space: &str) -> Route {
+        if space.is_empty() {
+            return Route::Spaces;
+        }
+        Route::Board {
+            space: space.to_string(),
+            board: None,
         }
     }
 
@@ -80,6 +100,9 @@ pub enum Dialog {
     Message { id: String },
     /// palette: the command palette.
     Palette,
+    /// spaces: New or join a space (card #689: the space picker's and the
+    /// palette's).
+    NewSpace,
     /// home: Wind down all agents.
     WindDown,
     /// settings: the settings dialog on a pane ("" for the first).
@@ -115,6 +138,17 @@ impl Nav {
         }
         self.back.push((self.route.clone(), self.card.take()));
         self.forward.clear();
+        self.route = r;
+    }
+
+    /// Moves to `r` in place of where the window is: no history entry to
+    /// come back to (lib/nav.ts replace: Boards on "#boards" following
+    /// the pick). A card open over the page closes, and the page under it
+    /// goes too, so Back doesn't land on the page replaced.
+    pub fn replace(&mut self, r: Route) {
+        if self.card.take().is_some() && self.back.last() == Some(&(self.route.clone(), None)) {
+            self.back.pop();
+        }
         self.route = r;
     }
 
@@ -166,6 +200,58 @@ mod tests {
         ] {
             assert_eq!(Route::from_pref(&r.to_pref()), r);
         }
+    }
+
+    // nav.test.ts "Boards shows only the picked space's (card #689)".
+    #[test]
+    fn boards_is_the_pick_a_space_page_and_round_trips() {
+        assert_eq!(Route::from_pref("spaces"), Route::Spaces);
+        assert_eq!(Route::Spaces.to_pref(), "spaces");
+    }
+
+    #[test]
+    fn the_boards_tab_goes_to_the_picked_spaces_page() {
+        assert_eq!(Route::boards_for(""), Route::Spaces);
+        assert_eq!(
+            Route::boards_for("personal"),
+            Route::Board { space: "personal".into(), board: None }
+        );
+        assert_eq!(Route::boards_for("b1"), Route::Board { space: "b1".into(), board: None });
+        assert!(Route::Spaces.on_boards());
+        assert!(Route::boards_for("b1").on_boards());
+        assert!(!Route::Home.on_boards());
+        assert!(!Route::Talk(None).on_boards());
+    }
+
+    #[test]
+    fn a_spaces_page_and_personals_still_open_from_their_links() {
+        assert_eq!(Route::from_pref("board/b1"), Route::Board { space: "b1".into(), board: None });
+        assert_eq!(
+            Route::from_pref("board/personal"),
+            Route::Board { space: "personal".into(), board: None }
+        );
+        assert_eq!(
+            Route::from_pref("board/b1/b2"),
+            Route::Board { space: "b1".into(), board: Some("b2".into()) }
+        );
+    }
+
+    #[test]
+    fn replace_leaves_no_history_entry() {
+        let mut n = Nav::default();
+        n.go(Route::Notes);
+        n.go(Route::Spaces);
+        n.open_card("c".into());
+        n.replace(Route::boards_for("b1"));
+        assert_eq!(n.card, None);
+        assert_eq!(n.route, Route::boards_for("b1"));
+        // Back skips the pick-a-space page it replaced.
+        n.back();
+        assert_eq!(n.route, Route::Notes);
+        n.go(Route::Spaces);
+        n.replace(Route::boards_for("b2"));
+        n.back();
+        assert_eq!(n.route, Route::Notes);
     }
 
     #[test]

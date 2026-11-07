@@ -256,7 +256,7 @@ pub fn error_text(e: &str) -> String {
 
 // The pick's pure half is shared (crate::logic::spaces); Talk reads it too.
 pub use crate::logic::spaces::{
-    ALL_SPACES, PERSONAL, Space, boards_in_space, boards_of, cards_on_personal, known, spaces_of, with_line,
+    ALL_SPACES, PERSONAL, Space, boards_of, cards_on_personal, known, spaces_of, with_line,
 };
 
 /// The space's cards on one of its boards (the board list's copy).

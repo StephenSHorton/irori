@@ -4,7 +4,7 @@
 //! Said (the home package owns those rows; these can use them once they
 //! land).
 
-use irori_window::cards::{CardBlocker, CardDetail};
+use irori_window::cards::{CardBlocker, CardDetail, CardPermission};
 use irori_window::notifications::{Notification, NotificationCard};
 use irori_window::rune_inbox::{Delivery, GIVEN_QUESTION};
 use std::rc::Rc;
@@ -439,7 +439,7 @@ fn pick_ask(s: &mut State, key: &str, ask: &str, choice: &str) {
 }
 
 /// A card's blocker, done check or question as it stands now (CardLive).
-fn card_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
+fn card_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let k = f.k;
     let key = n.key.as_str();
     let Some(card) = &n.card else {
@@ -456,6 +456,16 @@ fn card_live(s: &State, f: &Frame, n: &Notification, now: i64) -> Vec<El> {
         .then(|| detail.blockers.iter().find(|b| b.id == n.blocker_id))
         .flatten();
     if let Some(b) = b {
+        // A permission prompt is its buttons (card #682).
+        if notify::blocker_open(b)
+            && !s.inbox.picked.contains_key(key)
+            && let Some(p) = &b.permission
+        {
+            return vec![
+                text(plain_line(&b.question)).font(k.ty.ui).color(k.c.text_base).w_full().wrap(),
+                permission_prompt(s, f, key, &card.id, b, p),
+            ];
+        }
         if notify::blocker_open(b) && !s.inbox.picked.contains_key(key) {
             return blocker_answer(s, f, key, &card.id, b);
         }
@@ -590,6 +600,141 @@ fn answer(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, done
     );
 }
 
+/// "Waiting for your permission" (cards #456, #682; cards/permission-
+/// prompt.tsx, compact): the agent Irori started for the card stopped on
+/// a permission prompt nobody is attached to. It shows what is waiting
+/// (the tool, and the command, path or URL) and buttons instead of an
+/// answer box: Allow once and Deny answer the live prompt, Always allow
+/// also adds the rule to the board's allow list, and Attach answers at
+/// the prompt itself (the only way when Irori can't answer from the card).
+fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBlocker, p: &CardPermission) -> El {
+    let k = f.k;
+    let agent = (!p.agent.key.is_empty()).then_some(&p.agent);
+    let name = agent.map_or_else(|| "Its agent".to_string(), crate::logic::names::display_name);
+    let tool = plain_line(&p.tool);
+    let mut said = if tool.is_empty() {
+        format!("{name} is stopped on a permission prompt")
+    } else {
+        format!("{name} is stopped on a permission prompt to use {tool}")
+    };
+    said.push_str(if p.input.is_empty() { "." } else { ":" });
+    let mut c = col()
+        .key(format!("inbox-permission-{key}"))
+        .w_full()
+        .min_w(0.0)
+        .gap(6.0)
+        .child(text(said).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+    if !p.input.is_empty() {
+        c = c.child(
+            col()
+                .key(format!("inbox-permission-input-{key}"))
+                .label(if tool.is_empty() { "What is waiting".to_string() } else { format!("The {tool} input waiting") })
+                .w_full()
+                .max_h(96.0)
+                .min_h(0.0)
+                .scroll(ScrollSpec { stick_bottom: false })
+                .px(8.0)
+                .py(6.0)
+                .radius(6.0)
+                .border(1.0, k.c.border_muted)
+                .fill(k.c.layer_02)
+                .child(
+                    text(p.input.clone())
+                        .font(k.ty.small.mono())
+                        .color(k.c.text_base)
+                        .w_full()
+                        .wrap()
+                        .selectable(true),
+                ),
+        );
+    }
+    if p.answerable && !p.expires.is_empty() {
+        let at = crate::spaces::logic::clock_time(&p.expires);
+        let at = if at.is_empty() { "2 minutes after asking".to_string() } else { at };
+        c = c.child(
+            text(format!(
+                "A safety check Claude Code asks even in bypass mode: it denies the call by itself at {at} unless you answer."
+            ))
+            .font(k.ty.small)
+            .color(k.c.warning.fg)
+            .w_full()
+            .wrap(),
+        );
+    }
+    if !p.answerable {
+        c = c.child(line(
+            k,
+            format!("inbox-permission-attach-{key}"),
+            &format!("Irori can't answer this prompt from the card: attach to {name} to answer it."),
+            false,
+        ));
+    }
+    let answers = if p.answerable { notify::permission_answers(b, &p.rule) } else { Vec::new() };
+    let mut list = Vec::new();
+    for (a, i) in &answers {
+        let (a, i) = (*a, *i);
+        let variant = match a {
+            notify::ALLOW_ONCE => ButtonVariant::Submit,
+            notify::DENY => ButtonVariant::Danger,
+            _ => ButtonVariant::Outline,
+        };
+        let said = notify::permission_said(a, &name, &plain_line(&p.rule));
+        let (nk, c2, bid) = (key.to_string(), card.to_string(), b.id.clone());
+        let mut btn = small_button(k, format!("inbox-permission-{key}-{i}"), a, variant, false, move |s: &mut State| {
+            answer_said(s, &nk, &c2, &bid, i as i64, said.clone(), "Your answer to the permission prompt wasn't saved")
+        });
+        if a == notify::ALWAYS_ALLOW {
+            btn = btn.help(format!("Also adds {} to the board's allow list", p.rule));
+        } else if let Some(o) = b.options.get(i).filter(|o| !o.why.is_empty()) {
+            btn = btn.help(plain_line(&o.why));
+        }
+        list.push(btn);
+    }
+    if let Some(w) = agent {
+        list.push(crate::widgets::spawned_actions::spawned_actions(
+            s,
+            f,
+            &format!("inbox-permission-acts-{key}"),
+            w,
+            card,
+            &[crate::widgets::spawned_actions::Action::Attach, crate::widgets::spawned_actions::Action::Logs],
+        ));
+    }
+    if !list.is_empty() {
+        c = c.child(buttons(format!("inbox-permission-buttons-{key}"), list).role("group").label(format!("Answers to {name}'s permission prompt")));
+    }
+    if !p.rule.is_empty() && answers.iter().any(|(a, _)| *a == notify::ALWAYS_ALLOW) {
+        let rule = plain_line(&p.rule);
+        let head = "Always allow also adds ";
+        let all = format!("{head}{rule} to the board's allow list (Settings › Agents).");
+        c = c.child(
+            rune::rich(all, vec![rune::Span::new(head.len(), head.len() + rule.len()).mono()])
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
+    }
+    c
+}
+
+/// A pick that shows `said` at once and saves in the background; a
+/// refusal brings the buttons back and a note says `failed`.
+fn answer_said(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, said: String, failed: &'static str) {
+    opened(s, key);
+    s.inbox.picked.insert(key.to_string(), said);
+    let (c, b, k2) = (card.to_string(), blocker.to_string(), key.to_string());
+    s.spawn(
+        move |w| w.answer(&c, &b, option, "", true, &[]).map(|_| ()),
+        move |s, r| {
+            if let Err(e) = r {
+                s.inbox.picked.remove(&k2);
+                s.error(failed, &e);
+            }
+        },
+    );
+}
+
 /// A message to the person, or one Irori held, as it stands now.
 fn delivery_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let k = f.k;
@@ -679,8 +824,22 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
             }
             let i = id.clone();
             let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
-            run(s, &key, "Replied.", move |w| w.inbox_reply_files(&i, &m.text, &ms, &m.files).map(|_| ()));
-            s.inbox.replying = None;
+            // The box stays open, its words kept, while the reply goes
+            // ("Sending…"); a failure leaves them there with the error.
+            let a = s.inbox.acts.entry(key.clone()).or_default();
+            if a.busy {
+                return;
+            }
+            *a = Act {
+                busy: true,
+                ..Act::default()
+            };
+            s.inbox.reply.sending = true;
+            let k2 = key.clone();
+            s.spawn(
+                move |w| w.inbox_reply_files(&i, &m.text, &ms, &m.files).map(|_| ()),
+                move |s, r| reply_done(s, &k2, r),
+            );
         })
     };
     let o = ComposerOpts {
@@ -721,6 +880,24 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
         .child(button(k, format!("inbox-cancel-{key}"), "Cancel", ButtonVariant::Ghost, busy, cancel_reply))
 }
 
+/// A reply's answer: sent closes the box and says so; a failure keeps the
+/// box open with what was typed, and says why under it.
+fn reply_done(s: &mut State, key: &str, r: Result<(), String>) {
+    let a = s.inbox.acts.entry(key.to_string()).or_default();
+    a.busy = false;
+    s.inbox.reply.sending = false;
+    match r {
+        Ok(()) => {
+            a.done = "Replied.".to_string();
+            if s.inbox.replying.as_deref() == Some(key) {
+                s.inbox.replying = None;
+            }
+            s.inbox.reply.sent();
+        }
+        Err(e) => a.error = Some(e),
+    }
+}
+
 /// Closes the open Reply box (its Cancel, and Esc in it).
 fn cancel_reply(s: &mut State) {
     s.inbox.replying = None;
@@ -737,6 +914,27 @@ fn reply_box_mut(s: &mut State) -> &mut Composer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_reply_keeps_the_box_and_its_words() {
+        let mut s = State::default();
+        s.inbox.replying = Some("msg:1".into());
+        s.inbox.reply.edit = rune::TextEdit::new("on my way");
+        s.inbox.reply.sending = true;
+        s.inbox.acts.entry("msg:1".into()).or_default().busy = true;
+        reply_done(&mut s, "msg:1", Err("inbox: no such delivery or message".into()));
+        assert_eq!(s.inbox.replying.as_deref(), Some("msg:1"), "the box stays open");
+        assert_eq!(s.inbox.reply.edit.text, "on my way", "with what was typed");
+        assert!(!s.inbox.reply.sending);
+        let a = &s.inbox.acts["msg:1"];
+        assert!(!a.busy);
+        assert_eq!(a.error.as_deref(), Some("inbox: no such delivery or message"));
+        // A second try that goes through closes it and says so.
+        reply_done(&mut s, "msg:1", Ok(()));
+        assert!(s.inbox.replying.is_none());
+        assert!(s.inbox.reply.edit.text.is_empty());
+        assert_eq!(s.inbox.acts["msg:1"].done, "Replied.");
+    }
 
     #[test]
     fn cancel_closes_the_reply_box() {

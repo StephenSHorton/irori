@@ -1,14 +1,18 @@
 //! The space switcher (space-switcher.tsx, card #393): at the top of the
-//! sidebar, it picks the space Home, Talk and Spaces show. All spaces is
+//! sidebar, it picks the space Home, Talk and Boards show. All spaces is
 //! everything, Needs you across all of it; Personal is you and your
-//! agents; then each shared space, "with" whoever is in it.
+//! agents; then each shared space, "with" whoever is in it. It is the one
+//! place for spaces (card #689, which dropped the Spaces tab; Boards shows
+//! only the picked space's): at its foot, Space settings for a shared pick
+//! (its page: its boards, people, invites and settings) and New or join a
+//! space.
 
 use rune::{El, el, icon, row, text};
 use rune_kit::{Menu, MenuItem, Placement};
 
 use super::logic::{self, ALL_SPACES, PERSONAL, Space, plain_line};
 use super::{current, pick};
-use crate::ui::{Frame, State, icons};
+use crate::ui::{Frame, Route, State, icons};
 
 /// A space's mark: a layers icon for All spaces, a person for Personal,
 /// else the space's initial.
@@ -51,7 +55,7 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
         .help(if folded {
             format!("Space: {}", plain_line(&cur.name))
         } else {
-            "Pick the space Home, Talk and Spaces show".to_string()
+            "Pick the space Home, Talk and Boards show, or make or join one".to_string()
         })
         .focusable(true)
         .w_full()
@@ -119,5 +123,32 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
         }
         menu = menu.item(item);
     }
+    menu = menu.separator();
+    if cur.id != ALL_SPACES && cur.id != PERSONAL {
+        let id = cur.id.clone();
+        menu = menu.item(
+            MenuItem::new("Space settings")
+                .lead(foot_icon(f, &icons::SETTINGS))
+                .on_select(move |s: &mut State| {
+                    s.spaces.switcher_open = false;
+                    s.close_card();
+                    s.go(Route::Board {
+                        space: id.clone(),
+                        board: None,
+                    });
+                }),
+        );
+    }
+    menu = menu.item(
+        MenuItem::new("New or join a space")
+            .lead(foot_icon(f, &icons::PLUS))
+            .on_select(super::open_new_space),
+    );
     menu.build(k, f.layer)
+}
+
+/// A foot item's icon in a mark-sized box, so its words line up with the
+/// spaces' names.
+fn foot_icon(f: &Frame, ic: &'static rune::Icon) -> El {
+    el().size(20.0, 20.0).center().child(icon(ic, 14.0).color(f.k.c.text_muted))
 }

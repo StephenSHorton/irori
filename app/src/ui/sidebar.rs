@@ -102,6 +102,19 @@ fn here(s: &State, route: &Route) -> bool {
     s.nav.card.is_none() && s.nav.route.section() == route.section()
 }
 
+/// Boards is current on any space's page, Personal's, one of their
+/// boards, or the pick-a-space page (lib/nav.ts onBoards).
+fn on_boards(s: &State) -> bool {
+    s.nav.card.is_none() && s.nav.route.on_boards()
+}
+
+/// The Boards row: the picked space's page (lib/nav.ts boardsFor).
+fn go_boards(s: &mut State) {
+    let r = Route::boards_for(&crate::spaces::current(s));
+    s.close_card();
+    s.go(r);
+}
+
 fn go(route: Route) -> impl Fn(&mut State) + 'static {
     move |s: &mut State| {
         s.close_card();
@@ -176,7 +189,6 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let space = crate::spaces::current(s);
     let d = &s.data;
     let desks = s.desk.desks.iter().filter(|x| crate::desk::queue::desk_shown(x)).count();
-    let need_you = logic::boards_need_you(&d.cards, &space);
     let fr: &Frame = f;
     let mut rows = vec![
         nav_row(fr, Nav { key: "home", label: "Home", icon: &icons::HOME, current: here(s, &Route::Home), count: 0, tone: CountTone::Primary, tip: "" }, go(Route::Home)),
@@ -189,7 +201,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 current: here(s, &Route::Talk(None)),
                 count: crate::talk::waiting_count(s),
                 tone: CountTone::Primary,
-                tip: "Threads an agent answered and DMs you haven't read",
+                tip: "Threads and DMs with replies you haven't read, and channels that mention you",
             },
             go(Route::Talk(None)),
         ),
@@ -207,18 +219,12 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         Nav { key: "notes", label: "Notes", icon: &icons::NOTES, current: here(s, &Route::Notes), count: 0, tone: CountTone::Primary, tip: "" },
         go(Route::Notes),
     ));
+    // Boards (card #689): the picked space's only, never across spaces;
+    // with All spaces it asks for one.
     rows.push(nav_row(
         fr,
-        Nav {
-            key: "spaces",
-            label: "Spaces",
-            icon: &icons::SPACES,
-            current: here(s, &Route::Spaces),
-            count: need_you,
-            tone: CountTone::Tone(Tone::Destructive),
-            tip: "Cards in your spaces waiting on you",
-        },
-        go(Route::Spaces),
+        Nav { key: "boards", label: "Boards", icon: &icons::GRID, current: on_boards(s), count: 0, tone: CountTone::Primary, tip: "" },
+        go_boards,
     ));
     rows.push(nav_row(
         fr,
@@ -434,7 +440,6 @@ fn folded_view(s: &State, f: &mut Frame) -> El {
     let space = crate::spaces::current(s);
     let d = &s.data;
     let desks = s.desk.desks.iter().filter(|x| crate::desk::queue::desk_shown(x)).count();
-    let need_you = logic::boards_need_you(&d.cards, &space);
     let mut list = col().key("sb-folded-list").w_full().gap(2.0).px(8.0).pb(12.0).grow(1.0).min_h(0.0).scroll(rune::ScrollSpec { stick_bottom: false });
     let fr: &Frame = f;
     let primary = k.c.text_base;
@@ -446,7 +451,7 @@ fn folded_view(s: &State, f: &mut Frame) -> El {
     }
     list = list
         .child(folded_item(fr, "notes", "Notes", &icons::NOTES, here(s, &Route::Notes), 0, primary, go(Route::Notes)))
-        .child(folded_item(fr, "spaces", "Spaces", &icons::SPACES, here(s, &Route::Spaces), need_you, k.c.danger.fg, go(Route::Spaces)))
+        .child(folded_item(fr, "boards", "Boards", &icons::GRID, on_boards(s), 0, primary, go_boards))
         .child(folded_item(
             fr,
             "notifications",

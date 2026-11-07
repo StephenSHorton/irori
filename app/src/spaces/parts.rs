@@ -1,5 +1,6 @@
-//! The pieces of the Spaces pages (parts.tsx): New space (make one, or
-//! join with an invite), an open invite either side (`InvitePanel`,
+//! The pieces of the spaces' pages (parts.tsx): New or join a space (make
+//! one, or join with an invite), Boards with All spaces picked
+//! (`PickSpace`), an open invite either side (`InvitePanel`,
 //! `SendLink`, `Fingerprints`, `TypeInviteWords`, `ReadInviteWords`), how
 //! an invite works, and Space settings (`BoardInvite`, `SpaceAgentSwitch`,
 //! `BoardSettingsPanel`, `Reviewers`); settings/space-agents.tsx's
@@ -20,18 +21,22 @@ use super::logic::{self, MAX_BOARD_TAG, plain_line};
 use super::page::{clamp, lower};
 use super::ui::{self as u, t12, t13};
 use super::{MemberAsk, NewSpace, NewTab, Settings};
-use crate::ui::{Frame, State, icons};
+use crate::ui::{Frame, Route, State, icons};
 
-// ---- New space ---------------------------------------------------------------
+// ---- New or join a space -----------------------------------------------------
 
-/// New space (card #126): make a space, or join one with an invite, as two
-/// tabs. Joining closes it; the invite then runs over the Spaces list. One
-/// invite at a time: Join is offered only while none is open.
+/// New or join a space (card #126), opened from the sidebar's space picker
+/// or the palette (card #689): make a space, or join one with an invite
+/// someone sent, as two tabs. A space you make opens on its own page,
+/// where you invite people. While an invite is open, either side, it shows
+/// over the tabs and Join goes (one invite at a time), so the joiner reads
+/// their five words here and Make a space still works. Closing the dialog
+/// leaves the invite running; opening it again shows it.
 pub fn new_space_dialog(s: &State, f: &mut Frame) {
     let Some(n) = &s.spaces.new_space else { return };
     let k = f.k;
-    let join = s.spaces.invite.as_ref().is_none_or(|i| i.state.is_empty());
-    let tab = if join { n.tab } else { NewTab::Make };
+    let invite = s.spaces.invite.as_ref().filter(|i| !i.state.is_empty());
+    let tab = if invite.is_some() { NewTab::Make } else { n.tab };
     let (title, desc) = match tab {
         NewTab::Make => (
             "New space",
@@ -40,7 +45,17 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
         NewTab::Join => ("Join a space", "Paste the invite link someone sent you."),
     };
     let mut body = col().key("spaces-new-body").w_full().gap(12.0).px(16.0).pb(16.0);
-    if join {
+    if let Some(inv) = invite {
+        body = body.child(
+            col()
+                .key("spaces-new-invite")
+                .w_full()
+                .padding(12.0)
+                .radius(8.0)
+                .border(1.0, k.c.border_muted)
+                .child(invite_panel(s, f, inv)),
+        );
+    } else {
         let mut tabs = row().key("spaces-new-tabs").gap(4.0).role("tablist").label("New space or join one");
         for (t, label) in [(NewTab::Make, "Make a space"), (NewTab::Join, "Join with an invite")] {
             tabs = tabs.child(
@@ -74,9 +89,73 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
         .width(512.0)
         .fit()
         .open(true)
-        .on_close(|s: &mut State| s.spaces.new_space = None)
+        .on_close(close_new_space)
         .child(body)
         .build(k, f.layer);
+}
+
+/// Closes New or join a space. An open invite goes on; opening the
+/// dialog again reads it afresh, not this one's last state.
+pub fn close_new_space(s: &mut State) {
+    s.spaces.new_space = None;
+    s.spaces.invite = None;
+    if s.dialog == Some(crate::ui::Dialog::NewSpace) {
+        s.close_dialog();
+    }
+}
+
+/// Boards with All spaces picked (card #689, parts.tsx `PickSpace`):
+/// boards are never shown across spaces, so it asks for one. A pick shows
+/// that space's boards (`pick` follows it there).
+pub fn pick_space(s: &State, f: &Frame) -> El {
+    let k = f.k;
+    let spaces = logic::spaces_of(&s.data.spaces);
+    let mut list = col().key("spaces-pick-list").w_full().gap(6.0);
+    for x in spaces.iter().filter(|x| x.id != logic::ALL_SPACES) {
+        let name = plain_line(&x.name);
+        let mut label = name.clone();
+        let mut spans = vec![rune::Span::new(0, name.len()).weight(500.0)];
+        let tail = if x.id == logic::PERSONAL {
+            "you and your agents".to_string()
+        } else {
+            let o: Vec<String> = x.others.iter().map(|o| plain_line(o)).collect();
+            logic::with_line(&o)
+        };
+        if !tail.is_empty() {
+            let at = label.len();
+            label.push_str(&format!(" · {tail}"));
+            spans.push(rune::Span::new(at, label.len()).color(k.c.text_muted));
+        }
+        let id = x.id.clone();
+        list = list.child(k.interactive(
+            u::panel(k)
+                .key(format!("spaces-pick-{}", if x.id.is_empty() { "all" } else { &x.id }))
+                .role("button")
+                .label(label.clone())
+                .focusable(true)
+                .w_full()
+                .min_w(0.0)
+                .px(12.0)
+                .py(10.0)
+                .cursor(rune::Cursor::Pointer)
+                .on_press(move |s: &mut State| super::pick(s, &id))
+                .child(
+                    rune::rich(label, spans)
+                        .font(rune::tok::TextStyle::new(14.0, 400.0))
+                        .color(k.c.text_base)
+                        .max_lines(1)
+                        .min_w(0.0),
+                ),
+        ));
+    }
+    col()
+        .key("spaces-pick")
+        .w_full()
+        .max_w(576.0)
+        .gap(12.0)
+        .label("Pick a space")
+        .child(u::line("Boards belong to a space. Pick one to see its boards.", t13(k), k.c.text_muted).px(4.0))
+        .child(list)
 }
 
 fn new_tag(s: &State, n: &NewSpace) -> (String, bool) {
@@ -173,11 +252,18 @@ fn create_space(s: &mut State) {
         n.error = None;
     }
     s.spawn(
-        move |w| w.boards_create(&name, &t),
+        move |w| w.boards_create(&name, &t).map(|b| (b, w.boards_list())),
         |s, r| match r {
-            Ok(_) => {
-                s.spaces.new_space = None;
-                super::reload_spaces(s);
+            Ok((made, list)) => {
+                // A space you make opens on its own page, where you invite
+                // people (the list first, so the pick follows the page).
+                s.data.spaces = list;
+                close_new_space(s);
+                s.close_card();
+                s.go(Route::Board {
+                    space: made.board_id,
+                    board: None,
+                });
             }
             Err(e) => {
                 if let Some(n) = s.spaces.new_space.as_mut() {
@@ -240,10 +326,16 @@ fn join_submit(s: &mut State) {
         move |w| w.boards_join_invite(&link),
         |s, r| match r {
             Ok(st) => {
+                // The invite shows in the dialog, over Make a space: the
+                // joiner reads their five words here.
                 s.spaces.invite = Some(st);
                 s.spaces.words.clear();
                 s.spaces.words_error = None;
-                s.spaces.new_space = None;
+                if let Some(n) = s.spaces.new_space.as_mut() {
+                    n.busy = false;
+                    n.link.clear();
+                    n.tab = NewTab::Make;
+                }
             }
             Err(e) => {
                 if let Some(n) = s.spaces.new_space.as_mut() {

@@ -1,23 +1,17 @@
 //! What the sidebar lists (the React app's app-sidebar.tsx and App.tsx's
-//! `boardDecide`): the Spaces count, and the pinned spaces and cards with
-//! the marks and names their rows show.
+//! `boardDecide`): the pinned spaces and cards with the marks and names
+//! their rows show. (Card #689 dropped the Spaces count: Boards has none.)
 
 use irori_window::boards::BoardSummary;
 use irori_window::cards::CardSummary;
 
 use super::plain::plain_line;
-use super::spaces::{boards_in_space, card_in_space};
+use super::spaces::boards_in_space;
 
 /// A card on a shared board waiting on the person: an open blocker, a
 /// wait on a PR's merge (card #509) or a wait no agent will end (#520).
 pub fn board_decides(c: &CardSummary) -> bool {
     c.scope == "board" && (c.open_blockers > 0 || c.merge_pr.is_some() || c.gone_wait.is_some())
-}
-
-/// The red count by Spaces: the picked space's board cards waiting on the
-/// person.
-pub fn boards_need_you(cards: &[CardSummary], space: &str) -> usize {
-    cards.iter().filter(|c| card_in_space(c, space) && board_decides(c)).count()
 }
 
 /// The pinned spaces the picked space shows, in pin order.
@@ -76,19 +70,6 @@ mod tests {
             open_blockers: blockers,
             ..Default::default()
         }
-    }
-
-    #[test]
-    fn spaces_count_is_the_picked_spaces_board_decisions() {
-        let cards = vec![
-            card("a", "b1", "board", 1),
-            card("b", "b2", "board", 2),
-            card("c", "", "mine", 1),
-            card("d", "b1", "board", 0),
-        ];
-        assert_eq!(boards_need_you(&cards, ALL_SPACES), 2);
-        assert_eq!(boards_need_you(&cards, "b1"), 1);
-        assert_eq!(boards_need_you(&cards, PERSONAL), 0);
     }
 
     #[test]

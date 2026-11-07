@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use irori_window::cards::CardSummary;
 use irori_window::threads::RefTarget;
-use rune::{El, Icon, Key, KeyEvent, ScrollSpec, TextEdit, Tx, col, el, icon, row, text};
+use rune::{Icon, Key, KeyEvent, ScrollSpec, TextEdit, Tx, col, el, icon, row, text};
 use rune_kit::{Keybind, TextInput};
 
 use crate::ui::{Dialog, Event, Frame, Route, State, icons};
@@ -357,6 +357,11 @@ fn look_up(s: &mut State) {
 /// opens the palette from anywhere, a card's page and other dialogs
 /// included, and closes it again.
 pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
+    if let Some(id) = app_shortcut(ev)
+        && s.dialog.is_none()
+    {
+        return run_command(s, id);
+    }
     if !open_key(ev) {
         return false;
     }
@@ -368,16 +373,42 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
     true
 }
 
+/// The desktop shortcuts the window's own keys (ui/keys.rs) don't take
+/// (card #733, lib/app-shortcuts.ts): Cmd+1..5 for the sections in the
+/// sidebar's order, Cmd+B to fold the sidebar and Cmd+F to search cards.
+/// Cmd is Ctrl off the Mac. Each runs its palette command, so it does
+/// exactly what the palette's row does.
+fn app_shortcut(ev: &KeyEvent) -> Option<&'static str> {
+    let m = ev.mods;
+    let Key::Command(c) = &ev.key else { return None };
+    if m.shift || m.alt {
+        return None;
+    }
+    Some(match c.to_ascii_lowercase() {
+        '1' => "nav.home",
+        '2' => "nav.talk",
+        '3' => "nav.notes",
+        '4' => "nav.boards",
+        '5' => "nav.notifications",
+        'b' => "sidebar.fold",
+        'f' => "search.cards",
+        _ => return None,
+    })
+}
+
+/// Runs the command `id` if it applies now (false when it doesn't).
+pub fn run_command(s: &mut State, id: &str) -> bool {
+    let Some(c) = commands::commands(s, false).into_iter().find(|c| c.id == id) else {
+        return false;
+    };
+    (c.run)(s);
+    true
+}
+
 pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is("app:dialog-opened") && s.dialog == Some(Dialog::Palette) {
         reset(s);
     }
-}
-
-/// The palette has no page of its own.
-#[allow(dead_code)]
-pub fn view(_s: &State, f: &mut Frame) -> El {
-    crate::ui::not_yet(f, "Command palette", "The palette is a dialog: Cmd+K.")
 }
 
 /// The headless scene that shows it (`irori --snap x.png --scene palette`).
@@ -722,5 +753,30 @@ mod tests {
         assert!(open_key(&ev('p', false)));
         assert!(!open_key(&ev('k', true)));
         assert!(!open_key(&ev('j', false)));
+    }
+
+    #[test]
+    fn app_shortcuts_run_their_commands() {
+        let ev = |k: char| KeyEvent {
+            key: Key::Command(k),
+            mods: rune::Mods {
+                cmd: true,
+                ..rune::Mods::default()
+            },
+        };
+        assert_eq!(app_shortcut(&ev('1')), Some("nav.home"));
+        assert_eq!(app_shortcut(&ev('4')), Some("nav.boards"));
+        assert_eq!(app_shortcut(&ev('b')), Some("sidebar.fold"));
+        assert_eq!(app_shortcut(&ev('6')), None);
+        let mut s = State::default();
+        let mut tx = Tx::default();
+        assert!(on_key(&mut s, &ev('3'), &mut tx));
+        assert_eq!(s.nav.route, Route::Notes);
+        assert!(on_key(&mut s, &ev('4'), &mut tx));
+        assert_eq!(s.nav.route, Route::Spaces);
+        // A dialog open: they wait.
+        s.open_dialog(Dialog::Held { from: None });
+        assert!(!on_key(&mut s, &ev('1'), &mut tx));
+        assert_eq!(s.nav.route, Route::Spaces);
     }
 }
