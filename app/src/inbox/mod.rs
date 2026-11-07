@@ -69,6 +69,8 @@ pub struct Held {
     pub busy: String,
     pub act_error: Option<String>,
     pub said: String,
+    /// (Headless scenes only.) Stand-in lists a re-read leaves alone.
+    pub scene: bool,
 }
 
 /// The Message dialog's message and reply.
@@ -204,8 +206,10 @@ pub fn load_held(s: &mut State) {
         |s, (mut list, history, repos)| {
             list.sort_by_key(|d| std::cmp::Reverse(d.created_at.unix_milli_value()));
             let h = &mut s.inbox.held;
-            h.list = list;
-            h.history = history;
+            if !h.scene {
+                h.list = list;
+                h.history = history;
+            }
             h.loaded = true;
             h.error = None;
             s.inbox.repos = Repos(repos.into_iter().map(|r| (r.repo_key, r.name)).collect());
@@ -236,33 +240,6 @@ pub fn load_message(s: &mut State) {
 
 fn load_gone(s: &mut State) {
     s.spawn(|w| w.gone(20).unwrap_or_default(), |s, g| s.inbox.gone = g);
-}
-
-/// The Notifications page's window keys (chained in `ui::on_key`): Esc in
-/// an open Reply box cancels it, as OwnWords' onKeyDown did, instead of
-/// going back a page. The box's own pickers take Esc first.
-pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
-    if !matches!(ev.key, rune::Key::Escape) {
-        return false;
-    }
-    let focused = tx.focused().map(str::to_string);
-    cancels_reply(s, focused.as_deref())
-}
-
-/// Esc's effect on the Reply box: true (and the box closed) when it is
-/// open on the Notifications page, no dialog is over it, and the keyboard
-/// is in it.
-fn cancels_reply(s: &mut State, focused: Option<&str>) -> bool {
-    let Some(key) = s.inbox.replying.as_deref() else { return false };
-    if s.dialog.is_some() || s.nav.card.is_some() || s.nav.route != Route::Notifications {
-        return false;
-    }
-    let inside = format!("inbox-reply-box-{key}");
-    if !focused.is_some_and(|f| f.starts_with(&inside)) {
-        return false;
-    }
-    s.inbox.replying = None;
-    true
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -367,10 +344,49 @@ fn scene_delivery(id: &str) -> Delivery {
 }
 
 /// The Held list over the Notifications page (`--scene held`).
+///
+/// IRORI_SCENE_HELD=1 fills it with stand-ins: an agent's message held by
+/// a pause (Release, Dismiss), one blocked by the allow list (Allow sender
+/// & deliver), your own to a repo nobody is in (Start an agent), and a
+/// History of one released and one dismissed.
 pub fn held_scene(s: &mut State) {
     s.close_card();
     s.go(Route::Notifications);
     s.open_dialog(Dialog::Held { from: None });
+    if std::env::var("IRORI_SCENE_HELD").is_ok_and(|v| !v.is_empty()) {
+        use irori_window::rune_inbox::{GoTime, hold, st};
+        let now = words::now_ms();
+        let d = |id: &str, from: (&str, &str), to: &str, state: &str, why: &str, text: &str, ago_min: i64| {
+            let mut d = scene_delivery(id);
+            d.message.from.key = from.0.into();
+            d.message.from.name = from.1.into();
+            d.message.text = text.into();
+            d.message.sent_at = GoTime::unix_milli(now - ago_min * 60_000);
+            d.created_at = d.message.sent_at;
+            d.updated_at = d.message.sent_at;
+            d.to = to.into();
+            d.state = state.into();
+            d.hold = why.into();
+            d
+        };
+        let mut unowned = d("scene-h3", ("user:you", "You"), "", st::HELD, hold::UNOWNED, "Can someone look at the flaky lobby test?", 30);
+        unowned.repo_key = "github.com/stephenshorton/irori".into();
+        let mut released = d("scene-h4", ("scene/oak", "oak"), "user:you", st::DELIVERED, hold::PAUSED, "Done with #12; the PR is up.", 120);
+        released.decided_by = "user:you".into();
+        released.decided_at = GoTime::unix_milli(now - 100 * 60_000);
+        let mut dismissed = d("scene-h5", ("scene/elm", "elm"), "user:you", st::DISMISSED, hold::NOT_ALLOWED, "Ping from elm.", 300);
+        dismissed.decided_by = "user:you".into();
+        dismissed.decided_at = GoTime::unix_milli(now - 280 * 60_000);
+        let h = &mut s.inbox.held;
+        h.scene = true;
+        h.loaded = true;
+        h.list = vec![
+            d("scene-h1", ("scene/oak", "oak"), "user:you", st::HELD, hold::PAUSED, "The merge desk is clear. Shall I take #12 next?", 5),
+            d("scene-h2", ("scene/elm", "elm"), "user:you", st::HELD, hold::NOT_ALLOWED, "Can you check my branch?", 12),
+            unowned,
+        ];
+        h.history = vec![released, dismissed];
+    }
 }
 
 /// Held or Message, whichever `s.dialog` names (mounted in `f.layer`).
@@ -394,42 +410,4 @@ pub fn focused_edit() -> TextEdit {
     let mut e = TextEdit::default();
     e.focused = true;
     e
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn replying() -> State {
-        let mut s = State::default();
-        s.go(Route::Notifications);
-        s.inbox.replying = Some("msg:1".into());
-        s
-    }
-
-    #[test]
-    fn esc_in_the_reply_box_cancels_it() {
-        let mut s = replying();
-        assert!(cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
-        assert!(s.inbox.replying.is_none());
-    }
-
-    #[test]
-    fn esc_elsewhere_leaves_the_box() {
-        let mut s = replying();
-        assert!(!cancels_reply(&mut s, None));
-        assert!(!cancels_reply(&mut s, Some("inbox-mark-all")));
-        assert!(s.inbox.replying.is_some());
-        // A dialog over the page takes Esc for itself.
-        s.dialog = Some(Dialog::Palette);
-        assert!(!cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
-        assert!(s.inbox.replying.is_some());
-    }
-
-    #[test]
-    fn esc_with_no_box_open_passes() {
-        let mut s = State::default();
-        s.go(Route::Notifications);
-        assert!(!cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
-    }
 }

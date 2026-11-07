@@ -250,6 +250,12 @@ fn reload_invite(s: &mut State) {
         |w| w.boards_invite_status(),
         |s, st| {
             if st.open() || (s.spaces.invite.is_some() && !st.state.is_empty()) {
+                // The host's words box takes the keyboard as it shows
+                // (autoFocus).
+                let was = s.spaces.invite.as_ref().map(|i| i.state.clone()).unwrap_or_default();
+                if logic::words_box_shows(&was, &st) {
+                    s.spaces.words.focused = true;
+                }
                 s.spaces.invite = Some(st);
             }
         },
@@ -279,12 +285,25 @@ fn start_ticker(s: &mut State) {
     std::thread::Builder::new()
         .name("irori-spaces-tick".into())
         .spawn(move || {
+            // The Core opens the shared spaces a few seconds after launch;
+            // a list read before then is empty. For the first minute an
+            // empty list is read again every 2 s, so the sidebar and the
+            // Spaces page don't wait for the next event or the 20 s tick.
+            let started = std::time::Instant::now();
+            let mut last = std::time::Instant::now();
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(logic::PRESENCE_RELOAD_SECS));
-                h.update(|s: &mut State, _| {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let early = started.elapsed().as_secs() < 60;
+                let tick = last.elapsed().as_secs() >= logic::PRESENCE_RELOAD_SECS;
+                if tick {
+                    last = std::time::Instant::now();
+                } else if !early {
+                    continue;
+                }
+                h.update(move |s: &mut State, _| {
                     let shown = s.nav.card.is_none()
                         && matches!(s.nav.route, Route::Spaces | Route::Board { .. });
-                    if shown {
+                    if (shown && tick) || (early && s.data.spaces.is_empty()) {
                         reload_spaces(s);
                         reload_fresh(s);
                     }
@@ -337,6 +356,11 @@ pub fn scene(s: &mut State) {
     wait_for_spaces(s);
     if let Ok(step) = std::env::var("IRORI_SCENE_INVITE") {
         s.spaces.invite = scene_invite(&step);
+        if let Some(i) = &s.spaces.invite
+            && logic::words_box_shows("", i)
+        {
+            s.spaces.words.focused = true;
+        }
     }
 }
 

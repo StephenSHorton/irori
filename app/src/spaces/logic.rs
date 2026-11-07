@@ -454,6 +454,13 @@ pub fn short_line(f: Option<&LogFreshness>, now_ms: i64) -> String {
 /// What an amber line adds.
 pub const STALE_TAIL: &str = ": newer changes from other devices may not be here yet";
 
+/// Whether an invite's change shows the host's words box anew (from a
+/// state that wasn't asking for the words).
+pub fn words_box_shows(was: &str, now: &irori_window::invites::InviteStatus) -> bool {
+    use irori_window::invites::INVITE_WORDS;
+    now.role == "host" && now.state == INVITE_WORDS && was != INVITE_WORDS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -763,5 +770,19 @@ mod tests {
         assert!(invite_reach_line(&h).ends_with("Reachable from outside home in Settings, Devices."));
         assert!(invite_error("mesh: transport closed").starts_with("Irori couldn't make"));
         assert_eq!(invite_error("nope"), "nope");
+    }
+
+    #[test]
+    fn the_hosts_words_box_takes_focus_once() {
+        use irori_window::invites::InviteStatus;
+        let st = |role: &str, state: &str| InviteStatus {
+            role: role.into(),
+            state: state.into(),
+            ..InviteStatus::default()
+        };
+        assert!(words_box_shows("waiting", &st("host", "words")));
+        assert!(!words_box_shows("words", &st("host", "words")));
+        assert!(!words_box_shows("waiting", &st("guest", "words")));
+        assert!(!words_box_shows("words", &st("host", "joining")));
     }
 }

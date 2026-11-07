@@ -506,6 +506,9 @@ fn form_dialog(s: &State, f: &mut Frame) {
     let chars = fm.text.text.trim().chars().count();
     let tags = logic::split_tags(&fm.tags.text);
     let kinds: Vec<String> = NOTE_KINDS.iter().map(|x| capital(x)).collect();
+    // The Kind list goes above the dialog: an overlay finds its anchor
+    // only in what was laid out before it.
+    let n = f.layer.len();
     let kind_sel = Select::new("notes-kind", &kinds)
         .label("Kind")
         .appearance(SelectAppearance::Field)
@@ -523,6 +526,7 @@ fn form_dialog(s: &State, f: &mut Frame) {
             fm.kind_open = false;
         })
         .build(k, f.layer);
+    let over: Vec<El> = f.layer.drain(n..).collect();
     let label = |s: &str| text(s.to_string()).font(t(12.5)).color(k.c.text_base).w(80.0);
     let mut applies = col()
         .grow(1.0)
@@ -625,4 +629,5 @@ fn form_dialog(s: &State, f: &mut Frame) {
         })
         .child(body)
         .build(k, f.layer);
+    f.layer.extend(over);
 }

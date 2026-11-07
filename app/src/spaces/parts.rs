@@ -630,6 +630,9 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
     let k = f.k;
     let name = plain_line(&b.name);
     let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+    // The reviewer pickers go above the dialog: an overlay finds its
+    // anchor only in what was laid out before it.
+    let n = f.layer.len();
     let mut body = col().key("spaces-settings-body").w_full().gap(14.0).px(16.0).pb(16.0);
     // The kit Dialog's description doesn't wrap in a fitted panel: the
     // line goes in the body, where it wraps.
@@ -647,6 +650,7 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
     } else if let Some(e) = &st.error {
         body = body.child(u::error_line(k, e.clone()));
     }
+    let over: Vec<El> = f.layer.drain(n..).collect();
     let h = f.cx.layout_size("main").map_or(720.0, |s| s[1]);
     Dialog::new("spaces-settings", "Space settings")
         .width(512.0)
@@ -662,6 +666,7 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
                 .child(body),
         )
         .build(k, f.layer);
+    f.layer.extend(over);
     // A member step that asks first sits over the dialog.
     if let (Some(ask), Some(set)) = (&st.asking, &st.settings) {
         let board = set.board_id.clone();
