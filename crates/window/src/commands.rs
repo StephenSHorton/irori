@@ -32,7 +32,7 @@ use crate::mentions::{MentionCandidate, MentionOutcome};
 use crate::meters::MetersSample;
 use crate::roster::{GoneSession, RosterChange};
 use crate::settings::{CardLook, NotifyOptions, Target};
-use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost};
+use crate::talk::{TalkConversation, TalkMemberRef, TalkPerson, TalkPost, TalkTranscript};
 use crate::ts::{self, Typed};
 use crate::update::UpdateStatus;
 use crate::usage::UsageLimits;
@@ -1568,6 +1568,28 @@ pub async fn call_dismiss(w: W<'_>, call_id: String) -> R<()> {
     .await
 }
 
+/// "Transcribe what I say in calls" (#656): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_transcribe(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.call_transcribe())).await
+}
+
+/// Turns "Transcribe what I say in calls" on or off, on all the person's
+/// devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_transcribe_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.call_transcribe_set(on)).await
+}
+
+/// A huddle's transcript (#656): every line, named.
+#[tauri::command]
+#[specta::specta]
+pub async fn talk_call_transcript(w: W<'_>, call_id: String) -> R<TalkTranscript> {
+    blocking(&w, move |w| w.talk_call_transcript(&call_id)).await
+}
+
 // ---- Screen share in a huddle (#658) ------------------------------------------
 
 /// What this device can share: displays, then windows.
@@ -2127,6 +2149,9 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_deafen,
             call_mic,
             call_dismiss,
+            call_transcribe,
+            call_transcribe_set,
+            talk_call_transcript,
             share_sources,
             share_start,
             share_stop,

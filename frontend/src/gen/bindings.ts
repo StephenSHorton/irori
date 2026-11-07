@@ -318,6 +318,15 @@ export const commands = {
 	callMic: () => __TAURI_INVOKE<string>("call_mic"),
 	/**  Stops a huddle ringing here. */
 	callDismiss: (callId: string) => __TAURI_INVOKE<null>("call_dismiss", { callId }),
+	/**  "Transcribe what I say in calls" (#656): on unless turned off. */
+	callTranscribe: () => __TAURI_INVOKE<boolean>("call_transcribe"),
+	/**
+	 *  Turns "Transcribe what I say in calls" on or off, on all the person's
+	 *  devices.
+	 */
+	callTranscribeSet: (on: boolean) => __TAURI_INVOKE<null>("call_transcribe_set", { on }),
+	/**  A huddle's transcript (#656): every line, named. */
+	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  What this device can share: displays, then windows. */
 	shareSources: () => __TAURI_INVOKE<ShareSourceView[]>("share_sources"),
 	/**  Shares a window or display (an id from share_sources) in the huddle. */
@@ -899,6 +908,22 @@ export type BoardSummary = {
 	boards: SpaceBoard[],
 };
 
+/**  One line said in the call (#656). */
+export type CallCaptionView = {
+	/**
+	 *  Who said it, by name ("you" for the person, on any of their
+	 *  devices).
+	 */
+	name: string,
+	/**  The person said it. */
+	mine: boolean,
+	text: string,
+	/**  When the phrase began, Unix ms. */
+	atMs: number,
+	/**  When it ended, Unix ms. */
+	endMs: number,
+};
+
 /**  A call on now in a conversation this device can see. */
 export type CallLiveView = {
 	callId: string,
@@ -928,6 +953,17 @@ export type CallMineView = {
 	peers: CallPeerView[],
 	/**  Why the call isn't working, in plain words. */
 	error: string | null,
+	/**  What this device says is written down now (#656). */
+	transcribing: boolean,
+	/**
+	 *  This device can write down what the person says now: it has a
+	 *  transcriber, a speech engine, and the speech model is downloaded.
+	 */
+	canTranscribe: boolean,
+	/**  "Transcribe what I say in calls", the person's switch. */
+	transcribeOn: boolean,
+	/**  The latest lines said in the call, oldest first. */
+	captions: CallCaptionView[],
 	/**  The screen share on in the call, yours or another's (#658). */
 	share: CallShareView | null,
 	/**  This device can share its screen (the desktops; not the phone). */
@@ -954,6 +990,11 @@ export type CallPeerView = {
 	lossPct: number | null,
 	speaking: boolean,
 	muted: boolean,
+	/**
+	 *  Whether what they say is written down (#656); null until their
+	 *  device says (an older Irori never does).
+	 */
+	transcribing: boolean | null,
 };
 
 /**  A call ringing here. */
@@ -1011,6 +1052,19 @@ export type CallView = {
 	ringing: CallRingView[],
 	/**  Calls on now, for the Talk list's rows. */
 	live: CallLiveView[],
+	/**
+	 *  "Transcribe what I say in calls" (#656), the person's switch: the
+	 *  notice before the mic opens reads it.
+	 */
+	transcribeOn: boolean,
+	/**
+	 *  This device can write down what the person says now (#656): this
+	 *  machine has a speech engine and the speech model is downloaded.
+	 *  Known before any call, for the notice; worked out each time the view
+	 *  is built. (Whether the app installed a transcriber isn't part of it:
+	 *  the app always does.)
+	 */
+	canTranscribe: boolean,
 };
 
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */
@@ -2628,6 +2682,11 @@ export type TalkCall = {
 	 *  on a start.
 	 */
 	people: string[],
+	/**
+	 *  On an end: the huddle has a transcript (#656), which
+	 *  talk_call_transcript reads.
+	 */
+	transcript: boolean,
 };
 
 /**  One conversation in Talk's list. */
@@ -2745,6 +2804,35 @@ export type TalkReplying = {
 	convId: string,
 	/**  The earliest woken first. */
 	agents: TalkReplier[],
+};
+
+/**  A huddle's transcript (#656), as the person reads it. */
+export type TalkTranscript = {
+	callId: string,
+	/**  The channel or DM it was in. */
+	convId: string,
+	/**  The channel's name, or the DM's other person. */
+	convName: string,
+	/**  `channel` or `dm`. */
+	convKind: string,
+	/**  When it started, Unix ms; null when its start post isn't here. */
+	startedAtMs: number | null,
+	ended: boolean,
+	/**  How long it ran, once ended; 0 before. */
+	durationMs: number,
+	/**  What was said, oldest first. */
+	lines: TalkTranscriptLine[],
+};
+
+/**  One line of a huddle's transcript. */
+export type TalkTranscriptLine = {
+	/**  Who said it, by name ("you" for the person), never a key. */
+	name: string,
+	/**  The person said it. */
+	mine: boolean,
+	/**  When the phrase began, Unix ms. */
+	atMs: number,
+	text: string,
 };
 
 /**

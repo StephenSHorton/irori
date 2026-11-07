@@ -164,7 +164,7 @@ fn board_stores_pulled_unknown_task_and_space_kinds() {
         "space.future",
         // Card #652 (tolerant 2): calls' rows, and Talk's next ones.
         "call.started",
-        "call.segment",
+        "call.future",
         "talk.future",
         "talk.post.future",
     ];
@@ -187,6 +187,26 @@ fn board_stores_pulled_unknown_task_and_space_kinds() {
     assert_eq!(e.s().vector().unwrap().get("dev-b").copied(), Some(n + 1));
     // Only the appends counted as refused.
     assert_eq!(e.s().board_refused().kind, n);
+}
+
+/// A huddle's transcript line (card #656) is named and Accepts: this device
+/// writes it and a pulled one is stored as a known kind.
+#[test]
+fn board_accepts_call_segment() {
+    let mut e = Env::new();
+    let seg = json!({
+        "callId": "c1", "convId": "ch_1", "seg": 0, "startMs": 1,
+        "endMs": 2, "text": "hello", "by": "person:p1",
+    });
+    assert!(!store::board_tolerated(CALL_SEGMENT));
+    e.must_append(
+        "person:p1",
+        BOARD_CREATED,
+        &json!({"boardId": "b", "name": "mlg", "tag": "mlg", "creator": {"personId": "p1"}}),
+    );
+    e.must_append("person:p1", CALL_SEGMENT, &seg);
+    e.insert_b("person:p1", CALL_SEGMENT, &seg).1.unwrap();
+    assert_eq!(e.s().board_refused().kind, 0);
 }
 
 /// Only those families, and only kinds nobody has named: a stall on a

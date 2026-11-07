@@ -6,7 +6,9 @@
 //! every peer's [`Link`]. Playout pulls 20 ms from each peer's jitter
 //! buffer, mixes them, gives the mix to the echo canceller as what the
 //! speaker plays, and queues it for the device. Datagrams arrive from the
-//! network through [`Engine::receive`], which only queues them.
+//! network through [`Engine::receive`], which only queues them. A
+//! [`Tap`] set with [`Engine::set_tap`] hears each cleaned 10 ms chunk,
+//! after mute (a transcriber).
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,6 +24,7 @@ use crate::dsp::{self, Dsp, DspConfig, EchoStats};
 use crate::jitter::{JitterBuffer, JitterStats, Played};
 use crate::probe::{Clicker, Onsets, Voice};
 use crate::resample::Resample;
+use crate::transcribe::Tap;
 use crate::wire::{self, FLAG_DTX, FLAG_MUTED, FLAG_PROBE, FRAME, Header};
 
 const F: usize = FRAME as usize;
@@ -121,6 +124,7 @@ enum Cmd {
     Add(String, Arc<dyn Link>),
     Remove(String),
     Datagram(String, Vec<u8>, Instant),
+    Tap(Option<Tap>),
     Stop,
 }
 
@@ -216,6 +220,14 @@ impl Engine {
         self.shared.muted.store(on, Ordering::Relaxed);
     }
 
+    /// Hands each cleaned 10 ms chunk of the mic to `tap` (zeros while
+    /// muted, and in place of audio dropped when the engine fell behind, so
+    /// the tap's sample count keeps the call's time), or stops with None.
+    /// Never blocks.
+    pub fn set_tap(&self, tap: Option<Tap>) {
+        let _ = self.tx.send(Cmd::Tap(tap));
+    }
+
     /// Deafen: nothing from the others plays here, and the mic is off too
     /// (the others see it muted). The streams stay open, so Undeafen is
     /// instant.
@@ -288,6 +300,9 @@ struct Core {
     loud_until: Option<Instant>,
     clicker: Option<Clicker>,
     voice: Option<Voice>,
+    tap: Option<Tap>,
+    /// Dropped mic samples not yet given to the tap as zeros (under a chunk).
+    tap_gap: usize,
     sent_level: f32,
     /// The speaker played something above the speech gate until then (plus
     /// the time for it to reach the mic).
@@ -334,6 +349,8 @@ impl Core {
             loud_until: None,
             clicker: cfg.probe.then(Clicker::new),
             voice: cfg.say.then(Voice::new),
+            tap: None,
+            tap_gap: 0,
             sent_level: 0.0,
             playing_until: None,
             echo_raw: 0.0,
@@ -406,6 +423,10 @@ impl Core {
                 {
                     p.jb.insert(h, payload, now);
                 }
+            }
+            Cmd::Tap(t) => {
+                self.tap = t;
+                self.tap_gap = 0;
             }
             Cmd::Stop => {}
         }
@@ -482,6 +503,16 @@ impl Core {
         // Keep the timestamps on wall time: the far end plays by them, and
         // a gap it doesn't see would look like a lasting delay.
         self.ts = self.ts.wrapping_add(((dropped / F) * F) as u32);
+        // The tap counts samples for its clock: give it zeros for the gap,
+        // in whole chunks.
+        if let Some(t) = self.tap.as_mut() {
+            self.tap_gap += dropped;
+            let zeros = [0f32; dsp::CHUNK];
+            while self.tap_gap >= dsp::CHUNK {
+                t(&zeros);
+                self.tap_gap -= dsp::CHUNK;
+            }
+        }
         let mut x = [0f32; dsp::CHUNK];
         while self.mic_in.take(&mut x) {
             // The probe times sound at the raw mic, before any cleaning.
@@ -507,6 +538,10 @@ impl Core {
             // goes out).
             if self.shared.mic_off() {
                 x.fill(0.0);
+            }
+            // The transcriber hears this person only: no stand-in voice.
+            if let Some(t) = self.tap.as_mut() {
+                t(&x);
             }
             if let Some(v) = self.voice.as_mut() {
                 v.add(&mut x);

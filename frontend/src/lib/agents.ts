@@ -542,7 +542,11 @@ export function runningSince(at: number, now: number): string {
 // focus and every few seconds. The preview's sample: `?agentspause=on`.
 function samplePause(): AgentsPauseView {
   return previewFlag("agentspause") === "on"
-    ? { on: true, since: Date.now() - 42 * 60_000, by: "the person on MacBook Pro" }
+    ? {
+        on: true,
+        since: Date.now() - 42 * 60_000,
+        by: "the person on MacBook Pro",
+      }
     : { on: false, since: 0, by: "" }
 }
 

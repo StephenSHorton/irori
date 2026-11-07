@@ -288,20 +288,19 @@ impl ShareHub {
 
     // ---- peers ---------------------------------------------------------
 
-    /// A call connection to `peer` is up: run its control stream and take
-    /// its video streams. The connection's datagrams stay the call's.
+    /// A connection to `peer` is up. The call service owns the call
+    /// stream (the transcript's messages ride it too): it writes what comes
+    /// out of the returned queue and hands what it reads to [`Self::on_msg`].
     pub fn add_peer(
         self: &Arc<Self>,
         peer: &str,
         conn: Connection,
-        control: (SendStream, RecvStream),
-    ) {
-        let (mut send, mut recv) = control;
-        let (tx, mut rx) = mpsc::unbounded_channel::<ShareMsg>();
+    ) -> mpsc::UnboundedReceiver<ShareMsg> {
+        let (tx, rx) = mpsc::unbounded_channel::<ShareMsg>();
         {
             let mut g = self.lock();
             if g.closed {
-                return;
+                return rx;
             }
             // A newer connection to the same peer replaces the older; its
             // tasks end with it.
@@ -326,6 +325,28 @@ impl ShareHub {
                 });
             }
         }
+        let w = Arc::downgrade(self);
+        let p = peer.to_string();
+        self.rt.spawn(async move {
+            while let Ok(r) = conn.accept_uni().await {
+                let Some(h) = w.upgrade() else { return };
+                let p = p.clone();
+                h.rt.clone().spawn(async move { h.on_gop(&p, r).await });
+            }
+        });
+        rx
+    }
+
+    /// Like [`Self::add_peer`], for a stream that carries only the share's
+    /// messages (share-call-dev, tests): this hub writes and reads it.
+    pub fn add_peer_stream(
+        self: &Arc<Self>,
+        peer: &str,
+        conn: Connection,
+        control: (SendStream, RecvStream),
+    ) {
+        let (mut send, mut recv) = control;
+        let mut rx = self.add_peer(peer, conn);
         self.rt.spawn(async move {
             while let Some(m) = rx.recv().await {
                 if wire::write_msg(&mut send, &m).await.is_err() {
@@ -341,18 +362,8 @@ impl ShareHub {
                 h.on_msg(&p, m);
             }
         });
-        let w = Arc::downgrade(self);
-        let p = peer.to_string();
-        self.rt.spawn(async move {
-            while let Ok(r) = conn.accept_uni().await {
-                let Some(h) = w.upgrade() else { return };
-                let p = p.clone();
-                h.rt.clone().spawn(async move { h.on_gop(&p, r).await });
-            }
-        });
     }
 
-    /// The call connection to `peer` (`conn`) closed.
     pub(crate) fn remove_peer(&self, peer: &str, conn: &Connection) {
         let mut g = self.lock();
         if g.peers
@@ -371,7 +382,7 @@ impl ShareHub {
         }
     }
 
-    fn on_msg(self: &Arc<Self>, peer: &str, m: ShareMsg) {
+    pub(crate) fn on_msg(self: &Arc<Self>, peer: &str, m: ShareMsg) {
         let mut g = self.lock();
         if g.closed {
             return;

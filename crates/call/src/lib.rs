@@ -13,7 +13,9 @@ pub mod jitter;
 pub mod platform;
 pub mod probe;
 pub mod resample;
+pub mod transcribe;
 pub mod wire;
 
 pub use engine::{Config, Engine, Inlet, Link, PeerStats, Stats};
 pub use platform::{AudioRoute, Platform, PlatformError, PlatformEvent, PlatformSink};
+pub use transcribe::{Segment, SegmentSink, Tap, Transcriber, TranscriberFn};

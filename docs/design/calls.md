@@ -13,6 +13,7 @@ Huddles: voice calls of 2 to 6 devices in a space channel, a person DM, or a Per
 | Record | `talk.post` with a `call` mark | The start and the end are ordinary posts with a `CallMark` (`coord::talk`). An older Irori reads them as plain posts. |
 | Window | `crates/window/src/call.rs`, `frontend/src/lib/call.ts` | `call_*` commands, the `call:state` event, the huddle button, call bar and ringing banner. |
 | Phone | `app/src/shell/call_android.rs`, `CallService.kt`, `CallPlugin.kt` | A foreground service of type microphone, so a call survives the screen turning off. See `docs/android.md`. |
+| Transcript | `crates/call/src/transcribe.rs`, `crates/voice`, `call.segment` rows | Each device writes down its own person's voice from the engine's tap: live captions, stored lines, one wake for the channel's agents at the end (card #656). See [call-transcripts.md](call-transcripts.md). |
 
 ## Audio
 
@@ -96,6 +97,6 @@ Huddles: voice calls of 2 to 6 devices in a space channel, a person DM, or a Per
 - **Real devices:** Mac↔Pixel with echo cancelling on laptop speakers, under 200 ms mouth-to-ear, and a third device joining. This is the card's done-when, and it needs the person and the phone.
 - **Earpiece:** cpal plays with media usage and sets no AAudio input preset. So Android's own echo canceller is off (sonora does it), and earpiece routing may not apply. Speakerphone is the v1 route. The earpiece and the platform canceller need AAudio directly, which means API 28 (minSdk 26 today).
 - **A pair with no route:** in a space, two devices that can't reach each other (no address in the board book) never connect. A three-way call then has a missing leg, and the peer stays "connecting". There is no forwarding through a third device.
-- **Transcription** (#571's plan) isn't in this card. `crates/voice` opens the mic itself, so dictation is turned off during a call.
+- **Transcription** is card #656: see [call-transcripts.md](call-transcripts.md). The transcriber hears the engine's tap, not the mic. Dictation (the mic button) still waits while you're in a huddle, since `crates/voice` opens the mic itself.
 - **A DM mark race:** a person DM's end post written just as the other side leaves the DM's space could found a new hidden space. The window is tiny; the fix is a no-found write path for marks.
-- **The `tolerant` widening** (irori-fit.md option E) is still to come, before any `call.*` row kinds.
+- **The `tolerant` widening** (irori-fit.md option E) landed in #652. `call.segment` (#656) is written only when every device in the space reads it (`space_tolerance`).

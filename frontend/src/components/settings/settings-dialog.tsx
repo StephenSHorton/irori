@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { useReducedMotion } from "@/lib/motion"
 import {
   BellIcon,
@@ -36,6 +36,10 @@ import { go } from "@/lib/nav"
 import { corners, useSettings, useYourName } from "@/lib/settings"
 import { UpdateStatusLine, useKeepUpToDate } from "@/updater"
 import { VoiceNote } from "@/components/settings/voice-note"
+import { useCallPart } from "@/components/talk/huddle"
+import { loadTranscribe, setTranscribe } from "@/lib/call"
+import { inWails } from "@/lib/irori"
+import { errorText } from "@/lib/talk"
 
 export type SettingsSection =
   | "notifications"
@@ -99,7 +103,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, updates and the version.",
   },
 ]
 
@@ -366,6 +370,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
         )}
       </Loading>
       <VoiceNote open={open} />
+      <TranscribeSwitch open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
@@ -391,6 +396,58 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
           </span>
         </div>
       )}
+    </div>
+  )
+}
+
+const transcribeLabel = "Transcribe what I say in calls"
+const transcribeHint =
+  "Huddles write down what each person says, on their own device. Turn this off and your voice isn't written down; you still hear and speak."
+
+// TranscribeSwitch is "Transcribe what I say in calls" (#656): read when
+// Settings opens, on all the person's devices.
+function TranscribeSwitch({ open }: { open: boolean }) {
+  const on = useCallPart((s) => s.transcribeOn)
+  const [read, setRead] = useState(!inWails())
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    loadTranscribe()
+      .then(() => live && setRead(true))
+      .catch((err: unknown) => {
+        if (!live) return
+        setError(errorText(err))
+        setRead(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = async (v: boolean) => {
+    setError("")
+    try {
+      await setTranscribe(v)
+    } catch (err) {
+      setError(errorText(err))
+      await loadTranscribe().catch(() => {})
+    }
+  }
+  return (
+    <div className="grid gap-1 border-t border-border pt-3">
+      <Loading loading={!read} label="Loading huddle transcripts">
+        {!read ? (
+          <ToggleShape label={transcribeLabel} hint={transcribeHint} />
+        ) : (
+          <Toggle
+            label={transcribeLabel}
+            hint={transcribeHint}
+            checked={on}
+            onChange={(v) => void set(v)}
+          />
+        )}
+      </Loading>
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }

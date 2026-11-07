@@ -131,6 +131,42 @@ pub struct TalkCall {
     /// Who took part, by name ("you" for the person), never a key. Empty
     /// on a start.
     pub people: Vec<String>,
+    /// On an end: the huddle has a transcript (#656), which
+    /// talk_call_transcript reads.
+    pub transcript: bool,
+}
+
+/// A huddle's transcript (#656), as the person reads it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkTranscript {
+    pub call_id: String,
+    /// The channel or DM it was in.
+    pub conv_id: String,
+    /// The channel's name, or the DM's other person.
+    pub conv_name: String,
+    /// `channel` or `dm`.
+    pub conv_kind: String,
+    /// When it started, Unix ms; null when its start post isn't here.
+    pub started_at_ms: Option<i64>,
+    pub ended: bool,
+    /// How long it ran, once ended; 0 before.
+    pub duration_ms: i64,
+    /// What was said, oldest first.
+    pub lines: Vec<TalkTranscriptLine>,
+}
+
+/// One line of a huddle's transcript.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkTranscriptLine {
+    /// Who said it, by name ("you" for the person), never a key.
+    pub name: String,
+    /// The person said it.
+    pub mine: bool,
+    /// When the phrase began, Unix ms.
+    pub at_ms: i64,
+    pub text: String,
 }
 
 /// The agents replying in one channel or DM (card #645): woken by a post
@@ -278,10 +314,93 @@ impl Window {
                         .iter()
                         .filter_map(|k| names.get(k).cloned())
                         .collect(),
+                    transcript: c.transcript,
                 }),
                 at: p.at,
             })
             .collect())
+    }
+
+    /// Huddle `call_id`'s transcript (#656), every line, when the person
+    /// may read the conversation it was in.
+    pub fn talk_call_transcript(&self, call_id: &str) -> Result<TalkTranscript, String> {
+        let id = crate::trim(call_id);
+        if id.is_empty() {
+            return Err("pick a huddle".into());
+        }
+        // The read rule, `tools::talk::call_parent`'s for the person (the
+        // reader here is always their own key): the huddle's conversation
+        // is here, and a channel still is. A DM is always theirs to read.
+        let talk = self.core.talk();
+        let conv_id = talk
+            .call_conv(id)
+            .ok_or_else(|| "that huddle isn't here".to_string())?;
+        if coord::talk::is_channel(&conv_id) && talk.channel(&conv_id).is_none() {
+            return Err("that huddle's channel isn't here".into());
+        }
+        let lines = talk.call_posts(id);
+        let (conv_kind, mut keys) = if coord::talk::is_channel(&conv_id) {
+            ("channel", Vec::new())
+        } else {
+            ("dm", talk.pair_other(&conv_id).into_iter().collect())
+        };
+        for p in &lines {
+            if !keys.contains(&p.by) {
+                keys.push(p.by.clone());
+            }
+        }
+        let names: std::collections::HashMap<String, String> = keys
+            .iter()
+            .cloned()
+            .zip(self.core.talk_names(&keys))
+            .collect();
+        let name = |k: &str| {
+            names
+                .get(k)
+                .cloned()
+                .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
+        };
+        let conv_name = if conv_kind == "channel" {
+            talk.channel(&conv_id).map(|c| c.name).unwrap_or_default()
+        } else {
+            talk.pair_other(&conv_id)
+                .map(|k| name(&k))
+                .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
+        };
+        // The person as a space's rows name them, should a line keep it.
+        let me_board = format!(
+            "{}{}",
+            store::kinds::PERSON_ACTOR_PREFIX,
+            self.core.chain().person_id()
+        );
+        // Its start and end, from the huddle's own marks.
+        let info = talk.calls().into_iter().find(|c| c.call_id == id);
+        let start = info
+            .as_ref()
+            .and_then(|c| c.start_at)
+            .map(|at| at.unix_milli_value());
+        let end = info.and_then(|c| c.end).map(|m| m.duration_ms);
+        Ok(TalkTranscript {
+            call_id: id.to_string(),
+            conv_id,
+            conv_name,
+            conv_kind: conv_kind.into(),
+            started_at_ms: start,
+            ended: end.is_some(),
+            duration_ms: end.unwrap_or(0),
+            lines: lines
+                .into_iter()
+                .map(|p| {
+                    let mine = coord::talk::is_person_key(&p.by) || p.by == me_board;
+                    TalkTranscriptLine {
+                        name: if mine { "you".into() } else { name(&p.by) },
+                        mine,
+                        at_ms: p.at.unix_milli_value(),
+                        text: p.text,
+                    }
+                })
+                .collect(),
+        })
     }
 
     /// Posts as the person; returns the post's id. A thread's post is a

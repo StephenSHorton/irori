@@ -538,6 +538,11 @@ export const CallService = {
   Deafen: (on: boolean) => done(commands.callDeafen(on)),
   Mic: () => call(commands.callMic()),
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
+  // "Transcribe what I say in calls" (#656), on all the person's devices.
+  Transcribe: () => call(commands.callTranscribe()),
+  TranscribeSet: (on: boolean) => done(commands.callTranscribeSet(on)),
+  // A huddle's transcript (#656): every line, named.
+  Transcript: (callId: string) => call(commands.talkCallTranscript(callId)),
 }
 
 // Screen share in a huddle (#658): the share itself shows in call:state

@@ -4,9 +4,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use call::device::fake::{self, Recording};
+use call::device::fake::{self as dev, Recording};
 use call::dsp::DspConfig;
-use call::{Config, Engine, Inlet, Link};
+use call::transcribe::fake as tr;
+use call::{Config, Engine, Inlet, Link, Segment, Tap};
 
 /// Delivers to another engine as if over a network, from `from`.
 struct Wire {
@@ -22,7 +23,7 @@ impl Link for Wire {
 }
 
 /// 200 ms of a 600 Hz tone at 1 s, 3 s, 5 s ...; silence between.
-fn bursts() -> fake::Gen {
+fn bursts() -> dev::Gen {
     Box::new(|n| {
         let t = n as f64 / 48_000.0;
         let in_burst = t >= 1.0 && (t - 1.0) % 2.0 < 0.2;
@@ -35,12 +36,12 @@ fn bursts() -> fake::Gen {
 }
 
 /// The same bursts, starting at 2 s.
-fn later_bursts() -> fake::Gen {
+fn later_bursts() -> dev::Gen {
     let mut b = bursts();
     Box::new(move |n| if n < 96_000 { 0.0 } else { b(n - 48_000) })
 }
 
-fn silence() -> fake::Gen {
+fn silence() -> dev::Gen {
     Box::new(|_| 0.0)
 }
 
@@ -62,9 +63,13 @@ struct Node {
     rec: Arc<Mutex<Recording>>,
 }
 
-fn node(sound: fake::Gen) -> Node {
+fn node(sound: dev::Gen) -> Node {
+    node_with(config(), sound)
+}
+
+fn node_with(cfg: Config, sound: dev::Gen) -> Node {
     let rec = Arc::new(Mutex::new(Recording::default()));
-    let engine = Engine::start(config(), fake::devices(sound, rec.clone())).expect("engine");
+    let engine = Engine::start(cfg, dev::devices(sound, rec.clone())).expect("engine");
     Node { engine, rec }
 }
 
@@ -225,4 +230,108 @@ fn removing_a_peer_stops_sending_to_it() {
         st.peers[0]
     );
     let _ = Instant::now();
+}
+
+/// What a tap heard: each chunk's length and loudest sample.
+type Heard = Arc<Mutex<Vec<(usize, f32)>>>;
+
+fn listen() -> (Tap, Heard) {
+    let heard: Heard = Arc::default();
+    let h = heard.clone();
+    let tap: Tap = Box::new(move |x: &[f32]| {
+        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs()));
+        h.lock().unwrap().push((x.len(), peak));
+    });
+    (tap, heard)
+}
+
+#[test]
+fn a_tap_hears_the_mic_in_10_ms_chunks() {
+    let a = node(bursts());
+    let (tap, heard) = listen();
+    a.engine.set_tap(Some(tap));
+    std::thread::sleep(Duration::from_millis(1500));
+    let h = heard.lock().unwrap().clone();
+    assert!(h.iter().all(|&(n, _)| n == 480));
+    assert!(
+        (130..=165).contains(&h.len()),
+        "{} chunks in 1.5 s",
+        h.len()
+    );
+    assert!(h.iter().any(|&(_, p)| p > 0.1), "the burst at 1 s");
+}
+
+#[test]
+fn a_muted_engine_taps_zeros() {
+    let a = node(bursts());
+    a.engine.set_muted(true);
+    let (tap, heard) = listen();
+    a.engine.set_tap(Some(tap));
+    std::thread::sleep(Duration::from_millis(1500));
+    let h = heard.lock().unwrap().clone();
+    assert!(h.len() > 100, "{} chunks", h.len());
+    assert!(h.iter().all(|&(_, p)| p == 0.0));
+}
+
+#[test]
+fn the_stand_in_voice_stays_out_of_the_tap() {
+    // No peer: what a peer sends back would reach the tap as echo residue.
+    let a = node_with(
+        Config {
+            say: true,
+            ..config()
+        },
+        silence(),
+    );
+    let (tap, heard) = listen();
+    a.engine.set_tap(Some(tap));
+    std::thread::sleep(Duration::from_millis(1500));
+    let h = heard.lock().unwrap().clone();
+    assert!(h.len() > 100, "{} chunks", h.len());
+    assert!(h.iter().all(|&(_, p)| p == 0.0));
+    let st = a.engine.stats();
+    assert!(
+        st.sent_level_dbfs > -40.0,
+        "the voice still goes out: {st:?}"
+    );
+}
+
+#[test]
+fn set_tap_none_stops_the_tap() {
+    let a = node(silence());
+    let (tap, heard) = listen();
+    a.engine.set_tap(Some(tap));
+    std::thread::sleep(Duration::from_millis(300));
+    a.engine.set_tap(None);
+    std::thread::sleep(Duration::from_millis(50));
+    let before = heard.lock().unwrap().len();
+    assert!(before > 10, "{before}");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(heard.lock().unwrap().len(), before);
+}
+
+#[test]
+fn the_fake_transcriber_writes_one_segment_per_burst() {
+    let a = node(bursts());
+    let got: Arc<Mutex<Vec<Segment>>> = Arc::default();
+    let g = got.clone();
+    let mut t = tr::energy("a")(Arc::new(move |s| g.lock().unwrap().push(s))).expect("start");
+    a.engine.set_tap(Some(t.tap()));
+    // The bursts at 1 s and 3 s; stop in the quiet after the second, before
+    // QUIET_MS has passed, so stop() must flush it.
+    std::thread::sleep(Duration::from_millis(3400));
+    a.engine.set_tap(None);
+    t.stop();
+    let got = got.lock().unwrap().clone();
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got[0].text, "a 0");
+    assert_eq!(got[1].text, "a 1");
+    // The fake's clock starts at the first tapped chunk, not at the device,
+    // so check the gap between the bursts (2 s apart), not when they fell.
+    let gap = got[1].start_ms - got[0].start_ms;
+    assert!((1700..=2300).contains(&gap), "{got:?}");
+    for s in &got {
+        let len = s.end_ms - s.start_ms;
+        assert!((150..=300).contains(&len), "{s:?}");
+    }
 }

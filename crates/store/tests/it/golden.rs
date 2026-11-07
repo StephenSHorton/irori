@@ -74,7 +74,7 @@ fn board_name(b: Board) -> &'static str {
 
 /// Kinds added after the Go port (shared boards stage 2, waits on card
 /// #87), which Go's table can't list: board logs accept them.
-const SINCE_GO: [&str; 25] = [
+const SINCE_GO: [&str; 26] = [
     kinds::BOARD_ASK_REQUESTED,
     kinds::BOARD_ASK_STATE,
     kinds::BOARD_ASK_MOVED,
@@ -108,6 +108,8 @@ const SINCE_GO: [&str; 25] = [
     // in the board log.
     kinds::TASK_SPAWN,
     kinds::TASK_SPAWNED,
+    // A huddle's transcript lines (card #656).
+    kinds::CALL_SEGMENT,
 ];
 
 /// Kinds added after the Go port that board logs refuse: the person's own
@@ -117,7 +119,7 @@ const SINCE_GO: [&str; 25] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538).
-const SINCE_GO_REFUSED: [&str; 25] = [
+const SINCE_GO_REFUSED: [&str; 26] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -144,6 +146,8 @@ const SINCE_GO_REFUSED: [&str; 25] = [
     kinds::DM_SPACE_JOINED,
     // A computer takes an ask on the private log (card #541).
     kinds::ASK_MOVED,
+    // "Transcribe what I say in calls" (card #656).
+    kinds::TRANSCRIBE_SET,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

@@ -26,6 +26,7 @@ export type BoardMember = B.BoardMember
 export type BoardReviewer = B.BoardReviewer
 export type BoardSettings = B.BoardSettings
 export type BoardSummary = B.BoardSummary
+export type CallCaptionView = B.CallCaptionView
 export type CallLiveView = B.CallLiveView
 export type CallMineView = B.CallMineView
 export type CallPeerView = B.CallPeerView
@@ -150,6 +151,8 @@ export type TalkPerson = B.TalkPerson
 export type TalkPost = B.TalkPost
 export type TalkReplier = B.TalkReplier
 export type TalkReplying = B.TalkReplying
+export type TalkTranscript = B.TalkTranscript
+export type TalkTranscriptLine = B.TalkTranscriptLine
 export type Target = B.Target
 export type Task = B.Task
 export type TaskResult = B.TaskResult
@@ -276,6 +279,11 @@ export function BoardSummary(p: Partial<B.BoardSummary> = {}): B.BoardSummary {
   return { "boardId": "", "name": "", "tag": "", "people": [], "members": [], "owner": false, "devices": 0, "cards": 0, "doneWeek": 0, "ready": false, "boards": [], ...p } as B.BoardSummary
 }
 
+/** CallCaptionView with Go's zero values for every field left out. */
+export function CallCaptionView(p: Partial<B.CallCaptionView> = {}): B.CallCaptionView {
+  return { "name": "", "mine": false, "text": "", "atMs": 0, "endMs": 0, ...p } as B.CallCaptionView
+}
+
 /** CallLiveView with Go's zero values for every field left out. */
 export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
   return { "callId": "", "convId": "", "people": [], ...p } as B.CallLiveView
@@ -283,12 +291,12 @@ export function CallLiveView(p: Partial<B.CallLiveView> = {}): B.CallLiveView {
 
 /** CallMineView with Go's zero values for every field left out. */
 export function CallMineView(p: Partial<B.CallMineView> = {}): B.CallMineView {
-  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, "share": null, "canShare": false, "shareNote": null, ...p } as B.CallMineView
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "joinedAtMs": 0, "muted": false, "deafened": false, "speaking": false, "device": "", "peers": [], "error": null, "transcribing": false, "canTranscribe": false, "transcribeOn": false, "captions": [], "share": null, "canShare": false, "shareNote": null, ...p } as B.CallMineView
 }
 
 /** CallPeerView with Go's zero values for every field left out. */
 export function CallPeerView(p: Partial<B.CallPeerView> = {}): B.CallPeerView {
-  return { "name": "", "device": "", "phase": "", "path": "", "rttMs": null, "lossPct": null, "speaking": false, "muted": false, ...p } as B.CallPeerView
+  return { "name": "", "device": "", "phase": "", "path": "", "rttMs": null, "lossPct": null, "speaking": false, "muted": false, "transcribing": null, ...p } as B.CallPeerView
 }
 
 /** CallRingView with Go's zero values for every field left out. */
@@ -303,7 +311,7 @@ export function CallShareView(p: Partial<B.CallShareView> = {}): B.CallShareView
 
 /** CallView with Go's zero values for every field left out. */
 export function CallView(p: Partial<B.CallView> = {}): B.CallView {
-  return { "mine": null, "ringing": [], "live": [], ...p } as B.CallView
+  return { "mine": null, "ringing": [], "live": [], "transcribeOn": false, "canTranscribe": false, ...p } as B.CallView
 }
 
 /** CanvasPos with Go's zero values for every field left out. */
@@ -803,7 +811,7 @@ export function SummaryMember(p: Partial<B.SummaryMember> = {}): B.SummaryMember
 
 /** TalkCall with Go's zero values for every field left out. */
 export function TalkCall(p: Partial<B.TalkCall> = {}): B.TalkCall {
-  return { "callId": "", "op": "", "durationMs": 0, "people": [], ...p } as B.TalkCall
+  return { "callId": "", "op": "", "durationMs": 0, "people": [], "transcript": false, ...p } as B.TalkCall
 }
 
 /** TalkConversation with Go's zero values for every field left out. */
@@ -839,6 +847,16 @@ export function TalkReplier(p: Partial<B.TalkReplier> = {}): B.TalkReplier {
 /** TalkReplying with Go's zero values for every field left out. */
 export function TalkReplying(p: Partial<B.TalkReplying> = {}): B.TalkReplying {
   return { "convId": "", "agents": [], ...p } as B.TalkReplying
+}
+
+/** TalkTranscript with Go's zero values for every field left out. */
+export function TalkTranscript(p: Partial<B.TalkTranscript> = {}): B.TalkTranscript {
+  return { "callId": "", "convId": "", "convName": "", "convKind": "", "startedAtMs": null, "ended": false, "durationMs": 0, "lines": [], ...p } as B.TalkTranscript
+}
+
+/** TalkTranscriptLine with Go's zero values for every field left out. */
+export function TalkTranscriptLine(p: Partial<B.TalkTranscriptLine> = {}): B.TalkTranscriptLine {
+  return { "name": "", "mine": false, "atMs": 0, "text": "", ...p } as B.TalkTranscriptLine
 }
 
 /** Target with Go's zero values for every field left out. */

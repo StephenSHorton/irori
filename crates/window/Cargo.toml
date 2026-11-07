@@ -11,6 +11,8 @@ name = "irori_window"
 
 [dependencies]
 irori-blob.workspace = true
+# voice.rs: the call transcriber behind the call's seam (#656).
+irori-call.workspace = true
 irori-capture.workspace = true
 irori-coord.workspace = true
 irori-core.workspace = true

@@ -65,6 +65,26 @@ A call or huddle (card #654) keeps running with the screen off or Irori in the b
 - Without the notification permission (Android 13+) the service still runs; only its notification is hidden.
 - Routing: speakerphone is the v1 route. cpal opens its AAudio output with media usage, and the earpiece route (`setCommunicationDevice`) moves only voice-call streams, so asking for the earpiece may leave the sound on the speaker. A voice-call output needs AAudio's usage setters, which need API 28 (see docs/research/08-voice-calls).
 
+### Whisper during calls
+
+A huddle's transcript (card #656, docs/design/call-transcripts.md) runs Whisper base.en on the phone, fed by the call's own cleaned mic.
+
+- Measured on the Pixel 10 Pro Fold (Tensor G5): base.en's final pass takes 5.7–6.2 s on 2 threads and 3.7–4.3 s on 4.
+- So calls use 4 threads on Android (`voice::Options::call()`; 2 elsewhere), and a line lands about 4 s after it's said.
+
+To measure again, cross-build the bench with the voice env above (plus a linker for a plain cargo build), push it with the C++ runtime, the model and a 16 kHz mono 16-bit WAV of speech, and run it there:
+
+```sh
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$P/bin/aarch64-linux-android26-clang
+cargo build --release -p irori-voice --example bench --target aarch64-linux-android
+adb push target/aarch64-linux-android/release/examples/bench /data/local/tmp/
+adb push $P/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so /data/local/tmp/
+adb push ggml-base.en.bin speech.wav /data/local/tmp/
+adb shell 'cd /data/local/tmp && LD_LIBRARY_PATH=. ./bench ggml-base.en.bin speech.wav'
+```
+
+It times the first 1, 4 and 8 s of the WAV on 2 and 4 threads.
+
 ## In the background
 
 Measured for card #580 (no-server.md §4.3, "find out what phones really do in the background").

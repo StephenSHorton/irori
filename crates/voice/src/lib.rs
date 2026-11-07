@@ -15,14 +15,16 @@
 //! - [`Session::stop`] (or dropping the session) ends it, after
 //!   finalizing what was said so far; the sink still gets `Ended`.
 //!   Stopping twice is harmless.
+//! - [`start_feed`] (#656, call transcripts) is a session that hears audio
+//!   pushed through a [`Feed`] instead of the microphone, and reports
+//!   [`Event::Segment`] (a phrase with its times) instead of `Final`.
 //!
 //! Nothing here sends text anywhere: the window puts it in the text box and
 //! the person edits and sends it.
 //!
-//! Engines: `whisper.rs` (cpal microphone + whisper-rs) on Windows and
-//! macOS. Android needs the RECORD_AUDIO grant and an arm64 whisper.cpp
-//! build (#240, the Mac half); until then `other.rs` reports
-//! [`Status::Unsupported`] there and the window hides the mic.
+//! Engines: `whisper.rs` (cpal microphone + whisper-rs) on Windows, macOS
+//! and Android (CPU only). Other OSes get `other.rs`, which reports
+//! [`Status::Unsupported`], and the window hides the mic.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -115,10 +117,50 @@ pub enum Event {
     /// A settled phrase (may be empty when nothing was understood); the
     /// next partial starts a new one.
     Final(String),
+    /// A settled phrase from a feed session, never empty. The times are ms
+    /// from the first sample pushed, counted in the samples fed (so they
+    /// follow the caller's clock, not the wall clock); `start_ms` includes a
+    /// short lead-in of silence and `end_ms` is where the speech stopped.
+    Segment {
+        text: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
     /// The session failed; `Ended` follows.
     Error { code: ErrorCode, message: String },
     /// The session is over. Always the last event.
     Ended,
+}
+
+/// How a session runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    /// Send [`Event::Partial`]s (and spend the passes they take).
+    pub partials: bool,
+    /// At most this many CPU threads for Whisper (the default rule still
+    /// applies under it).
+    pub max_threads: Option<i32>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            partials: true,
+            max_threads: None,
+        }
+    }
+}
+
+impl Options {
+    /// For a call's transcript: finals only, at most 2 threads (4 on
+    /// Android, whose cores are slower: base.en's pass takes about 6 s on
+    /// 2 of a Pixel's, 4 s on 4), so the call keeps its CPU.
+    pub fn call() -> Self {
+        Options {
+            partials: false,
+            max_threads: Some(if cfg!(target_os = "android") { 4 } else { 2 }),
+        }
+    }
 }
 
 /// Where a session's events go. Called from the engine's thread.
@@ -195,8 +237,47 @@ pub fn start_with_samples(
     samples: Vec<f32>,
     sink: Sink,
 ) -> Result<Session, StartError> {
-    whisper::start_from(model, whisper::Source::Samples(samples), sink)
-        .map(|inner| Session { inner: Some(inner) })
+    whisper::start_from(
+        model,
+        whisper::Source::Samples(samples),
+        Options::default(),
+        sink,
+    )
+    .map(|inner| Session { inner: Some(inner) })
+}
+
+/// Starts a session that hears what is pushed into the returned [`Feed`]
+/// (mono at `input_rate`, at least 16 kHz) instead of the microphone, so it
+/// needs no microphone or permission, only the model. Phrases arrive as
+/// [`Event::Segment`], timed from the first sample pushed, not from this
+/// call. [`Session::stop`] finishes the phrase in progress (its `Segment`
+/// reaches the sink before `stop` returns), then `Ended`.
+///
+/// Blocks while the model loads (seconds the first time): don't call it on
+/// the audio thread or an async executor.
+pub fn start_feed(
+    model: &Path,
+    input_rate: u32,
+    opts: Options,
+    sink: Sink,
+) -> Result<(Session, Feed), StartError> {
+    engine::start_feed(model, input_rate, opts, sink)
+        .map(|(inner, feed)| (Session { inner: Some(inner) }, Feed(feed)))
+}
+
+/// Pushes audio into a [`start_feed`] session. Cheap to clone.
+#[derive(Clone)]
+pub struct Feed(engine::Feed);
+
+impl Feed {
+    /// Hands over the next mono samples. Never blocks: a chunk that meets
+    /// the engine taking the backlog is dropped (still counted in the
+    /// times), and the backlog keeps only the newest 25 s when the engine
+    /// lags. Does nothing once the session has ended. Doesn't allocate in
+    /// steady state, so it can run on the audio thread.
+    pub fn push(&self, mono: &[f32]) {
+        self.0.push(mono)
+    }
 }
 
 /// Frees the speech model kept loaded between sessions. Call it before the

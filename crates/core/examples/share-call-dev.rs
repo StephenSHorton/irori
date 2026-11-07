@@ -138,8 +138,8 @@ async fn run() -> Result<(), String> {
     let rt = tokio::runtime::Handle::current();
     let a_hub = ShareHub::new("a".into(), rt.clone(), Arc::new(|| {}));
     let b_hub = ShareHub::new("b".into(), rt.clone(), Arc::new(|| {}));
-    a_hub.add_peer("b", a_conn.clone(), (a_send, a_recv));
-    b_hub.add_peer("a", b_conn.clone(), (b_send, b_recv));
+    a_hub.add_peer_stream("b", a_conn.clone(), (a_send, a_recv));
+    b_hub.add_peer_stream("a", b_conn.clone(), (b_send, b_recv));
 
     let got: Arc<Mutex<Vec<Got>>> = Arc::default();
     let configs = Arc::new(Mutex::new(Vec::<String>::new()));

@@ -25,6 +25,15 @@ pub struct CallView {
     pub ringing: Vec<CallRingView>,
     /// Calls on now, for the Talk list's rows.
     pub live: Vec<CallLiveView>,
+    /// "Transcribe what I say in calls" (#656), the person's switch: the
+    /// notice before the mic opens reads it.
+    pub transcribe_on: bool,
+    /// This device can write down what the person says now (#656): this
+    /// machine has a speech engine and the speech model is downloaded.
+    /// Known before any call, for the notice; worked out each time the view
+    /// is built. (Whether the app installed a transcriber isn't part of it:
+    /// the app always does.)
+    pub can_transcribe: bool,
 }
 
 /// The call this device is in.
@@ -50,6 +59,15 @@ pub struct CallMineView {
     pub peers: Vec<CallPeerView>,
     /// Why the call isn't working, in plain words.
     pub error: Option<String>,
+    /// What this device says is written down now (#656).
+    pub transcribing: bool,
+    /// This device can write down what the person says now: it has a
+    /// transcriber, a speech engine, and the speech model is downloaded.
+    pub can_transcribe: bool,
+    /// "Transcribe what I say in calls", the person's switch.
+    pub transcribe_on: bool,
+    /// The latest lines said in the call, oldest first.
+    pub captions: Vec<CallCaptionView>,
     /// The screen share on in the call, yours or another's (#658).
     pub share: Option<CallShareView>,
     /// This device can share its screen (the desktops; not the phone).
@@ -57,6 +75,22 @@ pub struct CallMineView {
     /// A line about sharing, in plain words: who took over, or why your
     /// share stopped.
     pub share_note: Option<String>,
+}
+
+/// One line said in the call (#656).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CallCaptionView {
+    /// Who said it, by name ("you" for the person, on any of their
+    /// devices).
+    pub name: String,
+    /// The person said it.
+    pub mine: bool,
+    pub text: String,
+    /// When the phrase began, Unix ms.
+    pub at_ms: i64,
+    /// When it ended, Unix ms.
+    pub end_ms: i64,
 }
 
 /// The screen share on in a call.
@@ -131,6 +165,9 @@ pub struct CallPeerView {
     pub loss_pct: f64,
     pub speaking: bool,
     pub muted: bool,
+    /// Whether what they say is written down (#656); null until their
+    /// device says (an older Irori never does).
+    pub transcribing: Option<bool>,
 }
 
 /// A call ringing here.
@@ -172,10 +209,14 @@ impl Window {
     #[doc(hidden)]
     pub fn call_view(&self, s: CallSnapshot) -> CallView {
         let names = Names::new(self, &s);
+        let transcribe_on = self.core.call_transcribe();
+        let can_transcribe = crate::voice::can_transcribe_here(self.core.data_dir());
         CallView {
-            mine: s.mine.map(|m| names.mine(m)),
+            mine: s.mine.map(|m| names.mine(m, transcribe_on, can_transcribe)),
             ringing: s.ringing.into_iter().map(|r| names.ring(r)).collect(),
             live: s.live.into_iter().map(|l| names.live(l)).collect(),
+            transcribe_on,
+            can_transcribe,
         }
     }
 
@@ -218,6 +259,18 @@ impl Window {
         self.core.call_dismiss(crate::trim(call_id))
     }
 
+    /// "Transcribe what I say in calls" (#656): on unless the person
+    /// turned it off.
+    pub fn call_transcribe(&self) -> bool {
+        self.core.call_transcribe()
+    }
+
+    /// Turns "Transcribe what I say in calls" on or off on all the
+    /// person's devices; a call this device is in follows at once.
+    pub fn call_transcribe_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_call_transcribe(on)
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self
@@ -243,7 +296,8 @@ impl Window {
     }
 
     /// Leaves any call and closes the devices: the shell calls it as the
-    /// app exits.
+    /// app exits, before [`Window::voice_shutdown`] frees the speech model
+    /// the call's transcriber may hold.
     pub fn call_shutdown(&self) {
         self.core.call_shutdown()
     }
@@ -265,6 +319,8 @@ impl<'a> Names<'a> {
         let mut ids: Vec<&str> = Vec::new();
         if let Some(m) = &s.mine {
             ids.extend(m.peers.iter().map(|p| p.person_id.as_str()));
+            // A speaker who has left is still in the captions.
+            ids.extend(m.captions.iter().map(|c| c.person_id.as_str()));
             ids.extend(m.share.iter().map(|x| x.person_id.as_str()));
             if let Some(CallShareNote::Replaced { person_id, .. }) = &m.share_note {
                 ids.push(person_id);
@@ -356,7 +412,8 @@ impl<'a> Names<'a> {
         self.convs.get(conv).cloned().unwrap_or_default()
     }
 
-    fn mine(&self, m: MyCall) -> CallMineView {
+    /// `here`: [`crate::voice::can_transcribe_here`].
+    fn mine(&self, m: MyCall, transcribe_on: bool, here: bool) -> CallMineView {
         let (conv_kind, conv_name) = self.conv(&m.conv_id);
         CallMineView {
             device: self
@@ -376,8 +433,31 @@ impl<'a> Names<'a> {
                     loss_pct: p.loss_pct,
                     speaking: p.speaking,
                     muted: p.muted,
+                    transcribing: p.transcribing,
                 })
                 .collect(),
+            captions: m
+                .captions
+                .into_iter()
+                .map(|c| {
+                    // Said on this device, or another of the person's.
+                    let mine = c.mine || c.person_id == self.me;
+                    CallCaptionView {
+                        name: if mine {
+                            self.person(&self.me)
+                        } else {
+                            self.person(&c.person_id)
+                        },
+                        mine,
+                        text: c.text,
+                        at_ms: c.start_ms,
+                        end_ms: c.end_ms,
+                    }
+                })
+                .collect(),
+            transcribing: m.transcribing,
+            can_transcribe: m.can_transcribe && here,
+            transcribe_on,
             call_id: m.call_id,
             conv_id: m.conv_id,
             conv_name,

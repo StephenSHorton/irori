@@ -1712,3 +1712,273 @@ fn a_files_only_post_reads_as_one_line() {
     assert_eq!(ds.len(), 1, "{ds:?}");
     has(&ds[0].message.text, &[": 📎 a.png +1\n"]);
 }
+
+// ---- huddle transcripts (card #656) ------------------------------------
+
+const CALL: &str = "0123456789abcdef0123456789abcdef";
+
+fn person() -> tools::Caller {
+    tools::Caller {
+        sender: inbox::Sender::new(USER, "you", "user"),
+        path: String::new(),
+    }
+}
+
+/// Two lines said in huddle `CALL` in `conv` by the person, and its end.
+fn huddle(h: &Harness, conv: &str, by: &str) {
+    let t = h.b.talk.clone();
+    t.write_segment(conv, CALL, 0, 1_000, 2_000, "I'll take the PC build", by)
+        .unwrap();
+    t.write_segment(conv, CALL, 1, 3_000, 4_000, "and the patch notes", by)
+        .unwrap();
+    t.post(ct::NewPost {
+        conv_id: conv.into(),
+        text: "ended a huddle".into(),
+        by: by.into(),
+        call: Some(ct::CallMark {
+            call_id: CALL.into(),
+            op: ct::CALL_END.into(),
+            transcript: true,
+            ..ct::CallMark::default()
+        }),
+        ..ct::NewPost::default()
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_channel_huddle_reads_as_its_transcript() {
+    let h = new_harness();
+    let (a, b, me) = (call_a(), call_b(), person());
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    huddle(&h, &ch.id, USER);
+    let conv = format!("call:{CALL}");
+
+    // Listed for the person and the member, unread for the member until it
+    // reads it (the person's own lines are read); not for beta.
+    let line = format!("- huddle in #general (conv={conv}, 2 lines, ended)");
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &["Huddles with a transcript", &format!("{line}: 2 unread")],
+    );
+    has(&h.okj(&me, "talk_list", json!({})), &[&format!("{line}\n")]);
+    has_not(&h.okj(&b, "talk_list", json!({})), &["huddle in"]);
+
+    for c in [&me, &a] {
+        let out = h.okj(c, "talk_read", json!({"conv": conv}));
+        has(
+            &out,
+            &[
+                "The transcript of the huddle in #general (ended)",
+                &format!("in {conv}, oldest first"),
+                "the person (user:dev1)",
+                "I'll take the PC build",
+                "and the patch notes",
+            ],
+        );
+        assert!(
+            out.find("PC build").unwrap() < out.find("patch notes").unwrap(),
+            "{out}"
+        );
+    }
+    // Read once, nothing new after.
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["Nothing new"],
+    );
+    assert!(tools::talk::can_read(&*h.b, KEY_A, &conv));
+
+    has(&h.okj(&a, "talk_list", json!({})), &[&format!("{line}\n")]);
+
+    // Read-only.
+    for c in [&me, &a] {
+        h.failsj(
+            c,
+            "talk_post",
+            json!({"conv": conv, "text": "x"}),
+            &["a huddle's transcript is read-only"],
+        );
+        h.failsj(
+            c,
+            "talk_thread",
+            json!({"conv": conv, "text": "x"}),
+            &["a huddle's transcript is read-only"],
+        );
+    }
+
+    // An id nobody knows.
+    h.failsj(
+        &a,
+        "talk_read",
+        json!({"conv": "call:feedbeef"}),
+        &["no huddle feedbeef. talk_list shows yours."],
+    );
+    assert!(!tools::talk::can_read(&*h.b, KEY_A, "call:feedbeef"));
+}
+
+#[test]
+fn a_person_dm_huddle_is_never_an_agents() {
+    let (h, _) = bobs_harness();
+    h.b.roster
+        .put(card(KEY_A, "alpha", "", "bypassPermissions"));
+    let me = person();
+    let user = inbox::Sender::new(USER, "you", "user");
+    tools::talk::post(&*h.b, &user, &bob_dm(), "hi", &[], false, None, &[]).unwrap();
+    let dm = bob_dm().id().to_string();
+    huddle(&h, &dm, USER);
+    let conv = format!("call:{CALL}");
+
+    has(
+        &h.okj(&me, "talk_read", json!({"conv": conv})),
+        &[
+            "The transcript of the huddle in the DM with",
+            "I'll take the PC build",
+        ],
+    );
+    has(
+        &h.okj(&me, "talk_list", json!({})),
+        &[&format!("(conv={conv}, 2 lines, ended)")],
+    );
+
+    let a = call_a();
+    h.failsj(
+        &a,
+        "talk_read",
+        json!({"conv": conv}),
+        &["agents don't read it"],
+    );
+    assert!(!tools::talk::can_read(&*h.b, KEY_A, &conv));
+    assert!(tools::talk::posts(&*h.b, KEY_A, &conv).is_err());
+    has_not(&h.okj(&a, "talk_list", json!({})), &["huddle in"]);
+    // Nobody is told of its end.
+    assert!(tools::talk::tell_call_end(&*h.b, &user, &dm, CALL).is_empty());
+    assert!(h.notices(KEY_A).is_empty());
+}
+
+#[test]
+fn a_huddles_end_wakes_the_channels_agents_once() {
+    let h = new_harness();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    for k in [&call_a(), &call_c()] {
+        h.okj(k, "talk_join", json!({"conv": "#general"}));
+    }
+    huddle(&h, &ch.id, USER);
+    let user = inbox::Sender::new(USER, "you", "user");
+    let told = tools::talk::tell_call_end(&*h.b, &user, &ch.id, CALL);
+    assert_eq!(told.len(), 2, "{told:?}");
+    assert!(told.iter().all(|t| t.err.is_none()), "{told:?}");
+    for key in [KEY_A, KEY_C] {
+        let ns = h.notices(key);
+        assert_eq!(ns.len(), 1, "{ns:?}");
+        assert_eq!(ns[0].mode, WAKE);
+        assert_eq!(ns[0].message.reason, coord::NOTICE_READING);
+        assert_eq!(ns[0].message.ref_, format!("talk:{}", ch.id));
+        assert_eq!(
+            ns[0].message.text,
+            format!(
+                "The huddle in #general ended. talk_read conv=call:{CALL} has the transcript (2 lines)."
+            )
+        );
+    }
+    // Beta isn't in the channel, and the person is no agent.
+    assert!(h.notices(KEY_B).is_empty());
+    assert!(h.notices(USER).is_empty());
+}
+
+#[test]
+fn a_long_transcript_reads_from_its_start() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    let t = h.b.talk.clone();
+    for i in 0..35_i64 {
+        let at = 1_000 + i * 1_000;
+        t.write_segment(&ch.id, CALL, i, at, at + 500, &format!("line {i:02}"), USER)
+            .unwrap();
+    }
+    let conv = format!("call:{CALL}");
+
+    // The first 30, and how to get the rest.
+    let out = h.okj(&a, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("The transcript, from the start in {conv}"),
+            "line 00",
+            "line 29",
+            &format!("5 more: talk_read conv={conv} since=seg_"),
+        ],
+    );
+    has_not(&out, &["line 30"]);
+    let since = out
+        .split(&format!("talk_read conv={conv} since="))
+        .nth(1)
+        .and_then(|s| s.lines().next())
+        .unwrap()
+        .to_string();
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv, "since": since})),
+        &["line 30", "line 34"],
+    );
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["Nothing new"],
+    );
+
+    // Read without since, the next read goes on from the cursor.
+    let me = person();
+    h.okj(&me, "talk_read", json!({"conv": conv}));
+    let out = h.okj(&me, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("Posts since you last read in {conv}"),
+            "line 30",
+            "line 34",
+        ],
+    );
+    has_not(&out, &["line 29", "more:"]);
+}
+
+#[test]
+fn a_late_line_said_earlier_is_still_unread() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    let t = h.b.talk.clone();
+    t.write_segment(&ch.id, CALL, 0, 10_000, 11_000, "first", USER)
+        .unwrap();
+    t.write_segment(&ch.id, CALL, 1, 20_000, 21_000, "second", USER)
+        .unwrap();
+    let conv = format!("call:{CALL}");
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["first", "second"],
+    );
+    has(&h.okj(&a, "talk_list", json!({})), &["2 lines, live)\n"]);
+
+    // It arrives after the read, but was said before both.
+    t.write_segment(&ch.id, CALL, 2, 5_000, 6_000, "said early", USER)
+        .unwrap();
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &["3 lines, live): 1 unread"],
+    );
+    let out = h.okj(&a, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("Posts since you last read in {conv}"),
+            "said early",
+        ],
+    );
+    has_not(&out, &["): first", "): second", "more:"]);
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["Nothing new"],
+    );
+    has(&h.okj(&a, "talk_list", json!({})), &["3 lines, live)\n"]);
+}

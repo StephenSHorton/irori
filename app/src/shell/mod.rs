@@ -348,11 +348,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 pumps_stop.cancel();
                 let closed = match hosted.lock().unwrap_or_else(|e| e.into_inner()).take() {
                     Some((h, window)) => {
+                        // Leave any huddle and close its devices (#654),
+                        // first: its transcriber (#656) holds the speech
+                        // model.
+                        window.call_shutdown();
                         // Free the speech model before exit (#240: Metal
                         // asserts otherwise).
                         window.voice_shutdown();
-                        // Leave any huddle and close its devices (#654).
-                        window.call_shutdown();
                         h.core.set_reviver(None);
                         h.core.set_spawner(None);
                         h.close()
@@ -456,6 +458,8 @@ fn start_core(
     let hosted =
         match host::options(rt, data.clone(), false, Some(s.notifier.clone())).and_then(|mut o| {
             o.call_platform = s.call_platform.clone();
+            // The call's transcript (#656): Whisper on this device.
+            o.call_transcriber = Some(irori_window::voice::call_transcriber(data.clone()));
             host::start_with(rt, o)
         }) {
             Ok(h) => h,

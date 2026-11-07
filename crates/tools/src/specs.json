@@ -1982,7 +1982,7 @@
       "properties": {
         "conv": {
           "type": "string",
-          "description": "The conversation: a channel (#name), a DM (@agent, or person for the person), or a thread (#12). Ids from talk_list work too."
+          "description": "The conversation: a channel (#name), a DM (@agent, or person for the person), a thread (#12), or a huddle's transcript (call:<id>, as talk_list names it). Ids from talk_list work too."
         },
         "since": {
           "type": "string",

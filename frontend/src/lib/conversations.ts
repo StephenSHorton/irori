@@ -485,6 +485,8 @@ function sampleState(): SampleConv[] {
             op: "end",
             durationMs: 18 * 60_000,
             people: ["you", "Spencer"],
+            // Its transcript (#656): ?call=transcript opens it.
+            transcript: true,
           }),
         }),
         post(

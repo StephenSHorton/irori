@@ -23,6 +23,7 @@ fn mark(id: &str, op: &str, people: Vec<String>) -> CallMark {
         op: op.into(),
         duration_ms: if op == CALL_END { 90_000 } else { 0 },
         people,
+        ..CallMark::default()
     }
 }
 

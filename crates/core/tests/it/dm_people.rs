@@ -255,3 +255,101 @@ fn leaving_a_dm_nobody_heard_of_leaves_nothing_behind() {
     assert!(a1.core.talk_dm_leave(&agent).is_err());
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Card #656: a huddle line in a DM is a `call.segment` in its hidden
+/// space, read as `call:<id>` on the other person's side; an agent can't
+/// write one, and a line that doesn't name its writer is dropped, in the
+/// DM and in a space's channel alike.
+#[test]
+fn a_dm_huddle_line_reaches_the_other_person() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let board = invited(a1, b1);
+    linked(a1, b1, &board);
+    let (dm, space) = started(a1, b1);
+    wait_for(WAIT, "the DM's space takes call rows", || {
+        a1.core.space_tolerance(&space).is_ok_and(|t| t.ready())
+    });
+    let ch = a1
+        .core
+        .talk()
+        .create_channel_in(&a1.user(), "general", "", &board)
+        .unwrap();
+    wait_for(WAIT, "the space takes call rows", || {
+        a1.core.space_tolerance(&board).is_ok_and(|t| t.ready())
+    });
+    let t0 = 1_762_470_000_000_i64;
+    let seg = |conv: &str, call: &str, seg: i64| {
+        serde_json::json!({
+            "callId": call, "convId": conv, "seg": seg, "startMs": t0, "endMs": t0 + 900,
+            "text": "nobody's", "at": "2026-11-06T00:00:00Z",
+        })
+    };
+    // A line naming nobody: the log takes it (only a `by` naming someone
+    // else is refused there), and the fold drops it.
+    for (log, conv, call) in [(&space, &dm, "call_dm"), (&board, &ch.id, "call_ch")] {
+        a1.core
+            .board_store(log)
+            .unwrap()
+            .append(
+                &a1.person_actor(),
+                store::kinds::CALL_SEGMENT,
+                &seg(conv, call, 9),
+            )
+            .unwrap();
+    }
+
+    let talk = a1.core.talk();
+    let e = talk
+        .write_segment(&dm, "call_dm", 0, t0, t0 + 900, "an agent", &a1.agent)
+        .unwrap_err();
+    assert!(e.is(coord::ErrorKind::NotAllowed), "{e}");
+    let p = talk
+        .write_segment(&dm, "call_dm", 0, t0, t0 + 900, "just us", &a1.user())
+        .unwrap();
+    assert_eq!(p.conv_id, "call:call_dm");
+    talk.write_segment(
+        &ch.id,
+        "call_ch",
+        0,
+        t0,
+        t0 + 900,
+        "in the room",
+        &a1.user(),
+    )
+    .unwrap();
+    let rows = a1
+        .core
+        .board_store(&space)
+        .unwrap()
+        .list(&store::Filter {
+            kinds: vec![store::kinds::CALL_SEGMENT.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 2, "the stray line and the real one");
+    assert!(rows.iter().all(|r| r.actor == a1.person_actor()));
+
+    let bt = b1.core.talk();
+    wait_for(WAIT, "bob folds alice's DM line", || {
+        !bt.call_posts("call_dm").is_empty()
+    });
+    wait_for(WAIT, "bob folds alice's channel line", || {
+        !bt.call_posts("call_ch").is_empty()
+    });
+    let lines = bt.call_posts("call_dm");
+    let said: Vec<&str> = lines.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(said, ["just us"], "the stray line is dropped");
+    assert_eq!(lines[0].conv_id, "call:call_dm");
+    assert_eq!(lines[0].by, a1.person_actor());
+    assert_eq!(bt.call_conv("call_dm"), Some(dm.clone()));
+    assert!(!holds(b1, &dm, "just us"), "a line isn't a DM post");
+    let room: Vec<String> = bt
+        .call_posts("call_ch")
+        .into_iter()
+        .map(|p| p.text)
+        .collect();
+    assert_eq!(room, ["in the room"], "the stray line is dropped");
+    close(alice.drain(..).chain(bob.drain(..)));
+}
