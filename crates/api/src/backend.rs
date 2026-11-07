@@ -86,6 +86,17 @@ pub trait Backend: Send + Sync + 'static {
         let _ = input;
         None
     }
+
+    /// A spawned agent's permission hook reports its prompt and waits for
+    /// the person's pick (card #682), for `POST /v1/permission/wait`;
+    /// `None` (a backend that starts no agents) answers 503.
+    fn permission_wait(
+        &self,
+        ask: &irori_core::spawn_waiting::PermissionAsk,
+    ) -> Option<irori_core::spawn_waiting::PermissionDecision> {
+        let _ = ask;
+        None
+    }
 }
 
 /// Health's `net` (Go `api.NetHealth`): the net layer's state (off, on,
@@ -181,6 +192,16 @@ impl Backend for Core {
         input: &[irori_core::usage::RateLimit],
     ) -> Option<Result<(), String>> {
         Some(Core::record_usage_limits(self, input))
+    }
+    fn permission_wait(
+        &self,
+        ask: &irori_core::spawn_waiting::PermissionAsk,
+    ) -> Option<irori_core::spawn_waiting::PermissionDecision> {
+        Some(Core::permission_wait(
+            self,
+            ask,
+            irori_core::spawn_waiting::PERMISSION_POLL,
+        ))
     }
     fn net_health(&self) -> Option<NetHealth> {
         let n = self.mesh();

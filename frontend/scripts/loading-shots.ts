@@ -58,7 +58,7 @@ const PAGES: Array<[name: string, query: string]> = [
   ["settings-people", "?slow&settings=people"],
   ["settings-app", "?slow&settings=app"],
   ["settings-desks", "?slow&settings=desks"],
-  ["boards", "?slow#boards"],
+  ["personal", "?slow#board/personal"],
   ["board", "?slow#board/sample-board-mlg"],
 ]
 

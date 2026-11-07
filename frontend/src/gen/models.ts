@@ -50,6 +50,7 @@ export type CardMessage = B.CardMessage
 export type CardOption = B.CardOption
 export type CardOrder = B.CardOrder
 export type CardPR = B.CardPR
+export type CardPermission = B.CardPermission
 export type CardProgress = B.CardProgress
 export type CardRead = B.CardRead
 export type CardRef = B.CardRef
@@ -394,6 +395,11 @@ export function CardOption(p: Partial<B.CardOption> = {}): B.CardOption {
 /** CardOrder with Go's zero values for every field left out. */
 export function CardOrder(p: Partial<B.CardOrder> = {}): B.CardOrder {
   return { "steps": [], ...p } as B.CardOrder
+}
+
+/** CardPermission with Go's zero values for every field left out. */
+export function CardPermission(p: Partial<B.CardPermission> = {}): B.CardPermission {
+  return { "agent": AgentRef(), "tool": "", "input": "", "rule": "", "answerable": false, "expires": "", ...p } as B.CardPermission
 }
 
 /** CardPR with Go's zero values for every field left out. */

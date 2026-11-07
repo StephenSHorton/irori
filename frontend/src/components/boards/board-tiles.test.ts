@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { CardSummary, TaskState } from "@/lib/models"
-import { boardSegs } from "./boards-page"
+import { boardSegs } from "./board-tiles"
 
 const who = { key: "a", name: "a", status: "active", live: true, where: "" }
 

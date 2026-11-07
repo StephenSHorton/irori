@@ -42,6 +42,8 @@ const out =
 const PAGES: Array<[name: string, query: string]> = [
   ["home", ""],
   ["home-spawn", "?spawn=states"],
+  // Card #682: a permission prompt's command and buttons.
+  ["card-perm", "?spawn=states&open=board:task:sample-card-spawn-perm"],
   ["card-1", "?open=board:task:sample-card-1"],
   ["card-2", "?open=board:task:sample-card-2"],
   ["card-4", "?open=board:task:sample-card-4"],
@@ -61,10 +63,11 @@ const PAGES: Array<[name: string, query: string]> = [
   ["channel", "#talk/sample-ch-suzuri"],
   ["dm", "#talk/sample-dm-heron"],
   ["thread", "?thread=sample-thread-1"],
-  ["boards", "?boards"],
+  ["new-space", "?boards"],
+  ["boards", "#boards"],
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
-  ["personal", "?space=personal#boards"],
+  ["personal", "#board/personal"],
   // Freshness lines (card #580): a space's Home, Personal's, every log a few
   // days behind, and the space menu open with each one's.
   ["home-space", "?space=sample-board-mlg"],

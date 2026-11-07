@@ -49,9 +49,9 @@ pub use offers::{
 pub use parts::PART_QUESTION;
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START, GONE_USAGE_LIMIT,
-    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
-    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned, USAGE_LIMIT, crash_question,
-    is_crash_question, usage_limited,
+    MAX_SPAWN_CRASHES, NOT_TRUSTED_PREFIX, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED,
+    SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, SPAWN_RETRY_UNTRUSTED, Spawn, SpawnAsk, SpawnHold,
+    Spawned, USAGE_LIMIT, crash_question, is_crash_question, retry_after, usage_limited,
 };
 mod resource;
 mod review;
@@ -76,9 +76,10 @@ use gocompat::time::GoTime;
 use store::{Event, Store, kinds};
 
 pub use asks::{
-    ASK_UNCLAIMED, ASK_WAIT, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT,
-    OUTCOME_NONE, TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE,
-    TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
+    ALL_FULL, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_UNCLAIMED, ASK_WAIT,
+    MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT, OUTCOME_NONE,
+    TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE, TAKE_RELEASED,
+    TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{SentBack, merge_watch, watch_text};
@@ -268,6 +269,13 @@ pub struct AgentDevices {
     /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
     /// one of these, since an older one would keep acting on it.
     pub moves: std::collections::HashSet<String>,
+    /// The computers with no free agent slot now (card #686): at their
+    /// cap, held by a usage limit, or with their agents paused. An ask
+    /// waiting on one moves to a computer that has room.
+    pub full: std::collections::HashSet<String>,
+    /// How many more agents each computer can start now (card #686), for
+    /// those that said; one with none listed has no limit here.
+    pub free: std::collections::BTreeMap<String, i64>,
 }
 
 /// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
@@ -1658,6 +1666,21 @@ impl Coord {
     pub fn made_here(&self, t: &Task) -> bool {
         self.lock().hands_out(t)
     }
+    /// Why ask t waits on its full owner with no computer that has room
+    /// (card #686); "" when it doesn't.
+    pub fn ask_full_wait(&self, t: &Task) -> String {
+        self.lock().ask_full_wait(t)
+    }
+    /// The computer ask t moves to because its owner is full (card #686),
+    /// if the move isn't held back by how often it moved lately.
+    pub fn full_target(&self, t: &Task) -> Option<String> {
+        self.lock().full_target(t)
+    }
+    /// The computer with room an ask on `side` goes to when its owner
+    /// `owner` is full (card #686); None when every computer is full.
+    pub fn room_home(&self, side: &str, owner: &str) -> Option<String> {
+        self.lock().room_home(side, owner)
+    }
     /// The computer agent work on `side` goes to (card #541).
     pub fn agent_home(&self, side: &str) -> Option<String> {
         self.lock().agent_home(side)
@@ -1703,6 +1726,12 @@ impl Coord {
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {
         self.lock().bind_spawn(id, generation, ("", ""), key)
+    }
+    /// Agent `key`, started for card `id`, began its first turn: it takes
+    /// the card up (card #699). Ok(true) when that was written now; Ok(false)
+    /// when it isn't the card's agent, or the card isn't offered to it.
+    pub fn take_up_started(&self, key: &str, id: &str) -> Result<bool> {
+        self.lock().take_up_started(key, id)
     }
     /// The cards this device hands out that need an agent now and have
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.

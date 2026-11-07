@@ -19,6 +19,7 @@ import {
   AGENT_STARTS_HINT,
   AGENT_STARTS_TITLE,
   AgentStartsControls,
+  WholeNumberField,
 } from "@/components/settings/agent-starts"
 import { NamesThemesSection } from "@/components/settings/names-themes"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
@@ -175,12 +176,6 @@ function SpacesSection({ open }: { open: boolean }) {
   )
 }
 
-// CAP_CHOICES are the caps offered; 0 starts none there. A device's own
-// number is added when it isn't one of them.
-const CAP_CHOICES = [
-  0, 1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64, 100, 200,
-]
-
 // LimitRow is one limit: what it is, what it does, and its control. Every
 // limit on agents is one row here (card #576), so a new one is one more
 // row in LimitsSection's list; "My agents may start agents" (card #575)
@@ -272,18 +267,14 @@ function LimitsSection({
                   </span>
                 }
               >
-                <ChoiceSelect
-                  label={`At most on ${d.name}`}
-                  size="sm"
-                  value={String(d.cap)}
-                  choices={withChoice(CAP_CHOICES, d.cap)
-                    .filter((n) => n <= l.maxCap)
-                    .map((n) => ({
-                      value: String(n),
-                      label: n === 0 ? "None" : `${n} at once`,
-                    }))}
-                  onValueChange={(v) => setCap(d.device, Number(v))}
-                  className="w-36 text-[13px]"
+                {/* A whole number from 0 (starts no more there) to
+                    l.maxCap, saved on Enter or blur (card #703). */}
+                <WholeNumberField
+                  label="At most"
+                  ariaLabel={`At most on ${d.name}`}
+                  value={d.cap}
+                  ceiling={l.maxCap}
+                  onSave={(n) => setCap(d.device, n)}
                 />
               </LimitRow>
             ))}

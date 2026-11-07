@@ -58,5 +58,6 @@ mod spawn_why;
 mod spawn_why_devices;
 mod talk_notify;
 mod talk_replying;
+mod thread_board;
 mod treeclean;
 mod usage;

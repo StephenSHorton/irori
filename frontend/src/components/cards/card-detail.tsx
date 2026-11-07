@@ -80,7 +80,9 @@ import {
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { spawnLine, usageResets } from "@/lib/spawn-line"
 import { agentStatus } from "@/lib/agent-status"
+import { NotAnswering } from "@/lib/agent-counts"
 import { AskedAgain, blockerOutcome } from "@/lib/notifications"
+import { PermissionPrompt } from "@/components/cards/permission-prompt"
 import { EarlierRound, SentBackSigns } from "./done-rounds"
 import { cn } from "@/lib/utils"
 import {
@@ -1981,6 +1983,54 @@ function BlockerItem({
       </button>
     )
 
+  // A spawned agent's permission prompt (card #682): what waits and its
+  // buttons; no answer box or thread, since words don't reach a prompt.
+  if (b.permission)
+    return (
+      <div
+        id={blockerItemId(b.id)}
+        className={cn(
+          "grid scroll-mt-16 gap-2 rounded-xl border p-3",
+          r
+            ? "border-border bg-muted/50 opacity-85"
+            : "border-destructive/30 bg-destructive/5"
+        )}
+      >
+        <Asker who={b.raisedBy} className="-mb-1.5" />
+        <div className="flex flex-wrap items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+          {r && (
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-expanded
+              className="order-last ml-auto font-normal text-muted-foreground"
+              onClick={() => setUnfolded(false)}
+            >
+              Fold
+            </Button>
+          )}
+          <span>
+            {r && (
+              <span className="text-success" aria-label="Resolved: ">
+                ✓{" "}
+              </span>
+            )}
+            <RichLine text={b.question} />
+          </span>
+        </div>
+        <PermissionPrompt cardId={cardId} b={b} />
+        <div className="text-[11.5px] text-muted-foreground">
+          <time
+            dateTime={raised?.toISOString()}
+            title={raised?.toLocaleString()}
+          >
+            {relativeTime(raised, now)}
+          </time>
+          {by && ` · ${by}`}
+        </div>
+      </div>
+    )
+
   return (
     <div
       id={blockerItemId(b.id)}
@@ -2348,7 +2398,12 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                   {stepTitles.length > 1 ? ` +${stepTitles.length - 1}` : ""}
                 </span>
               ) : role === "working" ? (
-                w.assigned ? (
+                w.assigned && w.status === NotAnswering ? (
+                  // Card #699: not a slow agent about to take it up.
+                  <span className="text-warning">isn't answering</span>
+                ) : w.assigned && w.offline ? (
+                  <span className="text-warning">its device is offline</span>
+                ) : w.assigned ? (
                   w.waiting ? (
                     <span
                       className="text-warning"

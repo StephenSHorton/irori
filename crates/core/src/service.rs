@@ -83,7 +83,7 @@ pub mod spawn_pause;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
-mod spawn_waiting;
+pub mod spawn_waiting;
 pub mod spawn_why;
 pub mod sync_out;
 pub use mirror::BoardReviewer;
@@ -510,6 +510,18 @@ impl tools::Backend for ToolsView {
     }
     fn shared_boards(&self) -> Option<&dyn tools::SharedBoards> {
         Some(self)
+    }
+    fn personal_boards(&self) -> Vec<tools::PersonalBoard> {
+        self.0
+            .personal_boards()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| tools::PersonalBoard {
+                board_id: b.board_id,
+                name: b.name,
+                tag: b.tag,
+            })
+            .collect()
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
@@ -2616,6 +2628,23 @@ impl Core {
     pub fn set_spawner(&self, s: Option<spawn::Spawner>) {
         self.s.set_spawner(s);
         self.s.asks_kick.kick();
+    }
+
+    /// The `irori` whose `permission-hook` role each spawned agent's
+    /// settings run on a permission prompt (card #682); `None` (the
+    /// default) starts agents without the hook.
+    pub fn set_permission_hook(&self, exe: Option<std::path::PathBuf>) {
+        self.s.set_permission_hook(exe);
+    }
+
+    /// A spawned agent's permission hook reports its prompt and waits up
+    /// to `wait` for the person's pick on the card (card #682).
+    pub fn permission_wait(
+        &self,
+        ask: &spawn_waiting::PermissionAsk,
+        wait: std::time::Duration,
+    ) -> spawn_waiting::PermissionDecision {
+        self.s.permission_wait(ask, wait)
     }
 
     /// A board's spawned-agent settings (`""`: the private board).

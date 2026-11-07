@@ -8,6 +8,7 @@
 // refuses an answer to something already answered, and the row says so.
 
 import { cardRef } from "@/components/cards/bits"
+import { PermissionPrompt } from "@/components/cards/permission-prompt"
 import { useEffect, useState, type ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -399,6 +400,19 @@ function CardLive({
   if (b) {
     // "Answer…" opens the card to answer there (card #644); a pick is
     // answered here.
+    // A permission prompt is its buttons (card #682).
+    if (blockerOpen(b) && b.permission)
+      return (
+        <>
+          <p className="text-sm break-words">{plainLine(b.question)}</p>
+          <PermissionPrompt
+            cardId={detail.id}
+            b={b}
+            onOpenCard={() => onOpen()}
+            compact
+          />
+        </>
+      )
     if (blockerOpen(b))
       return (
         <BlockerAnswer cardId={detail.id} b={b} onOpen={onOpen} answerOpens />

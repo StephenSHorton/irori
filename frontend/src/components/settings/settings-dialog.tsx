@@ -292,8 +292,8 @@ function PeoplePane({ onOpenBoard }: { onOpenBoard: () => void }) {
           <BoardRowsShape />
         ) : boards.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">
-            No spaces yet. Make one on the Spaces page, then invite people to
-            it.
+            No spaces yet. Make one with New or join a space, in the space
+            picker at the top of the sidebar, then invite people to it.
           </p>
         ) : (
           <ul className="grid gap-1.5" aria-label="People in your spaces">

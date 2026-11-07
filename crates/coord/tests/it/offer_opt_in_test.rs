@@ -143,6 +143,35 @@ fn a_failed_spawn_waits_before_it_is_asked_for_again() {
     assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
 }
 
+/// Card #699: a not-trusted failure is looked at again within a minute,
+/// not ten; the Core writes nothing while the folder is still untrusted.
+#[test]
+fn a_not_trusted_spawn_is_looked_at_again_soon() {
+    let mut e = Env::new();
+    let on = Arc::new(AtomicBool::new(true));
+    let f = on.clone();
+    e.c = e.reopen_with(Options {
+        spawning: Some(Arc::new(move || f.load(Ordering::SeqCst))),
+        ..e.opts()
+    });
+    let t = e.c.create_task(USER, nt("Untrusted repo")).unwrap();
+    let g =
+        e.c.request_spawn("irori", spawn_ask(&t.id))
+            .unwrap()
+            .unwrap();
+    let reason = format!("{NOT_TRUSTED_PREFIX}/repo on dev-a");
+    assert!(
+        e.c.end_spawn("irori", &t.id, g, SPAWN_FAILED, &reason)
+            .unwrap()
+    );
+    assert!(e.c.cards_to_spawn().is_empty(), "not on the next sweep");
+    e.clk.add(secs(30));
+    assert!(e.c.cards_to_spawn().is_empty());
+    e.clk.add(SPAWN_RETRY_UNTRUSTED);
+    assert_eq!(ids(&e.c.cards_to_spawn()), std::slice::from_ref(&t.id));
+    assert!(SPAWN_RETRY_UNTRUSTED < SPAWN_RETRY);
+}
+
 #[test]
 fn a_failed_spawn_is_asked_for_again_once_the_card_changes() {
     let mut e = Env::new();
