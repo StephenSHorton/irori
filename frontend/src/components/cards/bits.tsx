@@ -243,8 +243,9 @@ export function holderText(
       return `${who}${more} · its device is offline`
     case Holding.HoldGone:
       // An agent Irori started ends when its work is done (card #456,
-      // spawned agents §10): finished, not lost.
-      return h.who.spawned
+      // spawned agents §10): finished, not lost. One that ended before it
+      // took the card up died (card #699).
+      return h.who.spawned && !h.who.assigned
         ? `${who}${more} · agent finished`
         : `${who}${more} · gone`
   }
@@ -265,7 +266,10 @@ export function HolderLine({
   returned?: AgentRef | null
   className?: string
 }) {
-  const finished = holder.state === Holding.HoldGone && !!holder.who.spawned
+  const finished =
+    holder.state === Holding.HoldGone &&
+    !!holder.who.spawned &&
+    !holder.who.assigned
   // The live roster's status and when it began, as the hover card and
   // Who's on it read them (cards #317, #489).
   const live = useContext(LiveRoster).get(holder.who.key)

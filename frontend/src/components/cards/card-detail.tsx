@@ -80,6 +80,7 @@ import {
 import { SpawnedActions } from "@/components/cards/spawned-actions"
 import { spawnLine, usageResets } from "@/lib/spawn-line"
 import { agentStatus } from "@/lib/agent-status"
+import { NotAnswering } from "@/lib/agent-counts"
 import { AskedAgain, blockerOutcome } from "@/lib/notifications"
 import { PermissionPrompt } from "@/components/cards/permission-prompt"
 import { EarlierRound, SentBackSigns } from "./done-rounds"
@@ -2397,7 +2398,12 @@ function People({ detail, gone }: { detail: CardDetail; gone: GoneSession[] }) {
                   {stepTitles.length > 1 ? ` +${stepTitles.length - 1}` : ""}
                 </span>
               ) : role === "working" ? (
-                w.assigned ? (
+                w.assigned && w.status === NotAnswering ? (
+                  // Card #699: not a slow agent about to take it up.
+                  <span className="text-warning">isn't answering</span>
+                ) : w.assigned && w.offline ? (
+                  <span className="text-warning">its device is offline</span>
+                ) : w.assigned ? (
                   w.waiting ? (
                     <span
                       className="text-warning"

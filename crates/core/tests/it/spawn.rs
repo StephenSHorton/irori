@@ -1335,3 +1335,215 @@ fn a_hooked_permission_prompt_is_answered_from_the_card() {
         );
     });
 }
+
+/// Card #699: the agent Irori started for a card holds it from its first
+/// turn, not from its first board action. Idle from the start (its prompt
+/// never got in, as #677's did), it stays only offered; once its session
+/// is busy it has taken the card up, as itself, and a reopen keeps that.
+#[test]
+fn a_spawned_agent_takes_its_card_up_at_its_first_turn() {
+    let r = Rig::new();
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let spawned = format!("{me}/{SPAWNED_SESS}");
+    let co = r.core.coord();
+    let sessions = r.claude.join("sessions");
+
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Ship it".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    r.core.set_spawner(Some(spawner(&fake, sessions.clone())));
+    wait_for(60, "the spawned agent bound to the card", || {
+        co.get_task(&t.id)
+            .is_some_and(|t| t.holders.contains(&spawned))
+    });
+
+    // Idle since it started: sweeps leave it offered.
+    for _ in 0..3 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let got = co.get_task(&t.id).unwrap();
+    assert_eq!(got.assigned, vec![spawned.clone()], "{got:?}");
+    assert_eq!(got.state, coord::SUBMITTED);
+
+    // Its first turn begins.
+    let f = sessions.join("900003.json");
+    let mut m: serde_json::Value = serde_json::from_slice(&std::fs::read(&f).unwrap()).unwrap();
+    m["status"] = "busy".into();
+    m["updatedAt"] = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64)
+        .into();
+    std::fs::write(&f, serde_json::to_vec(&m).unwrap()).unwrap();
+    wait_for(60, "the card taken up", || {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        co.get_task(&t.id).is_some_and(|t| t.assigned.is_empty())
+    });
+    let got = co.get_task(&t.id).unwrap();
+    assert_eq!(got.holders, vec![spawned.clone()], "{got:?}");
+    assert_eq!(got.state, coord::WORKING);
+    // Written as the agent itself, once.
+    let claims = r
+        .core
+        .store()
+        .list(&store::Filter {
+            kinds: vec![store::kinds::TASK_CLAIMED.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0].actor, format!("agent:{spawned}"));
+    // More sweeps write nothing more.
+    for _ in 0..3 {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let again = r
+        .core
+        .store()
+        .list(&store::Filter {
+            kinds: vec![store::kinds::TASK_CLAIMED.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(again.len(), 1);
+}
+
+/// Card #699: a start refused as not trusted says so on the card, once,
+/// and is looked at again every minute, not ten. While the folder stays
+/// untrusted those looks write nothing (card #464's rows every sweep);
+/// trusted, its agent starts at the next look.
+#[test]
+fn a_not_trusted_start_says_so_and_starts_soon_after_trust() {
+    use std::sync::atomic::AtomicBool;
+    let skew = Arc::new(AtomicI64::new(0));
+    let sk = skew.clone();
+    let r = Rig::with(move |o| {
+        o.now = Some(Arc::new(move || {
+            let d = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap();
+            gocompat::time::GoTime::unix(
+                d.as_secs() as i64 + sk.load(Ordering::SeqCst),
+                i64::from(d.subsec_nanos()),
+            )
+        }));
+    });
+    let work = tempfile::tempdir().unwrap();
+    let fake = Arc::new(Fake::default());
+    let me = r.core.device_id().to_string();
+    let person = format!("user:{me}");
+    let co = r.core.coord();
+    let spawn_rows = || {
+        r.core
+            .store()
+            .list(&store::Filter {
+                kinds: vec![store::kinds::TASK_SPAWN.into()],
+                ..Default::default()
+            })
+            .unwrap()
+            .len()
+    };
+    r.core
+        .set_spawn_setting(SpawnSetting {
+            on: true,
+            ..SpawnSetting::default()
+        })
+        .unwrap();
+    let t = co
+        .create_task(
+            &person,
+            NewTask {
+                title: "Untrusted folder".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &t.id,
+        Where {
+            who: r.key_a.clone(),
+            cwd: work.path().to_string_lossy().into(),
+            worktree: work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    let trusted = Arc::new(AtomicBool::new(false));
+    let mut sp = spawner(&fake, r.claude.join("sessions"));
+    let tr = trusted.clone();
+    sp.trusted = Arc::new(move |_| tr.load(Ordering::SeqCst));
+    r.core.set_spawner(Some(sp));
+    wait_for(60, "the request failed as not trusted", || {
+        co.get_task(&t.id)
+            .and_then(|t| t.spawn_request().cloned())
+            .is_some_and(|s| {
+                s.op == coord::SPAWN_FAILED && s.reason.starts_with(coord::NOT_TRUSTED_PREFIX)
+            })
+    });
+    let said = || {
+        co.comments(&t.id)
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.by == "irori" && c.text.contains("doesn't trust"))
+            .count()
+    };
+    assert_eq!(said(), 1, "the card says why");
+    let rows = spawn_rows();
+    assert_eq!(rows, 2, "one requested and one failed");
+
+    // Looked at again past a minute, still untrusted: nothing written.
+    for _ in 0..3 {
+        skew.fetch_add(
+            coord::SPAWN_RETRY_UNTRUSTED.as_secs() as i64 + 5,
+            Ordering::SeqCst,
+        );
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(spawn_rows(), rows, "no new task.spawn rows");
+    assert_eq!(said(), 1, "said once");
+    assert!(fake.started.lock().unwrap().is_empty());
+
+    // Trusted (in Claude Code, say): the next look, within a minute, starts it.
+    trusted.store(true, Ordering::SeqCst);
+    skew.fetch_add(
+        coord::SPAWN_RETRY_UNTRUSTED.as_secs() as i64 + 5,
+        Ordering::SeqCst,
+    );
+    wait_for(60, "its agent started", || {
+        r.core.set_spawn_cap(r.core.spawn_cap()).unwrap();
+        !fake.started.lock().unwrap().is_empty()
+    });
+    assert!(
+        coord::SPAWN_RETRY_UNTRUSTED < coord::SPAWN_RETRY,
+        "sooner than other failures"
+    );
+}

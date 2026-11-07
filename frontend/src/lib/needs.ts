@@ -104,7 +104,9 @@ function awayLine(w: CardSummary["working"][number], h: string): string {
     return `${name} isn't answering`
   if (h === Holding.HoldOffline || w.offline)
     return `${name} is on an offline device`
-  return `${name} ${w.spawned ? "finished" : "went away"}`
+  // An agent Irori started that ended before taking the card up died
+  // (card #699): it went away, it didn't finish.
+  return `${name} ${w.spawned && !w.assigned ? "finished" : "went away"}`
 }
 
 // Row is a RowLine and whether nobody took the card (for nobodyTook).
@@ -203,6 +205,14 @@ function row(c: CardSummary, now: number): Row {
     if ((c.subtasks ?? 0) > 0)
       return { state: "waiting", line: "Waiting on its subtasks" }
     if (c.working.length) {
+      // Card #699: an offered agent that is gone, not answering or offline
+      // says so; it isn't a slow one about to take the card up.
+      if (c.working.every(away))
+        return {
+          state: "stuck",
+          line: awayLine(c.working[0], c.holder.state),
+          nobody: true,
+        }
       const w = workLabel(c)
       return {
         state: "stuck",

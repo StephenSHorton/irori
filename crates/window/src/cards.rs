@@ -1970,18 +1970,21 @@ pub(crate) fn holder_line(working: &[AgentRef]) -> CardHolder {
         .position(|r| holds(r) && !r.assigned)
         .unwrap_or(first);
     let w = working[i].clone();
+    // An agent that is gone, not answering or offline says so before
+    // "Offered" or "Not picked up" (card #699): a dead agent never takes
+    // the card up, and reading as a slow one hid #677's for 16 minutes.
     let state = if w.status == "person" {
         Holding::Person
-    } else if w.waiting {
-        Holding::Waiting
-    } else if w.assigned {
-        Holding::Assigned
     } else if w.status == "gone" {
         Holding::Gone
     } else if w.status == coord::roster::NOT_ANSWERING {
         Holding::Silent
     } else if w.offline {
         Holding::Offline
+    } else if w.waiting {
+        Holding::Waiting
+    } else if w.assigned {
+        Holding::Assigned
     } else if w.status == "idle" {
         Holding::Idle
     } else {
@@ -3463,6 +3466,29 @@ mod tests {
         assert_eq!(holder_line(&[r("gone", false)]).state, Holding::Gone);
         assert_eq!(holder_line(&[r("person", false)]).state, Holding::Person);
         assert_eq!(holder_line(&[r("busy", false)]).state, Holding::Active);
+        // Card #699: an offered agent that is gone, not answering or
+        // offline reads as that, not as Offered or Not picked up.
+        assert_eq!(holder_line(&[r("idle", true)]).state, Holding::Assigned);
+        assert_eq!(holder_line(&[r("gone", true)]).state, Holding::Gone);
+        assert_eq!(
+            holder_line(&[r(coord::roster::NOT_ANSWERING, true)]).state,
+            Holding::Silent
+        );
+        let off = AgentRef {
+            offline: true,
+            ..r("idle", true)
+        };
+        assert_eq!(holder_line(&[off]).state, Holding::Offline);
+        let unsent_gone = AgentRef {
+            waiting: true,
+            ..r("gone", true)
+        };
+        assert_eq!(holder_line(&[unsent_gone]).state, Holding::Gone);
+        let unsent = AgentRef {
+            waiting: true,
+            ..r("idle", true)
+        };
+        assert_eq!(holder_line(&[unsent]).state, Holding::Waiting);
     }
 
     /// Card #480: a failed row from before #480 names the key and the

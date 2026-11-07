@@ -49,9 +49,9 @@ pub use offers::{
 pub use parts::PART_QUESTION;
 pub use spawn::{
     CRASHED_QUESTION, CRASHED_START, GIVEN_NOT_NOW, GIVEN_QUESTION, GIVEN_START, GONE_USAGE_LIMIT,
-    MAX_SPAWN_CRASHES, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED, SPAWN_GRACE,
-    SPAWN_REQUESTED, SPAWN_RETRY, Spawn, SpawnAsk, SpawnHold, Spawned, USAGE_LIMIT, crash_question,
-    is_crash_question, usage_limited,
+    MAX_SPAWN_CRASHES, NOT_TRUSTED_PREFIX, PERMISSION_MODES, SPAWN_CANCELED, SPAWN_FAILED,
+    SPAWN_GRACE, SPAWN_REQUESTED, SPAWN_RETRY, SPAWN_RETRY_UNTRUSTED, Spawn, SpawnAsk, SpawnHold,
+    Spawned, USAGE_LIMIT, crash_question, is_crash_question, retry_after, usage_limited,
 };
 mod resource;
 mod review;
@@ -1726,6 +1726,12 @@ impl Coord {
     /// card assigned to it.
     pub fn bind_spawn(&self, id: &str, generation: i64, key: &str) -> Result<bool> {
         self.lock().bind_spawn(id, generation, ("", ""), key)
+    }
+    /// Agent `key`, started for card `id`, began its first turn: it takes
+    /// the card up (card #699). Ok(true) when that was written now; Ok(false)
+    /// when it isn't the card's agent, or the card isn't offered to it.
+    pub fn take_up_started(&self, key: &str, id: &str) -> Result<bool> {
+        self.lock().take_up_started(key, id)
     }
     /// The cards this device hands out that need an agent now and have
     /// none starting (or one starting past [`SPAWN_GRACE`]), oldest first.

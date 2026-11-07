@@ -190,7 +190,7 @@ impl Spawner {
 pub const RESTARTED: &str = "The agent Irori started for this card stopped with the restart. Irori starts a fresh one from Where and Left off.";
 
 /// How a [`SpawnRefusal::NotTrusted`] reason starts (the window reads it).
-pub const NOT_TRUSTED_PREFIX: &str = "not trusted: ";
+pub use coord::NOT_TRUSTED_PREFIX;
 
 /// Why a card got no agent; the request's failed row carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1616,6 +1616,7 @@ impl Services {
         load_spawn(rows, &self.spawn);
         self.clean_after_start();
         self.bind_spawns();
+        self.take_up_started();
         // The person's End and trust requests from another of their
         // devices (card #455): acted on even while paused.
         self.serve_end_requests();
@@ -2177,6 +2178,9 @@ impl Services {
             self.resolve_no_copy(t, &folder, (sp.trusted)(Path::new(&folder)));
         }
         if !(sp.trusted)(Path::new(&folder)) {
+            if private {
+                self.say_not_trusted(t, &folder);
+            }
             return refuse(SpawnRefusal::NotTrusted {
                 repo_key: repo_key.clone(),
                 folder,
@@ -2711,6 +2715,54 @@ impl Services {
             };
             if let Err(e) = self.coord.bind_spawn(&t.id, s.generation, &a.key) {
                 logf(format_args!("spawn {}: bind {}: {e}", t.short_ref(), a.key));
+            }
+        }
+    }
+
+    /// A start refused as not trusted says so on the card (card #699): the
+    /// failed request alone showed only while it was the card's newest and
+    /// no question outranked it, so #677's went unseen. Once per refusal in
+    /// a row: not again while Irori's last line on the card is this one.
+    fn say_not_trusted(&self, t: &Task, folder: &str) {
+        let line = not_trusted_line(&self.this_device_name(), folder);
+        let said = self
+            .coord
+            .comments(&t.id)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .find(|c| c.by == SWEEPER)
+            .is_some_and(|c| c.text == line);
+        if said {
+            return;
+        }
+        if let Err(e) = self.coord.add_comment(SWEEPER, &t.id, &line, false) {
+            logf(format_args!(
+                "spawn {}: not trusted line: {e}",
+                t.short_ref()
+            ));
+        }
+    }
+
+    /// A spawned agent that began its first turn takes its card up (card
+    /// #699): Irori started it for that card, so the card reads as held
+    /// while it works, not "Offered, not taken up yet" until its first
+    /// board action. Busy, or stopped on a prompt (which only a turn
+    /// reaches), counts; an agent idle from the start (its prompt never got
+    /// in, card #677) stays offered, and goes as not answering or gone.
+    /// The row is the agent's own, so only this device writes it.
+    fn take_up_started(&self) {
+        for a in self.presence.snapshot() {
+            if !began_a_turn(&a.status)
+                || irori_identity::owner::device_of(&a.key) != self.device.id
+            {
+                continue;
+            }
+            let Some((co, t, k)) = self.spawn_card_of(&a.key) else {
+                continue;
+            };
+            if let Err(e) = co.take_up_started(&k, &t.id) {
+                logf(format_args!("spawn {}: take up {k}: {e}", t.short_ref()));
             }
         }
     }
@@ -3279,6 +3331,20 @@ impl Services {
             )
             .map_err(|e| e.to_string())
     }
+}
+
+/// What a card says when its agent couldn't start because Claude Code on
+/// `device` doesn't trust `folder` (card #699).
+pub fn not_trusted_line(device: &str, folder: &str) -> String {
+    format!(
+        "Irori couldn't start an agent for this card on {device}: Claude Code there doesn't trust {folder} yet. Use Trust and start on the card, or run `claude` in that folder once and accept its prompt; Irori looks again every minute."
+    )
+}
+
+/// Whether a session's status says it has run a turn (card #699): busy
+/// now, or waiting on a prompt that a turn raised.
+pub(crate) fn began_a_turn(status: &str) -> bool {
+    status == "busy" || status == "waiting"
 }
 
 #[cfg(test)]

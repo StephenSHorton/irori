@@ -37,6 +37,25 @@ pub const SPAWN_GRACE: Duration = Duration::from_secs(180);
 /// refused) waits before Irori asks again, unless the card changes first
 /// (card #464): every sweep retrying wrote two replicated rows each 5s.
 pub const SPAWN_RETRY: Duration = Duration::from_secs(600);
+/// How long a card whose spawn failed as not trusted waits before Irori
+/// looks again (card #699): the person trusting the folder anywhere (in
+/// Claude Code, or Settings) starts its agent within this. Looking costs
+/// no row: until the folder is trusted the Core's gate writes nothing
+/// (card #467), so #464's rows every sweep can't come back.
+pub const SPAWN_RETRY_UNTRUSTED: Duration = Duration::from_secs(60);
+/// A spawn failure's reason when the device's Claude Code doesn't trust
+/// the card's folder: `not trusted: <folder> on <device>`.
+pub const NOT_TRUSTED_PREFIX: &str = "not trusted: ";
+
+/// How long failed request `s` waits before the next (card #699): a
+/// not-trusted failure is looked at again soon, as that costs no row.
+pub fn retry_after(s: &Spawn) -> Duration {
+    if s.reason.starts_with(NOT_TRUSTED_PREFIX) {
+        SPAWN_RETRY_UNTRUSTED
+    } else {
+        SPAWN_RETRY
+    }
+}
 
 /// Spawned agents of one card that may crash in a row before its spawning
 /// stops and the person is asked (§2 "Crash", card #447).
@@ -693,6 +712,40 @@ impl Fold {
         Ok(true)
     }
 
+    /// Agent `key`, started for card `id`, began its first turn (card #699):
+    /// it takes the card up as itself, so the card stops reading "Offered,
+    /// not taken up yet" while it works. Only the card's own agent (not a
+    /// step's or subtask's), only while the card is still offered to it,
+    /// and not on an ask (its take lock hands that over). Writing only once
+    /// the assignment is folded keeps log order: the assigned row can never
+    /// land after the claim and offer the card again. Ok(true) when the
+    /// claim was written.
+    pub(crate) fn take_up_started(&mut self, key: &str, id: &str) -> Result<bool> {
+        let Some(m) = self.spawned_for(key) else {
+            return Ok(false);
+        };
+        if m.task_id != id || !m.step.is_empty() || !m.subtask.is_empty() {
+            return Ok(false);
+        }
+        let Some(t) = self.tasks.get(id) else {
+            return Ok(false);
+        };
+        if is_terminal(&t.state) || t.open_ask().is_some() || !contains(&t.assigned, key) {
+            return Ok(false);
+        }
+        let now = self.stamp();
+        self.write(
+            key,
+            kinds::TASK_CLAIMED,
+            &TaskClaimedRow {
+                task_id: id.into(),
+                by: key.into(),
+                at: now,
+            },
+        )?;
+        Ok(true)
+    }
+
     /// Marks agent `key` as started by Irori for card `task_id` of another
     /// log (a shared board's, card #455), in this one: the person's own
     /// hand-out never offers it a card here, and their devices know it as
@@ -1262,7 +1315,7 @@ impl Fold {
                     || s.device != self.dev
                     || usage_limited(s)
                     || self.spawn_now.contains(&t.id)
-                    || gotime::at_least(now, &s.at, SPAWN_RETRY)
+                    || gotime::at_least(now, &s.at, retry_after(s))
                     || gotime::before(&s.at, &t.updated_at))
         })
     }
