@@ -102,6 +102,40 @@ fn at_least(now: &GoTime, at: &GoTime, d: Duration) -> bool {
     i128::from(now.unix_nano()) - i128::from(at.unix_nano()) >= d.as_nanos() as i128
 }
 
+/// Whole seconds from `at` to `now`, for the spawn path's log lines.
+pub(crate) fn secs_since(now: &GoTime, at: &GoTime) -> i64 {
+    ((i128::from(now.unix_nano()) - i128::from(at.unix_nano())) / 1_000_000_000) as i64
+}
+
+/// The spawn path in irori.log (card #739): one line when Irori asks for a
+/// card's agent, and before it one for the request it replaces when that
+/// one's agent never showed. With [`Services::start_here`]'s line (started
+/// or refused, and how long `claude --bg` took) and the bind's (how long
+/// until presence listed it), a start that hangs anywhere can be followed.
+/// Lines are written only as a request moves, never per sweep (card #464).
+pub(crate) fn log_asked(
+    t: &Task,
+    prev: Option<&coord::Spawn>,
+    g: i64,
+    name: &str,
+    on: &str,
+    now: &GoTime,
+) {
+    if let Some(p) = prev.filter(|p| p.pending()) {
+        logf(format_args!(
+            "spawn {} gen {}: {} never showed ({}s after it was asked); asking again",
+            t.short_ref(),
+            p.generation,
+            p.name,
+            secs_since(now, &p.at)
+        ));
+    }
+    logf(format_args!(
+        "spawn {} gen {g}: asked for {name} on {on}",
+        t.short_ref()
+    ));
+}
+
 /// What the Core asks the spawner to start (part 1 runs it).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SpawnReq {
@@ -2081,6 +2115,7 @@ impl Services {
         else {
             return Ok(false);
         };
+        log_asked(t, t.spawn_request(), g, &name, "this device", &(self.now)());
         self.settle_ask(&t.id);
         self.note_tried(&t.id, &me);
         self.start_here(sp, t, g, &name, Some(folder), asked_now)
@@ -2138,15 +2173,16 @@ impl Services {
         // The one way in to the spawner: nothing starts on a device that
         // can't run agents, and it's said before anything about trust.
         if !sp.is_ready() {
+            let why = SpawnRefusal::CantRun {
+                device: self.this_device_name(),
+            }
+            .to_string();
+            logf(format_args!(
+                "spawn {} gen {g}: couldn't start {name}: {why}",
+                t.short_ref()
+            ));
             log.co
-                .fail_own_spawn(
-                    &t.id,
-                    g,
-                    &SpawnRefusal::CantRun {
-                        device: self.this_device_name(),
-                    }
-                    .to_string(),
-                )
+                .fail_own_spawn(&t.id, g, &why)
                 .map_err(|e| e.to_string())?;
             return Ok(false);
         }
@@ -2251,7 +2287,13 @@ impl Services {
             log.board_id.as_str()
         };
         let perms = spawn_permissions(&setting, about, &repo_key, &brief);
+        let logged_name = name.clone();
         let refuse = |r: SpawnRefusal| -> Result<bool, String> {
+            // Card #739: every way a request ends here is in the log.
+            logf(format_args!(
+                "spawn {} gen {g}: couldn't start {logged_name}: {r}",
+                t.short_ref()
+            ));
             log.co
                 .fail_own_spawn(&t.id, g, &r.to_string())
                 .map_err(|e| e.to_string())?;
@@ -2338,7 +2380,25 @@ impl Services {
             brief_path,
         };
         let started_name = req.name.clone();
-        match (sp.spawn)(&req) {
+        let began = std::time::Instant::now();
+        let got = (sp.spawn)(&req);
+        // Card #739: what `claude --bg` did and how long it took, so a
+        // start that never shows can be told from one Irori never made.
+        // A refusal is logged where it ends the request.
+        let took = began.elapsed().as_secs_f64();
+        match &got {
+            Ok(s) => logf(format_args!(
+                "spawn {} gen {g}: started {started_name} ({}) in {} after {took:.1}s; waiting for it to show",
+                t.short_ref(),
+                s.prefix,
+                req.folder
+            )),
+            Err(_) => logf(format_args!(
+                "spawn {} gen {g}: claude --bg failed after {took:.1}s",
+                t.short_ref()
+            )),
+        }
+        match got {
             Ok(_) => {
                 // Only the private board's: a board card keeps one agent
                 // by its own log's generation and binding.
@@ -2358,6 +2418,11 @@ impl Services {
             Err(e) => match super::spawn_limits::limit_in_text(&e, &(self.now)()) {
                 Some(l) => {
                     let until = self.hold_usage(&l);
+                    logf(format_args!(
+                        "spawn {} gen {g}: held by a usage limit until {}",
+                        t.short_ref(),
+                        until.format_rfc3339()
+                    ));
                     // His "Start an agent" still stands after the reset.
                     if asked {
                         log.co.spawn_now(&t.id);
@@ -2813,8 +2878,19 @@ impl Services {
             }) else {
                 continue;
             };
-            if let Err(e) = self.coord.bind_spawn(&t.id, s.generation, &a.key) {
-                logf(format_args!("spawn {}: bind {}: {e}", t.short_ref(), a.key));
+            match self.coord.bind_spawn(&t.id, s.generation, &a.key) {
+                // Card #739: how long it took to show, the gap that hid
+                // #732's second agent for two and a half minutes.
+                Ok(true) => logf(format_args!(
+                    "spawn {} gen {}: {} showed {}s after it was asked; bound to {}",
+                    t.short_ref(),
+                    s.generation,
+                    s.name,
+                    secs_since(&(self.now)(), &s.at),
+                    a.key
+                )),
+                Ok(false) => {}
+                Err(e) => logf(format_args!("spawn {}: bind {}: {e}", t.short_ref(), a.key)),
             }
         }
     }

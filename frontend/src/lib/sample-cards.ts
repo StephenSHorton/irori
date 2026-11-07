@@ -956,6 +956,43 @@ export function sampleCards(now: Date): CardDetail[] {
         outcome: null,
       }),
     }),
+    // Card #739: nobody took it and Irori starts an agent for it; the
+    // ask line and the comment say so instead of warning.
+    card({
+      id: "sample-ask-3",
+      short: "15",
+      title: "Are we doing equivalent Windows shortcuts?",
+      goal: "Are we doing equivalent Windows shortcuts?",
+      state: TaskState.Submitted,
+      working: [],
+      updatedAt: at(1),
+      starting: "Macbook Pro (this one)",
+      thread: [
+        CardThreadItem({
+          id: "sample-ask-3-post",
+          kind: "event",
+          at: at(1),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-ask-3-c1",
+          kind: "comment",
+          at: at(1),
+          who: sampleYou,
+          text: "Ctrl in place of Cmd, and Alt+Left/Right for Back/Forward?",
+          unheard: true,
+        }),
+      ],
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "Macbook Pro (this one)",
+        wake: true,
+        taker: null,
+        outcome: null,
+      }),
+    }),
     card({
       id: "sample-ask-2",
       short: "15",

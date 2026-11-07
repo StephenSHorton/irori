@@ -103,16 +103,24 @@ export type ThreadLabel = {
 // answer or reply on a blocker in the card's own thread (its item is no
 // longer kept) says which item; inBlocker leaves that off, as the entry
 // already sits under its item.
+//
+// starting: Irori is starting the card's agent (card #739), so an unheard
+// comment is about to be heard: it says so quietly instead of warning.
 export function threadLabel(
   item: CardThreadItem,
-  inBlocker = false
+  inBlocker = false,
+  starting = false
 ): ThreadLabel {
   const badges: ThreadBadge[] = []
   if (item.blockerId && item.kind !== ThreadKind.Event && !inBlocker)
     badges.push({ label: `on ${blockerName(item.blockerGist)}`, tone: "slate" })
   if (item.gone) badges.push({ label: "recipient gone", tone: "warning" })
   if (item.unheard)
-    badges.push({ label: "nobody has heard this yet", tone: "warning" })
+    badges.push(
+      starting
+        ? { label: "an agent is starting to answer", tone: "slate" }
+        : { label: "nobody has heard this yet", tone: "warning" }
+    )
   if (item.held)
     badges.push({
       label: item.dismissed ? "held · dismissed" : "held",
