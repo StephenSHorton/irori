@@ -257,13 +257,14 @@ pub fn on_event(s: &mut State, ev: &Event) {
     if let Some(Dialog::NewCard { .. }) = &s.dialog {
         new_card::on_event(s, ev);
     }
+    share::watch(s);
 }
 
 /// Moves the working line's word on (card #317) while a card is open, and
 /// notices New card opening.
 pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
     use std::time::{Duration, Instant};
-    let opened = new_card::watch(s);
+    let opened = new_card::watch(s) | share::watch(s);
     if s.nav.card.is_none() || s.headless || !s.card.working_line.get() {
         return opened;
     }
@@ -296,6 +297,9 @@ pub fn scene(s: &mut State) {
             return;
         }
         "share" => {
+            // The spaces list loads after start: wait for it, as the
+            // board scenes do, so the dialog has a space to preview.
+            crate::spaces::wait_for_spaces(s);
             if let Some(c) = s
                 .data
                 .cards
