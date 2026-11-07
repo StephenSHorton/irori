@@ -199,6 +199,8 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         }
         page = page.child(bl);
     }
+    // P10: the card's terminals, above the thread (card-detail.tsx).
+    page = page.child(crate::term::section(s, f, &c.id));
     if !d.thread.is_empty() {
         let mut th = col()
             .key("thread")

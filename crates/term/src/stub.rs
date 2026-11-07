@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{NOT_HERE, OpenSpec, Scope, TermId, TermInfo, Viewer};
+use crate::{Link, Mouse, NOT_HERE, OpenSpec, Scope, SelectKind, TermId, TermInfo, Viewer};
 
 #[derive(Default)]
 pub struct Terms;
@@ -47,6 +47,37 @@ impl Terms {
         Ok(())
     }
     pub fn screen_text(&self, _id: TermId) -> Result<String, String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn select_start(
+        &self,
+        _id: TermId,
+        _col: u16,
+        _row: u16,
+        _right: bool,
+        _kind: SelectKind,
+    ) -> Result<(), String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn select_extend(
+        &self,
+        _id: TermId,
+        _col: u16,
+        _row: u16,
+        _right: bool,
+    ) -> Result<(), String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn select_clear(&self, _id: TermId) -> Result<(), String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn selection_text(&self, _id: TermId) -> Result<Option<String>, String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn link_at(&self, _id: TermId, _col: u16, _row: u16) -> Result<Option<Link>, String> {
+        Err(NOT_HERE.into())
+    }
+    pub fn mouse(&self, _id: TermId, _m: Mouse) -> Result<bool, String> {
         Err(NOT_HERE.into())
     }
     pub fn close(&self, _id: TermId) -> Result<(), String> {
