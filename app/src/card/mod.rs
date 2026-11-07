@@ -410,9 +410,79 @@ fn demo_blockers(s: &mut State) {
         }),
         ..CardBlocker::default()
     };
+    // An answered question: "Add to your answer" and "Mark resolved".
+    let answered = CardBlocker {
+        id: "demo-b3".into(),
+        question: "Keep the debug keystore in the repo?".into(),
+        raised_by: oak.clone(),
+        state: "answered".into(),
+        options: vec![opt("No, generate it in the script", "", true)],
+        ..CardBlocker::default()
+    };
+    // Waits on other work: an open card (with Stop waiting), and a gone
+    // agent's wait (Hand to an agent).
+    let other = s.data.cards.iter().find(|c| c.id != d.summary.id).map(|c| (c.id.clone(), c.short.clone(), c.title.clone()));
+    let mut wait = CardBlocker {
+        id: "demo-w1".into(),
+        question: "Wait for the keyboard work".into(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        waits_on: Some(Default::default()),
+        ..CardBlocker::default()
+    };
+    if let (Some(w), Some((id, short, title))) = (wait.waits_on.as_mut(), other) {
+        w.kind = "task".into();
+        w.task_id = id;
+        w.label = format!("#{short}");
+        w.title = title;
+    }
+    let mut gone_wait = CardBlocker {
+        id: "demo-w2".into(),
+        question: String::new(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        waits_on: Some(Default::default()),
+        gone_agent: Some(AgentRef { status: "gone".into(), live: false, ..oak.clone() }),
+        ..CardBlocker::default()
+    };
+    if let Some(w) = gone_wait.waits_on.as_mut() {
+        w.kind = "agent".into();
+        w.label = "oak".into();
+    }
+    d.blockers.insert(0, gone_wait);
+    d.blockers.insert(0, wait);
+    d.blockers.insert(0, answered);
     d.blockers.insert(0, gone);
     d.blockers.insert(0, first);
-    d.summary.open_blockers += 2;
+    d.summary.open_blockers += 3;
+    // Who's on it: oak working on a step, ash watching and waiting.
+    let mut working = AgentRef { status: "working".into(), steps: vec!["Sign the APK".into()], ..oak.clone() };
+    working.key = "demo/oak-live".into();
+    d.summary.working.push(working);
+    let ash = AgentRef {
+        key: "demo/ash".into(),
+        name: "ash".into(),
+        status: "idle".into(),
+        live: true,
+        where_: "Desktop Computer".into(),
+        ..AgentRef::default()
+    };
+    d.summary.watching.push(ash.clone());
+    d.waits.push(irori_window::cards::CardWait {
+        id: "demo-wait".into(),
+        who: ash.clone(),
+        text: "until done".into(),
+        on_this: true,
+        ..Default::default()
+    });
+    d.reviews.push(irori_window::cards::CardReview {
+        reviewer: ash,
+        asked_by: oak.clone(),
+        state: "changes".into(),
+        pr: "rune#1".into(),
+        text: "The keystore path is hard-coded; read it from the env.".into(),
+        ..Default::default()
+    });
     assign_slots(s);
 }
 

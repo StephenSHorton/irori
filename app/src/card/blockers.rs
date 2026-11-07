@@ -562,7 +562,9 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     if !by.is_empty() {
         meta.push_str(&format!(" · {by}"));
     }
-    item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
+    if !meta.is_empty() {
+        item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
+    }
     if let Some(sb) = done_rounds::sent_back_signs(f, &format!("card/b/{}/signs", b.id), b) {
         item = item.child(sb);
     }
@@ -909,6 +911,17 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
     let mut what = row().w_full().gap(4.0).min_w(0.0).items_start().child(text("Waiting on").font(ts(13.0, 400.0)).color(k.c.text_muted));
     if !w.task_id.is_empty() {
         what = what.child(super::page::card_link(f, &format!("card/w/{}/card", b.id), &w.task_id, &w.label, &w.title));
+        if gone {
+            what = what.child(text("(gone)").font(ts(13.0, 500.0)).color(k.c.warning.fg));
+        }
+    } else if gone {
+        // The name and "(gone)" read as one line, as React's inline spans.
+        let words = format!("{label} (gone)");
+        let spans = vec![
+            rune::Span::new(0, label.len()).color(k.c.text_base),
+            rune::Span::new(label.len() + 1, words.len()).color(k.c.warning.fg).weight(500.0),
+        ];
+        what = what.child(rune::rich(words, spans).font(ts(13.0, 400.0)).color(k.c.text_muted).shrink().min_w(0.0).wrap());
     } else {
         what = what.child(
             tt::rich_line(
@@ -924,9 +937,6 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
             .grow(1.0)
             .min_w(0.0),
         );
-    }
-    if gone {
-        what = what.child(text("(gone)").font(ts(13.0, 500.0)).color(k.c.warning.fg));
     }
     let mut left = col().grow(1.0).min_w(0.0).gap(2.0).child(what);
     if !b.question.is_empty() {
