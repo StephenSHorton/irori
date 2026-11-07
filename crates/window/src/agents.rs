@@ -84,6 +84,23 @@ pub struct AgentStartsView {
     pub ceiling: u32,
 }
 
+/// agents:paused: Pause agents was turned on or off here (card #665).
+pub const EVENT_AGENTS_PAUSED: &str = "agents:paused";
+
+/// Pause agents (card #665): this device starts or restarts no agent while
+/// it is on. Each device has its own; the person's agents may set it too.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentsPauseView {
+    pub on: bool,
+    /// When it went on, in ms; 0 when off.
+    #[specta(type = f64)]
+    pub since: i64,
+    /// Who set it last, for people: "the person on <device>" or an agent's
+    /// name; empty when never set.
+    pub by: String,
+}
+
 /// The idle limits offered, in minutes; 30 is the default.
 pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
@@ -368,6 +385,24 @@ impl Window {
     pub fn agents_starts_set(&self, on: bool, max: u32) -> Result<AgentStartsView, String> {
         self.core.set_agent_starts(on, i64::from(max))?;
         Ok(self.agents_starts())
+    }
+
+    /// Pause agents, as the top nav shows it (card #665).
+    pub fn agents_pause(&self) -> AgentsPauseView {
+        let p = self.core.agents_pause();
+        AgentsPauseView {
+            on: p.on,
+            since: if p.on { p.since.unix_milli_value() } else { 0 },
+            by: self.core.agents_pause_by(&p.by),
+        }
+    }
+
+    /// The person turns Pause agents on or off for this device.
+    pub fn agents_pause_set(&self, on: bool) -> Result<AgentsPauseView, String> {
+        self.core.set_agents_paused(on)?;
+        let v = self.agents_pause();
+        self.emit(EVENT_AGENTS_PAUSED, &v);
+        Ok(v)
     }
 
     /// Settings › Agents' caps, today's count and cost, and any usage-limit

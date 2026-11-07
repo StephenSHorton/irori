@@ -795,3 +795,97 @@ fn an_answer_to_act_on_keeps_an_agent_waiting_on_another_card() {
     std::thread::sleep(Duration::from_millis(2000));
     assert!(!ended(&s, 1), "ended with his answer to act on");
 }
+
+/// Calls tool `name` as the rig's agent A.
+fn tool_as_a(s: &Setup, name: &str, args: serde_json::Value) -> String {
+    let c = tools::Caller {
+        sender: inbox::Sender::new(&s.r.key_a, "alpha", "claude"),
+        path: inbox::path::MOD.into(),
+    };
+    s.r.core
+        .tools()
+        .call(&c, name, &serde_json::to_vec(&args).unwrap())
+        .unwrap()
+}
+
+/// Card #665: with Pause agents on, the person's End starts no fresh agent
+/// and a new card starts none; turning it off (with no other kick) starts
+/// both, the older card first.
+#[test]
+fn pause_agents_holds_the_fresh_agent_after_end_and_new_cards_until_it_lifts() {
+    let s = bound();
+    let co = s.r.core.coord();
+    let p = s.r.core.set_agents_paused(true).unwrap();
+    assert!(p.on && !p.since.is_zero(), "{p:?}");
+    assert_eq!(p.by, s.person);
+    // End: the hand-off wait passes, the agent goes and leaves its card.
+    s.r.core.end_spawned(&s.first()).unwrap();
+    s.skew.fetch_add(
+        irori_core::spawn::HANDOFF_WAIT.as_secs() as i64 + 10,
+        Ordering::SeqCst,
+    );
+    wait_for(60, "the agent ended", || ended(&s, 1));
+    s.skew.fetch_add(40, Ordering::SeqCst);
+    wait_for(90, "the agent off its card", || {
+        co.get_task(&s.t.id).is_some_and(|t| t.holders.is_empty())
+    });
+    let other = co
+        .create_task(
+            &s.person,
+            NewTask {
+                title: "Another".into(),
+                objective: "more".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    co.set_where(
+        &other.id,
+        Where {
+            who: s.r.key_a.clone(),
+            cwd: s._work.path().to_string_lossy().into(),
+            worktree: s._work.path().to_string_lossy().into(),
+            ..Where::default()
+        },
+    )
+    .unwrap();
+    s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+    std::thread::sleep(Duration::from_millis(2000));
+    assert_eq!(
+        s.fake.started.lock().unwrap().len(),
+        1,
+        "nothing starts while agents are paused"
+    );
+    let why = s.r.core.why_no_agent(&other.id, true).unwrap().to_string();
+    assert!(why.contains("Pause agents is on"), "{why}");
+    // Off, with nothing else kicking the sweep.
+    let p = s.r.core.set_agents_paused(false).unwrap();
+    assert!(!p.on);
+    wait_for(60, "both cards started once Pause agents lifted", || {
+        s.fake.started.lock().unwrap().len() == 3
+    });
+    let started = s.fake.started.lock().unwrap().clone();
+    assert_eq!(started[1].task_id, s.t.id, "the older card first");
+    assert_eq!(started[2].task_id, other.id);
+}
+
+/// Card #665: an agent pauses and unpauses with agents_pause, and reads it.
+#[test]
+fn an_agent_pauses_and_unpauses_agent_starts() {
+    let s = bound();
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
+    assert!(said.contains("Pause agents is off"), "{said}");
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": true }));
+    assert!(said.contains("Pause agents is on"), "{said}");
+    let p = s.r.core.agents_pause();
+    assert!(p.on);
+    assert_eq!(p.by, s.r.key_a, "the row names the agent");
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
+    assert!(
+        said.contains("Pause agents is on for") && said.contains("by alpha"),
+        "{said}"
+    );
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
+    assert!(said.contains("Pause agents is off"), "{said}");
+    assert!(!s.r.core.agents_pause().on);
+}

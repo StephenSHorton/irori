@@ -11,6 +11,7 @@ const MAX_TITLE: usize = 80;
 const START_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str)];
 const LIST_ARGS: &[(&str, Ty)] = &[];
 const END_ARGS: &[(&str, Ty)] = &[("agent", Ty::Str), ("give_to", Ty::Str)];
+const PAUSE_ARGS: &[(&str, Ty)] = &[("on", Ty::OptBool)];
 
 /// The person's limit, one line.
 fn limit_line(s: &Inner) -> String {
@@ -118,11 +119,49 @@ pub(crate) fn agent_end(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     let r = s.task(&card).map_or(card.clone(), |t| t.short_ref());
     if to.is_empty() {
         return format!(
-            "Ending it: it writes its hand-off, then goes. If {r} is still open, Irori starts a fresh agent for it from Left off.\n"
+            "Ending it: it writes its hand-off, then goes. If {r} is still open, Irori starts a fresh agent for it from Left off{}.\n",
+            if s.b.agents_paused(&c.sender.key).is_some_and(|p| p.on) {
+                " once Pause agents is off on your device, or on another device that can run it"
+            } else {
+                ""
+            }
         );
     }
     // A mark never moves to another card, so reassigning hands the card on.
     let args = serde_json::json!({ "task_id": card, "to": to }).to_string();
     let out = board::board_assign(s, c, args.as_bytes());
     format!("Ending it: it writes its hand-off, then goes.\n{out}")
+}
+
+/// agents_pause (card #665): Pause agents on or off for the caller's own
+/// device, or (no `on`) what it is now.
+pub(crate) fn agents_pause(s: &Inner, c: &Caller, raw: &[u8]) -> String {
+    let a = match decode(raw, PAUSE_ARGS) {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    if let Some(on) = a.opt_bool("on") {
+        return match s.b.agents_pause(&c.sender.key, on) {
+            Ok(said) => format!("{said}\n"),
+            Err(why) => err_text(&why),
+        };
+    }
+    let Some(p) = s.b.agents_paused(&c.sender.key) else {
+        return err_text("Pause agents isn't kept here.");
+    };
+    let dev = if p.device.is_empty() {
+        "your device".to_string()
+    } else {
+        p.device
+    };
+    if p.on {
+        format!(
+            "Pause agents is on for {dev} (since {}, by {}): Irori starts no agent there. Give on = false to turn it off.\n",
+            p.since, p.by
+        )
+    } else {
+        format!(
+            "Pause agents is off for {dev}: Irori starts agents there as usual. Give on = true to pause.\n"
+        )
+    }
 }

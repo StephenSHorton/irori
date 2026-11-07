@@ -957,6 +957,40 @@ fn a_device_held_on_a_usage_limit_is_not_asked() {
     t2.close();
 }
 
+/// Pause agents is each device's own (card #665, Stephen's pick on b2):
+/// the Mac paused is never asked to start the PC's card, and the card
+/// starts there once the Mac turns it off.
+#[test]
+fn a_device_with_agents_paused_is_not_asked_until_it_unpauses() {
+    let t2 = Two::new();
+    let b_id = t2.b_id();
+    t2.spawner_b();
+    t2.spawner_a();
+    t2.a_sees_b_host(true);
+    t2.b.core.set_agents_paused(true).unwrap();
+    assert!(!t2.a.core.agents_pause().on, "only the Mac is paused");
+    wait_for(WAIT, "A sees B paused", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.a.core.agents_pause_on(&b_id).on
+    });
+    let t = t2.card("Waits while the Mac is paused");
+    t2.spawning_on_a();
+    t2.kick();
+    assert!(t2.on_a(&t.id).spawn_request().is_none());
+    assert_eq!(t2.fb.started(), 0);
+    t2.b.core.set_agents_paused(false).unwrap();
+    wait_for(WAIT, "the Mac starts it once unpaused", || {
+        t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
+        t2.fb.started() == 1
+    });
+    assert!(
+        t2.on_a(&t.id)
+            .spawn_request()
+            .is_some_and(|s| s.device == b_id)
+    );
+    t2.close();
+}
+
 /// A person's Start an agent, sent to another device, still stands when a
 /// usage limit stops it there (card #576): writing the request spent it,
 /// so the device that hands the card out takes it back.

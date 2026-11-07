@@ -15,7 +15,9 @@ use specta::Type;
 use tauri::State;
 
 use crate::Window;
-use crate::agents::{AgentStartsView, AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
+use crate::agents::{
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, RunningAgent,
+};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -1645,6 +1647,21 @@ pub async fn agents_starts(w: W<'_>) -> R<AgentStartsView> {
     Ok(w.agents_starts())
 }
 
+/// Pause agents (card #665): whether this device starts no agents now.
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_pause(w: W<'_>) -> R<AgentsPauseView> {
+    Ok(w.agents_pause())
+}
+
+/// The person turns Pause agents on or off for this device (their agents
+/// use the agents_pause tool).
+#[tauri::command]
+#[specta::specta]
+pub async fn agents_pause_set(w: W<'_>, on: bool) -> R<AgentsPauseView> {
+    w.agents_pause_set(on)
+}
+
 /// The person changes it: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
@@ -2149,6 +2166,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             agents_set,
             agents_starts,
             agents_starts_set,
+            agents_pause,
+            agents_pause_set,
             agents_limits,
             agents_cap_set,
             agents_usage_release,
