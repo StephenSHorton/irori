@@ -983,7 +983,9 @@ fn with_every_computer_full_a_thread_waits_and_says_so() {
         p.a.core.why_no_agent(&t.id, false) == Some(Why::AllFull)
     });
     assert!(
-        Why::AllFull.to_string().contains("every computer is at its agent limit"),
+        Why::AllFull
+            .to_string()
+            .contains("every computer is at its agent limit"),
         "{}",
         Why::AllFull
     );

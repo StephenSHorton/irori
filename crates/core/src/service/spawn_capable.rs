@@ -277,8 +277,7 @@ impl Services {
                     host.and_then(|h| h.held_until)
                         .is_some_and(|u| u.secs > now.secs)
                 };
-                held || self.agents_paused_on(d)
-                    || self.spawned_on(d) >= self.cap_on(d, host)
+                held || self.agents_paused_on(d) || self.spawned_on(d) >= self.cap_on(d, host)
             })
             .cloned()
             .collect()

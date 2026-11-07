@@ -820,7 +820,14 @@ fn moved_on_a(e: &Env, id: &str, moves: i64, at: GoTime) {
         moves,
         at: at.clone(),
     };
-    e.remote("dev-a", seq, hlc_at(at) + 1, SWEEPER_KEY, store::kinds::ASK_MOVED, &row);
+    e.remote(
+        "dev-a",
+        seq,
+        hlc_at(at) + 1,
+        SWEEPER_KEY,
+        store::kinds::ASK_MOVED,
+        &row,
+    );
 }
 
 /// Card #686: an ask whose owner is connected but full moves to the
