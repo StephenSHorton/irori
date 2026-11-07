@@ -241,6 +241,58 @@ fn a_spawned_agent_takes_the_card_it_was_started_for() {
     assert_eq!(t.holders, [SPAWNED]);
 }
 
+/// Card #699: the agent Irori started for a card takes it up at its first
+/// turn: once, only its own card, and never a held one.
+#[test]
+fn a_spawned_agent_takes_its_card_up_at_its_first_turn() {
+    let (e, t) = env_with_work_card(false);
+    let ask = |id: &str, name: &str| SpawnAsk {
+        task_id: id.into(),
+        device: "dev-a".into(),
+        folder: "/repo".into(),
+        permission_mode: "bypassPermissions".into(),
+        name: name.into(),
+        ..SpawnAsk::default()
+    };
+    e.c.request_spawn("irori", ask(&t.id, "for-1")).unwrap();
+    const SPAWNED: &str = "dev-a/spawned-session";
+    assert!(e.c.bind_spawn(&t.id, 1, SPAWNED).unwrap());
+    let other =
+        e.c.create_task(
+            USER,
+            NewTask {
+                title: "Another".into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        !e.c.take_up_started(SPAWNED, &other.id).unwrap(),
+        "not its card"
+    );
+    assert!(!e.c.take_up_started(ALICE, &t.id).unwrap(), "not spawned");
+    assert_eq!(e.c.get_task(&t.id).unwrap().assigned, [SPAWNED]);
+    assert!(e.c.take_up_started(SPAWNED, &t.id).unwrap());
+    let got = e.c.get_task(&t.id).unwrap();
+    assert_eq!(got.holders, [SPAWNED]);
+    assert!(got.assigned.is_empty());
+    assert_eq!(got.state, WORKING);
+    assert!(!e.c.take_up_started(SPAWNED, &t.id).unwrap(), "once");
+
+    // A held card is taken by nobody.
+    let (e, t) = env_with_work_card(false);
+    e.c.request_spawn("irori", ask(&t.id, "for-2")).unwrap();
+    assert!(e.c.bind_spawn(&t.id, 1, SPAWNED).unwrap());
+    e.c.park(USER, &t.id, "not now", Back::Word).unwrap();
+    assert!(!e.c.take_up_started(SPAWNED, &t.id).unwrap());
+    assert!(
+        !e.c.get_task(&t.id)
+            .unwrap()
+            .holders
+            .contains(&SPAWNED.to_string())
+    );
+}
+
 #[test]
 fn irori_itself_is_not_held_to_a_side() {
     let (e, t) = env_with_work_card(false);
