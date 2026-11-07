@@ -160,7 +160,7 @@ fn set_avatar(s: &mut State, a: String) {
 fn pick_file(s: &mut State, path: std::path::PathBuf) {
     s.profile.busy = true;
     s.spawn(
-        move |_| std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| avatar::shrink_avatar(&b)),
+        move |_| avatar::read_picture(&path).and_then(|b| avatar::shrink_avatar(&b)),
         |s, r| match r {
             Ok(a) => set_avatar(s, a),
             Err(e) => {
@@ -172,12 +172,12 @@ fn pick_file(s: &mut State, path: std::path::PathBuf) {
 }
 
 fn choose(s: &mut State, tx: &mut Tx) {
-    let opts = rune::FileDialogOptions { title: "Your picture".into(), ..Default::default() }.filter("Pictures", &["png", "jpg", "jpeg", "webp"]);
+    let opts = rune::FileDialogOptions { title: "Your picture".into(), ..Default::default() }.filter("Pictures", avatar::PICTURE_TYPES);
     tx.open_file(opts, |s: &mut State, r, _| match r {
         Ok(Some(p)) => pick_file(s, p),
         Ok(None) => {}
         Err(e) => {
-            s.profile.error = format!("Couldn't open the file picker ({e}). Drop a PNG, JPEG or WebP on your face instead.")
+            s.profile.error = format!("Couldn't open the file picker ({e}). Drop a PNG, JPEG, WebP, GIF or HEIC picture on your face instead.")
         }
     });
     let _ = s;
@@ -202,7 +202,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .help(if has_pic { "Change your picture" } else { "Add a picture" })
         .focusable(true)
         .on_press_tx(|s: &mut State, tx: &mut Tx| choose(s, tx))
-        .accepts_extensions(&["png", "jpg", "jpeg"])
+        .accepts_extensions(avatar::PICTURE_TYPES)
         .on_drop_files(|s: &mut State, files: &[std::path::PathBuf], _: &mut Tx| {
             if let Some(p) = files.first() {
                 pick_file(s, p.clone());
@@ -330,7 +330,16 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         Button::new("+ Invite a friend")
             .variant(ButtonVariant::Ghost)
             .control_size(ControlSize::Small)
-            .on_press(|s: &mut State| s.go(Route::Spaces))
+            // An invite is to one space: the picked shared space's page
+            // has Invite; otherwise make one (card #689).
+            .on_press(|s: &mut State| {
+                let space = crate::spaces::current(s);
+                if s.data.spaces.iter().any(|b| b.board_id == space) {
+                    s.go(Route::Board { space, board: None });
+                } else {
+                    crate::spaces::open_new_space(s);
+                }
+            })
             .build(k)
             .self_start(),
     );

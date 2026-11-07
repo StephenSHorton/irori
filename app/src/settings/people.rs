@@ -97,6 +97,17 @@ pub fn save_name(s: &mut State, at: fn(&mut State) -> &mut NameEdit) {
     });
 }
 
+/// A name is at most this many characters (the React field's maxLength).
+pub const MAX_NAME: usize = 60;
+
+/// Cuts a typed or pasted name to MAX_NAME characters.
+pub fn clamp_name(e: &mut TextEdit) {
+    if e.text.chars().count() > MAX_NAME {
+        let t: String = e.text.chars().take(MAX_NAME).collect();
+        e.replace_text(t);
+    }
+}
+
 /// The name field and Save; Escape drops the edit.
 pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: fn(&mut State) -> &mut NameEdit) -> El {
     let k = f.k;
@@ -105,6 +116,7 @@ pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: f
         .width(width)
         .disabled(ne.name.is_none())
         .on_edit(move |s: &mut State| &mut at(s).edit)
+        .on_change(move |s: &mut State, _: &mut Tx| clamp_name(&mut at(s).edit))
         .on_submit(move |s: &mut State, _: &mut Tx| save_name(s, at))
         .on_key(move |s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
             if ev.key == rune::Key::Escape {
@@ -159,7 +171,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     if spaces.is_empty() && !s.settings.people.spaces_read {
         out = out.child(super::loading(f, "settings-people-loading", "Loading your spaces"));
     } else if spaces.is_empty() {
-        out = out.child(muted_line(f, "No spaces yet. Make one on the Spaces page, then invite people to it."));
+        out = out.child(muted_line(f, "No spaces yet. Make one with New or join a space, in the space picker at the top of the sidebar, then invite people to it."));
     } else {
         let mut list = col().key("settings-people-list").w_full().gap(6.0).role("list").label("People in your spaces");
         for b in spaces {
@@ -293,6 +305,16 @@ fn join_submit(s: &mut State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_is_cut_at_sixty_characters() {
+        let mut e = TextEdit::new("é".repeat(70));
+        clamp_name(&mut e);
+        assert_eq!(e.text.chars().count(), MAX_NAME);
+        let mut e = TextEdit::new("Stephen");
+        clamp_name(&mut e);
+        assert_eq!(e.text, "Stephen");
+    }
 
     #[test]
     fn saved_shows_until_the_name_is_edited_again() {

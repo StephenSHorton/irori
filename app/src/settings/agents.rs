@@ -1,24 +1,28 @@
 //! Settings > Agents (agents-pane.tsx, agent-permissions.tsx,
 //! agent-starts.tsx, space-agents.tsx; lib/agents.ts and
 //! lib/agent-permissions.ts; cards #448, #449, #450, #456, #573, #575,
-//! #576): your board's switch for agents Irori starts per card, each
-//! space's switch, what a new agent starts with, every limit on them, the
+//! #576, #702, #703): your board's switch for agents Irori starts per
+//! card, each space's switch, what a new agent starts with, the themes new
+//! agents' names come from, every limit on them, the
 //! agents running now, what they may do and how each repo's work reaches
 //! main, and which of this computer's repos are trusted. Only you set
 //! these, here; no agent's tool can.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use irori_window::agents::{AgentStartsView, AgentsChange, AgentsLimits, AgentsSettings, RunningAgent};
+use irori_window::agents::{
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsSettings, NamesThemesView, RunningAgent,
+};
 use irori_window::agents_trust::{AgentPermissions, TrustedRepo};
 use irori_window::board::AskRepo;
 use irori_window::events::EVENT_ROSTER_CHANGED;
-use rune::{Color, El, TextEdit, Tx, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Switch, TextArea, TextInput};
+use rune::{Color, El, TextEdit, col, el, icon, row, text};
+use rune_kit::{Button, ButtonVariant, ControlSize, Switch, TextArea};
 
 use crate::ui::theme::status;
 use crate::ui::{Event, Frame, State, icons};
 
+use super::number::{self, WholeNumber};
 use super::{Act, Confirm, boxed, choice, confirm_button, error_line, heading, hint, loading, muted_line, toggle};
 
 #[derive(Default)]
@@ -33,9 +37,13 @@ pub struct Model {
     pub limits_err: String,
     pub starts: Option<AgentStartsView>,
     pub starts_err: String,
-    /// "At most": the field, and the saved maximum it started from.
-    pub max: TextEdit,
-    pub max_from: Option<u32>,
+    /// "At most" of My agents may start agents (card #703).
+    pub max: WholeNumber,
+    /// Each device's cap box in Limits, by device id (card #703).
+    pub caps: HashMap<String, WholeNumber>,
+    /// The themes new agents' names come from (card #702).
+    pub names: Option<NamesThemesView>,
+    pub names_err: String,
     pub running: Option<Vec<RunningAgent>>,
     pub running_err: String,
     /// Agents whose End went through, until the list drops them.
@@ -99,9 +107,6 @@ pub fn idle_label(m: u32, def: u32) -> String {
 
 /// The crashes or failed starts before Irori asks you (card #576).
 pub const TRIES_CHOICES: &[u32] = &[1, 2, 3, 5, 10, 20];
-
-/// The caps offered; 0 starts none there.
-pub const CAP_CHOICES: &[u32] = &[0, 1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48, 64, 100, 200];
 
 /// The choices with n among them, in order.
 pub fn with_choice(choices: &[u32], n: u32) -> Vec<u32> {
@@ -209,6 +214,7 @@ pub fn load(s: &mut State) {
     load_spaces(s);
     load_limits(s);
     load_starts(s);
+    load_names(s);
     load_running(s);
     s.spawn(
         |w| (w.agents_permissions(""), w.ask_repos()),
@@ -237,9 +243,61 @@ fn load_spaces(s: &mut State) {
 
 fn load_limits(s: &mut State) {
     s.spawn(|w| w.agents_limits(), |s, l| {
-        s.settings.agents.limits = Some(l);
+        set_limits(s, l);
         s.settings.agents.limits_err.clear();
     });
+}
+
+/// New limits; each cap box shows its device's saved cap unless it is
+/// being edited.
+fn set_limits(s: &mut State, l: AgentsLimits) {
+    let a = &mut s.settings.agents;
+    a.caps.retain(|dev, _| l.devices.iter().any(|d| &d.device == dev));
+    for d in &l.devices {
+        a.caps.entry(d.device.clone()).or_default().follow(d.cap);
+    }
+    a.limits = Some(l);
+}
+
+/// The names themes (card #702): read when the pane opens.
+fn load_names(s: &mut State) {
+    s.spawn(|w| w.names_themes(), |s, v| {
+        s.settings.agents.names = Some(v);
+        s.settings.agents.names_err.clear();
+    });
+}
+
+/// Turns one names theme on or off: shown at once, then saved; a refusal
+/// says why and reads the themes again.
+fn set_names_theme(s: &mut State, id: String, on: bool) {
+    if let Some(v) = &mut s.settings.agents.names {
+        for t in v.themes.iter_mut().filter(|t| t.id == id) {
+            t.on = on;
+        }
+    }
+    s.spawn(move |w| w.names_theme_set(&id, on), |s, r| match r {
+        Ok(v) => {
+            s.settings.agents.names = Some(v);
+            s.settings.agents.names_err.clear();
+        }
+        Err(e) => {
+            s.settings.agents.names_err = e;
+            s.spawn(|w| w.names_themes(), |s, v| s.settings.agents.names = Some(v));
+        }
+    });
+}
+
+/// 1021 as "1,021" (toLocaleString in English).
+pub fn thousands(n: u32) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 fn load_starts(s: &mut State) {
@@ -248,11 +306,7 @@ fn load_starts(s: &mut State) {
 
 fn set_starts(s: &mut State, v: AgentStartsView) {
     let a = &mut s.settings.agents;
-    // A new saved maximum starts the field over from it.
-    if a.max_from != Some(v.max) {
-        a.max = TextEdit::new(v.max.to_string());
-        a.max_from = Some(v.max);
-    }
+    a.max.follow(v.max);
     a.starts = Some(v);
     a.starts_err.clear();
 }
@@ -344,6 +398,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 ))
                 .child(spaces_section(s, f))
                 .child(starts_with(s, f, st))
+                .child(names_section(s, f))
                 .child(limits_section(s, f, st));
         }
     }
@@ -495,42 +550,29 @@ fn limits_section(s: &State, f: &mut Frame, st: &AgentsSettings) -> El {
                             Button::new("Try now")
                                 .variant(ButtonVariant::Outline)
                                 .help("Starts queued cards now. If the limit still stands, Irori holds again at the first one.")
-                                .on_press(|s: &mut State| {
-                                    s.spawn(|w| w.agents_usage_release(), |s, l| s.settings.agents.limits = Some(l))
-                                })
+                                .on_press(|s: &mut State| s.spawn(|w| w.agents_usage_release(), set_limits))
                                 .build(k),
                         ),
                 );
             }
             let mut rows = Vec::new();
             for d in &l.devices {
-                let caps: Vec<(String, String)> = with_choice(CAP_CHOICES, d.cap)
-                    .into_iter()
-                    .filter(|n| *n <= l.max_cap)
-                    .map(|n| (n.to_string(), if n == 0 { "None".to_string() } else { format!("{n} at once") }))
-                    .collect();
                 let dev = d.device.clone();
-                let control = choice(
-                    s,
-                    f,
-                    &format!("settings-cap-{}", d.device),
-                    &format!("At most on {}", d.name),
-                    &d.cap.to_string(),
-                    &caps,
-                    144.0,
-                    false,
-                    move |s, v| {
-                        let cap: u32 = v.parse().unwrap_or(0);
-                        let dev = dev.clone();
-                        s.spawn(move |w| w.agents_cap_set(&dev, cap), |s, r| match r {
-                            Ok(l) => {
-                                s.settings.agents.limits = Some(l);
-                                s.settings.agents.limits_err.clear();
-                            }
-                            Err(e) => s.settings.agents.limits_err = e,
-                        });
-                    },
-                );
+                let dev2 = d.device.clone();
+                let control = match a.caps.get(&d.device) {
+                    Some(n) => number::field(
+                        f,
+                        &format!("settings-cap-{}", d.device),
+                        "At most",
+                        &format!("At most on {}", d.name),
+                        n,
+                        l.max_cap,
+                        false,
+                        move |s: &mut State| s.settings.agents.caps.entry(dev.clone()).or_default(),
+                        move |s: &mut State| save_cap(s, &dev2),
+                    ),
+                    None => el(),
+                };
                 let h = if d.cap > 0 {
                     format!("{} of {} running", d.running, d.cap)
                 } else {
@@ -595,11 +637,6 @@ fn limits_section(s: &State, f: &mut Frame, st: &AgentsSettings) -> El {
 pub const AGENT_STARTS_TITLE: &str = "My agents may start agents on my cards";
 pub const AGENT_STARTS_HINT: &str = "Lets an agent start, list and end agents on your cards, by the same rules as your Start. Whatever those agents go on to start counts too. Agents can't change this.";
 
-/// A typed maximum: a whole number from 0 to the ceiling.
-pub fn valid_max(draft: &str, ceiling: u32) -> Option<u32> {
-    draft.trim().parse::<u32>().ok().filter(|n| *n <= ceiling)
-}
-
 fn set_starts_remote(s: &mut State, on: bool, max: u32) {
     s.spawn(move |w| w.agents_starts_set(on, max), |s, r| match r {
         Ok(v) => set_starts(s, v),
@@ -607,13 +644,118 @@ fn set_starts_remote(s: &mut State, on: bool, max: u32) {
     });
 }
 
+/// Enter or a blur in "At most": saves a new maximum (card #703).
 fn save_max(s: &mut State) {
     let a = &mut s.settings.agents;
     let Some(st) = a.starts.clone() else { return };
-    match valid_max(&a.max.text, st.ceiling) {
-        Some(n) if n != st.max => set_starts_remote(s, st.on, n),
-        _ => a.max = TextEdit::new(st.max.to_string()),
+    let Some(n) = a.max.save(st.max, st.ceiling) else { return };
+    let sent = a.max.edit.text.clone();
+    s.spawn(move |w| w.agents_starts_set(st.on, n), move |s, r| {
+        let a = &mut s.settings.agents;
+        match r {
+            Ok(v) => {
+                a.max.settle(&sent, v.max);
+                set_starts(s, v);
+            }
+            Err(e) => {
+                let old = a.starts.as_ref().map_or(st.max, |v| v.max);
+                a.max.settle(&sent, old);
+                a.starts_err = e;
+            }
+        }
+    });
+}
+
+/// Enter or a blur in a device's cap box: saves its new cap (card #703).
+fn save_cap(s: &mut State, dev: &str) {
+    let a = &mut s.settings.agents;
+    let Some(l) = &a.limits else { return };
+    let Some(d) = l.devices.iter().find(|d| d.device == dev) else { return };
+    let (cap, ceiling) = (d.cap, l.max_cap);
+    let Some(box_) = a.caps.get_mut(dev) else { return };
+    let Some(n) = box_.save(cap, ceiling) else { return };
+    let sent = box_.edit.text.clone();
+    let dev = dev.to_string();
+    s.spawn(
+        {
+            let dev = dev.clone();
+            move |w| w.agents_cap_set(&dev, n)
+        },
+        move |s, r| match r {
+            Ok(l) => {
+                let now = l.devices.iter().find(|d| d.device == dev).map_or(n, |d| d.cap);
+                if let Some(b) = s.settings.agents.caps.get_mut(&dev) {
+                    b.settle(&sent, now);
+                }
+                set_limits(s, l);
+                s.settings.agents.limits_err.clear();
+            }
+            Err(e) => {
+                let a = &mut s.settings.agents;
+                if let Some(b) = a.caps.get_mut(&dev) {
+                    b.settle(&sent, cap);
+                }
+                a.limits_err = e;
+            }
+        },
+    );
+}
+
+/// Once a frame while the Agents pane is open: a number box that lost
+/// its focus saves (WholeNumberField's onBlur).
+pub fn poll(s: &mut State) -> bool {
+    let max = s.settings.agents.max.blurred();
+    if max {
+        save_max(s);
     }
+    let gone: Vec<String> = s
+        .settings
+        .agents
+        .caps
+        .iter_mut()
+        .filter_map(|(dev, b)| b.blurred().then(|| dev.clone()))
+        .collect();
+    let any = max || !gone.is_empty();
+    for dev in gone {
+        save_cap(s, &dev);
+    }
+    any
+}
+
+/// "Agent names" (names-themes.tsx, card #702): which themes a new
+/// agent's name comes from, a switch each, all on until turned off. When
+/// the themes still on have no word free, or every theme is off, names
+/// come from all of them; nobody already named is renamed.
+fn names_section(s: &State, f: &Frame) -> El {
+    let a = &s.settings.agents;
+    let Some(v) = &a.names else {
+        if a.names_err.is_empty() {
+            return el();
+        }
+        return error_line(f, &a.names_err);
+    };
+    let mut sec = col()
+        .key("settings-agents-names")
+        .w_full()
+        .gap(8.0)
+        .role("group")
+        .label("Agent names")
+        .child(heading(f, "Agent names"))
+        .child(muted_line(
+            f,
+            "Each new agent gets a short name nobody has used lately, from the themes that are on. When they run out, or every theme is off, names come from all of them. Agents already named keep their names.",
+        ));
+    for t in &v.themes {
+        let id = t.id.clone();
+        let h = format!("{} names, like {}", thousands(t.words), t.sample.join(", "));
+        sec = sec.child(toggle(f, &format!("settings-names-{}", t.id), &t.label, Some(&h), t.on, false, move |s, on| {
+            set_names_theme(s, id.clone(), on)
+        }));
+    }
+    if !a.names_err.is_empty() {
+        sec = sec.child(error_line(f, &a.names_err));
+    }
+    sec
 }
 
 /// "My agents may start agents on my cards" (card #575).
@@ -626,28 +768,18 @@ fn agent_starts_row(s: &State, f: &Frame) -> Option<El> {
     if !a.starts_err.is_empty() {
         h = h.child(error_line(f, &a.starts_err));
     }
-    let valid = valid_max(&a.max.text, st.ceiling).is_some();
     let (on, max) = (st.on, st.max);
-    let mut field = col().items_end().gap(4.0).child(
-        row()
-            .gap(8.0)
-            .center_y()
-            .child(text("At most").font(k.ty.ui).color(k.c.text_muted))
-            .child(
-                TextInput::new(&a.max)
-                    .label("At most")
-                    .width(Some(72.0))
-                    .disabled(!on)
-                    .invalid(!valid)
-                    .on_edit(|s: &mut State| &mut s.settings.agents.max)
-                    .on_submit(|s: &mut State, _: &mut Tx| save_max(s))
-                    .build(k)
-                    .key("settings-starts-max"),
-            ),
+    let field = number::field(
+        f,
+        "settings-starts-max",
+        "At most",
+        "At most",
+        &a.max,
+        st.ceiling,
+        !on,
+        |s: &mut State| &mut s.settings.agents.max,
+        save_max,
     );
-    if !valid {
-        field = field.child(error_line(f, &format!("A whole number from 0 to {}.", st.ceiling)).w(200.0));
-    }
     let control = row()
         .gap(12.0)
         .center_y()
@@ -656,10 +788,7 @@ fn agent_starts_row(s: &State, f: &Frame) -> Option<El> {
             Switch::new(on)
                 .label(AGENT_STARTS_TITLE)
                 .hide_label()
-                .on_toggle(move |s: &mut State| {
-                    save_max(s);
-                    set_starts_remote(s, !on, max)
-                })
+                .on_toggle(move |s: &mut State| set_starts_remote(s, !on, max))
                 .build(k),
         );
     Some(limit_row(f, "settings-limit-starts", AGENT_STARTS_TITLE, h, control))
@@ -1085,12 +1214,11 @@ mod tests {
     }
 
     #[test]
-    fn a_maximum_is_a_whole_number_up_to_the_ceiling() {
-        assert_eq!(valid_max("12", 100), Some(12));
-        assert_eq!(valid_max(" 0 ", 100), Some(0));
-        assert_eq!(valid_max("101", 100), None);
-        assert_eq!(valid_max("1.5", 100), None);
-        assert_eq!(valid_max("", 100), None);
+    fn word_counts_read_with_thousands() {
+        assert_eq!(thousands(29), "29");
+        assert_eq!(thousands(256), "256");
+        assert_eq!(thousands(1021), "1,021");
+        assert_eq!(thousands(1_234_567), "1,234,567");
     }
 
     #[test]

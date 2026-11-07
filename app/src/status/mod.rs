@@ -247,7 +247,14 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                         .w_full()
                         .h(4.0)
                         .fill(k.c.surface_weak)
-                        .child(el().w_frac(0.25).h_full().fill(accent(f))),
+                        .clip_soft(0.0)
+                        // irori-sweep: a quarter-width segment crosses the
+                        // track, then comes round from the left again.
+                        .child(el().w_frac(0.25).h_full().fill(accent(f)).looping(rune::LoopSpec::slide(
+                            1.4,
+                            [-1.0, 0.0],
+                            [4.0, 0.0],
+                        ))),
                 ),
         ),
         "installing" => Some(

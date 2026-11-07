@@ -299,10 +299,13 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
         .center_y()
         .child(el().size(8.0, 8.0).radius(4.0).fill(dot(f, if d.revoked { "offline" } else { &d.state })));
     if renaming {
-        return col()
+        let out = col()
             .key(format!("settings-device-{}", d.device_id))
             .w_full()
+            .gap(2.0)
             .child(top.child(rename_field(s, f, d)));
+        // The warning stays while the name is edited (DeviceRow).
+        return with_warning(s, f, d, out);
     }
     let mut small = String::new();
     if d.role == "node" {
@@ -366,7 +369,12 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
         }
         top = top.child(actions);
     }
-    let mut out = col().key(format!("settings-device-{}", d.device_id)).w_full().gap(2.0).child(top);
+    let out = col().key(format!("settings-device-{}", d.device_id)).w_full().gap(2.0).child(top);
+    with_warning(s, f, d, out)
+}
+
+/// A device's warning under its row, with Reset when this device needs one.
+fn with_warning(s: &State, f: &Frame, d: &DeviceView, mut out: El) -> El {
     if !d.warning.is_empty() {
         let mut w = row().pl(18.0).gap(8.0).center_y().child(warn_line(f, &super::plain_line(&d.warning)).grow(1.0));
         if d.this && d.action == "reset" {

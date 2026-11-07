@@ -410,7 +410,8 @@ pub fn poll(s: &mut State, _t: f64, tx: &mut rune::Tx) -> bool {
     let widgets = crate::widgets::poll(s, tx);
     let card = crate::card::poll(s, tx);
     let talk = crate::talk::poll(s);
-    before != s.notes.len() || widgets || card || talk
+    let settings = crate::settings::poll(s);
+    before != s.notes.len() || widgets || card || talk || settings
 }
 
 /// A page a package hasn't ported yet: says so, so a screenshot shows

@@ -58,7 +58,7 @@ irori-inbox = { workspace = true }
 # Decodes the person's avatar (PNG, JPEG or WebP data URL; Rune's own
 # decoder has no WebP), and Settings/Profile crop and shrink it
 # (lib/avatar.ts). The same image crate Rune pulls in.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # Watching a huddle's screen share (#658, P6): H.264 on the platform's
 # decoder (VideoToolbox, Media Foundation) through moq-video, the crate
 # crates/share encodes with; hang and moq-net for the two types its decoder

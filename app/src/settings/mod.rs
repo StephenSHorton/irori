@@ -11,6 +11,7 @@ pub mod appearance;
 pub mod desks;
 pub mod devices;
 pub mod general;
+pub mod number;
 pub mod people;
 
 use std::collections::HashMap;
@@ -202,6 +203,13 @@ fn start_ticker(s: &mut State) {
     });
 }
 
+/// Once a frame (ui::poll): the Agents pane's number boxes save when they
+/// lose the focus. True when one did (its box may show the saved value
+/// again).
+pub fn poll(s: &mut State) -> bool {
+    open_pane(s) == Some("agents") && agents::poll(s)
+}
+
 #[allow(dead_code)] // The package contract; Settings is a dialog.
 pub fn view(s: &State, f: &mut Frame) -> El {
     let _ = s;
@@ -224,6 +232,13 @@ pub fn on_event(s: &mut State, ev: &Event) {
     }
     if ev.is("app:start") {
         s.settings.now_ms = now_ms();
+        // The look the React window had, on a first start; then the
+        // notification cards follow it (main.tsx, card #527).
+        if !s.data_dir.as_os_str().is_empty() {
+            let dir = s.data_dir.clone();
+            appearance::carry_over(&mut s.prefs, &dir);
+        }
+        appearance::send_card_look(s);
         return;
     }
     // The profile page wears the same name and colour; it hears these too.
@@ -525,9 +540,12 @@ pub fn hex(s: &str) -> Color {
     rune::color::hex(s).unwrap_or(Color::BLACK)
 }
 
+/// Tailwind's text-xs: 12 on a 16 line.
+pub const XS: rune::tok::TextStyle = rune::tok::TextStyle::new(12.0, 400.0).lh(16.0);
+
 /// A small muted line (text-xs text-muted-foreground).
 pub fn hint(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.small).color(f.k.c.text_muted).w_full().wrap()
+    text(s.to_string()).font(XS).color(f.k.c.text_muted).w_full().wrap()
 }
 
 /// A muted paragraph (text-[12.5px] text-muted-foreground).
@@ -536,11 +554,11 @@ pub fn muted_line(f: &Frame, s: &str) -> El {
 }
 
 pub fn error_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.small).color(f.k.c.danger.fg).w_full().wrap()
+    text(s.to_string()).font(XS).color(f.k.c.danger.fg).w_full().wrap()
 }
 
 pub fn warn_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.small).color(f.k.c.warning.fg).w_full().wrap()
+    text(s.to_string()).font(XS).color(f.k.c.warning.fg).w_full().wrap()
 }
 
 /// A section's heading (h3 text-sm font-medium).

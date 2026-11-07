@@ -35,19 +35,27 @@ pub fn is_dark(s: &State, cx: &Cx<State>) -> bool {
 
 pub fn kit(dark: bool, p: &Prefs) -> Kit {
     // A theme picked in Settings > Appearance (`appearance.theme`).
-    if let Some(seed) = crate::settings::appearance::seed(p, dark) {
-        return Kit::from_palette(seed);
+    let seed = crate::settings::appearance::seed(p, dark).unwrap_or_else(|| {
+        let accent = p
+            .get::<String>(ACCENT)
+            .filter(|a| rune::color::hex(a).is_some())
+            .unwrap_or_else(|| ACCENT_DEFAULT.to_string());
+        let (bg, fg) = if dark { (DARK_BG, DARK_FG) } else { (LIGHT_BG, LIGHT_FG) };
+        PaletteSeed {
+            bg: hex(bg),
+            fg: hex(fg),
+            accent: hex(&accent),
+        }
+    });
+    let mut k = Kit::from_palette(seed);
+    if !dark {
+        // shadcn's switch and slider thumbs are the page colour (white) in
+        // light mode; the kit's default, the text colour, reads as a dark
+        // knob there.
+        k.c.knob = Color::WHITE;
+        k.c.knob_on = Color::WHITE;
     }
-    let accent = p
-        .get::<String>(ACCENT)
-        .filter(|a| rune::color::hex(a).is_some())
-        .unwrap_or_else(|| ACCENT_DEFAULT.to_string());
-    let (bg, fg) = if dark { (DARK_BG, DARK_FG) } else { (LIGHT_BG, LIGHT_FG) };
-    Kit::from_palette(PaletteSeed {
-        bg: hex(bg),
-        fg: hex(fg),
-        accent: hex(&accent),
-    })
+    k
 }
 
 /// Status colours the cards use (the React app's status hues): a decision

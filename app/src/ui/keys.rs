@@ -5,7 +5,7 @@
 //! | Keys | What |
 //! |---|---|
 //! | Cmd+K, Cmd+P | the command palette |
-//! | Esc | back from a card page or a page opened from another |
+//! | Esc | back from a card's page |
 //! | Cmd+[, Cmd+] | back, forward |
 //! | Cmd+N | New card (on the board shown, if any) |
 //! | Cmd+, | Settings |
@@ -58,7 +58,9 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.status.meters_open = false;
             true
         }
-        Key::Escape if s.nav.card.is_some() || s.nav.can_back() => {
+        // Esc is Back on a card's page only (App.tsx); elsewhere it does
+        // nothing.
+        Key::Escape if s.nav.card.is_some() => {
             s.back();
             true
         }
@@ -110,6 +112,8 @@ mod tests {
         let mut s = State::default();
         assert!(!run(&mut s, key(Key::Escape, false)), "nothing to go back to");
         s.nav.go(Route::Talk(None));
+        assert!(!run(&mut s, key(Key::Escape, false)), "Esc on a page that isn't a card's does nothing");
+        assert_eq!(s.nav.route, Route::Talk(None));
         s.nav.open_card("c1".into());
         assert!(run(&mut s, key(Key::Escape, false)));
         assert_eq!(s.nav.card, None);
