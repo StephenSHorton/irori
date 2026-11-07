@@ -40,9 +40,9 @@ export function NamesThemeSection({ open }: { open: boolean }) {
       <p className="text-[12.5px] text-muted-foreground">
         {picked
           ? `${picked.words} names, like ${picked.sample.join(", ")}.`
-          : `${v.themes.reduce((n, t) => n + t.words, 0)} names from ${v.themes
-              .map((t) => t.label.toLowerCase())
-              .join(", ")}.`}
+          : `${v.themes
+              .reduce((n, t) => n + t.words, 0)
+              .toLocaleString()} names from every theme.`}
       </p>
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </section>
