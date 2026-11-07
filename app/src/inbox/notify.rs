@@ -60,7 +60,9 @@ pub fn kind_tone(k: &str) -> Tone {
     match k {
         kind::BLOCKER | kind::INPUT | kind::ASK => Tone::Destructive,
         kind::DONE_CHECK => Tone::Success,
-        kind::HANDED | kind::RETURNED | kind::UNCLAIMED | kind::HELD | kind::NO_AGENT => Tone::Warning,
+        kind::HANDED | kind::RETURNED | kind::UNCLAIMED | kind::HELD | kind::NO_AGENT => {
+            Tone::Warning
+        }
         kind::MENTION | kind::MESSAGE | kind::WAITED => Tone::Info,
         _ => Tone::Secondary,
     }
@@ -68,7 +70,11 @@ pub fn kind_tone(k: &str) -> Tone {
 
 /// The item is about a card's blocker, done check or question.
 pub fn asks_on_card(n: &Notification) -> bool {
-    !n.task_id.is_empty() && matches!(n.kind.as_str(), kind::BLOCKER | kind::DONE_CHECK | kind::INPUT)
+    !n.task_id.is_empty()
+        && matches!(
+            n.kind.as_str(),
+            kind::BLOCKER | kind::DONE_CHECK | kind::INPUT
+        )
 }
 
 /// The item is the "N messages waited for you" one, which stands for
@@ -88,7 +94,9 @@ pub enum Filter {
 
 /// The list a filter shows, newest first as it comes.
 pub fn shown(list: &[Notification], f: Filter) -> Vec<&Notification> {
-    list.iter().filter(|n| f == Filter::All || !n.read).collect()
+    list.iter()
+        .filter(|n| f == Filter::All || !n.read)
+        .collect()
 }
 
 pub fn unread_count(list: &[Notification]) -> usize {
@@ -119,7 +127,11 @@ pub fn blocker_outcome(b: &CardBlocker) -> String {
     let by = who(&r.by.name);
     let note = r.note.trim();
     if r.closed {
-        return if note.is_empty() { format!("Closed by {by}") } else { format!("Closed by {by}: {note}") };
+        return if note.is_empty() {
+            format!("Closed by {by}")
+        } else {
+            format!("Closed by {by}: {note}")
+        };
     }
     let answer = r.answer.trim();
     // The agent's next done check replaced this one (card #476): the
@@ -143,7 +155,11 @@ pub fn blocker_outcome(b: &CardBlocker) -> String {
     if r.option >= 0 {
         return format!("Answered “{answer}” by {by}");
     }
-    if answer.is_empty() { format!("Answered by {by}") } else { format!("Answered by {by}: “{answer}”") }
+    if answer.is_empty() {
+        format!("Answered by {by}")
+    } else {
+        format!("Answered by {by}: “{answer}”")
+    }
 }
 
 /// The blocker still waits on this person: open or replied back to them,
@@ -157,7 +173,10 @@ pub fn blocker_open(b: &CardBlocker) -> bool {
 
 /// An agent's message to the person, not answered or read.
 pub fn message_open(d: &Delivery) -> bool {
-    matches!(d.state.as_str(), st::QUEUED | st::DELIVERED | st::ENGAGED | st::DEFERRED)
+    matches!(
+        d.state.as_str(),
+        st::QUEUED | st::DELIVERED | st::ENGAGED | st::DEFERRED
+    )
 }
 
 /// What became of a message or a held one: "" while it still waits on the
@@ -194,6 +213,32 @@ pub fn ask_outcome(a: &NotificationAsk) -> String {
         "Dismissed".into()
     } else {
         "Closed: no answer in time".into()
+    }
+}
+
+// ---- a permission prompt (cards/permission-prompt.tsx, card #682) -------------
+
+pub const ALLOW_ONCE: &str = "Allow once";
+pub const ALWAYS_ALLOW: &str = "Always allow";
+pub const DENY: &str = "Deny";
+
+/// A permission prompt's buttons, in the order they come in whatever
+/// order the item's options are, each with its option's index. Always
+/// allow only when a rule helps (`rule` non-empty).
+pub fn permission_answers(b: &CardBlocker, rule: &str) -> Vec<(&'static str, usize)> {
+    [ALLOW_ONCE, ALWAYS_ALLOW, DENY]
+        .into_iter()
+        .filter(|a| *a != ALWAYS_ALLOW || !rule.is_empty())
+        .filter_map(|a| b.options.iter().position(|o| o.answer == a).map(|i| (a, i)))
+        .collect()
+}
+
+/// What a permission pick says while the card catches up.
+pub fn permission_said(answer: &str, name: &str, rule: &str) -> String {
+    match answer {
+        DENY => format!("Denied: {name} goes on without it."),
+        ALWAYS_ALLOW => format!("Allowed, and {rule} is on the board's allow list."),
+        _ => format!("Allowed once: {name} goes on."),
     }
 }
 
@@ -234,7 +279,12 @@ mod tests {
             ..Notification::default()
         };
         let list = vec![mk("a", false), mk("b", true), mk("c", false)];
-        let keys = |f| shown(&list, f).iter().map(|n| n.key.clone()).collect::<Vec<_>>();
+        let keys = |f| {
+            shown(&list, f)
+                .iter()
+                .map(|n| n.key.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(keys(Filter::Unread), ["a", "c"]);
         assert_eq!(keys(Filter::All), ["a", "b", "c"]);
         assert_eq!(unread_count(&list), 2);
@@ -281,14 +331,15 @@ mod tests {
     fn resolved_by_anyone_no_buttons_the_outcome_and_who() {
         let you = agent("user:dev", "You");
         let civet = agent("dev/abc", "civet");
-        let res = |answer: &str, option: i64, by: &AgentRef, note: &str, closed: bool| CardResolution {
-            answer: answer.into(),
-            option,
-            by: by.clone(),
-            note: note.into(),
-            closed,
-            ..CardResolution::default()
-        };
+        let res =
+            |answer: &str, option: i64, by: &AgentRef, note: &str, closed: bool| CardResolution {
+                answer: answer.into(),
+                option,
+                by: by.clone(),
+                note: note.into(),
+                closed,
+                ..CardResolution::default()
+            };
         let done = CardBlocker {
             done_check: true,
             state: "resolved".into(),
@@ -302,13 +353,19 @@ mod tests {
             resolved: Some(res("the far dock clips", -1, &you, "", false)),
             ..CardBlocker::default()
         };
-        assert_eq!(blocker_outcome(&back), "Sent back by you: “the far dock clips”");
+        assert_eq!(
+            blocker_outcome(&back),
+            "Sent back by you: “the far dock clips”"
+        );
         let again = CardBlocker {
             done_check: true,
             resolved: Some(res("the far dock clips", -1, &civet, ASKED_AGAIN, false)),
             ..CardBlocker::default()
         };
-        assert_eq!(blocker_outcome(&again), "You sent it back: “the far dock clips”; civet asked again");
+        assert_eq!(
+            blocker_outcome(&again),
+            "You sent it back: “the far dock clips”; civet asked again"
+        );
         let picked = CardBlocker {
             resolved: Some(res("Wintun", 0, &civet, "", false)),
             ..CardBlocker::default()
@@ -318,19 +375,26 @@ mod tests {
             resolved: Some(res("", -1, &civet, "the lease came back", true)),
             ..CardBlocker::default()
         };
-        assert_eq!(blocker_outcome(&closed), "Closed by civet: the lease came back");
+        assert_eq!(
+            blocker_outcome(&closed),
+            "Closed by civet: the lease came back"
+        );
         let answered = CardBlocker {
             state: "answered".into(),
             ..CardBlocker::default()
         };
-        assert_eq!(blocker_outcome(&answered), "Answered; it's with the agent now");
+        assert_eq!(
+            blocker_outcome(&answered),
+            "Answered; it's with the agent now"
+        );
     }
 
     fn d(state: &str) -> Delivery {
-        let mut d = Delivery::default();
-        d.id = "d".into();
-        d.state = state.into();
-        d
+        Delivery {
+            id: "d".into(),
+            state: state.into(),
+            ..Delivery::default()
+        }
     }
 
     #[test]
@@ -356,8 +420,14 @@ mod tests {
             ..NotificationAsk::default()
         };
         assert_eq!(ask_outcome(&a(true, false, "")), "");
-        assert_eq!(ask_outcome(&a(false, true, "Restart")), "Answered “Restart”");
-        assert_eq!(ask_outcome(&a(false, false, "")), "Closed: no answer in time");
+        assert_eq!(
+            ask_outcome(&a(false, true, "Restart")),
+            "Answered “Restart”"
+        );
+        assert_eq!(
+            ask_outcome(&a(false, false, "")),
+            "Closed: no answer in time"
+        );
     }
 
     #[test]
@@ -366,5 +436,36 @@ mod tests {
         assert_eq!(kind_label("zzz"), "Notification");
         assert_eq!(kind_tone("ask"), Tone::Destructive);
         assert_eq!(kind_tone("zzz"), Tone::Secondary);
+    }
+
+    #[test]
+    fn a_permission_prompts_buttons_come_in_their_order() {
+        use irori_window::cards::CardOption;
+        let opt = |a: &str| CardOption {
+            answer: a.into(),
+            ..CardOption::default()
+        };
+        let b = CardBlocker {
+            options: vec![opt(DENY), opt(ALWAYS_ALLOW), opt(ALLOW_ONCE)],
+            ..CardBlocker::default()
+        };
+        assert_eq!(
+            permission_answers(&b, "Bash(cargo test:*)"),
+            vec![(ALLOW_ONCE, 2), (ALWAYS_ALLOW, 1), (DENY, 0)]
+        );
+        // No rule helps (a bypass agent's safety check): no Always allow.
+        assert_eq!(permission_answers(&b, ""), vec![(ALLOW_ONCE, 2), (DENY, 0)]);
+        assert_eq!(
+            permission_said(DENY, "kestrel", ""),
+            "Denied: kestrel goes on without it."
+        );
+        assert_eq!(
+            permission_said(ALWAYS_ALLOW, "kestrel", "Bash(ls:*)"),
+            "Allowed, and Bash(ls:*) is on the board's allow list."
+        );
+        assert_eq!(
+            permission_said(ALLOW_ONCE, "kestrel", ""),
+            "Allowed once: kestrel goes on."
+        );
     }
 }

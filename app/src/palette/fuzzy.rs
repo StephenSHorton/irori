@@ -26,7 +26,11 @@ pub fn word_score(word: &str, text: &str, loose: bool) -> f64 {
     }
     if let Some(at) = text.find(word) {
         // The start of a word in the text ("card" in "new card").
-        return if text[..at].chars().next_back().is_some_and(word_break) { 80.0 } else { 60.0 };
+        return if text[..at].chars().next_back().is_some_and(word_break) {
+            80.0
+        } else {
+            60.0
+        };
     }
     let w: Vec<char> = word.chars().collect();
     if !loose || w.len() < 2 {
@@ -59,7 +63,11 @@ pub fn word_score(word: &str, text: &str, loose: bool) -> f64 {
 
 /// The query's words, lower-cased.
 pub fn query_parts(query: &str) -> Vec<String> {
-    query.to_lowercase().split_whitespace().map(str::to_string).collect()
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
 }
 
 /// How well every word of `query` matches `title`, with `others` (ref,
@@ -71,7 +79,11 @@ pub fn score(query: &str, title: &str, others: &[String]) -> f64 {
         return 1.0;
     }
     let t = title.to_lowercase();
-    let o: Vec<String> = others.iter().filter(|x| !x.is_empty()).map(|x| x.to_lowercase()).collect();
+    let o: Vec<String> = others
+        .iter()
+        .filter(|x| !x.is_empty())
+        .map(|x| x.to_lowercase())
+        .collect();
     let mut total = 0.0;
     for w in &words {
         let mut best = word_score(w, &t, true);
@@ -88,7 +100,11 @@ pub fn score(query: &str, title: &str, others: &[String]) -> f64 {
 }
 
 /// The items that match `query`, best first; ties keep their order.
-pub fn rank<'a, T>(items: &'a [T], query: &str, texts: impl Fn(&T) -> (&str, &[String])) -> Vec<(&'a T, f64)> {
+pub fn rank<'a, T>(
+    items: &'a [T],
+    query: &str,
+    texts: impl Fn(&T) -> (&str, &[String]),
+) -> Vec<(&'a T, f64)> {
     let mut out: Vec<(usize, &T, f64)> = items
         .iter()
         .enumerate()
@@ -137,7 +153,9 @@ mod tests {
     #[test]
     fn keywords_count_below_the_title() {
         assert!(score("preferences", "Open settings", &v(&["preferences"])) > 0.0);
-        assert!(score("settings", "Settings", &[]) > score("settings", "Devices", &v(&["settings"])));
+        assert!(
+            score("settings", "Settings", &[]) > score("settings", "Devices", &v(&["settings"]))
+        );
     }
 
     #[test]
@@ -148,9 +166,17 @@ mod tests {
 
     #[test]
     fn best_first_misses_dropped() {
-        let items = ["Pin this board", "Open settings", "Settings: Devices", "Home"];
+        let items = [
+            "Pin this board",
+            "Open settings",
+            "Settings: Devices",
+            "Home",
+        ];
         let none: Vec<String> = Vec::new();
-        let got: Vec<&str> = rank(&items, "settings", |t| (*t, none.as_slice())).into_iter().map(|(t, _)| *t).collect();
+        let got: Vec<&str> = rank(&items, "settings", |t| (*t, none.as_slice()))
+            .into_iter()
+            .map(|(t, _)| *t)
+            .collect();
         assert_eq!(got, ["Settings: Devices", "Open settings"]);
     }
 }

@@ -102,8 +102,15 @@ pub fn desk_queue(inp: &DeskInputs) -> Vec<QueueLine> {
         let author = author_of(&d.authors, p.number);
         let (state, note) = if p.is_draft {
             (DeskState::Draft, "draft · listed, never queued".to_string())
-        } else if p.merge_state_status == "BEHIND" || p.merge_state_status == "DIRTY" || p.mergeable == "CONFLICTING" {
-            let why = if p.mergeable == "CONFLICTING" { "CONFLICTING" } else { p.merge_state_status.as_str() };
+        } else if p.merge_state_status == "BEHIND"
+            || p.merge_state_status == "DIRTY"
+            || p.mergeable == "CONFLICTING"
+        {
+            let why = if p.mergeable == "CONFLICTING" {
+                "CONFLICTING"
+            } else {
+                p.merge_state_status.as_str()
+            };
             (DeskState::Rebase, format!("GitHub: {why}"))
         } else if p.checks == "pending" {
             (DeskState::Running, "GitHub checks running".into())
@@ -285,8 +292,14 @@ mod tests {
 
     #[test]
     fn needs_rebase_behind_dirty_or_conflicting() {
-        assert_eq!(one(pr(103, |p| p.merge_state_status = "BEHIND".into())).state, DeskState::Rebase);
-        assert_eq!(one(pr(104, |p| p.merge_state_status = "DIRTY".into())).state, DeskState::Rebase);
+        assert_eq!(
+            one(pr(103, |p| p.merge_state_status = "BEHIND".into())).state,
+            DeskState::Rebase
+        );
+        assert_eq!(
+            one(pr(104, |p| p.merge_state_status = "DIRTY".into())).state,
+            DeskState::Rebase
+        );
         let c = one(pr(105, |p| p.mergeable = "CONFLICTING".into()));
         assert_eq!(c.state, DeskState::Rebase);
         assert_eq!(c.note, "GitHub: CONFLICTING");
@@ -294,8 +307,14 @@ mod tests {
 
     #[test]
     fn checks_running_and_failed_come_from_githubs_rollup() {
-        assert_eq!(one(pr(106, |p| p.checks = "pending".into())).state, DeskState::Running);
-        assert_eq!(one(pr(107, |p| p.checks = "failure".into())).state, DeskState::Failed);
+        assert_eq!(
+            one(pr(106, |p| p.checks = "pending".into())).state,
+            DeskState::Running
+        );
+        assert_eq!(
+            one(pr(107, |p| p.checks = "failure".into())).state,
+            DeskState::Failed
+        );
     }
 
     #[test]
@@ -325,7 +344,10 @@ mod tests {
             },
         ];
         let lines = desk_queue(&inp);
-        assert_eq!(lines.iter().map(|l| l.state).collect::<Vec<_>>(), [DeskState::Ready, DeskState::Merged]);
+        assert_eq!(
+            lines.iter().map(|l| l.state).collect::<Vec<_>>(),
+            [DeskState::Ready, DeskState::Merged]
+        );
         assert_eq!(lines[1].note, "merged as 3f2a9c1");
     }
 

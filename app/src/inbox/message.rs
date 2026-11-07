@@ -12,10 +12,10 @@ use std::rc::Rc;
 use rune::{ScrollSpec, col, el, row, text};
 use rune_kit::{ButtonVariant, Dialog as KitDialog};
 
+use super::names;
 use super::notify::{self, Tone};
 use super::page::{button, line, tone_badge};
 use super::words::{self, plain_line};
-use super::names;
 use crate::text::{self as txt, Composer, ComposerOpts, Sent};
 use crate::ui::{Frame, State};
 
@@ -29,7 +29,10 @@ fn reply_box_mut(s: &mut State) -> &mut Composer {
 
 /// Runs `work`; closes, unless its answer says a mention wasn't delivered:
 /// then the reply has gone, and the dialog says who missed it.
-fn act(s: &mut State, work: impl FnOnce(&Window) -> Result<Vec<MentionOutcome>, String> + Send + 'static) {
+fn act(
+    s: &mut State,
+    work: impl FnOnce(&Window) -> Result<Vec<MentionOutcome>, String> + Send + 'static,
+) {
     let m = &mut s.inbox.message;
     if m.busy {
         return;
@@ -62,7 +65,9 @@ fn reply_opts(from: &str, stop: bool, busy: bool) -> ComposerOpts {
     ComposerOpts {
         placeholder: format!("Reply to {from}"),
         label: format!("Your reply to {from}"),
-        on_send: Some(Rc::new(move |s: &mut State, m: Sent| send_reply(s, m, stop))),
+        on_send: Some(Rc::new(move |s: &mut State, m: Sent| {
+            send_reply(s, m, stop)
+        })),
         rows: Some((2, 8)),
         popup_below: true,
         disabled: busy,
@@ -89,7 +94,9 @@ fn send_reply(s: &mut State, m: Sent, stop: bool) {
         // Stop and read (card #207): the sender's running turn is cut and
         // the reply is its next prompt. Text only, as talk.replyStop sent
         // it: mentions and files go with Reply.
-        act(s, move |w| w.inbox_reply_mode(&id, &m.text, &[], &[], mode::STOP));
+        act(s, move |w| {
+            w.inbox_reply_mode(&id, &m.text, &[], &[], mode::STOP)
+        });
     } else {
         let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
         act(s, move |w| w.inbox_reply_files(&id, &m.text, &ms, &m.files));
@@ -115,18 +122,29 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         if let Some(e) = &load_error {
             body = body.child(line(k, "inbox-msg-error", e, true));
         }
-        KitDialog::new("inbox-msg", if load_error.is_some() { "Couldn't open the message" } else { "Opening the message…" })
-            .open(true)
-            .width(512.0)
-            .fit()
-            .child(body)
-            .on_close(|s: &mut State| s.close_dialog())
-            .build(k, f.layer);
+        KitDialog::new(
+            "inbox-msg",
+            if load_error.is_some() {
+                "Couldn't open the message"
+            } else {
+                "Opening the message…"
+            },
+        )
+        .open(true)
+        .width(512.0)
+        .fit()
+        .child(body)
+        .on_close(|s: &mut State| s.close_dialog())
+        .build(k, f.layer);
         return;
     };
     let from = {
         let p = plain_line(&d.message.from.name);
-        if p.is_empty() { names.name(&d.message.from.key) } else { p }
+        if p.is_empty() {
+            names.name(&d.message.from.key)
+        } else {
+            p
+        }
     };
     let to = if d.to.starts_with("user:") {
         "you".to_string()
@@ -134,7 +152,11 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         names.name(&d.to)
     } else {
         let r = plain_line(&repos.name(&d.repo_key));
-        if d.repo_key.is_empty() || r.is_empty() { "a repo".into() } else { r }
+        if d.repo_key.is_empty() || r.is_empty() {
+            "a repo".into()
+        } else {
+            r
+        }
     };
     let held = d.state == st::HELD;
     let for_you = d.to.starts_with("user:") && notify::message_open(d);
@@ -161,7 +183,14 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         .pb(16.0)
         .gap(10.0)
         .mt(-8.0)
-        .child(text(desc).key("inbox-msg-desc").font(k.ty.ui).color(k.c.text_muted).w_full().wrap());
+        .child(
+            text(desc)
+                .key("inbox-msg-desc")
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     // An agent's message whose recipient had ended came to the person
     // instead; a reply goes to its sender.
     if d.for_.starts_with("recipient gone") {
@@ -171,8 +200,19 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
                 .w_full()
                 .gap(6.0)
                 .center_y()
-                .child(tone_badge(k, "inbox-msg-gone-badge", "Recipient gone", Tone::Warning))
-                .child(text(plain_line(&d.for_)).font(k.ty.small).color(k.c.text_muted).shrink().wrap()),
+                .child(tone_badge(
+                    k,
+                    "inbox-msg-gone-badge",
+                    "Recipient gone",
+                    Tone::Warning,
+                ))
+                .child(
+                    text(plain_line(&d.for_))
+                        .font(k.ty.small)
+                        .color(k.c.text_muted)
+                        .shrink()
+                        .wrap(),
+                ),
         );
     }
     body = body.child(
@@ -194,16 +234,28 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
                     .px(12.0)
                     .py(10.0),
             )
-            .scroll(ScrollSpec { stick_bottom: false }),
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            }),
     );
     let mut over = Vec::new();
     if for_you && m.missed.is_empty() {
         let mut o = reply_opts(&from, false, m.busy);
-        o.mic = Some(crate::call::mic_button(s, f, "inbox-msg-reply", |s: &mut State| {
-            &mut s.inbox.message.reply.edit
-        }));
+        o.mic = Some(crate::call::mic_button(
+            s,
+            f,
+            "inbox-msg-reply",
+            |s: &mut State| &mut s.inbox.message.reply.edit,
+        ));
         let n = f.layer.len();
-        body = body.child(txt::composer(s, f, "inbox-msg-reply", reply_box, reply_box_mut, &o));
+        body = body.child(txt::composer(
+            s,
+            f,
+            "inbox-msg-reply",
+            reply_box,
+            reply_box_mut,
+            &o,
+        ));
         // The pickers go above the dialog: an overlay finds its anchor
         // only in what was laid out before it.
         over = f.layer.drain(n..).collect();
@@ -215,24 +267,50 @@ pub fn dialog(s: &State, f: &mut Frame, id: &str) {
         body = body.child(line(k, "inbox-msg-error", e, true));
     }
     if (held || for_you) && m.missed.is_empty() {
-        let mut foot = row().key("inbox-msg-foot").w_full().gap(8.0).center_y().child(el().grow(1.0));
+        let mut foot = row()
+            .key("inbox-msg-foot")
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(el().grow(1.0));
         if held {
             let (i1, i2) = (m.id.clone(), m.id.clone());
             foot = foot
-                .child(button(k, "inbox-msg-dismiss", "Dismiss", ButtonVariant::Outline, m.busy, move |s: &mut State| {
-                    let i = i1.clone();
-                    act(s, move |w| w.inbox_dismiss(&i).map(|_| Vec::new()));
-                }))
-                .child(button(k, "inbox-msg-release", "Release", ButtonVariant::Submit, m.busy, move |s: &mut State| {
-                    let i = i2.clone();
-                    act(s, move |w| w.inbox_release(&i).map(|_| Vec::new()));
-                }));
+                .child(button(
+                    k,
+                    "inbox-msg-dismiss",
+                    "Dismiss",
+                    ButtonVariant::Outline,
+                    m.busy,
+                    move |s: &mut State| {
+                        let i = i1.clone();
+                        act(s, move |w| w.inbox_dismiss(&i).map(|_| Vec::new()));
+                    },
+                ))
+                .child(button(
+                    k,
+                    "inbox-msg-release",
+                    "Release",
+                    ButtonVariant::Submit,
+                    m.busy,
+                    move |s: &mut State| {
+                        let i = i2.clone();
+                        act(s, move |w| w.inbox_release(&i).map(|_| Vec::new()));
+                    },
+                ));
         } else {
             let i1 = m.id.clone();
-            foot = foot.child(button(k, "inbox-msg-read", "Mark read", ButtonVariant::Outline, m.busy, move |s: &mut State| {
-                let i = i1.clone();
-                act(s, move |w| w.inbox_mark_read(&i).map(|_| Vec::new()));
-            }));
+            foot = foot.child(button(
+                k,
+                "inbox-msg-read",
+                "Mark read",
+                ButtonVariant::Outline,
+                m.busy,
+                move |s: &mut State| {
+                    let i = i1.clone();
+                    act(s, move |w| w.inbox_mark_read(&i).map(|_| Vec::new()));
+                },
+            ));
             if !d.message.from.key.starts_with("user:") {
                 foot = foot.child(
                     button(k, "inbox-msg-stop", "Stop and read", ButtonVariant::Outline, m.busy, |s: &mut State| reply(s, true))

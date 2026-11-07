@@ -1,14 +1,18 @@
 //! The space switcher (space-switcher.tsx, card #393): at the top of the
-//! sidebar, it picks the space Home, Talk and Spaces show. All spaces is
+//! sidebar, it picks the space Home, Talk and Boards show. All spaces is
 //! everything, Needs you across all of it; Personal is you and your
-//! agents; then each shared space, "with" whoever is in it.
+//! agents; then each shared space, "with" whoever is in it. It is the one
+//! place for spaces (card #689, which dropped the Spaces tab; Boards shows
+//! only the picked space's): at its foot, Space settings for a shared pick
+//! (its page: its boards, people, invites and settings) and New or join a
+//! space.
 
 use rune::{El, el, icon, row, text};
 use rune_kit::{Menu, MenuItem, Placement};
 
 use super::logic::{self, ALL_SPACES, PERSONAL, Space, plain_line};
 use super::{current, pick};
-use crate::ui::{Frame, State, icons};
+use crate::ui::{Frame, Route, State, icons};
 
 /// A space's mark: a layers icon for All spaces, a person for Personal,
 /// else the space's initial.
@@ -16,8 +20,12 @@ fn mark(f: &Frame, s: &Space) -> El {
     let k = f.k;
     let base = el().size(20.0, 20.0).radius(4.0).center();
     match s.id.as_str() {
-        ALL_SPACES => base.fill(k.c.layer_03).child(icon(&icons::SPACES, 12.0).color(k.c.text_muted)),
-        PERSONAL => base.fill(k.c.layer_03).child(icon(&icons::USER, 12.0).color(k.c.text_muted)),
+        ALL_SPACES => base
+            .fill(k.c.layer_03)
+            .child(icon(&icons::SPACES, 12.0).color(k.c.text_muted)),
+        PERSONAL => base
+            .fill(k.c.layer_03)
+            .child(icon(&icons::USER, 12.0).color(k.c.text_muted)),
         _ => base.fill(k.alpha(k.c.text_accent, 0.2)).child(
             text(
                 plain_line(&s.name)
@@ -41,7 +49,11 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
     let k = f.k;
     let spaces = logic::spaces_of(&s.data.spaces);
     let picked = current(s);
-    let cur = spaces.iter().find(|x| x.id == picked).unwrap_or(&spaces[0]).clone();
+    let cur = spaces
+        .iter()
+        .find(|x| x.id == picked)
+        .unwrap_or(&spaces[0])
+        .clone();
     let others: Vec<String> = cur.others.iter().map(|o| plain_line(o)).collect();
     let line = logic::with_line(&others);
     let mut trigger = row()
@@ -51,7 +63,7 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
         .help(if folded {
             format!("Space: {}", plain_line(&cur.name))
         } else {
-            "Pick the space Home, Talk and Spaces show".to_string()
+            "Pick the space Home, Talk and Boards show, or make or join one".to_string()
         })
         .focusable(true)
         .w_full()
@@ -119,5 +131,34 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
         }
         menu = menu.item(item);
     }
+    menu = menu.separator();
+    if cur.id != ALL_SPACES && cur.id != PERSONAL {
+        let id = cur.id.clone();
+        menu = menu.item(
+            MenuItem::new("Space settings")
+                .lead(foot_icon(f, &icons::SETTINGS))
+                .on_select(move |s: &mut State| {
+                    s.spaces.switcher_open = false;
+                    s.close_card();
+                    s.go(Route::Board {
+                        space: id.clone(),
+                        board: None,
+                    });
+                }),
+        );
+    }
+    menu = menu.item(
+        MenuItem::new("New or join a space")
+            .lead(foot_icon(f, &icons::PLUS))
+            .on_select(super::open_new_space),
+    );
     menu.build(k, f.layer)
+}
+
+/// A foot item's icon in a mark-sized box, so its words line up with the
+/// spaces' names.
+fn foot_icon(f: &Frame, ic: &'static rune::Icon) -> El {
+    el().size(20.0, 20.0)
+        .center()
+        .child(icon(ic, 14.0).color(f.k.c.text_muted))
 }

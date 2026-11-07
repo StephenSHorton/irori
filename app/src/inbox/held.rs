@@ -18,11 +18,19 @@ use crate::ui::{Dialog, Frame, State};
 
 fn sender(d: &Delivery, names: &Names) -> String {
     let n = plain_line(&d.message.from.name);
-    if n.is_empty() { names.name(&d.message.from.key) } else { n }
+    if n.is_empty() {
+        names.name(&d.message.from.key)
+    } else {
+        n
+    }
 }
 
 /// Runs an action on one held message, then reads the list again.
-fn act(s: &mut State, id: &str, work: impl FnOnce(&Window) -> Result<String, String> + Send + 'static) {
+fn act(
+    s: &mut State,
+    id: &str,
+    work: impl FnOnce(&Window) -> Result<String, String> + Send + 'static,
+) {
     let h = &mut s.inbox.held;
     if !h.busy.is_empty() {
         return;
@@ -79,10 +87,21 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
             _ => label.to_string(),
         };
         Button::new(label.clone())
-            .variant(if on { ButtonVariant::Submit } else { ButtonVariant::Ghost })
+            .variant(if on {
+                ButtonVariant::Submit
+            } else {
+                ButtonVariant::Ghost
+            })
             .on_press(move |s: &mut State| s.inbox.held.tab = t)
             .build(k)
-            .key(format!("inbox-held-tab-{}", if t == HeldTab::Waiting { "waiting" } else { "history" }))
+            .key(format!(
+                "inbox-held-tab-{}",
+                if t == HeldTab::Waiting {
+                    "waiting"
+                } else {
+                    "history"
+                }
+            ))
             .checked(on)
     };
     let mut bar = row()
@@ -117,7 +136,15 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
         .color(k.c.text_muted)
         .w_full()
         .wrap();
-    let mut body = col().key("inbox-held-body").w_full().px(16.0).pb(16.0).gap(10.0).mt(-8.0).child(desc).child(bar);
+    let mut body = col()
+        .key("inbox-held-body")
+        .w_full()
+        .px(16.0)
+        .pb(16.0)
+        .gap(10.0)
+        .mt(-8.0)
+        .child(desc)
+        .child(bar);
     if !h.loaded {
         body = body.child(line(k, "inbox-held-loading", "Loading…", false));
     } else if shown.is_empty() {
@@ -133,7 +160,11 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
         let mut list = col()
             .key("inbox-held-list")
             .role("list")
-            .label(if h.tab == HeldTab::Waiting { "Waiting on you" } else { "Decided" })
+            .label(if h.tab == HeldTab::Waiting {
+                "Waiting on you"
+            } else {
+                "Decided"
+            })
             .w_full();
         let last = shown.len() - 1;
         for (i, d) in shown.iter().enumerate() {
@@ -146,7 +177,9 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
                 .max_h(440.0)
                 .min_h(0.0)
                 .child(list)
-                .scroll(ScrollSpec { stick_bottom: false }),
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                }),
         );
     }
     if !h.said.is_empty() && h.act_error.is_none() {
@@ -164,7 +197,15 @@ pub fn dialog(s: &State, f: &mut Frame, from: Option<&str>) {
         .build(k, f.layer);
 }
 
-fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, now: i64, last: bool) -> El {
+fn held_row(
+    s: &State,
+    f: &Frame,
+    d: &Delivery,
+    names: &Names,
+    repos: &Repos,
+    now: i64,
+    last: bool,
+) -> El {
     let k = f.k;
     let id = d.id.clone();
     let h = &s.inbox.held;
@@ -178,11 +219,19 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
         names.name(&d.to)
     } else {
         let r = plain_line(&repos.name(&d.repo_key));
-        if d.repo_key.is_empty() || r.is_empty() { "a repo".into() } else { r }
+        if d.repo_key.is_empty() || r.is_empty() {
+            "a repo".into()
+        } else {
+            r
+        }
     };
     let unowned = d.hold == hold::UNOWNED && d.to.is_empty();
     let mine = d.message.from.key.starts_with("user:");
-    let where_ = if d.repo_key.is_empty() { "its repo".to_string() } else { plain_line(&repos.name(&d.repo_key)) };
+    let where_ = if d.repo_key.is_empty() {
+        "its repo".to_string()
+    } else {
+        plain_line(&repos.name(&d.repo_key))
+    };
     let r = d.message.ref_.clone();
 
     let mut head = row()
@@ -192,7 +241,13 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
         .flex_wrap()
         .child(text(from.clone()).font(k.ty.ui_medium).color(k.c.text_base))
         .child(text("->").font(k.ty.ui).color(k.c.text_muted).a11y_hidden())
-        .child(text(to).font(k.ty.ui_medium).color(k.c.text_base).wrap_anywhere().shrink());
+        .child(
+            text(to)
+                .font(k.ty.ui_medium)
+                .color(k.c.text_base)
+                .wrap_anywhere()
+                .shrink(),
+        );
     if r.starts_with("task:") {
         let card = r.trim_start_matches("task:").to_string();
         head = head.child(
@@ -222,7 +277,13 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
         .gap(4.0)
         .py(10.0)
         .child(head)
-        .child(text(plain_line(&words::hold_text(d, names, repos))).font(k.ty.small).color(k.c.text_muted).w_full().wrap())
+        .child(
+            text(plain_line(&words::hold_text(d, names, repos)))
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        )
         .child(
             text(words::plain_block(&d.message.text))
                 .font(k.ty.ui)
@@ -241,12 +302,18 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
                 list.push(small_button(
                     k,
                     format!("inbox-held-start-{id}"),
-                    if busy { "Working…".to_string() } else { format!("Start an agent in {where_}") },
+                    if busy {
+                        "Working…".to_string()
+                    } else {
+                        format!("Start an agent in {where_}")
+                    },
                     ButtonVariant::Submit,
                     disabled,
                     move |s: &mut State| {
                         let i2 = i.clone();
-                        act(s, &i, move |w| w.inbox_start_agent(&i2).map(|r| words::started_line(&r)));
+                        act(s, &i, move |w| {
+                            w.inbox_start_agent(&i2).map(|r| words::started_line(&r))
+                        });
                     },
                 ));
             }
@@ -265,26 +332,49 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
             ));
         }
         let i = id.clone();
-        list.push(small_button(k, format!("inbox-held-dismiss-{id}"), "Dismiss", ButtonVariant::Outline, disabled, move |s: &mut State| {
-            let i2 = i.clone();
-            act(s, &i, move |w| w.inbox_dismiss(&i2).map(|_| String::new()));
-        }));
+        list.push(small_button(
+            k,
+            format!("inbox-held-dismiss-{id}"),
+            "Dismiss",
+            ButtonVariant::Outline,
+            disabled,
+            move |s: &mut State| {
+                let i2 = i.clone();
+                act(s, &i, move |w| w.inbox_dismiss(&i2).map(|_| String::new()));
+            },
+        ));
         if words::allow_lifts(d) {
             let i = id.clone();
             list.push(
-                small_button(k, format!("inbox-held-allow-{id}"), "Allow sender & deliver", ButtonVariant::Ghost, disabled, move |s: &mut State| {
-                    let i2 = i.clone();
-                    act(s, &i, move |w| w.inbox_allow_and_release(&i2).map(|_| String::new()));
-                })
-                .help(format!("Adds {from} to your allow list, then delivers this")),
+                small_button(
+                    k,
+                    format!("inbox-held-allow-{id}"),
+                    "Allow sender & deliver",
+                    ButtonVariant::Ghost,
+                    disabled,
+                    move |s: &mut State| {
+                        let i2 = i.clone();
+                        act(s, &i, move |w| {
+                            w.inbox_allow_and_release(&i2).map(|_| String::new())
+                        });
+                    },
+                )
+                .help(format!(
+                    "Adds {from} to your allow list, then delivers this"
+                )),
             );
         }
         row_ = row_.child(buttons(format!("inbox-held-acts-{id}"), list).pt(2.0));
     } else {
-        let at = if d.decided_at.is_zero() { &d.updated_at } else { &d.decided_at };
+        let at = if d.decided_at.is_zero() {
+            &d.updated_at
+        } else {
+            &d.decided_at
+        };
         // Moved straight out of Held (to another agent): its last row is
         // the decision, so nothing was released.
-        let moved_held = d.state == st::MOVED && at.unix_milli_value() == d.updated_at.unix_milli_value();
+        let moved_held =
+            d.state == st::MOVED && at.unix_milli_value() == d.updated_at.unix_milli_value();
         let by = if d.decided_by == SYSTEM_KEY {
             "Irori".to_string()
         } else if !d.decided_by.is_empty() {
@@ -320,7 +410,16 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
             .gap(6.0)
             .center_y()
             .pt(2.0)
-            .child(tone_badge(k, format!("inbox-held-badge-{id}"), badge, if dismissed { Tone::Secondary } else { Tone::Success }))
+            .child(tone_badge(
+                k,
+                format!("inbox-held-badge-{id}"),
+                badge,
+                if dismissed {
+                    Tone::Secondary
+                } else {
+                    Tone::Success
+                },
+            ))
             .child(text(said).font(k.ty.small).color(k.c.text_muted).shrink());
         if dismissed {
             let i = id.clone();
@@ -341,6 +440,9 @@ fn held_row(s: &State, f: &Frame, d: &Delivery, names: &Names, repos: &Repos, no
     if last {
         row_
     } else {
-        col().w_full().child(row_).child(el().w_full().h(1.0).fill(k.c.border_muted))
+        col()
+            .w_full()
+            .child(row_)
+            .child(el().w_full().h(1.0).fill(k.c.border_muted))
     }
 }

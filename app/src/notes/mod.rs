@@ -130,7 +130,11 @@ fn who(s: &State, key: &str) -> String {
     if let Some(id) = key.strip_prefix("person:") {
         for b in &s.data.spaces {
             if let Some(m) = b.members.iter().find(|m| m.person_id == id) {
-                return if m.me { "You".into() } else { plain_line(&m.name) };
+                return if m.me {
+                    "You".into()
+                } else {
+                    plain_line(&m.name)
+                };
             }
         }
         return "a member".into();
@@ -165,7 +169,9 @@ fn kind_color(k: &Kit, kind: &str) -> Color {
 
 fn capital(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map_or(String::new(), |f| f.to_uppercase().collect::<String>() + c.as_str())
+    c.next().map_or(String::new(), |f| {
+        f.to_uppercase().collect::<String>() + c.as_str()
+    })
 }
 
 /// A note's kind, as a tinted badge.
@@ -176,7 +182,11 @@ fn kind_badge(k: &Kit, kind: &str) -> El {
         .radius(5.0)
         .center()
         .fill(k.alpha(c, 0.16))
-        .child(text(capital(kind)).font(TextStyle::new(10.0, 600.0)).color(c))
+        .child(
+            text(capital(kind))
+                .font(TextStyle::new(10.0, 600.0))
+                .color(c),
+        )
 }
 
 /// A tag's chip.
@@ -198,7 +208,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .gap(12.0)
         .center_y()
         .flex_wrap()
-        .child(text("Notes").font(TextStyle::new(18.0, 600.0)).color(k.c.text_base))
+        .child(
+            text("Notes")
+                .font(TextStyle::new(18.0, 600.0))
+                .color(k.c.text_base),
+        )
         .child(el().grow(1.0))
         .child(
             TextInput::new(&m.query)
@@ -257,30 +271,36 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         page = page.child(list(s, f));
     }
     form_dialog(s, f);
-    col()
-        .key("notes-page")
-        .w_full()
-        .h_full()
-        .min_h(0.0)
-        .child(
-            col()
-                .key("notes-scroll")
-                .w_full()
-                .grow(1.0)
-                .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
-                .child(page),
-        )
+    col().key("notes-page").w_full().h_full().min_h(0.0).child(
+        col()
+            .key("notes-scroll")
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .child(page),
+    )
 }
 
 /// The kind chips and the notes.
 fn list(s: &State, f: &Frame) -> El {
     let k = f.k;
     let m = &s.notes_page;
-    let mut chips = row().key("notes-kinds").gap(6.0).flex_wrap().role("group").label("Kind");
+    let mut chips = row()
+        .key("notes-kinds")
+        .gap(6.0)
+        .flex_wrap()
+        .role("group")
+        .label("Kind");
     for c in logic::kind_counts(&m.list) {
         let on = m.kind == c.kind;
-        let label = if c.kind == "all" { "All".to_string() } else { format!("{}s", capital(c.kind)) };
+        let label = if c.kind == "all" {
+            "All".to_string()
+        } else {
+            format!("{}s", capital(c.kind))
+        };
         let kind = c.kind;
         let mut chip = row()
             .key(format!("notes-kind-{kind}"))
@@ -294,9 +314,21 @@ fn list(s: &State, f: &Frame) -> El {
             .center_y()
             .radius(13.0)
             .on_press(move |s: &mut State| s.notes_page.kind = kind)
-            .child(text(label).font(t(12.0)).color(if on { k.c.text_base } else { k.c.text_muted }))
-            .child(text(c.count.to_string()).font(t(12.0)).color(k.c.text_muted));
-        chip = if on { chip.fill(k.c.layer_03) } else { chip.border(1.0, k.c.border_muted) };
+            .child(
+                text(label)
+                    .font(t(12.0))
+                    .color(if on { k.c.text_base } else { k.c.text_muted }),
+            )
+            .child(
+                text(c.count.to_string())
+                    .font(t(12.0))
+                    .color(k.c.text_muted),
+            );
+        chip = if on {
+            chip.fill(k.c.layer_03)
+        } else {
+            chip.border(1.0, k.c.border_muted)
+        };
         chips = chips.child(chip);
     }
     let shown = logic::shown(&m.list, m.kind, &m.query.text);
@@ -336,7 +368,13 @@ fn list(s: &State, f: &Frame) -> El {
         }
         l
     };
-    col().key("notes-section").w_full().gap(8.0).label("Your notes").child(chips).child(body)
+    col()
+        .key("notes-section")
+        .w_full()
+        .gap(8.0)
+        .label("Your notes")
+        .child(chips)
+        .child(body)
 }
 
 fn note_row(s: &State, f: &Frame, n: &NoteView) -> El {
@@ -395,10 +433,10 @@ fn note_row(s: &State, f: &Frame, n: &NoteView) -> El {
         .py(12.0)
         .child(top)
         .child(meta(s, f, n));
-    if let Some((id, e)) = &s.notes_page.row_error {
-        if *id == n.id {
-            c = c.child(text(e.clone()).font(t(12.0)).color(k.c.danger.icon).wrap());
-        }
+    if let Some((id, e)) = &s.notes_page.row_error
+        && *id == n.id
+    {
+        c = c.child(text(e.clone()).font(t(12.0)).color(k.c.danger.icon).wrap());
     }
     c
 }
@@ -434,7 +472,11 @@ fn meta(s: &State, f: &Frame, n: &NoteView) -> El {
         by = format!("{by} · kept by {}", who(s, &n.accepted_by));
     }
     let when = relative_time(n.updated.unix_milli_value(), now_ms());
-    r = r.child(text(format!("{by} · {when}")).font(t(11.0)).color(k.c.text_muted));
+    r = r.child(
+        text(format!("{by} · {when}"))
+            .font(t(11.0))
+            .color(k.c.text_muted),
+    );
     if !n.stale.is_empty() {
         let w = k.c.warning.icon;
         r = r.child(
@@ -443,7 +485,11 @@ fn meta(s: &State, f: &Frame, n: &NoteView) -> El {
                 .center_y()
                 .help("Irori found something it names has changed")
                 .child(icon(&icons::ALERT_TRIANGLE, 12.0).color(w))
-                .child(text(format!("Still true? {}", plain_line(&n.stale))).font(t(11.0)).color(w)),
+                .child(
+                    text(format!("Still true? {}", plain_line(&n.stale)))
+                        .font(t(11.0))
+                        .color(w),
+                ),
         );
     }
     r
@@ -456,7 +502,9 @@ fn form_mut(s: &mut State) -> &mut NoteForm {
 }
 
 fn submit(s: &mut State) {
-    let Some(fm) = s.notes_page.form.as_mut() else { return };
+    let Some(fm) = s.notes_page.form.as_mut() else {
+        return;
+    };
     if fm.busy {
         return;
     }
@@ -468,7 +516,11 @@ fn submit(s: &mut State) {
     }
     fm.busy = true;
     fm.error.clear();
-    let (kind, body, tags) = (fm.kind.clone(), fm.text.text.trim().to_string(), logic::clean_tags(&tags).0);
+    let (kind, body, tags) = (
+        fm.kind.clone(),
+        fm.text.text.trim().to_string(),
+        logic::clean_tags(&tags).0,
+    );
     let editing = fm.editing.clone();
     s.spawn(
         move |w| match editing {
@@ -482,7 +534,13 @@ fn submit(s: &mut State) {
                     },
                 )
                 .map(|_| ()),
-            None => w.note_new(NoteInput { kind, text: body, tags }).map(|_| ()),
+            None => w
+                .note_new(NoteInput {
+                    kind,
+                    text: body,
+                    tags,
+                })
+                .map(|_| ()),
         },
         |s, r| match r {
             Ok(()) => {
@@ -527,7 +585,12 @@ fn form_dialog(s: &State, f: &mut Frame) {
         })
         .build(k, f.layer);
     let over: Vec<El> = f.layer.drain(n..).collect();
-    let label = |s: &str| text(s.to_string()).font(t(12.5)).color(k.c.text_base).w(80.0);
+    let label = |s: &str| {
+        text(s.to_string())
+            .font(t(12.5))
+            .color(k.c.text_base)
+            .w(80.0)
+    };
     let mut applies = col()
         .grow(1.0)
         .min_w(0.0)
@@ -595,7 +658,13 @@ fn form_dialog(s: &State, f: &mut Frame) {
         .child(row().w_full().gap(12.0).center_y().child(label("Kind")).child(kind_sel))
         .child(row().w_full().gap(12.0).items_start().child(label("Applies to").pt(4.0)).child(applies));
     if !fm.error.is_empty() {
-        body = body.child(text(fm.error.clone()).font(t(12.0)).color(k.c.danger.icon).w_full().wrap());
+        body = body.child(
+            text(fm.error.clone())
+                .font(t(12.0))
+                .color(k.c.danger.icon)
+                .w_full()
+                .wrap(),
+        );
     }
     let busy = fm.busy;
     body = body.child(

@@ -157,7 +157,11 @@ pub fn load(s: &mut State) {
 /// The items the page shows now (the filter, the kept ones).
 pub fn items(m: &Model) -> Vec<&Notification> {
     match m.filter {
-        Filter::Unread => m.list.iter().filter(|n| !n.read || m.kept.contains(&n.key)).collect(),
+        Filter::Unread => m
+            .list
+            .iter()
+            .filter(|n| !n.read || m.kept.contains(&n.key))
+            .collect(),
         Filter::All => notify::shown(&m.list, Filter::All),
     }
 }
@@ -188,8 +192,20 @@ pub fn load_live(s: &mut State) {
     }
     s.spawn(
         move |w| {
-            let c: Vec<_> = cards.into_iter().map(|id| { let r = w.card(&id); (id, r) }).collect();
-            let d: Vec<_> = deliveries.into_iter().map(|id| { let r = w.inbox_get(&id); (id, r) }).collect();
+            let c: Vec<_> = cards
+                .into_iter()
+                .map(|id| {
+                    let r = w.card(&id);
+                    (id, r)
+                })
+                .collect();
+            let d: Vec<_> = deliveries
+                .into_iter()
+                .map(|id| {
+                    let r = w.inbox_get(&id);
+                    (id, r)
+                })
+                .collect();
             (c, d)
         },
         |s, (c, d)| {
@@ -202,7 +218,13 @@ pub fn load_live(s: &mut State) {
 /// Re-reads the Held list and its History, and the repo names.
 pub fn load_held(s: &mut State) {
     s.spawn(
-        |w| (w.inbox_held(), w.inbox_held_history(HELD_HISTORY), w.inbox_repo_names()),
+        |w| {
+            (
+                w.inbox_held(),
+                w.inbox_held_history(HELD_HISTORY),
+                w.inbox_repo_names(),
+            )
+        },
         |s, (mut list, history, repos)| {
             list.sort_by_key(|d| std::cmp::Reverse(d.created_at.unix_milli_value()));
             let h = &mut s.inbox.held;
@@ -304,7 +326,9 @@ pub fn scene(s: &mut State) {
             ..Message::default()
         };
         // Set directly: opening it the usual way would read it back.
-        s.dialog = Some(Dialog::Message { id: "scene-msg".into() });
+        s.dialog = Some(Dialog::Message {
+            id: "scene-msg".into(),
+        });
     }
     // IRORI_SCENE_REPLY=1: a stand-in message item at the top, with its
     // Reply…, Mark read and Open (inbox-reply-msg:scene opens the box).
@@ -318,7 +342,9 @@ pub fn scene(s: &mut State) {
             at: irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000),
             ..Notification::default()
         };
-        s.inbox.deliveries.insert(n.delivery_id.clone(), Ok(scene_delivery("scene-reply")));
+        s.inbox
+            .deliveries
+            .insert(n.delivery_id.clone(), Ok(scene_delivery("scene-reply")));
         s.inbox.list.insert(0, n.clone());
         s.inbox.scene_items = vec![n];
     }
@@ -339,7 +365,8 @@ fn scene_delivery(id: &str) -> Delivery {
     d.message.from.name = "oak".into();
     // Sent two minutes ago.
     d.message.sent_at = irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000);
-    d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+    d.message.text =
+        "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
     d
 }
 
@@ -356,7 +383,13 @@ pub fn held_scene(s: &mut State) {
     if std::env::var("IRORI_SCENE_HELD").is_ok_and(|v| !v.is_empty()) {
         use irori_window::rune_inbox::{GoTime, hold, st};
         let now = words::now_ms();
-        let d = |id: &str, from: (&str, &str), to: &str, state: &str, why: &str, text: &str, ago_min: i64| {
+        let d = |id: &str,
+                 from: (&str, &str),
+                 to: &str,
+                 state: &str,
+                 why: &str,
+                 text: &str,
+                 ago_min: i64| {
             let mut d = scene_delivery(id);
             d.message.from.key = from.0.into();
             d.message.from.name = from.1.into();
@@ -369,20 +402,60 @@ pub fn held_scene(s: &mut State) {
             d.hold = why.into();
             d
         };
-        let mut unowned = d("scene-h3", ("user:you", "You"), "", st::HELD, hold::UNOWNED, "Can someone look at the flaky lobby test?", 30);
+        let mut unowned = d(
+            "scene-h3",
+            ("user:you", "You"),
+            "",
+            st::HELD,
+            hold::UNOWNED,
+            "Can someone look at the flaky lobby test?",
+            30,
+        );
         unowned.repo_key = "github.com/stephenshorton/irori".into();
-        let mut released = d("scene-h4", ("scene/oak", "oak"), "user:you", st::DELIVERED, hold::PAUSED, "Done with #12; the PR is up.", 120);
+        let mut released = d(
+            "scene-h4",
+            ("scene/oak", "oak"),
+            "user:you",
+            st::DELIVERED,
+            hold::PAUSED,
+            "Done with #12; the PR is up.",
+            120,
+        );
         released.decided_by = "user:you".into();
         released.decided_at = GoTime::unix_milli(now - 100 * 60_000);
-        let mut dismissed = d("scene-h5", ("scene/elm", "elm"), "user:you", st::DISMISSED, hold::NOT_ALLOWED, "Ping from elm.", 300);
+        let mut dismissed = d(
+            "scene-h5",
+            ("scene/elm", "elm"),
+            "user:you",
+            st::DISMISSED,
+            hold::NOT_ALLOWED,
+            "Ping from elm.",
+            300,
+        );
         dismissed.decided_by = "user:you".into();
         dismissed.decided_at = GoTime::unix_milli(now - 280 * 60_000);
         let h = &mut s.inbox.held;
         h.scene = true;
         h.loaded = true;
         h.list = vec![
-            d("scene-h1", ("scene/oak", "oak"), "user:you", st::HELD, hold::PAUSED, "The merge desk is clear. Shall I take #12 next?", 5),
-            d("scene-h2", ("scene/elm", "elm"), "user:you", st::HELD, hold::NOT_ALLOWED, "Can you check my branch?", 12),
+            d(
+                "scene-h1",
+                ("scene/oak", "oak"),
+                "user:you",
+                st::HELD,
+                hold::PAUSED,
+                "The merge desk is clear. Shall I take #12 next?",
+                5,
+            ),
+            d(
+                "scene-h2",
+                ("scene/elm", "elm"),
+                "user:you",
+                st::HELD,
+                hold::NOT_ALLOWED,
+                "Can you check my branch?",
+                12,
+            ),
             unowned,
         ];
         h.history = vec![released, dismissed];

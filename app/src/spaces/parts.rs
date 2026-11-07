@@ -1,5 +1,6 @@
-//! The pieces of the Spaces pages (parts.tsx): New space (make one, or
-//! join with an invite), an open invite either side (`InvitePanel`,
+//! The pieces of the spaces' pages (parts.tsx): New or join a space (make
+//! one, or join with an invite), Boards with All spaces picked
+//! (`PickSpace`), an open invite either side (`InvitePanel`,
 //! `SendLink`, `Fingerprints`, `TypeInviteWords`, `ReadInviteWords`), how
 //! an invite works, and Space settings (`BoardInvite`, `SpaceAgentSwitch`,
 //! `BoardSettingsPanel`, `Reviewers`); settings/space-agents.tsx's
@@ -7,31 +8,40 @@
 
 use rune::{El, ScrollSpec, Tx, col, el, icon, row, text};
 use rune_kit::{
-    Button, ButtonVariant, Checkbox, Dialog, Select, SelectAppearance, Switch,
-    TextInput,
+    Button, ButtonVariant, Checkbox, Dialog, Select, SelectAppearance, Switch, TextInput,
 };
 
 use irori_window::Window;
 use irori_window::agents::AgentsChange;
 use irori_window::boards::{BoardSettings, BoardSummary};
-use irori_window::invites::{INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS, InviteStatus};
+use irori_window::invites::{
+    INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS, InviteStatus,
+};
 
 use super::logic::{self, MAX_BOARD_TAG, plain_line};
 use super::page::{clamp, lower};
 use super::ui::{self as u, t12, t13};
 use super::{MemberAsk, NewSpace, NewTab, Settings};
-use crate::ui::{Frame, State, icons};
+use crate::ui::{Frame, Route, State, icons};
 
-// ---- New space ---------------------------------------------------------------
+// ---- New or join a space -----------------------------------------------------
 
-/// New space (card #126): make a space, or join one with an invite, as two
-/// tabs. Joining closes it; the invite then runs over the Spaces list. One
-/// invite at a time: Join is offered only while none is open.
+/// New or join a space (card #126), opened from the sidebar's space picker
+/// or the palette (card #689): make a space, or join one with an invite
+/// someone sent, as two tabs. A space you make opens on its own page,
+/// where you invite people. While an invite is open, either side, it shows
+/// over the tabs and Join goes (one invite at a time), so the joiner reads
+/// their five words here and Make a space still works. Closing the dialog
+/// leaves the invite running; opening it again shows it.
 pub fn new_space_dialog(s: &State, f: &mut Frame) {
     let Some(n) = &s.spaces.new_space else { return };
     let k = f.k;
-    let join = s.spaces.invite.as_ref().is_none_or(|i| i.state.is_empty());
-    let tab = if join { n.tab } else { NewTab::Make };
+    let invite = s.spaces.invite.as_ref().filter(|i| !i.state.is_empty());
+    let tab = if invite.is_some() {
+        NewTab::Make
+    } else {
+        n.tab
+    };
     let (title, desc) = match tab {
         NewTab::Make => (
             "New space",
@@ -39,13 +49,39 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
         ),
         NewTab::Join => ("Join a space", "Paste the invite link someone sent you."),
     };
-    let mut body = col().key("spaces-new-body").w_full().gap(12.0).px(16.0).pb(16.0);
-    if join {
-        let mut tabs = row().key("spaces-new-tabs").gap(4.0).role("tablist").label("New space or join one");
-        for (t, label) in [(NewTab::Make, "Make a space"), (NewTab::Join, "Join with an invite")] {
+    let mut body = col()
+        .key("spaces-new-body")
+        .w_full()
+        .gap(12.0)
+        .px(16.0)
+        .pb(16.0);
+    if let Some(inv) = invite {
+        body = body.child(
+            col()
+                .key("spaces-new-invite")
+                .w_full()
+                .padding(12.0)
+                .radius(8.0)
+                .border(1.0, k.c.border_muted)
+                .child(invite_panel(s, f, inv)),
+        );
+    } else {
+        let mut tabs = row()
+            .key("spaces-new-tabs")
+            .gap(4.0)
+            .role("tablist")
+            .label("New space or join one");
+        for (t, label) in [
+            (NewTab::Make, "Make a space"),
+            (NewTab::Join, "Join with an invite"),
+        ] {
             tabs = tabs.child(
                 Button::new(label)
-                    .variant(if tab == t { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+                    .variant(if tab == t {
+                        ButtonVariant::Neutral
+                    } else {
+                        ButtonVariant::Ghost
+                    })
                     .on_press(move |s: &mut State| {
                         if let Some(n) = s.spaces.new_space.as_mut() {
                             n.tab = t;
@@ -58,7 +94,11 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
                         }
                     })
                     .build(k)
-                    .key(if t == NewTab::Make { "spaces-new-tab-make" } else { "spaces-new-tab-join" })
+                    .key(if t == NewTab::Make {
+                        "spaces-new-tab-make"
+                    } else {
+                        "spaces-new-tab-join"
+                    })
                     .role("tab")
                     .checked(tab == t),
             );
@@ -74,9 +114,85 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
         .width(512.0)
         .fit()
         .open(true)
-        .on_close(|s: &mut State| s.spaces.new_space = None)
+        .on_close(close_new_space)
         .child(body)
         .build(k, f.layer);
+}
+
+/// Closes New or join a space. An open invite goes on; opening the
+/// dialog again reads it afresh, not this one's last state.
+pub fn close_new_space(s: &mut State) {
+    s.spaces.new_space = None;
+    s.spaces.invite = None;
+    if s.dialog == Some(crate::ui::Dialog::NewSpace) {
+        s.close_dialog();
+    }
+}
+
+/// Boards with All spaces picked (card #689, parts.tsx `PickSpace`):
+/// boards are never shown across spaces, so it asks for one. A pick shows
+/// that space's boards (`pick` follows it there).
+pub fn pick_space(s: &State, f: &Frame) -> El {
+    let k = f.k;
+    let spaces = logic::spaces_of(&s.data.spaces);
+    let mut list = col().key("spaces-pick-list").w_full().gap(6.0);
+    for x in spaces.iter().filter(|x| x.id != logic::ALL_SPACES) {
+        let name = plain_line(&x.name);
+        let mut label = name.clone();
+        let mut spans = vec![rune::Span::new(0, name.len()).weight(500.0)];
+        let tail = if x.id == logic::PERSONAL {
+            "you and your agents".to_string()
+        } else {
+            let o: Vec<String> = x.others.iter().map(|o| plain_line(o)).collect();
+            logic::with_line(&o)
+        };
+        if !tail.is_empty() {
+            let at = label.len();
+            label.push_str(&format!(" · {tail}"));
+            spans.push(rune::Span::new(at, label.len()).color(k.c.text_muted));
+        }
+        let id = x.id.clone();
+        list = list.child(
+            k.interactive(
+                u::panel(k)
+                    .key(format!(
+                        "spaces-pick-{}",
+                        if x.id.is_empty() { "all" } else { &x.id }
+                    ))
+                    .role("button")
+                    .label(label.clone())
+                    .focusable(true)
+                    .w_full()
+                    .min_w(0.0)
+                    .px(12.0)
+                    .py(10.0)
+                    .cursor(rune::Cursor::Pointer)
+                    .on_press(move |s: &mut State| super::pick(s, &id))
+                    .child(
+                        rune::rich(label, spans)
+                            .font(rune::tok::TextStyle::new(14.0, 400.0))
+                            .color(k.c.text_base)
+                            .max_lines(1)
+                            .min_w(0.0),
+                    ),
+            ),
+        );
+    }
+    col()
+        .key("spaces-pick")
+        .w_full()
+        .max_w(576.0)
+        .gap(12.0)
+        .label("Pick a space")
+        .child(
+            u::line(
+                "Boards belong to a space. Pick one to see its boards.",
+                t13(k),
+                k.c.text_muted,
+            )
+            .px(4.0),
+        )
+        .child(list)
 }
 
 fn new_tag(s: &State, n: &NewSpace) -> (String, bool) {
@@ -93,7 +209,9 @@ fn make_space(s: &State, f: &Frame, n: &NewSpace) -> El {
         (format!("Another board is tagged {t} already."), true)
     } else if !t.is_empty() && !logic::valid_tag(&t) {
         (
-            format!("A tag is a lowercase letter, then letters, digits or '-' ({MAX_BOARD_TAG} at most)."),
+            format!(
+                "A tag is a lowercase letter, then letters, digits or '-' ({MAX_BOARD_TAG} at most)."
+            ),
             true,
         )
     } else {
@@ -113,7 +231,13 @@ fn make_space(s: &State, f: &Frame, n: &NewSpace) -> El {
                         .placeholder("Space name")
                         .label("New space's name")
                         .width(None)
-                        .on_edit(|s: &mut State| &mut s.spaces.new_space.get_or_insert_with(NewSpace::default).name)
+                        .on_edit(|s: &mut State| {
+                            &mut s
+                                .spaces
+                                .new_space
+                                .get_or_insert_with(NewSpace::default)
+                                .name
+                        })
                         .on_change(|s: &mut State, _| {
                             if let Some(n) = s.spaces.new_space.as_mut() {
                                 clamp(&mut n.name, logic::MAX_BOARD_NAME);
@@ -135,7 +259,9 @@ fn make_space(s: &State, f: &Frame, n: &NewSpace) -> El {
                         .label("Tag for its first board, the short name in card refs like tag#12")
                         .width(Some(96.0))
                         .text_style(t13(k).mono())
-                        .on_edit(|s: &mut State| &mut s.spaces.new_space.get_or_insert_with(NewSpace::default).tag)
+                        .on_edit(|s: &mut State| {
+                            &mut s.spaces.new_space.get_or_insert_with(NewSpace::default).tag
+                        })
                         .on_change(|s: &mut State, _| {
                             if let Some(n) = s.spaces.new_space.as_mut() {
                                 n.typed_tag = true;
@@ -154,7 +280,11 @@ fn make_space(s: &State, f: &Frame, n: &NewSpace) -> El {
                         .build(k),
                 ),
         )
-        .child(u::line(hint, t12(k), if warn { u::warning(k) } else { k.c.text_muted }));
+        .child(u::line(
+            hint,
+            t12(k),
+            if warn { u::warning(k) } else { k.c.text_muted },
+        ));
     if let Some(e) = &n.error {
         c = c.child(u::error_line(k, plain_line(e)));
     }
@@ -162,7 +292,9 @@ fn make_space(s: &State, f: &Frame, n: &NewSpace) -> El {
 }
 
 fn create_space(s: &mut State) {
-    let Some(n) = s.spaces.new_space.as_ref() else { return };
+    let Some(n) = s.spaces.new_space.as_ref() else {
+        return;
+    };
     let (t, clash) = new_tag(s, n);
     let name = n.name.text.clone();
     if n.busy || name.trim().is_empty() || !logic::valid_tag(&t) || clash {
@@ -173,11 +305,18 @@ fn create_space(s: &mut State) {
         n.error = None;
     }
     s.spawn(
-        move |w| w.boards_create(&name, &t),
+        move |w| w.boards_create(&name, &t).map(|b| (b, w.boards_list())),
         |s, r| match r {
-            Ok(_) => {
-                s.spaces.new_space = None;
-                super::reload_spaces(s);
+            Ok((made, list)) => {
+                // A space you make opens on its own page, where you invite
+                // people (the list first, so the pick follows the page).
+                s.data.spaces = list;
+                close_new_space(s);
+                s.close_card();
+                s.go(Route::Board {
+                    space: made.board_id,
+                    board: None,
+                });
             }
             Err(e) => {
                 if let Some(n) = s.spaces.new_space.as_mut() {
@@ -207,7 +346,13 @@ fn join_invite(f: &Frame, n: &NewSpace) -> El {
                         .label("The invite link someone sent you")
                         .width(None)
                         .text_style(t13(k).mono())
-                        .on_edit(|s: &mut State| &mut s.spaces.new_space.get_or_insert_with(NewSpace::default).link)
+                        .on_edit(|s: &mut State| {
+                            &mut s
+                                .spaces
+                                .new_space
+                                .get_or_insert_with(NewSpace::default)
+                                .link
+                        })
                         .on_submit(|s: &mut State, _| join_submit(s))
                         .build(k)
                         .key("spaces-join-link")
@@ -221,7 +366,10 @@ fn join_invite(f: &Frame, n: &NewSpace) -> El {
                         .build(k),
                 ),
         )
-        .child(u::muted(k, "Paste the link, then give whoever sent it the five words you'll see."));
+        .child(u::muted(
+            k,
+            "Paste the link, then give whoever sent it the five words you'll see.",
+        ));
     if let Some(e) = &n.error {
         c = c.child(u::error_line(k, plain_line(e)));
     }
@@ -229,7 +377,9 @@ fn join_invite(f: &Frame, n: &NewSpace) -> El {
 }
 
 fn join_submit(s: &mut State) {
-    let Some(n) = s.spaces.new_space.as_mut() else { return };
+    let Some(n) = s.spaces.new_space.as_mut() else {
+        return;
+    };
     let link = n.link.text.trim().to_string();
     if n.busy || link.is_empty() {
         return;
@@ -240,10 +390,16 @@ fn join_submit(s: &mut State) {
         move |w| w.boards_join_invite(&link),
         |s, r| match r {
             Ok(st) => {
+                // The invite shows in the dialog, over Make a space: the
+                // joiner reads their five words here.
                 s.spaces.invite = Some(st);
                 s.spaces.words.clear();
                 s.spaces.words_error = None;
-                s.spaces.new_space = None;
+                if let Some(n) = s.spaces.new_space.as_mut() {
+                    n.busy = false;
+                    n.link.clear();
+                    n.tab = NewTab::Make;
+                }
             }
             Err(e) => {
                 if let Some(n) = s.spaces.new_space.as_mut() {
@@ -281,7 +437,11 @@ pub fn invite_how(f: &Frame, reach: &str) -> El {
     row()
         .w_full()
         .gap(10.0)
-        .child(el().w(2.0).self_stretch().fill(k.alpha(k.c.text_accent, 0.6)))
+        .child(
+            el().w(2.0)
+                .self_stretch()
+                .fill(k.alpha(k.c.text_accent, 0.6)),
+        )
         .child(c)
 }
 
@@ -292,30 +452,44 @@ pub fn invite_panel(s: &State, f: &Frame, inv: &InviteStatus) -> El {
     let k = f.k;
     let open = inv.open();
     let host = inv.role == "host";
-    let board = Some(plain_line(&inv.board_name)).filter(|b| !b.is_empty()).unwrap_or("the space".into());
-    let peer = Some(plain_line(&inv.peer_name)).filter(|b| !b.is_empty()).unwrap_or("them".into());
+    let board = Some(plain_line(&inv.board_name))
+        .filter(|b| !b.is_empty())
+        .unwrap_or("the space".into());
+    let peer = Some(plain_line(&inv.peer_name))
+        .filter(|b| !b.is_empty())
+        .unwrap_or("them".into());
     let mut c = col()
         .key("spaces-invite-panel")
         .w_full()
         .gap(12.0)
         .label("Invite")
-        .child(
-            u::line(
-                if host { format!("Inviting someone to {board}") } else { format!("Joining {board}") },
-                rune::tok::TextStyle::new(13.0, 600.0),
-                k.c.text_base,
-            ),
-        );
+        .child(u::line(
+            if host {
+                format!("Inviting someone to {board}")
+            } else {
+                format!("Joining {board}")
+            },
+            rune::tok::TextStyle::new(13.0, 600.0),
+            k.c.text_base,
+        ));
     match inv.state.as_str() {
         INVITE_WAITING if host => c = c.child(send_link(s, f, inv)),
         INVITE_WORDS => {
             c = c.child(fingerprints(f, inv, &peer));
-            c = c.child(if host { type_words(s, f, inv, &peer) } else { read_words(f, inv, &peer) });
+            c = c.child(if host {
+                type_words(s, f, inv, &peer)
+            } else {
+                read_words(f, inv, &peer)
+            });
         }
         INVITE_JOINING => c = c.child(u::line("The words match. Joining…", t13(k), k.c.text_muted)),
         INVITE_DONE => {
             c = c.child(u::line(
-                if host { format!("{peer} joined {board}.") } else { format!("You joined {board}.") },
+                if host {
+                    format!("{peer} joined {board}.")
+                } else {
+                    format!("You joined {board}.")
+                },
                 t13(k),
                 k.c.text_base,
             ))
@@ -323,7 +497,11 @@ pub fn invite_panel(s: &State, f: &Frame, inv: &InviteStatus) -> El {
         INVITE_FAILED => {
             let e = plain_line(&inv.error);
             c = c.child(u::line(
-                if e.is_empty() { "The invite ended.".to_string() } else { e },
+                if e.is_empty() {
+                    "The invite ended.".to_string()
+                } else {
+                    e
+                },
                 t13(k),
                 u::danger(k),
             ))
@@ -357,7 +535,11 @@ pub fn invite_panel(s: &State, f: &Frame, inv: &InviteStatus) -> El {
 fn send_link(s: &State, f: &Frame, inv: &InviteStatus) -> El {
     let k = f.k;
     let until = logic::clock_time(&inv.expires_at);
-    let until = if until.is_empty() { String::new() } else { format!(", until {until}") };
+    let until = if until.is_empty() {
+        String::new()
+    } else {
+        format!(", until {until}")
+    };
     let link = inv.link.clone();
     let mut c = col()
         .w_full()
@@ -411,7 +593,13 @@ fn fingerprints(f: &Frame, inv: &InviteStatus, peer: &str) -> El {
         row()
             .w_full()
             .gap(12.0)
-            .child(text(who.to_string()).font(t12(k)).color(k.c.text_muted).w(80.0).max_lines(1))
+            .child(
+                text(who.to_string())
+                    .font(t12(k))
+                    .color(k.c.text_muted)
+                    .w(80.0)
+                    .max_lines(1),
+            )
             .child(
                 text(plain_line(fp))
                     .font(t12(k).mono())
@@ -432,7 +620,9 @@ fn fingerprints(f: &Frame, inv: &InviteStatus, peer: &str) -> El {
         .child(
             u::muted(
                 k,
-                format!("Give {peer} your fingerprint, and check that theirs matches what's shown here."),
+                format!(
+                    "Give {peer} your fingerprint, and check that theirs matches what's shown here."
+                ),
             )
             .pt(4.0),
         )
@@ -445,7 +635,11 @@ fn type_words(s: &State, f: &Frame, inv: &InviteStatus, peer: &str) -> El {
     let mut c = col()
         .w_full()
         .gap(6.0)
-        .child(u::line(format!("Type the five words {peer} gives you:"), t13(k), k.c.text_base))
+        .child(u::line(
+            format!("Type the five words {peer} gives you:"),
+            t13(k),
+            k.c.text_base,
+        ))
         .child(
             TextInput::new(&s.spaces.words)
                 .placeholder("Type the words, then Enter")
@@ -492,15 +686,24 @@ fn read_words(f: &Frame, inv: &InviteStatus, peer: &str) -> El {
     col()
         .w_full()
         .gap(6.0)
-        .child(u::line(format!("Give these words to {peer}:"), t13(k), k.c.text_base))
+        .child(u::line(
+            format!("Give these words to {peer}:"),
+            t13(k),
+            k.c.text_base,
+        ))
         .child(
-            el().w_full().px(12.0).py(8.0).radius(6.0).fill(k.c.layer_03).child(
-                text(inv.words.join(" "))
-                    .font(rune::tok::TextStyle::new(15.0, 400.0).mono())
-                    .color(k.c.text_base)
-                    .wrap()
-                    .selectable(true),
-            ),
+            el().w_full()
+                .px(12.0)
+                .py(8.0)
+                .radius(6.0)
+                .fill(k.c.layer_03)
+                .child(
+                    text(inv.words.join(" "))
+                        .font(rune::tok::TextStyle::new(15.0, 400.0).mono())
+                        .color(k.c.text_base)
+                        .wrap()
+                        .selectable(true),
+                ),
         )
 }
 
@@ -517,7 +720,12 @@ fn set_agents_on(s: &mut State, board_id: String, on: bool, in_settings: bool) {
         },
         move |s, r| match r {
             Ok(v) => {
-                if let Some(st) = s.spaces.settings.as_mut().filter(|st| st.board_id == v.board_id) {
+                if let Some(st) = s
+                    .spaces
+                    .settings
+                    .as_mut()
+                    .filter(|st| st.board_id == v.board_id)
+                {
                     st.agents = Some(v.clone());
                     st.agents_error = None;
                 }
@@ -589,7 +797,9 @@ pub fn open_settings(s: &mut State, board_id: &str) {
     s.spawn(
         move |w| (w.boards_settings(&id), w.agents_settings(&id)),
         |s, (r, a)| {
-            let Some(st) = s.spaces.settings.as_mut() else { return };
+            let Some(st) = s.spaces.settings.as_mut() else {
+                return;
+            };
             if st.board_id != a.board_id {
                 return;
             }
@@ -604,12 +814,17 @@ pub fn open_settings(s: &mut State, board_id: &str) {
     super::reload_invite_now(s);
 }
 
-fn save(s: &mut State, work: impl FnOnce(&Window) -> Result<BoardSettings, String> + Send + 'static) {
+fn save(
+    s: &mut State,
+    work: impl FnOnce(&Window) -> Result<BoardSettings, String> + Send + 'static,
+) {
     if let Some(st) = s.spaces.settings.as_mut() {
         st.error = None;
     }
     s.spawn(work, |s, r| {
-        let Some(st) = s.spaces.settings.as_mut() else { return };
+        let Some(st) = s.spaces.settings.as_mut() else {
+            return;
+        };
         match r {
             Ok(v) => st.settings = Some(v),
             Err(e) => st.error = Some(logic::error_text(&e)),
@@ -624,16 +839,30 @@ fn close_settings(s: &mut State) {
 
 /// The header's cog (card #312): the space's settings in a dialog.
 pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
-    let Some(st) = s.spaces.settings.as_ref().filter(|st| st.board_id == b.board_id) else {
+    let Some(st) = s
+        .spaces
+        .settings
+        .as_ref()
+        .filter(|st| st.board_id == b.board_id)
+    else {
         return;
     };
     let k = f.k;
     let name = plain_line(&b.name);
-    let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+    let name = if name.is_empty() {
+        "(unnamed)".to_string()
+    } else {
+        name
+    };
     // The reviewer pickers go above the dialog: an overlay finds its
     // anchor only in what was laid out before it.
     let n = f.layer.len();
-    let mut body = col().key("spaces-settings-body").w_full().gap(14.0).px(16.0).pb(16.0);
+    let mut body = col()
+        .key("spaces-settings-body")
+        .w_full()
+        .gap(14.0)
+        .px(16.0)
+        .pb(16.0);
     // The kit Dialog's description doesn't wrap in a fitted panel: the
     // line goes in the body, where it wraps.
     body = body.child(
@@ -662,7 +891,9 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
                 .key("spaces-settings-scroll")
                 .w_full()
                 .max_h((h * 0.85 - 90.0).max(240.0))
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(body),
         )
         .build(k, f.layer);
@@ -684,23 +915,38 @@ pub fn settings_dialog(s: &State, f: &mut Frame, b: &BoardSummary) {
                 false,
                 move |s: &mut State| {
                     let (b, p) = (board.clone(), person.clone());
-                    member_step(s, p.clone(), move |w| w.boards_set_role_settings(&b, &p, "member"));
+                    member_step(s, p.clone(), move |w| {
+                        w.boards_set_role_settings(&b, &p, "member")
+                    });
                 },
                 cancel,
             ),
             MemberAsk::Remove { person, name } => {
-                let who = if name.is_empty() { "They keep".to_string() } else { format!("{name} keeps") };
+                let who = if name.is_empty() {
+                    "They keep".to_string()
+                } else {
+                    format!("{name} keeps")
+                };
                 u::confirm(
                     f,
                     "spaces-remove",
-                    &format!("Remove {}", if name.is_empty() { "them" } else { name.as_str() }),
+                    &format!(
+                        "Remove {}",
+                        if name.is_empty() {
+                            "them"
+                        } else {
+                            name.as_str()
+                        }
+                    ),
                     &format!(
                         "{who} everything already on their devices. Removing them stops them syncing and writing anything this space accepts."
                     ),
                     true,
                     move |s: &mut State| {
                         let (b, p) = (board.clone(), person.clone());
-                        member_step(s, p.clone(), move |w| w.boards_remove_member_settings(&b, &p));
+                        member_step(s, p.clone(), move |w| {
+                            w.boards_remove_member_settings(&b, &p)
+                        });
                     },
                     cancel,
                 )
@@ -735,12 +981,19 @@ fn member_step(
 /// Invite. An open invite stands in for the button until it ends.
 fn board_invite(s: &State, f: &Frame, b: &BoardSummary, st: &Settings) -> El {
     let k = f.k;
-    let mut c = col().key("spaces-board-invite").w_full().gap(8.0).label("Invite people");
+    let mut c = col()
+        .key("spaces-board-invite")
+        .w_full()
+        .gap(8.0)
+        .label("Invite people");
     if let Some(inv) = s.spaces.invite.as_ref().filter(|i| !i.state.is_empty()) {
         return c.child(invite_panel(s, f, inv));
     }
     if !b.owner {
-        c = c.child(u::muted(k, "Only an owner can invite people to this space: ask one of them."));
+        c = c.child(u::muted(
+            k,
+            "Only an owner can invite people to this space: ask one of them.",
+        ));
     } else if !b.ready {
         c = c.child(u::muted(
             k,
@@ -800,13 +1053,22 @@ fn presets(
     on: impl Fn(&mut State, &'static str) + Clone + 'static,
 ) -> El {
     let k = f.k;
-    let mut r = row().key(key.to_string()).gap(4.0).flex_wrap().role("radiogroup").label(label.to_string());
+    let mut r = row()
+        .key(key.to_string())
+        .gap(4.0)
+        .flex_wrap()
+        .role("radiogroup")
+        .label(label.to_string());
     for p in list {
         let on = on.clone();
         let v = p.value;
         r = r.child(
             Button::new(p.label)
-                .variant(if current == p.value { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+                .variant(if current == p.value {
+                    ButtonVariant::Neutral
+                } else {
+                    ButtonVariant::Ghost
+                })
                 .on_press(move |s: &mut State| on(s, v))
                 .build(k)
                 .role("radio")
@@ -832,7 +1094,11 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
         let mut left = col()
             .grow(1.0)
             .min_w(0.0)
-            .child(u::line("Start an agent for each card you make", t13(k), k.c.text_base))
+            .child(u::line(
+                "Start an agent for each card you make",
+                t13(k),
+                k.c.text_base,
+            ))
             .child(u::muted(
                 k,
                 if on {
@@ -867,10 +1133,19 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
     let others: Vec<_> = set.members.iter().filter(|m| !m.me).collect();
     let am_owner = set.members.iter().any(|m| m.me && m.owner);
     let owners = set.members.iter().filter(|m| m.owner).count();
-    let mut members = col().key("spaces-members").w_full().gap(6.0).label("Members").child(section_title(f, "Members"));
+    let mut members = col()
+        .key("spaces-members")
+        .w_full()
+        .gap(6.0)
+        .label("Members")
+        .child(section_title(f, "Members"));
     for m in &set.members {
         let name = plain_line(&m.name);
-        let shown = if name.is_empty() { "someone".to_string() } else { name.clone() };
+        let shown = if name.is_empty() {
+            "someone".to_string()
+        } else {
+            name.clone()
+        };
         let mut top = row()
             .w_full()
             .gap(6.0)
@@ -883,9 +1158,13 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
             top = top.child(u::chip(k, "owner"));
         }
         top = top.child(el().grow(1.0)).child(
-            text(if m.devices == 1 { "1 device".to_string() } else { format!("{} devices", m.devices) })
-                .font(t12(k))
-                .color(k.c.text_muted),
+            text(if m.devices == 1 {
+                "1 device".to_string()
+            } else {
+                format!("{} devices", m.devices)
+            })
+            .font(t12(k))
+            .color(k.c.text_muted),
         );
         let mut second = row().w_full().gap(6.0).center_y().child(
             text(plain_line(&m.fingerprint))
@@ -937,11 +1216,24 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
             }
             second = second.child(el().grow(1.0)).child(acts);
         }
-        let mut item = col().key(format!("spaces-member-{}", m.person_id)).w_full().gap(2.0).child(top).child(second);
-        if let Some((p, e)) = &st.member_error {
-            if *p == m.person_id {
-                item = item.child(row().w_full().justify_end().child(text(e.clone()).font(t12(k)).color(u::danger(k)).wrap().max_w(320.0)));
-            }
+        let mut item = col()
+            .key(format!("spaces-member-{}", m.person_id))
+            .w_full()
+            .gap(2.0)
+            .child(top)
+            .child(second);
+        if let Some((p, e)) = &st.member_error
+            && *p == m.person_id
+        {
+            item = item.child(
+                row().w_full().justify_end().child(
+                    text(e.clone())
+                        .font(t12(k))
+                        .color(u::danger(k))
+                        .wrap()
+                        .max_w(320.0),
+                ),
+            );
         }
         members = members.child(item);
     }
@@ -959,11 +1251,28 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
         .gap(6.0)
         .label("What reaches my agents")
         .child(section_title(f, "What reaches my agents"))
-        .child(presets(f, "spaces-receive-presets", "Receive preset", &logic::RECEIVE_PRESETS, &set.receive, move |s, v| {
-            let (b, p) = (b2.clone(), if v == "members" { people.clone() } else { vec![] });
-            save(s, move |w| w.boards_set_receive(&b, v, p));
-        }))
-        .child(u::muted(k, logic::hint(&logic::RECEIVE_PRESETS, &set.receive)));
+        .child(presets(
+            f,
+            "spaces-receive-presets",
+            "Receive preset",
+            &logic::RECEIVE_PRESETS,
+            &set.receive,
+            move |s, v| {
+                let (b, p) = (
+                    b2.clone(),
+                    if v == "members" {
+                        people.clone()
+                    } else {
+                        vec![]
+                    },
+                );
+                save(s, move |w| w.boards_set_receive(&b, v, p));
+            },
+        ))
+        .child(u::muted(
+            k,
+            logic::hint(&logic::RECEIVE_PRESETS, &set.receive),
+        ));
     if set.receive == "members" {
         if others.is_empty() {
             receive = receive.child(u::muted(k, "Nobody else is in this space yet."));
@@ -972,15 +1281,27 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
             for m in &others {
                 let on = set.people.contains(&m.person_id);
                 let next: Vec<String> = if on {
-                    set.people.iter().filter(|p| **p != m.person_id).cloned().collect()
+                    set.people
+                        .iter()
+                        .filter(|p| **p != m.person_id)
+                        .cloned()
+                        .collect()
                 } else {
-                    set.people.iter().cloned().chain([m.person_id.clone()]).collect()
+                    set.people
+                        .iter()
+                        .cloned()
+                        .chain([m.person_id.clone()])
+                        .collect()
                 };
                 let b3 = board.clone();
                 let name = plain_line(&m.name);
                 list = list.child(
                     Checkbox::new(on)
-                        .label(if name.is_empty() { "someone".to_string() } else { name })
+                        .label(if name.is_empty() {
+                            "someone".to_string()
+                        } else {
+                            name
+                        })
                         .on_toggle(move |s: &mut State| {
                             let (b, p) = (b3.clone(), next.clone());
                             save(s, move |w| w.boards_set_receive(&b, "members", p));
@@ -1002,11 +1323,21 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
             .gap(6.0)
             .label("What my agents may do")
             .child(section_title(f, "What my agents may do"))
-            .child(presets(f, "spaces-autonomy-presets", "Autonomy preset", &logic::AUTONOMY_PRESETS, &set.autonomy, move |s, v| {
-                let b = b4.clone();
-                save(s, move |w| w.boards_set_autonomy(&b, v));
-            }))
-            .child(u::muted(k, logic::hint(&logic::AUTONOMY_PRESETS, &set.autonomy))),
+            .child(presets(
+                f,
+                "spaces-autonomy-presets",
+                "Autonomy preset",
+                &logic::AUTONOMY_PRESETS,
+                &set.autonomy,
+                move |s, v| {
+                    let b = b4.clone();
+                    save(s, move |w| w.boards_set_autonomy(&b, v));
+                },
+            ))
+            .child(u::muted(
+                k,
+                logic::hint(&logic::AUTONOMY_PRESETS, &set.autonomy),
+            )),
     );
 
     // My threads.
@@ -1018,11 +1349,21 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
             .gap(6.0)
             .label("My threads")
             .child(section_title(f, "My threads"))
-            .child(presets(f, "spaces-threads-modes", "Where my threads live", &logic::THREADS_MODES, &set.threads, move |s, v| {
-                let b = b5.clone();
-                save(s, move |w| w.boards_set_threads(&b, v));
-            }))
-            .child(u::muted(k, logic::hint(&logic::THREADS_MODES, &set.threads))),
+            .child(presets(
+                f,
+                "spaces-threads-modes",
+                "Where my threads live",
+                &logic::THREADS_MODES,
+                &set.threads,
+                move |s, v| {
+                    let b = b5.clone();
+                    save(s, move |w| w.boards_set_threads(&b, v));
+                },
+            ))
+            .child(u::muted(
+                k,
+                logic::hint(&logic::THREADS_MODES, &set.threads),
+            )),
     );
 
     c = c.child(reviewers(f, st, set));
@@ -1034,7 +1375,11 @@ fn settings_panel(f: &mut Frame, st: &Settings) -> Option<El> {
 
 fn agent_label(a: &irori_window::boards::ReviewerChoice) -> String {
     let n = plain_line(&a.name);
-    if a.repo.is_empty() { n } else { format!("{n} ({})", logic::short_repo(&a.repo)) }
+    if a.repo.is_empty() {
+        n
+    } else {
+        format!("{n} ({})", logic::short_repo(&a.repo))
+    }
 }
 
 /// The space's peer-review setting (design §10): any free agent reviews;
@@ -1062,7 +1407,15 @@ fn reviewers(f: &mut Frame, st: &Settings, set: &BoardSettings) -> El {
                     .w_full()
                     .gap(6.0)
                     .center_y()
-                    .child(text(if name.is_empty() { r.agent.clone() } else { name }).font(t12(k)).color(k.c.text_base))
+                    .child(
+                        text(if name.is_empty() {
+                            r.agent.clone()
+                        } else {
+                            name
+                        })
+                        .font(t12(k))
+                        .color(k.c.text_base),
+                    )
                     .child(
                         text(if r.repo.is_empty() {
                             "for the whole space".to_string()
@@ -1129,7 +1482,11 @@ fn reviewers(f: &mut Frame, st: &Settings, set: &BoardSettings) -> El {
         })
         .on_choose(move |s: &mut State, v: &str, _: &mut Tx| {
             if let Some(st) = s.spaces.settings.as_mut() {
-                st.agent = agents.iter().find(|a| agent_label(a) == v).map(|a| a.agent.clone()).unwrap_or_default();
+                st.agent = agents
+                    .iter()
+                    .find(|a| agent_label(a) == v)
+                    .map(|a| a.agent.clone())
+                    .unwrap_or_default();
                 st.agent_open = false;
             }
         })
@@ -1153,7 +1510,11 @@ fn reviewers(f: &mut Frame, st: &Settings, set: &BoardSettings) -> El {
         })
         .on_choose(move |s: &mut State, v: &str, _: &mut Tx| {
             if let Some(st) = s.spaces.settings.as_mut() {
-                st.repo = repos.iter().find(|r| logic::short_repo(r) == v).cloned().unwrap_or_default();
+                st.repo = repos
+                    .iter()
+                    .find(|r| logic::short_repo(r) == v)
+                    .cloned()
+                    .unwrap_or_default();
                 st.repo_open = false;
             }
         })
