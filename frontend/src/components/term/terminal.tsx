@@ -8,6 +8,7 @@ import { GOHU_FONT, mount, type TermView } from "suzuri-view"
 import "suzuri-view/view.css"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "cn"
 import { cards } from "@/lib/cards"
 import { copyText } from "@/lib/clipboard"
 import { attachTerm, detachTerm, termHost, type TermMsg } from "@/lib/term"
@@ -16,12 +17,24 @@ export function Terminal({
   id,
   cwd,
   onRestart,
+  fill = false,
+  onCwd,
 }: {
   id: number
   cwd: string
   onRestart: () => void
+  // fill: the terminal takes its container's height (the bottom panel,
+  // card #734) instead of its own resizable 360px.
+  fill?: boolean
+  // onCwd hears the folder the shell is in each time it reports one.
+  onCwd?: (cwd: string) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
+  // The latest onCwd, so a new callback doesn't remount the view.
+  const cwdTo = useRef(onCwd)
+  useEffect(() => {
+    cwdTo.current = onCwd
+  })
   const [exit, setExit] = useState<{ code: number | null } | null>(null)
   const [clip, setClip] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -41,7 +54,9 @@ export function Terminal({
       font: GOHU_FONT,
     })
     const onMsg = (m: TermMsg) => {
-      if (m.t === "exit") {
+      if (m.t === "shell") {
+        if (m.cwd) cwdTo.current?.(m.cwd)
+      } else if (m.t === "exit") {
         setExit({ code: m.code })
       } else if (m.t === "clip") {
         // A program's copy is offered, never written for it (design 5).
@@ -61,10 +76,15 @@ export function Terminal({
   }, [id])
 
   return (
-    <div className="grid gap-2">
+    <div
+      className={cn("gap-2", fill ? "flex min-h-0 flex-1 flex-col" : "grid")}
+    >
       <div
         ref={box}
-        className="h-[360px] min-h-[200px] resize-y overflow-hidden rounded-md border border-border bg-[#0c0c0c]"
+        className={cn(
+          "overflow-hidden rounded-md border border-border bg-[#0c0c0c]",
+          fill ? "min-h-0 flex-1" : "h-[360px] min-h-[200px] resize-y"
+        )}
         aria-label={`Terminal in ${cwd}`}
       />
       {clip !== null && (

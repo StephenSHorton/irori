@@ -109,6 +109,13 @@ import {
   paletteOpenKey,
 } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
+import { TerminalPanel } from "@/components/term/terminal-panel"
+import { termsHere } from "@/lib/term"
+import {
+  TerminalShortcut,
+  isTerminalToggle,
+  toggleTermPanel,
+} from "@/lib/term-panel"
 import { spawnedKeys } from "@/lib/roster-groups"
 import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
 import { startCallState } from "@/lib/call"
@@ -588,6 +595,20 @@ export function App() {
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
   }, [])
+  // The terminal panel (card #734): Ctrl+` on both platforms, as in VS
+  // Code, from anywhere, a focused terminal included. Capture, so it comes
+  // before the terminal's own keys take it; a phone has no panel.
+  useEffect(() => {
+    if (!termsHere()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.repeat || !isTerminalToggle(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      toggleTermPanel()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [])
   // A jump from the palette closes the Held list and a message left open
   // under it (#218).
   useEffect(() => {
@@ -757,6 +778,15 @@ export function App() {
       keywords: ["close", "leave"],
       when: () => !!open,
       run: back,
+    },
+    {
+      id: "term.toggle",
+      title: "Toggle terminal",
+      order: 4,
+      shortcut: TerminalShortcut,
+      keywords: ["shell", "console", "panel", "command line", "show", "hide"],
+      when: termsHere,
+      run: toggleTermPanel,
     },
     // The header's Wind down (card #220), from the palette (card #228); like
     // the header's button, not on the sample roster.
@@ -1099,6 +1129,14 @@ export function App() {
                 />
               )}
             </main>
+            <TerminalPanel
+              cardId={open || null}
+              cardLabel={
+                open && cardLabel(`task:${open}`) !== "a card"
+                  ? cardLabel(`task:${open}`)
+                  : undefined
+              }
+            />
             {narrow && (
               <PhoneCallBar
                 here={!open && section.kind === "talk" ? section.id : ""}

@@ -119,14 +119,78 @@ export function termHost(
 
 // attachTerm starts the view's streams: the cached state, then a full
 // frame. detach is called when the view goes; the shell keeps running.
+//
+// A shell has one local view, and the Core forgets it on any detach. When
+// one view of a shell goes and another comes in the same render (the card
+// page's section handing it to the bottom panel, card #734, or a remount),
+// the two calls are separate invokes that may land in either order; a
+// detach landing last would leave the new view blank. So each shell's
+// attach and detach go out one after another, each after the last ended.
+const pending = new Map<number, Promise<unknown>>()
+
+function inTurn<T>(id: number, call: () => Promise<T>): Promise<T> {
+  const prev = pending.get(id) ?? Promise.resolve()
+  const next = prev.catch(() => {}).then(call)
+  const tail = next.catch(() => {})
+  pending.set(id, tail)
+  void tail.then(() => {
+    if (pending.get(id) === tail) pending.delete(id)
+  })
+  return next
+}
+
 export function attachTerm(
   id: number,
   onFrame: (frame: ArrayBuffer) => void,
   onMsg: (msg: TermMsg) => void
 ): Promise<void> {
-  return TermService.Attach(id, onFrame, onMsg)
+  return inTurn(id, () => TermService.Attach(id, onFrame, onMsg))
 }
 
 export function detachTerm(id: number): void {
-  TermService.Detach(id).catch(() => {})
+  inTurn(id, () => TermService.Detach(id)).catch(() => {})
+}
+
+// The person's own shells on this device (the device scope, card #734):
+// the terminal panel's on pages other than a card's.
+export function deviceTerms(): Promise<TermInfo[]> {
+  return TermService.DeviceList()
+}
+
+// openDeviceTerm starts one of the person's own shells in cwd, or at home
+// when cwd is null. A folder that has gone since (a removed worktree)
+// opens at home instead of failing.
+export async function openDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo> {
+  const scope: B.Scope = { kind: "device" }
+  if (!cwd) return TermService.Open(scope, cols, rows, null)
+  try {
+    return await TermService.Open(scope, cols, rows, cwd)
+  } catch {
+    return TermService.Open(scope, cols, rows, null)
+  }
+}
+
+// firstDeviceTerm is what the panel shows when it opens off a card: the
+// shell already running, else a new one in cwd. Opening the panel is the
+// person asking for a shell. Calls made while one is under way share it,
+// so a double mount (StrictMode, a quick toggle) never starts two.
+let starting: Promise<TermInfo[]> | null = null
+
+export function firstDeviceTerm(
+  cols: number,
+  rows: number,
+  cwd: string | null
+): Promise<TermInfo[]> {
+  starting ??= deviceTerms()
+    .then(async (ts) =>
+      ts.length ? ts : [await openDeviceTerm(cols, rows, cwd)]
+    )
+    .finally(() => {
+      starting = null
+    })
+  return starting
 }

@@ -105,6 +105,12 @@ import { Face, LiveDot } from "./faces"
 import { Thread } from "./thread"
 import { TerminalSection } from "@/components/term/terminal-section"
 import { termsHere } from "@/lib/term"
+import {
+  TerminalShortcut,
+  setTermPanelOpen,
+  useTermPanel,
+} from "@/lib/term-panel"
+import { shortcutKeys } from "@/lib/commands"
 import { AttachmentList } from "@/components/attachments"
 import type { FileRef } from "@/lib/attachments"
 import { LinkChip, RichLine, RichText } from "@/components/common/rich-text"
@@ -1395,13 +1401,30 @@ function WhereLines({ detail, now }: { detail: CardDetail; now: Date }) {
 }
 
 // TerminalCard is the card's live terminal on this device (card #369), in
-// the window only: none in a plain browser or on a phone.
+// the window only: none in a plain browser or on a phone. While the
+// bottom terminal panel is open it shows these shells instead (card #734):
+// a shell has one view, so the section only points there.
 function TerminalCard({ cardId }: { cardId: string }) {
+  const panel = useTermPanel()
   if (!termsHere()) return null
   return (
     <Card className="gap-0 py-0!">
       <Section title="Terminal" last>
-        <TerminalSection cardId={cardId} />
+        {panel.open ? (
+          <p className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-muted-foreground">
+            This card's shells are in the terminal panel below (
+            {shortcutKeys(TerminalShortcut).join("+")}).
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => setTermPanelOpen(false)}
+            >
+              Show them here
+            </button>
+          </p>
+        ) : (
+          <TerminalSection cardId={cardId} />
+        )}
       </Section>
     </Card>
   )
