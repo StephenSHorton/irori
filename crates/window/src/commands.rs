@@ -16,7 +16,7 @@ use tauri::State;
 
 use crate::Window;
 use crate::agents::{
-    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemeView,
+    AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
     RunningAgent,
 };
 use crate::attachments::AttachmentInfo;
@@ -1692,19 +1692,19 @@ pub async fn agents_starts_set(w: W<'_>, on: bool, max: u32) -> R<AgentStartsVie
     w.agents_starts_set(on, max)
 }
 
-/// The theme new agents' names come from (card #702).
+/// The themes new agents' names come from (card #702), each with its
+/// switch.
 #[tauri::command]
 #[specta::specta]
-pub async fn names_theme(w: W<'_>) -> R<NamesThemeView> {
-    blocking(&w, |w| Ok(w.names_theme())).await
+pub async fn names_themes(w: W<'_>) -> R<NamesThemesView> {
+    blocking(&w, |w| Ok(w.names_themes())).await
 }
 
-/// The person picks it, `""` for every theme mixed: the app only, never a
-/// tool.
+/// The person turns a theme on or off: the app only, never a tool.
 #[tauri::command]
 #[specta::specta]
-pub async fn names_theme_set(w: W<'_>, theme: String) -> R<NamesThemeView> {
-    blocking(&w, move |w| w.names_theme_set(&theme)).await
+pub async fn names_theme_set(w: W<'_>, id: String, on: bool) -> R<NamesThemesView> {
+    blocking(&w, move |w| w.names_theme_set(&id, on)).await
 }
 
 /// The person changes them: the app only, never a tool.
@@ -2205,7 +2205,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             term_list,
             agents_settings,
             agents_set,
-            names_theme,
+            names_themes,
             names_theme_set,
             agents_starts,
             agents_starts_set,

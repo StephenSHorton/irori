@@ -13,7 +13,7 @@ use gocompat::fnv::fnv32a;
 /// (names.json), so a longer list never renames a running agent.
 pub const WORDS: &[&str] = &ALL;
 
-/// One theme of words (card #702): Settings can narrow new names to one.
+/// One theme of words (card #702): Settings can turn each off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// What the setting stores.
@@ -21,6 +21,8 @@ pub struct Theme {
     /// What Settings shows.
     pub label: &'static str,
     pub words: &'static [&'static str],
+    /// A few of its best-known words, for Settings.
+    pub sample: &'static [&'static str],
 }
 
 /// The themes, in the order their words sit in [`WORDS`]. Append only.
@@ -29,38 +31,56 @@ pub const THEMES: &[Theme] = &[
         id: "nature",
         label: "Nature",
         words: NATURE,
+        sample: &["kestrel", "cedar", "quartz", "heron"],
     },
     Theme {
         id: "produce",
         label: "Produce and things",
         words: PRODUCE,
+        sample: &["onion", "tomato", "kettle", "mitten"],
     },
     Theme {
         id: "movies",
         label: "Movie characters",
         words: MOVIES,
+        sample: &["ripley", "marty", "dorothy", "atticus"],
     },
     Theme {
         id: "anime",
         label: "Anime characters",
         words: ANIME,
+        sample: &["chihiro", "spike", "levi", "sakura"],
     },
     Theme {
         id: "presidents",
         label: "US presidents",
         words: PRESIDENTS,
+        sample: &["lincoln", "adams", "polk", "taft"],
     },
     Theme {
         id: "myth",
         label: "Mythology",
         words: MYTH,
+        sample: &["zeus", "athena", "odin", "anubis"],
     },
 ];
 
-/// The theme with this id; `None` for `""` (every theme mixed, the
-/// default) or an id this build doesn't know.
+/// The theme with this id; `None` for an id this build doesn't know.
 pub fn theme(id: &str) -> Option<&'static Theme> {
     THEMES.iter().find(|t| t.id == id)
+}
+
+/// The words new names come from when the person turned the themes in
+/// `off` off (card #702): the other themes' words, in [`WORDS`] order.
+/// `None` means all of [`WORDS`]: no theme this build knows is off, or
+/// every one is (then names come from the full list, never from none).
+pub fn words_on(off: &[String]) -> Option<Vec<&'static str>> {
+    let is_off = |t: &Theme| off.iter().any(|o| o == t.id);
+    let on: Vec<&Theme> = THEMES.iter().filter(|t| !is_off(t)).collect();
+    if on.is_empty() || on.len() == THEMES.len() {
+        return None;
+    }
+    Some(on.iter().flat_map(|t| t.words.iter().copied()).collect())
 }
 
 const N_WORDS: usize = {
@@ -421,9 +441,37 @@ mod tests {
             assert!(ids.insert(t.id), "{} twice", t.id);
             assert!(!t.id.is_empty() && !t.label.is_empty());
             assert_eq!(theme(t.id), Some(t));
+            assert!(!t.sample.is_empty());
+            for w in t.sample {
+                assert!(
+                    t.words.contains(w),
+                    "{}: sample {w} isn't one of its words",
+                    t.id
+                );
+            }
         }
-        assert_eq!(theme(""), None, "every theme mixed");
+        assert_eq!(theme(""), None);
         assert_eq!(theme("nope"), None);
+    }
+
+    #[test]
+    fn words_on_leaves_out_the_themes_turned_off() {
+        let off = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(words_on(&[]), None, "all on: the full list");
+        assert_eq!(words_on(&off(&["westerns"])), None, "an unknown theme");
+        let all: Vec<&str> = THEMES.iter().map(|t| t.id).collect();
+        assert_eq!(words_on(&off(&all)), None, "all off: the full list");
+        let w = words_on(&off(&["nature", "movies"])).unwrap();
+        let (nature, movies) = (theme("nature").unwrap(), theme("movies").unwrap());
+        assert_eq!(
+            w.len(),
+            WORDS.len() - nature.words.len() - movies.words.len()
+        );
+        assert!(
+            w.iter()
+                .all(|x| !nature.words.contains(x) && !movies.words.contains(x))
+        );
+        assert!(w.contains(&"zeus") && w.contains(&"onion"));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use irori_window::agents::NamesThemesView;
 use irori_window::attachments::{self, Request};
 use irori_window::settings::NotifyOptions;
 
@@ -1624,42 +1625,39 @@ fn a_huddles_transcript_through_the_window() {
     assert!(w.talk_call_transcript("  ").is_err());
 }
 
-/// Card #702: Settings › Agents' "Names from" through the window: every
-/// theme mixed at first, each theme offered with its count, a pick
-/// round-trips, an unknown one is refused, and the view is bindings.ts's.
+/// Card #702: Settings › Agents' theme switches through the window: every
+/// theme on at first, each with its count, a switch round-trips, an unknown
+/// theme is refused, and the view is bindings.ts's.
 #[test]
-fn the_names_theme_through_the_window() {
+fn the_names_themes_through_the_window() {
     let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
         .unwrap()
         .replace("\r\n", "\n");
     let r = Rig::new();
     let w = &r.w;
-    let v = w.names_theme();
-    assert_eq!(v.theme, "", "every theme mixed (decision 52)");
+    let v = w.names_themes();
     let ids: Vec<&str> = v.themes.iter().map(|t| t.id.as_str()).collect();
     assert_eq!(
         ids,
         ["nature", "produce", "movies", "anime", "presidents", "myth"]
     );
+    assert!(v.themes.iter().all(|t| t.on), "all on (decision 52)");
     assert_eq!(
         v.themes.iter().map(|t| t.words as usize).sum::<usize>(),
         coord::names::WORDS.len()
     );
     assert!(v.themes.iter().all(|t| !t.sample.is_empty()));
-    check_shape(&src, "NamesThemeView", &serde_json::to_value(&v).unwrap());
+    check_shape(&src, "NamesThemesView", &serde_json::to_value(&v).unwrap());
     check_shape(
         &src,
         "NamesThemeChoice",
         &serde_json::to_value(&v.themes[0]).unwrap(),
     );
 
-    assert_eq!(w.names_theme_set(" movies ").unwrap().theme, "movies");
-    assert_eq!(w.names_theme().theme, "movies");
-    assert!(w.names_theme_set("westerns").is_err());
-    assert_eq!(
-        w.names_theme().theme,
-        "movies",
-        "a refused pick changes nothing"
-    );
-    assert_eq!(w.names_theme_set("").unwrap().theme, "");
+    let on = |v: &NamesThemesView, id: &str| v.themes.iter().find(|t| t.id == id).unwrap().on;
+    let v = w.names_theme_set(" movies ", false).unwrap();
+    assert!(!on(&v, "movies") && on(&v, "anime"));
+    assert!(!on(&w.names_themes(), "movies"));
+    assert!(w.names_theme_set("westerns", false).is_err());
+    assert!(on(&w.names_theme_set("movies", true).unwrap(), "movies"));
 }

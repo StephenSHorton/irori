@@ -208,10 +208,10 @@ kinds! {
     /// "Transcribe what I say in calls" (card #656): `{on, by, at}`, actor
     /// `user`, newest wins, none means on. Set in the app only.
     TRANSCRIBE_SET = "transcribe.set" => Replicated, Refuses;
-    /// The theme new agents' names come from (card #702): `{theme, by,
-    /// at}`, actor `user`, newest wins, none (or `""`) means every theme
-    /// mixed. Set in the app only.
-    NAMES_THEME = "names.theme" => Replicated, Refuses;
+    /// The themes new agents' names don't come from (card #702): `{off,
+    /// by, at}`, actor `user`, newest wins, none means every theme on. Set
+    /// in the app only.
+    NAMES_THEMES = "names.themes" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

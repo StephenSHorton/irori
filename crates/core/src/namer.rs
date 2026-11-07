@@ -51,7 +51,7 @@ type CardsFn = Arc<dyn Fn() -> Vec<AgentCard> + Send + Sync>;
 /// Every agent name remembered lately, any device: (key, name, last seen).
 type SeenFn = Arc<dyn Fn() -> Vec<(String, String, GoTime)> + Send + Sync>;
 type NowFn = Arc<dyn Fn() -> GoTime + Send + Sync>;
-type ThemeFn = Arc<dyn Fn() -> String + Send + Sync>;
+type ThemesFn = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
 
 /// Gives sessions a name ([`presence::Namer`]) and settles clashes with
 /// other devices' agents.
@@ -67,9 +67,9 @@ pub struct Namer {
     others: RwLock<Option<CardsFn>>,
     /// The agent names remembered on this device (agent-names.json).
     seen: RwLock<Option<SeenFn>>,
-    /// The person's names theme (card #702): a `coord::names::THEMES` id,
-    /// or `""` for every theme mixed.
-    theme: RwLock<Option<ThemeFn>>,
+    /// The themes the person turned off (card #702): `coord::names::THEMES`
+    /// ids; none means every theme is on.
+    themes_off: RwLock<Option<ThemesFn>>,
     m: Mutex<BTreeMap<String, NameEntry>>,
 }
 
@@ -98,7 +98,7 @@ impl Namer {
             mesh: RwLock::new(None),
             others: RwLock::new(None),
             seen: RwLock::new(None),
-            theme: RwLock::new(None),
+            themes_off: RwLock::new(None),
             m: Mutex::new(m),
         }
     }
@@ -120,10 +120,10 @@ impl Namer {
         *self.seen.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
     }
 
-    /// Sets where the person's names theme comes from (card #702): new
-    /// names come from that theme's words while one is free.
-    pub fn set_theme(&self, f: impl Fn() -> String + Send + Sync + 'static) {
-        *self.theme.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
+    /// Sets where the themes the person turned off come from (card #702):
+    /// new names come from the other themes' words while one is free.
+    pub fn set_themes_off(&self, f: impl Fn() -> Vec<String> + Send + Sync + 'static) {
+        *self.themes_off.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(f));
     }
 
     /// Replaces the clock (tests).
@@ -157,12 +157,15 @@ impl Namer {
         f.map(|f| f()).unwrap_or_default()
     }
 
-    /// The words of the person's theme; `None` for every theme mixed (or
-    /// a theme this build doesn't know).
-    fn theme_words(&self) -> Option<&'static [&'static str]> {
-        let f = self.theme.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let id = f.map(|f| f()).unwrap_or_default();
-        coord::names::theme(&id).map(|t| t.words)
+    /// The words of the themes that are on; `None` for the full list (every
+    /// theme on, or every one off).
+    fn words_on(&self) -> Option<Vec<&'static str>> {
+        let f = self
+            .themes_off
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        coord::names::words_on(&f.map(|f| f()).unwrap_or_default())
     }
 
     fn cards(&self) -> Vec<AgentCard> {
@@ -252,8 +255,8 @@ impl Namer {
     /// the remembered past (30 days: names.json, agent-names.json, gone
     /// agents still on the roster), then one nobody went by in
     /// [`NAMES_RECENT`], and only then any free word or a numbered name.
-    /// With a names theme (card #702) it first tries that theme's words
-    /// the same two ways, then every theme's.
+    /// With themes turned off (card #702) it first tries the words of the
+    /// themes still on the same two ways, then the full list.
     fn pick_locked(
         &self,
         m: &BTreeMap<String, NameEntry>,
@@ -331,11 +334,11 @@ impl Namer {
         let taken = |s: &str| taken.contains(s) || extra(s);
         let fresh = |s: &str| taken(s) || recent.contains(s) || known.contains(s);
         let not_recent = |s: &str| taken(s) || recent.contains(s);
-        if let Some(words) = self.theme_words() {
-            if let Some(n) = pick_free_in(words, id, &fresh) {
+        if let Some(words) = self.words_on() {
+            if let Some(n) = pick_free_in(&words, id, &fresh) {
                 return n;
             }
-            if let Some(n) = pick_free_in(words, id, &not_recent) {
+            if let Some(n) = pick_free_in(&words, id, &not_recent) {
                 return n;
             }
         }

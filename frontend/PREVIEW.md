@@ -91,7 +91,7 @@ unchanged.
 | `/?newcard` | New card (card #456, sa-5): "A fresh agent" by default on your own board, with the model and effort it starts with; `?newcard&spawn=off` shows "Any free agent" instead |
 | `/?settings=agents` | Settings › Agents: the spawning switch, model and effort (#448), and the permissions (#449) |
 | `/?settings=agents&agentstarts=full` | "My agents may start agents" at its maximum (card #575): "100 of 100 in use"; `agentstarts=off` shows it switched off |
-| `/?settings=agents&namestheme=myth` | Settings › Agents › Agent names (card #702): "Names from" set to Mythology, with its count and a few of its names; without `namestheme` it is "All themes, mixed" |
+| `/?settings=agents&namesoff=movies,anime` | Settings › Agents › Agent names (card #702): a switch per theme, each with its count and a few of its names; `namesoff` turns those off (all are on without it) |
 | `/?idle=gap` | Home's idle line as a dispatch gap: idle agents and two cards nobody was handed, with why (card #341); `/` alone reads "1 agent idle; 3 cards nobody took: #14, #25, #6." over the Stuck rows (card #487) |
 | `/?spawn=states` | Home's rows grouped Needs you, Stuck, Working, Waiting, Idle (card #487), with an agent starting, a device at its cap and agents that can't start; #51 reads "Waiting for a free Dolphin slot" |
 | `/#notifications` | The Notifications page (card #377): unread items, a done check and a decision with their live buttons, an agent's ask; `/?notifications=all#notifications` shows All, with a resolved blocker's outcome and read items; `?notifications=none` an empty history |

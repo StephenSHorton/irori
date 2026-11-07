@@ -33,7 +33,7 @@ mod huddle;
 mod invites;
 mod lockfile;
 mod migrate;
-mod name_theme;
+mod name_themes;
 mod names;
 mod notes;
 mod notifications;

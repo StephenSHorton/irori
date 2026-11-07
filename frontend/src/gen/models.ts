@@ -107,7 +107,7 @@ export type MetersNet = B.MetersNet
 export type MetersSample = B.MetersSample
 export type Mode = B.Mode
 export type NamesThemeChoice = B.NamesThemeChoice
-export type NamesThemeView = B.NamesThemeView
+export type NamesThemesView = B.NamesThemesView
 export type NewCardInput = B.NewCardInput
 export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
@@ -643,12 +643,12 @@ export function MetersSample(p: Partial<B.MetersSample> = {}): B.MetersSample {
 
 /** NamesThemeChoice with Go's zero values for every field left out. */
 export function NamesThemeChoice(p: Partial<B.NamesThemeChoice> = {}): B.NamesThemeChoice {
-  return { "id": "", "label": "", "words": 0, "sample": [], ...p } as B.NamesThemeChoice
+  return { "id": "", "label": "", "on": false, "words": 0, "sample": [], ...p } as B.NamesThemeChoice
 }
 
-/** NamesThemeView with Go's zero values for every field left out. */
-export function NamesThemeView(p: Partial<B.NamesThemeView> = {}): B.NamesThemeView {
-  return { "theme": "", "themes": [], ...p } as B.NamesThemeView
+/** NamesThemesView with Go's zero values for every field left out. */
+export function NamesThemesView(p: Partial<B.NamesThemesView> = {}): B.NamesThemesView {
+  return { "themes": [], ...p } as B.NamesThemesView
 }
 
 /** NewCardInput with Go's zero values for every field left out. */

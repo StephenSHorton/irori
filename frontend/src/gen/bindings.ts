@@ -409,13 +409,13 @@ export const commands = {
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
-	/**  The theme new agents' names come from (card #702). */
-	namesTheme: () => __TAURI_INVOKE<NamesThemeView>("names_theme"),
 	/**
-	 *  The person picks it, `""` for every theme mixed: the app only, never a
-	 *  tool.
+	 *  The themes new agents' names come from (card #702), each with its
+	 *  switch.
 	 */
-	namesThemeSet: (theme: string) => __TAURI_INVOKE<NamesThemeView>("names_theme_set", { theme }),
+	namesThemes: () => __TAURI_INVOKE<NamesThemesView>("names_themes"),
+	/**  The person turns a theme on or off: the app only, never a tool. */
+	namesThemeSet: (id: string, on: boolean) => __TAURI_INVOKE<NamesThemesView>("names_theme_set", { id, on }),
 	/**  "My agents may start agents on my cards" and its maximum (card #575). */
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
@@ -2219,10 +2219,15 @@ export type MetersSample = {
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
 
-/**  One names theme Settings › Agents offers (card #702). */
+/**  One names theme in Settings › Agents (card #702), with its switch. */
 export type NamesThemeChoice = {
 	id: string,
 	label: string,
+	/**
+	 *  New names may come from it: every theme is on until the person
+	 *  turns it off.
+	 */
+	on: boolean,
 	/**  How many words it has. */
 	words: number,
 	/**  A few of them, for the hint. */
@@ -2230,12 +2235,10 @@ export type NamesThemeChoice = {
 };
 
 /**
- *  The theme new agents' names come from (card #702): the person's, on all
+ *  The themes new agents' names come from (card #702): the person's, on all
  *  their devices, set here and never by a tool.
  */
-export type NamesThemeView = {
-	/**  A choice's id, or `""` for every theme mixed (the default). */
-	theme: string,
+export type NamesThemesView = {
 	themes: NamesThemeChoice[],
 };
 

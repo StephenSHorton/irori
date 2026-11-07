@@ -20,7 +20,7 @@ import {
   AGENT_STARTS_TITLE,
   AgentStartsControls,
 } from "@/components/settings/agent-starts"
-import { NamesThemeSection } from "@/components/settings/names-theme"
+import { NamesThemesSection } from "@/components/settings/names-themes"
 import { SpaceAgentSwitch } from "@/components/settings/space-agents"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -132,7 +132,7 @@ export function AgentsPane({ open }: { open: boolean }) {
                 />
               </div>
             </section>
-            <NamesThemeSection open={open} />
+            <NamesThemesSection open={open} />
             <LimitsSection open={open} settings={s} set={set} />
           </div>
         ) : (

@@ -367,9 +367,10 @@ export const AgentsService = {
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
-  // The theme new agents' names come from (card #702); "" mixes them all.
-  NamesTheme: () => call(commands.namesTheme()),
-  NamesThemeSet: (theme: string) => call(commands.namesThemeSet(theme)),
+  // The themes new agents' names come from (card #702), each with a switch.
+  NamesThemes: () => call(commands.namesThemes()),
+  NamesThemeSet: (id: string, on: boolean) =>
+    call(commands.namesThemeSet(id, on)),
   // Pause agents (card #665): no device starts agents while it is on.
   Pause: () => call(commands.agentsPause()),
   PauseSet: (on: boolean) => call(commands.agentsPauseSet(on)),
