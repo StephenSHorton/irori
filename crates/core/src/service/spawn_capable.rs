@@ -208,7 +208,7 @@ impl Services {
                 .collect()
         };
         let homes: Vec<String> = ranked.into_iter().map(|(_, _, d)| d).collect();
-        let full = self.full_devices(&homes, &hosts);
+        let (full, free) = self.full_devices(&homes, &hosts);
         let agents = AgentDevices {
             homes,
             cant,
@@ -216,6 +216,7 @@ impl Services {
             away_since,
             moves,
             full,
+            free,
         };
         let moved = {
             let mut cur = self.spawn.agents.write().unwrap_or_else(|e| e.into_inner());
@@ -264,23 +265,27 @@ impl Services {
         &self,
         homes: &[String],
         hosts: &std::collections::HashMap<String, super::spawn_remote::SpawnHost>,
-    ) -> HashSet<String> {
+    ) -> (HashSet<String>, std::collections::BTreeMap<String, i64>) {
         let me = self.device.id.as_str();
         let now = (self.now)();
-        homes
-            .iter()
-            .filter(|d| {
-                let host = hosts.get(d.as_str());
-                let held = if d.as_str() == me {
-                    self.usage_held().is_some()
-                } else {
-                    host.and_then(|h| h.held_until)
-                        .is_some_and(|u| u.secs > now.secs)
-                };
-                held || self.agents_paused_on(d) || self.spawned_on(d) >= self.cap_on(d, host)
-            })
-            .cloned()
-            .collect()
+        let mut full = HashSet::new();
+        let mut free = std::collections::BTreeMap::new();
+        for d in homes {
+            let host = hosts.get(d.as_str());
+            let held = if d.as_str() == me {
+                self.usage_held().is_some()
+            } else {
+                host.and_then(|h| h.held_until)
+                    .is_some_and(|u| u.secs > now.secs)
+            };
+            let left = self.cap_on(d, host) - self.spawned_on(d);
+            if held || self.agents_paused_on(d) || left <= 0 {
+                full.insert(d.clone());
+            } else {
+                free.insert(d.clone(), left);
+            }
+        }
+        (full, free)
     }
 
     /// What the person reads while no computer can start an agent; empty

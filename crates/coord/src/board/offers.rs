@@ -613,6 +613,19 @@ impl Fold {
             .is_some_and(|f| f().full.contains(dev))
     }
 
+    /// How many more agents device `dev` can start now (card #686); no
+    /// limit when nothing says.
+    pub(crate) fn free_slots(&self, dev: &str) -> i64 {
+        let Some(f) = self.agent_devices.as_ref() else {
+            return i64::MAX;
+        };
+        let d = f();
+        if d.full.contains(dev) {
+            return 0;
+        }
+        d.free.get(dev).copied().unwrap_or(i64::MAX)
+    }
+
     /// The computer an ask on `side` goes to when its owner `owner` is
     /// full (card #686): the first of the person's computers, in
     /// [`Self::agent_home`]'s order, that is connected, runs the side and

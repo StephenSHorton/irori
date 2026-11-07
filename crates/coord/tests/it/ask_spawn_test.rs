@@ -723,6 +723,12 @@ fn one_generation_on_two_computers_settles_the_same_on_every_device() {
 /// The phone (dev-a) posts a thread it owns; the Mac (dev-b) hears it, with
 /// spawning on and `devs` saying which devices can run agents.
 fn phone_thread_on_mac(devs: Arc<RwLock<AgentDevices>>) -> (Env, Task) {
+    let (mac, mut ts) = phone_threads_on_mac(devs, &["Why is the sync stuck?"]);
+    (mac, ts.remove(0))
+}
+
+/// [`phone_thread_on_mac`] with one thread per text, posted a second apart.
+fn phone_threads_on_mac(devs: Arc<RwLock<AgentDevices>>, texts: &[&str]) -> (Env, Vec<Task>) {
     // One person's two devices: both read the person's rows as theirs.
     let owner: KeyFn = Arc::new(|k: &str| k == USER);
     let phone = Env::with("dev-a", Some(owner.clone()));
@@ -734,16 +740,26 @@ fn phone_thread_on_mac(devs: Arc<RwLock<AgentDevices>>) -> (Env, Task) {
         agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
         ..mac.opts()
     });
-    let t = post(&phone, "Why is the sync stuck?", true, &[]);
-    assert_eq!(t.ask.as_ref().unwrap().owner, "dev-a");
+    let ts: Vec<Task> = texts
+        .iter()
+        .enumerate()
+        .map(|(i, text)| {
+            if i > 0 {
+                phone.clk.add(secs(1));
+            }
+            post(&phone, text, true, &[])
+        })
+        .collect();
     let rows = phone.st.missing(&mac.st.vector().unwrap(), 1000).unwrap();
     let (_, r) = mac.st.insert_batch(&rows);
     r.unwrap();
     for ev in &rows {
         mac.c.handle(ev).unwrap();
     }
-    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a");
-    (mac, t)
+    for t in &ts {
+        assert_eq!(ask_of(&mac, &t.id).owner, "dev-a");
+    }
+    (mac, ts)
 }
 
 /// Card #541: an ask moves off a computer that went away only once it has
@@ -894,11 +910,51 @@ fn an_ask_moved_for_room_settles_and_stops_moving() {
     assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "settled");
 
     let (mac, t) = phone_thread_on_mac(computers(&["dev-a"]));
-    mac.clk.add(mins(1));
-    moved_on_a(&mac, &t.id, MAX_FULL_MOVES, mac.clk.now());
-    mac.clk.add(mins(10));
+    for moves in 1..=MAX_FULL_MOVES as i64 {
+        mac.clk.add(mins(1));
+        moved_on_a(&mac, &t.id, moves, mac.clk.now());
+    }
+    mac.clk.add(ASK_FULL_SETTLE * 2);
     mac.c.pull_asks().unwrap();
-    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "moved too often");
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-a", "moved too often lately");
+    let target = mac.c.full_target(&mac.c.get_task(&t.id).unwrap());
+    assert_eq!(target, None, "nothing says it moves");
+    mac.clk.add(ASK_FULL_WINDOW);
+    mac.c.pull_asks().unwrap();
+    assert_eq!(
+        ask_of(&mac, &t.id).owner,
+        "dev-b",
+        "a later turn moves again"
+    );
+}
+
+/// Card #686: one free slot takes one thread off a full owner, the oldest,
+/// not every thread waiting there.
+#[test]
+fn one_free_slot_takes_one_thread_off_a_full_owner() {
+    let devs = computers(&["dev-a"]);
+    devs.write().unwrap().free.insert("dev-b".into(), 1);
+    let (mac, ts) = phone_threads_on_mac(devs.clone(), &["First?", "Second?"]);
+    mac.clk.add(mins(5));
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &ts[0].id).owner, "dev-b", "the oldest");
+    assert_eq!(ask_of(&mac, &ts[1].id).owner, "dev-a", "no slot left");
+}
+
+/// Card #686 on #541's move: a phone's thread whose ask home is full goes
+/// to a computer with room instead.
+#[test]
+fn a_phones_thread_skips_a_full_ask_home() {
+    let devs = computers(&["dev-c"]);
+    {
+        let mut d = devs.write().unwrap();
+        d.homes = vec!["dev-c".into(), "dev-b".into()];
+        d.away.clear();
+        d.cant.insert("dev-a".into());
+    }
+    let (mac, t) = phone_thread_on_mac(devs.clone());
+    mac.c.pull_asks().unwrap();
+    assert_eq!(ask_of(&mac, &t.id).owner, "dev-b", "dev-c is full");
 }
 
 /// An ask whose agent Irori ended on a Claude usage limit (card #450) is

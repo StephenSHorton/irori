@@ -316,7 +316,7 @@ impl Services {
         // A thread here with no free slot (card #686): a computer with
         // room takes it; with none, it waits here and says so.
         if private && t.open_ask().is_some_and(|a| a.owner == me) && self.full_here() {
-            if let Some(dev) = co.room_home(&t.side, &me) {
+            if let Some(dev) = co.full_target(t) {
                 return Why::MovesTo {
                     from: self.named_device(&me),
                     device: self.named_device(&dev),
