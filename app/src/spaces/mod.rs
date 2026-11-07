@@ -326,10 +326,53 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 /// The Core opens the shared spaces a few seconds after launch, and a
 /// headless clock doesn't wait for it: give it up to 12 s here so the
 /// scene shows them.
+///
+/// IRORI_SCENE_INVITE shows a stand-in invite over the list, at one of its
+/// steps (no network needed): `waiting` (the host's link), `words-host`
+/// (the host types the five words, one miss), `words-guest` (the guest
+/// reads them out), `joining`, `done` or `failed`.
 pub fn scene(s: &mut State) {
     s.close_card();
     s.go(Route::Spaces);
     wait_for_spaces(s);
+    if let Ok(step) = std::env::var("IRORI_SCENE_INVITE") {
+        s.spaces.invite = scene_invite(&step);
+    }
+}
+
+/// A stand-in invite at `step` (see [`scene`]).
+fn scene_invite(step: &str) -> Option<InviteStatus> {
+    use irori_window::invites::{INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS};
+    let mut v = InviteStatus {
+        role: "host".into(),
+        board_name: "Netcode Lab".into(),
+        peer_name: "Casey".into(),
+        link: "irori-invite:v1:3q2hx7k0cz9m4t1wq8n6p5r2s4u7y3e0a9d8f6g5h4j2k1l0".into(),
+        peer_fingerprint: "7c1e 90ab 44d2 e8f3".into(),
+        my_fingerprint: "eda0 0926 ae6b 1e18".into(),
+        words: ["harbour", "lantern", "otter", "maple", "drift"].map(String::from).to_vec(),
+        ..InviteStatus::default()
+    };
+    v.state = match step {
+        "waiting" => INVITE_WAITING,
+        "words-host" => {
+            v.misses = 1;
+            INVITE_WORDS
+        }
+        "words-guest" => {
+            v.role = "guest".into();
+            INVITE_WORDS
+        }
+        "joining" => INVITE_JOINING,
+        "done" => INVITE_DONE,
+        "failed" => {
+            v.error = "Those words didn't match twice, so the invite ended.".into();
+            INVITE_FAILED
+        }
+        _ => return None,
+    }
+    .into();
+    Some(v)
 }
 
 /// (Headless scenes only.) Waits for the Core's spaces to open.

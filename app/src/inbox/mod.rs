@@ -105,6 +105,9 @@ pub struct Model {
     pub reply: Composer,
     /// Picks shown at once while they save (card #644), by item key.
     pub picked: HashMap<String, String>,
+    /// (Headless scenes only.) Stand-in items kept at the top of the
+    /// list across re-reads; their deliveries are never read back.
+    pub scene_items: Vec<Notification>,
 
     // Shared by the page and the dialogs.
     pub repos: Repos,
@@ -141,7 +144,7 @@ pub fn load(s: &mut State) {
     s.spawn(
         |w| w.notifications(),
         |s, list| {
-            s.inbox.list = list;
+            s.inbox.list = s.inbox.scene_items.iter().cloned().chain(list).collect();
             s.inbox.loaded = true;
             s.inbox.error = None;
             load_live(s);
@@ -171,6 +174,7 @@ pub fn load_live(s: &mut State) {
         }
         if matches!(n.kind.as_str(), notify::kind::MESSAGE | notify::kind::HELD)
             && !n.delivery_id.is_empty()
+            && !n.delivery_id.starts_with(SCENE_PREFIX)
             && !notify::waited_summary(n)
             && !deliveries.contains(&n.delivery_id)
         {
@@ -315,15 +319,7 @@ pub fn scene(s: &mut State) {
     // IRORI_SCENE_MESSAGE=1: the Message dialog over it, on a stand-in
     // message from an agent (its reply box is the shared composer).
     if std::env::var("IRORI_SCENE_MESSAGE").is_ok_and(|v| !v.is_empty()) {
-        let mut d = Delivery {
-            id: "scene-msg".into(),
-            to: "user:you".into(),
-            state: irori_window::rune_inbox::st::DELIVERED.into(),
-            ..Delivery::default()
-        };
-        d.message.from.key = "scene/oak".into();
-        d.message.from.name = "oak".into();
-        d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+        let d = scene_delivery("scene-msg");
         s.inbox.message = Message {
             id: d.id.clone(),
             d: Some(Ok(d)),
@@ -333,6 +329,41 @@ pub fn scene(s: &mut State) {
         // Set directly: opening it the usual way would read it back.
         s.dialog = Some(Dialog::Message { id: "scene-msg".into() });
     }
+    // IRORI_SCENE_REPLY=1: a stand-in message item at the top, with its
+    // Reply…, Mark read and Open (inbox-reply-msg:scene opens the box).
+    if std::env::var("IRORI_SCENE_REPLY").is_ok_and(|v| !v.is_empty()) {
+        let n = Notification {
+            key: "msg:scene".into(),
+            kind: notify::kind::MESSAGE.into(),
+            title: "oak sent you a message".into(),
+            body: "The merge desk is clear. Shall I take #12 next?".into(),
+            delivery_id: "scene-reply".into(),
+            at: irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000),
+            ..Notification::default()
+        };
+        s.inbox.deliveries.insert(n.delivery_id.clone(), Ok(scene_delivery("scene-reply")));
+        s.inbox.list.insert(0, n.clone());
+        s.inbox.scene_items = vec![n];
+    }
+}
+
+/// A stand-in message's id prefix: never read from the inbox.
+const SCENE_PREFIX: &str = "scene-";
+
+/// The stand-in message from an agent the scenes show.
+fn scene_delivery(id: &str) -> Delivery {
+    let mut d = Delivery {
+        id: id.into(),
+        to: "user:you".into(),
+        state: irori_window::rune_inbox::st::DELIVERED.into(),
+        ..Delivery::default()
+    };
+    d.message.from.key = "scene/oak".into();
+    d.message.from.name = "oak".into();
+    // Sent two minutes ago.
+    d.message.sent_at = irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000);
+    d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+    d
 }
 
 /// The Held list over the Notifications page (`--scene held`).

@@ -644,6 +644,71 @@ mod tests {
     }
 
     #[test]
+    fn a_title_word_a_space_name_and_settings() {
+        let items = vec![
+            item(Kind::Command, "command:nav.home", "Home", "Go to", &[]),
+            item(Kind::Command, "command:settings.open", "Settings", "Go to", &["preferences"]),
+            item(Kind::Command, "command:card.new", "New card", "Commands", &[]),
+            item(Kind::Card, "card:a", "Command palette for Irori", "Cards", &["#212"]),
+            item(Kind::Card, "card:b", "Boss relay on the Mac rig", "Cards", &["#51", "wind#51"]),
+            item(Kind::Board, "board:w", "Wind Waker co-op", "Spaces", &["wind", "space", "board"]),
+        ];
+        assert_eq!(results(&items, "palette", &[])[0].key, "card:a");
+        assert_eq!(results(&items, "waker", &[])[0].key, "board:w");
+        assert_eq!(results(&items, "settings", &[])[0].key, "command:settings.open");
+        // Groups stay together.
+        let groups: Vec<&str> = results(&items, "o", &[]).iter().map(|i| i.group).collect();
+        let mut seen: Vec<&str> = Vec::new();
+        for g in groups {
+            if seen.last() != Some(&g) {
+                seen.push(g);
+            }
+        }
+        let mut uniq = seen.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), seen.len());
+    }
+
+    #[test]
+    fn a_spawned_agent_sits_under_its_card() {
+        let mut s = State::default();
+        let mut card = CardSummary {
+            id: "c58".into(),
+            short: "58".into(),
+            title: "Lantern flicker on the dock".into(),
+            ..CardSummary::default()
+        };
+        card.working.push(irori_window::cards::AgentRef {
+            key: "pc/thyme".into(),
+            name: "thyme".into(),
+            status: "busy".into(),
+            spawned: true,
+            ..Default::default()
+        });
+        s.data.cards.push(card);
+        for (key, name, status) in [("pc/thyme", "thyme", "busy"), ("pc/juniper", "juniper", "idle")] {
+            let mut c = coord::roster::AgentCard::default();
+            c.key = key.into();
+            c.name = name.into();
+            c.status = status.into();
+            s.data.agents.push(irori_window::roster::RosterAgent {
+                card: c,
+                offers_cards: true,
+                spawned: false,
+                here: true,
+            });
+        }
+        let items = build_items(&s, true);
+        let t = items.iter().find(|i| i.key == "agent:pc/thyme").unwrap();
+        assert_eq!((t.group, t.hint.as_str()), ("Agents on cards", "on #58 Lantern flicker on the dock"));
+        (t.run.clone())(&mut s);
+        assert_eq!(s.nav.card.as_deref(), Some("c58"));
+        assert_eq!(items.iter().find(|i| i.title == "juniper").unwrap().group, "Agents");
+        assert!(results(&items, "lantern", &[]).iter().any(|i| i.key == "agent:pc/thyme"));
+    }
+
+    #[test]
     fn open_keys() {
         let ev = |k: char, shift: bool| KeyEvent {
             key: Key::Command(k),
