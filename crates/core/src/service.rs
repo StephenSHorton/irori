@@ -69,6 +69,7 @@ mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
+pub mod name_themes;
 pub mod notes;
 mod notifications;
 pub mod space_move;
@@ -82,7 +83,7 @@ pub mod spawn_pause;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
-mod spawn_waiting;
+pub mod spawn_waiting;
 pub mod spawn_why;
 pub mod sync_out;
 pub use mirror::BoardReviewer;
@@ -335,6 +336,9 @@ struct Services {
     calls: calls::Calls,
     /// "Transcribe what I say in calls" (card #656).
     call_settings: call_settings::CallSettings,
+    /// The themes new agents' names come from (card #702), shared with
+    /// `names`.
+    name_themes: Arc<name_themes::NameThemes>,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -506,6 +510,18 @@ impl tools::Backend for ToolsView {
     }
     fn shared_boards(&self) -> Option<&dyn tools::SharedBoards> {
         Some(self)
+    }
+    fn personal_boards(&self) -> Vec<tools::PersonalBoard> {
+        self.0
+            .personal_boards()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| tools::PersonalBoard {
+                board_id: b.board_id,
+                name: b.name,
+                tag: b.tag,
+            })
+            .collect()
     }
     fn talk(&self) -> Option<&Arc<coord::talk::Talk>> {
         Some(&self.0.talk)
@@ -942,6 +958,11 @@ impl Core {
             Arc::new(move |d: &str| r.key(d))
         };
         let names = Arc::new(Namer::new(&dir, &me));
+        let name_themes = Arc::new(name_themes::NameThemes::load(&st));
+        {
+            let t = name_themes.clone();
+            names.set_themes_off(move || t.off());
+        }
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
         let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
@@ -1515,6 +1536,7 @@ impl Core {
                 opts.call_transcriber.clone(),
             ),
             call_settings,
+            name_themes,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1933,9 +1955,13 @@ impl Core {
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                         s.follow_call_settings();
+                        s.follow_names_themes();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
+                    } else if ev.kind == kinds::NAMES_THEMES {
+                        // Another device's switches (card #702).
+                        s.follow_names_themes();
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
@@ -2604,6 +2630,23 @@ impl Core {
         self.s.asks_kick.kick();
     }
 
+    /// The `irori` whose `permission-hook` role each spawned agent's
+    /// settings run on a permission prompt (card #682); `None` (the
+    /// default) starts agents without the hook.
+    pub fn set_permission_hook(&self, exe: Option<std::path::PathBuf>) {
+        self.s.set_permission_hook(exe);
+    }
+
+    /// A spawned agent's permission hook reports its prompt and waits up
+    /// to `wait` for the person's pick on the card (card #682).
+    pub fn permission_wait(
+        &self,
+        ask: &spawn_waiting::PermissionAsk,
+        wait: std::time::Duration,
+    ) -> spawn_waiting::PermissionDecision {
+        self.s.permission_wait(ask, wait)
+    }
+
     /// A board's spawned-agent settings (`""`: the private board).
     pub fn spawn_setting(&self, board_id: &str) -> spawn::SpawnSetting {
         self.s.spawn_setting(board_id)
@@ -2781,6 +2824,18 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_call_transcribe(&self, on: bool) -> Result<(), String> {
         self.s.set_call_transcribe(on)
+    }
+
+    /// The themes new agents' names don't come from (card #702): every
+    /// theme is on until the person turns it off.
+    pub fn names_themes_off(&self) -> Vec<String> {
+        self.s.names_themes_off()
+    }
+
+    /// The person turns a `coord::names::THEMES` theme on or off, from the
+    /// app only: no tool reaches this.
+    pub fn set_names_theme(&self, id: &str, on: bool) -> Result<(), String> {
+        self.s.set_names_theme(id, on)
     }
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {

@@ -126,6 +126,9 @@ impl Pass {
             }
             Verdict::Work(why) => {
                 self.unbusy(w);
+                // The card is told once; the log says it at every look, so
+                // a new reason after the first shows somewhere.
+                logf(format_args!("kept {w}: it has {why}"));
                 self.say(t, &format!("it has {why}"));
                 self.clear_target(w);
                 self.rest(w, Some(Instant::now() + KEPT_EVERY));

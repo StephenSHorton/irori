@@ -560,14 +560,15 @@ fn link_within(path: &Path, m: &fs::Metadata, tree: &Path) -> bool {
 /// worktree inside (finding 2), or a link (finding 9: a junction to a
 /// shared folder, which git can't remove and must never delete through).
 fn scan(tree: &Path) -> Option<String> {
-    scan_dir(tree, tree, SCAN_MAX)
+    scan_dir(tree, tree, SCAN_MAX, false)
 }
 
 /// Build output can't hold anything that isn't cargo's: before a
 /// `target/` (or a leftover `target.irori-clearing/`) under `tree` is
 /// deleted, it must hold no repo or worktree of its own, `.git` at its top
 /// included, and no link out of the tree. A clone an agent made under
-/// `target/tmp` would otherwise go with the build output.
+/// `target/tmp` would otherwise go with the build output. The one `.git`
+/// allowed is in a build script's `OUT_DIR` ([`in_build_out`]).
 pub(crate) fn scan_build(tree: &Path, dir: &Path) -> Option<String> {
     if dir.join(".git").exists() {
         let rel = dir
@@ -577,7 +578,22 @@ pub(crate) fn scan_build(tree: &Path, dir: &Path) -> Option<String> {
             .replace('\\', "/");
         return Some(format!("another repo or worktree inside ({rel}/.git)"));
     }
-    scan_dir(dir, tree, SCAN_BUILD_MAX)
+    scan_dir(dir, tree, SCAN_BUILD_MAX, true)
+}
+
+/// Whether `rel`, a path under a `target/`, is inside a build script's
+/// `OUT_DIR` (`<profile>/build/<crate>-<hash>/out/`, a target triple
+/// before the profile or not). Cargo makes that folder for the build
+/// script and nothing else writes there, so a `.git` in it is a vendored
+/// source the script copied (whisper-rs-sys copies whisper.cpp with its
+/// `.git`), not an agent's clone.
+/// `target/tmp/` (`CARGO_TARGET_TMPDIR`) is the tests' own and never
+/// counts.
+pub fn in_build_out(rel: &Path) -> bool {
+    let segs: Vec<_> = rel.components().map(|c| c.as_os_str()).collect();
+    segs.first().is_some_and(|s| *s != "tmp")
+        && (1..segs.len())
+            .any(|i| segs[i] == "build" && segs.get(i + 2).is_some_and(|s| *s == "out"))
 }
 
 /// How many entries [`scan_build`] walks before it gives up and keeps the
@@ -585,8 +601,9 @@ pub(crate) fn scan_build(tree: &Path, dir: &Path) -> Option<String> {
 const SCAN_BUILD_MAX: usize = 5_000_000;
 
 /// Walks `root`, a folder in `tree`, for a `.git` below `root` and links
-/// that leave `tree`.
-fn scan_dir(root: &Path, tree: &Path, max: usize) -> Option<String> {
+/// that leave `tree`. With `build`, `root` is build output and a `.git` in
+/// a build script's `OUT_DIR` ([`in_build_out`]) is cargo's.
+fn scan_dir(root: &Path, tree: &Path, max: usize, build: bool) -> Option<String> {
     let unread = |p: &Path, e: std::io::Error| {
         Some(format!(
             "a folder Irori couldn't read ({}: {e})",
@@ -622,7 +639,10 @@ fn scan_dir(root: &Path, tree: &Path, max: usize) -> Option<String> {
             if is_link(&m) && !link_within(&path, &m, tree) {
                 return Some(format!("a link inside ({rel})"));
             }
-            if e.file_name() == ".git" && dir != root {
+            if e.file_name() == ".git"
+                && dir != root
+                && !(build && path.strip_prefix(root).is_ok_and(in_build_out))
+            {
                 return Some(format!("another repo or worktree inside ({rel})"));
             }
             if m.is_dir() {

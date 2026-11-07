@@ -14,6 +14,7 @@ pub mod host;
 pub mod mcp_cmd;
 pub mod node_cmd;
 pub mod pair_cmd;
+pub mod permission_hook;
 pub mod serve;
 
 use std::process::ExitCode;
@@ -35,6 +36,7 @@ pub fn run_main(gui: impl FnOnce(&[String]) -> Result<(), String>) -> ExitCode {
         "events" => events::main(rest),
         "pair" => pair_cmd::run(rest),
         "node" => node_cmd::run(rest),
+        "permission-hook" => permission_hook::main(rest),
         "version" => {
             println!("irori {}", commands::version());
             Ok(())

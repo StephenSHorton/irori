@@ -159,6 +159,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     // A headless render or an offline copy never starts real agents.
     if !headless && !host::offline() {
+        // Each agent's permission prompts reach its card through this
+        // binary's `permission-hook` role (card #682).
+        core.set_permission_hook(std::env::current_exe().ok());
         core.set_spawner(Some(spawner()));
     }
     core.set_spawn_default_on(true);

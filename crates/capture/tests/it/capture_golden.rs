@@ -57,6 +57,7 @@ fn replay_matches_go_views() {
         let (_d, data) = common::tempdir();
         let (_c, claude) = common::tempdir();
         let st = common::open_store(&data);
+        let _close = common::CloseStore(st.clone());
         for row in rows {
             st.append(
                 s(&row["actor"]),
@@ -272,6 +273,7 @@ fn tail_logs_go_bytes() {
         blobs.clone(),
     );
     let st = common::open_store(&data);
+    let _close = common::CloseStore(st.clone());
     let c = Capture::new(st.clone(), None, opts.clone()).unwrap();
     c.tail_pass(&Cancel::new());
     let got = all_rows(&st);
@@ -315,6 +317,7 @@ fn tail_logs_go_bytes() {
     assert_eq!(cur, s(&g["cursors"]));
     st.close().unwrap();
     let st = common::open_store(&data);
+    let _close = common::CloseStore(st.clone());
     let c = Capture::new(st.clone(), None, opts).unwrap();
     c.tail_pass(&Cancel::new());
     assert_eq!(
