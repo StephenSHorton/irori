@@ -19,6 +19,7 @@
 
 pub mod data;
 pub mod icons;
+pub mod keys;
 pub mod nav;
 pub mod prefs;
 pub mod sidebar;

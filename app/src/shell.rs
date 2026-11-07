@@ -1,22 +1,26 @@
 //! The window role (card #674): the Core in-process with its API, the
 //! window backend (crates/window, without its Tauri commands) and a Rune
-//! window on it. What the Tauri shell did that this one doesn't yet is in
-//! docs/rune-ui.md: launch at login, the updater and Keep this device up to
-//! date, calls and voice UI.
+//! window on it, with what the Tauri shell had around it: the tray, launch
+//! at login (app/src/login/), the updater and Keep this device up to date
+//! (status/updater.rs, status/keep.rs), Reset quitting the app, and the
+//! window's shortcuts (ui/keys.rs).
 
-use std::path::Path;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::Duration;
 
 use irori_roles::commands::version;
 use irori_roles::{datadir, host};
 use irori_window::voice::EVENT_VOICE;
 use irori_window::{Config, Window, attachments};
-#[cfg(not(target_os = "macos"))]
-use rune::tray::{Tray, TrayEvent, TrayIcon, TrayItem, TraySpec};
-use rune::{App, AppSpec};
+use rune::{App, AppHandle, AppSpec};
 
+use crate::login::LoginItem;
+use crate::status::keep::{self, Keeper};
+use crate::status::tray::Tray;
+use crate::status::{tray_text, updater};
 use crate::ui::{self, Event, State};
 
 /// The last rows' send when the app quits (the Tauri shell's).
@@ -29,6 +33,16 @@ const SLEEP: Duration = Duration::from_millis(1500);
 
 /// Everything the app does on its way out, once (see [`on_exit`]).
 static SHUTDOWN: OnceLock<Box<dyn Fn() -> Result<(), String> + Send + Sync>> = OnceLock::new();
+/// Set by Reset: its quit sends nothing (main's sync_out::skip).
+static RESET: AtomicBool = AtomicBool::new(false);
+/// The window has focus (App::on_focus), for Keep this device up to date,
+/// which never restarts under the person's hands.
+static FOCUSED: AtomicBool = AtomicBool::new(false);
+/// The tray's controller, once there is one: launch at login rebuilds it.
+static TRAY: OnceLock<Arc<Tray>> = OnceLock::new();
+
+/// The tab a notifier Target opens the Wind down dialog on (card #220).
+const TAB_WIND_DOWN: &str = "wind-down";
 
 /// macOS: Cmd-Q, the Dock's Quit and a logout go through AppKit's
 /// `terminate:`, which calls exit() itself, so `try_run` never returns (the
@@ -45,7 +59,7 @@ extern "C" fn on_exit() {
 pub fn run(args: &[String]) -> Result<(), String> {
     let launched = std::time::Instant::now();
     // `--startup` (launch at login) is Irori's; everything else is Rune's.
-    let startup = args.iter().any(|a| a == "--startup" || a == "-startup");
+    let startup = crate::login::started_at_login(args) || args.iter().any(|a| a == "-startup");
     let rune_args: Vec<String> = args
         .iter()
         .filter(|a| *a != "--startup" && *a != "-startup")
@@ -61,6 +75,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         unsafe { sys::shellpath::fix_gui_path() };
     }
     let data = datadir::process_data_dir()?;
+    // Card #578: the restart Keep this device up to date made while the
+    // window was hidden comes back hidden too.
+    let restarted_hidden = !headless && keep::after_start(&data, version(), keep::unix_now());
 
     // Another Irori holding this data dir: a window gets the launch handed
     // to it (its window shows, instance.rs); a headless one is an error.
@@ -100,8 +117,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
         launched.elapsed().as_millis()
     ));
 
+    // The updater (GUI role only; a dev build never checks) and Keep this
+    // device up to date (card #578): the setting, and the wake its switch
+    // sends the loop.
+    let updater = updater::new(&data);
+    let (every, hold, tick) = keep::timings();
+    let keeper = Arc::new(Keeper::new(data.clone(), hold));
+    let (keep_tx, keep_rx) = mpsc::channel::<()>();
+
     let mut seams = Window::default_seams(&core);
     seams.notifier = Arc::new(irori_window::settings::NotifierSeam(notifier.clone()));
+    seams.updater = Arc::new(updater::WindowUpdater {
+        u: updater.clone(),
+        keeper: keeper.clone(),
+        wake: Mutex::new(keep_tx),
+        rt: rt.handle().clone(),
+    });
+    seams.login = Arc::new(ShellLogin);
     let window = Arc::new(Window::new(
         core.clone(),
         seams,
@@ -128,14 +160,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
         scenes: SCENES,
         min_size: Some((720.0, 480.0)),
         poll: Some(ui::poll),
+        on_key: Some(ui::keys::on_key),
         ..AppSpec::new("Irori", (1100.0, 720.0), State::default, ui::view)
     };
     let init_window = window.clone();
     let init_data = data.clone();
     let mut app = App::new(spec)
         .init(move || State::new(init_window, init_data, headless))
+        // macOS: Edit (undo, copy, paste) and Window (minimize, close).
+        .standard_menus()
         .on_focus(|s: &mut State, on, _| {
             s.focused = on;
+            FOCUSED.store(on, Ordering::Relaxed);
             if on {
                 // The React app re-read on focus; the pumps are the main
                 // feed, this covers a missed one.
@@ -144,10 +180,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
         })
         .args(rune_args);
-    if startup {
+    if startup || restarted_hidden {
+        if restarted_hidden {
+            irori_core::log("start: restarted by Keep this device up to date; the window stays hidden");
+        }
         app = app.windowless();
     }
     let handle = app.handle();
+
+    // Reset (Settings > Devices) marks the device, then the app quits
+    // without sending its last rows.
+    {
+        let h = handle.clone();
+        window.set_on_reset(move || {
+            RESET.store(true, Ordering::SeqCst);
+            let h = h.clone();
+            // The call returns to the window first.
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                h.quit();
+            });
+        });
+    }
 
     // The state's own handle, for State::spawn.
     {
@@ -236,9 +290,46 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
 
     // The tray: closing the window keeps Irori running, as the Tauri app
-    // does; Open and Quit are in its menu.
-    if !headless && install_tray(&handle) {
+    // does; Quit is in its menu.
+    let tray = if headless {
+        None
+    } else {
+        install_tray(&handle, &core, &window)
+    };
+    if tray.is_some() {
         app = app.keep_running();
+    }
+
+    // The updater: update:status to the window, the tray's Restart item,
+    // the Install card; then the start check and Keep this device up to
+    // date's loop.
+    let recheck_card = updater::wire(&handle, &window, &updater, tray, &notifier, &keeper);
+    if !headless {
+        // The launch-at-login cutover (surface.md 7.4; Windows only).
+        std::thread::spawn(|| {
+            if let Err(e) = LoginItem::system().cutover() {
+                irori_core::log(&format!("irori: launch at login cutover: {e}"));
+            }
+        });
+        // Go: AutoUpdate on ApplicationStarted (dev builds and unsupported
+        // platforms return at once).
+        let u = updater.clone();
+        rt.spawn(async move { u.auto_update().await });
+        if updater.supported() {
+            let hooks = keep_hooks(&handle, &core, recheck_card);
+            if let Err(e) = keep::spawn(
+                keeper.clone(),
+                updater.clone(),
+                rt.handle().clone(),
+                hooks,
+                keep_rx,
+                pumps_stop.clone(),
+                every,
+                tick,
+            ) {
+                irori_core::log(&format!("irori: keep up to date: {e}"));
+            }
+        }
     }
 
     irori_core::log(&format!(
@@ -252,8 +343,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let Some((hosted, instance)) = left.lock().unwrap_or_else(|e| e.into_inner()).take() else {
             return Ok(());
         };
+        // Card #580: the last rows leave before anything stops; Reset's
+        // quit sends nothing.
+        if !RESET.load(Ordering::SeqCst) {
+            core.sync_out(QUIT);
+        }
+        // Go OnShutdown(InstallOnExit): a ready update installs silently
+        // and leaves Irori closed.
+        updater.install_on_exit();
         pumps_stop.cancel();
-        core.sync_out(QUIT);
         window.call_shutdown();
         window.voice_shutdown();
         core.set_reviver(None);
@@ -291,68 +389,190 @@ const SCENES: &[(&str, fn(&mut State))] = &[
     ("widgets", crate::widgets::scene),
 ];
 
-/// The OS opener (the Tauri opener plugin's open_path).
+/// The OS opener (the Tauri opener plugin's open_path): opens the file
+/// with its default app. Windows: Explorer given a file opens it (with
+/// `/select,` it would only show it in a folder).
 fn open_path(p: &Path) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut c = std::process::Command::new("open");
     #[cfg(windows)]
-    let mut c = {
-        let mut c = std::process::Command::new("explorer");
-        c.arg("/select,");
-        c
-    };
+    let mut c = std::process::Command::new("explorer");
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut c = std::process::Command::new("xdg-open");
     c.arg(p).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Makes the tray. Windows and Linux: Rune's `Tray`, made here. macOS:
-/// tray-icon's, made on the main thread once the loop runs (tray_mac.rs).
-/// True when a tray is (or will be) there.
-fn install_tray(handle: &rune::AppHandle<State>) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        crate::tray_mac::route(handle.clone());
-        handle.update(
-            |s: &mut State, _| match crate::tray_mac::install(version()) {
-                Ok(t) => s.tray = Some(Box::new(t)),
-                Err(e) => irori_core::log(&format!("irori: tray: {e}")),
-            },
-        );
-        true
+/// Makes the tray and wires it: the roster line, the inbox and decide
+/// counts, the pause checkbox, the held and Wind down openers, launch at
+/// login. Windows and Linux: Rune's `Tray`, made here. macOS: tray-icon's,
+/// made on the main thread once the loop runs (tray_mac.rs). Its
+/// controller when a tray is (or will be) there.
+fn install_tray(
+    handle: &AppHandle<State>,
+    core: &Arc<irori_core::Core>,
+    window: &Arc<Window>,
+) -> Option<Arc<Tray>> {
+    let tray = Tray::new(handle.clone(), version());
+    if !install_native(handle, &tray) {
+        return None;
     }
-    #[cfg(not(target_os = "macos"))]
+    let _ = TRAY.set(tray.clone());
+    // The inbox and decide counts, from the window's pumps, so the tray
+    // reads each pump's own scan.
     {
-        let h = handle.clone();
-        let Some((w, ht, px)) = decode_png(include_bytes!("../icons/32x32.png")) else {
-            return false;
-        };
-        let tray = Tray::new(
-            TraySpec::new("irori", "Irori", TrayIcon::rgba(w, ht, px))
-                .tooltip(format!("Irori {}", version()))
-                .menu(vec![
-                    TrayItem::action("open", "Open Irori"),
-                    TrayItem::Separator,
-                    TrayItem::action("quit", "Quit Irori"),
-                ]),
-            move |ev| match ev {
-                TrayEvent::Activate { token: Some(t) } => h.activate(t),
-                TrayEvent::Activate { token: None } => h.open(),
-                TrayEvent::Menu(id) if id == "open" => h.open(),
-                TrayEvent::Menu(id) if id == "quit" => h.quit(),
-                _ => {}
-            },
-        );
-        match tray {
-            Ok(t) => {
-                handle.update(move |s: &mut State, _| s.tray = Some(Box::new(t)));
-                true
+        let t = tray.clone();
+        window.on_inbox_counts(Arc::new(move |c| {
+            t.set_inbox(tray_text::Counts {
+                unread: c.unread.max(0) as usize,
+                held: c.held.max(0) as usize,
+                paused: c.paused,
+            })
+        }));
+        let t = tray.clone();
+        window.on_decide_count(Arc::new(move |n| t.set_decide(n)));
+    }
+    // The roster line (Go `roster.trayStatus`), on every presence change.
+    {
+        let t = tray.clone();
+        let core = core.clone();
+        std::thread::Builder::new()
+            .name("irori-tray-status".into())
+            .spawn(move || {
+                let changes = core.changes();
+                loop {
+                    let agents = core.local_agents();
+                    let busy = agents.iter().filter(|a| a.status == "busy").count();
+                    t.set_status(&tray_text::agents_line(agents.len(), busy));
+                    if changes.recv().is_none() {
+                        return;
+                    }
+                }
+            })
+            .ok();
+    }
+    // Pause wakes: drops the window's snapshot and nudges its pump, so the
+    // window and the tray both follow.
+    let w = window.clone();
+    tray.set_pause(&core.device().name, Arc::new(move |paused| w.inbox_set_paused(paused)));
+    let n = core.notifier().clone();
+    tray.set_held_opener(Arc::new(move || {
+        n.open(notify::Target {
+            tab: notify::TAB_HELD.into(),
+            ref_: String::new(),
+        })
+    }));
+    let n = core.notifier().clone();
+    tray.set_wind_down_opener(Arc::new(move || {
+        n.open(notify::Target {
+            tab: TAB_WIND_DOWN.into(),
+            ref_: String::new(),
+        })
+    }));
+    // Through the window, so settings:launch-at-login tells the page.
+    let w = Arc::downgrade(window);
+    tray.set_login_setter(Arc::new(move |on| match w.upgrade() {
+        Some(w) => w.set_launch_at_login(on),
+        None => Err("Irori is closing".into()),
+    }));
+    Some(tray)
+}
+
+/// The native icon. True when it is (or will be) there.
+#[cfg(target_os = "macos")]
+fn install_native(handle: &AppHandle<State>, tray: &Arc<Tray>) -> bool {
+    crate::tray_mac::route(tray.clone());
+    let t = tray.clone();
+    // The menu's lines read the OS (launch at login): here, not on the
+    // main thread.
+    std::thread::spawn(move || {
+        let lines = t.lines();
+        t.app_update(move |s: &mut State| match crate::tray_mac::install(version(), &lines) {
+            Ok(icon) => s.tray = Some(Box::new(icon)),
+            Err(e) => irori_core::log(&format!("irori: tray: {e}")),
+        });
+    });
+    let _ = handle;
+    true
+}
+
+/// The native icon. True when it is there.
+#[cfg(not(target_os = "macos"))]
+fn install_native(handle: &AppHandle<State>, tray: &Arc<Tray>) -> bool {
+    use rune::tray::{TrayEvent, TrayIcon, TraySpec};
+    // Windows: the 囲 logo on a tight white tile (main's trayicon.png).
+    let Some((w, ht, px)) = decode_png(include_bytes!("../icons/trayicon.png")) else {
+        return false;
+    };
+    let h = handle.clone();
+    let ctl = Arc::downgrade(tray);
+    let native = rune::tray::Tray::new(
+        TraySpec::new("irori", "Irori", TrayIcon::rgba(w, ht, px))
+            .tooltip(format!("Irori {}", version()))
+            .menu(crate::status::tray::items(&tray.lines())),
+        move |ev| match ev {
+            // A left click opens the window (Go trayClickOpensWindow).
+            TrayEvent::Activate { token: Some(t) } => h.activate(t),
+            TrayEvent::Activate { token: None } => h.open(),
+            TrayEvent::Menu(id) => {
+                if let Some(c) = ctl.upgrade() {
+                    c.clicked(&id);
+                }
             }
-            Err(e) => {
-                irori_core::log(&format!("irori: tray: {e}"));
-                false
-            }
+            _ => {}
+        },
+    );
+    match native {
+        Ok(t) => {
+            handle.update(move |s: &mut State, _| s.tray = Some(Box::new(t)));
+            true
         }
+        Err(e) => {
+            irori_core::log(&format!("irori: tray: {e}"));
+            false
+        }
+    }
+}
+
+/// What Keep this device up to date's loop asks the app (card #578). "No
+/// agent working" reads presence again first, so a turn that just started
+/// counts; a window the person is using also waits.
+fn keep_hooks(
+    handle: &AppHandle<State>,
+    core: &Arc<irori_core::Core>,
+    recheck_card: Box<dyn Fn(&::update::Status) + Send>,
+) -> keep::Hooks {
+    let (h, c) = (handle.clone(), core.clone());
+    let hv = handle.clone();
+    keep::Hooks {
+        idle: Box::new(move || {
+            if FOCUSED.load(Ordering::Relaxed) && h.is_visible() {
+                return false;
+            }
+            c.presence().rescan();
+            let cards = c.presence().snapshot();
+            let open = c.terms().list().iter().filter(|t| t.2).count();
+            keep::idle_now(&cards, open, keep::unix_now(), keep::SETTLE)
+        }),
+        visible: Box::new(move || hv.is_visible()),
+        recheck_card,
+    }
+}
+
+/// The window's launch-at-login seam on the OS registration (login/).
+/// Window::set_launch_at_login announces the live state itself; this
+/// rebuilds the tray's checkbox after a change.
+struct ShellLogin;
+
+impl irori_window::seams::LoginItem for ShellLogin {
+    fn enabled(&self) -> Result<bool, String> {
+        LoginItem::system().is_enabled()
+    }
+    fn set_enabled(&self, on: bool) -> Result<(), String> {
+        let res = LoginItem::system().set(on);
+        if let Some(t) = TRAY.get() {
+            t.rebuild();
+        }
+        res
     }
 }
 
