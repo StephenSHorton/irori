@@ -847,8 +847,33 @@ pub async fn boards_add_to_space(
     space_id: String,
     name: String,
     tag: String,
+    mission: String,
+    done_when: String,
 ) -> R<BoardSummary> {
-    w.boards_add_to_space(&space_id, &name, &tag)
+    w.boards_add_to_space_with(&space_id, &name, &tag, &mission, &done_when)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_mission_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    mission: String,
+    done_when: String,
+) -> R<BoardSummary> {
+    w.boards_set_mission_in_space(&space_id, &board_id, &mission, &done_when)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_finish_in_space(
+    w: W<'_>,
+    space_id: String,
+    board_id: String,
+    finished: bool,
+) -> R<BoardSummary> {
+    w.boards_finish_in_space(&space_id, &board_id, finished)
 }
 
 #[tauri::command]
@@ -886,8 +911,35 @@ pub async fn boards_personal(w: W<'_>) -> R<Vec<SpaceBoard>> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn boards_add_to_personal(w: W<'_>, name: String, tag: String) -> R<Vec<SpaceBoard>> {
-    w.boards_add_to_personal(&name, &tag)
+pub async fn boards_add_to_personal(
+    w: W<'_>,
+    name: String,
+    tag: String,
+    mission: String,
+    done_when: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_add_to_personal_with(&name, &tag, &mission, &done_when)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_set_mission_in_personal(
+    w: W<'_>,
+    board_id: String,
+    mission: String,
+    done_when: String,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_set_mission_in_personal(&board_id, &mission, &done_when)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn boards_finish_in_personal(
+    w: W<'_>,
+    board_id: String,
+    finished: bool,
+) -> R<Vec<SpaceBoard>> {
+    w.boards_finish_in_personal(&board_id, finished)
 }
 
 #[tauri::command]
@@ -2063,6 +2115,10 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_rename_in_personal,
             boards_delete_in_space,
             boards_delete_in_personal,
+            boards_set_mission_in_space,
+            boards_finish_in_space,
+            boards_set_mission_in_personal,
+            boards_finish_in_personal,
             boards_forget_now,
             boards_remove_member,
             boards_set_role,

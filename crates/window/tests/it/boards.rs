@@ -1411,3 +1411,56 @@ fn a_space_channel_posts_file_goes_with_the_space() {
     let e = w.attachment_info(&sha).unwrap_err();
     assert_eq!(e, irori_window::attachments::NO_ATTACHMENT);
 }
+
+/// Card #690: from the window, a board gets its mission at New board and
+/// edits it, finishes once its cards are done (sent as camelCase fields
+/// only when set), and reopens; a space's first board and Personal's
+/// default never finish.
+#[test]
+fn a_boards_mission_and_finish_from_the_window() {
+    let r = Rig::new();
+    let w = &r.w;
+    let id = w.boards_create("Wind", "wind").unwrap().board_id;
+    let s = w
+        .boards_add_to_space_with(&id, "Netcode", "net", "Rollback netcode", "")
+        .unwrap();
+    let net = s.boards[1].board_id.clone();
+    assert_eq!(s.boards[1].mission, "Rollback netcode");
+    assert!(s.boards[1].may_finish && !s.boards[0].may_finish);
+    let s = w
+        .boards_set_mission_in_space(&id, &id, "The game", "Ships")
+        .unwrap();
+    assert_eq!(
+        (s.boards[0].mission.as_str(), s.boards[0].done_when.as_str()),
+        ("The game", "Ships")
+    );
+    let s = w.boards_finish_in_space(&id, &net, true).unwrap();
+    assert!(s.boards[1].finished && !s.boards[1].finished_at.is_empty());
+    let v = serde_json::to_value(&s.boards[1]).unwrap();
+    assert_eq!(v["finished"], true);
+    assert_eq!(v["mission"], "Rollback netcode");
+    let v = serde_json::to_value(&s.boards[0]).unwrap();
+    assert!(
+        v.get("finished").is_none() && v.get("mayFinish").is_none(),
+        "{v}"
+    );
+    let e = w.boards_finish_in_space(&id, &id, true).unwrap_err();
+    assert!(e.contains("first board"), "{e}");
+    let s = w.boards_finish_in_space(&id, &net, false).unwrap();
+    assert!(!s.boards[1].finished);
+
+    let bs = w
+        .boards_add_to_personal_with("House", "home", "Fix up the house", "")
+        .unwrap();
+    let home = bs[1].board_id.clone();
+    let bs = w.boards_finish_in_personal(&home, true).unwrap();
+    assert!(bs[1].finished);
+    let bs = w
+        .boards_set_mission_in_personal(irori_core::PERSONAL_BOARD, "Everything else", "")
+        .unwrap();
+    assert_eq!(bs[0].mission, "Everything else");
+    assert!(
+        w.boards_finish_in_personal(irori_core::PERSONAL_BOARD, true)
+            .is_err()
+    );
+}

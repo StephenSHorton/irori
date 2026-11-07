@@ -69,6 +69,28 @@ pub struct SpaceBoard {
     pub board_id: String,
     pub name: String,
     pub tag: String,
+    /// What the board is for (card #690); empty until someone writes one.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub mission: String,
+    /// How to tell its project is over; optional.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub done_when: String,
+    /// Finished: read-only, out of the pickers and tiles, in its space's
+    /// Archived boards fold (card #690).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub finished: bool,
+    /// When it was finished (RFC 3339), while it is.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub finished_at: String,
+    /// Whether this person may finish or reopen it: its maker or a space
+    /// owner (anyone in Personal), never a first board.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub may_finish: bool,
 }
 
 /// One current member in a board's summary (card #268).
@@ -159,6 +181,11 @@ impl From<irori_core::SpaceBoard> for SpaceBoard {
             board_id: b.board_id,
             name: b.name,
             tag: b.tag,
+            mission: b.mission,
+            done_when: b.done_when,
+            finished: b.finished,
+            finished_at: b.finished_at,
+            may_finish: b.may_finish,
         }
     }
 }
@@ -308,8 +335,58 @@ impl Window {
         name: &str,
         tag: &str,
     ) -> Result<BoardSummary, String> {
+        self.boards_add_to_space_with(space_id, name, tag, "", "")
+    }
+
+    /// [`Self::boards_add_to_space`] with the new board's mission and
+    /// done-when (card #690), on its one create row.
+    pub fn boards_add_to_space_with(
+        &self,
+        space_id: &str,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<BoardSummary, String> {
         self.core
-            .create_space_board(space_id, name, &crate::trim(tag).to_lowercase())
+            .create_space_board_with(
+                space_id,
+                name,
+                &crate::trim(tag).to_lowercase(),
+                mission,
+                done_when,
+            )
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Sets a board's mission and done-when in space `space_id`, its first
+    /// board's too (card #690): any member may. Refused on a finished board
+    /// and until every member device stores the row.
+    pub fn boards_set_mission_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .set_space_board_mission(space_id, board_id, mission, done_when)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Finishes a board of space `space_id`, or reopens it with `finished`
+    /// false (card #690): its maker or a space owner, never the first
+    /// board, and a finish only once none of its cards is open.
+    pub fn boards_finish_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        finished: bool,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .finish_space_board(space_id, board_id, finished)
             .map_err(text)?;
         self.boards_find(space_id)
     }
@@ -352,8 +429,46 @@ impl Window {
 
     /// Adds board `name` (tag `tag`) to Personal, and returns its boards.
     pub fn boards_add_to_personal(&self, name: &str, tag: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.boards_add_to_personal_with(name, tag, "", "")
+    }
+
+    /// [`Self::boards_add_to_personal`] with a mission (card #690).
+    pub fn boards_add_to_personal_with(
+        &self,
+        name: &str,
+        tag: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
         self.core
-            .create_personal_board(name, &crate::trim(tag).to_lowercase())
+            .create_personal_board_with(name, &crate::trim(tag).to_lowercase(), mission, done_when)
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Sets the mission of one of Personal's boards, its default too
+    /// (card #690), and returns its boards.
+    pub fn boards_set_mission_in_personal(
+        &self,
+        board_id: &str,
+        mission: &str,
+        done_when: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .set_personal_board_mission(board_id, mission, done_when)
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Finishes or reopens one of Personal's boards, never its default
+    /// (card #690), and returns its boards.
+    pub fn boards_finish_in_personal(
+        &self,
+        board_id: &str,
+        finished: bool,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .finish_personal_board(board_id, finished)
             .map_err(text)?;
         self.boards_personal()
     }
