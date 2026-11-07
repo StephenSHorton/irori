@@ -300,6 +300,8 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         crate::text::view(s, &mut f)
     } else if let Some(g) = crate::widgets::page(s, &mut f) {
         g
+    } else if let Some(c) = crate::canvas::page(s, &mut f) {
+        c
     } else if s.nav.card.is_some() {
         crate::card::view(s, &mut f)
     } else {
@@ -343,6 +345,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
     crate::call::overlay(s, &mut f);
     crate::text::overlay(s, &mut f);
     crate::widgets::overlay(s, &mut f);
+    crate::canvas::overlay(s, &mut f);
     notes(s, &mut f);
     rune_kit::root(body, layer)
 }
