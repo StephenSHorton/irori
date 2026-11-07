@@ -279,7 +279,7 @@ impl Fold {
     /// Whether `board` is finished (card #690). The first board never is.
     pub(crate) fn board_finished(&self, board: &str) -> bool {
         let b = self.own_board(board);
-        !b.is_empty() && self.board_view.finished.iter().any(|f| *f == b)
+        !b.is_empty() && self.board_view.finished.contains(&b)
     }
 
     /// The refusal for writing onto finished board `board`.

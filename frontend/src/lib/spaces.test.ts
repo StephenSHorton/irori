@@ -12,6 +12,8 @@ import {
   threadsSpace,
   withLine,
   cardsOnPersonal,
+  finishedBoards,
+  liveBoards,
 } from "./spaces"
 import { cropSquare, initials, isAvatar } from "./avatar"
 
@@ -176,5 +178,25 @@ describe("cardsOnPersonal", () => {
   })
   test("an inner board has its own, and a space's card is on none", () => {
     expect(cardsOnPersonal(cards, "b-home").map((c) => c.id)).toEqual(["h"])
+  })
+})
+
+// Card #690: finished boards leave the lists for the Archived boards fold.
+describe("liveBoards and finishedBoards", () => {
+  const list = [
+    { boardId: "s", finished: false },
+    { boardId: "n" },
+    { boardId: "p", finished: true },
+    { boardId: "a", finished: false },
+  ]
+  test("live keeps the first board and the unfinished, in order", () => {
+    expect(liveBoards(list).map((x) => x.boardId)).toEqual(["s", "n", "a"])
+    expect(finishedBoards(list).map((x) => x.boardId)).toEqual(["p"])
+  })
+  test("the first board is never finished, even if a row says so", () => {
+    const odd = [{ boardId: "s", finished: true }, { boardId: "n" }]
+    expect(liveBoards(odd).map((x) => x.boardId)).toEqual(["s", "n"])
+    expect(finishedBoards(odd)).toEqual([])
+    expect(liveBoards([])).toEqual([])
   })
 })

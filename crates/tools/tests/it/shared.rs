@@ -19,6 +19,8 @@ const ME: &str = "person:pStephen";
 /// One shared board, "MLG farming" (mlg), with Stephen and Blake.
 struct Fake {
     info: BoardInfo,
+    /// Boards inside the space beside its first (card #690).
+    inside: Mutex<Vec<BoardInfo>>,
     st: Arc<store::Store>,
     co: Arc<Coord>,
     private: Arc<Coord>,
@@ -101,6 +103,7 @@ impl Fake {
                 people: vec!["Stephen".into(), "Blake".into()],
                 ..Default::default()
             },
+            inside: Mutex::default(),
             st,
             co,
             private,
@@ -187,7 +190,9 @@ impl TaskRouter for Fake {
 
 impl SharedBoards for Fake {
     fn boards(&self) -> Vec<BoardInfo> {
-        vec![self.info.clone()]
+        let mut out = vec![self.info.clone()];
+        out.extend(self.inside.lock().unwrap().iter().cloned());
+        out
     }
     fn board_of(&self, task_id: &str) -> Option<BoardInfo> {
         self.co.get_task(task_id).map(|_| self.info.clone())
@@ -580,6 +585,57 @@ fn the_board_tool_lists_shared_boards() {
         json!({"title": "x", "board": "nope"}),
         &["no board \"nope\" in a shared space", "Yours: mlg."],
     );
+}
+
+/// Card #690: the board tool shows what each board is for and leaves
+/// out finished boards; a card can't go on a finished one.
+#[test]
+fn finished_boards_leave_the_list_and_take_no_cards() {
+    let r = rig();
+    let inner = |tag: &str, name: &str, mission: &str, finished: bool| BoardInfo {
+        tag: tag.into(),
+        name: name.into(),
+        space_board: format!("bd_{tag}"),
+        space_name: "MLG farming".into(),
+        mission: mission.into(),
+        finished,
+        ..r.fake.info.clone()
+    };
+    *r.fake.inside.lock().unwrap() = vec![
+        inner(
+            "farm",
+            "Farming",
+            &format!("Grow the\nfarm {}", "x".repeat(200)),
+            false,
+        ),
+        inner("old", "Old run", "Done and dusted", true),
+    ];
+    let out = r.h.okj(&call_a(), "board", json!({}));
+    has(
+        &out,
+        &["boards: mlg \"MLG farming\", farm \"Farming\"\n  farm is for: \"Grow the farm xxx"],
+    );
+    assert!(out.contains("…\""), "{out}");
+    assert!(
+        !out.contains("Old run") && !out.contains("old is for"),
+        "{out}"
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "x", "board": "nope"}),
+        &["Yours: mlg, farm."],
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Another run", "board": "old"}),
+        &[
+            "Old run (old) in MLG farming is finished",
+            "Reopen it in Irori first, or pick another board",
+        ],
+    );
+    assert!(r.board_titles().is_empty());
 }
 
 #[test]

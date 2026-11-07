@@ -9,7 +9,13 @@ import { Face } from "@/components/cards/faces"
 import { Button } from "@/components/ui/button"
 import { Loading } from "@/components/ui/loading"
 import { useBoards, useInvite, type BoardSummary } from "@/lib/boards"
-import { AllSpaces, Personal, boardsInSpace, boardsOf } from "@/lib/spaces"
+import {
+  AllSpaces,
+  Personal,
+  boardsInSpace,
+  boardsOf,
+  liveBoards,
+} from "@/lib/spaces"
 import { TaskState, type CardSummary } from "@/lib/cards"
 import { plainLine, relativeTime } from "@/lib/irori"
 import { go } from "@/lib/nav"
@@ -308,7 +314,7 @@ function BoardTile({
         </span>
         {b.ready && (
           <span className="truncate text-xs text-ink-2">
-            {boardsOf(b)
+            {liveBoards(boardsOf(b))
               .map((x) => plainLine(x.name))
               .join(" · ")}
           </span>

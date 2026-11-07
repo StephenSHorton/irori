@@ -817,6 +817,9 @@ impl Fold {
             .iter()
             .any(|h| !self.is_owner(h) && around.is_none_or(|f| f(h)))
             && self.reopen_refusal(&t).is_ok()
+            // A finished board's cards stay done (card #690): the comment
+            // posts, and nothing reopens.
+            && !self.board_finished(&t.board)
         {
             was = t.state.clone();
             self.reopen_locked(&by, id, REOPEN_COMMENT_NOTE)?;

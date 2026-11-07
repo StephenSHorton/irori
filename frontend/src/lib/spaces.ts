@@ -53,6 +53,20 @@ export function boardsOf(s: BoardSummary): SpaceBoard[] {
   )
 }
 
+// liveBoards is a space's (or Personal's) boards that aren't finished, its
+// first board always (card #690): what the pickers, tiles and counts
+// offer. finishedBoards is the rest, for the Archived boards fold. The
+// first board never finishes, so it is never among them.
+export function liveBoards<T extends { finished?: boolean }>(list: T[]): T[] {
+  return list.filter((x, i) => i === 0 || !x.finished)
+}
+
+export function finishedBoards<T extends { finished?: boolean }>(
+  list: T[]
+): T[] {
+  return list.filter((x, i) => i > 0 && !!x.finished)
+}
+
 // withLine is "with Blake", "with Blake and Casey", "with Blake +2"; "" alone.
 export function withLine(others: string[]): string {
   if (others.length === 0) return ""

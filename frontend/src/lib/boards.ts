@@ -15,7 +15,9 @@ import {
   type SummaryMember,
 } from "./models"
 import {
+  over,
   sampleBoardGone,
+  sampleOpenOn,
   sampleShare,
   sampleTransferOwner,
   sampleWithdraw,
@@ -168,6 +170,30 @@ export function suggestTag(name: string): string {
   return validTag(t) ? t : ""
 }
 
+// MaxMission mirrors core's MAX_BOARD_MISSION (card #690): a board's
+// mission and its done-when are this many characters at most.
+export const MaxMission = 280
+
+// QuietDays is how long nothing on a board must have moved before a board
+// with no done-when looks finished (card #690).
+export const QuietDays = 3
+
+// looksFinished is whether a board's quiet "Looks finished?" line shows
+// (card #690): it has a card and none is open, and either it has a
+// done-when or nothing on it has moved for QuietDays. cards are every card
+// on the board, done ones too. It only suggests: nothing finishes by
+// itself.
+export function looksFinished(
+  cards: readonly { state: string; updatedAt: string }[],
+  doneWhen: string | undefined,
+  now: Date
+): boolean {
+  if (cards.length === 0 || cards.some((c) => !over(c))) return false
+  if (doneWhen?.trim()) return true
+  const newest = Math.max(...cards.map((c) => Date.parse(c.updatedAt) || 0))
+  return now.getTime() - newest >= QuietDays * 24 * 3600_000
+}
+
 // ---- sample mode ------------------------------------------------------------
 
 // sampleAvatar is a friend's picture in the samples (card #393).
@@ -226,10 +252,50 @@ function boardsState(): BoardSummary[] {
       pinned: true,
       pinRank: 1,
       // A space with a second board (card #392).
+      // Each board a project (card #690): MLG and Netcode say what they
+      // are for, Art doesn't yet, the trailer's cards are all done, and
+      // the prototype is finished.
       boards: [
-        { boardId: "sample-board-mlg", name: "MLG", tag: "mlg" },
-        { boardId: "sample-board-mlg-net", name: "Netcode", tag: "net" },
-        { boardId: "sample-board-mlg-art", name: "Art", tag: "art" },
+        {
+          boardId: "sample-board-mlg",
+          name: "MLG",
+          tag: "mlg",
+          mission:
+            "Ship a two-player boat race people can play over the internet by the spring demo.",
+          mayFinish: false,
+        },
+        {
+          boardId: "sample-board-mlg-net",
+          name: "Netcode",
+          tag: "net",
+          mission:
+            "Make both clients agree on every boat, every frame, on a normal home connection.",
+          doneWhen: "Two players across town finish a race with no desync.",
+          mayFinish: true,
+        },
+        {
+          boardId: "sample-board-mlg-art",
+          name: "Art",
+          tag: "art",
+          mayFinish: true,
+        },
+        {
+          boardId: "sample-board-mlg-trailer",
+          name: "Launch trailer",
+          tag: "trailer",
+          mission: "A one-minute trailer for the demo page.",
+          mayFinish: true,
+        },
+        {
+          boardId: "sample-board-mlg-proto",
+          name: "Prototype",
+          tag: "proto",
+          mission: "Find out if racing boats on one screen is fun.",
+          doneWhen: "We pick a direction for the real game.",
+          finished: true,
+          finishedAt: new Date(Date.now() - 4 * 24 * 3600_000).toISOString(),
+          mayFinish: true,
+        },
       ],
     }),
     BoardSummary({
@@ -266,6 +332,62 @@ function sampleFind(id: string): BoardSummary {
   return b
 }
 
+// sampleList is one board of a sample space or of Personal (space
+// Personal), as core's project_board finds it.
+function sampleList(space: string, boardId: string): SpaceBoard {
+  const list =
+    space === Personal ? samplePersonal : boardsOfSample(sampleFind(space))
+  const x = list.find((b) => b.boardId === boardId)
+  if (!x) throw new Error(`core: no such board: ${boardId}`)
+  return x
+}
+
+// boardsOfSample is a sample space's boards, its first written out.
+function boardsOfSample(b: BoardSummary): SpaceBoard[] {
+  if (!b.boards.length)
+    b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
+  return b.boards
+}
+
+function checkMission(mission: string, doneWhen: string) {
+  if ([...mission].length > MaxMission || [...doneWhen].length > MaxMission)
+    throw new Error(
+      `coord: invalid input: a board's mission and done-when are ${MaxMission} characters at most`
+    )
+}
+
+// sampleFinish is core's finish_space_board on the sample: never a first
+// board (or Personal's default), only by who may, and only once none of
+// its cards is open.
+function sampleFinish(space: string, boardId: string, finished: boolean) {
+  const personal = space === Personal
+  const x = sampleList(space, boardId)
+  const first = personal
+    ? boardId === Personal
+    : boardsOfSample(sampleFind(space))[0]?.boardId === boardId
+  if (first)
+    throw new Error(
+      personal
+        ? "coord: not allowed: Personal's default board can't be finished"
+        : "coord: not allowed: a space's first board can't be finished"
+    )
+  if (!x.mayFinish)
+    throw new Error(
+      `coord: not allowed: only the person who made board "${x.name}" or an owner of the space may ${finished ? "finish" : "reopen"} it`
+    )
+  if (finished) {
+    const open = sampleOpenOn(personal ? "" : space, boardId)
+    if (open > 0)
+      throw new Error(
+        `coord: bad state: board "${x.name}" has ${open} open card${open === 1 ? "" : "s"}: finish, move or close ${open === 1 ? "it" : "them"} first`
+      )
+  }
+  x.finished = finished
+  x.finishedAt = finished ? new Date().toISOString() : undefined
+  if (personal) samplePersonal = [...samplePersonal]
+  sampleMoved()
+}
+
 // sampleBoard is a sample board by id, for cards.ts.
 export function sampleBoard(id: string): BoardSummary | undefined {
   return boardsState().find((x) => x.boardId === id)
@@ -275,8 +397,24 @@ setSampleBoards(sampleBoard)
 
 // Personal's boards on the sample (card #558), its default first.
 let samplePersonal: SpaceBoard[] = [
-  { boardId: Personal, name: "Personal", tag: "" },
-  { boardId: "sample-personal-home", name: "House", tag: "home" },
+  { boardId: Personal, name: "Personal", tag: "", mayFinish: false },
+  {
+    boardId: "sample-personal-home",
+    name: "House",
+    tag: "home",
+    mission: "Keep the house running: repairs, bills and the garden.",
+    mayFinish: true,
+  },
+  {
+    boardId: "sample-personal-tax",
+    name: "Taxes 2025",
+    tag: "tax",
+    mission: "File the 2025 return.",
+    doneWhen: "The return is filed and the refund is in.",
+    finished: true,
+    finishedAt: new Date(Date.now() - 12 * 24 * 3600_000).toISOString(),
+    mayFinish: true,
+  },
 ]
 
 setSamplePersonal((id) => samplePersonal.find((x) => x.boardId === id))
@@ -375,8 +513,24 @@ export const boards = {
     return samplePersonal.map((x) => ({ ...x }))
   },
 
-  async addToPersonal(name: string, tag: string): Promise<SpaceBoard[]> {
-    if (inWails()) return (await BoardsService.AddToPersonal(name, tag)) ?? []
+  // addToPersonal makes one of Personal's boards, with its mission and
+  // done-when (card #690; both may be "").
+  async addToPersonal(
+    name: string,
+    tag: string,
+    mission = "",
+    doneWhen = ""
+  ): Promise<SpaceBoard[]> {
+    if (inWails())
+      return (
+        (await BoardsService.AddToPersonal(
+          name,
+          tag,
+          mission.trim(),
+          doneWhen.trim()
+        )) ?? []
+      )
+    checkMission(mission.trim(), doneWhen.trim())
     const t = tag.trim().toLowerCase()
     if (!validTag(t))
       throw new Error(
@@ -389,7 +543,14 @@ export const boards = {
       throw new Error(`core: the tag "${t}" is already a board's`)
     samplePersonal = [
       ...samplePersonal,
-      { boardId: `sample-personal-${t}`, name: name.trim(), tag: t },
+      {
+        boardId: `sample-personal-${t}`,
+        name: name.trim(),
+        tag: t,
+        mission: mission.trim(),
+        doneWhen: doneWhen.trim(),
+        mayFinish: true,
+      },
     ]
     sampleMoved()
     return boards.personal()
@@ -416,10 +577,20 @@ export const boards = {
   async addToSpace(
     spaceId: string,
     name: string,
-    tag: string
+    tag: string,
+    mission = "",
+    doneWhen = ""
   ): Promise<BoardSummary> {
-    if (inWails()) return BoardsService.AddToSpace(spaceId, name, tag)
+    if (inWails())
+      return BoardsService.AddToSpace(
+        spaceId,
+        name,
+        tag,
+        mission.trim(),
+        doneWhen.trim()
+      )
     const b = sampleFind(spaceId)
+    checkMission(mission.trim(), doneWhen.trim())
     const t = tag.trim().toLowerCase()
     if (
       boardsState().some(
@@ -431,7 +602,14 @@ export const boards = {
       b.boards = [{ boardId: b.boardId, name: b.name, tag: b.tag }]
     b.boards = [
       ...b.boards,
-      { boardId: `${spaceId}-${t}`, name: name.trim(), tag: t },
+      {
+        boardId: `${spaceId}-${t}`,
+        name: name.trim(),
+        tag: t,
+        mission: mission.trim(),
+        doneWhen: doneWhen.trim(),
+        mayFinish: true,
+      },
     ]
     sampleMoved()
     return b
@@ -470,6 +648,43 @@ export const boards = {
     sampleBoardGone(boardId, "")
     sampleMoved()
     return boards.personal()
+  },
+
+  // setMission writes a board's mission and done-when (card #690): any
+  // member may; "" clears one. space is the space's id, or Personal.
+  async setMission(
+    space: string,
+    boardId: string,
+    mission: string,
+    doneWhen: string
+  ): Promise<void> {
+    const m = mission.trim()
+    const d = doneWhen.trim()
+    if (inWails()) {
+      if (space === Personal)
+        await BoardsService.SetMissionInPersonal(boardId, m, d)
+      else await BoardsService.SetMissionInSpace(space, boardId, m, d)
+    } else {
+      checkMission(m, d)
+      const x = sampleList(space, boardId)
+      x.mission = m
+      x.doneWhen = d
+      if (space === Personal) samplePersonal = [...samplePersonal]
+      sampleMoved()
+    }
+    boardsTouched()
+  },
+
+  // finish makes a board read-only and takes it out of the lists (card
+  // #690). Its maker or a space owner may (anyone in Personal); never a
+  // first board, and only once none of its cards is open.
+  async finish(space: string, boardId: string): Promise<void> {
+    return setFinished(space, boardId, true)
+  },
+
+  // reopen brings a finished board back as it was, mission and all.
+  async reopen(space: string, boardId: string): Promise<void> {
+    return setFinished(space, boardId, false)
   },
 
   async rename(id: string, name: string): Promise<BoardSummary> {
@@ -712,7 +927,30 @@ export const boards = {
   },
 }
 
+async function setFinished(
+  space: string,
+  boardId: string,
+  finished: boolean
+): Promise<void> {
+  if (inWails()) {
+    if (space === Personal)
+      await BoardsService.FinishInPersonal(boardId, finished)
+    else await BoardsService.FinishInSpace(space, boardId, finished)
+  } else sampleFinish(space, boardId, finished)
+  boardsTouched()
+}
+
 // ---- hooks ------------------------------------------------------------------
+
+// touched are readers to tell when this window changed a board itself,
+// so the header and the page over it (separate readers of Personal's
+// boards) never disagree, whether or not a boards:changed follows.
+const touched = new Set<() => void>()
+
+function boardsTouched() {
+  void reloadBoards()
+  for (const fn of touched) fn()
+}
 
 // The boards list is one list for the whole window (card #233): the
 // sidebar's Pinned boards, the Boards page and every other reader share
@@ -821,7 +1059,13 @@ export function usePersonalBoards(): {
   }, [])
   useEffect(() => {
     void reload()
-    return onBoardsMoved(() => void reload())
+    const on = () => void reload()
+    touched.add(on)
+    const off = onBoardsMoved(on)
+    return () => {
+      touched.delete(on)
+      off()
+    }
   }, [reload])
   return { ...state, reload }
 }

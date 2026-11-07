@@ -6,6 +6,7 @@ import {
   boards,
   boardsNow,
   inviteOpen,
+  looksFinished,
   presenceLine,
   reloadBoards,
   subscribeBoards,
@@ -13,6 +14,8 @@ import {
   validTag,
   type SummaryMember,
 } from "./boards"
+import { cards } from "./cards"
+import { Personal } from "./spaces"
 
 // settled waits for the reloads a change started (the sample's list is a
 // resolved promise, so a few turns of the queue are enough).
@@ -155,5 +158,106 @@ describe("presenceLine", () => {
     ).toBe("offline · seen 2h ago")
     expect(presenceLine(m({ presence: "offline" }), now)).toBe("offline")
     expect(presenceLine(m({ presence: "" }), now)).toBe("offline")
+  })
+})
+
+// Card #690: a board whose cards are all done may look finished.
+describe("looksFinished", () => {
+  const now = new Date("2026-11-07T12:00:00Z")
+  const ago = (days: number) =>
+    new Date(now.getTime() - days * 24 * 3600_000).toISOString()
+  const done = (days: number) => ({ state: "completed", updatedAt: ago(days) })
+
+  test("no cards, or one open: never", () => {
+    expect(looksFinished([], "Shipped", now)).toBe(false)
+    expect(
+      looksFinished(
+        [done(9), { state: "working", updatedAt: ago(9) }],
+        "Shipped",
+        now
+      )
+    ).toBe(false)
+    // In review, blocked and Not yet count as open.
+    for (const state of ["input-required", "blocked", "submitted"])
+      expect(looksFinished([{ state, updatedAt: ago(9) }], "", now)).toBe(false)
+  })
+
+  test("all done with a done-when: at once", () => {
+    expect(looksFinished([done(0)], "Shipped", now)).toBe(true)
+    expect(
+      looksFinished(
+        [done(0), { state: "canceled", updatedAt: ago(0) }],
+        "x",
+        now
+      )
+    ).toBe(true)
+  })
+
+  test("all done without one: once nothing moved for three days", () => {
+    expect(looksFinished([done(5), done(2)], "", now)).toBe(false)
+    expect(looksFinished([done(5), done(3)], "  ", now)).toBe(true)
+    expect(
+      looksFinished(
+        [done(5), { state: "failed", updatedAt: ago(4) }],
+        undefined,
+        now
+      )
+    ).toBe(true)
+  })
+})
+
+describe("finishing a board on the sample (card #690)", () => {
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+  const space = "sample-board-mlg"
+  const find = async (id: string) =>
+    (await boards.list())
+      .find((b) => b.boardId === space)
+      ?.boards.find((x) => x.boardId === id)
+
+  test("the first board and Personal's default never finish", async () => {
+    await expect(boards.finish(space, space)).rejects.toThrow("first board")
+    await expect(boards.finish(Personal, Personal)).rejects.toThrow(
+      "default board"
+    )
+  })
+
+  test("open cards refuse a finish; once moved off, it finishes and reopens", async () => {
+    // A board of its own, so other tests' sample changes don't reach it.
+    await boards.addToSpace(space, "Finish me", "fin", "Try finishing", "")
+    const fin = `${space}-fin`
+    const made = await cards.create({
+      title: "Still open",
+      board: space,
+      spaceBoard: fin,
+    })
+    try {
+      await expect(boards.finish(space, fin)).rejects.toThrow("1 open card")
+      expect((await find(fin))?.finished).toBeFalsy()
+      await cards.move(made.task.id, space)
+      await boards.finish(space, fin)
+      const x = await find(fin)
+      expect(x?.finished).toBe(true)
+      expect(x?.finishedAt).toBeTruthy()
+      // Read-only: nothing moves onto it.
+      await expect(cards.move(made.task.id, fin)).rejects.toThrow("is finished")
+      await boards.reopen(space, fin)
+      expect((await find(fin))?.finished).toBe(false)
+      expect((await find(fin))?.mission).toBe("Try finishing")
+    } finally {
+      await cards.remove(made.task.id)
+      await boards.deleteFromSpace(space, fin)
+    }
+  })
+
+  test("a mission is written and cleared, 280 characters at most", async () => {
+    const art = "sample-board-mlg-art"
+    await boards.setMission(space, art, " Paint the boats ", "")
+    expect((await find(art))?.mission).toBe("Paint the boats")
+    await expect(
+      boards.setMission(space, art, "x".repeat(281), "")
+    ).rejects.toThrow("280")
+    await boards.setMission(space, art, "", "")
+    expect((await find(art))?.mission).toBe("")
   })
 })

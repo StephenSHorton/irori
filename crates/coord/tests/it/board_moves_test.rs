@@ -762,7 +762,11 @@ fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
     let n1 = card(&c, NET, "n1");
     let n2 = card(&c, NET, "n2");
     let w = card(&c, "", "w1");
-    let names = |ts: Vec<Task>| ts.into_iter().map(|t| t.title).collect::<Vec<_>>();
+    let names = |ts: Vec<Task>| {
+        let mut v = ts.into_iter().map(|t| t.title).collect::<Vec<_>>();
+        v.sort();
+        v
+    };
     assert_eq!(names(c.open_on_board(NET)), ["n1", "n2"]);
     c.set_task_state(ME, &n1.id, "completed", "").unwrap();
     c.set_task_state(ME, &n2.id, "canceled", "").unwrap();
@@ -796,6 +800,11 @@ fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
     // An older device's card onto it still folds: the check is a writer's.
     land(&s, &c, &created("dev-b", 2, 200, "t-old", 3, NET));
     assert_eq!(place(&c, "t-old"), (NET.to_string(), "net#3".to_string()));
+    // Nothing is adopted under a card there either.
+    let e = c
+        .split(ME, "t-old", Vec::new(), vec![w.id.clone()])
+        .unwrap_err();
+    assert!(e.to_string().contains("is finished"), "{e}");
     // A restart reads the same, and a reopen opens it up again.
     let c = coord_on(&s);
     assert!(c.move_task(ME, &w.id, NET).is_err());

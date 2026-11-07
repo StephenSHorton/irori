@@ -403,19 +403,43 @@ export const BoardsService = {
   Create: (name: string, tag: string) => call(commands.boardsCreate(name, tag)),
   Rename: (boardId: string, name: string) =>
     call(commands.boardsRename(boardId, name)),
-  AddToSpace: (spaceId: string, name: string, tag: string) =>
-    call(commands.boardsAddToSpace(spaceId, name, tag)),
+  AddToSpace: (
+    spaceId: string,
+    name: string,
+    tag: string,
+    mission: string,
+    doneWhen: string
+  ) => call(commands.boardsAddToSpace(spaceId, name, tag, mission, doneWhen)),
   RenameInSpace: (spaceId: string, boardId: string, name: string) =>
     call(commands.boardsRenameInSpace(spaceId, boardId, name)),
   Personal: () => call(commands.boardsPersonal()),
-  AddToPersonal: (name: string, tag: string) =>
-    call(commands.boardsAddToPersonal(name, tag)),
+  AddToPersonal: (
+    name: string,
+    tag: string,
+    mission: string,
+    doneWhen: string
+  ) => call(commands.boardsAddToPersonal(name, tag, mission, doneWhen)),
   RenameInPersonal: (boardId: string, name: string) =>
     call(commands.boardsRenameInPersonal(boardId, name)),
   DeleteInSpace: (spaceId: string, boardId: string) =>
     call(commands.boardsDeleteInSpace(spaceId, boardId)),
   DeleteInPersonal: (boardId: string) =>
     call(commands.boardsDeleteInPersonal(boardId)),
+  // A board's mission and done-when, and finishing or reopening it (card
+  // #690).
+  SetMissionInSpace: (
+    spaceId: string,
+    boardId: string,
+    mission: string,
+    doneWhen: string
+  ) =>
+    call(commands.boardsSetMissionInSpace(spaceId, boardId, mission, doneWhen)),
+  FinishInSpace: (spaceId: string, boardId: string, finished: boolean) =>
+    call(commands.boardsFinishInSpace(spaceId, boardId, finished)),
+  SetMissionInPersonal: (boardId: string, mission: string, doneWhen: string) =>
+    call(commands.boardsSetMissionInPersonal(boardId, mission, doneWhen)),
+  FinishInPersonal: (boardId: string, finished: boolean) =>
+    call(commands.boardsFinishInPersonal(boardId, finished)),
   Pin: (boardId: string, pinned: boolean) =>
     done(commands.boardsPin(boardId, pinned)),
   Leave: (boardId: string) => done(commands.boardsLeave(boardId)),

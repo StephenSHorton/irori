@@ -307,10 +307,17 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
     let long = "x".repeat(irori_core::MAX_BOARD_MISSION + 1);
     assert!(r.core.set_personal_board_mission(&home, &long, "").is_err());
 
+    // An agent's card, done while it still holds it.
+    let held = card(&r, &home, "sand");
+    let co = r.core.coord();
+    co.claim_task("agent:a1", &held.id).unwrap();
+    co.set_task_state(&r.core.user_sender().key, &held.id, "completed", "")
+        .unwrap();
+    assert_eq!(co.get_task(&held.id).unwrap().holders, ["agent:a1"]);
     // An open card holds the finish, and the refusal names it.
     let t = card(&r, &home, "paint");
     let e = r.core.finish_personal_board(&home, true).unwrap_err();
-    assert!(e.to_string().contains("home#1"), "{e}");
+    assert!(e.to_string().contains("home#2"), "{e}");
     let open = r.core.open_on_board("", &home).unwrap();
     assert_eq!(open.len(), 1);
     let by = r.core.user_sender().key;
@@ -338,8 +345,12 @@ fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
     assert!(e.to_string().contains("is finished"), "{e}");
     assert!(r.core.set_personal_board_mission(&home, "x", "").is_err());
     assert!(r.core.coord().reopen(&by, &t.id).is_err());
+    // A comment on a done card there posts, and reopens nothing.
+    co.person_comment(&by, &held.id, "why did this pass?", false, &[], None)
+        .unwrap();
+    assert_eq!(co.get_task(&held.id).unwrap().state, "completed");
     assert_eq!(
-        r.core.task_ref("home#1").unwrap(),
+        r.core.task_ref("home#2").unwrap(),
         t.id,
         "its refs still work"
     );

@@ -938,12 +938,8 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (
-  id: string
-) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(
-  fn: (id: string) => { boardId: string; tag: string } | undefined
-) {
+let samplePersonalOf: (id: string) => SampleList | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => SampleList | undefined) {
   samplePersonalOf = fn
 }
 
@@ -962,6 +958,7 @@ function sampleCreate(input: NewCardInput): TaskResult {
     : input.spaceBoard
       ? samplePersonalOf(input.spaceBoard)
       : undefined
+  refuseFinished(list)
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
@@ -1168,9 +1165,33 @@ function sampleMoveBoard(id: string, board: string) {
   const list = space
     ? space.boards?.find((x) => x.boardId === board)
     : samplePersonalOf(board)
+  refuseFinished(list)
   c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()
+}
+
+// refuseFinished is coord's read-only finished board on the sample (card
+// #690): nothing new goes onto one.
+function refuseFinished(list: SampleList | undefined) {
+  if (list?.finished)
+    throw new Error(
+      `coord: not allowed: board "${list.name || list.tag}" is finished: reopen it first`
+    )
+}
+
+// sampleOpenOn is how many open cards sit on one board of a space (or of
+// Personal when space is ""), for the sample's Finish (card #690). Only a
+// board that isn't the first can finish, so a card with no inner board
+// never counts.
+export function sampleOpenOn(space: string, boardId: string): number {
+  return sampleState().filter(
+    (c) =>
+      (c.board ?? "") === space &&
+      c.spaceBoard === boardId &&
+      !over(c) &&
+      !sampleThreadIds.has(c.id)
+  ).length
 }
 
 // sampleBoardGone is a board delete on the sample (card #563): its cards go
@@ -1199,7 +1220,15 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
-  boards?: { boardId: string; name: string; tag: string }[]
+  boards?: SampleList[]
+}
+
+// SampleList is one board inside a sample space or Personal.
+type SampleList = {
+  boardId: string
+  name?: string
+  tag: string
+  finished?: boolean
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and

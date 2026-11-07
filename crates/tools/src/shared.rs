@@ -38,6 +38,11 @@ pub struct BoardInfo {
     /// The space's own name, which its first board's `name` may not be.
     /// Empty: the same as `name`.
     pub space_name: String,
+    /// What the board is for (card #690); may be empty.
+    pub mission: String,
+    /// Finished: read-only and out of the lists, still found by its tag
+    /// so a ref to its cards works (card #690).
+    pub finished: bool,
 }
 
 impl BoardInfo {
@@ -214,6 +219,9 @@ fn arg_texts(v: &serde_json::Value, key: &str, out: &mut Vec<String>) {
     }
 }
 
+/// How much of a board's mission the board tool's list shows.
+const MISSION_CHARS: usize = 120;
+
 /// The refusal for a write scrub or the stricter pass blocks (§7.3).
 fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
     err_text(&format!(
@@ -251,7 +259,11 @@ impl Inner {
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
             [] => {
-                let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
+                let list: Vec<String> = all
+                    .iter()
+                    .filter(|b| !b.finished)
+                    .map(|b| b.tag.clone())
+                    .collect();
                 Err(err_text(&format!(
                     "no board {} in a shared space. {}",
                     crate::format::q(v),
@@ -335,15 +347,17 @@ impl Inner {
         let mut s = String::from(
             "Spaces you may post on (board_create board=<board tag>; anything there is seen by everyone in the space):",
         );
+        // A finished board takes no cards, so it isn't listed (card #690).
+        let live: Vec<&BoardInfo> = all.iter().filter(|b| !b.finished).collect();
         let mut seen: Vec<&str> = Vec::new();
-        for b in &all {
+        for b in &live {
             if seen.contains(&b.board_id.as_str()) {
                 continue;
             }
             seen.push(&b.board_id);
-            let boards: Vec<String> = all
+            let here: Vec<&&BoardInfo> = live.iter().filter(|x| x.board_id == b.board_id).collect();
+            let boards: Vec<String> = here
                 .iter()
-                .filter(|x| x.board_id == b.board_id)
                 .map(|x| format!("{} {}", x.tag, crate::format::q(&one_line(&x.name, 80))))
                 .collect();
             s += &format!(
@@ -353,6 +367,14 @@ impl Inner {
                 self.b.inbox().autonomy(&b.board_id),
                 boards.join(", ")
             );
+            // What each board is for, so a card goes where it fits.
+            for x in here.iter().filter(|x| !x.mission.trim().is_empty()) {
+                s += &format!(
+                    "\n  {} is for: {}",
+                    x.tag,
+                    crate::format::q(&one_line(&x.mission, MISSION_CHARS))
+                );
+            }
         }
         Some(s)
     }
@@ -490,6 +512,12 @@ pub(crate) fn create_on_board(
         Ok(b) => b,
         Err(e) => return e,
     };
+    if b.finished {
+        return err_text(&format!(
+            "{} is finished, so it takes no new cards. Reopen it in Irori first, or pick another board (the board tool lists them).",
+            b.label()
+        ));
+    }
     if !trim(a.str("parent")).is_empty() {
         return err_text("a subtask goes on its parent's board: give parent and leave out board.");
     }

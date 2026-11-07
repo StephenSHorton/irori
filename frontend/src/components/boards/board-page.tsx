@@ -57,7 +57,7 @@ import {
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
 import { go } from "@/lib/nav"
-import { boardsOf } from "@/lib/spaces"
+import { boardsOf, liveBoards } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
 import { FreshnessLine } from "@/components/common/freshness-line"
@@ -69,6 +69,7 @@ import {
   InvitePanel,
   useInviteReach,
 } from "./parts"
+import { BoardTop } from "./board-project"
 import { cardsOnBoard, ListHeaderBar, SpaceBoards } from "./space-boards"
 
 export function BoardPage({
@@ -162,18 +163,40 @@ export function BoardPage({
         onOpen={onOpen}
         now={now}
         header={
-          <AskBox
-            board={boardId}
-            onThread={(id) => {
-              setThread(id)
-              setThreadsHidden(false)
-            }}
-          />
+          <>
+            {open && (
+              <BoardTop
+                space={b.boardId}
+                board={open}
+                boards={liveBoards(boardsOf(b))}
+                open={shown}
+                doneScope={b.boardId}
+                onBoard={(done) => cardsOnBoard(b, done, open.boardId)}
+                now={now}
+                onOpen={onOpen}
+              />
+            )}
+            {/* A finished board is read-only (card #690): no new threads
+                or cards from its page. */}
+            {!open?.finished && (
+              <AskBox
+                board={boardId}
+                onThread={(id) => {
+                  setThread(id)
+                  setThreadsHidden(false)
+                }}
+              />
+            )}
+          </>
         }
         empty={
-          open ? (
+          open?.finished ? (
             <p className="px-1 text-[12.5px] text-muted-foreground">
-              No cards on this board yet. Make one with New card, or move one
+              No open cards: its done cards are under Closed.
+            </p>
+          ) : open ? (
+            <p className="px-1 text-[12.5px] text-muted-foreground">
+              No open cards on this board. Make one with New card, or move one
               here from its page.
             </p>
           ) : (
@@ -223,6 +246,10 @@ function BoardHeaderShape() {
       </span>
     </span>
   )
+}
+
+function boardCount(n: number): string {
+  return n === 1 ? "1 board" : `${n} boards`
 }
 
 function BackToBoards() {
@@ -365,7 +392,7 @@ export function BoardHeaderBar({
       )}
       <span className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline">
         {b.ready
-          ? `${boardsOf(b).length === 1 ? "1 board" : `${boardsOf(b).length} boards`} · ${b.people.map(plainLine).join(", ")}`
+          ? `${boardCount(liveBoards(boardsOf(b)).length)} · ${b.people.map(plainLine).join(", ")}`
           : "Its cards are still arriving from your other device"}
       </span>
       {error && (
