@@ -941,8 +941,14 @@ fn a_huddles_end_wakes_the_channels_agents_once() {
 /// gets a decoder config, then AVCC access units starting at a keyframe.
 /// Bob sharing replaces Alice's, and she is told who took over; Bob stops
 /// and the share is gone for both.
+///
+/// Ignored in the workspace run; check.sh runs it alone. On the PC, the
+/// test binary crashed (access violation) in about half the runs where
+/// this test overlapped the other huddle tests, never alone (20 runs) or
+/// on one thread. Root cause not found yet; the app runs one Core.
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[test]
+#[ignore = "run alone by check.sh: crashes when it overlaps other huddle tests on Windows"]
 fn a_share_in_a_huddle_reaches_the_watcher_and_newest_wins() {
     use irori_net::share::{VIEW_CHUNK, VIEW_CONFIG};
 
