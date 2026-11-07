@@ -40,11 +40,16 @@
 //!       card #467: time the Board fold, and delete the superseded
 //!       task.spawn rows of v0.11.0's spawn loop (spawn_rows.rs).
 //!
+//!   irori-dev pair-peer --home <empty dir> --claude <empty dir> [--port <home server port>]
+//!       card #680: a scratch Irori with a few cards and an open Add window,
+//!       for the Rune phone prototype to pair with (pair_peer.rs).
+//!
 //! Output is counts and row keys, never payloads, keys or tokens.
 
 mod agent_check;
 mod boards_live;
 mod http;
+mod pair_peer;
 mod probe;
 mod replay;
 mod space_move;
@@ -60,6 +65,7 @@ const USAGE: &str = "usage: irori-dev verify --home <copy of a data dir> [--go-h
        irori-dev agent-check --home <empty dir> --claude <empty dir> --work <empty dir> --irori <exe> --mod <copy of mod/> [--claude-bin <claude>] [--model <m>] [--turn-wait <secs>] [--only 1,2,3]
        irori-dev boards-live host --home <empty dir> --claude <empty dir> [--link-out <file>] [--step-wait <secs>]
        irori-dev boards-live guest --home <empty dir> --claude <empty dir> --link <irori-invite:...> [--step-wait <secs>]
+       irori-dev pair-peer --home <empty dir> --claude <empty dir> [--port <home server port>]
        irori-dev migrate-spaces --home <copy of a data dir>
        irori-dev space-to-personal --home <copy of a data dir> --claude <empty dir> --space <id> ... [--allow-missing-files]
        irori-dev spawn-fold --home <copy of a data dir> --person <personId> --root <rootDeviceId> --out <dir> --now <rfc3339>
@@ -127,6 +133,13 @@ fn main() -> ExitCode {
         },
         Some("boards-live") => match boards_live::Opts::parse(&args[1..]) {
             Ok(o) => boards_live::run(&o),
+            Err(e) => {
+                eprintln!("irori-dev: {e}\n{USAGE}");
+                ExitCode::from(2)
+            }
+        },
+        Some("pair-peer") => match pair_peer::Opts::parse(&args[1..]) {
+            Ok(o) => pair_peer::run(&o),
             Err(e) => {
                 eprintln!("irori-dev: {e}\n{USAGE}");
                 ExitCode::from(2)

@@ -208,51 +208,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let h = handle.clone();
         handle.update(move |s: &mut State, _| s.handle = Some(h));
     }
-    // Live: every event the window backend emits goes to the packages
-    // (ui::dispatch) on the UI thread. A burst of one event is one
-    // dispatch with its newest payload; dictation's words each go.
-    {
-        let h = handle.clone();
-        // IRORI_DESK_TRACE=1 logs each dispatch (the spike's live check).
-        let trace = std::env::var_os("IRORI_DESK_TRACE").is_some();
-        let pending: Arc<Mutex<HashMap<String, serde_json::Value>>> = Arc::default();
-        window.set_emitter(move |name, payload| {
-            if name == EVENT_VOICE {
-                let ev = Event {
-                    name: name.to_string(),
-                    payload,
-                };
-                h.update(move |s: &mut State, _| ui::dispatch(s, &ev));
-                return;
-            }
-            let first = {
-                let mut p = pending.lock().unwrap_or_else(|e| e.into_inner());
-                p.insert(name.to_string(), payload).is_none()
-            };
-            if !first {
-                return;
-            }
-            let pending = pending.clone();
-            let name = name.to_string();
-            h.update(move |s: &mut State, _| {
-                let payload = pending
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .remove(&name)
-                    .unwrap_or_default();
-                let ev = Event { name, payload };
-                ui::dispatch(s, &ev);
-                if trace {
-                    irori_core::log(&format!(
-                        "desk: {}: {} cards, open card thread {}",
-                        ev.name,
-                        s.data.cards.len(),
-                        s.card.detail.as_ref().map_or(0, |d| d.thread.len())
-                    ));
-                }
-            });
-        });
-    }
+    // Live: every event the window backend emits goes to the packages.
+    wire_events(&window, &handle);
     // A card's Open (a desktop card's click) shows the window and the card.
     {
         let h = handle.clone();
@@ -366,6 +323,54 @@ pub fn run(args: &[String]) -> Result<(), String> {
     ran.and(closed)
 }
 
+/// Live: every event the window backend emits goes to the packages
+/// (ui::dispatch) on the UI thread. A burst of one event is one dispatch
+/// with its newest payload; dictation's words each go.
+fn wire_events(window: &Arc<Window>, handle: &rune::AppHandle<State>) {
+    {
+        let h = handle.clone();
+        // IRORI_DESK_TRACE=1 logs each dispatch (the spike's live check).
+        let trace = std::env::var_os("IRORI_DESK_TRACE").is_some();
+        let pending: Arc<Mutex<HashMap<String, serde_json::Value>>> = Arc::default();
+        window.set_emitter(move |name, payload| {
+            if name == EVENT_VOICE {
+                let ev = Event {
+                    name: name.to_string(),
+                    payload,
+                };
+                h.update(move |s: &mut State, _| ui::dispatch(s, &ev));
+                return;
+            }
+            let first = {
+                let mut p = pending.lock().unwrap_or_else(|e| e.into_inner());
+                p.insert(name.to_string(), payload).is_none()
+            };
+            if !first {
+                return;
+            }
+            let pending = pending.clone();
+            let name = name.to_string();
+            h.update(move |s: &mut State, _| {
+                let payload = pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&name)
+                    .unwrap_or_default();
+                let ev = Event { name, payload };
+                ui::dispatch(s, &ev);
+                if trace {
+                    irori_core::log(&format!(
+                        "desk: {}: {} cards, open card thread {}",
+                        ev.name,
+                        s.data.cards.len(),
+                        s.card.detail.as_ref().map_or(0, |d| d.thread.len())
+                    ));
+                }
+            });
+        });
+    }
+}
+
 /// The headless scenes: one per page (`irori --snap x.png --scene talk`).
 const SCENES: &[(&str, fn(&mut State))] = &[
     ("home", crate::home::scene),
@@ -390,6 +395,8 @@ const SCENES: &[(&str, fn(&mut State))] = &[
     ("status", crate::status::scene),
     ("text", crate::text::scene),
     ("widgets", crate::widgets::scene),
+    ("phone", crate::phone::scene),
+    ("phone-card", crate::phone::card_scene),
 ];
 
 /// The OS opener (the Tauri opener plugin's open_path): opens the file
@@ -629,4 +636,124 @@ fn spawner() -> irori_core::spawn::Spawner {
         })),
         ready: Some(Arc::new(spawn::claude_installed)),
     }
+}
+
+/// The Android prototype's window role (card #680): the same Core, window
+/// backend and packages as [`run`], on a phone. A phone runs no agents, so
+/// there is no spawner; no tray, single instance, login PATH, sleep watch
+/// or exit hook either. The data lives in the app's private files dir, as
+/// main's Tauri phone app keeps it (`mobile_main`). Not shipped: the
+/// notifier shows nothing, and calls and updates have no Kotlin side yet.
+#[cfg(target_os = "android")]
+pub fn run_android(app: rune::android::AndroidApp) {
+    let files = app.internal_data_path().unwrap_or_else(|| {
+        std::path::PathBuf::from("/data/data/com.stephenshorton.irori.rune/files")
+    });
+    rune::android::init(app);
+    for (k, v) in [
+        ("HOME", files.clone()),
+        ("IRORI_HOME", files.join("irori")),
+        ("CLAUDE_CONFIG_DIR", files.join("claude")),
+    ] {
+        let _ = std::fs::create_dir_all(&v);
+        if std::env::var_os(k).is_none_or(|x| x.is_empty()) {
+            // SAFETY: first thing on android_main's thread, before the
+            // runtime or the Core start any thread that reads the env.
+            unsafe { std::env::set_var(k, &v) };
+        }
+    }
+    irori_roles::setup_diagnostics("gui");
+    if let Err(e) = run_phone() {
+        irori_core::log(&format!("irori: phone: {e}"));
+    }
+}
+
+#[cfg(target_os = "android")]
+fn run_phone() -> Result<(), String> {
+    let launched = std::time::Instant::now();
+    let data = datadir::process_data_dir()?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let notifier = notify::Notifier::new(notify::Config {
+        dir: Some(data.clone()),
+        headless: true,
+        ..notify::Config::default()
+    });
+    let opts = host::options(&rt, data.clone(), false, Some(notifier.clone()))
+        .map_err(|e| format!("start: {e}"))?;
+    let hosted = host::start_with(&rt, opts).map_err(|e| format!("start: {e}"))?;
+    let core = hosted.core.clone();
+    irori_core::log(&format!(
+        "irori {} phone app, Rune window (device {}, data {}), core up {} ms after launch",
+        version(),
+        core.device_id(),
+        data.display(),
+        launched.elapsed().as_millis()
+    ));
+    let mut seams = Window::default_seams(&core);
+    seams.notifier = Arc::new(irori_window::settings::NotifierSeam(notifier.clone()));
+    let window = Arc::new(Window::new(
+        core.clone(),
+        seams,
+        Config {
+            claude_dir: host::claude_dir()?,
+            downloads: Box::new(attachments::downloads_dir),
+        },
+    ));
+    // A phone runs no agents: cards go to a computer (main's mobile shell).
+    core.set_runs_no_agents();
+    core.set_spawn_default_on(true);
+
+    let spec = AppSpec {
+        scenes: SCENES,
+        poll: Some(ui::poll),
+        ..AppSpec::new("Irori", (412.0, 915.0), State::default, ui::view)
+    };
+    let init_window = window.clone();
+    let init_data = data.clone();
+    let app = App::new(spec)
+        .init(move || {
+            let mut s = State::new(init_window, init_data, false);
+            s.phone = true;
+            s
+        })
+        .on_focus(|s: &mut State, on, _| {
+            s.focused = on;
+            let Some(c) = s.w.as_ref().map(|w| w.core.clone()) else {
+                return;
+            };
+            if on {
+                // Back from the background: reconnect and re-read.
+                c.kick_sync();
+                let w = s.w.clone();
+                s.data.refresh_all(w.as_deref());
+            } else {
+                // To the background: this device's newest rows leave first
+                // (main's sync_out::on_window), off the UI thread.
+                std::thread::spawn(move || {
+                    c.sync_out(Duration::from_secs(2));
+                });
+            }
+        });
+    let handle = app.handle();
+    {
+        let h = handle.clone();
+        handle.update(move |s: &mut State, _| s.handle = Some(h));
+    }
+    wire_events(&window, &handle);
+    let pumps_stop = sys::cancel::Cancel::new();
+    irori_window::events::start(window.clone(), pumps_stop.clone());
+    irori_core::log(&format!(
+        "start: Rune phone window starting {} ms after launch",
+        launched.elapsed().as_millis()
+    ));
+    let ran = app.try_run();
+    pumps_stop.cancel();
+    core.sync_out(QUIT);
+    window.call_shutdown();
+    window.voice_shutdown();
+    let closed = hosted.close();
+    ran.and(closed)
 }
