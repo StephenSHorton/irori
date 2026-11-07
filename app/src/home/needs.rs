@@ -519,7 +519,8 @@ fn gone_need(
         bs.push(
             btn("Hand to an agent", ButtonVariant::Contrast)
                 .on_press(move |s: &mut State| confirm::open(s, &ck, ask.clone()))
-                .build(k),
+                .build(k)
+                .key(format!("{key}/hand")),
         );
     }
     bs.push(open_card_btn(

@@ -8,11 +8,13 @@ use inbox::{Delivery, Sender, hold, st};
 use irori_window::agents::AgentsSettings;
 use irori_window::agents_trust::TrustNeed;
 use irori_window::cards::{
-    AgentRef, CardBlocker, CardDetail, CardOption, CardRef, CardSummary, GoneWait, WaitPr,
+    AgentRef, CardBlocker, CardDetail, CardHolder, CardOption, CardPermission, CardRef,
+    CardSummary, GoneWait, Holding, WaitPr,
 };
 use irori_window::wind_down::{WindDownRow, WindDownStatus};
 use rune::TextEdit;
 
+use super::permission::{ALLOW_ONCE, ALWAYS_ALLOW, DENY};
 use super::pure::answer_key;
 use crate::logic::agent_status::now_ms;
 use crate::ui::{Dialog, Route, State};
@@ -234,8 +236,67 @@ pub fn needs(s: &mut State) {
             ..agent("wren")
         }];
     });
+    // A typed prompt Irori can answer (card #682): its command and buttons.
+    let thyme = AgentRef {
+        spawned: true,
+        assigned: false,
+        status: "busy".into(),
+        device: "Lead-PC".into(),
+        where_: "Lead-PC".into(),
+        ..agent("thyme")
+    };
+    let prompt = card("s-prompt", "910", "Run the core tests on the PC", 1, |c| {
+        c.open_blockers = 1;
+        c.state = "input_required".into();
+        c.blocker_question = "thyme wants to use Bash: cargo test -p irori-core".into();
+        c.permission_wait = true;
+        c.working = vec![thyme.clone()];
+    });
+    let pb = CardBlocker {
+        id: "bp".into(),
+        question: prompt.blocker_question.clone(),
+        raised_by: thyme.clone(),
+        options: vec![
+            opt(ALLOW_ONCE, "", false),
+            opt(ALWAYS_ALLOW, "", false),
+            opt(DENY, "", false),
+        ],
+        state: "open".into(),
+        permission: Some(CardPermission {
+            agent: thyme.clone(),
+            tool: "Bash".into(),
+            input:
+                "cargo test -p irori-core --test it net::mesh -- --test-threads=1 2>&1 | tail -40"
+                    .into(),
+            rule: "Bash(cargo test:*)".into(),
+            answerable: true,
+            expires: String::new(),
+        }),
+        ..CardBlocker::default()
+    };
+    s.home
+        .details
+        .insert(prompt.id.clone(), detail(&prompt, vec![pb]));
+    // Offered to an agent Irori started that died before it took the card
+    // up (card #699): Not taken up, "went away".
+    let dead = card("s-dead", "911", "Tidy the release notes", 30, |c| {
+        c.state = "submitted".into();
+        let w = AgentRef {
+            spawned: true,
+            assigned: true,
+            status: "gone".into(),
+            live: false,
+            ..agent("sage")
+        };
+        c.working = vec![w.clone()];
+        c.holder = CardHolder {
+            state: Holding::Gone,
+            who: w,
+            others: 0,
+        };
+    });
     let mut cards = vec![
-        perm, decision, check, merge, gone, trust, no_agent, looped_a, looped_b,
+        prompt, perm, decision, check, merge, gone, trust, no_agent, looped_a, looped_b, dead,
     ];
     cards.append(&mut s.data.cards);
     s.data.cards = cards;
