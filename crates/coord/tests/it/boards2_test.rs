@@ -4224,15 +4224,15 @@ fn a_teammates_card_waits_on_nobody_here() {
     );
 }
 
-/// Card #717: an agent takes a given card while "OK to start an agent on
-/// this?" is open. Nothing is left to start, so it closes on every member,
-/// and the card leaves Needs you.
+/// Card #717: the person hands a given card to one of their agents while
+/// "OK to start an agent on this?" is open. Nothing is left to start, so it
+/// closes on every member, and the card leaves Needs you.
 #[test]
-fn an_agent_taking_a_given_card_closes_its_question() {
+fn an_agent_given_a_given_card_closes_its_question() {
     let (a, b) = two_people_shared();
     let t = given(&a, &b);
     assert!(given_question(&t).open());
-    a.c.claim_task(CARD1, &t.id).unwrap();
+    a.c.assign(P1, &t.id, CARD1).unwrap();
     sync(&a, &b);
     for s in [&a, &b] {
         let got = s.c.get_task(&t.id).unwrap();

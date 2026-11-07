@@ -823,6 +823,7 @@ impl Fold {
                 }
                 let gave = self.gave_to_person(ev, &p);
                 let back = self.takes_back(ev, &p);
+                let to_agent = gave.is_none() && !back;
                 let Some(mut t) = self.tasks.remove(&p.task_id) else {
                     return;
                 };
@@ -849,6 +850,10 @@ impl Fold {
                 add_holder(&mut t, &p.to);
                 if !engaged && !contains(&t.assigned, &p.to) {
                     t.assigned.push(p.to.clone());
+                }
+                // Given on to one of their agents (card #717).
+                if to_agent {
+                    close_given_for_agent(&mut t, &p.to, at(p.at));
                 }
                 let note = trim_space(&p.note).to_string();
                 if !engaged && !note.is_empty() {
