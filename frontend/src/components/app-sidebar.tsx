@@ -393,7 +393,7 @@ export function AppSidebar({
             current={here({ kind: "talk", id: "" })}
             count={talk}
             countTone="default"
-            countTitle="Threads an agent answered and DMs you haven't read"
+            countTitle="Threads and DMs with replies you haven't read, and channels that mention you"
             onClick={() => go({ kind: "talk", id: "" })}
           />
           {desks > 0 && (

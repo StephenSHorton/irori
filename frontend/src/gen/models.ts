@@ -904,7 +904,7 @@ export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, "unread": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */
