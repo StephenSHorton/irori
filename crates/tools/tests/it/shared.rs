@@ -1075,3 +1075,102 @@ fn your_own_shared_card_is_no_wait() {
     r.h.okj(&a, "board_join", json!({"task_id": t.id}));
     r.h.failsj(&a, "wait", json!({"task_id": t.id}), &["your own card"]);
 }
+
+/// Card #698: Personal's boards beside a space.
+fn personal_board(r: &Rig, id: &str, name: &str, tag: &str) {
+    r.h.b.personal.lock().unwrap().push(tools::PersonalBoard {
+        board_id: id.into(),
+        name: name.into(),
+        tag: tag.into(),
+    });
+}
+
+#[test]
+fn personal_boards_sit_beside_the_spaces() {
+    let r = rig();
+    personal_board(&r, "a1b2c3", "Buzzing Cars", "bc");
+    let out = r.h.okj(&call_a(), "board", json!({}));
+    has(
+        &out,
+        &[
+            "Personal's boards (board_create board=<board tag>",
+            "bc \"Buzzing Cars\"",
+            "\nSpaces you may post on",
+        ],
+    );
+    // A Personal board's card stays private: no Visible-to line, nothing
+    // on the space.
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Buzz", "board": "bc"}),
+    );
+    has(&out, &["Created bc#1 (task:", "one of Personal's boards."]);
+    has_not(&out, &["Visible to"]);
+    assert!(r.board_titles().is_empty());
+    // An unknown tag lists both kinds.
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "x", "board": "nope"}),
+        &["Yours: mlg.", "Personal's boards: bc."],
+    );
+}
+
+#[test]
+fn a_tag_on_personal_and_a_space_is_refused() {
+    let r = rig();
+    personal_board(&r, "a1b2c3", "My MLG notes", "mlg");
+    r.h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "x", "board": "mlg"}),
+        &[
+            "more than one board has the tag \"mlg\"",
+            "a1b2c3 on Personal, b0 on",
+        ],
+    );
+    assert!(r.board_titles().is_empty());
+    // Its id settles it.
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Notes", "board": "a1b2c3"}),
+    );
+    assert!(r.board_titles().is_empty());
+}
+
+#[test]
+fn board_share_wont_move_a_shared_card_to_personal() {
+    let r = rig();
+    personal_board(&r, "a1b2c3", "Buzzing Cars", "bc");
+    r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "On the space", "board": "mlg"}),
+    );
+    r.h.failsj(
+        &call_a(),
+        "board_share",
+        json!({"task_id": "mlg#1", "board": "bc"}),
+        &["that card is on MLG farming (mlg): a card in a shared space stays there"],
+    );
+    assert_eq!(r.board_titles(), ["On the space"]);
+}
+
+#[test]
+fn talk_space_errors_dont_offer_personal_boards() {
+    let r = rig();
+    personal_board(&r, "a1b2c3", "Buzzing Cars", "bc");
+    // talk's space= takes spaces only: Personal's boards aren't offered.
+    let out = r.h.call(
+        &call_a(),
+        "talk_post",
+        r#"{"space": "nope", "conv": "general", "text": "hi"}"#,
+    );
+    has(
+        &out,
+        &["no board \"nope\" in a shared space", "Yours: mlg."],
+    );
+    has_not(&out, &["Personal's boards"]);
+}

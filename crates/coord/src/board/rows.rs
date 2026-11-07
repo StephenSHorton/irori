@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use gocompat::time::GoTime;
 
-use super::types::{BlockedBy, BlockerOption, FileRef, Lease, Link, Mention, Outcome, Step};
+use super::types::{
+    BlockedBy, BlockerOption, FileRef, Lease, Link, Mention, Outcome, PermissionWait, Step,
+};
 use crate::gojson::{GoDecode, decode, field, nil_vec, omit};
 
 crate::go_struct! {
@@ -107,6 +109,9 @@ crate::go_struct! {
         /// encodes it. Always a string: older folds skip it, and a type
         /// they can't read would fail the whole row.
         pub later: String = "later" "omit",
+        /// A spawned agent's permission prompt (card #682). Older folds
+        /// drop the key and see a plain question.
+        pub permission: Option<PermissionWait> = "permission" "omit",
     }
 }
 

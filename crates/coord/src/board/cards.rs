@@ -692,6 +692,10 @@ impl Fold {
                     b.later = br.later.clone();
                     t.was_held = true;
                 }
+                // Likewise a permission wait (card #682).
+                if br.permission.is_some() {
+                    b.permission = br.permission.clone();
+                }
                 let b = &mut t.blockers[i];
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
@@ -755,6 +759,7 @@ impl Fold {
                 done_check: br.done_check,
                 transfer: br.transfer,
                 later: br.later.clone(),
+                permission: br.permission.clone(),
                 ..Blocker::default()
             };
             note_file_devs(&mut nb, &ev.device_id);
@@ -1178,8 +1183,21 @@ impl Fold {
         let links = clean_blocker_links(&nb.links, &nb.files)?;
         let t = self.open_task(id)?.clone();
         let bb = nb.blocked_by.clone();
-        self.raise_locked(
-            &by, &t, &q, &q, &cx, opts, bb, false, now, links, nb.files, false, false,
+        self.raise_with(
+            &by,
+            &t,
+            &q,
+            &q,
+            &cx,
+            opts,
+            bb,
+            false,
+            now,
+            links,
+            nb.files,
+            false,
+            false,
+            nb.permission,
         )
     }
 
@@ -1362,6 +1380,43 @@ impl Fold {
         done_check: bool,
         transfer: bool,
     ) -> Result<(Task, Blocker)> {
+        self.raise_with(
+            by,
+            t,
+            reason,
+            q,
+            cx,
+            opts,
+            bb,
+            reason_only,
+            now,
+            links,
+            files,
+            done_check,
+            transfer,
+            None,
+        )
+    }
+
+    /// [`Self::raise_locked`] with a permission wait on the item (card #682).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn raise_with(
+        &mut self,
+        by: &str,
+        t: &Task,
+        reason: &str,
+        q: &str,
+        cx: &str,
+        opts: Vec<BlockerOption>,
+        bb: Option<BlockedBy>,
+        reason_only: bool,
+        now: GoTime,
+        links: Vec<Link>,
+        files: Vec<FileRef>,
+        done_check: bool,
+        transfer: bool,
+        permission: Option<PermissionWait>,
+    ) -> Result<(Task, Blocker)> {
         if t.open_ask().is_some() {
             return Err(super::asks::ask_refusal(
                 t,
@@ -1433,6 +1488,7 @@ impl Fold {
             attachments: files,
             done_check,
             transfer,
+            permission,
             ..BlockerRow::default()
         };
         if reason_only

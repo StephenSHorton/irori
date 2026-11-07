@@ -42,6 +42,8 @@ const out =
 const PAGES: Array<[name: string, query: string]> = [
   ["home", ""],
   ["home-spawn", "?spawn=states"],
+  // Card #682: a permission prompt's command and buttons.
+  ["card-perm", "?spawn=states&open=board:task:sample-card-spawn-perm"],
   ["card-1", "?open=board:task:sample-card-1"],
   ["card-2", "?open=board:task:sample-card-2"],
   ["card-4", "?open=board:task:sample-card-4"],

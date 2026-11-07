@@ -345,7 +345,8 @@ export function spawnNeed(
   c: CardSummary
 ): "permission" | "crashed" | "given" | null {
   const q = c.blockerQuestion ?? ""
-  if (q.startsWith(WAITING_PERMISSION)) return "permission"
+  // Typed since card #682; an older Irori's item by its question.
+  if (c.permissionWait || q.startsWith(WAITING_PERMISSION)) return "permission"
   if (q.startsWith("Its agent crashed") && q.endsWith(": start another?"))
     return "crashed"
   if (q === GIVEN_QUESTION) return "given"

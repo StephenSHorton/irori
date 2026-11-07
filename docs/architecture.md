@@ -151,7 +151,7 @@ All crate versions are pinned once in `[workspace.dependencies]`. These were che
 **Process model: the same as Go.** One Core per data dir, found through `irori.json` (surface.md §1, §2.2):
 - `irori` / `irori gui` hosts the Core in-process with the window and tray.
 - `irori serve --headless` hosts it with no UI.
-- `irori mcp`, `irori attach`, `irori events` and `irori pair join` are thin clients of the loopback API.
+- `irori mcp`, `irori attach`, `irori events`, `irori pair join` and `irori permission-hook` are thin clients of the loopback API.
 
 **Runtime: tokio, multi-threaded, one per process.** `main` builds the runtime before anything else. In the GUI role it hands the runtime to Tauri with `tauri::async_runtime::set(handle)`, so the Core, iroh, axum and the window share one runtime and one shutdown path. The client roles (`attach`, `mcp`, `events`) use a current-thread runtime, since they are small, long-lived children per agent session.
 
@@ -273,8 +273,8 @@ Stage 1 (Go `be67a86`) moves a board's rows on `board/<boardId>` streams inside 
 ### 4.1 One binary, Go's command line
 
 - `app` builds `irori` / `irori.exe` (`mainBinaryName: "irori"`) with `#![windows_subsystem = "windows"]`.
-- `main` parses the role **before** Tauri starts, using `gocompat::flag` so that `-flag` works as it does in Go. The roles are `gui`, `serve --headless`, `mcp`, `attach`, `events`, `pair`, `node`, `version`. Unknown commands and errors keep Go's texts and exit codes (surface.md §1, §7.5).
-- CLI roles other than `gui` and `mcp` attach the parent console only when the std handles are unusable; `mcp` never attaches a console (surface.md §4, §7.15).
+- `main` parses the role **before** Tauri starts, using `gocompat::flag` so that `-flag` works as it does in Go. The roles are `gui`, `serve --headless`, `mcp`, `attach`, `events`, `pair`, `node`, `version`, and the Rust-only `permission-hook` (card #682: the `PermissionRequest` hook in each spawned agent's settings, a client of `POST /v1/permission/wait`; the unknown-command text keeps Go's list). Unknown commands and errors keep Go's texts and exit codes (surface.md §1, §7.5).
+- CLI roles other than `gui`, `mcp` and `permission-hook` attach the parent console only when the std handles are unusable; `mcp` and `permission-hook` never attach a console (surface.md §4, §7.15).
 - `irori version` prints `irori <version>`. The version comes from `IRORI_VERSION` at build time, else `dev`, and `dev` never offers updates (surface.md §7.20).
 - Panics go to `crash.log` through a panic hook, because Rust has no runtime crash file (surface.md §7.16).
 

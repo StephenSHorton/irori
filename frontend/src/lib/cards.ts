@@ -1462,6 +1462,19 @@ function sampleAnswer(
   const answer = option >= 0 ? b.options[option]?.answer : text.trim()
   if (!answer) throw new Error("coord: invalid input: an answer needs text")
   const now = new Date().toISOString()
+  // As BoardService.Answer: a pick on a permission prompt resolves it
+  // (card #682); the agent's device hands it to the waiting hook.
+  if (b.permission?.answerable && option >= 0) {
+    sampleResolve(c, b, answer, option, "", now)
+    c.permissionWait = undefined
+    c.updatedAt = now
+    sampleChanged()
+    return AnswerResult({
+      resolved: true,
+      told: Told({ to: [], mode: "next_turn" }),
+      iroriActs: true,
+    })
+  }
   // As BoardService.Answer: Done on a done check closes the card (#112).
   if (b.doneCheck && option >= 0) {
     sampleResolve(c, b, answer, option, "", now)

@@ -325,6 +325,7 @@ fn precheck(s: &Arc<Shared>, port: u16, r: &Req) -> Option<Resp> {
         || crate::pair::pair_post(&r.path)
         || crate::slots::post_route(&r.path)
         || crate::usage::post_route(&r.path)
+        || r.path == crate::permission::PATH
         || r.path == MOVE_TO_PERSONAL;
     if r.method != "GET" && !(post && r.method == "POST") {
         let allow = if post { "GET, POST" } else { "GET" };
@@ -360,6 +361,7 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
         .or_else(|| crate::pair::route(&h))
         .or_else(|| crate::slots::route(&h))
         .or_else(|| crate::usage::route(&h))
+        .or_else(|| crate::permission::route(&h))
     {
         return resp;
     }

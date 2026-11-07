@@ -88,6 +88,7 @@ pub use crate::service::spawn_capable;
 pub use crate::service::spawn_limits;
 pub use crate::service::spawn_permissions;
 pub use crate::service::spawn_stop;
+pub use crate::service::spawn_waiting;
 pub use crate::service::spawn_why;
 pub use crate::service::sync_out::{SyncOutLog, SyncOutReport};
 pub use crate::service::talk_replying::{REPLYING_CAP, Replier, TalkReplying};

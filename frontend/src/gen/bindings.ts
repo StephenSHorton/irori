@@ -1163,6 +1163,11 @@ export type CardBlocker = {
 	 *  agent's answer and the proof it replaces.
 	 */
 	previous?: CardRound | null,
+	/**
+	 *  A spawned agent stopped on a permission prompt (card #682): the
+	 *  window shows what is waiting and buttons, never an answer box.
+	 */
+	permission?: CardPermission | null,
 };
 
 /**  The shared board a card lives on (v0.5 §8). */
@@ -1338,6 +1343,28 @@ export type CardPR = {
 	checkedAt: string,
 };
 
+/**  What a spawned agent's permission prompt waits on (card #682). */
+export type CardPermission = {
+	/**  The agent on the prompt. */
+	agent: AgentRef,
+	/**  The tool waiting, e.g. `Bash`; empty when unknown. */
+	tool: string,
+	/**  The command, path or URL; empty when unknown. */
+	input: string,
+	/**  The rule Always allow adds; empty: no Always allow. */
+	rule: string,
+	/**
+	 *  Whether Irori can answer the prompt from the card (its hook waits
+	 *  on it): Allow once and Deny. Else only Attach answers it.
+	 */
+	answerable: boolean,
+	/**
+	 *  When Claude Code denies the call by itself, for a safety check it
+	 *  asks even in bypass mode (RFC 3339); empty when it waits.
+	 */
+	expires: string,
+};
+
 /**  Done steps over all steps; total 0 means no bar. */
 export type CardProgress = {
 	done: number,
@@ -1449,6 +1476,11 @@ export type CardSummary = {
 	progress: CardProgress,
 	openBlockers: number,
 	blockerQuestion: string,
+	/**
+	 *  An open item is Irori's "Waiting for your permission" (cards #449,
+	 *  #682): Needs you shows it as a permission row with its buttons.
+	 */
+	permissionWait?: boolean,
 	/**
 	 *  An agent says it's done and it waits on the person's Done (card
 	 *  #112): the grid shows "Ready for you" for it.

@@ -734,6 +734,17 @@ describe("spawned agents' own decisions (card #456, sa-7)", () => {
     ).toBe("crashed")
     expect(spawnNeed(q("Ship today?"))).toBeNull()
   })
+  test("a typed permission wait, whatever its question (card #682)", () => {
+    expect(
+      spawnNeed(
+        card({
+          openBlockers: 1,
+          blockerQuestion: "thyme wants to use Bash: cargo test",
+          permissionWait: true,
+        })
+      )
+    ).toBe("permission")
+  })
 })
 
 // Card #487: Home groups its rows by what the card really waits on, and
