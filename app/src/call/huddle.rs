@@ -100,7 +100,11 @@ fn mic_off(m: &CallMineView) -> bool {
 
 /// An avatar: the name's initials on its hue, with the link's dot.
 pub(super) fn avatar(k: &Kit, key: String, name: &str, health: Option<Health>, small: bool) -> El {
-    let (size, font, dot) = if small { (20.0, 9.0, 8.0) } else { (40.0, 14.0, 12.0) };
+    let (size, font, dot) = if small {
+        (20.0, 9.0, 8.0)
+    } else {
+        (40.0, 14.0, 12.0)
+    };
     let mut a = el()
         .key(key)
         .size(size, size)
@@ -147,8 +151,16 @@ pub(super) fn round_button(
         .size(size, size)
         .radius(if large { 8.0 } else { 6.0 })
         .fill(base)
-        .hover(if fill.is_some() { base.mix(k.c.black, 0.12) } else { k.c.hover })
-        .press(if fill.is_some() { base.mix(k.c.black, 0.2) } else { k.c.pressed })
+        .hover(if fill.is_some() {
+            base.mix(k.c.black, 0.12)
+        } else {
+            k.c.hover
+        })
+        .press(if fill.is_some() {
+            base.mix(k.c.black, 0.2)
+        } else {
+            k.c.pressed
+        })
         .center()
         .child(icon(i, glyph).color(ink))
         .on_press(on)
@@ -185,11 +197,19 @@ fn deafen_button(k: &Kit, key: &str, deafened: bool, large: bool) -> El {
     round_button(
         k,
         format!("{key}-deafen"),
-        if deafened { &ic::HEADPHONE_OFF } else { &ic::HEADPHONES },
+        if deafened {
+            &ic::HEADPHONE_OFF
+        } else {
+            &ic::HEADPHONES
+        },
         large,
         fill,
         ink,
-        if deafened { "Undeafen" } else { "Deafen: hear nothing, mic off" },
+        if deafened {
+            "Undeafen"
+        } else {
+            "Deafen: hear nothing, mic off"
+        },
         move |s: &mut State| super::set_deafened(s, !deafened),
     )
 }
@@ -214,40 +234,57 @@ pub(super) fn error_line(k: &Kit, key: String, t: &str) -> El {
 }
 
 fn speaking(k: &Kit, key: String) -> El {
-    let mut r = row().key(key).h(14.0).gap(2.0).items_end().label("speaking");
+    let mut r = row()
+        .key(key)
+        .h(14.0)
+        .gap(2.0)
+        .items_end()
+        .label("speaking");
     for (i, h) in [6.0, 12.0, 9.0, 14.0].into_iter().enumerate() {
-        r = r.child(el().key(format!("b{i}")).w(3.0).h(h).radius(1.5).fill(green(k)));
+        r = r.child(
+            el().key(format!("b{i}"))
+                .w(3.0)
+                .h(h)
+                .radius(1.5)
+                .fill(green(k)),
+        );
     }
     r
 }
 
 fn tile(k: &Kit, i: usize, w: &Who) -> El {
-    let line: Vec<&str> = [w.device.as_str(), w.link.as_str()].into_iter().filter(|x| !x.is_empty()).collect();
-    let mut name = row()
-        .key("name")
-        .w_full()
-        .gap(6.0)
-        .center_y()
-        .child(text(w.name.clone()).font(k.ty.ui_medium).color(k.c.text_base).truncate().shrink());
+    let line: Vec<&str> = [w.device.as_str(), w.link.as_str()]
+        .into_iter()
+        .filter(|x| !x.is_empty())
+        .collect();
+    let mut name = row().key("name").w_full().gap(6.0).center_y().child(
+        text(w.name.clone())
+            .font(k.ty.ui_medium)
+            .color(k.c.text_base)
+            .truncate()
+            .shrink(),
+    );
     if w.sharing {
-        name = name.child(icon(&ic::MONITOR_UP, 14.0).color(k.c.info.icon).label("sharing"));
-    }
-    let mut mid = col()
-        .key("who")
-        .grow(1.0)
-        .min_w(0.0)
-        .child(name)
-        .child(
-            text(line.join(" · "))
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_muted)
-                .truncate()
-                .w_full(),
+        name = name.child(
+            icon(&ic::MONITOR_UP, 14.0)
+                .color(k.c.info.icon)
+                .label("sharing"),
         );
+    }
+    let mut mid = col().key("who").grow(1.0).min_w(0.0).child(name).child(
+        text(line.join(" · "))
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .truncate()
+            .w_full(),
+    );
     if w.transcribed == Some(false) {
         mid = mid.child(
             text("not transcribed")
-                .font(rune::tok::TextStyle { italic: true, ..k.ty.text_xsmall })
+                .font(rune::tok::TextStyle {
+                    italic: true,
+                    ..k.ty.text_xsmall
+                })
                 .color(k.c.text_muted)
                 .help(if w.name == "You" {
                     "What you say isn't written down".to_string()
@@ -264,15 +301,28 @@ fn tile(k: &Kit, i: usize, w: &Who) -> El {
         .center_y()
         .radius(8.0)
         .fill(k.c.layer_01.alpha(0.6))
-        .border(1.0, if w.speaking { green(k) } else { k.c.border_muted })
+        .border(
+            1.0,
+            if w.speaking {
+                green(k)
+            } else {
+                k.c.border_muted
+            },
+        )
         .child(avatar(k, "avatar".into(), &w.name, w.health, false))
         .child(mid);
     if let Some(h) = w.health {
-        t = t.help(format!("{}: {}", w.name, w.link)).label(format!("{}: {}", w.name, w.link));
+        t = t
+            .help(format!("{}: {}", w.name, w.link))
+            .label(format!("{}: {}", w.name, w.link));
         let _ = h;
     }
     if w.deafened {
-        t = t.child(icon(&ic::HEADPHONE_OFF, 14.0).color(red(k)).label("deafened"));
+        t = t.child(
+            icon(&ic::HEADPHONE_OFF, 14.0)
+                .color(red(k))
+                .label("deafened"),
+        );
     } else if w.muted {
         t = t.child(icon(&ic::MIC_OFF, 14.0).color(red(k)).label("muted"));
     }
@@ -320,14 +370,26 @@ pub fn huddle_panel(s: &State, f: &mut Frame) -> El {
         .gap(8.0)
         .center_y()
         .child(icon(&ic::HEADPHONES, 16.0).color(green(k)))
-        .child(text("Huddle").font(rune::tok::TextStyle::new(13.0, 600.0)).color(k.c.text_base))
-        .child(text(elapsed(s, m.joined_at_ms)).font(super::tnum(k.ty.small)).color(k.c.text_muted))
+        .child(
+            text("Huddle")
+                .font(rune::tok::TextStyle::new(13.0, 600.0))
+                .color(k.c.text_base),
+        )
+        .child(
+            text(elapsed(s, m.joined_at_ms))
+                .font(super::tnum(k.ty.small))
+                .color(k.c.text_muted),
+        )
         .child(el().grow(1.0))
         .child(
-            text(if n == 1 { "just you".to_string() } else { format!("{n} in it") })
-                .font(k.ty.small)
-                .color(k.c.text_muted)
-                .truncate(),
+            text(if n == 1 {
+                "just you".to_string()
+            } else {
+                format!("{n} in it")
+            })
+            .font(k.ty.small)
+            .color(k.c.text_muted)
+            .truncate(),
         );
     if logic::transcript_on(m) {
         head = head.child(transcript_on_badge(k));
@@ -364,7 +426,9 @@ pub fn huddle_panel(s: &State, f: &mut Frame) -> El {
         .key("call-tiles-scroll")
         .w_full()
         .min_h(0.0)
-        .scroll(ScrollSpec { stick_bottom: false })
+        .scroll(ScrollSpec {
+            stick_bottom: false,
+        })
         .child(tiles);
     panel = if has_captions {
         panel
@@ -394,7 +458,14 @@ fn notes(_s: &State, f: &mut Frame, m: &CallMineView) -> Option<El> {
                 .gap(6.0)
                 .items_start()
                 .child(icon(&ic::MONITOR_UP, 14.0).color(k.c.text_muted).mt(2.0))
-                .child(text(n.clone()).font(k.ty.small).color(k.c.text_muted).grow(1.0).min_w(0.0).wrap())
+                .child(
+                    text(n.clone())
+                        .font(k.ty.small)
+                        .color(k.c.text_muted)
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .wrap(),
+                )
                 .child(round_button(
                     k,
                     "call-share-note-x".into(),
@@ -442,7 +513,12 @@ fn controls(s: &State, f: &mut Frame, m: &CallMineView, _full: bool) -> El {
 /// follows the newest line unless scrolled up.
 fn captions(_s: &State, f: &mut Frame, lines: &[CallCaptionView]) -> El {
     let k = f.k;
-    let mut list = col().key("call-captions-list").w_full().gap(8.0).px(12.0).py(8.0);
+    let mut list = col()
+        .key("call-captions-list")
+        .w_full()
+        .gap(8.0)
+        .px(12.0)
+        .py(8.0);
     for (i, l) in lines.iter().enumerate() {
         list = list.child(
             col()
@@ -453,10 +529,24 @@ fn captions(_s: &State, f: &mut Frame, lines: &[CallCaptionView]) -> El {
                         .key("who")
                         .gap(6.0)
                         .center_y()
-                        .child(text(logic::person_word(&l.name)).font(k.ty.small_medium).color(k.c.text_base))
-                        .child(text(logic::clock_text(l.at_ms)).font(super::tnum(k.ty.text_xsmall)).color(k.c.text_muted)),
+                        .child(
+                            text(logic::person_word(&l.name))
+                                .font(k.ty.small_medium)
+                                .color(k.c.text_base),
+                        )
+                        .child(
+                            text(logic::clock_text(l.at_ms))
+                                .font(super::tnum(k.ty.text_xsmall))
+                                .color(k.c.text_muted),
+                        ),
                 )
-                .child(text(l.text.clone()).font(k.ty.small).color(k.c.text_weak).w_full().wrap()),
+                .child(
+                    text(l.text.clone())
+                        .font(k.ty.small)
+                        .color(k.c.text_weak)
+                        .w_full()
+                        .wrap(),
+                ),
         );
     }
     col()
@@ -475,7 +565,10 @@ fn captions(_s: &State, f: &mut Frame, lines: &[CallCaptionView]) -> El {
                 .child(icon(&ic::FILE_TEXT, 12.0).color(k.c.text_muted))
                 .child(
                     text("TRANSCRIPT, AS IT'S WRITTEN")
-                        .font(rune::tok::TextStyle { tracking: 0.4, ..k.ty.text_xsmall_medium })
+                        .font(rune::tok::TextStyle {
+                            tracking: 0.4,
+                            ..k.ty.text_xsmall_medium
+                        })
                         .color(k.c.text_muted),
                 ),
         )
@@ -493,7 +586,9 @@ fn captions(_s: &State, f: &mut Frame, lines: &[CallCaptionView]) -> El {
 /// CallBar: the huddle you're in, on every page, at the foot of the
 /// sidebar above your name. Its name opens the conversation.
 pub(super) fn call_bar(s: &State, f: &mut Frame) {
-    let Some(m) = s.call.view.mine.as_ref() else { return };
+    let Some(m) = s.call.view.mine.as_ref() else {
+        return;
+    };
     let k = f.k;
     let where_ = logic::conv_label(&m.conv_kind, &m.conv_name);
     let who = who_in(m);
@@ -527,10 +622,18 @@ pub(super) fn call_bar(s: &State, f: &mut Frame) {
                 .help("Transcript on: each device writes down only its own person's voice."),
         );
     }
-    top = top.child(text(elapsed(s, m.joined_at_ms)).font(super::tnum(k.ty.text_xsmall)).color(k.c.text_muted));
+    top = top.child(
+        text(elapsed(s, m.joined_at_ms))
+            .font(super::tnum(k.ty.text_xsmall))
+            .color(k.c.text_muted),
+    );
     let mut faces = row().key("call-bar-faces").center_y();
     for (i, w) in who.iter().take(4).enumerate() {
-        let tip = if w.health.is_some() { format!("{}: {}", w.name, w.link) } else { w.name.clone() };
+        let tip = if w.health.is_some() {
+            format!("{}: {}", w.name, w.link)
+        } else {
+            w.name.clone()
+        };
         faces = faces.child(
             el().key(format!("f{i}"))
                 .ml(if i == 0 { 0.0 } else { -6.0 })
@@ -547,13 +650,17 @@ pub(super) fn call_bar(s: &State, f: &mut Frame) {
         .center_y()
         .child(faces)
         .child(
-            text(if who.len() == 1 { "just you".to_string() } else { format!("{} in it", who.len()) })
-                .font(k.ty.text_xsmall)
-                .color(k.c.text_muted)
-                .ml(4.0)
-                .truncate()
-                .grow(1.0)
-                .min_w(0.0),
+            text(if who.len() == 1 {
+                "just you".to_string()
+            } else {
+                format!("{} in it", who.len())
+            })
+            .font(k.ty.text_xsmall)
+            .color(k.c.text_muted)
+            .ml(4.0)
+            .truncate()
+            .grow(1.0)
+            .min_w(0.0),
         )
         .child(mute_button(k, "call-bar", mic_off(m), false))
         .child(deafen_button(k, "call-bar", m.deafened, false))
@@ -581,7 +688,11 @@ pub(super) fn call_bar(s: &State, f: &mut Frame) {
     }
     bar = bar.child(bottom);
     // Above the sidebar's foot (its profile row is 40 points).
-    f.layer.push(el().key("call-bar-at").pin(Some(8.0), None, None, Some(48.0)).child(bar));
+    f.layer.push(
+        el().key("call-bar-at")
+            .pin(Some(8.0), None, None, Some(48.0))
+            .child(bar),
+    );
 }
 
 /// RingBanner: "Spencer started a huddle in #netcode · Join / Dismiss",
@@ -609,9 +720,18 @@ fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
     } else {
         "with you".into()
     };
-    let on = if r.by_device.is_empty() { String::new() } else { format!(" on {}", r.by_device) };
+    let on = if r.by_device.is_empty() {
+        String::new()
+    } else {
+        format!(" on {}", r.by_device)
+    };
     let busy = s.call.ring_busy == r.call_id;
-    let (id, conv, kind, name) = (r.call_id.clone(), r.conv_id.clone(), r.conv_kind.clone(), r.conv_name.clone());
+    let (id, conv, kind, name) = (
+        r.call_id.clone(),
+        r.conv_id.clone(),
+        r.conv_kind.clone(),
+        r.conv_name.clone(),
+    );
     let id2 = r.call_id.clone();
     let mut b = col()
         .key("call-ring")
@@ -624,7 +744,12 @@ fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
         .radius(8.0)
         .fill(k.c.bg_base.mix(green(k), 0.12))
         .border(1.0, green(k).alpha(0.4))
-        .box_shadow(rune::Shadow { y: 4.0, blur: 16.0, color: Color::BLACK.alpha(0.18), ..Default::default() })
+        .box_shadow(rune::Shadow {
+            y: 4.0,
+            blur: 16.0,
+            color: Color::BLACK.alpha(0.18),
+            ..Default::default()
+        })
         .child(
             row()
                 .key("line")
@@ -634,8 +759,14 @@ fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
                 .child(icon(&ic::HEADPHONES, 16.0).color(green(k)))
                 .child(
                     rune::rich(
-                        format!("{} started a huddle {where_}{on}", logic::person_word(&r.by)),
-                        vec![super::bold_span(logic::person_word(&r.by).len(), k.c.text_base)],
+                        format!(
+                            "{} started a huddle {where_}{on}",
+                            logic::person_word(&r.by)
+                        ),
+                        vec![super::bold_span(
+                            logic::person_word(&r.by).len(),
+                            k.c.text_base,
+                        )],
                     )
                     .font(k.ty.ui)
                     .color(k.c.text_weak)
@@ -644,7 +775,7 @@ fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
                     .wrap(),
                 )
                 .child(
-                    Button::new(if busy { "Joining…" } else { "Join" })
+                    Button::new("Join")
                         .variant(ButtonVariant::Submit)
                         .control_size(ControlSize::Small)
                         .disabled(busy)
@@ -663,7 +794,11 @@ fn ring_banner(s: &State, k: &Kit, r: &CallRingView) -> El {
                 )),
         );
     if s.call.ring_error.0 == r.call_id && !s.call.ring_error.1.is_empty() {
-        b = b.child(error_line(k, "call-ring-error".into(), &s.call.ring_error.1));
+        b = b.child(error_line(
+            k,
+            "call-ring-error".into(),
+            &s.call.ring_error.1,
+        ));
     }
     b
 }
@@ -682,7 +817,14 @@ fn notice_text(k: &Kit, key: &str, t: &str) -> El {
         } else {
             icon(&ic::MIC, 16.0).color(k.c.text_muted).mt(1.0)
         })
-        .child(text(t.to_string()).font(k.ty.small).color(k.c.text_muted).grow(1.0).min_w(0.0).wrap())
+        .child(
+            text(t.to_string())
+                .font(k.ty.small)
+                .color(k.c.text_muted)
+                .grow(1.0)
+                .min_w(0.0)
+                .wrap(),
+        )
 }
 
 /// HuddleNotice: asks before the mic opens (#656). Start or Join runs it;
@@ -692,12 +834,22 @@ pub(super) fn notice(s: &State, f: &mut Frame) {
     let k = f.k;
     let t = match s.call.can_transcribe {
         None => "Checking…".to_string(),
-        Some(can) => logic::transcript_notice(&a.conv_kind, &a.conv_name, s.call.view.transcribe_on, can),
+        Some(can) => {
+            logic::transcript_notice(&a.conv_kind, &a.conv_name, s.call.view.transcribe_on, can)
+        }
     };
     let title = format!(
         "{} {} {}",
-        if a.start { "Start a huddle" } else { "Join the huddle" },
-        if a.conv_kind == "channel" { "in" } else { "with" },
+        if a.start {
+            "Start a huddle"
+        } else {
+            "Join the huddle"
+        },
+        if a.conv_kind == "channel" {
+            "in"
+        } else {
+            "with"
+        },
         logic::conv_label(&a.conv_kind, &a.conv_name)
     );
     let ask = a.clone();
@@ -755,7 +907,15 @@ pub(super) fn notice(s: &State, f: &mut Frame) {
 /// it. `conv` is the conversation's id; `kind` its kind (`channel`, `dm`)
 /// and `name` its name as Talk has them; `space` whether a channel is in a
 /// space (a Personal channel isn't); `person` the DM's other person.
-pub fn huddle_button(s: &State, f: &mut Frame, conv: &str, kind: &str, name: &str, space: bool, person: &str) -> El {
+pub fn huddle_button(
+    s: &State,
+    f: &mut Frame,
+    conv: &str,
+    kind: &str,
+    name: &str,
+    space: bool,
+    person: &str,
+) -> El {
     let k = f.k;
     let v = &s.call.view;
     if let Some(m) = v.mine.as_ref().filter(|m| m.conv_id == conv) {
@@ -776,13 +936,22 @@ pub fn huddle_button(s: &State, f: &mut Frame, conv: &str, kind: &str, name: &st
                     .color(green(k)),
             );
     }
-    if let Some(l) = v.live.iter().find(|l| l.conv_id == conv && !l.people.is_empty()) {
-        let (id, c, kd, nm) = (l.call_id.clone(), conv.to_string(), kind.to_string(), logic::plain_line(name));
+    if let Some(l) = v
+        .live
+        .iter()
+        .find(|l| l.conv_id == conv && !l.people.is_empty())
+    {
+        let (id, c, kd, nm) = (
+            l.call_id.clone(),
+            conv.to_string(),
+            kind.to_string(),
+            logic::plain_line(name),
+        );
         return Button::new(format!("Join · {}", l.people.len()))
             .variant(ButtonVariant::Outline)
             .control_size(ControlSize::Small)
             .icon(&ic::HEADPHONES)
-            .disabled(s.call.busy)
+            .disabled(s.call.busy && s.call.at == conv)
             .help("A huddle is on here: join it")
             .on_press(move |s: &mut State| super::ask_join(s, &id, &c, &kd, &nm))
             .build(k)
@@ -805,7 +974,11 @@ pub fn huddle_button(s: &State, f: &mut Frame, conv: &str, kind: &str, name: &st
     let open = s.call.sheet.as_ref().is_some_and(|sh| sh.conv_id == conv);
     let c = conv.to_string();
     let trigger = Button::new("Huddle")
-        .variant(if open { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+        .variant(if open {
+            ButtonVariant::Neutral
+        } else {
+            ButtonVariant::Ghost
+        })
         .control_size(ControlSize::Small)
         .icon(&ic::HEADPHONES)
         .help("Start a voice huddle here")
@@ -834,7 +1007,7 @@ pub fn huddle_button(s: &State, f: &mut Frame, conv: &str, kind: &str, name: &st
 fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
     let at = &sh.at;
     let notice = logic::start_notice(at, s.call.view.transcribe_on, s.call.can_transcribe);
-    let busy = s.call.busy;
+    let busy = s.call.busy && s.call.at == sh.conv_id;
     let conv = sh.conv_id.clone();
     let mic = match &sh.mic {
         None => "…".to_string(),
@@ -869,7 +1042,13 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
                             .min_w(0.0),
                         ),
                 )
-                .child(text(logic::told_text(at)).font(k.ty.small).color(k.c.text_muted).w_full().wrap()),
+                .child(
+                    text(logic::told_text(at))
+                        .font(k.ty.small)
+                        .color(k.c.text_muted)
+                        .w_full()
+                        .wrap(),
+                ),
         )
         .child(
             col()
@@ -889,7 +1068,13 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
                         .child(icon(&ic::MIC, 14.0).color(k.c.text_muted))
                         .child(text("Microphone").font(k.ty.small).color(k.c.text_muted))
                         .child(el().grow(1.0))
-                        .child(text(mic).font(k.ty.small).color(k.c.text_base).truncate().min_w(0.0)),
+                        .child(
+                            text(mic)
+                                .font(k.ty.small)
+                                .color(k.c.text_base)
+                                .truncate()
+                                .min_w(0.0),
+                        ),
                 )
                 .child(
                     text("Echo cancelling and noise suppression are on.")
@@ -909,7 +1094,7 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
                 .border(1.0, k.c.border_muted)
                 .child(notice_text(k, "text", &notice)),
         );
-    if !s.call.error.is_empty() {
+    if !s.call.error.is_empty() && s.call.at == sh.conv_id {
         c = c.child(error_line(k, "call-sheet-error".into(), &s.call.error));
     }
     c.child(
@@ -937,7 +1122,7 @@ fn start_sheet(s: &State, k: &Kit, sh: &super::Sheet) -> El {
     )
 }
 
-/// HuddleLine: a Talk list row's huddle that's on, "Huddle · You and
+/// HuddleLine: a Talk list row's huddle that's on, "Huddle · You,
 /// Spencer". None while no huddle is on there.
 pub fn huddle_line(s: &State, f: &mut Frame, conv: &str) -> Option<El> {
     let names = logic::huddle_names(&s.call.view, conv);
@@ -945,10 +1130,7 @@ pub fn huddle_line(s: &State, f: &mut Frame, conv: &str) -> Option<El> {
         return None;
     }
     let k = f.k;
-    let joined = match names.len() {
-        1 => names[0].clone(),
-        n => format!("{} and {}", names[..n - 1].join(", "), names[n - 1]),
-    };
+    let joined = names.join(", ");
     Some(
         row()
             .key(format!("call-line-{conv}"))
@@ -956,16 +1138,41 @@ pub fn huddle_line(s: &State, f: &mut Frame, conv: &str) -> Option<El> {
             .gap(4.0)
             .center_y()
             .child(icon(&ic::HEADPHONES, 12.0).color(green(k)))
-            .child(text(format!("Huddle · {joined}")).font(k.ty.text_xsmall).color(green(k)).truncate()),
+            .child(
+                text(format!("Huddle · {joined}"))
+                    .font(k.ty.text_xsmall)
+                    .color(green(k))
+                    .truncate(),
+            ),
     )
+}
+
+/// The conversation a huddle is in: its id, kind and plain name.
+#[derive(Clone, Copy)]
+pub struct HuddleIn<'a> {
+    pub conv: &'a str,
+    pub kind: &'a str,
+    pub name: &'a str,
 }
 
 /// HuddleStarted: the post a huddle's start leaves; Join while it's on
 /// and this device isn't in it. `key` is the post's key.
-pub fn huddle_started(s: &State, f: &mut Frame, key: &str, by: &str, call_id: &str, conv: &str, kind: &str, name: &str) -> El {
+pub fn huddle_started(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    by: &str,
+    call_id: &str,
+    at: HuddleIn,
+) -> El {
+    let HuddleIn { conv, kind, name } = at;
     let k = f.k;
     let on = s.call.view.live.iter().any(|l| l.call_id == call_id)
-        && s.call.view.mine.as_ref().is_none_or(|m| m.call_id != call_id);
+        && s.call
+            .view
+            .mine
+            .as_ref()
+            .is_none_or(|m| m.call_id != call_id);
     let mut r = row()
         .key(key.to_string())
         .self_stretch()
@@ -990,7 +1197,12 @@ pub fn huddle_started(s: &State, f: &mut Frame, key: &str, by: &str, call_id: &s
             .min_w(0.0),
         );
     if on {
-        let (id, c, kd, nm) = (call_id.to_string(), conv.to_string(), kind.to_string(), name.to_string());
+        let (id, c, kd, nm) = (
+            call_id.to_string(),
+            conv.to_string(),
+            kind.to_string(),
+            name.to_string(),
+        );
         r = r.child(
             Button::new("Join")
                 .variant(ButtonVariant::Neutral)
@@ -1004,7 +1216,14 @@ pub fn huddle_started(s: &State, f: &mut Frame, key: &str, by: &str, call_id: &s
 
 /// HuddleEnded: the post a huddle leaves when it ends: how long, who was
 /// in it, and its Transcript when `transcript` (it has one).
-pub fn huddle_ended(f: &mut Frame, key: &str, duration_ms: i64, people: &[String], call_id: &str, transcript: bool) -> El {
+pub fn huddle_ended(
+    f: &mut Frame,
+    key: &str,
+    duration_ms: i64,
+    people: &[String],
+    call_id: &str,
+    transcript: bool,
+) -> El {
     let k = f.k;
     let mut c = col()
         .key(key.to_string())
@@ -1023,8 +1242,17 @@ pub fn huddle_ended(f: &mut Frame, key: &str, duration_ms: i64, people: &[String
                 .gap(8.0)
                 .center_y()
                 .child(icon(&ic::HEADPHONES, 16.0).color(k.c.text_muted))
-                .child(text("Huddle ended").font(k.ty.ui_medium).color(k.c.text_base))
-                .child(text(logic::length_text(duration_ms)).font(k.ty.small).color(k.c.text_muted).truncate()),
+                .child(
+                    text("Huddle ended")
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base),
+                )
+                .child(
+                    text(logic::length_text(duration_ms))
+                        .font(k.ty.small)
+                        .color(k.c.text_muted)
+                        .truncate(),
+                ),
         );
     if !people.is_empty() {
         c = c.child(
@@ -1069,9 +1297,15 @@ pub(super) fn demo(s: &State, f: &mut Frame) {
         .gap(8.0)
         .center_y()
         .border_sides([0.0, 0.0, 1.0, 0.0], k.c.border_muted)
-        .child(text("#suzuri").font(rune::tok::TextStyle::new(15.0, 600.0)).color(k.c.text_base))
+        .child(
+            text("#suzuri")
+                .font(rune::tok::TextStyle::new(15.0, 600.0))
+                .color(k.c.text_base),
+        )
         .child(el().grow(1.0))
-        .child(huddle_button(s, f, "scene-ch", "channel", "suzuri", true, ""));
+        .child(huddle_button(
+            s, f, "scene-ch", "channel", "suzuri", true, "",
+        ));
     let body = match super::share::share_stage(s, f) {
         Some(stage) => stage,
         None => {
@@ -1082,8 +1316,26 @@ pub(super) fn demo(s: &State, f: &mut Frame) {
                 .grow(1.0)
                 .min_h(0.0)
                 .py(8.0)
-                .child(huddle_ended(f, "call-demo-ended", 18 * 60_000 + 5_000, &you, "scene-old", true))
-                .child(huddle_started(s, f, "call-demo-started", "Spencer", "scene-call", "scene-ch", "channel", "suzuri"));
+                .child(huddle_ended(
+                    f,
+                    "call-demo-ended",
+                    18 * 60_000 + 5_000,
+                    &you,
+                    "scene-old",
+                    true,
+                ))
+                .child(huddle_started(
+                    s,
+                    f,
+                    "call-demo-started",
+                    "Spencer",
+                    "scene-call",
+                    HuddleIn {
+                        conv: "scene-ch",
+                        kind: "channel",
+                        name: "suzuri",
+                    },
+                ));
             if let Some(line) = huddle_line(s, f, "scene-ch") {
                 posts = posts.child(row().key("call-demo-line").px(16.0).py(4.0).child(line));
             }
@@ -1101,8 +1353,15 @@ pub(super) fn demo(s: &State, f: &mut Frame) {
                         .grow(1.0)
                         .key("call-demo-input"),
                 )
-                .child(super::mic_button(s, f, "call-demo", |s: &mut State| &mut s.call.demo_draft));
-            col().key("call-demo-conv-body").grow(1.0).min_h(0.0).child(posts).child(composer)
+                .child(super::mic_button(s, f, "call-demo", |s: &mut State| {
+                    &mut s.call.demo_draft
+                }));
+            col()
+                .key("call-demo-conv-body")
+                .grow(1.0)
+                .min_h(0.0)
+                .child(posts)
+                .child(composer)
         }
     };
     let conv = col()
@@ -1114,7 +1373,12 @@ pub(super) fn demo(s: &State, f: &mut Frame) {
         .child(body.grow(1.0).min_h(0.0).w_full());
     let mut page = row()
         .key("call-demo")
-        .pin(Some(crate::ui::sidebar::WIDTH), Some(0.0), Some(0.0), Some(0.0))
+        .pin(
+            Some(crate::ui::sidebar::WIDTH),
+            Some(0.0),
+            Some(0.0),
+            Some(0.0),
+        )
         .fill(k.c.bg_base)
         .child(conv);
     if let Some(t) = super::transcript::transcript_pane(s, f) {

@@ -7,7 +7,7 @@
 //! person's asks to the room), Channels, Direct messages, Agents talking
 //! (agent↔agent DMs, a broadcast as one row) and the Archive (DMs whose
 //! agents have gone), each folding and remembered per device; resolved
-//! threads fold at its foot. The pane shows the open channel or DM
+//! threads fold at the bottom of Threads (card #687). The pane shows the open channel or DM
 //! ([`conv`]), the open thread ([`thread`]), or "Start a thread".
 //!
 //! Live: talk:changed re-reads the list and the open conversation's
@@ -17,9 +17,6 @@
 pub mod conv;
 pub mod icons;
 pub mod list;
-// The pure helpers are also the inbox's and the sidebar's API (talk.ts's
-// Names (re-exported from inbox::words) and counts_by_agent, the status words): parts stay unused here.
-#[allow(dead_code)]
 pub mod logic;
 pub mod thread;
 
@@ -27,7 +24,8 @@ use std::collections::{HashMap, HashSet};
 
 use irori_window::cards::CardDetail;
 use irori_window::events::{
-    EVENT_BOARD_CHANGED, EVENT_INBOX_CHANGED, EVENT_ROSTER_CHANGED, EVENT_TALK_CHANGED, EVENT_TALK_REPLYING,
+    EVENT_BOARD_CHANGED, EVENT_INBOX_CHANGED, EVENT_ROSTER_CHANGED, EVENT_TALK_CHANGED,
+    EVENT_TALK_REPLYING,
 };
 use irori_window::talk::{TalkConversation, TalkPerson, TalkPost, TalkReplying};
 use irori_window::threads::ThreadSummary;
@@ -58,15 +56,13 @@ pub struct Posts {
     pub rev: u64,
 }
 
-/// Make a card from a post (design §4): the form, filled from it.
-pub struct Making {
+/// Make a card from a post (design §4): the card package's New card
+/// dialog opens filled from it ([`new_card_from`]), and the post links to
+/// the card it makes ([`card_made`]).
+pub struct CardFrom {
     pub post_id: String,
-    pub where_: String,
-    pub board: String,
-    pub title: TextEdit,
-    pub objective: TextEdit,
-    pub busy: bool,
-    pub error: String,
+    pub title: String,
+    pub objective: String,
 }
 
 /// Start a thread on a channel post (design b2).
@@ -124,11 +120,15 @@ pub struct Model {
     pub asking: Option<Asking>,
     /// A post's right-click menu: the post and where.
     pub menu: Option<(String, PointerPress)>,
-    pub making: Option<Making>,
+    /// The post New card is open for, while it is.
+    pub card_from: Option<CardFrom>,
     /// The newest post this window marked read.
     pub read_to: String,
 
     // A thread (its reply box is the card package's).
+    /// The open thread and its newest entry this window last marked read
+    /// (card #719).
+    pub read_mark: String,
     pub thread_busy: bool,
     pub thread_act_error: String,
 
@@ -169,7 +169,11 @@ pub fn picked_space(s: &State) -> String {
 
 /// Whether section `k` is folded (the person's pick, else its default).
 pub fn folded(s: &State, k: SectionKey) -> bool {
-    s.talk.folds.get(k.name()).copied().unwrap_or_else(|| k.folded_by_default())
+    s.talk
+        .folds
+        .get(k.name())
+        .copied()
+        .unwrap_or_else(|| k.folded_by_default())
 }
 
 pub fn toggle_fold(s: &mut State, k: SectionKey) {
@@ -296,8 +300,15 @@ fn mark_read(s: &mut State) {
     if conv.is_empty() || open_id(s) != conv {
         return;
     }
-    let unread = s.talk.convs.iter().find(|c| c.conv_id == conv).map_or(0, |c| c.unread);
-    let Some(last) = s.talk.posts.list.last().map(|p| p.post_id.clone()) else { return };
+    let unread = s
+        .talk
+        .convs
+        .iter()
+        .find(|c| c.conv_id == conv)
+        .map_or(0, |c| c.unread);
+    let Some(last) = s.talk.posts.list.last().map(|p| p.post_id.clone()) else {
+        return;
+    };
     if unread == 0 || s.talk.read_to == last {
         return;
     }
@@ -321,11 +332,71 @@ pub(crate) fn load_thread(s: &mut State) {
                 Ok(d) => {
                     s.talk.thread = Some(d);
                     s.talk.thread_error = None;
+                    read_thread(s);
                 }
                 Err(e) => s.talk.thread_error = Some(e),
             }
         },
     );
+}
+
+/// The open thread, in view, is read (card #719): Talk's count drops it
+/// until an agent writes again. A reply that lands while the window is in
+/// the background waits until it is back in front.
+fn read_thread(s: &mut State) {
+    if open_id(s) != s.talk.thread_id || s.nav.card.is_some() {
+        return;
+    }
+    let Some(d) = s
+        .talk
+        .thread
+        .as_ref()
+        .filter(|d| d.summary.id == s.talk.thread_id)
+    else {
+        return;
+    };
+    let newest = d
+        .thread
+        .iter()
+        .rev()
+        .find(|it| thread::shown(it))
+        .map(|it| it.id.as_str())
+        .unwrap_or("");
+    let Some(mark) = logic::read_mark(
+        &d.summary.id,
+        newest,
+        d.summary.state == irori_window::threads::THREAD_RESOLVED,
+        s.focused,
+        &s.talk.read_mark,
+    ) else {
+        return;
+    };
+    s.talk.read_mark = mark;
+    let id = d.summary.id.clone();
+    s.spawn(move |w| w.read_thread(&id), |_, _| {});
+}
+
+/// What a Talk message's Make a card fills New card with: its title and
+/// goal (the card package's dialog reads it as it opens).
+pub fn new_card_from(s: &State) -> Option<(String, String)> {
+    s.talk
+        .card_from
+        .as_ref()
+        .map(|c| (c.title.clone(), c.objective.clone()))
+}
+
+/// New card made card `card_id`: when Talk opened it from a message, that
+/// message links to the card (onMade) and this says true.
+pub fn card_made(s: &mut State, card_id: &str) -> bool {
+    let Some(c) = s.talk.card_from.take() else {
+        return false;
+    };
+    let id = card_id.to_string();
+    s.spawn(
+        move |w| w.talk_link_card(&c.post_id, &id),
+        |s, _| load_posts(s),
+    );
+    true
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -354,9 +425,18 @@ pub fn on_event(s: &mut State, ev: &Event) {
 /// Before each frame (ui::poll): a conversation opened from elsewhere
 /// (the sidebar, a notification, a #ref) loads here.
 pub fn poll(s: &mut State) -> bool {
+    // New card closed without making one: the message's fill goes too.
+    if s.talk.card_from.is_some() && !matches!(s.dialog, Some(crate::ui::Dialog::NewCard { .. })) {
+        s.talk.card_from = None;
+    }
+    if !s.focused {
+        // Out of view, nothing new is read; back in front, it is.
+        s.talk.read_mark.clear();
+    }
     if !matches!(s.nav.route, Route::Talk(_)) || s.nav.card.is_some() {
         return false;
     }
+    read_thread(s);
     let id = open_id(s).to_string();
     let stale = if id.is_empty() {
         s.talk.ask_box.key.is_empty()
@@ -370,17 +450,28 @@ pub fn poll(s: &mut State) -> bool {
     stale
 }
 
-/// How many conversations wait on the person: answered threads and those
-/// no agent can start for, DMs with something new, channels that mention
-/// them (the sidebar's Talk count).
+/// How many conversations wait on the person: threads with a reply they
+/// haven't read and those no agent can start for (card #719), DMs with
+/// something new, channels that mention them (the sidebar's Talk count).
+/// It counts what Talk lists in the picked space (card #461).
 pub fn waiting_count(s: &State) -> usize {
     let live = crate::logic::thread::live_roster(&s.data.agents);
+    let space = picked_space(s);
     s.talk
         .threads
         .iter()
-        .filter(|t| logic::needs_you(&t.state, &t.no_agent))
+        .filter(|t| {
+            crate::logic::spaces::conv_in_space(&t.space_id, "thread", &[], &space)
+                && logic::needs_you(t.unread, &t.no_agent)
+        })
         .count()
-        + logic::talk_waiting(&s.talk.convs, &live)
+        + logic::talk_waiting(
+            s.talk
+                .convs
+                .iter()
+                .filter(|c| crate::logic::spaces::talk_in_space(c, &space)),
+            &live,
+        )
 }
 
 /// The headless scene: the busiest conversation open. `IRORI_TALK_SCENE`
@@ -402,7 +493,11 @@ pub fn scene(s: &mut State) {
         let id = if w == crate::logic::spaces::PERSONAL {
             Some(w.clone())
         } else {
-            s.data.spaces.iter().find(|b| b.name.to_lowercase().contains(&w)).map(|b| b.board_id.clone())
+            s.data
+                .spaces
+                .iter()
+                .find(|b| b.name.to_lowercase().contains(&w))
+                .map(|b| b.board_id.clone())
         };
         if let Some(id) = id {
             crate::spaces::pick(s, &id);
@@ -443,7 +538,13 @@ pub fn scene(s: &mut State) {
     }
     open(s, &id);
     if pick == "make"
-        && let Some(p) = s.talk.posts.list.iter().rev().find(|p| p.call.is_none() && p.thread_from.is_none())
+        && let Some(p) = s
+            .talk
+            .posts
+            .list
+            .iter()
+            .rev()
+            .find(|p| p.call.is_none() && p.thread_from.is_none())
     {
         let pid = p.post_id.clone();
         conv::start_making(s, &pid);
@@ -454,13 +555,24 @@ pub fn scene(s: &mut State) {
 /// for the scene.
 fn busiest(s: &State) -> String {
     let w = s.win();
-    let mut cands: Vec<&TalkConversation> =
-        s.talk.convs.iter().filter(|c| c.kind != "thread" && !c.read_only).collect();
+    let mut cands: Vec<&TalkConversation> = s
+        .talk
+        .convs
+        .iter()
+        .filter(|c| c.kind != "thread" && !c.read_only)
+        .collect();
     cands.sort_by_key(|c| std::cmp::Reverse(logic::at_ms(&c.last_at)));
     cands
         .iter()
         .take(25)
-        .map(|c| (w.talk_posts(&c.conv_id, None, logic::POSTS_PAGE).map_or(0, |p| p.len()), c.kind == "channel", &c.conv_id))
+        .map(|c| {
+            (
+                w.talk_posts(&c.conv_id, None, logic::POSTS_PAGE)
+                    .map_or(0, |p| p.len()),
+                c.kind == "channel",
+                &c.conv_id,
+            )
+        })
         .max_by_key(|(n, ch, _)| (*n, *ch))
         .map(|(_, _, id)| (*id).clone())
         .unwrap_or_default()
@@ -484,18 +596,20 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             .min_w(0.0)
             .h_full()
             .padding(16.0)
-            .child(crate::widgets::loading::message_rows_shape(f, "talk-finding-rows", 4))
+            .child(crate::widgets::loading::message_rows_shape(
+                f,
+                "talk-finding-rows",
+                4,
+            ))
     } else {
         thread::start_view(s, f)
     };
-    let page = row()
+    row()
         .key("talk-page")
         .w_full()
         .h_full()
         .min_h(0.0)
         .fill(k.c.bg_base)
         .child(list)
-        .child(pane.grow(1.0).min_w(0.0).h_full().min_h(0.0));
-    conv::overlays(s, f);
-    page
+        .child(pane.grow(1.0).min_w(0.0).h_full().min_h(0.0))
 }

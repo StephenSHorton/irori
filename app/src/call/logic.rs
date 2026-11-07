@@ -3,9 +3,7 @@
 //! link health, the timers and the transcript search. Tested without a
 //! window, as the TS was.
 
-use irori_window::call::{
-    CallMineView, CallPeerView, CallShareView, CallView, ShareSourceView,
-};
+use irori_window::call::{CallMineView, CallPeerView, CallShareView, CallView, ShareSourceView};
 use irori_window::talk::{TalkTranscript, TalkTranscriptLine};
 
 // ---- names (lib/names.ts) --------------------------------------------------
@@ -15,10 +13,7 @@ pub const UNKNOWN_PERSON: &str = "another person";
 /// plainLine: control and invisible characters become spaces, runs of
 /// whitespace one space, trimmed.
 pub fn plain_line(s: &str) -> String {
-    let mapped: String = s
-        .chars()
-        .map(|c| if hidden(c) { ' ' } else { c })
-        .collect();
+    let mapped: String = s.chars().map(|c| if hidden(c) { ' ' } else { c }).collect();
     mapped.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -46,7 +41,10 @@ pub fn is_key_like(s: &str) -> bool {
         if rest.starts_with("board:") {
             let n = run(i + 6, &alnum);
             let at = i + 6 + n;
-            if n > 0 && b.get(at) == Some(&b'/') && b.get(at + 1).is_some_and(|c| !c.is_ascii_whitespace()) {
+            if n > 0
+                && b.get(at) == Some(&b'/')
+                && b.get(at + 1).is_some_and(|c| !c.is_ascii_whitespace())
+            {
                 return true;
             }
         }
@@ -58,7 +56,9 @@ pub fn is_key_like(s: &str) -> bool {
         let hex = run(i, &|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c));
         if hex >= 16
             && b.get(i + hex) == Some(&b'/')
-            && run(i + hex + 1, &|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c) || c == b'-') >= 8
+            && run(i + hex + 1, &|c| {
+                c.is_ascii_digit() || (b'a'..=b'f').contains(&c) || c == b'-'
+            }) >= 8
         {
             return true;
         }
@@ -108,15 +108,13 @@ pub fn conv_label(kind: &str, name: &str) -> String {
     }
 }
 
-#[allow(dead_code)] // the TS fallback; CallView says it directly
-/// canTranscribeWith: no engine or no model can't; a denied mic still has
-/// the model.
-pub fn can_transcribe_with(voice_state: &str) -> bool {
-    voice_state != "unsupported" && voice_state != "needs-model"
-}
-
 /// transcriptNotice: what the window says before the mic opens.
-pub fn transcript_notice(kind: &str, name: &str, transcribe_on: bool, can_transcribe: bool) -> String {
+pub fn transcript_notice(
+    kind: &str,
+    name: &str,
+    transcribe_on: bool,
+    can_transcribe: bool,
+) -> String {
     if kind == "personal" {
         if !can_transcribe {
             return "Your voice isn't transcribed on this device.".into();
@@ -130,7 +128,10 @@ pub fn transcript_notice(kind: &str, name: &str, transcribe_on: bool, can_transc
         );
     }
     let others = if kind == "channel" {
-        format!("Others in the huddle may still be written down in {}.", conv_label(kind, name))
+        format!(
+            "Others in the huddle may still be written down in {}.",
+            conv_label(kind, name)
+        )
     } else {
         "The other person may still be written down.".to_string()
     };
@@ -161,7 +162,10 @@ pub fn transcript_on(m: &CallMineView) -> bool {
 /// whoCanRead: who reads a huddle's transcript.
 pub fn who_can_read(kind: &str, name: &str) -> String {
     if kind == "channel" {
-        format!("Who can read it: the people and agents of {}.", conv_label(kind, name))
+        format!(
+            "Who can read it: the people and agents of {}.",
+            conv_label(kind, name)
+        )
     } else {
         "Who can read it: the two of you.".into()
     }
@@ -170,7 +174,11 @@ pub fn who_can_read(kind: &str, name: &str) -> String {
 /// findLines: the lines with every word of `q` in what was said or who
 /// said it, any case.
 pub fn find_lines<'a>(lines: &'a [TalkTranscriptLine], q: &str) -> Vec<&'a TalkTranscriptLine> {
-    let words: Vec<String> = q.to_lowercase().split_whitespace().map(str::to_string).collect();
+    let words: Vec<String> = q
+        .to_lowercase()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     lines
         .iter()
         .filter(|l| {
@@ -219,7 +227,11 @@ pub fn health_word(p: &CallPeerView) -> String {
         _ => {}
     }
     let (rtt, loss) = (finite(p.rtt_ms), finite(p.loss_pct));
-    let mut parts = vec![if p.path.is_empty() { "connected".to_string() } else { p.path.clone() }];
+    let mut parts = vec![if p.path.is_empty() {
+        "connected".to_string()
+    } else {
+        p.path.clone()
+    }];
     if rtt > 0.0 {
         parts.push(format!("{} ms", rtt.round() as i64));
     }
@@ -306,10 +318,24 @@ pub fn day_label(at_ms: i64, now_ms: i64) -> String {
         1 => "Yesterday".into(),
         _ => {
             // 1970-01-01 was a Thursday.
-            const DAYS: [&str; 7] = ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"];
-            const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            const DAYS: [&str; 7] = [
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+            ];
+            const MONTHS: [&str; 12] = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
             let (_, m, d) = civil(a);
-            format!("{}, {} {d}", DAYS[a.rem_euclid(7) as usize], MONTHS[(m - 1) as usize])
+            format!(
+                "{}, {} {d}",
+                DAYS[a.rem_euclid(7) as usize],
+                MONTHS[(m - 1) as usize]
+            )
         }
     }
 }
@@ -333,7 +359,11 @@ pub fn when_text(t: &TalkTranscript, now_ms: i64) -> String {
     if let Some(at) = t.started_at_ms {
         parts.push(format!("{} {}", day_label(at, now_ms), clock_text(at)));
     }
-    parts.push(if t.ended { length_text(t.duration_ms) } else { "still on".into() });
+    parts.push(if t.ended {
+        length_text(t.duration_ms)
+    } else {
+        "still on".into()
+    });
     parts.join(" · ")
 }
 
@@ -366,7 +396,9 @@ pub fn told_text(w: &StartWhere) -> String {
 /// startNotice: the notice for the start sheet, "Checking…" until this
 /// device says whether it can write down.
 pub fn start_notice(w: &StartWhere, transcribe_on: bool, can: Option<bool>) -> String {
-    let Some(can) = can else { return "Checking…".into() };
+    let Some(can) = can else {
+        return "Checking…".into();
+    };
     let name = if w.kind == "dm" {
         w.label.clone()
     } else {
@@ -446,8 +478,15 @@ pub fn shares_from(s: &CallShareView, p: &CallPeerView) -> bool {
 /// view_chunk).
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShareFrame<'a> {
-    Config { codec: &'a str, description: &'a [u8] },
-    Chunk { key: bool, timestamp_us: u64, data: &'a [u8] },
+    Config {
+        codec: &'a str,
+        description: &'a [u8],
+    },
+    Chunk {
+        key: bool,
+        timestamp_us: u64,
+        data: &'a [u8],
+    },
 }
 
 /// parseShareFrame:
@@ -468,7 +507,10 @@ pub fn parse_share_frame(b: &[u8]) -> Option<ShareFrame<'_>> {
             if codec.is_empty() {
                 return None;
             }
-            Some(ShareFrame::Config { codec, description: &b[3 + n..] })
+            Some(ShareFrame::Config {
+                codec,
+                description: &b[3 + n..],
+            })
         }
         2 => {
             if b.len() < 10 {
@@ -518,28 +560,98 @@ mod tests {
     #[test]
     fn health_of_grades_the_link_off_until_live() {
         assert_eq!(health_of(&link()), Health::Good);
-        assert_eq!(health_of(&CallPeerView { rtt_ms: 180.0, ..link() }), Health::Fair);
-        assert_eq!(health_of(&CallPeerView { loss_pct: 2.0, ..link() }), Health::Fair);
-        assert_eq!(health_of(&CallPeerView { rtt_ms: 320.0, ..link() }), Health::Poor);
-        assert_eq!(health_of(&CallPeerView { loss_pct: 6.0, ..link() }), Health::Poor);
-        assert_eq!(health_of(&CallPeerView { phase: "connecting".into(), ..link() }), Health::Off);
-        assert_eq!(health_of(&CallPeerView { phase: "gone".into(), ..link() }), Health::Off);
+        assert_eq!(
+            health_of(&CallPeerView {
+                rtt_ms: 180.0,
+                ..link()
+            }),
+            Health::Fair
+        );
+        assert_eq!(
+            health_of(&CallPeerView {
+                loss_pct: 2.0,
+                ..link()
+            }),
+            Health::Fair
+        );
+        assert_eq!(
+            health_of(&CallPeerView {
+                rtt_ms: 320.0,
+                ..link()
+            }),
+            Health::Poor
+        );
+        assert_eq!(
+            health_of(&CallPeerView {
+                loss_pct: 6.0,
+                ..link()
+            }),
+            Health::Poor
+        );
+        assert_eq!(
+            health_of(&CallPeerView {
+                phase: "connecting".into(),
+                ..link()
+            }),
+            Health::Off
+        );
+        assert_eq!(
+            health_of(&CallPeerView {
+                phase: "gone".into(),
+                ..link()
+            }),
+            Health::Off
+        );
     }
 
     #[test]
     fn health_word_says_path_time_and_loss() {
         assert_eq!(health_word(&link()), "direct · 26 ms");
-        let p = CallPeerView { path: "relay".into(), rtt_ms: 119.6, loss_pct: 3.2, ..link() };
+        let p = CallPeerView {
+            path: "relay".into(),
+            rtt_ms: 119.6,
+            loss_pct: 3.2,
+            ..link()
+        };
         assert_eq!(health_word(&p), "relay · 120 ms · 3% lost");
-        assert_eq!(health_word(&CallPeerView { loss_pct: 0.4, ..link() }), "direct · 26 ms");
-        assert_eq!(health_word(&CallPeerView { path: "".into(), rtt_ms: 0.0, ..link() }), "connected");
-        assert_eq!(health_word(&CallPeerView { phase: "connecting".into(), ..link() }), "connecting…");
-        assert_eq!(health_word(&CallPeerView { phase: "gone".into(), ..link() }), "left");
+        assert_eq!(
+            health_word(&CallPeerView {
+                loss_pct: 0.4,
+                ..link()
+            }),
+            "direct · 26 ms"
+        );
+        assert_eq!(
+            health_word(&CallPeerView {
+                path: "".into(),
+                rtt_ms: 0.0,
+                ..link()
+            }),
+            "connected"
+        );
+        assert_eq!(
+            health_word(&CallPeerView {
+                phase: "connecting".into(),
+                ..link()
+            }),
+            "connecting…"
+        );
+        assert_eq!(
+            health_word(&CallPeerView {
+                phase: "gone".into(),
+                ..link()
+            }),
+            "left"
+        );
     }
 
     #[test]
     fn nan_health_numbers_read_as_zero() {
-        let p = CallPeerView { rtt_ms: f64::NAN, loss_pct: f64::NAN, ..link() };
+        let p = CallPeerView {
+            rtt_ms: f64::NAN,
+            loss_pct: f64::NAN,
+            ..link()
+        };
         assert_eq!(health_of(&p), Health::Good);
         assert_eq!(health_word(&p), "direct");
     }
@@ -566,15 +678,26 @@ mod tests {
         assert_eq!(names_text(&v(&[])), "");
         assert_eq!(names_text(&v(&["you"])), "You");
         assert_eq!(names_text(&v(&["you", "Spencer"])), "You and Spencer");
-        assert_eq!(names_text(&v(&["Aiko", "you", "Spencer"])), "Aiko, You and Spencer");
+        assert_eq!(
+            names_text(&v(&["Aiko", "you", "Spencer"])),
+            "Aiko, You and Spencer"
+        );
     }
 
     #[test]
     fn huddle_names_each_once_you_first() {
         let s = CallView {
             live: vec![
-                CallLiveView { call_id: "c1".into(), conv_id: "ch-a".into(), people: vec!["Spencer".into(), "you".into(), "Aiko".into()] },
-                CallLiveView { call_id: "c2".into(), conv_id: "ch-b".into(), people: vec!["Spencer".into()] },
+                CallLiveView {
+                    call_id: "c1".into(),
+                    conv_id: "ch-a".into(),
+                    people: vec!["Spencer".into(), "you".into(), "Aiko".into()],
+                },
+                CallLiveView {
+                    call_id: "c2".into(),
+                    conv_id: "ch-b".into(),
+                    people: vec!["Spencer".into()],
+                },
             ],
             transcribe_on: true,
             ..Default::default()
@@ -587,7 +710,10 @@ mod tests {
 
     #[test]
     fn in_call_here_is_this_devices_conversation() {
-        let s = CallView { mine: Some(mine_in("ch-a")), ..Default::default() };
+        let s = CallView {
+            mine: Some(mine_in("ch-a")),
+            ..Default::default()
+        };
         assert!(in_call_here(&s, "ch-a"));
         assert!(!in_call_here(&s, "ch-b"));
         assert!(!in_call_here(&CallView::default(), "ch-a"));
@@ -646,44 +772,90 @@ mod tests {
                 "Your voice isn't transcribed on this device. The other person may still be written down."
             );
         }
-        assert!(transcript_notice("channel", "person:0123abcdef", true, true).contains("in #channel for"));
-        assert!(transcript_notice("channel", "person:0123abcdef", false, true).contains("written down in #channel."));
-    }
-
-    #[test]
-    fn can_transcribe_with_engine_and_model() {
-        assert!(can_transcribe_with("ready"));
-        assert!(can_transcribe_with("denied"));
-        assert!(!can_transcribe_with("needs-model"));
-        assert!(!can_transcribe_with("unsupported"));
+        assert!(
+            transcript_notice("channel", "person:0123abcdef", true, true)
+                .contains("in #channel for")
+        );
+        assert!(
+            transcript_notice("channel", "person:0123abcdef", false, true)
+                .contains("written down in #channel.")
+        );
     }
 
     #[test]
     fn transcript_on_is_anyone_written_down() {
-        let peer = CallPeerView { name: "Aiko".into(), transcribing: None, ..link() };
+        let peer = CallPeerView {
+            name: "Aiko".into(),
+            transcribing: None,
+            ..link()
+        };
         let m = mine_in("ch-a");
         assert!(!transcript_on(&m));
-        assert!(transcript_on(&CallMineView { transcribing: true, ..m.clone() }));
-        assert!(!transcript_on(&CallMineView { peers: vec![peer.clone()], ..m.clone() }));
-        let off = CallPeerView { transcribing: Some(false), ..peer.clone() };
-        assert!(!transcript_on(&CallMineView { peers: vec![off], ..m.clone() }));
-        let on = CallPeerView { transcribing: Some(true), ..peer.clone() };
-        assert!(transcript_on(&CallMineView { peers: vec![on.clone()], ..m.clone() }));
-        let gone = CallPeerView { phase: "gone".into(), ..on };
-        assert!(!transcript_on(&CallMineView { peers: vec![gone], ..m }));
+        assert!(transcript_on(&CallMineView {
+            transcribing: true,
+            ..m.clone()
+        }));
+        assert!(!transcript_on(&CallMineView {
+            peers: vec![peer.clone()],
+            ..m.clone()
+        }));
+        let off = CallPeerView {
+            transcribing: Some(false),
+            ..peer.clone()
+        };
+        assert!(!transcript_on(&CallMineView {
+            peers: vec![off],
+            ..m.clone()
+        }));
+        let on = CallPeerView {
+            transcribing: Some(true),
+            ..peer.clone()
+        };
+        assert!(transcript_on(&CallMineView {
+            peers: vec![on.clone()],
+            ..m.clone()
+        }));
+        let gone = CallPeerView {
+            phase: "gone".into(),
+            ..on
+        };
+        assert!(!transcript_on(&CallMineView {
+            peers: vec![gone],
+            ..m
+        }));
     }
 
     #[test]
     fn who_can_read_names_the_channel() {
-        assert_eq!(who_can_read("channel", "suzuri"), "Who can read it: the people and agents of #suzuri.");
-        assert_eq!(who_can_read("dm", "Spencer"), "Who can read it: the two of you.");
+        assert_eq!(
+            who_can_read("channel", "suzuri"),
+            "Who can read it: the people and agents of #suzuri."
+        );
+        assert_eq!(
+            who_can_read("dm", "Spencer"),
+            "Who can read it: the two of you."
+        );
     }
 
     #[test]
     fn find_lines_keeps_lines_with_every_word() {
-        let l = |name: &str, at: i64, text: &str| TalkTranscriptLine { name: name.into(), mine: name == "you", at_ms: at, text: text.into() };
-        let lines = vec![l("you", 1, "Tag at two"), l("Spencer", 2, "Rerun the latency TEST"), l("Aiko", 3, "I can do the click")];
-        let at = |q: &str| find_lines(&lines, q).iter().map(|x| x.at_ms).collect::<Vec<_>>();
+        let l = |name: &str, at: i64, text: &str| TalkTranscriptLine {
+            name: name.into(),
+            mine: name == "you",
+            at_ms: at,
+            text: text.into(),
+        };
+        let lines = vec![
+            l("you", 1, "Tag at two"),
+            l("Spencer", 2, "Rerun the latency TEST"),
+            l("Aiko", 3, "I can do the click"),
+        ];
+        let at = |q: &str| {
+            find_lines(&lines, q)
+                .iter()
+                .map(|x| x.at_ms)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(at(""), vec![1, 2, 3]);
         assert_eq!(at("  "), vec![1, 2, 3]);
         assert_eq!(at("test"), vec![2]);
@@ -694,11 +866,17 @@ mod tests {
 
     #[test]
     fn start_sheet_words() {
-        let ch = StartWhere { label: "#suzuri".into(), kind: "channel".into() };
+        let ch = StartWhere {
+            label: "#suzuri".into(),
+            kind: "channel".into(),
+        };
         assert!(told_text(&ch).starts_with("Everyone in #suzuri's space"));
         assert_eq!(start_notice(&ch, true, None), "Checking…");
         assert!(start_notice(&ch, true, Some(true)).contains("in #suzuri for its members"));
-        let dm = StartWhere { label: "Spencer".into(), kind: "dm".into() };
+        let dm = StartWhere {
+            label: "Spencer".into(),
+            kind: "dm".into(),
+        };
         assert!(told_text(&dm).starts_with("Spencer gets a notice"));
     }
 
@@ -725,7 +903,10 @@ mod tests {
     #[test]
     fn day_and_clock() {
         assert_eq!(day_label(1_000_000_000_000, 1_000_000_000_000), "Today");
-        assert_eq!(day_label(1_000_000_000_000 - 86_400_000, 1_000_000_000_000), "Yesterday");
+        assert_eq!(
+            day_label(1_000_000_000_000 - 86_400_000, 1_000_000_000_000),
+            "Yesterday"
+        );
         assert_eq!(civil(0), (1970, 1, 1));
         assert_eq!(civil(19_723), (2024, 1, 1));
         let c = clock_text(0);
@@ -755,7 +936,10 @@ mod tests {
         let b = config("avc1.640028", &[1, 0x64, 0, 0x28, 0xff]);
         assert_eq!(
             parse_share_frame(&b),
-            Some(ShareFrame::Config { codec: "avc1.640028", description: &[1, 0x64, 0, 0x28, 0xff] })
+            Some(ShareFrame::Config {
+                codec: "avc1.640028",
+                description: &[1, 0x64, 0, 0x28, 0xff]
+            })
         );
     }
 
@@ -764,13 +948,27 @@ mod tests {
         let b = chunk(true, 5_000_000_123, &[0, 0, 0, 2, 9, 0x10]);
         assert_eq!(
             parse_share_frame(&b),
-            Some(ShareFrame::Chunk { key: true, timestamp_us: 5_000_000_123, data: &[0, 0, 0, 2, 9, 0x10] })
+            Some(ShareFrame::Chunk {
+                key: true,
+                timestamp_us: 5_000_000_123,
+                data: &[0, 0, 0, 2, 9, 0x10]
+            })
         );
         let d = chunk(false, 33_333, &[7]);
-        assert!(matches!(parse_share_frame(&d), Some(ShareFrame::Chunk { key: false, timestamp_us: 33_333, .. })));
+        assert!(matches!(
+            parse_share_frame(&d),
+            Some(ShareFrame::Chunk {
+                key: false,
+                timestamp_us: 33_333,
+                ..
+            })
+        ));
         let mut b = chunk(false, 1, &[7]);
         b[1] = 0b10;
-        assert!(matches!(parse_share_frame(&b), Some(ShareFrame::Chunk { key: false, .. })));
+        assert!(matches!(
+            parse_share_frame(&b),
+            Some(ShareFrame::Chunk { key: false, .. })
+        ));
     }
 
     #[test]
@@ -801,11 +999,30 @@ mod tests {
     #[test]
     fn the_stages_words() {
         assert_eq!(quality_text(&theirs()), "1080p · 10 fps · direct");
-        assert_eq!(quality_text(&CallShareView { path: "".into(), ..theirs() }), "1080p · 10 fps");
-        assert_eq!(what_text(&theirs()), "is sharing a window: Windows Terminal");
-        let d = CallShareView { kind: "display".into(), title: "Display 1".into(), ..theirs() };
+        assert_eq!(
+            quality_text(&CallShareView {
+                path: "".into(),
+                ..theirs()
+            }),
+            "1080p · 10 fps"
+        );
+        assert_eq!(
+            what_text(&theirs()),
+            "is sharing a window: Windows Terminal"
+        );
+        let d = CallShareView {
+            kind: "display".into(),
+            title: "Display 1".into(),
+            ..theirs()
+        };
         assert_eq!(what_text(&d), "is sharing their screen: Display 1");
-        assert_eq!(what_text(&CallShareView { mine: true, ..theirs() }), "sharing a window: Windows Terminal");
+        assert_eq!(
+            what_text(&CallShareView {
+                mine: true,
+                ..theirs()
+            }),
+            "sharing a window: Windows Terminal"
+        );
     }
 
     #[test]
@@ -814,7 +1031,11 @@ mod tests {
             id: id.into(),
             kind: kind.into(),
             title: id.into(),
-            app: if kind == "window" { "Terminal".into() } else { String::new() },
+            app: if kind == "window" {
+                "Terminal".into()
+            } else {
+                String::new()
+            },
             width: 1280,
             height: 800,
         };

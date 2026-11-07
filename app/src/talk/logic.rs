@@ -6,7 +6,9 @@
 use std::collections::{HashMap, HashSet};
 
 use irori_window::talk::{TalkConversation, TalkMember, TalkPost, TalkReplier};
-use irori_window::threads::{THREAD_ANSWERED, THREAD_HANDED, THREAD_RESOLVED, THREAD_WAITING, ThreadSummary};
+use irori_window::threads::{
+    THREAD_ANSWERED, THREAD_HANDED, THREAD_RESOLVED, THREAD_WAITING, ThreadSummary,
+};
 
 use crate::logic::agent_status::{Who, agent_status};
 use crate::logic::cards::{Tone, names_line};
@@ -27,14 +29,20 @@ pub const POSTS_PAGE: i64 = 100;
 /// The default for a post's "Agents answer now" (design §3): on when the
 /// text names nobody or names an agent, off when it names only people.
 pub fn agents_now_for(kinds: &[&str]) -> bool {
-    kinds.is_empty() || kinds.iter().any(|k| *k == "agent")
+    kinds.is_empty() || kinds.contains(&"agent")
 }
 
 /// Who the box's mentions name: person keys start "person:", the rest are
 /// agents.
 pub fn mention_kinds<'a>(keys: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
     keys.into_iter()
-        .map(|k| if k.starts_with("person:") { "person" } else { "agent" })
+        .map(|k| {
+            if k.starts_with("person:") {
+                "person"
+            } else {
+                "agent"
+            }
+        })
         .collect()
 }
 
@@ -46,10 +54,22 @@ pub fn at_ms(t: &gocompat::time::GoTime) -> i64 {
 /// Channels by name and DMs newest first, as the Talk list shows them;
 /// threads are left out.
 pub fn listed(convs: &[&TalkConversation]) -> (Vec<TalkConversation>, Vec<TalkConversation>) {
-    let mut channels: Vec<TalkConversation> =
-        convs.iter().filter(|c| c.kind == "channel").map(|c| (*c).clone()).collect();
-    channels.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.name.cmp(&b.name)));
-    let mut dms: Vec<TalkConversation> = convs.iter().filter(|c| c.kind == "dm").map(|c| (*c).clone()).collect();
+    let mut channels: Vec<TalkConversation> = convs
+        .iter()
+        .filter(|c| c.kind == "channel")
+        .map(|c| (*c).clone())
+        .collect();
+    channels.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.name.cmp(&b.name))
+    });
+    let mut dms: Vec<TalkConversation> = convs
+        .iter()
+        .filter(|c| c.kind == "dm")
+        .map(|c| (*c).clone())
+        .collect();
     dms.sort_by_key(|c| std::cmp::Reverse(at_ms(&c.last_at)));
     (channels, dms)
 }
@@ -86,7 +106,10 @@ pub fn is_you(key: &str) -> bool {
 /// The member `key` names: its own row, else the person by whichever of
 /// their keys the row has, else the person as "you" when nothing lists
 /// them (card #642).
-pub fn member_of<'a>(members: impl IntoIterator<Item = &'a TalkMember>, key: &str) -> Option<TalkMember> {
+pub fn member_of<'a>(
+    members: impl IntoIterator<Item = &'a TalkMember>,
+    key: &str,
+) -> Option<TalkMember> {
     let mut you: Option<&TalkMember> = None;
     for m in members {
         if m.key == key {
@@ -116,14 +139,20 @@ pub fn dm_with(c: &TalkConversation) -> Vec<&TalkMember> {
 /// Whether a DM's agents have all gone from the live roster (card #473).
 pub fn dm_gone(c: &TalkConversation, live: &HashMap<String, LiveAgent>) -> bool {
     let other = dm_with(c);
-    !other.is_empty() && other.iter().all(|m| live.get(&m.key).map_or("gone", |l| l.status.as_str()) == "gone")
+    !other.is_empty()
+        && other
+            .iter()
+            .all(|m| live.get(&m.key).map_or("gone", |l| l.status.as_str()) == "gone")
 }
 
 /// The conversations that wait on the person (card #484): DMs with
 /// something new (not with gone agents) and channels that mention them.
-pub fn talk_waiting(convs: &[TalkConversation], live: &HashMap<String, LiveAgent>) -> usize {
+pub fn talk_waiting<'a>(
+    convs: impl IntoIterator<Item = &'a TalkConversation>,
+    live: &HashMap<String, LiveAgent>,
+) -> usize {
     convs
-        .iter()
+        .into_iter()
         .filter(|c| match c.kind.as_str() {
             "channel" => c.mentions > 0,
             "dm" => !c.read_only && c.unread > 0 && !dm_gone(c, live),
@@ -202,20 +231,38 @@ pub struct PostFile<'a> {
 pub fn from_post(text: &str, where_: &str, files: &[PostFile]) -> (String, String) {
     let t = text.trim();
     let first = t.lines().next().unwrap_or("").to_string();
-    let first = if first.is_empty() { files.first().map(|f| f.name.to_string()).unwrap_or_default() } else { first };
+    let first = if first.is_empty() {
+        files
+            .first()
+            .map(|f| f.name.to_string())
+            .unwrap_or_default()
+    } else {
+        first
+    };
     let title = if first.chars().count() > 80 {
         let cut: String = first.chars().take(79).collect();
         format!("{}…", cut.trim_end())
     } else {
         first
     };
-    let body = if t.is_empty() { String::new() } else { format!("{t}\n\n") };
+    let body = if t.is_empty() {
+        String::new()
+    } else {
+        format!("{t}\n\n")
+    };
     let names = if files.is_empty() {
         String::new()
     } else {
         let lines: Vec<String> = files
             .iter()
-            .map(|f| format!("file: {} ({}, sha256={})", f.name, crate::text::attach::human_size(f.size), f.sha256))
+            .map(|f| {
+                format!(
+                    "file: {} ({}, sha256={})",
+                    f.name,
+                    crate::text::attach::human_size(f.size),
+                    f.sha256
+                )
+            })
             .collect();
         format!("{}\n\n", lines.join("\n"))
     };
@@ -235,8 +282,14 @@ pub enum SectionKey {
 }
 
 impl SectionKey {
-    pub const ALL: [SectionKey; 5] =
-        [SectionKey::Threads, SectionKey::Channels, SectionKey::Dms, SectionKey::Gone, SectionKey::Agents];
+    #[cfg(test)]
+    pub const ALL: [SectionKey; 5] = [
+        SectionKey::Threads,
+        SectionKey::Channels,
+        SectionKey::Dms,
+        SectionKey::Gone,
+        SectionKey::Agents,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -270,7 +323,11 @@ pub struct DmSections {
 /// Archive of yours whose agents have gone (card #473), and agent↔agent DMs
 /// the person only reads. `keep` is the one opened from yours: it stays
 /// there while open.
-pub fn dm_sections(dms: &[TalkConversation], gone: impl Fn(&TalkConversation) -> bool, keep: &str) -> DmSections {
+pub fn dm_sections(
+    dms: &[TalkConversation],
+    gone: impl Fn(&TalkConversation) -> bool,
+    keep: &str,
+) -> DmSections {
     let mut out = DmSections::default();
     for c in dms {
         if c.read_only {
@@ -285,7 +342,11 @@ pub fn dm_sections(dms: &[TalkConversation], gone: impl Fn(&TalkConversation) ->
 }
 
 /// Whether one of the person's DMs goes in the Archive.
-pub fn archived(c: &TalkConversation, gone: impl Fn(&TalkConversation) -> bool, keep: &str) -> bool {
+pub fn archived(
+    c: &TalkConversation,
+    gone: impl Fn(&TalkConversation) -> bool,
+    keep: &str,
+) -> bool {
     c.conv_id != keep && gone(c)
 }
 
@@ -333,6 +394,7 @@ pub enum AgentRow {
 }
 
 impl AgentRow {
+    #[cfg(test)]
     pub fn id(&self) -> &str {
         match self {
             AgentRow::Dm(c) => &c.conv_id,
@@ -358,7 +420,11 @@ pub fn agent_rows(items: &[TalkConversation]) -> Vec<AgentRow> {
     for c in items {
         let text = &c.last_text;
         let by = &c.last_by;
-        if !c.read_only || text.is_empty() || by.is_empty() || !c.members.iter().any(|m| &m.key == by) {
+        if !c.read_only
+            || text.is_empty()
+            || by.is_empty()
+            || !c.members.iter().any(|m| &m.key == by)
+        {
             out.push(AgentRow::Dm(c.clone()));
             continue;
         }
@@ -381,7 +447,9 @@ pub fn agent_rows(items: &[TalkConversation]) -> Vec<AgentRow> {
     }
     out.into_iter()
         .map(|r| match r {
-            AgentRow::Broadcast(b) if b.convs.len() == 1 => AgentRow::Dm(b.convs.into_iter().next().unwrap_or_default()),
+            AgentRow::Broadcast(b) if b.convs.len() == 1 => {
+                AgentRow::Dm(b.convs.into_iter().next().unwrap_or_default())
+            }
             r => r,
         })
         .collect()
@@ -421,13 +489,27 @@ pub struct AgentSection<'a> {
     pub capped: usize,
 }
 
-pub fn agent_section_rows<'a>(rows: &'a [AgentRow], folded: bool, open: &str, all: bool, searching: bool) -> AgentSection<'a> {
+pub fn agent_section_rows<'a>(
+    rows: &'a [AgentRow],
+    folded: bool,
+    open: &str,
+    all: bool,
+    searching: bool,
+) -> AgentSection<'a> {
     if folded {
-        return AgentSection { rows: vec![], hidden: 0, capped: 0 };
+        return AgentSection {
+            rows: vec![],
+            hidden: 0,
+            capped: 0,
+        };
     }
     let i = rows.iter().position(|r| agent_row_has(r, open));
     if searching {
-        return AgentSection { rows: rows.iter().collect(), hidden: 0, capped: 0 };
+        return AgentSection {
+            rows: rows.iter().collect(),
+            hidden: 0,
+            capped: 0,
+        };
     }
     let limit = if all { AGENTS_CAP } else { SHOWN_AT_ONCE };
     let mut shown: Vec<&AgentRow> = rows.iter().take(limit).collect();
@@ -447,7 +529,10 @@ pub fn agent_section_rows<'a>(rows: &'a [AgentRow], folded: bool, open: &str, al
 
 /// A section's conversations with something new for the person.
 pub fn unread_in(items: &[TalkConversation]) -> usize {
-    items.iter().filter(|c| !c.read_only && c.unread > 0).count()
+    items
+        .iter()
+        .filter(|c| !c.read_only && c.unread > 0)
+        .count()
 }
 
 /// What a section's name shows besides its count: the "N new" pill's count
@@ -467,7 +552,11 @@ pub fn section_header(k: SectionKey, folded: bool, items: &[TalkConversation]) -
 
 /// A thread's ref: "#12", or "mlg#12" in a space.
 pub fn thread_ref(tag: &str, short: &str) -> String {
-    if short.is_empty() { String::new() } else { format!("{tag}#{short}") }
+    if short.is_empty() {
+        String::new()
+    } else {
+        format!("{tag}#{short}")
+    }
 }
 
 /// Whether a thread fits the list's search: its title, what was asked,
@@ -479,15 +568,95 @@ pub fn talk_matches(t: &ThreadSummary, query: &str) -> bool {
     }
     let r = thread_ref(&t.tag, &t.short);
     let bare = thread_ref("", &t.short);
-    [t.title.as_str(), t.text.as_str(), r.as_str(), bare.as_str(), t.last_text.as_str()]
-        .iter()
-        .any(|s| !s.is_empty() && s.to_lowercase().contains(&q))
+    [
+        t.title.as_str(),
+        t.text.as_str(),
+        r.as_str(),
+        bare.as_str(),
+        t.last_text.as_str(),
+    ]
+    .iter()
+    .any(|s| !s.is_empty() && s.to_lowercase().contains(&q))
 }
 
-/// Whether a thread waits on the person: answered and not resolved, or no
-/// computer can start its agent (card #541).
-pub fn needs_you(state: &str, no_agent: &str) -> bool {
-    state == THREAD_ANSWERED || !no_agent.is_empty()
+/// Whether a thread waits on the person: an agent replied since they last
+/// opened or replied in it (card #719), or no computer can start its agent
+/// (card #541). Talk's count in the sidebar counts these, and the list
+/// marks the same ones.
+pub fn needs_you(unread: bool, no_agent: &str) -> bool {
+    unread || !no_agent.is_empty()
+}
+
+/// A row of Talk's Threads section (talk-page.tsx `ThreadsSection`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadsRow {
+    /// Its skeleton, while the first read is out.
+    Loading,
+    /// "No open threads…" or "No open thread matches."
+    Empty,
+    /// The n-th open thread.
+    Live(usize),
+    /// "Resolved threads: N · show/hide".
+    ResolvedToggle,
+    /// The n-th resolved thread, while shown.
+    Resolved(usize),
+}
+
+/// Threads' rows: the open threads, then the resolved ones folded at its
+/// bottom (card #687), above Channels. Folded, it lists no rows, as every
+/// section (card #484), and so hides the resolved too; while it loads its
+/// skeleton shows without the toggle.
+pub fn threads_rows(
+    live: usize,
+    resolved: usize,
+    loading: bool,
+    folded: bool,
+    show_resolved: bool,
+) -> Vec<ThreadsRow> {
+    if folded {
+        return vec![];
+    }
+    if loading {
+        return vec![ThreadsRow::Loading];
+    }
+    let mut rows = Vec::new();
+    if live == 0 {
+        rows.push(ThreadsRow::Empty);
+    }
+    rows.extend((0..live).map(ThreadsRow::Live));
+    if resolved > 0 {
+        rows.push(ThreadsRow::ResolvedToggle);
+        if show_resolved {
+            rows.extend((0..resolved).map(ThreadsRow::Resolved));
+        }
+    }
+    rows
+}
+
+/// The list's dot on a thread that waits on the person: why it waits.
+pub fn needs_you_why(unread: bool) -> &'static str {
+    if unread {
+        "A reply you haven't read"
+    } else {
+        "No agent can start"
+    }
+}
+
+/// Whether the open thread `id`, whose newest shown entry is `newest`, is
+/// read now (card #719), and the mark to keep: open, unresolved and in
+/// front, each new entry is read once. `last` is the mark kept last.
+pub fn read_mark(
+    id: &str,
+    newest: &str,
+    resolved: bool,
+    focused: bool,
+    last: &str,
+) -> Option<String> {
+    if id.is_empty() || resolved || !focused {
+        return None;
+    }
+    let mark = format!("{id}|{newest}");
+    (mark != last).then_some(mark)
 }
 
 /// Whether a channel or DM fits the search: its name, topic, newest line
@@ -510,12 +679,22 @@ pub fn conv_matches(c: &TalkConversation, query: &str) -> bool {
 pub fn last_line(c: &TalkConversation, now: i64) -> (String, String) {
     let text = plain_line(&c.last_text);
     let at = at_ms(&c.last_at);
-    let when = if at > 0 { relative_time(at, now) } else { String::new() };
+    let when = if at > 0 {
+        relative_time(at, now)
+    } else {
+        String::new()
+    };
     if text.is_empty() {
         return (String::new(), when);
     }
-    let by = if c.last_by.is_empty() { None } else { member_of(&c.members, &c.last_by) };
-    let mine = by.as_ref().is_some_and(|b| b.kind == "person" && (is_you(&b.key) || b.name == "you"));
+    let by = if c.last_by.is_empty() {
+        None
+    } else {
+        member_of(&c.members, &c.last_by)
+    };
+    let mine = by
+        .as_ref()
+        .is_some_and(|b| b.kind == "person" && (is_you(&b.key) || b.name == "you"));
     let who = match &by {
         Some(b) if c.read_only => format!("{}: ", member_name(&b.kind, &b.name)),
         _ if mine => "You: ".to_string(),
@@ -558,18 +737,21 @@ pub fn status_of(m: &TalkMember, live: &HashMap<String, LiveAgent>) -> String {
     if !m.status.is_empty() {
         return m.status.clone();
     }
-    if !m.owner.is_empty() || is_others_key(&m.key) { "unknown".into() } else { "gone".into() }
-}
-
-/// A status in words, as agentStatus says it.
-pub fn status_word(status: &str) -> String {
-    agent_status(&Who::status(status), None, 0).text
+    if !m.owner.is_empty() || is_others_key(&m.key) {
+        "unknown".into()
+    } else {
+        "gone".into()
+    }
 }
 
 /// How a member stands in words, with its device's state and how long its
 /// job has run; another member's agent reads "Spencer's agent · idle".
 pub fn member_status(m: &TalkMember, live: &HashMap<String, LiveAgent>, now: i64) -> String {
-    let a = if m.kind == "person" { None } else { live.get(&m.key) };
+    let a = if m.kind == "person" {
+        None
+    } else {
+        live.get(&m.key)
+    };
     let who = Who {
         status: status_of(m, live),
         device_state: a.map(|a| a.device_state.clone()).unwrap_or_default(),
@@ -579,26 +761,33 @@ pub fn member_status(m: &TalkMember, live: &HashMap<String, LiveAgent>, now: i64
     with_owner(m, &word)
 }
 
-/// The line under another member's agent.
-pub fn whose_word(m: &TalkMember, status: &str) -> String {
-    with_owner(m, &status_word(status))
-}
-
 fn with_owner(m: &TalkMember, word: &str) -> String {
     if m.owner.is_empty() {
         return word.to_string();
     }
     let whose = format!("{}'s agent", plain_line(&m.owner));
-    if word.is_empty() { whose } else { format!("{whose} · {word}") }
+    if word.is_empty() {
+        whose
+    } else {
+        format!("{whose} · {word}")
+    }
 }
 
 /// A member as a face needs it, with its live status.
 pub fn ref_of(m: &TalkMember, live: &HashMap<String, LiveAgent>) -> AgentRef {
     let status = status_of(m, live);
-    let l = if m.kind == "person" { None } else { live.get(&m.key) };
+    let l = if m.kind == "person" {
+        None
+    } else {
+        live.get(&m.key)
+    };
     AgentRef {
         key: m.key.clone(),
-        name: if m.kind == "person" && m.name == "you" { "You".into() } else { member_name(&m.kind, &m.name) },
+        name: if m.kind == "person" && m.name == "you" {
+            "You".into()
+        } else {
+            member_name(&m.kind, &m.name)
+        },
         live: status != "gone" && status != "unknown",
         offline: l.is_some_and(|l| l.device_state == "offline"),
         status,
@@ -608,7 +797,11 @@ pub fn ref_of(m: &TalkMember, live: &HashMap<String, LiveAgent>) -> AgentRef {
 
 /// A member's name as Talk says it: "You" for the person.
 pub fn shown_name(m: &TalkMember) -> String {
-    if m.kind == "person" && m.name == "you" { "You".into() } else { member_name(&m.kind, &m.name) }
+    if m.kind == "person" && m.name == "you" {
+        "You".into()
+    } else {
+        member_name(&m.kind, &m.name)
+    }
 }
 
 /// A civil date: (year, month 1-12, day).
@@ -624,8 +817,18 @@ fn days_from_civil((y, m, d): Ymd) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-const WEEKDAYS: [&str; 7] = ["Thursday", "Friday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"];
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS: [&str; 7] = [
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 /// The line between days: Today, Yesterday, or "Tuesday, Nov 3".
 pub fn day_label(at: Ymd, now: Ymd) -> String {
@@ -635,7 +838,11 @@ pub fn day_label(at: Ymd, now: Ymd) -> String {
         1 => "Yesterday".into(),
         _ => {
             let wd = WEEKDAYS[days_from_civil(at).rem_euclid(7) as usize];
-            format!("{wd}, {} {}", MONTHS[(at.1 as usize).saturating_sub(1).min(11)], at.2)
+            format!(
+                "{wd}, {} {}",
+                MONTHS[(at.1 as usize).saturating_sub(1).min(11)],
+                at.2
+            )
         }
     }
 }
@@ -643,7 +850,9 @@ pub fn day_label(at: Ymd, now: Ymd) -> String {
 /// A time as this computer's civil date and clock: (date, "4:30 PM").
 pub fn local(ms: i64) -> (Ymd, String) {
     let t = gocompat::time::GoTime::unix_milli(ms);
-    let (y, mo, d, h, mi, _) = t.with_offset(sys::tz::local_offset(ms.div_euclid(1000))).civil();
+    let (y, mo, d, h, mi, _) = t
+        .with_offset(sys::tz::local_offset(ms.div_euclid(1000)))
+        .civil();
     let (h12, ap) = match h {
         0 => (12, "AM"),
         1..=11 => (h, "AM"),
@@ -657,7 +866,11 @@ pub fn local(ms: i64) -> (Ymd, String) {
 /// message quoted and where it was said.
 pub fn thread_text(question: &str, author: &str, text: &str, channel: &str) -> String {
     let quoted: Vec<String> = text.trim().lines().map(|l| format!("> {l}")).collect();
-    format!("{}\n\n{}\n({author}, in #{channel})", question.trim(), quoted.join("\n"))
+    format!(
+        "{}\n\n{}\n({author}, in #{channel})",
+        question.trim(),
+        quoted.join("\n")
+    )
 }
 
 // ---------- threads.tsx ----------
@@ -665,7 +878,9 @@ pub fn thread_text(question: &str, author: &str, text: &str, channel: &str) -> S
 /// Whether the Resolved list is unfolded: the person's pick, or a resolved
 /// thread open.
 pub fn resolved_shown(pick: bool, open: &str, threads: &[(&str, &str)]) -> bool {
-    pick || threads.iter().any(|(id, st)| *id == open && *st == THREAD_RESOLVED)
+    pick || threads
+        .iter()
+        .any(|(id, st)| *id == open && *st == THREAD_RESOLVED)
 }
 
 /// A click on Resolved: the pick it sets, and whether to close the open
@@ -674,13 +889,19 @@ pub fn resolved_toggle(pick: bool, open: &str, threads: &[(&str, &str)]) -> (boo
     if !resolved_shown(pick, open, threads) {
         return (true, false);
     }
-    let open_resolved = threads.iter().any(|(id, st)| *id == open && *st == THREAD_RESOLVED);
+    let open_resolved = threads
+        .iter()
+        .any(|(id, st)| *id == open && *st == THREAD_RESOLVED);
     (false, open_resolved)
 }
 
 /// The thread to keep open once `id` is resolved.
 pub fn open_after_resolve(open: &str, id: &str) -> String {
-    if open == id { String::new() } else { open.to_string() }
+    if open == id {
+        String::new()
+    } else {
+        open.to_string()
+    }
 }
 
 /// A thread state's badge on its title line.
@@ -723,7 +944,9 @@ pub fn state_line(t: &ThreadSummary, why: &str) -> String {
     }
     match t.state.as_str() {
         THREAD_ANSWERED => match &t.last_by {
-            Some(by) if !t.last_text.is_empty() => format!("{}: {}", display_name(by), plain_line(&t.last_text)),
+            Some(by) if !t.last_text.is_empty() => {
+                format!("{}: {}", display_name(by), plain_line(&t.last_text))
+            }
             _ => "Answered".into(),
         },
         THREAD_HANDED => match t.told.last() {
@@ -733,7 +956,13 @@ pub fn state_line(t: &ThreadSummary, why: &str) -> String {
         THREAD_RESOLVED => "Resolved".into(),
         _ => spawn_line(&spawn_state(t))
             .map(|l| l.text)
-            .unwrap_or_else(|| if why.is_empty() { "Waiting for an agent".into() } else { why.to_string() }),
+            .unwrap_or_else(|| {
+                if why.is_empty() {
+                    "Waiting for an agent".into()
+                } else {
+                    why.to_string()
+                }
+            }),
     }
 }
 
@@ -773,25 +1002,6 @@ pub fn empty_opened(who: &AgentRef) -> String {
 // talk.ts's nameLookup is inbox::words::Names: one lookup names agent
 // keys ("you" for the person, else the first name any source gives, else
 // "unknown agent"; never a key, card #478).
-
-/// Per agent key: deliveries not yet picked up, and held for the person.
-/// `deliveries` are each delivery's (to, state).
-pub fn counts_by_agent<'a>(deliveries: impl IntoIterator<Item = (&'a str, &'a str)>) -> HashMap<String, (u32, u32)> {
-    let mut out: HashMap<String, (u32, u32)> = HashMap::new();
-    for (to, state) in deliveries {
-        if to.is_empty() {
-            continue;
-        }
-        let c = out.entry(to.to_string()).or_default();
-        match state {
-            "queued" | "delivered" => c.0 += 1,
-            "held" => c.1 += 1,
-            _ => {}
-        }
-    }
-    out.retain(|_, c| c.0 + c.1 > 0);
-    out
-}
 
 #[cfg(test)]
 mod tests {
@@ -875,8 +1085,14 @@ mod tests {
         ];
         let refs: Vec<&TalkConversation> = cs.iter().collect();
         let (ch, dm) = listed(&refs);
-        assert_eq!(ch.iter().map(|c| c.conv_id.as_str()).collect::<Vec<_>>(), ["c1", "c2"]);
-        assert_eq!(dm.iter().map(|c| c.conv_id.as_str()).collect::<Vec<_>>(), ["d2", "d1"]);
+        assert_eq!(
+            ch.iter().map(|c| c.conv_id.as_str()).collect::<Vec<_>>(),
+            ["c1", "c2"]
+        );
+        assert_eq!(
+            dm.iter().map(|c| c.conv_id.as_str()).collect::<Vec<_>>(),
+            ["d2", "d1"]
+        );
     }
 
     #[test]
@@ -943,20 +1159,33 @@ mod tests {
     fn make_a_card_from_a_message() {
         let (title, obj) = from_post("Tag 0.10.0 once #96 merges\nnot before", "#releases", &[]);
         assert_eq!(title, "Tag 0.10.0 once #96 merges");
-        assert_eq!(obj, "Tag 0.10.0 once #96 merges\nnot before\n\n(From a message in #releases.)");
+        assert_eq!(
+            obj,
+            "Tag 0.10.0 once #96 merges\nnot before\n\n(From a message in #releases.)"
+        );
         let (title, _) = from_post(&"x".repeat(200), "a DM", &[]);
         assert_eq!(title.chars().count(), 80);
         assert!(title.ends_with('…'));
         let sha = "a".repeat(64);
         let files = [
-            PostFile { name: "shot.png", size: 10, sha256: &sha },
-            PostFile { name: "log.txt", size: 10, sha256: &sha },
+            PostFile {
+                name: "shot.png",
+                size: 10,
+                sha256: &sha,
+            },
+            PostFile {
+                name: "log.txt",
+                size: 10,
+                sha256: &sha,
+            },
         ];
         let (title, obj) = from_post("", "#suzuri", &files);
         assert_eq!(title, "shot.png");
         assert_eq!(
             obj,
-            format!("file: shot.png (10 B, sha256={sha})\nfile: log.txt (10 B, sha256={sha})\n\n(From a message in #suzuri.)")
+            format!(
+                "file: shot.png (10 B, sha256={sha})\nfile: log.txt (10 B, sha256={sha})\n\n(From a message in #suzuri.)"
+            )
         );
     }
 
@@ -976,7 +1205,10 @@ mod tests {
     fn a_dm_with_another_person() {
         let bob = conv(|c| {
             c.kind = "dm".into();
-            c.members = vec![m("person", "user:dev1", "you"), m("person", "person:bob", "Bob")]
+            c.members = vec![
+                m("person", "user:dev1", "you"),
+                m("person", "person:bob", "Bob"),
+            ]
         });
         assert_eq!(dm_person(&bob).map(|m| m.key.as_str()), Some("person:bob"));
         let with_agent = conv(|c| {
@@ -986,7 +1218,10 @@ mod tests {
         assert!(dm_person(&with_agent).is_none());
         let sender = conv(|c| {
             c.kind = "dm".into();
-            c.members = vec![m("person", "user", "you"), m("person", "board:b1/person:sam", "Sam")]
+            c.members = vec![
+                m("person", "user", "you"),
+                m("person", "board:b1/person:sam", "Sam"),
+            ]
         });
         assert!(dm_person(&sender).is_none());
         let ch = conv(|c| {
@@ -1017,7 +1252,10 @@ mod tests {
         let now = t("2026-11-06T12:00:00Z").unix_milli_value();
         let a = |n: &str, s: i64| replier(n, s, &format!("k-{n}"), now);
         assert_eq!(replying_line(&[], now), None);
-        assert_eq!(replying_line(&[a("jasmine", 5)], now).unwrap().text, "jasmine is replying…");
+        assert_eq!(
+            replying_line(&[a("jasmine", 5)], now).unwrap().text,
+            "jasmine is replying…"
+        );
         assert_eq!(
             replying_line(&[a("jasmine", 5), a("kestrel", 5)], now),
             Some(ReplyLine {
@@ -1026,16 +1264,28 @@ mod tests {
                 text: "jasmine and kestrel are replying…".into()
             })
         );
-        assert_eq!(replying_line(&[a("a", 5), a("b", 5), a("c", 5)], now).unwrap().who, "a, b and c");
         assert_eq!(
-            replying_line(&[a("jasmine", 31 * 60), a("kestrel", 60)], now).unwrap().text,
+            replying_line(&[a("a", 5), a("b", 5), a("c", 5)], now)
+                .unwrap()
+                .who,
+            "a, b and c"
+        );
+        assert_eq!(
+            replying_line(&[a("jasmine", 31 * 60), a("kestrel", 60)], now)
+                .unwrap()
+                .text,
             "kestrel is replying…"
         );
         assert_eq!(replying_line(&[a("jasmine", 31 * 60)], now), None);
         let key = "3dc30c94c6a74af3c59d39f4ca02d6f1/7ff86a62-6cc4-4916-be2d-602034fc281a";
         assert_eq!(replying_line(&[a(key, 5), a(" ", 5)], now), None);
         assert_eq!(
-            replying_line(&[replier("oak", 5, "k1", now), replier("oak", 5, "k1", now)], now).unwrap().text,
+            replying_line(
+                &[replier("oak", 5, "k1", now), replier("oak", 5, "k1", now)],
+                now
+            )
+            .unwrap()
+            .text,
             "oak is replying…"
         );
     }
@@ -1050,7 +1300,10 @@ mod tests {
         assert_eq!(member_of([&you, &mac], "user:mac"), Some(mac.clone()));
         assert_eq!(member_of([&you, &jasmine], "dev/s1"), Some(jasmine.clone()));
         assert_eq!(member_of([&you, &jasmine], "dev/s2"), None);
-        assert_eq!(member_of([&jasmine], "user:mac"), Some(m("person", "user:mac", "you")));
+        assert_eq!(
+            member_of([&jasmine], "user:mac"),
+            Some(m("person", "user:mac", "you"))
+        );
         assert_eq!(member_of([&jasmine], "person:bob"), None);
         assert!(is_you("user"));
         assert!(!is_you("person:bob"));
@@ -1074,7 +1327,15 @@ mod tests {
 
     #[test]
     fn dms_split_three_ways() {
-        let s = dm_sections(&[dm("a", |_| {}), dm("b", |c| c.read_only = true), dm("c", |_| {})], |c| c.conv_id == "c", "");
+        let s = dm_sections(
+            &[
+                dm("a", |_| {}),
+                dm("b", |c| c.read_only = true),
+                dm("c", |_| {}),
+            ],
+            |c| c.conv_id == "c",
+            "",
+        );
         assert_eq!(ids(&s.yours), ["a"]);
         assert_eq!(ids(&s.gone), ["c"]);
         assert_eq!(ids(&s.agents), ["b"]);
@@ -1108,7 +1369,10 @@ mod tests {
 
     #[test]
     fn folded_by_default() {
-        let got: Vec<bool> = SectionKey::ALL.iter().map(|k| k.folded_by_default()).collect();
+        let got: Vec<bool> = SectionKey::ALL
+            .iter()
+            .map(|k| k.folded_by_default())
+            .collect();
         assert_eq!(got, [false, false, false, true, true]);
     }
 
@@ -1148,19 +1412,35 @@ mod tests {
 
     #[test]
     fn the_archive_header() {
-        let items = [dm("a", |c| c.unread = 1), dm("b", |c| c.unread = 4), dm("c", |_| {})];
+        let items = [
+            dm("a", |c| c.unread = 1),
+            dm("b", |c| c.unread = 4),
+            dm("c", |_| {}),
+        ];
         assert_eq!(section_header(SectionKey::Gone, true, &items), (0, false));
         assert_eq!(section_header(SectionKey::Gone, false, &items), (2, true));
-        assert_eq!(section_header(SectionKey::Gone, false, &[dm("c", |_| {})]), (0, false));
-        for k in [SectionKey::Threads, SectionKey::Channels, SectionKey::Dms, SectionKey::Agents] {
+        assert_eq!(
+            section_header(SectionKey::Gone, false, &[dm("c", |_| {})]),
+            (0, false)
+        );
+        for k in [
+            SectionKey::Threads,
+            SectionKey::Channels,
+            SectionKey::Dms,
+            SectionKey::Agents,
+        ] {
             assert_eq!(section_header(k, true, &items), (2, false));
             assert_eq!(section_header(k, false, &items), (2, false));
         }
         assert_eq!(
-            unread_in(&[dm("a", |c| c.unread = 1), dm("b", |c| {
-                c.read_only = true;
-                c.unread = 3
-            }), dm("c", |_| {})]),
+            unread_in(&[
+                dm("a", |c| c.unread = 1),
+                dm("b", |c| {
+                    c.read_only = true;
+                    c.unread = 3
+                }),
+                dm("c", |_| {})
+            ]),
             1
         );
     }
@@ -1212,17 +1492,28 @@ mod tests {
     fn one_message_to_sixteen_agents_is_one_row() {
         let names: Vec<String> = (0..16).map(|i| format!("a{i}")).collect();
         let heron = named("dev/heron", "heron");
-        let mut cs: Vec<TalkConversation> =
-            names.iter().enumerate().map(|(i, n)| copy(n, i as i64 * 2, "WIND DOWN NOW", &owl())).collect();
+        let mut cs: Vec<TalkConversation> = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| copy(n, i as i64 * 2, "WIND DOWN NOW", &owl()))
+            .collect();
         cs.push(copy("zed", 100, "Rebased onto yours.", &heron));
         let rows = agent_rows(&newest_first(cs));
         assert_eq!(shape(&rows), ["dm:dev/heron:zed", "dev/owl → 16"]);
-        let AgentRow::Broadcast(b) = &rows[1] else { panic!("a broadcast") };
+        let AgentRow::Broadcast(b) = &rows[1] else {
+            panic!("a broadcast")
+        };
         assert_eq!(b.text, "WIND DOWN NOW");
         assert_eq!(b.last_at, t0() + 30_000);
         let mut rev = names.clone();
         rev.reverse();
-        assert_eq!(broadcast_to(b).iter().map(|m| m.name.clone()).collect::<Vec<_>>(), rev);
+        assert_eq!(
+            broadcast_to(b)
+                .iter()
+                .map(|m| m.name.clone())
+                .collect::<Vec<_>>(),
+            rev
+        );
     }
 
     #[test]
@@ -1295,12 +1586,20 @@ mod tests {
         mine.read_only = false;
         let mut blank = copy("a2", 2, "WIND DOWN NOW", &owl());
         blank.last_text = String::new();
-        let rows = agent_rows(&newest_first(vec![copy("a0", 0, "WIND DOWN NOW", &owl()), mine, blank]));
+        let rows = agent_rows(&newest_first(vec![
+            copy("a0", 0, "WIND DOWN NOW", &owl()),
+            mine,
+            blank,
+        ]));
         assert!(rows.iter().all(|r| matches!(r, AgentRow::Dm(_))));
     }
 
     fn many(n: i64) -> Vec<AgentRow> {
-        agent_rows(&(0..n).map(|i| copy(&format!("x{i}"), -i, &format!("msg {i}"), &owl())).collect::<Vec<_>>())
+        agent_rows(
+            &(0..n)
+                .map(|i| copy(&format!("x{i}"), -i, &format!("msg {i}"), &owl()))
+                .collect::<Vec<_>>(),
+        )
     }
 
     #[test]
@@ -1319,15 +1618,26 @@ mod tests {
     fn folded_open_past_the_cap_and_search() {
         let rows = many(80);
         let deep = rows[70].id().to_string();
-        assert!(agent_section_rows(&rows, true, &deep, false, false).rows.is_empty());
-        assert!(agent_section_rows(&rows, true, "", false, false).rows.is_empty());
+        assert!(
+            agent_section_rows(&rows, true, &deep, false, false)
+                .rows
+                .is_empty()
+        );
+        assert!(
+            agent_section_rows(&rows, true, "", false, false)
+                .rows
+                .is_empty()
+        );
         let some = agent_section_rows(&rows, false, &deep, false, false);
         assert_eq!(some.rows.last().unwrap().id(), deep);
         assert_eq!(some.hidden, AGENTS_CAP - SHOWN_AT_ONCE);
         let all = agent_section_rows(&rows, false, &deep, true, false);
         assert_eq!(all.rows.last().unwrap().id(), deep);
         assert_eq!(all.capped, 80 - AGENTS_CAP - 1);
-        assert_eq!(agent_section_rows(&rows, false, "", false, true).rows.len(), 80);
+        assert_eq!(
+            agent_section_rows(&rows, false, "", false, true).rows.len(),
+            80
+        );
     }
 
     #[test]
@@ -1337,14 +1647,22 @@ mod tests {
             copy("a1", 2, "WIND DOWN NOW", &owl()),
         ]));
         assert_eq!(rows.len(), 1);
-        assert_eq!(agent_section_rows(&rows, false, "dm:dev/owl:a0", false, false).rows.len(), 1);
+        assert_eq!(
+            agent_section_rows(&rows, false, "dm:dev/owl:a0", false, false)
+                .rows
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn a_rows_subtitle_is_who_said_what_and_when() {
         let now = t0() + 5 * 60_000;
         let c = copy("a0", 0, "Rebased   #412\nonto yours.", &owl());
-        assert_eq!(last_line(&c, now), ("owl: Rebased #412 onto yours.".into(), "5m ago".into()));
+        assert_eq!(
+            last_line(&c, now),
+            ("owl: Rebased #412 onto yours.".into(), "5m ago".into())
+        );
         let you = m("person", "person:me", "you");
         let mine = conv(|c| {
             c.conv_id = "d".into();
@@ -1355,7 +1673,10 @@ mod tests {
             c.last_text = "Is #470 on main?".into();
             c.last_by = you.key.clone();
         });
-        assert_eq!(last_line(&mine, now), ("You: Is #470 on main?".into(), "5m ago".into()));
+        assert_eq!(
+            last_line(&mine, now),
+            ("You: Is #470 on main?".into(), "5m ago".into())
+        );
         let mut opened = mine.clone();
         opened.members = vec![m("person", "user", "you"), named("dev/heron", "heron")];
         opened.last_by = "user:mac".into();
@@ -1386,7 +1707,10 @@ mod tests {
         assert!(talk_matches(&thread(|_| {}), "mac build"));
         assert!(talk_matches(&thread(|_| {}), "TUESDAY"));
         assert!(talk_matches(&thread(|_| {}), "#12"));
-        assert!(talk_matches(&thread(|t| t.last_text = "it was the linker".into()), "linker"));
+        assert!(talk_matches(
+            &thread(|t| t.last_text = "it was the linker".into()),
+            "linker"
+        ));
         assert!(!talk_matches(&thread(|_| {}), "lobby"));
         assert!(talk_matches(&thread(|_| {}), "  "));
         assert!(talk_matches(&thread(|t| t.tag = "mlg".into()), "mlg#12"));
@@ -1396,10 +1720,54 @@ mod tests {
 
     #[test]
     fn talks_count_in_the_sidebar() {
-        assert!(needs_you("answered", ""));
-        for st in ["waiting", "handed", "resolved"] {
-            assert!(!needs_you(st, ""));
-        }
+        // Threads with an agent reply the person hasn't read (card #719).
+        assert!(needs_you(true, ""));
+        assert!(!needs_you(false, ""));
+        // And threads no agent can start for.
+        assert!(needs_you(false, "No agent can start"));
+        assert_eq!(needs_you_why(true), "A reply you haven't read");
+        assert_eq!(needs_you_why(false), "No agent can start");
+    }
+
+    #[test]
+    fn resolved_threads_sit_at_the_bottom_of_threads() {
+        use ThreadsRow::*;
+        // The toggle comes after the open threads, inside Threads.
+        assert_eq!(
+            threads_rows(1, 1, false, false, false),
+            vec![Live(0), ResolvedToggle]
+        );
+        // Unfolded, its rows follow the toggle.
+        assert_eq!(
+            threads_rows(0, 1, false, false, true),
+            vec![Empty, ResolvedToggle, Resolved(0)]
+        );
+        // With no open threads it sits under that line.
+        assert_eq!(
+            threads_rows(0, 1, false, false, false),
+            vec![Empty, ResolvedToggle]
+        );
+        // Folding Threads hides it.
+        assert!(threads_rows(1, 1, false, true, true).is_empty());
+        // While Threads loads, its skeleton shows without the toggle.
+        assert_eq!(threads_rows(0, 1, true, false, true), vec![Loading]);
+        // No resolved threads, no toggle.
+        assert_eq!(threads_rows(1, 0, false, false, true), vec![Live(0)]);
+    }
+
+    #[test]
+    fn an_open_thread_is_read_once_per_reply() {
+        let m = read_mark("t1", "c3", false, true, "").expect("read");
+        assert_eq!(read_mark("t1", "c3", false, true, &m), None);
+        // A new reply is read again; so is another thread.
+        assert!(read_mark("t1", "c4", false, true, &m).is_some());
+        assert!(read_mark("t2", "c3", false, true, &m).is_some());
+        // Nobody replied yet: its opening words are read.
+        assert!(read_mark("t1", "", false, true, "").is_some());
+        // Resolved, or the window in the background: not read.
+        assert_eq!(read_mark("t1", "c3", true, true, ""), None);
+        assert_eq!(read_mark("t1", "c3", false, false, ""), None);
+        assert_eq!(read_mark("", "c3", false, true, ""), None);
     }
 
     #[test]
@@ -1433,8 +1801,13 @@ mod tests {
 
     #[test]
     fn members_read_their_status() {
-        let l = live(&[("d/oak", "shell"), ("d/elm", "unresponsive"), ("d/fir", "starting")]);
-        let say = |st: &str| status_word(st);
+        let l = live(&[
+            ("d/oak", "shell"),
+            ("d/elm", "unresponsive"),
+            ("d/fir", "starting"),
+        ]);
+        // A status in words, as agentStatus says it.
+        let say = |st: &str| agent_status(&Who::status(st), None, 0).text;
         let ag = |k: &str| say(&status_of(&m("agent", k, ""), &l));
         assert_eq!(say("busy"), "working");
         assert_eq!(say("idle"), "idle");
@@ -1454,7 +1827,8 @@ mod tests {
         assert_eq!(member_status(&sp, &l, 0), "Spencer's agent");
         sp.status = "idle".into();
         assert_eq!(member_status(&sp, &l, 0), "Spencer's agent · idle");
-        assert_eq!(whose_word(&sp, "busy"), "Spencer's agent · working");
+        sp.status = "busy".into();
+        assert_eq!(member_status(&sp, &l, 0), "Spencer's agent · working");
     }
 
     #[test]
@@ -1465,7 +1839,12 @@ mod tests {
     #[test]
     fn a_thread_from_a_channel_message() {
         assert_eq!(
-            thread_text(" Why the Firewall? ", "kowhai", "Only the PC transfer.\nOne click.", "suzuri"),
+            thread_text(
+                " Why the Firewall? ",
+                "kowhai",
+                "Only the PC transfer.\nOne click.",
+                "suzuri"
+            ),
             "Why the Firewall?\n\n> Only the PC transfer.\n> One click.\n(kowhai, in #suzuri)"
         );
     }
@@ -1511,10 +1890,16 @@ mod tests {
     fn a_thread_irori_starts_an_agent_for() {
         let mut w = waiting();
         w.starting = "Macbook Pro (this one)".into();
-        assert_eq!(state_line(&w, "No agent takes offered work"), "starting an agent on Macbook Pro (this one)");
+        assert_eq!(
+            state_line(&w, "No agent takes offered work"),
+            "starting an agent on Macbook Pro (this one)"
+        );
         let mut w = waiting();
         w.cant_start = "not trusted: /r on mac".into();
-        assert_eq!(state_line(&w, ""), "can't start: its repo isn't trusted here");
+        assert_eq!(
+            state_line(&w, ""),
+            "can't start: its repo isn't trusted here"
+        );
         assert_eq!(state_line(&waiting(), ""), "Waiting for an agent");
         let why = "No agent can start: Mac is offline. It starts by itself when it's back.";
         let mut a = waiting();
@@ -1566,12 +1951,5 @@ mod tests {
         assert_eq!(names.name("dev/b"), crate::logic::names::UNKNOWN_AGENT);
         assert_eq!(names.name("user:mac"), "you");
         assert_eq!(names.name(""), "");
-    }
-
-    #[test]
-    fn counts_per_agent() {
-        let c = counts_by_agent([("a", "queued"), ("a", "delivered"), ("a", "held"), ("b", "answered"), ("", "held")]);
-        assert_eq!(c.get("a"), Some(&(2, 1)));
-        assert!(!c.contains_key("b"));
     }
 }

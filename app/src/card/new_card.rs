@@ -112,6 +112,11 @@ pub fn opened(s: &mut State) {
     };
     // The title takes the keyboard as the dialog opens (autoFocus).
     s.card.new_card.title.focused = true;
+    // A Talk message's Make a card fills the form (card #390).
+    if let Some((title, objective)) = crate::talk::new_card_from(s) {
+        s.card.new_card.title.replace_text(title);
+        s.card.new_card.goal.edit.replace_text(objective);
+    }
     s.spawn(
         move |w| (w.ask_repos(), w.agents_settings(&space), w.boards_personal().unwrap_or_default()),
         |s, (repos, spawn, personal)| {
@@ -219,10 +224,15 @@ fn create(s: &mut State) {
             s.card.new_card.busy = false;
             match r {
                 Ok(res) => {
+                    // Made from a Talk message, the message links to it
+                    // (onMade) and the conversation stays open.
+                    let talk = crate::talk::card_made(s, &res.task.id);
                     tt::sent(s, goal_mut);
                     s.card.new_card = NewCard::default();
                     s.close_dialog();
-                    s.open_card(&res.task.id);
+                    if !talk {
+                        s.open_card(&res.task.id);
+                    }
                 }
                 Err(e) => s.card.new_card.error = Some(e),
             }
