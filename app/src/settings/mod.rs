@@ -111,6 +111,9 @@ pub struct Confirm {
 pub struct Model {
     /// The open select's key.
     pub open_select: Option<String>,
+    /// The pane last shown: the gear and Cmd+, open Settings there again
+    /// (settings-menu.tsx keeps its section while the window lives).
+    pub last: String,
     pub confirm: Option<Confirm>,
     /// A confirm's failure, under its button, by its id.
     pub confirm_err: HashMap<String, String>,
@@ -146,6 +149,7 @@ pub fn now_ms() -> i64 {
 pub fn show(s: &mut State, id: &str) {
     s.settings.open_select = None;
     s.dialog = Some(Dialog::Settings(id.to_string()));
+    s.settings.last = pane(id).id.to_string();
     load(s);
 }
 
@@ -206,6 +210,12 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 
 pub fn on_event(s: &mut State, ev: &Event) {
     if ev.is("app:dialog-opened") {
+        if let Some(Dialog::Settings(id)) = &mut s.dialog {
+            if id.is_empty() {
+                id.clone_from(&s.settings.last);
+            }
+            s.settings.last = pane(id).id.to_string();
+        }
         if open_pane(s).is_some() {
             start_ticker(s);
             load(s);
@@ -676,6 +686,23 @@ pub fn boxed(f: &Frame, key: &str, rows: Vec<El>) -> El {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_opens_where_it_was_left() {
+        let mut s = State::default();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("notifications"), "first time: the first pane");
+        show(&mut s, "desks");
+        s.close_dialog();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("desks"));
+        s.close_dialog();
+        // A jump to a named pane goes there, and is remembered.
+        s.open_dialog(Dialog::Settings("app".into()));
+        s.close_dialog();
+        s.open_dialog(Dialog::Settings(String::new()));
+        assert_eq!(open_pane(&s), Some("app"));
+    }
 
     #[test]
     fn plain_line_hides_controls_and_collapses_space() {
