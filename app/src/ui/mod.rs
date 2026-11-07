@@ -182,6 +182,9 @@ impl State {
     pub fn go(&mut self, r: Route) {
         self.nav.go(r);
         self.nav.save(&mut self.prefs);
+        // The page's package reads what it shows (profile: your picture).
+        let ev = Event { name: "app:route-changed".into(), payload: serde_json::Value::Null };
+        dispatch(self, &ev);
     }
 
     pub fn back(&mut self) {
@@ -205,6 +208,9 @@ impl State {
 
     pub fn open_dialog(&mut self, d: Dialog) {
         self.dialog = Some(d);
+        // The dialog's package reads what it shows (settings: its pane).
+        let ev = Event { name: "app:dialog-opened".into(), payload: serde_json::Value::Null };
+        dispatch(self, &ev);
     }
 
     pub fn close_dialog(&mut self) {

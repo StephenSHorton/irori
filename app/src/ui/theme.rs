@@ -34,6 +34,10 @@ pub fn is_dark(s: &State, cx: &Cx<State>) -> bool {
 }
 
 pub fn kit(dark: bool, p: &Prefs) -> Kit {
+    // A theme picked in Settings > Appearance (`appearance.theme`).
+    if let Some(seed) = crate::settings::appearance::seed(p, dark) {
+        return Kit::from_palette(seed);
+    }
     let accent = p
         .get::<String>(ACCENT)
         .filter(|a| rune::color::hex(a).is_some())
