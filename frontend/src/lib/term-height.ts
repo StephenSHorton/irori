@@ -28,7 +28,8 @@ export function clampHeight(h: number, innerHeight: number): number {
 
 // readHeight is the remembered height, or the default when there is none
 // or storage is shut (a private window). It is not clamped to the window:
-// the box's CSS max-height does that, so a window grown again gets it back.
+// the box's CSS max-height does that, so a window that is only opened
+// smaller (with no drag there) still gets the full height back when grown.
 export function readHeight(): number {
   try {
     const v = localStorage.getItem(heightKey)

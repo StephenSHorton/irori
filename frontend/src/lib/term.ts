@@ -22,6 +22,8 @@ function sampleTerms(): boolean {
 
 const sampleFolder = "/Users/sample/projects/irori"
 const nothing = () => Promise.resolve()
+// Each stand-in shell New terminal opens gets its own id.
+let nextSampleId = 2
 
 const SampleTermService: typeof TermService = {
   Folders: () => Promise.resolve([{ path: sampleFolder, why: "repo" }]),
@@ -37,7 +39,7 @@ const SampleTermService: typeof TermService = {
     ]),
   Open: (scope, _cols, _rows, cwd) =>
     Promise.resolve({
-      id: 2,
+      id: nextSampleId++,
       scope,
       cwd: cwd ?? sampleFolder,
       title: "",
