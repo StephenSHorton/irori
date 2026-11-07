@@ -680,9 +680,9 @@ mod tests {
 
     #[test]
     fn uploads_are_checked() {
-        assert!(pending("big.bin", vec![0; MAX_UPLOAD + 1], 1).unwrap_err().contains("over 32 MiB"));
-        let p = pending("a.txt", b"hi".to_vec(), 1).unwrap();
+        assert!(pending("big.bin", vec![0; MAX_UPLOAD + 1], 1).err().unwrap().contains("over 32 MiB"));
+        let p = pending("a.txt", b"hi".to_vec(), 1).ok().unwrap();
         assert_eq!(p.upload().data, "aGk=");
-        assert_eq!(pending("", vec![1], 2).unwrap().upload().name, "pasted.png");
+        assert_eq!(pending("", vec![1], 2).ok().unwrap().upload().name, "pasted.png");
     }
 }
