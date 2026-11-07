@@ -24,11 +24,12 @@ export function AgentStartsControls({
   return (
     <span className="flex items-center gap-3">
       {/* A new saved maximum starts the field over from it. */}
-      <MaxField
+      <WholeNumberField
         key={s.max}
-        max={s.max}
+        label="At most"
+        value={s.max}
         ceiling={s.ceiling}
-        on={s.on}
+        disabled={!s.on}
         onSave={(n) => set(s.on, n)}
       />
       <Switch
@@ -40,31 +41,39 @@ export function AgentStartsControls({
   )
 }
 
-function MaxField({
-  max,
+// WholeNumberField is a box for a whole number from 0 to ceiling, saved on
+// Enter or blur; anything else is refused with a message and, on leaving,
+// goes back to the saved value. Give it key={value} so a new saved value
+// starts it over. The per-device caps in Limits use it too (card #703).
+export function WholeNumberField({
+  label,
+  ariaLabel,
+  value,
   ceiling,
-  on,
+  disabled,
   onSave,
 }: {
-  max: number
+  label: string
+  ariaLabel?: string
+  value: number
   ceiling: number
-  on: boolean
+  disabled?: boolean
   onSave: (n: number) => void
 }) {
   const id = useId()
-  const [draft, setDraft] = useState(String(max))
+  const [draft, setDraft] = useState(String(value))
   const n = Number(draft)
   const valid =
     draft.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= ceiling
   const save = () => {
-    if (valid && n !== max) onSave(n)
-    else setDraft(String(max))
+    if (valid && n !== value) onSave(n)
+    else setDraft(String(value))
   }
   return (
     <span className="flex flex-col items-end gap-1">
       <span className="flex items-center gap-2 text-[13px]">
         <label htmlFor={id} className="text-muted-foreground">
-          At most
+          {label}
         </label>
         <Input
           id={id}
@@ -72,9 +81,12 @@ function MaxField({
           inputMode="numeric"
           min={0}
           max={ceiling}
+          step={1}
           value={draft}
-          disabled={!on}
+          disabled={disabled}
+          aria-label={ariaLabel}
           aria-invalid={!valid}
+          aria-describedby={valid ? undefined : `${id}-error`}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={save}
           onKeyDown={(e) => {
@@ -84,7 +96,11 @@ function MaxField({
         />
       </span>
       {!valid && (
-        <span className="text-xs text-destructive">
+        // As wide as the label and box, so the box doesn't move when it shows.
+        <span
+          id={`${id}-error`}
+          className="w-0 min-w-full text-xs text-destructive"
+        >
           A whole number from 0 to {ceiling}.
         </span>
       )}
