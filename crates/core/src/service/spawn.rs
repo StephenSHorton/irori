@@ -2352,23 +2352,9 @@ impl Services {
     /// it is in as this one; true when the card names no repo or git
     /// can't tell.
     fn in_repo(&self, dir: &str, repo_key: &str) -> bool {
-        if repo_key.is_empty() {
-            return true;
-        }
-        let main = |d: &str| crate::helpertree::main_root(Path::new(d));
-        let mine = main(dir);
-        if mine.is_some()
-            && self
-                .capture
-                .repo_roots(repo_key)
-                .iter()
-                .filter(|r| Path::new(r).is_dir())
-                .any(|r| main(r) == mine)
-        {
-            return true;
-        }
-        let k = self.capture.repo_key_of(dir);
-        k.is_empty() || coord::same_repo_key(&k, repo_key)
+        repo_key.is_empty()
+            || self.checkout_of(dir, repo_key)
+            || self.capture.repo_key_of(dir).is_empty()
     }
 
     /// The repo card t's agent works in when it starts in `folder`: the

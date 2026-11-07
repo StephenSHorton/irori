@@ -698,3 +698,153 @@ fn in_a_card_tree(folder: &str, dir: &Path) {
     assert!(leaf.starts_with("card-"), "{leaf}");
     assert!(folder.join(".git").is_file(), "a worktree");
 }
+
+/// Card #681: the person answers in words, naming a folder that is still
+/// being cloned. Irori says it waits instead of "doesn't name a folder",
+/// and starts the agent there once the folder is there.
+#[test]
+fn a_folder_named_in_words_starts_the_agent_once_it_is_there() {
+    let t = rig();
+    let c = t.card("Port the parser", LOWER);
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    let parent = tempfile::tempdir().unwrap();
+    let rune = parent.path().join("rune");
+    t.r.core
+        .coord()
+        .answer(
+            &t.person,
+            &c.id,
+            &b.id,
+            BlockerAnswer {
+                text: format!("put the clone in {}", rune.display()),
+                resolve: true,
+                ..BlockerAnswer::default()
+            },
+        )
+        .unwrap();
+    wait_for(60, "the waiting blocker", || {
+        let bs = t.no_copy_blockers(&c.id);
+        bs.len() == 1 && bs[0].id != b.id && t.get(&c.id).state == coord::BLOCKED
+    });
+    let b2 = t.no_copy_blockers(&c.id)[0].clone();
+    assert!(b2.question.contains("once it's there"), "{b2:?}");
+    assert!(b2.question.contains("Choose its folder"), "{b2:?}");
+    assert!(
+        b2.context
+            .starts_with(&format!("“{}” isn't a folder on", rune.display()))
+            && b2.context.contains("no need to answer again"),
+        "{}",
+        b2.context
+    );
+    assert!(
+        !b2.context.contains("doesn't name a folder"),
+        "{}",
+        b2.context
+    );
+    t.plain(&b2.question);
+    assert!(t.fake.started.lock().unwrap().is_empty());
+
+    // The clone lands: the next sweep starts the agent there, unasked.
+    std::fs::create_dir(&rune).unwrap();
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    assert_eq!(Path::new(&req.folder), rune);
+    wait_for(60, "the blocker closed", || {
+        t.no_copy_blockers(&c.id).is_empty()
+    });
+}
+
+/// A git repo whose origin is the card's repo.
+fn irori_clone() -> (tempfile::TempDir, PathBuf) {
+    let (d, dir) = git_repo();
+    let ok = std::process::Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/StephenSHorton/irori.git",
+        ])
+        .current_dir(&dir)
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    (d, dir)
+}
+
+impl T {
+    /// One of the person's agents resolves blocker `b` with `text`.
+    fn agent_answers(&self, id: &str, b: &str, text: &str) {
+        let agent = format!("{}/{SESS}", self.r.core.device_id());
+        self.r
+            .core
+            .coord()
+            .answer(
+                &agent,
+                id,
+                b,
+                BlockerAnswer {
+                    text: text.into(),
+                    resolve: true,
+                    ..BlockerAnswer::default()
+                },
+            )
+            .unwrap();
+    }
+}
+
+/// Card #681: told to answer it, the person's agent resolves the folder
+/// question with a checkout of the card's repo, and the agent starts there.
+#[test]
+fn an_agent_answering_with_a_checkout_of_the_repo_starts_the_agent() {
+    let t = rig();
+    let c = t.card("Port the parser", LOWER);
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    let (_d, dir) = irori_clone();
+    t.agent_answers(&c.id, &b.id, &dir.display().to_string());
+    wait_for(60, "its agent started", || {
+        t.r.core.set_spawn_cap(t.r.core.spawn_cap()).unwrap();
+        !t.fake.started.lock().unwrap().is_empty()
+    });
+    let req = t.fake.started.lock().unwrap()[0].clone();
+    in_a_card_tree(&req.folder, &dir);
+    assert!(t.no_copy_blockers(&c.id).is_empty());
+}
+
+/// An agent's folder that isn't a checkout of the card's repo isn't used:
+/// the card asks again and says why. Only the person may choose any folder.
+#[test]
+fn an_agent_answering_with_another_folder_is_refused() {
+    let t = rig();
+    let c = t.card("Port the parser", LOWER);
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    let (_a, other) = git_repo();
+    let plain = tempfile::tempdir().unwrap();
+    let plain = plain.path().canonicalize().unwrap();
+    let mut last = b.id.clone();
+    for f in [&other, &plain] {
+        let f = f.display().to_string();
+        t.agent_answers(&c.id, &last, &format!("Cloned it to {f}."));
+        wait_for(60, "asked again", || {
+            let bs = t.no_copy_blockers(&c.id);
+            bs.len() == 1 && bs[0].id != last && t.get(&c.id).state == coord::BLOCKED
+        });
+        let b2 = t.no_copy_blockers(&c.id)[0].clone();
+        assert!(
+            b2.context
+                .starts_with(&format!("“{f}” isn't a checkout of irori on")),
+            "{}",
+            b2.context
+        );
+        t.plain(&b2.context);
+        last = b2.id;
+    }
+    t.later();
+    assert!(t.fake.started.lock().unwrap().is_empty());
+}
