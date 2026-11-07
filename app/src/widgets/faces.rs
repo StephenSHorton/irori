@@ -60,20 +60,23 @@ pub fn identicon(seed: &str, size: f32, color: Color) -> El {
     canvas(sh).size(size, size).a11y_hidden()
 }
 
-/// The device palette (coord::devcolor::PALETTE) as the React app drew it
-/// (index.css `--device-*`).
+/// The colours a device (or a person) can wear (coord::devcolor::PALETTE),
+/// with the window's shade of each (the React app's index.css
+/// `--device-*`), as oklch.
+pub const DEVICE_COLORS: &[(&str, (f32, f32, f32))] = &[
+    ("teal", (0.76, 0.12, 185.0)),
+    ("orange", (0.74, 0.14, 50.0)),
+    ("pink", (0.74, 0.14, 350.0)),
+    ("lime", (0.8, 0.15, 125.0)),
+    ("cyan", (0.78, 0.11, 215.0)),
+    ("indigo", (0.7, 0.13, 275.0)),
+    ("sand", (0.78, 0.06, 80.0)),
+];
+
+/// A device colour's shade by its palette name; None for "" or one
+/// unknown.
 pub fn device_color(name: &str) -> Option<Color> {
-    let (l, c, h) = match name {
-        "teal" => (0.76, 0.12, 185.0),
-        "orange" => (0.74, 0.14, 50.0),
-        "pink" => (0.74, 0.14, 350.0),
-        "lime" => (0.8, 0.15, 125.0),
-        "cyan" => (0.78, 0.11, 215.0),
-        "indigo" => (0.7, 0.13, 275.0),
-        "sand" => (0.78, 0.06, 80.0),
-        _ => return None,
-    };
-    Some(rune::color::oklch(l, c, h))
+    DEVICE_COLORS.iter().find(|(n, _)| *n == name).map(|(_, (l, c, h))| rune::color::oklch(*l, *c, *h))
 }
 
 /// An agent face's colour outside a face: amber while it isn't

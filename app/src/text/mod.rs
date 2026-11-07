@@ -21,7 +21,8 @@
 //!   ([`refs::prefetch_text`] does it ahead) and show as chips once found.
 //! - Pure logic: [`rich::rich_blocks`], [`rich::rich_inline`],
 //!   [`rich::safe_href`], [`rich::plain_line`], [`rich::plain_block`];
-//!   [`refs::card_status`] / [`refs::ref_status`] (a card's chip status).
+//!   [`refs::card_status`] / [`refs::ref_status`] (a card's chip status,
+//!   re-exported from `logic::cards`).
 //!
 //! **The composer** (a box with the @ and # pickers, files, mic, Send):
 //! - Own a [`Composer`] in your Model (`pub ask: Composer`), and pass two
@@ -33,7 +34,7 @@
 //!       placeholder: "Ask your agents…".into(),
 //!       send_button: true,
 //!       asking: true,
-//!       mic: Some(crate::call::mic_button(s, f)),   // P6's, when it lands
+//!       mic: Some(crate::call::mic_button(s, f, "home-ask", |s| &mut s.home.ask.edit)),
 //!       on_send: Some(Rc::new(|s: &mut State, m: Sent| {
 //!           ask_mut(s).sending = true;
 //!           let ms = text::mentions::to_ts(&m.mentions);
