@@ -1781,6 +1781,8 @@ pub(crate) fn board_block(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 blocked_by: bb.clone(),
                 links: links.clone(),
                 files: files.iter().map(to_coord).collect(),
+                // Only Irori raises a permission wait (card #682).
+                permission: None,
             },
         )
     };

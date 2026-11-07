@@ -13,7 +13,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Empty, Full};
 use hyper::body::Incoming;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
@@ -205,6 +205,44 @@ impl Client {
         let status = resp.status().as_u16();
         let body = read_capped(resp.into_body(), MAX_SMALL_BODY).await?;
         Ok((status, body))
+    }
+
+    /// `POST path` with a JSON body, waiting up to `wait` for the whole
+    /// answer (card #682's permission hook): its status and body.
+    pub async fn post_json(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        wait: Duration,
+    ) -> Result<(u16, Vec<u8>), Error> {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], self.port));
+        let call = async {
+            let tcp = tokio::time::timeout(PROBE_TIMEOUT, TcpStream::connect(addr))
+                .await
+                .map_err(|_| down("dial tcp: i/o timeout"))?
+                .map_err(down)?;
+            let (mut send, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
+                .await
+                .map_err(down)?;
+            tokio::spawn(async move {
+                let _ = conn.await;
+            });
+            let req = hyper::Request::post(path)
+                .header("Host", format!("127.0.0.1:{}", self.port))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .header("User-Agent", "irori-rust-dev")
+                .header("Authorization", format!("Bearer {}", self.token))
+                .body(Full::new(Bytes::from(body)))
+                .map_err(down)?;
+            let resp = send.send_request(req).await.map_err(down)?;
+            let status = resp.status().as_u16();
+            let body = read_capped(resp.into_body(), MAX_SMALL_BODY).await?;
+            Ok((status, body))
+        };
+        tokio::time::timeout(wait, call)
+            .await
+            .map_err(|_| down(format!("irori api {path}: no answer in {wait:?}")))?
     }
 
     /// Go `Client.OpenStream`: `GET /v1/attach?<query>`, its body on 200.

@@ -78,6 +78,12 @@ pub enum Why {
         running: i64,
         cap: i64,
     },
+    /// A thread on a device with no free slot (card #686): another of the
+    /// person's computers has room and takes it.
+    MovesTo { from: String, device: String },
+    /// A thread whose device has no free slot, and no other computer has
+    /// one either (card #686).
+    AllFull,
     /// The device has room, but older cards take it first.
     Queued {
         device: String,
@@ -185,6 +191,14 @@ impl fmt::Display for Why {
             } => write!(
                 f,
                 "{device} is at its cap ({running}/{cap}); it starts when one ends"
+            ),
+            Why::MovesTo { from, device } => write!(
+                f,
+                "{from} has no free agent slot; {device} has room and takes it"
+            ),
+            Why::AllFull => write!(
+                f,
+                "every computer is at its agent limit; it starts by itself when one has room"
             ),
             Why::Queued {
                 device,
@@ -298,6 +312,19 @@ impl Services {
             return Why::Paused {
                 device: self.this_device_name(),
             };
+        }
+        // A thread here with no free slot (card #686): a computer with
+        // room takes it; with none, it waits here and says so.
+        if private && t.open_ask().is_some_and(|a| a.owner == me) && self.full_here() {
+            if let Some(dev) = co.full_target(t) {
+                return Why::MovesTo {
+                    from: self.named_device(&me),
+                    device: self.named_device(&dev),
+                };
+            }
+            if !self.agents_paused() && !co.ask_full_wait(t).is_empty() {
+                return Why::AllFull;
+            }
         }
         // Pause agents here (card #665), and no other device takes it.
         let pause = self.agents_pause();

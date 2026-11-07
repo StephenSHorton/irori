@@ -246,6 +246,11 @@ pub struct CardSummary {
     pub progress: CardProgress,
     pub open_blockers: i64,
     pub blocker_question: String,
+    /// An open item is Irori's "Waiting for your permission" (cards #449,
+    /// #682): Needs you shows it as a permission row with its buttons.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub permission_wait: bool,
     /// An agent says it's done and it waits on the person's Done (card
     /// #112): the grid shows "Ready for you" for it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -662,6 +667,31 @@ pub struct CardBlocker {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub previous: Option<CardRound>,
+    /// A spawned agent stopped on a permission prompt (card #682): the
+    /// window shows what is waiting and buttons, never an answer box.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub permission: Option<CardPermission>,
+}
+
+/// What a spawned agent's permission prompt waits on (card #682).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardPermission {
+    /// The agent on the prompt.
+    pub agent: AgentRef,
+    /// The tool waiting, e.g. `Bash`; empty when unknown.
+    pub tool: String,
+    /// The command, path or URL; empty when unknown.
+    pub input: String,
+    /// The rule Always allow adds; empty: no Always allow.
+    pub rule: String,
+    /// Whether Irori can answer the prompt from the card (its hook waits
+    /// on it): Allow once and Deny. Else only Attach answers it.
+    pub answerable: bool,
+    /// When Claude Code denies the call by itself, for a safety check it
+    /// asks even in bypass mode (RFC 3339); empty when it waits.
+    pub expires: String,
 }
 
 /// The done check the person sent back before this one (card #476).
@@ -1757,6 +1787,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
             if bl.done_check {
                 s.ready = true;
             }
+            if irori_core::spawn_waiting::is_permission_wait(bl) {
+                s.permission_wait = true;
+            }
             if s.open_blockers == 1 {
                 s.blocker_question = bl.question.clone();
             }
@@ -2609,6 +2642,7 @@ impl Window {
                 thread: by_blocker.remove(&bl.id).unwrap_or_default(),
                 links: bl.links.clone(),
                 attachments: bl.attachments.clone(),
+                permission: permission_of(&p, bl),
                 ..CardBlocker::default()
             };
             for o in &bl.options {
@@ -3319,6 +3353,28 @@ fn family_of(
     {
         s.subtask_blocked = format!("{}: {}", k.short_ref(), r.blocked_question);
     }
+}
+
+/// The window's view of a permission wait (card #682); an older Irori's
+/// untyped one (found by its question) shows as one Irori can't answer.
+fn permission_of(p: &People, bl: &coord::Blocker) -> Option<CardPermission> {
+    if !irori_core::spawn_waiting::is_permission_wait(bl) {
+        return None;
+    }
+    let w = bl.permission.clone().unwrap_or_default();
+    let answerable = !w.request.is_empty() && bl.open();
+    Some(CardPermission {
+        agent: if w.agent.is_empty() {
+            AgentRef::default()
+        } else {
+            p.ref_(&w.agent)
+        },
+        tool: w.tool,
+        input: w.input,
+        rule: if answerable { w.rule } else { String::new() },
+        answerable,
+        expires: w.expires,
+    })
 }
 
 #[cfg(test)]

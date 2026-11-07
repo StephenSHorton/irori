@@ -514,6 +514,9 @@ fn start_core(
     // a copy of a real data dir, card #587) never starts real agents.
     #[cfg(desktop)]
     if !crate::host::offline() {
+        // Each agent's permission prompts reach its card through this
+        // binary's `permission-hook` role (card #682).
+        core.set_permission_hook(std::env::current_exe().ok());
         core.set_spawner(Some(spawner()));
     }
     #[cfg(not(desktop))]
