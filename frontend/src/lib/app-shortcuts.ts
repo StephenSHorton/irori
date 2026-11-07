@@ -67,8 +67,6 @@ export function appShortcut(e: Key, mac: boolean): string | null {
   }
   const mod = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
   if (!mod || e.shiftKey || e.altKey) return null
-  if (mac && e.key === "[") return "nav.back"
-  if (mac && e.key === "]") return "nav.forward"
   // The digit by its key, or by where it sits (Cmd+& is Cmd+1 on AZERTY).
   const digit = /^[1-5]$/.test(e.key)
     ? Number(e.key)
@@ -76,7 +74,27 @@ export function appShortcut(e: Key, mac: boolean): string | null {
       ? Number(e.code.slice(5))
       : 0
   if (digit) return sections[digit - 1]
-  return letters[e.key.toLowerCase()] ?? null
+  const c = keyChar(e)
+  if (mac && c === "[") return "nav.back"
+  if (mac && c === "]") return "nav.forward"
+  return letters[c] ?? null
+}
+
+const usKeys: Record<string, string> = {
+  BracketLeft: "[",
+  BracketRight: "]",
+  Comma: ",",
+}
+
+// keyChar is the key a shortcut reads: the character typed when it is
+// plain ASCII, else (Cyrillic, Greek, a German Mac's ü where [ sits) the
+// key at that place on a US keyboard, as a desktop app's menus match it.
+function keyChar(e: Pick<KeyboardEvent, "key" | "code">): string {
+  if (/^[\x21-\x7e]$/.test(e.key)) return e.key.toLowerCase()
+  if (e.key.length !== 1) return ""
+  const code = e.code ?? ""
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase()
+  return usKeys[code] ?? ""
 }
 
 // mouseShortcut is the command a mouse's side button runs: button 3 is
@@ -102,8 +120,10 @@ export function inField(el: Focus | null): boolean {
   return !!el.closest(".rsz-view")
 }
 
-// A dialog (Settings, New card, the palette) has the keys while it is open.
-const dialogs = '[role="dialog"],[role="alertdialog"]'
+// A dialog (Settings, New card, the palette), a menu or an open list has
+// the keys while it is open, as for Esc on a card's page.
+const dialogs =
+  '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
 
 // listenAppShortcuts adds the window's listeners and returns what takes
 // them out. Bubble phase, so a field, a menu or a dialog that handles a
@@ -114,11 +134,20 @@ export function listenAppShortcuts(): () => void {
     if (e.defaultPrevented || e.isComposing) return
     const id = appShortcut(e, mac)
     if (!id) return
-    const t = e.target instanceof Element ? e.target : null
-    if (inField(t) || inField(document.activeElement)) return
-    if (document.querySelector(dialogs)) return
-    // Holding Back or Forward steps on, like a browser; the others once.
     const nav = id === "nav.back" || id === "nav.forward"
+    const t = e.target instanceof Element ? e.target : null
+    if (inField(t) || inField(document.activeElement)) {
+      // Alt+Left in a field is no edit, but WebView2 (the PC) would take
+      // it as its own Back, and the page would go with the draft. A
+      // terminal keeps every key for its program.
+      if (nav && !t?.closest(".rsz-view")) e.preventDefault()
+      return
+    }
+    if (document.querySelector(dialogs)) {
+      if (nav) e.preventDefault()
+      return
+    }
+    // Holding Back or Forward steps on, like a browser; the others once.
     if (e.repeat && !nav) {
       e.preventDefault()
       return

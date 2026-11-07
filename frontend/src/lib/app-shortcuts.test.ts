@@ -97,6 +97,29 @@ describe("appShortcut", () => {
       expect(appShortcut(k("x", mod), mac)).toBeNull()
     }
   })
+  test("other layouts: the key where it sits on a US keyboard", () => {
+    // Cyrillic: Ctrl+и is the B key.
+    expect(appShortcut(k("и", { ...ctrl, code: "KeyB" }), false)).toBe(
+      "sidebar.fold"
+    )
+    expect(appShortcut(k("т", { ...cmd, code: "KeyN" }), true)).toBe("card.new")
+    expect(appShortcut(k("б", { ...ctrl, code: "Comma" }), false)).toBe(
+      "settings.open"
+    )
+    // A German Mac: ü sits where [ does; + (where ] sits) is ASCII.
+    expect(appShortcut(k("ü", { ...cmd, code: "BracketLeft" }), true)).toBe(
+      "nav.back"
+    )
+    expect(appShortcut(k("ü", { ...ctrl, code: "BracketLeft" }), false)).toBe(
+      null
+    )
+    // A Latin key is read as typed: Dvorak's B is on the US N key.
+    expect(appShortcut(k("b", { ...cmd, code: "KeyN" }), true)).toBe(
+      "sidebar.fold"
+    )
+    // Named keys never fall back.
+    expect(appShortcut(k("Enter", { ...cmd, code: "KeyB" }), true)).toBeNull()
+  })
   test("Mod is Cmd on a Mac and Ctrl elsewhere, alone", () => {
     expect(appShortcut(k("n", ctrl), true)).toBeNull()
     expect(appShortcut(k("n", cmd), false)).toBeNull()
