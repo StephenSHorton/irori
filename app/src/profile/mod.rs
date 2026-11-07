@@ -291,7 +291,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                     if live == 1 { "device" } else { "devices" },
                     if agents == 1 { "agent" } else { "agents" }
                 ))
-                .font(k.ty.small)
+                .font(crate::settings::XS)
                 .color(k.c.text_muted),
             )
             .child(buttons),
@@ -318,7 +318,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     }
     let note = if !p.error.is_empty() {
         text(p.error.clone())
-            .font(k.ty.small)
+            .font(crate::settings::XS)
             .color(k.c.danger.fg)
             .w_full()
             .wrap()
@@ -328,7 +328,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             t.push_str(" With no pick, each friend's screen picks one none of their devices wear.");
         }
         text(t)
-            .font(k.ty.small)
+            .font(crate::settings::XS)
             .color(k.c.text_muted)
             .w_full()
             .wrap()
@@ -341,7 +341,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         |s| &mut s.profile.name,
     ));
     if let Some(e) = &p.name.error {
-        name_box = name_box.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg));
+        name_box = name_box.child(
+            text(e.clone())
+                .font(crate::settings::XS)
+                .color(k.c.danger.fg),
+        );
     }
     let you = panel(f, "profile-you")
         .gap(16.0)
@@ -357,7 +361,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     if friends.is_empty() {
         fr = fr.child(
             text("Nobody yet. Invite someone to a space and they show here.")
-                .font(k.ty.small)
+                .font(crate::settings::XS)
                 .color(k.c.text_muted)
                 .px(4.0)
                 .w_full()
@@ -396,7 +400,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 )
                 .child(
                     text(format!("in {}", spaces.join(", ")))
-                        .font(k.ty.small)
+                        .font(crate::settings::XS)
                         .color(k.c.text_muted)
                         .truncate()
                         .max_w(200.0),
@@ -443,7 +447,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             PERSONAL.into(),
             row().gap(6.0).center_y().child(me_face).child(
                 text("just you + your agents")
-                    .font(k.ty.small)
+                    .font(crate::settings::XS)
                     .color(k.c.text_muted),
             ),
             &[],
@@ -674,7 +678,7 @@ fn space_card(
     }
     card.child(
         text(note.to_string())
-            .font(k.ty.small)
+            .font(crate::settings::XS)
             .color(k.c.text_muted)
             .w_full()
             .wrap()
