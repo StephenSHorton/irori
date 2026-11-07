@@ -423,10 +423,10 @@ pub fn write(s: &mut State, id: u32, data: &str) {
     if l.exit.is_some() || data.is_empty() {
         return;
     }
-    if let Err(e) = s.win().clone().term_write(id, data.as_bytes()) {
-        if let Some(l) = live(s, id) {
-            l.error = Some(e);
-        }
+    if let Err(e) = s.win().clone().term_write(id, data.as_bytes())
+        && let Some(l) = live(s, id)
+    {
+        l.error = Some(e);
     }
 }
 
@@ -434,10 +434,10 @@ fn paste_text(s: &mut State, id: u32, t: &str) {
     if live(s, id).is_none_or(|l| l.exit.is_some()) {
         return;
     }
-    if let Err(e) = s.win().clone().term_paste(id, t) {
-        if let Some(l) = live(s, id) {
-            l.error = Some(e);
-        }
+    if let Err(e) = s.win().clone().term_paste(id, t)
+        && let Some(l) = live(s, id)
+    {
+        l.error = Some(e);
     }
 }
 

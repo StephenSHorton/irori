@@ -7,8 +7,10 @@
 
 use std::collections::HashSet;
 
-use irori_window::cards::{AgentRef, CardDetail, CardMessage, CardSummary, CardThreadItem, EDIT_CAN, EDIT_EDITING};
 use irori_window::cards::Holding;
+use irori_window::cards::{
+    AgentRef, CardDetail, CardMessage, CardSummary, CardThreadItem, EDIT_CAN, EDIT_EDITING,
+};
 use rune::{El, ScrollSpec, TextEdit, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, TextArea};
 
@@ -17,10 +19,10 @@ use crate::logic::agent_status::{ms, now_ms};
 use crate::logic::cards::{self as lc, Tone, Work, state};
 use crate::logic::plain::{plain_block, plain_line, relative_time};
 use crate::logic::thread::{
-    self as lt, LineTone, THREAD_PAGE, blocker_item_id, is_revision, live_roster, opens_in_full, ponder_word,
-    start_agent_item, thread_entry_id, thread_label, visible, working_line,
+    self as lt, LineTone, THREAD_PAGE, blocker_item_id, is_revision, live_roster, opens_in_full,
+    ponder_word, start_agent_item, thread_entry_id, thread_label, visible, working_line,
 };
-use crate::text::{self as tt, File, RichOpts};
+use crate::text::{self as tt, RichOpts};
 use crate::ui::{Frame, State};
 use crate::widgets::{bits, faces};
 
@@ -81,7 +83,9 @@ pub struct RowUi {
     /// What the person just did to their comment (its edit state), until
     /// the card's next read changes it: (edit, what it was seen as).
     pub shown: Option<(String, String)>,
-    pub draft: TextEdit,
+    /// The comment's text as the person edits it; None shows it as it
+    /// is (React's `draft ?? item.text`, so an emptied box stays empty).
+    pub draft: Option<TextEdit>,
 }
 
 fn row_key(card: &str, id: &str) -> String {
@@ -126,7 +130,10 @@ pub fn startable(d: &CardDetail) -> bool {
     if d.on_board.is_some() || c.ask.is_some() {
         return false;
     }
-    if matches!(c.state.as_str(), state::COMPLETED | state::CANCELED | state::FAILED) {
+    if matches!(
+        c.state.as_str(),
+        state::COMPLETED | state::CANCELED | state::FAILED
+    ) {
         return false;
     }
     c.holder.state == Holding::Nobody
@@ -152,10 +159,18 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
     };
     let show_all = s.card.show_all.contains(key);
     let paged = visible(items, show_all, THREAD_PAGE);
-    let shown = if holds && !paged.iter().any(|it| Some(it.id.as_str()) == focus) { items } else { paged };
+    let shown = if holds && !paged.iter().any(|it| Some(it.id.as_str()) == focus) {
+        items
+    } else {
+        paged
+    };
     let hidden = items.len() - shown.len();
     let gap = if o.compact { 4.0 } else { 8.0 };
-    let mut entries = col().key(format!("{key}/entries")).w_full().min_w(0.0).gap(gap);
+    let mut entries = col()
+        .key(format!("{key}/entries"))
+        .w_full()
+        .min_w(0.0)
+        .gap(gap);
     if hidden > 0 {
         let kk = key.to_string();
         entries = entries.child(
@@ -175,7 +190,11 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
                 format!(
                     "{} earlier {} shown here.",
                     o.earlier,
-                    if o.earlier == 1 { "entry isn't" } else { "entries aren't" }
+                    if o.earlier == 1 {
+                        "entry isn't"
+                    } else {
+                        "entries aren't"
+                    }
                 )
             } else {
                 "Earlier history not kept.".into()
@@ -190,11 +209,15 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
                 entries = entries.child(e.clone());
             } else {
                 entries = entries.child(
-                    text(o.empty_text.clone().unwrap_or_else(|| "Nothing yet.".into()))
-                        .font(ts(12.5, 400.0))
-                        .color(k.c.text_muted)
-                        .w_full()
-                        .wrap(),
+                    text(
+                        o.empty_text
+                            .clone()
+                            .unwrap_or_else(|| "Nothing yet.".into()),
+                    )
+                    .font(ts(12.5, 400.0))
+                    .color(k.c.text_muted)
+                    .w_full()
+                    .wrap(),
                 );
             }
         }
@@ -222,7 +245,11 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
         entries = entries.child(match st.tone {
             LineTone::Working => {
                 s.card.working_line.set(true);
-                let doing = if st.doing.is_empty() { ponder_word(s.card.ponder).to_string() } else { st.doing.clone() };
+                let doing = if st.doing.is_empty() {
+                    ponder_word(s.card.ponder).to_string()
+                } else {
+                    st.doing.clone()
+                };
                 let line = format!("{} {} {doing}…", st.who, st.verb);
                 row()
                     .key(format!("{key}/working"))
@@ -271,7 +298,12 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
         }
         return c;
     }
-    let mut c = col().key(key.to_string()).w_full().min_w(0.0).gap(gap).child(entries);
+    let mut c = col()
+        .key(key.to_string())
+        .w_full()
+        .min_w(0.0)
+        .gap(gap)
+        .child(entries);
     if let Some(cmp) = &o.composer {
         c = c.child(cmp.clone());
     }
@@ -301,13 +333,27 @@ fn actor_face(s: &State, f: &mut Frame, key: &str, who: &AgentRef) -> Option<El>
     if who.key.is_empty() || who.status == "irori" {
         return None;
     }
-    Some(
-        el().opacity(0.75)
-            .child(faces::face(s, f, key, who, faces::FaceOpts { no_dot: true, inline: true, ..Default::default() })),
-    )
+    Some(el().opacity(0.75).child(faces::face(
+        s,
+        f,
+        key,
+        who,
+        faces::FaceOpts {
+            no_dot: true,
+            inline: true,
+            ..Default::default()
+        },
+    )))
 }
 
-fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThreadItem, startable: bool) -> El {
+fn thread_row(
+    s: &State,
+    f: &mut Frame,
+    tkey: &str,
+    o: &ThreadOpts,
+    it: &CardThreadItem,
+    startable: bool,
+) -> El {
     let k = f.k;
     let key = format!("{tkey}/row-{}", it.id);
     let rk = row_key(&o.card_id, &it.id);
@@ -318,17 +364,47 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         Some((e, sn)) if *sn == seen => e.clone(),
         _ => it.edit.clone(),
     };
-    let base = row().key(key.clone()).w_full().min_w(0.0).gap(8.0).items_start().child(time_cell(f, it));
+    let base = row()
+        .key(key.clone())
+        .w_full()
+        .min_w(0.0)
+        .gap(8.0)
+        .items_start()
+        .child(time_cell(f, it));
 
     // A revision of its blocker: what the item asks now.
     if is_revision(it) {
-        let mut r = row().grow(1.0).min_w(0.0).gap(6.0).items_start().flex_wrap();
+        let mut r = row()
+            .grow(1.0)
+            .min_w(0.0)
+            .gap(6.0)
+            .items_start()
+            .flex_wrap();
         if let Some(fc) = actor_face(s, f, &format!("{key}/face"), &it.who) {
             r = r.child(fc);
         }
         r = r
-            .child(bits::badge(f, &format!("{key}/revised"), "Revised", Tone::Warning, false, ""))
-            .child(tt::rich_line(s, f, &format!("{key}/text"), &it.text, &RichOpts { font: Some(ts(12.5, 400.0)), ..RichOpts::default() }).shrink());
+            .child(bits::badge(
+                f,
+                &format!("{key}/revised"),
+                "Revised",
+                Tone::Warning,
+                false,
+                "",
+            ))
+            .child(
+                tt::rich_line(
+                    s,
+                    f,
+                    &format!("{key}/text"),
+                    &it.text,
+                    &RichOpts {
+                        font: Some(ts(12.5, 400.0)),
+                        ..RichOpts::default()
+                    },
+                )
+                .shrink(),
+            );
         if !it.device.is_empty() {
             r = r.child(device_tag(f, &format!("{key}/device"), &it.device));
         }
@@ -346,7 +422,9 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
             color: Some(k.c.text_muted),
             ..RichOpts::default()
         };
-        let linked = !it.blocker_id.is_empty() && !o.in_blocker && o.blockers_here.is_some_and(|h| h.contains(&it.blocker_id));
+        let linked = !it.blocker_id.is_empty()
+            && !o.in_blocker
+            && o.blockers_here.is_some_and(|h| h.contains(&it.blocker_id));
         let body = if linked {
             let target = blocker_item_id(&it.blocker_id);
             el().grow(1.0)
@@ -367,7 +445,9 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
                     },
                 ))
         } else {
-            tt::rich_line(s, f, &format!("{key}/text"), &it.text, &muted).grow(1.0).min_w(0.0)
+            tt::rich_line(s, f, &format!("{key}/text"), &it.text, &muted)
+                .grow(1.0)
+                .min_w(0.0)
         };
         r = r.child(body);
         if !it.device.is_empty() {
@@ -383,19 +463,57 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         .gap(6.0)
         .center_y()
         .flex_wrap()
-        .child(faces::face(s, f, &format!("{key}/face"), &it.who, faces::FaceOpts { inline: true, ..Default::default() }))
-        .child(text(plain_line(&l.author)).font(ts(12.5, 500.0)).color(k.c.text_base));
+        .child(faces::face(
+            s,
+            f,
+            &format!("{key}/face"),
+            &it.who,
+            faces::FaceOpts {
+                inline: true,
+                ..Default::default()
+            },
+        ))
+        .child(
+            text(plain_line(&l.author))
+                .font(ts(12.5, 500.0))
+                .color(k.c.text_base),
+        );
     if let (Some(to), Some(arrow)) = (&it.to, &l.arrow) {
         head = head
-            .child(text("->").font(ts(12.5, 400.0)).color(k.c.text_muted).a11y_hidden())
-            .child(faces::face(s, f, &format!("{key}/to"), to, faces::FaceOpts { inline: true, ..Default::default() }))
-            .child(text(plain_line(arrow)).font(ts(12.5, 500.0)).color(k.c.text_base));
+            .child(
+                text("->")
+                    .font(ts(12.5, 400.0))
+                    .color(k.c.text_muted)
+                    .a11y_hidden(),
+            )
+            .child(faces::face(
+                s,
+                f,
+                &format!("{key}/to"),
+                to,
+                faces::FaceOpts {
+                    inline: true,
+                    ..Default::default()
+                },
+            ))
+            .child(
+                text(plain_line(arrow))
+                    .font(ts(12.5, 500.0))
+                    .color(k.c.text_base),
+            );
     }
     if !l.device.is_empty() {
         head = head.child(device_tag(f, &format!("{key}/device"), &l.device));
     }
     for (i, b) in l.badges.iter().enumerate() {
-        head = head.child(bits::badge(f, &format!("{key}/badge{i}"), &b.label, b.tone, false, ""));
+        head = head.child(bits::badge(
+            f,
+            &format!("{key}/badge{i}"),
+            &b.label,
+            b.tone,
+            false,
+            "",
+        ));
     }
     let mut body = col().grow(1.0).min_w(0.0).gap(4.0).child(head);
     let text_opts = RichOpts {
@@ -403,9 +521,21 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         mentions: &it.mentions,
         ..RichOpts::default()
     };
-    let muted = |t: &str| text(t.to_string()).font(ts(12.5, 400.0)).color(k.c.text_muted).w_full().wrap();
+    let muted = |t: &str| {
+        text(t.to_string())
+            .font(ts(12.5, 400.0))
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap()
+    };
     if let Some(full) = &ui.full {
-        body = body.child(tt::rich_with(s, f, &format!("{key}/full"), &full.text, &text_opts));
+        body = body.child(tt::rich_with(
+            s,
+            f,
+            &format!("{key}/full"),
+            &full.text,
+            &text_opts,
+        ));
         if !full.files.is_empty() {
             let mut fl = col().w_full().gap(2.0);
             for (i, x) in full.files.iter().enumerate() {
@@ -421,11 +551,20 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
             body = body.child(fl);
         }
     } else if it.held && ui.released {
-        body = body.child(muted("Released. Its text joins the card once it is on its way."));
+        body = body.child(muted(
+            "Released. Its text joins the card once it is on its way.",
+        ));
     } else if it.held && it.dismissed {
-        let to = l.arrow.as_deref().map(plain_line).unwrap_or_else(|| "its recipient".into());
+        let to = l
+            .arrow
+            .as_deref()
+            .map(plain_line)
+            .unwrap_or_else(|| "its recipient".into());
         let mut r = row().w_full().gap(8.0).center_y().flex_wrap().child(
-            muted(&format!("Held, then dismissed: it never reached {to}, and its text isn't on the card.")).shrink(),
+            muted(&format!(
+                "Held, then dismissed: it never reached {to}, and its text isn't on the card."
+            ))
+            .shrink(),
         );
         if !it.delivery_id.is_empty() {
             let (rk2, did) = (rk.clone(), it.delivery_id.clone());
@@ -440,9 +579,11 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         }
         body = body.child(r);
     } else if it.held {
-        body = body.child(muted("Not let through the wake policy yet, so its text isn't on the card."));
+        body = body.child(muted(
+            "Not let through the wake policy yet, so its text isn't on the card.",
+        ));
     } else if edit == EDIT_EDITING {
-        body = body.child(edit_form(s, f, &key, &o.card_id, it, ui, &seen));
+        body = body.child(edit_form(f, &key, &o.card_id, it, ui, &seen));
     } else {
         let t = plain_block(&it.text);
         if !t.is_empty() {
@@ -450,7 +591,11 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         }
     }
     if !it.missing.is_empty() {
-        let mut m = col().w_full().gap(2.0).child(text("Still needed:").font(k.ty.text_xsmall).color(k.c.text_muted));
+        let mut m = col().w_full().gap(2.0).child(
+            text("Still needed:")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted),
+        );
         for (i, x) in it.missing.iter().enumerate() {
             m = m.child(
                 row()
@@ -458,16 +603,42 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
                     .gap(6.0)
                     .pl(12.0)
                     .child(text("•").font(ts(12.5, 400.0)).color(k.c.text_muted))
-                    .child(tt::rich_line(s, f, &format!("{key}/miss{i}"), x, &RichOpts { font: Some(ts(12.5, 400.0)), ..RichOpts::default() }).grow(1.0).min_w(0.0)),
+                    .child(
+                        tt::rich_line(
+                            s,
+                            f,
+                            &format!("{key}/miss{i}"),
+                            x,
+                            &RichOpts {
+                                font: Some(ts(12.5, 400.0)),
+                                ..RichOpts::default()
+                            },
+                        )
+                        .grow(1.0)
+                        .min_w(0.0),
+                    ),
             );
         }
         body = body.child(m);
     }
     if !it.attachments.is_empty() {
-        body = body.child(tt::attachment_list(s, f, &format!("{key}/files"), &File::all(&it.attachments), false));
+        body = body.child(tt::attachment_list(
+            s,
+            f,
+            &format!("{key}/files"),
+            &super::files_once(&it.attachments),
+            false,
+        ));
     }
     for (i, w) in l.waiting.iter().enumerate() {
-        body = body.child(text(plain_line(w)).key(format!("{key}/wait{i}")).font(ts(11.0, 400.0)).color(k.c.text_muted).w_full().wrap());
+        body = body.child(
+            text(plain_line(w))
+                .key(format!("{key}/wait{i}"))
+                .font(ts(11.0, 400.0))
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     }
     let card = o.card_id.clone();
     if !card.is_empty() && edit == EDIT_CAN {
@@ -481,10 +652,14 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
                     .disabled(ui.busy)
                     .help("No agent has read it yet: take it back to edit it")
                     .on_press(move |s: &mut State| {
-                        let r = row_mut(s, &rk2);
-                        r.draft = TextEdit::new(&t);
+                        // The box takes the keyboard as it opens (autoFocus).
+                        let mut d = TextEdit::new(&t);
+                        d.focused = true;
+                        row_mut(s, &rk2).draft = Some(d);
                         let (cid, iid) = (cid.clone(), iid.clone());
-                        edit_action(s, &rk2, &seen2, EDIT_EDITING, move |w| w.comment_modify(&cid, &iid));
+                        edit_action(s, &rk2, &seen2, EDIT_EDITING, move |w| {
+                            w.comment_modify(&cid, &iid)
+                        });
                     })
                     .build(k),
             ),
@@ -492,7 +667,11 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
     }
     if startable && !card.is_empty() && !ui.started {
         let (rk2, cid) = (rk.clone(), card.clone());
-        let brief = ui.full.as_ref().map(|m| m.text.clone()).unwrap_or_else(|| it.text.clone());
+        let brief = ui
+            .full
+            .as_ref()
+            .map(|m| m.text.clone())
+            .unwrap_or_else(|| it.text.clone());
         body = body.child(
             row().child(
                 Button::new("Start an agent with this")
@@ -522,37 +701,45 @@ fn thread_row(s: &State, f: &mut Frame, tkey: &str, o: &ThreadOpts, it: &CardThr
         );
     }
     if ui.started {
-        body = body.child(text("Starting an agent with this comment in its brief.").font(ts(11.0, 400.0)).color(k.c.text_muted));
+        body = body.child(
+            text("Starting an agent with this comment in its brief.")
+                .font(ts(11.0, 400.0))
+                .color(k.c.text_muted),
+        );
     }
     if ui.full.is_none() && !card.is_empty() && opens_in_full(it) {
         let (rk2, cid, iid) = (rk.clone(), card.clone(), it.id.clone());
         body = body.child(
             row().child(
-                Button::new(if ui.busy { "Opening…" } else { "Show the whole message" })
-                    .variant(ButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Mini)
-                    .disabled(ui.busy)
-                    .on_press(move |s: &mut State| {
-                        let r = row_mut(s, &rk2);
-                        if r.busy {
-                            return;
-                        }
-                        r.busy = true;
-                        r.error = None;
-                        let (cid, iid, rk3) = (cid.clone(), iid.clone(), rk2.clone());
-                        s.spawn(
-                            move |w| w.message(&cid, &iid),
-                            move |s, res| {
-                                let r = row_mut(s, &rk3);
-                                r.busy = false;
-                                match res {
-                                    Ok(m) => r.full = Some(m),
-                                    Err(e) => r.error = Some(e),
-                                }
-                            },
-                        );
-                    })
-                    .build(k),
+                Button::new(if ui.busy {
+                    "Opening…"
+                } else {
+                    "Show the whole message"
+                })
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Mini)
+                .disabled(ui.busy)
+                .on_press(move |s: &mut State| {
+                    let r = row_mut(s, &rk2);
+                    if r.busy {
+                        return;
+                    }
+                    r.busy = true;
+                    r.error = None;
+                    let (cid, iid, rk3) = (cid.clone(), iid.clone(), rk2.clone());
+                    s.spawn(
+                        move |w| w.message(&cid, &iid),
+                        move |s, res| {
+                            let r = row_mut(s, &rk3);
+                            r.busy = false;
+                            match res {
+                                Ok(m) => r.full = Some(m),
+                                Err(e) => r.error = Some(e),
+                            }
+                        },
+                    );
+                })
+                .build(k),
             ),
         );
     }
@@ -611,34 +798,55 @@ fn release(s: &mut State, rk: &str, delivery: &str) {
 
 /// The person's comment no agent read yet, held back while they edit it
 /// (card #105): Save sends the new text, Cancel lets it go as it was.
-fn edit_form(s: &State, f: &mut Frame, key: &str, card: &str, it: &CardThreadItem, ui: &RowUi, seen: &str) -> El {
+fn edit_form(
+    f: &mut Frame,
+    key: &str,
+    card: &str,
+    it: &CardThreadItem,
+    ui: &RowUi,
+    seen: &str,
+) -> El {
     let k = f.k;
     let rk = row_key(card, &it.id);
     let save = {
-        let (rk, cid, iid, seen) = (rk.clone(), card.to_string(), it.id.clone(), seen.to_string());
+        let (rk, cid, iid, seen) = (
+            rk.clone(),
+            card.to_string(),
+            it.id.clone(),
+            seen.to_string(),
+        );
+        let was = it.text.clone();
         move |s: &mut State| {
-            let t = row_mut(s, &rk).draft.text.clone();
+            let t = row_mut(s, &rk)
+                .draft
+                .as_ref()
+                .map_or_else(|| was.clone(), |d| d.text.clone());
             if t.trim().is_empty() {
                 row_mut(s, &rk).error = Some("Write a comment first.".into());
                 return;
             }
             let (cid, iid) = (cid.clone(), iid.clone());
-            edit_action(s, &rk, &seen, EDIT_CAN, move |w| w.comment_modify_save(&cid, &iid, &t).map(|_| ()));
+            edit_action(s, &rk, &seen, EDIT_CAN, move |w| {
+                w.comment_modify_save(&cid, &iid, &t).map(|_| ())
+            });
         }
     };
     let cancel = {
-        let (rk, cid, iid, seen) = (rk.clone(), card.to_string(), it.id.clone(), seen.to_string());
+        let (rk, cid, iid, seen) = (
+            rk.clone(),
+            card.to_string(),
+            it.id.clone(),
+            seen.to_string(),
+        );
         move |s: &mut State| {
             let (cid, iid) = (cid.clone(), iid.clone());
-            edit_action(s, &rk, &seen, EDIT_CAN, move |w| w.comment_modify_cancel(&cid, &iid));
+            edit_action(s, &rk, &seen, EDIT_CAN, move |w| {
+                w.comment_modify_cancel(&cid, &iid)
+            });
         }
     };
-    let draft = if s.card.rows.get(&rk).is_some_and(|r| !r.draft.text.is_empty()) {
-        ui.draft.clone()
-    } else {
-        TextEdit::new(&it.text)
-    };
-    let rk_e = rk.clone();
+    let draft = ui.draft.clone().unwrap_or_else(|| TextEdit::new(&it.text));
+    let (rk_e, was) = (rk.clone(), it.text.clone());
     let save2 = save.clone();
     let cancel2 = cancel.clone();
     let area = TextArea::new(&draft)
@@ -646,50 +854,47 @@ fn edit_form(s: &State, f: &mut Frame, key: &str, card: &str, it: &CardThreadIte
         .auto_grow(3, 10)
         .on_edit(move |s: &mut State| {
             let r = row_mut(s, &rk_e);
-            &mut r.draft
+            r.draft.get_or_insert_with(|| TextEdit::new(&was))
         })
         .on_submit(move |s: &mut State, _tx: &mut Tx| save2(s))
-        .build(k)
-        .key(format!("{key}/edit"))
+        // Esc cancels the edit (the field's own key, ahead of the page's).
         .on_key(move |s: &mut State, ev: &rune::KeyEvent, _tx: &mut Tx| {
             if ev.key == rune::Key::Escape {
                 cancel2(s);
                 return true;
             }
             false
-        });
-    col()
-        .w_full()
-        .gap(6.0)
-        .child(area)
-        .child(
-            row()
-                .w_full()
-                .gap(8.0)
-                .center_y()
-                .flex_wrap()
-                .child(
-                    Button::new("Save")
-                        .variant(ButtonVariant::Submit)
-                        .control_size(ControlSize::Mini)
-                        .disabled(ui.busy)
-                        .on_press(save)
-                        .build(k),
-                )
-                .child(
-                    Button::new("Cancel")
-                        .variant(ButtonVariant::Ghost)
-                        .control_size(ControlSize::Mini)
-                        .disabled(ui.busy)
-                        .on_press(cancel)
-                        .build(k),
-                )
-                .child(
-                    text("Held back: no agent gets it until you save or cancel.")
-                        .font(k.ty.text_xsmall)
-                        .color(k.c.text_muted)
-                        .shrink()
-                        .wrap(),
-                ),
-        )
+        })
+        .build(k)
+        .key(format!("{key}/edit"));
+    col().w_full().gap(6.0).child(area).child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .flex_wrap()
+            .child(
+                Button::new("Save")
+                    .variant(ButtonVariant::Submit)
+                    .control_size(ControlSize::Mini)
+                    .disabled(ui.busy)
+                    .on_press(save)
+                    .build(k),
+            )
+            .child(
+                Button::new("Cancel")
+                    .variant(ButtonVariant::Ghost)
+                    .control_size(ControlSize::Mini)
+                    .disabled(ui.busy)
+                    .on_press(cancel)
+                    .build(k),
+            )
+            .child(
+                text("Held back: no agent gets it until you save or cancel.")
+                    .font(k.ty.text_xsmall)
+                    .color(k.c.text_muted)
+                    .shrink()
+                    .wrap(),
+            ),
+    )
 }

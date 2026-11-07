@@ -16,8 +16,10 @@ use crate::logic::agent_status::{ms, now_ms};
 use crate::logic::cards::{self as lc, Tone, blocker};
 use crate::logic::names::display_name;
 use crate::logic::plain::{plain_line, relative_time};
-use crate::logic::thread::{BlockerTone, answerable, blocker_chip, blocker_item_id, blocker_tone, is_wait};
-use crate::text::{self as tt, ComposerOpts, File, RichOpts, Sent};
+use crate::logic::thread::{
+    BlockerTone, answerable, blocker_chip, blocker_item_id, blocker_tone, is_wait,
+};
+use crate::text::{self as tt, ComposerOpts, RichOpts, Sent};
 use crate::ui::{Frame, State};
 use crate::widgets::{bits, confirm, done_rounds};
 
@@ -50,6 +52,8 @@ pub struct BlockerUi {
     pub error: Option<String>,
     pub told: Option<SentLine>,
     pub missed: String,
+    /// A permission prompt's pick, as it says what happens (card #682).
+    pub said: String,
 }
 
 /// An answer's start, quoted on one line (card #265).
@@ -83,7 +87,12 @@ const NOTE_NO_FILES: &str = "Files go with a comment: add them in the comment bo
 
 /// The left column's top panel: Ready for you, the objective, the
 /// blockers. None when it has nothing to show.
-pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&CardBlocker>) -> Option<El> {
+pub fn main_panel(
+    s: &State,
+    f: &mut Frame,
+    d: &CardDetail,
+    ready_now: Option<&CardBlocker>,
+) -> Option<El> {
     let c = &d.summary;
     let open: Vec<&CardBlocker> = d.blockers.iter().filter(|b| b.resolved.is_none()).collect();
     let legacy = c.open_blockers > 0 && open.is_empty();
@@ -91,8 +100,17 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
     // The done check lifted to the top stays there once answered.
     let lifted = s.card.ui.lifted.as_deref();
     let ready = ready_now.or_else(|| lifted.and_then(|l| d.blockers.iter().find(|b| b.id == l)));
-    let blockers: Vec<&CardBlocker> = d.blockers.iter().filter(|b| Some(b.id.as_str()) != ready.map(|r| r.id.as_str())).collect();
-    let answered = s.card.ui.answered.as_ref().filter(|_| s.card.ui.card == c.id);
+    let blockers: Vec<&CardBlocker> = d
+        .blockers
+        .iter()
+        .filter(|b| Some(b.id.as_str()) != ready.map(|r| r.id.as_str()))
+        .collect();
+    let answered = s
+        .card
+        .ui
+        .answered
+        .as_ref()
+        .filter(|_| s.card.ui.card == c.id);
     let has_objective = !d.goal.is_empty() || !d.done_when.is_empty() || show_note;
     // A held card (Not yet) keeps its hold item off the page: the line
     // under the title says it, so the Blockers section isn't drawn.
@@ -108,7 +126,11 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
         p = p.child(section(
             f,
             "card/ready",
-            if ready_now.is_some() { "Ready for you" } else { "Done check" },
+            if ready_now.is_some() {
+                "Ready for you"
+            } else {
+                "Done check"
+            },
             !has_objective && !has_blockers,
             vec![item],
         ));
@@ -133,16 +155,33 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
             body.push(super::labelled(
                 f,
                 "Visible to",
-                note(f, ob.visible_to.iter().map(|v| plain_line(v)).collect::<Vec<_>>().join(", ")),
+                note(
+                    f,
+                    ob.visible_to
+                        .iter()
+                        .map(|v| plain_line(v))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
             ));
         }
         if show_note {
             body.push(super::page::label_rich(s, f, "card/note", "Note", &d.note));
         }
         if !d.done_when.is_empty() {
-            body.push(super::page::label_rich(s, f, "card/done-when", "Done when", &d.done_when));
+            body.push(super::page::label_rich(
+                s,
+                f,
+                "card/done-when",
+                "Done when",
+                &d.done_when,
+            ));
         }
-        let title = if lc::open_ask(c.ask.as_ref()) { "You asked" } else { "Objective" };
+        let title = if lc::open_ask(c.ask.as_ref()) {
+            "You asked"
+        } else {
+            "Objective"
+        };
         p = p.child(section(f, "card/objective", title, !has_blockers, body));
     }
     if has_blockers {
@@ -187,8 +226,19 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
                         row()
                             .w_full()
                             .gap(4.0)
-                            .child(text("✓").font(ts(13.5, 600.0)).color(k.c.success.fg).label("Answered: "))
-                            .child(text(plain_line(&a.question)).font(ts(13.5, 600.0)).color(k.c.text_base).shrink().wrap()),
+                            .child(
+                                text("✓")
+                                    .font(ts(13.5, 600.0))
+                                    .color(k.c.success.fg)
+                                    .label("Answered: "),
+                            )
+                            .child(
+                                text(plain_line(&a.question))
+                                    .font(ts(13.5, 600.0))
+                                    .color(k.c.text_base)
+                                    .shrink()
+                                    .wrap(),
+                            ),
                     )
                     .child(
                         text(format!("You answered: “{}”", gist(&a.answer)))
@@ -197,7 +247,15 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
                             .w_full()
                             .wrap(),
                     )
-                    .child(told_line(f, "card/answered-told", &a.told, &a.to, None, false, false)),
+                    .child(told_line(
+                        f,
+                        "card/answered-told",
+                        &a.told,
+                        &a.to,
+                        None,
+                        false,
+                        false,
+                    )),
             );
         }
         for b in blockers.iter().filter(|b| !is_wait(b)) {
@@ -213,11 +271,11 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
     Some(p)
 }
 
-fn ui<'a>(s: &'a State, id: &str) -> BlockerUi {
+fn ui(s: &State, id: &str) -> BlockerUi {
     s.card.ui.blockers.get(id).cloned().unwrap_or_default()
 }
 
-fn ui_mut<'a>(s: &'a mut State, id: &str) -> &'a mut BlockerUi {
+pub(super) fn ui_mut<'a>(s: &'a mut State, id: &str) -> &'a mut BlockerUi {
     s.card.ui.blockers.entry(id.to_string()).or_default()
 }
 
@@ -234,7 +292,12 @@ fn take(s: &State, get: crate::text::Get) -> Sent {
 /// An item's small line: who raised a done check, when, who decides and
 /// how it ended, joined by " · " with nothing left dangling when the
 /// time is unknown.
-pub(crate) fn meta_line(raiser: Option<&str>, raised: &str, decider: Option<&str>, by: &str) -> String {
+pub(crate) fn meta_line(
+    raiser: Option<&str>,
+    raised: &str,
+    decider: Option<&str>,
+    by: &str,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(r) = raiser {
         parts.push(format!("Raised by {r}"));
@@ -256,14 +319,24 @@ pub(crate) fn meta_line(raiser: Option<&str>, raised: &str, decider: Option<&str
 fn send(s: &mut State, card: &str, b: &CardBlocker, option: i64) {
     let bid = b.id.clone();
     let key = format!("{card}/blocker/{bid}");
-    let Some((get, get_mut)) = super::slot(s, &key) else { return };
+    let Some((get, get_mut)) = super::slot(s, &key) else {
+        return;
+    };
     if ui(s, &bid).busy {
         return;
     }
     let mut sent = take(s, get);
-    let replying = b.options_aside || matches!(b.state.as_str(), blocker::ANSWERED | blocker::REPLIED);
+    let replying =
+        b.options_aside || matches!(b.state.as_str(), blocker::ANSWERED | blocker::REPLIED);
     if option < 0 && sent.text.is_empty() {
-        ui_mut(s, &bid).error = Some(if replying { "Write a reply first." } else { "Write an answer first." }.into());
+        ui_mut(s, &bid).error = Some(
+            if replying {
+                "Write a reply first."
+            } else {
+                "Write an answer first."
+            }
+            .into(),
+        );
         return;
     }
     // A picked option carries no text, so no mentions.
@@ -285,7 +358,10 @@ fn send(s: &mut State, card: &str, b: &CardBlocker, option: i64) {
     let files = sent.files;
     let bid2 = bid.clone();
     s.spawn(
-        move |w| w.answer_files(&cid, &bid2, option, &own, true, &ms, &files).map(|r| (r, own)),
+        move |w| {
+            w.answer_files(&cid, &bid2, option, &own, true, &ms, &files)
+                .map(|r| (r, own))
+        },
         move |s, r| {
             get_mut(s).sending = false;
             ui_mut(s, &bid).busy = false;
@@ -308,7 +384,14 @@ fn send(s: &mut State, card: &str, b: &CardBlocker, option: i64) {
 
 /// Shows what a saved answer's reply says. `own` is its words ("" for a
 /// pick), None for Mark resolved (the check says it all).
-fn heard(s: &mut State, bid: &str, question: &str, raiser: &AgentRef, res: &AnswerResult, own: Option<String>) {
+fn heard(
+    s: &mut State,
+    bid: &str,
+    question: &str,
+    raiser: &AgentRef,
+    res: &AnswerResult,
+    own: Option<String>,
+) {
     if bid == NOTE_ITEM
         && let Some(o) = &own
     {
@@ -332,7 +415,9 @@ fn heard(s: &mut State, bid: &str, question: &str, raiser: &AgentRef, res: &Answ
 fn mark_resolved(s: &mut State, card: &str, b: &CardBlocker) {
     let bid = b.id.clone();
     let key = format!("{card}/resolve/{bid}");
-    let Some((get, get_mut)) = super::slot(s, &key) else { return };
+    let Some((get, get_mut)) = super::slot(s, &key) else {
+        return;
+    };
     if ui(s, &bid).busy {
         return;
     }
@@ -367,12 +452,18 @@ fn mark_resolved(s: &mut State, card: &str, b: &CardBlocker) {
 /// How a resolved item ended, on its folded line (notifications.ts
 /// blockerOutcome for a sent-back done check).
 pub fn resolved_by(b: &CardBlocker) -> String {
-    let Some(r) = &b.resolved else { return String::new() };
+    let Some(r) = &b.resolved else {
+        return String::new();
+    };
     if b.done_check && r.note == ASKED_AGAIN {
         return blocker_outcome(b);
     }
     if r.closed {
-        let a = if r.answer.is_empty() { String::new() } else { format!(": “{}”", gist(&r.answer)) };
+        let a = if r.answer.is_empty() {
+            String::new()
+        } else {
+            format!(": “{}”", gist(&r.answer))
+        };
         return format!("closed by {}{a}", display_name(&r.by));
     }
     if !r.note.is_empty() {
@@ -388,7 +479,11 @@ pub const ASKED_AGAIN: &str = "asked again: ready for the person";
 /// ended.
 pub fn blocker_outcome(b: &CardBlocker) -> String {
     let Some(r) = &b.resolved else {
-        return if b.state == blocker::ANSWERED { "Answered; it's with the agent now".into() } else { String::new() };
+        return if b.state == blocker::ANSWERED {
+            "Answered; it's with the agent now".into()
+        } else {
+            String::new()
+        };
     };
     let who = |n: &str| {
         let n = n.trim();
@@ -403,7 +498,14 @@ pub fn blocker_outcome(b: &CardBlocker) -> String {
     let by = who(&r.by.name);
     let note = r.note.trim();
     if r.closed {
-        return format!("Closed by {by}{}", if note.is_empty() { String::new() } else { format!(": {note}") });
+        return format!(
+            "Closed by {by}{}",
+            if note.is_empty() {
+                String::new()
+            } else {
+                format!(": {note}")
+            }
+        );
     }
     let answer = r.answer.trim();
     if b.done_check && note == ASKED_AGAIN {
@@ -417,26 +519,50 @@ pub fn blocker_outcome(b: &CardBlocker) -> String {
         return if r.option >= 0 {
             format!("Marked done by {by}")
         } else {
-            format!("Sent back by {by}{}", if answer.is_empty() { String::new() } else { format!(": “{answer}”") })
+            format!(
+                "Sent back by {by}{}",
+                if answer.is_empty() {
+                    String::new()
+                } else {
+                    format!(": “{answer}”")
+                }
+            )
         };
     }
     if r.option >= 0 {
         return format!("Answered “{answer}” by {by}");
     }
-    format!("Answered by {by}{}", if answer.is_empty() { String::new() } else { format!(": “{answer}”") })
+    format!(
+        "Answered by {by}{}",
+        if answer.is_empty() {
+            String::new()
+        } else {
+            format!(": “{answer}”")
+        }
+    )
 }
 
 /// One blocker: the question, context, who raised it, its own thread and,
 /// while the person can answer, the options as buttons with a box for
 /// their own words. Open and replied are amber, answered grey (the form
 /// behind "Add to your answer"), resolved folds to one line.
-pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, no_files: bool) -> El {
+pub fn blocker_item(
+    s: &State,
+    f: &mut Frame,
+    d: &CardDetail,
+    b: &CardBlocker,
+    no_files: bool,
+) -> El {
     let k = f.k;
     let cid = d.summary.id.clone();
     let u = ui(s, &b.id);
     let key = blocker_item_id(&b.id);
     let r = b.resolved.as_ref();
-    let st = if b.state.is_empty() { blocker::OPEN } else { b.state.as_str() };
+    let st = if b.state.is_empty() {
+        blocker::OPEN
+    } else {
+        b.state.as_str()
+    };
     let tone = blocker_tone(st);
     let answered = st == blocker::ANSWERED || st == blocker::REPLIED;
     let aside = b.options_aside;
@@ -469,15 +595,29 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
             .role("button")
             .help("Show the whole item")
             .on_press(move |s: &mut State| ui_mut(s, &bid).unfolded = true)
-            .child(text("✓").font(ts(12.5, 600.0)).color(k.c.success.fg).label("Resolved: "))
             .child(
-                rune::rich(line, vec![rune::Span::new(0, q_len).weight(600.0).color(k.c.text_base)])
-                    .font(ts(12.5, 400.0))
-                    .color(k.c.text_muted)
-                    .max_lines(1)
-                    .shrink()
-                    .min_w(0.0),
+                text("✓")
+                    .font(ts(12.5, 600.0))
+                    .color(k.c.success.fg)
+                    .label("Resolved: "),
+            )
+            .child(
+                rune::rich(
+                    line,
+                    vec![rune::Span::new(0, q_len).weight(600.0).color(k.c.text_base)],
+                )
+                .font(ts(12.5, 400.0))
+                .color(k.c.text_muted)
+                .max_lines(1)
+                .shrink()
+                .min_w(0.0),
             );
+    }
+
+    // A spawned agent's permission prompt (card #682): what waits and its
+    // buttons; no answer box or thread, since words don't reach a prompt.
+    if b.permission.is_some() {
+        return super::permission::item(s, f, d, b, &u);
     }
 
     let (fill, border, dim) = match tone {
@@ -497,11 +637,20 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
         .fill(fill)
         .opacity(dim);
     if !b.done_check {
-        item = item.child(bits::asker(f, &format!("card/b/{}/asker", b.id), &b.raised_by));
+        item = item.child(bits::asker(
+            f,
+            &format!("card/b/{}/asker", b.id),
+            &b.raised_by,
+        ));
     }
     let mut head = row().w_full().min_w(0.0).gap(6.0).items_start();
     if r.is_some() {
-        head = head.child(text("✓").font(ts(13.5, 600.0)).color(k.c.success.fg).label("Resolved: "));
+        head = head.child(
+            text("✓")
+                .font(ts(13.5, 600.0))
+                .color(k.c.success.fg)
+                .label("Resolved: "),
+        );
     }
     head = head.child(
         tt::rich_line(
@@ -518,7 +667,14 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
         .min_w(0.0),
     );
     if let Some(chip) = blocker_chip(b) {
-        head = head.child(bits::badge(f, &format!("card/b/{}/chip", b.id), &plain_line(&chip.label), chip.tone, false, ""));
+        head = head.child(bits::badge(
+            f,
+            &format!("card/b/{}/chip", b.id),
+            &plain_line(&chip.label),
+            chip.tone,
+            false,
+            "",
+        ));
     }
     if r.is_some() {
         let bid = b.id.clone();
@@ -532,12 +688,24 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     }
     item = item.child(head);
     if b.done_check {
-        if let Some(e) = done_rounds::earlier_round(s, f, &format!("card/b/{}/earlier", b.id), b, false) {
+        if let Some(e) =
+            done_rounds::earlier_round(s, f, &format!("card/b/{}/earlier", b.id), b, false)
+        {
             item = item.child(e);
         }
-        item = item.child(tt::attachment_list(s, f, &format!("card/b/{}/files", b.id), &File::all(&b.attachments), false));
+        item = item.child(tt::attachment_list(
+            s,
+            f,
+            &format!("card/b/{}/files", b.id),
+            &super::files_once(&b.attachments),
+            false,
+        ));
         if b.previous.is_some() && !b.context.is_empty() {
-            item = item.child(text("New proof").font(ts(11.5, 500.0)).color(k.c.text_muted));
+            item = item.child(
+                text("New proof")
+                    .font(ts(11.5, 500.0))
+                    .color(k.c.text_muted),
+            );
         }
     }
     if !b.context.is_empty() {
@@ -553,14 +721,30 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
         ));
     }
     if !b.links.is_empty() {
-        let mut links = row().w_full().gap(6.0).flex_wrap().label(format!("Links for: {}", plain_line(&b.question)));
+        let mut links = row()
+            .w_full()
+            .gap(6.0)
+            .flex_wrap()
+            .label(format!("Links for: {}", plain_line(&b.question)));
         for (i, l) in b.links.iter().enumerate() {
-            links = links.child(tt::link_chip(f, &format!("card/b/{}/link{i}", b.id), &l.kind, &l.reference, &l.label));
+            links = links.child(tt::link_chip(
+                f,
+                &format!("card/b/{}/link{i}", b.id),
+                &l.kind,
+                &l.reference,
+                &l.label,
+            ));
         }
         item = item.child(links);
     }
     if !b.done_check && !b.attachments.is_empty() {
-        item = item.child(tt::attachment_list(s, f, &format!("card/b/{}/files", b.id), &File::all(&b.attachments), false));
+        item = item.child(tt::attachment_list(
+            s,
+            f,
+            &format!("card/b/{}/files", b.id),
+            &super::files_once(&b.attachments),
+            false,
+        ));
     }
     if r.is_none()
         && let Some(g) = &b.gone_agent
@@ -568,11 +752,24 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
         item = item.child(gone_raiser(s, f, &cid, &b.id, g));
     }
     // Who raised it, when, who decides, how it ended.
-    let raised = ms(&b.at).map(|t| relative_time(t, now_ms())).unwrap_or_default();
-    let decider = b.decider.as_ref().filter(|_| r.is_none()).map(|dc| display_name(dc));
-    let meta = meta_line(b.done_check.then(|| display_name(&b.raised_by)).as_deref(), &raised, decider.as_deref(), &by);
+    let raised = ms(&b.at)
+        .map(|t| relative_time(t, now_ms()))
+        .unwrap_or_default();
+    let decider = b.decider.as_ref().filter(|_| r.is_none()).map(display_name);
+    let meta = meta_line(
+        b.done_check.then(|| display_name(&b.raised_by)).as_deref(),
+        &raised,
+        decider.as_deref(),
+        &by,
+    );
     if !meta.is_empty() {
-        item = item.child(text(meta).font(ts(11.5, 400.0)).color(k.c.text_muted).w_full().wrap());
+        item = item.child(
+            text(meta)
+                .font(ts(11.5, 400.0))
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     }
     if let Some(sb) = done_rounds::sent_back_signs(f, &format!("card/b/{}/signs", b.id), b) {
         item = item.child(sb);
@@ -592,7 +789,12 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
             composer: form,
             ..super::ThreadOpts::default()
         };
-        item = item.child(super::thread_view(s, f, &format!("card/b/{}/thread", b.id), &opts));
+        item = item.child(super::thread_view(
+            s,
+            f,
+            &format!("card/b/{}/thread", b.id),
+            &opts,
+        ));
     } else if let Some(fm) = form {
         item = item.child(fm);
     }
@@ -625,10 +827,26 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
     }
     if let Some(t) = &u.told {
         // Only while it still says what is so.
-        let shows = if t.resolved { r.is_some() } else { st == blocker::ANSWERED };
+        let shows = if t.resolved {
+            r.is_some()
+        } else {
+            st == blocker::ANSWERED
+        };
         if shows {
-            let sent = if b.id == NOTE_ITEM { None } else { Some(t.resolved) };
-            item = item.child(told_line(f, &format!("card/b/{}/told", b.id), &t.told, &b.raised_by, sent, b.done_check, t.irori));
+            let sent = if b.id == NOTE_ITEM {
+                None
+            } else {
+                Some(t.resolved)
+            };
+            item = item.child(told_line(
+                f,
+                &format!("card/b/{}/told", b.id),
+                &t.told,
+                &b.raised_by,
+                sent,
+                b.done_check,
+                t.irori,
+            ));
         }
     }
     if !u.missed.is_empty() {
@@ -641,23 +859,39 @@ pub fn blocker_item(s: &State, f: &mut Frame, d: &CardDetail, b: &CardBlocker, n
 }
 
 /// The options to pick, and the own-words box with its button.
-fn answer_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &BlockerUi, replying: bool, no_files: bool) -> El {
+fn answer_form(
+    s: &State,
+    f: &mut Frame,
+    cid: &str,
+    b: &CardBlocker,
+    u: &BlockerUi,
+    replying: bool,
+    no_files: bool,
+) -> El {
     let k = f.k;
-    let mut form = col().key(format!("card/b/{}/form", b.id)).w_full().min_w(0.0).gap(6.0);
+    let mut form = col()
+        .key(format!("card/b/{}/form", b.id))
+        .w_full()
+        .min_w(0.0)
+        .gap(6.0);
     let aside = b.options_aside;
     if aside && !b.options.is_empty() {
         let bid = b.id.clone();
         let mut e = col().w_full().gap(4.0).child(
             row().child(
-                Button::new(format!("{} Earlier options ({})", if u.earlier { "▾" } else { "▸" }, b.options.len()))
-                    .variant(ButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Mini)
-                    .expanded(u.earlier)
-                    .on_press(move |s: &mut State| {
-                        let u = ui_mut(s, &bid);
-                        u.earlier = !u.earlier;
-                    })
-                    .build(k),
+                Button::new(format!(
+                    "{} Earlier options ({})",
+                    if u.earlier { "▾" } else { "▸" },
+                    b.options.len()
+                ))
+                .variant(ButtonVariant::GhostMuted)
+                .control_size(ControlSize::Mini)
+                .expanded(u.earlier)
+                .on_press(move |s: &mut State| {
+                    let u = ui_mut(s, &bid);
+                    u.earlier = !u.earlier;
+                })
+                .build(k),
             ),
         );
         if u.earlier {
@@ -672,7 +906,14 @@ fn answer_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &Blocker
                 if o.recommended {
                     line.push_str(&format!(" (recommended by {})", display_name(&o.by)));
                 }
-                list = list.child(text(line).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap().key(format!("card/b/{}/old{i}", b.id)));
+                list = list.child(
+                    text(line)
+                        .font(k.ty.text_xsmall)
+                        .color(k.c.text_muted)
+                        .w_full()
+                        .wrap()
+                        .key(format!("card/b/{}/old{i}", b.id)),
+                );
             }
             e = e.child(list);
         }
@@ -721,7 +962,10 @@ fn answer_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &Blocker
     };
     let key = format!("{cid}/blocker/{}", b.id);
     let Some((get, get_mut)) = super::slot(s, &key) else {
-        return form.child(note(f, "Too many open items on this card to answer them all here; answer one first."));
+        return form.child(note(
+            f,
+            "Too many open items on this card to answer them all here; answer one first.",
+        ));
     };
     let bb = b.clone();
     let cid2 = cid.to_string();
@@ -735,8 +979,18 @@ fn answer_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &Blocker
     let cid3 = cid.to_string();
     let opts = ComposerOpts {
         placeholder: placeholder.into(),
-        label: format!("{}: {}", if replying { "Your reply on" } else { "Your answer to" }, plain_line(&b.question)),
-        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| send(s, &cid3, &bb, -1))),
+        label: format!(
+            "{}: {}",
+            if replying {
+                "Your reply on"
+            } else {
+                "Your answer to"
+            },
+            plain_line(&b.question)
+        ),
+        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| {
+            send(s, &cid3, &bb, -1)
+        })),
         extra: vec![send_btn],
         card: cid.to_string(),
         no_files: files_off,
@@ -746,12 +1000,27 @@ fn answer_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &Blocker
         ..ComposerOpts::default()
     };
     let _ = get_mut;
-    form.child(tt::composer(s, f, &format!("card/b/{}/box", b.id), get, get_mut, &opts))
+    form.child(tt::composer(
+        s,
+        f,
+        &format!("card/b/{}/box", b.id),
+        get,
+        get_mut,
+        &opts,
+    ))
 }
 
 /// One answer to pick: the button (the answer, who recommends it); its why
 /// and link beside it, so their links can be clicked without picking.
-fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOption, i: usize, busy: bool) -> El {
+fn option_item(
+    s: &State,
+    f: &mut Frame,
+    cid: &str,
+    b: &CardBlocker,
+    o: &CardOption,
+    i: usize,
+    busy: bool,
+) -> El {
     let k = f.k;
     let key = format!("card/b/{}/opt{i}", b.id);
     let bb = b.clone();
@@ -773,7 +1042,14 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
         .min_w(0.0),
     );
     if o.recommended {
-        head = head.child(bits::badge(f, &format!("{key}/rec"), "Recommended", Tone::Info, true, ""));
+        head = head.child(bits::badge(
+            f,
+            &format!("{key}/rec"),
+            "Recommended",
+            Tone::Info,
+            true,
+            "",
+        ));
     }
     let who = if o.recommended {
         text(format!("{} recommends this.", display_name(&o.by)))
@@ -790,11 +1066,19 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
         .gap(2.0)
         .px(10.0)
         .pt(8.0)
-        .pb(if o.why.is_empty() && o.link.is_none() { 8.0 } else { 2.0 })
+        .pb(if o.why.is_empty() && o.link.is_none() {
+            8.0
+        } else {
+            2.0
+        })
         .role("button")
         .label(plain_line(&o.answer))
         .focusable(!busy)
-        .cursor(if busy { rune::Cursor::Default } else { rune::Cursor::Pointer })
+        .cursor(if busy {
+            rune::Cursor::Default
+        } else {
+            rune::Cursor::Pointer
+        })
         .opacity(if busy { 0.6 } else { 1.0 })
         .on_press(move |s: &mut State| send(s, &cid, &bb, i as i64))
         .child(head)
@@ -806,8 +1090,19 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
         .w(280.0)
         .gap(4.0)
         .radius(8.0)
-        .border(1.0, if o.recommended { k.c.text_accent.alpha(0.6) } else { k.c.border_base })
-        .fill(if o.recommended { k.c.bg_accent.alpha(0.12) } else { k.c.layer_01 })
+        .border(
+            1.0,
+            if o.recommended {
+                k.c.text_accent.alpha(0.6)
+            } else {
+                k.c.border_base
+            },
+        )
+        .fill(if o.recommended {
+            k.c.bg_accent.alpha(0.12)
+        } else {
+            k.c.layer_01
+        })
         .child(pick);
     if !o.why.is_empty() || o.link.is_some() {
         let mut extra = col().w_full().gap(4.0).px(10.0).pb(8.0);
@@ -825,7 +1120,13 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
             ));
         }
         if let Some(l) = &o.link {
-            extra = extra.child(row().child(tt::link_chip(f, &format!("{key}/link"), &l.kind, &l.reference, &l.label)));
+            extra = extra.child(row().child(tt::link_chip(
+                f,
+                &format!("{key}/link"),
+                &l.kind,
+                &l.reference,
+                &l.label,
+            )));
         }
         c = c.child(extra);
     }
@@ -836,14 +1137,18 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
 fn resolve_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &BlockerUi) -> El {
     let k = f.k;
     let key = format!("{cid}/resolve/{}", b.id);
-    let Some((get, get_mut)) = super::slot(s, &key) else { return el() };
+    let Some((get, get_mut)) = super::slot(s, &key) else {
+        return el();
+    };
     let (bb, cid2) = (b.clone(), cid.to_string());
     let (bb2, cid3) = (b.clone(), cid.to_string());
     let bid = b.id.clone();
     let opts = ComposerOpts {
         placeholder: "A note beside the check (optional)".into(),
         label: format!("Note on resolving: {}", plain_line(&b.question)),
-        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| mark_resolved(s, &cid2, &bb))),
+        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| {
+            mark_resolved(s, &cid2, &bb)
+        })),
         extra: vec![
             Button::new(if u.busy { "Saving…" } else { "Mark resolved" })
                 .variant(ButtonVariant::Submit)
@@ -872,11 +1177,22 @@ fn resolve_form(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, u: &Blocke
 }
 
 /// Says who heard an answer and how (ToldLine).
-pub fn told_line(f: &Frame, key: &str, told: &Told, raiser: &AgentRef, sent: Option<bool>, done: bool, irori: bool) -> El {
+pub fn told_line(
+    f: &Frame,
+    key: &str,
+    told: &Told,
+    raiser: &AgentRef,
+    sent: Option<bool>,
+    done: bool,
+    irori: bool,
+) -> El {
     let k = f.k;
     let name = display_name(raiser);
     let (words, color) = if !told.error.is_empty() {
-        (format!("Answered, but {name} couldn't be told: {}", told.error), k.c.danger.fg)
+        (
+            format!("Answered, but {name} couldn't be told: {}", told.error),
+            k.c.danger.fg,
+        )
     } else if sent == Some(true) {
         (
             if done {
@@ -892,9 +1208,15 @@ pub fn told_line(f: &Frame, key: &str, told: &Told, raiser: &AgentRef, sent: Opt
             k.c.success.fg,
         )
     } else if sent == Some(false) {
-        (format!("Sent to {name}; it stays open until {name} resolves it."), k.c.text_muted)
+        (
+            format!("Sent to {name}; it stays open until {name} resolves it."),
+            k.c.text_muted,
+        )
     } else if told.to.is_empty() {
-        ("Answered. Nobody needed telling.".to_string(), k.c.text_muted)
+        (
+            "Answered. Nobody needed telling.".to_string(),
+            k.c.text_muted,
+        )
     } else {
         let wake = told.mode == "wake";
         (
@@ -906,7 +1228,12 @@ pub fn told_line(f: &Frame, key: &str, told: &Told, raiser: &AgentRef, sent: Opt
             k.c.success.fg,
         )
     };
-    text(words).key(key.to_string()).font(k.ty.text_xsmall).color(color).w_full().wrap()
+    text(words)
+        .key(key.to_string())
+        .font(k.ty.text_xsmall)
+        .color(color)
+        .w_full()
+        .wrap()
 }
 
 /// A blocker that waits on other work (card #481): a grey line naming it,
@@ -917,9 +1244,19 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
     let k = f.k;
     let gone = b.gone_agent.is_some();
     let label = plain_line(&w.label);
-    let mut what = row().w_full().gap(4.0).min_w(0.0).items_start().child(text("Waiting on").font(ts(13.0, 400.0)).color(k.c.text_muted));
+    let mut what = row().w_full().gap(4.0).min_w(0.0).items_start().child(
+        text("Waiting on")
+            .font(ts(13.0, 400.0))
+            .color(k.c.text_muted),
+    );
     if !w.task_id.is_empty() {
-        what = what.child(super::page::card_link(f, &format!("card/w/{}/card", b.id), &w.task_id, &w.label, &w.title));
+        what = what.child(super::page::card_link(
+            f,
+            &format!("card/w/{}/card", b.id),
+            &w.task_id,
+            &w.label,
+            &w.title,
+        ));
         if gone {
             what = what.child(text("(gone)").font(ts(13.0, 500.0)).color(k.c.warning.fg));
         }
@@ -928,9 +1265,18 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
         let words = format!("{label} (gone)");
         let spans = vec![
             rune::Span::new(0, label.len()).color(k.c.text_base),
-            rune::Span::new(label.len() + 1, words.len()).color(k.c.warning.fg).weight(500.0),
+            rune::Span::new(label.len() + 1, words.len())
+                .color(k.c.warning.fg)
+                .weight(500.0),
         ];
-        what = what.child(rune::rich(words, spans).font(ts(13.0, 400.0)).color(k.c.text_muted).shrink().min_w(0.0).wrap());
+        what = what.child(
+            rune::rich(words, spans)
+                .font(ts(13.0, 400.0))
+                .color(k.c.text_muted)
+                .shrink()
+                .min_w(0.0)
+                .wrap(),
+        );
     } else {
         what = what.child(
             tt::rich_line(
@@ -949,11 +1295,23 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
     }
     let mut left = col().grow(1.0).min_w(0.0).gap(2.0).child(what);
     if !b.question.is_empty() {
-        left = left.child(text(plain_line(&b.question)).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap());
+        left = left.child(
+            text(plain_line(&b.question))
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     }
     let mut buttons = row().gap(6.0).items_start();
     if let Some(g) = &b.gone_agent {
-        buttons = buttons.child(hand_on_button(s, f, &format!("card/w/{}/hand", b.id), cid, g));
+        buttons = buttons.child(hand_on_button(
+            s,
+            f,
+            &format!("card/w/{}/hand", b.id),
+            cid,
+            g,
+        ));
     }
     let (cid2, bid) = (cid.to_string(), b.id.clone());
     let lbl = label.clone();
@@ -979,10 +1337,28 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
         .px(12.0)
         .py(8.0)
         .radius(8.0)
-        .border(1.0, if gone { k.c.warning.border } else { k.c.border_base })
+        .border(
+            1.0,
+            if gone {
+                k.c.warning.border
+            } else {
+                k.c.border_base
+            },
+        )
         .fill(if gone { k.c.warning.bg } else { k.c.layer_02 })
-        .label(format!("Waiting on {}{}", w.label, if gone { " (gone)" } else { "" }))
-        .child(row().w_full().gap(8.0).items_start().child(left).child(buttons));
+        .label(format!(
+            "Waiting on {}{}",
+            w.label,
+            if gone { " (gone)" } else { "" }
+        ))
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .items_start()
+                .child(left)
+                .child(buttons),
+        );
     if !b.context.is_empty() {
         c = c.child(tt::rich_line(
             s,
@@ -997,7 +1373,13 @@ fn wait_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker) -> Option<El>
         ));
     }
     if gone {
-        c = c.child(text("Nobody holds this card, so nothing will move it.").font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap());
+        c = c.child(
+            text("Nobody holds this card, so nothing will move it.")
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     }
     Some(c)
 }
@@ -1030,7 +1412,8 @@ fn hand_on_button(s: &State, f: &Frame, key: &str, cid: &str, who: &AgentRef) ->
 fn gone_raiser(s: &State, f: &Frame, cid: &str, bid: &str, who: &AgentRef) -> El {
     let k = f.k;
     let lead = format!("Waiting on {} (gone)", display_name(who));
-    let words = format!("{lead}. Nobody holds this card: your answer goes to the agent it goes to next.");
+    let words =
+        format!("{lead}. Nobody holds this card: your answer goes to the agent it goes to next.");
     row()
         .key(format!("card/b/{bid}/gone"))
         .w_full()
@@ -1045,12 +1428,25 @@ fn gone_raiser(s: &State, f: &Frame, cid: &str, bid: &str, who: &AgentRef) -> El
         .fill(k.c.warning.bg)
         .role("status")
         .child(
-            rune::rich(words, vec![rune::Span::new(0, lead.len()).weight(500.0).color(k.c.warning.fg)])
-                .font(ts(12.5, 400.0))
-                .color(k.c.text_base)
-                .grow(1.0)
-                .min_w(0.0)
-                .wrap(),
+            rune::rich(
+                words,
+                vec![
+                    rune::Span::new(0, lead.len())
+                        .weight(500.0)
+                        .color(k.c.warning.fg),
+                ],
+            )
+            .font(ts(12.5, 400.0))
+            .color(k.c.text_base)
+            .grow(1.0)
+            .min_w(0.0)
+            .wrap(),
         )
-        .child(hand_on_button(s, f, &format!("card/b/{bid}/hand"), cid, who))
+        .child(hand_on_button(
+            s,
+            f,
+            &format!("card/b/{bid}/hand"),
+            cid,
+            who,
+        ))
 }

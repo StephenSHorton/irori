@@ -156,15 +156,21 @@ fn alt_screen_chord(k: &KeyIn, is_mac: bool) -> Option<String> {
             "\x1a".into()
         });
     }
-    if ctrl && !sup && !alt && !shift {
-        if let Some(p) = k.base.filter(|c| ";',./".contains(*c)) {
-            return Some(csi_u(p as u32, kitty_mods(false, false, true, false)));
-        }
+    if ctrl
+        && !sup
+        && !alt
+        && !shift
+        && let Some(p) = k.base.filter(|c| ";',./".contains(*c))
+    {
+        return Some(csi_u(p as u32, kitty_mods(false, false, true, false)));
     }
-    if ctrl && shift && !sup && !alt {
-        if let Some(l) = letter {
-            return Some(csi_u(l as u32, kitty_mods(true, false, true, false)));
-        }
+    if ctrl
+        && shift
+        && !sup
+        && !alt
+        && let Some(l) = letter
+    {
+        return Some(csi_u(l as u32, kitty_mods(true, false, true, false)));
     }
     None
 }

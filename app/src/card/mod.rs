@@ -29,6 +29,7 @@ mod comment;
 mod new_card;
 mod page;
 mod people;
+mod permission;
 mod share;
 mod side;
 mod thread;
@@ -139,7 +140,9 @@ macro_rules! slots {
         const EDITS: [crate::call::MicTarget; SLOTS] = [$(|s: &mut State| &mut s.card.boxes[$n].edit),*];
     };
 }
-slots!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
+slots!(
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23
+);
 
 /// The slot holding box `key`, with its accessors.
 pub(crate) fn slot(s: &State, key: &str) -> Option<(crate::text::Get, crate::text::GetMut)> {
@@ -177,7 +180,9 @@ fn assign_slots(s: &mut State) {
             continue;
         }
         let used: HashSet<usize> = s.card.slot_of.values().copied().collect();
-        let Some(free) = (0..SLOTS).find(|i| !used.contains(i)) else { break };
+        let Some(free) = (0..SLOTS).find(|i| !used.contains(i)) else {
+            break;
+        };
         s.card.slot_of.insert(k.clone(), free);
         crate::text::open_draft(s, GET_MUTS[free], &k);
     }
@@ -230,8 +235,10 @@ pub fn on_event(s: &mut State, ev: &Event) {
                     card: id.clone(),
                     ..PageUi::default()
                 };
-                s.card.ui.close_note = TextEdit::new(&crate::text::drafts::draft(s, &format!("{id}/close")).text);
-                s.card.ui.ask_note = TextEdit::new(&crate::text::drafts::draft(s, &format!("{id}/close-ask")).text);
+                s.card.ui.close_note =
+                    TextEdit::new(&crate::text::drafts::draft(s, &format!("{id}/close")).text);
+                s.card.ui.ask_note =
+                    TextEdit::new(&crate::text::drafts::draft(s, &format!("{id}/close-ask")).text);
                 if s.card.detail.as_ref().is_some_and(|d| d.summary.id != id) {
                     s.card.detail = None;
                 }
@@ -305,7 +312,9 @@ pub fn scene(s: &mut State) {
                 .data
                 .cards
                 .iter()
-                .find(|c| c.scope != "board" && c.board.is_empty() && !crate::logic::cards::over(&c.state))
+                .find(|c| {
+                    c.scope != "board" && c.board.is_empty() && !crate::logic::cards::over(&c.state)
+                })
                 .map(|c| c.id.clone())
             {
                 s.open_card(&c);
@@ -338,7 +347,12 @@ pub fn scene(s: &mut State) {
         if found.is_none() && want.starts_with('#') {
             // A closed card isn't in the open list: look in Closed.
             s.spawn(
-                move |w| w.done_cards(500, "").ok().and_then(|p| p.cards.into_iter().find(|c| c.short == short)).map(|c| c.id),
+                move |w| {
+                    w.done_cards(500, "")
+                        .ok()
+                        .and_then(|p| p.cards.into_iter().find(|c| c.short == short))
+                        .map(|c| c.id)
+                },
                 |s, id| {
                     if let Some(id) = id {
                         s.open_card(&id);
@@ -365,6 +379,96 @@ pub fn scene(s: &mut State) {
     if want == "demo-ready" {
         demo_ready(s);
     }
+    if want == "demo-permission" {
+        demo_permission(s);
+    }
+}
+
+/// The scene's permission prompts (card #682): a Bash command Irori can
+/// answer (with Always allow and a safety check's deadline), and one only
+/// Attach answers. Also two agents handed the card: one not answering,
+/// one whose device is offline (card #699).
+fn demo_permission(s: &mut State) {
+    use irori_window::cards::{AgentRef, CardBlocker, CardOption, CardPermission};
+    let Some(d) = s.card.detail.as_mut() else {
+        return;
+    };
+    let thyme = AgentRef {
+        key: "demo/thyme".into(),
+        name: "thyme".into(),
+        status: "waiting".into(),
+        live: true,
+        where_: "Macbook Pro".into(),
+        spawned: true,
+        here: true,
+        ..AgentRef::default()
+    };
+    let opt = |a: &str| CardOption {
+        answer: a.into(),
+        ..CardOption::default()
+    };
+    let ask = CardBlocker {
+        id: "demo-p1".into(),
+        question: "Waiting for your permission: thyme wants to use Bash (cargo test -p irori-app)"
+            .into(),
+        raised_by: AgentRef {
+            key: "irori/system".into(),
+            name: "Irori".into(),
+            ..AgentRef::default()
+        },
+        state: "open".into(),
+        options: vec![
+            opt(coord::PERMISSION_ALLOW_ONCE),
+            opt(coord::PERMISSION_ALWAYS),
+            opt(coord::PERMISSION_DENY),
+        ],
+        permission: Some(CardPermission {
+            agent: thyme.clone(),
+            tool: "Bash".into(),
+            input:
+                "env -u CARGO_TARGET_DIR cargo test -p irori-app --lib card:: -- --test-threads=1"
+                    .into(),
+            rule: "Bash(env -u CARGO_TARGET_DIR cargo test:*)".into(),
+            answerable: true,
+            expires: "2026-11-07T18:47:00-07:00".into(),
+        }),
+        ..CardBlocker::default()
+    };
+    let stuck = CardBlocker {
+        id: "demo-p2".into(),
+        question: "Waiting for your permission: thyme is stopped on a prompt".into(),
+        raised_by: ask.raised_by.clone(),
+        state: "open".into(),
+        permission: Some(CardPermission {
+            agent: thyme.clone(),
+            tool: "Write".into(),
+            ..CardPermission::default()
+        }),
+        ..CardBlocker::default()
+    };
+    d.blockers.insert(0, stuck);
+    d.blockers.insert(0, ask);
+    d.summary.open_blockers += 2;
+    let quiet = AgentRef {
+        key: "demo/elm".into(),
+        name: "elm".into(),
+        status: "unresponsive".into(),
+        assigned: true,
+        where_: "Macbook Pro".into(),
+        ..AgentRef::default()
+    };
+    let away = AgentRef {
+        key: "demo/fir".into(),
+        name: "fir".into(),
+        status: "idle".into(),
+        assigned: true,
+        offline: true,
+        where_: "Desktop Computer".into(),
+        ..AgentRef::default()
+    };
+    d.summary.working.push(thyme);
+    d.summary.working.push(quiet);
+    d.summary.working.push(away);
 }
 
 /// The scene's open items, for data that has none: a question with two
@@ -372,7 +476,9 @@ pub fn scene(s: &mut State) {
 /// is gone.
 fn demo_blockers(s: &mut State) {
     use irori_window::cards::{AgentRef, CardBlocker, CardOption};
-    let Some(d) = s.card.detail.as_mut() else { return };
+    let Some(d) = s.card.detail.as_mut() else {
+        return;
+    };
     let oak = AgentRef {
         key: "demo/oak".into(),
         name: "oak".into(),
@@ -429,7 +535,12 @@ fn demo_blockers(s: &mut State) {
     };
     // Waits on other work: an open card (with Stop waiting), and a gone
     // agent's wait (Hand to an agent).
-    let other = s.data.cards.iter().find(|c| c.id != d.summary.id).map(|c| (c.id.clone(), c.short.clone(), c.title.clone()));
+    let other = s
+        .data
+        .cards
+        .iter()
+        .find(|c| c.id != d.summary.id)
+        .map(|c| (c.id.clone(), c.short.clone(), c.title.clone()));
     let mut wait = CardBlocker {
         id: "demo-w1".into(),
         question: "Wait for the keyboard work".into(),
@@ -450,7 +561,11 @@ fn demo_blockers(s: &mut State) {
         raised_by: oak.clone(),
         state: "open".into(),
         waits_on: Some(Default::default()),
-        gone_agent: Some(AgentRef { status: "gone".into(), live: false, ..oak.clone() }),
+        gone_agent: Some(AgentRef {
+            status: "gone".into(),
+            live: false,
+            ..oak.clone()
+        }),
         ..CardBlocker::default()
     };
     if let Some(w) = gone_wait.waits_on.as_mut() {
@@ -464,7 +579,11 @@ fn demo_blockers(s: &mut State) {
     d.blockers.insert(0, first);
     d.summary.open_blockers += 3;
     // Who's on it: oak working on a step, ash watching and waiting.
-    let mut working = AgentRef { status: "working".into(), steps: vec!["Sign the APK".into()], ..oak.clone() };
+    let mut working = AgentRef {
+        status: "working".into(),
+        steps: vec!["Sign the APK".into()],
+        ..oak.clone()
+    };
     working.key = "demo/oak-live".into();
     d.summary.working.push(working);
     let ash = AgentRef {
@@ -481,7 +600,6 @@ fn demo_blockers(s: &mut State) {
         who: ash.clone(),
         text: "until done".into(),
         on_this: true,
-        ..Default::default()
     });
     d.reviews.push(irori_window::cards::CardReview {
         reviewer: ash,
@@ -498,7 +616,9 @@ fn demo_blockers(s: &mut State) {
 /// proof, so the page leads with Ready for you, Done and Not done.
 fn demo_ready(s: &mut State) {
     use irori_window::cards::{AgentRef, CardBlocker, CardOption};
-    let Some(d) = s.card.detail.as_mut() else { return };
+    let Some(d) = s.card.detail.as_mut() else {
+        return;
+    };
     let oak = AgentRef {
         key: "demo/oak".into(),
         name: "oak".into(),
@@ -595,6 +715,16 @@ pub(crate) fn note(f: &Frame, t: impl Into<String>) -> El {
         .color(f.k.c.text_muted)
         .w_full()
         .wrap()
+}
+
+/// An item's files, each once: an item that carries the same file twice
+/// would give two thumbnails one key (and one hover and load state).
+pub(crate) fn files_once<T: serde::Serialize>(rs: &[T]) -> Vec<crate::text::File> {
+    let mut seen = HashSet::new();
+    crate::text::File::all(rs)
+        .into_iter()
+        .filter(|x| seen.insert(x.sha256.clone()))
+        .collect()
 }
 
 /// A red line under a control.

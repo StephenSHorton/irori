@@ -48,7 +48,11 @@ pub fn reply_box(s: &State, f: &mut Frame, card_id: &str) -> El {
 }
 
 fn ui_key(card: &str, reply: bool) -> String {
-    if reply { format!("reply/{card}") } else { card.to_string() }
+    if reply {
+        format!("reply/{card}")
+    } else {
+        card.to_string()
+    }
 }
 
 fn accessors(s: &State, card: &str, reply: bool) -> Option<(Get, GetMut)> {
@@ -67,7 +71,9 @@ fn mic_target(s: &State, card: &str, reply: bool) -> Option<crate::call::MicTarg
 }
 
 fn submit(s: &mut State, card: &str, reply: bool, stop: bool) {
-    let Some((get, get_mut)) = accessors(s, card, reply) else { return };
+    let Some((get, get_mut)) = accessors(s, card, reply) else {
+        return;
+    };
     let uk = ui_key(card, reply);
     let ui = s.card.comments.entry(uk.clone()).or_default();
     if ui.busy {
@@ -105,7 +111,10 @@ fn submit(s: &mut State, card: &str, reply: bool, stop: bool) {
                 ui.busy = false;
                 match r {
                     Ok(res) => {
-                        ui.heard = Some((heard_line(&res.answers, &res.watching, &res.told.mode), res.told.error.clone()));
+                        ui.heard = Some((
+                            heard_line(&res.answers, &res.watching, &res.told.mode),
+                            res.told.error.clone(),
+                        ));
                         ui.missed = tt::mentions::not_delivered(&res.mentioned);
                     }
                     Err(e) => ui.error = Some(e),
@@ -127,14 +136,37 @@ pub fn comment_box(s: &State, f: &mut Frame, card: &str, reply: bool, no_files: 
     let empty = CommentUi::default();
     let ui = s.card.comments.get(&ui_key(card, reply)).unwrap_or(&empty);
     let c1 = card.to_string();
-    let key = if reply { format!("card/reply-{card}") } else { "card/comment".to_string() };
+    let key = if reply {
+        format!("card/reply-{card}")
+    } else {
+        "card/comment".to_string()
+    };
     let mic = mic_target(s, card, reply).map(|t| crate::call::mic_button(s, f, &key, t));
     let opts = ComposerOpts {
-        placeholder: if reply { "Reply…" } else { "Comment on the card…" }.into(),
-        label: if reply { "Your reply" } else { "Your comment on the card" }.into(),
-        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| submit(s, &c1, reply, false))),
+        placeholder: if reply {
+            "Reply…"
+        } else {
+            "Comment on the card…"
+        }
+        .into(),
+        label: if reply {
+            "Your reply"
+        } else {
+            "Your comment on the card"
+        }
+        .into(),
+        on_send: Some(Rc::new(move |s: &mut State, _m: Sent| {
+            submit(s, &c1, reply, false)
+        })),
         card: card.to_string(),
-        board: s.card.detail.as_ref().filter(|d| d.summary.id == card).and_then(|d| d.on_board.as_ref()).map(|b| b.id.clone()).unwrap_or_default(),
+        board: s
+            .card
+            .detail
+            .as_ref()
+            .filter(|d| d.summary.id == card)
+            .and_then(|d| d.on_board.as_ref())
+            .map(|b| b.id.clone())
+            .unwrap_or_default(),
         no_files: no_files.then(|| SHARED_NO_FILES.to_string()),
         disabled: ui.busy,
         rows: Some((2, 10)),
@@ -183,12 +215,25 @@ pub fn comment_box(s: &State, f: &mut Frame, card: &str, reply: bool, no_files: 
             .on_press(move |s: &mut State| submit(s, &c4, reply, false))
             .build(k),
         );
-    let mut out = col().key(format!("{key}/form")).w_full().gap(6.0).mt(4.0).child(field).child(controls);
+    let mut out = col()
+        .key(format!("{key}/form"))
+        .w_full()
+        .gap(6.0)
+        .mt(4.0)
+        .child(field)
+        .child(controls);
     if let Some((line, err)) = &ui.heard {
         out = out.child(if err.is_empty() {
-            text(line.clone()).font(k.ty.text_xsmall).color(k.c.text_muted).w_full().wrap()
+            text(line.clone())
+                .font(k.ty.text_xsmall)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap()
         } else {
-            err_line(f, format!("On the card, but not everyone could be told: {err}"))
+            err_line(
+                f,
+                format!("On the card, but not everyone could be told: {err}"),
+            )
         });
     }
     if !ui.missed.is_empty() {

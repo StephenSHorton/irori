@@ -20,7 +20,6 @@ use rune::{Key, KeyEvent, Tx};
 use super::{Dialog, Route, State};
 
 pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
-    let _ = tx;
     let m = ev.mods;
     match &ev.key {
         Key::Command(c) if !m.shift && !m.alt => match c {
@@ -56,6 +55,13 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         Key::Escape if s.status.meters_open => {
             s.status.meters_open = false;
+            true
+        }
+        // A card page's text field passes Esc on: it only lets go of the
+        // field, so a draft isn't lost to a stray key (App.tsx). A focused
+        // control on the page took Esc already (card/page.rs).
+        Key::Escape if s.nav.card.is_some() && tx.focused().is_some() => {
+            tx.blur();
             true
         }
         Key::Escape if s.nav.card.is_some() || s.nav.can_back() => {
