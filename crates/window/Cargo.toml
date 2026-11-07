@@ -9,6 +9,10 @@ description = "The window's backend: every service method the frontend calls as 
 [lib]
 name = "irori_window"
 
+[features]
+default = ["tauri"]
+tauri = ["dep:tauri", "dep:tauri-specta", "dep:specta-typescript"]
+
 [dependencies]
 irori-blob.workspace = true
 # voice.rs: the call transcriber behind the call's seam (#656).
@@ -35,9 +39,11 @@ indexmap.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 specta.workspace = true
-specta-typescript.workspace = true
-tauri = { workspace = true, features = ["specta"] }
-tauri-specta.workspace = true
+specta-typescript = { workspace = true, optional = true }
+# The Tauri commands and the TS bindings export: the Tauri app only. The
+# Rune shell (desk/, #674) uses the services without them.
+tauri = { workspace = true, features = ["specta"], optional = true }
+tauri-specta = { workspace = true, optional = true }
 tempfile.workspace = true
 
 [target.'cfg(windows)'.dependencies]
