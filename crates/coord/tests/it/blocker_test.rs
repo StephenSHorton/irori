@@ -1378,3 +1378,90 @@ fn a_blockers_file_keeps_the_device_that_attached_it() {
         );
     }
 }
+
+/// Card #682: a permission wait is a kind on the item, kept by the row (a
+/// reopen folds it back), kept by a revision that doesn't carry it (an
+/// older device's), and absent from every other item. A pick resolves it
+/// with the option's index, which the agent's device reads.
+#[test]
+fn test_permission_wait_is_typed() {
+    let e = Env::new();
+    let task = claimed(&e);
+    let w = PermissionWait {
+        agent: "dev-a/sess".into(),
+        tool: "Bash".into(),
+        input: "cargo test".into(),
+        rule: "Bash(cargo test)".into(),
+        request: "h1".into(),
+        ..PermissionWait::default()
+    };
+    let (_, b) =
+        e.c.raise(
+            ALICE,
+            &task.id,
+            NewBlocker {
+                question: "Waiting for your permission: x wants to use Bash".into(),
+                options: vec![
+                    opt(PERMISSION_ALLOW_ONCE),
+                    opt(PERMISSION_ALWAYS),
+                    opt(PERMISSION_DENY),
+                ],
+                permission: Some(w.clone()),
+                ..NewBlocker::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(b.permission.as_ref(), Some(&w));
+    let (_, again) = blocker_of(&e.reopen(), &task.id, &b.id);
+    assert_eq!(again.permission.as_ref(), Some(&w));
+    // The row carries it under "permission".
+    let rows =
+        e.st.list(&store::Filter {
+            kinds: vec![kinds::TASK_STATUS.into()],
+            ..Default::default()
+        })
+        .unwrap();
+    let last: serde_json::Value = serde_json::from_slice(&rows.last().unwrap().payload).unwrap();
+    assert_eq!(last["blocker"]["permission"]["request"], "h1");
+    assert_eq!(last["blocker"]["permission"]["agent"], "dev-a/sess");
+    // A revision without it keeps it.
+    e.c.revise(
+        ALICE,
+        &task.id,
+        &b.id,
+        BlockerRevision {
+            question: "Waiting for your permission: x wants to use Bash: cargo test".into(),
+            options: vec![opt(PERMISSION_ALLOW_ONCE), opt(PERMISSION_DENY)],
+            ..BlockerRevision::default()
+        },
+    )
+    .unwrap();
+    let (_, revised) = blocker_of(&e.c, &task.id, &b.id);
+    assert_eq!(revised.permission.as_ref(), Some(&w));
+    // A plain item has none.
+    let plain = raised_on(&e);
+    assert!(
+        plain_items(&e.c, &plain.id)
+            .iter()
+            .all(|b| b.permission.is_none())
+    );
+    // A pick resolves it with the option's index.
+    e.c.answer(
+        BOB,
+        &task.id,
+        &b.id,
+        BlockerAnswer {
+            pick: 2,
+            resolve: true,
+            ..BlockerAnswer::default()
+        },
+    )
+    .unwrap();
+    let (_, done) = blocker_of(&e.c, &task.id, &b.id);
+    let r = done.resolved.unwrap();
+    assert_eq!((r.option, r.answer.as_str()), (1, PERMISSION_DENY));
+}
+
+fn plain_items(c: &Coord, id: &str) -> Vec<Blocker> {
+    c.get_task(id).unwrap().blockers
+}

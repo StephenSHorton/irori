@@ -844,3 +844,171 @@ fn a_bound_agent_ends_when_a_lower_computer_won_its_generation() {
     });
     r.close();
 }
+
+// Card #686: two computers of one person, A and B, each with a spawner and
+// the repo. A thread made on A while A has no free slot (at its cap, or its
+// agents paused) starts on B once; with B full too it waits on A and says
+// why.
+
+struct Pair {
+    a: Dev,
+    b: Dev,
+    fa: Arc<Fake>,
+    fb: Arc<Fake>,
+    _folder: tempfile::TempDir,
+}
+
+impl Pair {
+    fn new() -> Pair {
+        let mut devs = person("stephen", 2);
+        let (b, a) = (devs.pop().unwrap(), devs.pop().unwrap());
+        let folder = tempfile::tempdir().unwrap();
+        let (fa, fb) = (Arc::new(Fake::default()), Arc::new(Fake::default()));
+        for (d, f) in [(&a, &fa), (&b, &fb)] {
+            d.core
+                .set_spawn_setting(SpawnSetting {
+                    on: true,
+                    ..SpawnSetting::default()
+                })
+                .unwrap();
+            d.core
+                .capture()
+                .emit_row(
+                    "irori",
+                    capture::KIND_REPO_SEEN,
+                    &capture::RepoSeen {
+                        repo_key: REPO.into(),
+                        root: folder.path().to_string_lossy().into_owned(),
+                        at: gocompat::time::GoTime::unix(1_790_000_000, 0),
+                    },
+                )
+                .unwrap();
+            d.core
+                .set_spawner(Some(spawner(f, d.claude.join("sessions"))));
+        }
+        let p = Pair {
+            a,
+            b,
+            fa,
+            fb,
+            _folder: folder,
+        };
+        let (ia, ib) = (p.a_id(), p.b_id());
+        wait_for(WAIT, "each computer has the other's spawn.host", || {
+            p.a.core.spawn_hosts().contains_key(&ib) && p.b.core.spawn_hosts().contains_key(&ia)
+        });
+        p
+    }
+
+    fn a_id(&self) -> String {
+        self.a.core.device_id().to_string()
+    }
+    fn b_id(&self) -> String {
+        self.b.core.device_id().to_string()
+    }
+
+    /// Device `dev`'s cap is `cap`, set on A, and both computers know it.
+    fn cap(&self, dev: &str, cap: i64) {
+        self.a.core.set_spawn_cap_of(dev, cap).unwrap();
+        wait_for(WAIT, "both computers know the cap", || {
+            self.a.core.spawn_cap_of(dev) == cap && self.b.core.spawn_cap_of(dev) == cap
+        });
+    }
+
+    /// The person starts a thread on A.
+    fn thread(&self, text: &str) -> Task {
+        self.a
+            .core
+            .coord()
+            .post_ask(
+                &format!("user:{}", self.a_id()),
+                coord::NewAsk {
+                    text: text.into(),
+                    thread: true,
+                    ..coord::NewAsk::default()
+                },
+                &self.a.core.ask_agents(),
+            )
+            .unwrap()
+            .0
+    }
+
+    /// The thread moved to B and its one agent started there, never on A.
+    fn starts_on_b_only(&self, t: &Task) {
+        wait_for(WAIT, "an agent starts on B", || self.fb.started() == 1);
+        let b = self.b_id();
+        wait_for(WAIT, "A hears B has it", || {
+            self.a
+                .core
+                .coord()
+                .get_task(&t.id)
+                .and_then(|t| t.ask)
+                .is_some_and(|a| a.owner == b)
+        });
+        // A few of each computer's passes: nothing more starts anywhere.
+        std::thread::sleep(irori_core::COORD_SWEEP_INTERVAL * 2);
+        assert_eq!(self.fb.started(), 1, "it starts once");
+        assert_eq!(self.fa.started(), 0, "A starts nothing");
+        asked_only(&self.b, &t.id, &b);
+        asked_only(&self.a, &t.id, &b);
+    }
+
+    fn close(self) {
+        self.a.core.close().unwrap();
+        self.b.core.close().unwrap();
+    }
+}
+
+/// The Done when's first case: A is at its cap (0 here, so no agent need
+/// run to fill it), B has room: the thread starts once on B.
+#[test]
+fn a_thread_on_a_full_computer_starts_on_one_with_room() {
+    let p = Pair::new();
+    p.cap(&p.a_id(), 0);
+    let t = p.thread("Why is the sync stuck?");
+    assert_eq!(t.ask.as_ref().unwrap().owner, p.a_id(), "A has it at first");
+    p.starts_on_b_only(&t);
+    p.close();
+}
+
+/// With both computers full it waits on A and says why; once B has room
+/// it starts there.
+#[test]
+fn with_every_computer_full_a_thread_waits_and_says_so() {
+    let p = Pair::new();
+    p.cap(&p.a_id(), 0);
+    p.cap(&p.b_id(), 0);
+    let t = p.thread("Is the build green?");
+    wait_for(WAIT, "A says every computer is full", || {
+        p.a.core.why_no_agent(&t.id, false) == Some(Why::AllFull)
+    });
+    assert!(
+        Why::AllFull
+            .to_string()
+            .contains("every computer is at its agent limit"),
+        "{}",
+        Why::AllFull
+    );
+    std::thread::sleep(irori_core::COORD_SWEEP_INTERVAL * 2);
+    let owner = p.a.core.coord().get_task(&t.id).unwrap().ask.unwrap().owner;
+    assert_eq!(owner, p.a_id(), "it waits where it is");
+    assert_eq!(p.fa.started() + p.fb.started(), 0, "nothing starts");
+    p.cap(&p.b_id(), 2);
+    p.starts_on_b_only(&t);
+    p.close();
+}
+
+/// A computer with its agents paused (card #665) gives its thread to one
+/// with room, as a full one does.
+#[test]
+fn a_thread_on_a_paused_computer_starts_on_one_with_room() {
+    let p = Pair::new();
+    p.a.core.set_agents_paused(true).unwrap();
+    let a = p.a_id();
+    wait_for(WAIT, "B knows A's agents are paused", || {
+        p.b.core.agents_pause_on(&a).on
+    });
+    let t = p.thread("What's left on the release?");
+    p.starts_on_b_only(&t);
+    p.close();
+}

@@ -76,9 +76,10 @@ use gocompat::time::GoTime;
 use store::{Event, Store, kinds};
 
 pub use asks::{
-    ASK_UNCLAIMED, ASK_WAIT, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT,
-    OUTCOME_NONE, TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE,
-    TAKE_RELEASED, TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
+    ALL_FULL, ASK_FULL_GRACE, ASK_FULL_SETTLE, ASK_FULL_WINDOW, ASK_UNCLAIMED, ASK_WAIT,
+    MAX_FULL_MOVES, MAX_OUTCOME, OUTCOME_ANSWERED, OUTCOME_CARD, OUTCOME_EDIT, OUTCOME_NONE,
+    TAKE_CLAIM, TAKE_GONE, TAKE_HANDED, TAKE_PASSED, TAKE_POSTED, TAKE_RELEASE, TAKE_RELEASED,
+    TAKE_REOPEN, TAKE_REOPENED, TAKE_TAKEN, TAKE_UNCLAIMED, ask_title,
 };
 pub use board_search::{DEFAULT_DOC_PAGE, SHOW_COMMENT_CUT, SHOW_COMMENTS};
 pub use cards::{SentBack, merge_watch, watch_text};
@@ -268,6 +269,13 @@ pub struct AgentDevices {
     /// saying [`crate::HOST_MOVES`], and this one): an ask moves only off
     /// one of these, since an older one would keep acting on it.
     pub moves: std::collections::HashSet<String>,
+    /// The computers with no free agent slot now (card #686): at their
+    /// cap, held by a usage limit, or with their agents paused. An ask
+    /// waiting on one moves to a computer that has room.
+    pub full: std::collections::HashSet<String>,
+    /// How many more agents each computer can start now (card #686), for
+    /// those that said; one with none listed has no limit here.
+    pub free: std::collections::BTreeMap<String, i64>,
 }
 
 /// What a `spawn.host` row's `moves` says when its Irori reads `ask.moved`
@@ -1657,6 +1665,21 @@ impl Coord {
     /// Whether card t was made on this device (card #541).
     pub fn made_here(&self, t: &Task) -> bool {
         self.lock().hands_out(t)
+    }
+    /// Why ask t waits on its full owner with no computer that has room
+    /// (card #686); "" when it doesn't.
+    pub fn ask_full_wait(&self, t: &Task) -> String {
+        self.lock().ask_full_wait(t)
+    }
+    /// The computer ask t moves to because its owner is full (card #686),
+    /// if the move isn't held back by how often it moved lately.
+    pub fn full_target(&self, t: &Task) -> Option<String> {
+        self.lock().full_target(t)
+    }
+    /// The computer with room an ask on `side` goes to when its owner
+    /// `owner` is full (card #686); None when every computer is full.
+    pub fn room_home(&self, side: &str, owner: &str) -> Option<String> {
+        self.lock().room_home(side, owner)
     }
     /// The computer agent work on `side` goes to (card #541).
     pub fn agent_home(&self, side: &str) -> Option<String> {

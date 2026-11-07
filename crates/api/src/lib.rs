@@ -62,6 +62,7 @@ pub mod conn;
 pub mod events;
 mod http;
 pub mod pair;
+mod permission;
 pub mod redact;
 pub mod server;
 mod slots;
