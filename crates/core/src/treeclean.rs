@@ -309,12 +309,13 @@ pub enum Verdict {
 /// path (`.env`, `notes.local`, a scratch folder) is work (card #565
 /// finding 1). `target` and `node_modules` count anywhere, but only as
 /// what made them says ([`regenerable`]).
-const REGEN_PATHS: &[&str] = &["frontend/dist", CLEARING];
+/// Tauri's build script writes `app/gen/schemas/` on every build.
+const REGEN_PATHS: &[&str] = &["frontend/dist", "app/gen/schemas", CLEARING];
 
 /// Whether an ignored entry `p` of `tree`, as `git status` prints it (a
-/// folder ends in `/`), is regenerable output: inside `frontend/dist/` or
-/// buildclean's own `target.irori-clearing/`, a `__pycache__/`, a
-/// `target/` cargo made (it holds `CACHEDIR.TAG`, as
+/// folder ends in `/`), is regenerable output: inside `frontend/dist/`,
+/// Tauri's `app/gen/schemas/` or buildclean's own `target.irori-clearing/`,
+/// a `__pycache__/`, a `target/` cargo made (it holds `CACHEDIR.TAG`, as
 /// [`crate::buildclean`] asks), or a `node_modules/` with a
 /// `package.json` beside it. A hand-made `docs/target/notes.md` is work.
 pub fn regenerable(tree: &Path, p: &str) -> bool {

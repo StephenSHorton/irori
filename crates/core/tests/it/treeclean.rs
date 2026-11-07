@@ -551,12 +551,14 @@ fn ignored_build_output_and_packages_go_with_the_tree() {
     let (_d, main, w) = setup("ignored-build");
     ignore(&main, "node_modules/");
     ignore(&main, "/frontend/dist/");
+    ignore(&main, "/app/gen/*");
     ignore(&main, "__pycache__/");
     git_target(&w);
     package_json(&w, "frontend");
     for f in [
         "frontend/node_modules/x/index.js",
         "frontend/dist/app.js",
+        "app/gen/schemas/capabilities.json",
         "tools/__pycache__/a.pyc",
     ] {
         fs::create_dir_all(w.join(f).parent().unwrap()).unwrap();
@@ -584,6 +586,8 @@ fn only_known_build_folders_count_as_regenerable() {
         "frontend/node_modules/x/index.js",
         "frontend/dist/",
         "frontend/dist/app.js",
+        "app/gen/schemas/",
+        "app/gen/schemas/capabilities.json",
         "target/debug/x",
         "target.irori-clearing/",
         "a/__pycache__/",
@@ -597,6 +601,8 @@ fn only_known_build_folders_count_as_regenerable() {
         "scratch/",
         "dist/",
         "src/dist/",
+        "app/gen/",
+        "app/gen/apple/project.yml",
         "my-target/",
         ".claude/",
         ".claude/worktrees/inner/",
