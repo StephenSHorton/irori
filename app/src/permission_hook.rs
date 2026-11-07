@@ -112,6 +112,12 @@ fn run(input: &[u8]) -> Result<Option<String>, String> {
                 Ok((status, b)) => {
                     down_since = None;
                     answered = true;
+                    if status != 200 {
+                        eprintln!(
+                            "permission-hook: the Core answered {status}: {}",
+                            String::from_utf8_lossy(&b)
+                        );
+                    }
                     match answer(status, &b) {
                         Ok(out) => return Ok(out),
                         Err(()) => continue,

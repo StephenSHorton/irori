@@ -75,6 +75,18 @@ fn always_allow_resolves_the_prompt_and_adds_the_rule() {
         ),
         ("Bash", "cargo test", "Bash(cargo test)", true)
     );
+    // Its agent runs here: Attach shows on the card page.
+    assert!(
+        p.agent.here && p.agent.key == format!("{me}/sess"),
+        "{:?}",
+        p.agent
+    );
+    // Its agent runs here: Attach shows on the card page.
+    assert!(
+        p.agent.here && p.agent.key == format!("{me}/sess"),
+        "{:?}",
+        p.agent
+    );
     assert!(
         r.w.cards()
             .iter()

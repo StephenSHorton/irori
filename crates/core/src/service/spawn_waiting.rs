@@ -375,19 +375,38 @@ impl Services {
     /// Raises the typed item for a hook's prompt on the card its agent was
     /// started for; `None` when the session isn't a spawned agent here.
     fn raise_permission_wait(&self, key: &str, ask: &PermissionAsk) -> Option<Pending> {
-        let task_id = self.coord.spawned_card(key)?;
+        let Some(task_id) = self.coord.spawned_card(key) else {
+            // Only agents Irori starts have the hook: worth a line.
+            logf(format_args!(
+                "permission hook from {key}: not an agent Irori started here"
+            ));
+            return None;
+        };
         let t = self
             .coord
             .get_task(&task_id)
             .filter(|t| !coord::is_terminal(&t.state))?;
-        // An item for this agent's earlier prompt, or presence's item for
-        // this one, gives way to this one.
+        // Presence's item for this prompt, or one whose hook is gone,
+        // gives way to this one. An item whose hook still waits stays: a
+        // second prompt can open while the first is up (parallel tool
+        // calls). After a restart this run knows no hook, so the hook's
+        // next ask raises its item afresh and the old one gives way.
+        let live: Vec<String> = self
+            .spawn
+            .perm
+            .pending
+            .lock()
+            .unwrap()
+            .values()
+            .map(|p| p.blocker_id.clone())
+            .collect();
         for b in t
             .blockers
             .iter()
             .filter(|b| b.open() && is_permission_wait(b))
         {
-            if b.permission.as_ref().is_none_or(|w| w.agent == key) {
+            let theirs = b.permission.as_ref().is_none_or(|w| w.agent == key);
+            if theirs && !live.contains(&b.id) {
                 self.close_permission_wait(&t, b, "Superseded by the prompt Irori can answer.");
             }
         }

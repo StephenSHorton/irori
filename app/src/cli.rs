@@ -4,7 +4,9 @@
 //! --startup` (the login launch) is the window with `["--startup"]`.
 
 /// Every role Go knows, in the order its unknown-command error lists them.
-pub const ROLES: &str = "gui, serve, mcp, attach, events, pair, node, permission-hook, version";
+/// `permission-hook` (card #682) is Rust-only and only Claude Code runs it,
+/// so the error keeps Go's list.
+pub const ROLES: &str = "gui, serve, mcp, attach, events, pair, node, version";
 
 /// Go's split of `os.Args[1:]` into the role and its arguments. The one
 /// exception: a leading `--version` or `-V` is the version role, so it
@@ -68,11 +70,11 @@ mod tests {
     fn unknown_command_text() {
         assert_eq!(
             unknown("bogus"),
-            "unknown command \"bogus\" (gui, serve, mcp, attach, events, pair, node, permission-hook, version)"
+            "unknown command \"bogus\" (gui, serve, mcp, attach, events, pair, node, version)"
         );
         assert_eq!(
             unknown("a\tb"),
-            "unknown command \"a\\tb\" (gui, serve, mcp, attach, events, pair, node, permission-hook, version)"
+            "unknown command \"a\\tb\" (gui, serve, mcp, attach, events, pair, node, version)"
         );
     }
 
