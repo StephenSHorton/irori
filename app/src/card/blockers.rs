@@ -94,7 +94,9 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
     let blockers: Vec<&CardBlocker> = d.blockers.iter().filter(|b| Some(b.id.as_str()) != ready.map(|r| r.id.as_str())).collect();
     let answered = s.card.ui.answered.as_ref().filter(|_| s.card.ui.card == c.id);
     let has_objective = !d.goal.is_empty() || !d.done_when.is_empty() || show_note;
-    let has_blockers = !blockers.is_empty() || legacy || answered.is_some();
+    // A held card (Not yet) keeps its hold item off the page: the line
+    // under the title says it, so the Blockers section isn't drawn.
+    let has_blockers = (!blockers.is_empty() || legacy || answered.is_some()) && c.later.is_none();
     if ready.is_none() && !has_objective && !has_blockers {
         return None;
     }
@@ -143,7 +145,7 @@ pub fn main_panel(s: &State, f: &mut Frame, d: &CardDetail, ready_now: Option<&C
         let title = if lc::open_ask(c.ask.as_ref()) { "You asked" } else { "Objective" };
         p = p.child(section(f, "card/objective", title, !has_blockers, body));
     }
-    if has_blockers && c.later.is_none() {
+    if has_blockers {
         let mut body = Vec::new();
         if legacy {
             body.push(

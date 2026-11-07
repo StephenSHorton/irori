@@ -322,14 +322,27 @@ pub fn scene(s: &mut State) {
                 _ => c.scope == "board" && !c.board.is_empty(),
             })
             .map(|c| c.id.clone())
-    } else if !want.is_empty() && want != "demo-blocker" {
-        let short = want.trim_start_matches('#');
-        s.data
+    } else if !want.is_empty() && !want.starts_with("demo") {
+        let short = want.trim_start_matches('#').to_string();
+        let found = s
+            .data
             .cards
             .iter()
             .find(|c| c.id == want || (want.starts_with('#') && c.short == short))
-            .map(|c| c.id.clone())
-            .or(Some(want.clone()))
+            .map(|c| c.id.clone());
+        if found.is_none() && want.starts_with('#') {
+            // A closed card isn't in the open list: look in Closed.
+            s.spawn(
+                move |w| w.done_cards(500, "").ok().and_then(|p| p.cards.into_iter().find(|c| c.short == short)).map(|c| c.id),
+                |s, id| {
+                    if let Some(id) = id {
+                        s.open_card(&id);
+                    }
+                },
+            );
+            return;
+        }
+        found.or(Some(want.clone()))
     } else {
         s.data
             .cards
