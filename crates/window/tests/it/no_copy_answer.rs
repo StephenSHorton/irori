@@ -171,7 +171,10 @@ fn a_card_with_a_holder_does_not_promise_an_agent() {
     t.w().core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
     wait("the question closes", || {
         t.w().core.set_spawn_cap(t.w().core.spawn_cap()).ok();
-        t.get(&c.id).blockers.iter().any(|x| x.id == b.id && !x.open())
+        t.get(&c.id)
+            .blockers
+            .iter()
+            .any(|x| x.id == b.id && !x.open())
     });
     let done = t
         .get(&c.id)
@@ -181,7 +184,8 @@ fn a_card_with_a_holder_does_not_promise_an_agent() {
         .and_then(|x| x.resolved)
         .unwrap();
     assert!(
-        done.answer.ends_with("took the card, so no agent needs to start for it."),
+        done.answer
+            .ends_with("took the card, so no agent needs to start for it."),
         "{done:?}"
     );
     assert!(
