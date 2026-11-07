@@ -4,6 +4,8 @@
 //!
 //! - a dial opens one connection, both sides get it, and a datagram goes
 //!   each way;
+//! - control messages cross the `call` stream both ways, and one of an
+//!   unknown `"t"` is skipped;
 //! - two dials at once leave one connection (`replaced`), and two dials
 //!   from one end open only one (the second is turned away, and a redial
 //!   of a live peer leaves it be);
@@ -25,8 +27,9 @@ use irori_meshseam::{MAX_LABEL, reason, write_frame};
 use irori_net::admit::ChainAdmit;
 use irori_net::board::{BoardAdmit, MemberAdmit};
 use irori_net::call::{
-    CALL_ALPN, CALL_LABEL, CALL_OPEN_V, CallConn, CallHandle, CallJoin, CallOpenMsg, EKM_CALL,
-    call_open_proof,
+    CALL_ALPN, CALL_LABEL, CALL_OPEN_V, CONTROL_MAX, CallConn, CallHandle, CallJoin, CallOpenMsg,
+    CallPeerState, ControlMsg, EKM_CALL, TranscriptLine, call_open_proof, read_control,
+    write_control,
 };
 use irori_net::endpoint::IpMode;
 use irori_net::transport::{IrohNet, NetConfig, PeerAddr};
@@ -243,6 +246,64 @@ async fn a_dial_opens_the_call_and_datagrams_go_both_ways() {
         .unwrap()
         .unwrap();
     assert_eq!(&got[..], b"from bob");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn control_messages_cross_the_call_stream_both_ways() {
+    let (a, b, _ha, _hb) = connected().await;
+    let ca = a.got.lock().unwrap().remove(0);
+    let cb = b.got.lock().unwrap().remove(0);
+    let (mut a_send, mut a_recv) = ca.control;
+    let (mut b_send, mut b_recv) = cb.control;
+    let line = |d: &str, seq| {
+        ControlMsg::Transcript(TranscriptLine {
+            device_id: d.into(),
+            seq,
+            start_ms: 1_762_470_000_000,
+            end_ms: 1_762_470_002_400,
+            text: format!("line {seq} from {d}"),
+        })
+    };
+
+    let m = line(&a.id, 0);
+    write_control(&mut a_send, &m).await.unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(got, Some(m));
+    let m = line(&b.id, 0);
+    write_control(&mut b_send, &m).await.unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut a_recv))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(got, Some(m));
+
+    // A newer kind, and a frame that isn't a known kind, are skipped.
+    write_frame(&mut a_send, br#"{"t":"later","x":1}"#, CONTROL_MAX)
+        .await
+        .unwrap();
+    write_frame(&mut a_send, br#"{"t":"state"}"#, CONTROL_MAX)
+        .await
+        .unwrap();
+    let m = ControlMsg::State(CallPeerState { transcribe: false });
+    write_control(&mut a_send, &m).await.unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(got, Some(m));
+
+    // A clean end of the stream reads as None.
+    a_send.finish().unwrap();
+    let got = tokio::time::timeout(WAIT, read_control(&mut b_recv))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(got, None);
+    drop(ca.conn);
+    drop(cb.conn);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

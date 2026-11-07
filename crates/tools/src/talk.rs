@@ -1182,6 +1182,7 @@ pub fn post(
                         by: by.clone(),
                         stay_out: false,
                         call: None,
+                        transcript: None,
                     })
                     .map_err(|e| e.to_string())?;
                 out.post = p;

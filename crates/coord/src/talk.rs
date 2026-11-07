@@ -48,13 +48,14 @@ use store::{Event, Filter, Store, kinds};
 use crate::board::{Error, ErrorKind, MAX_COMMENT, MAX_MENTIONS, MAX_PERSON_TEXT, Result, new_id};
 
 /// The rows Talk folds.
-pub const KINDS: [&str; 6] = [
+pub const KINDS: [&str; 7] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
     kinds::TALK_POST,
     kinds::TALK_READ,
     kinds::TALK_CARD,
+    kinds::CALL_SEGMENT,
 ];
 
 /// A member's kind: the person.
@@ -77,6 +78,9 @@ pub const DM_PREFIX: &str = "dm:";
 pub const PAIR_DM_DOMAIN: &str = "irori.dm.pair.1";
 /// A channel's `convId` starts with this.
 pub const CHANNEL_PREFIX: &str = "ch_";
+/// A huddle's transcript (card #656) reads as conversation `call:<callId>`.
+/// No row names it: its lines are in the call's own conversation's log.
+pub const CALL_PREFIX: &str = "call:";
 /// The space every Talk 1 channel is in: empty is Personal (the private
 /// log). The fold stores any spaceId as written, so a space log's
 /// channels (Spaces, #392) fold the same.
@@ -180,6 +184,11 @@ pub fn is_channel(conv: &str) -> bool {
     conv.starts_with(CHANNEL_PREFIX)
 }
 
+/// Whether `conv` names a huddle's transcript (card #656).
+pub fn is_call(conv: &str) -> bool {
+    conv.starts_with(CALL_PREFIX)
+}
+
 /// One side of a conversation: `{kind: person|agent, key}`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Member {
@@ -268,8 +277,42 @@ pub struct PostRow {
         deserialize_with = "lenient_call"
     )]
     pub call: Option<CallMark>,
+    /// A huddle's lines kept back while its space couldn't take them as
+    /// `call.segment` rows (card #656). An older reader shows the post's
+    /// text; a mark this version can't read is dropped, never the post.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_transcript"
+    )]
+    pub transcript: Option<TranscriptMark>,
     pub by: String,
     pub at: GoTime,
+}
+
+/// A transcript mark, or None for one of a shape this version doesn't know.
+fn lenient_transcript<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<TranscriptMark>, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).ok())
+}
+
+/// A fallback post's lines (card #656): which call, and each phrase the
+/// writer said, at Unix ms.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TranscriptMark {
+    pub call_id: String,
+    pub lines: Vec<TranscriptLineMark>,
+}
+
+/// One line of a [`TranscriptMark`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TranscriptLineMark {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
 }
 
 /// A call mark, or None for one of a shape this version doesn't know.
@@ -295,6 +338,9 @@ pub struct CallMark {
     /// `mentions` are (#654). Empty on a start.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub people: Vec<String>,
+    /// The huddle has a transcript (card #656), on an end.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub transcript: bool,
 }
 
 /// A [`CallMark`]'s op when a huddle starts.
@@ -304,6 +350,10 @@ pub const CALL_END: &str = "end";
 
 fn is_zero(n: &i64) -> bool {
     *n == 0
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// A call mark as written: an id, a known op, no negative length, each
@@ -329,6 +379,40 @@ fn check_call(mut c: CallMark) -> Result<CallMark> {
     }
     c.people = people;
     Ok(c)
+}
+
+/// A transcript mark as written: an id, and only lines with words, each
+/// ending no earlier than it starts.
+fn check_transcript(mut t: TranscriptMark) -> Result<TranscriptMark> {
+    t.call_id = t.call_id.trim().to_string();
+    if t.call_id.is_empty() {
+        return Err(invalid("a transcript needs its call's id"));
+    }
+    t.lines.retain_mut(|l| {
+        l.text = l.text.trim().to_string();
+        l.end_ms = l.end_ms.max(l.start_ms);
+        !l.text.is_empty()
+    });
+    if t.lines.is_empty() {
+        return Err(invalid("a transcript with no lines"));
+    }
+    Ok(t)
+}
+
+/// `call.segment` (card #656): one finished phrase of a huddle, in the
+/// call's conversation's log, written by the speaker's own device.
+/// `startMs`/`endMs` are Unix ms; `seg` counts from 0 per device per call.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SegmentRow {
+    pub call_id: String,
+    pub conv_id: String,
+    pub seg: i64,
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+    pub by: String,
+    pub at: GoTime,
 }
 
 /// `talk.read`.
@@ -400,6 +484,10 @@ pub struct Post {
     /// A huddle's start or end (#654).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call: Option<CallMark>,
+    /// A fallback post's lines (card #656). Such a post is folded into its
+    /// call's transcript, not listed in its conversation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<TranscriptMark>,
     pub at: GoTime,
     /// Where it sorts: its row's place in the log, or for a post mapped
     /// from elsewhere its time.
@@ -455,6 +543,42 @@ struct State {
     /// Person DMs opened but not written in yet, with their two sides. Not
     /// in any log, so this device's alone; a refold keeps them.
     drafts: BTreeMap<String, [Member; 2]>,
+    /// Each huddle's marks and lines, by call id (card #656).
+    calls: HashMap<String, CallIdx>,
+}
+
+/// One huddle as Talk has it (card #656).
+#[derive(Debug, Default)]
+struct CallIdx {
+    /// The conversation it is in; its rows may name no other.
+    conv: String,
+    /// Its start and end posts.
+    marks: Vec<Post>,
+    /// Its lines, from `call.segment` rows and fallback posts.
+    lines: Vec<Post>,
+    /// The fallback posts its lines came from, kept out of the
+    /// conversation's posts.
+    fallback: Vec<Post>,
+}
+
+impl CallIdx {
+    fn is_empty(&self) -> bool {
+        self.marks.is_empty() && self.lines.is_empty() && self.fallback.is_empty()
+    }
+}
+
+/// A huddle with a mark or a line here (card #656): see [`Talk::calls`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallInfo {
+    pub call_id: String,
+    /// The channel or DM it was in.
+    pub conv_id: String,
+    /// Its end mark, once the huddle has ended.
+    pub end: Option<CallMark>,
+    /// The newest of its marks and lines.
+    pub last: GoTime,
+    /// How many lines its transcript has.
+    pub lines: usize,
 }
 
 /// What to post.
@@ -479,6 +603,10 @@ pub struct NewPost {
     pub stay_out: bool,
     /// A huddle's start or end (#654).
     pub call: Option<CallMark>,
+    /// A huddle's lines, when its space couldn't take them as rows (card
+    /// #656): the post goes into the call's transcript instead of the
+    /// conversation.
+    pub transcript: Option<TranscriptMark>,
 }
 
 /// The `talk.*` fold, and the writes that append and fold a row. Safe for
@@ -630,7 +758,26 @@ impl Talk {
                 s.drafts.remove(id);
             }
         }
-        !gone.is_empty() || !dms.is_empty()
+        // A huddle's marks and lines go with the log that held them, and
+        // all of a gone channel's.
+        let State { calls, ids, .. } = &mut *s;
+        let mut lines_gone = false;
+        calls.retain(|_, c| {
+            let n = c.marks.len() + c.lines.len() + c.fallback.len();
+            let all = gone.contains(&c.conv);
+            c.marks.retain(|p| !all && p.space != space);
+            c.lines.retain(|p| !all && p.space != space);
+            c.fallback.retain(|p| {
+                let keep = !all && p.space != space;
+                if !keep {
+                    ids.remove(&p.post_id);
+                }
+                keep
+            });
+            lines_gone |= c.marks.len() + c.lines.len() + c.fallback.len() != n;
+            !c.is_empty()
+        });
+        !gone.is_empty() || !dms.is_empty() || lines_gone
     }
 
     /// Appends a row to `space`'s log (empty: the private log) and folds it.
@@ -963,6 +1110,7 @@ impl Talk {
             return Err(invalid(format!("post {post_id} already exists")));
         }
         let call = p.call.map(check_call).transpose()?;
+        let transcript = p.transcript.map(check_transcript).transpose()?;
         if is_channel(&conv) && !p.stay_out {
             self.join(&conv, &Member::of(&by), &by)?;
         }
@@ -970,6 +1118,7 @@ impl Talk {
             space = self.dm_space(other)?;
             self.join_log(&conv, &space, &by, other)?;
         }
+        let hidden = transcript.as_ref().map(|t| t.call_id.clone());
         self.write(
             &space,
             &by,
@@ -983,15 +1132,93 @@ impl Talk {
                 thread_from,
                 attach: files,
                 call,
+                transcript,
                 by: by.clone(),
                 at: (self.now)(),
             },
         )?;
+        let s = self.lock();
+        match hidden {
+            // A fallback post is its call's, not the conversation's.
+            Some(call) => s
+                .calls
+                .get(&call)
+                .and_then(|c| c.fallback.iter().find(|x| x.post_id == post_id).cloned()),
+            None => s
+                .posts
+                .get(&conv)
+                .and_then(|ps| ps.iter().find(|x| x.post_id == post_id).cloned()),
+        }
+        .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the post didn't fold"))
+    }
+
+    /// Writes one finished phrase of huddle `call_id` in `conv` as a
+    /// `call.segment` row (card #656), by its speaker `by`, into the log
+    /// `conv`'s posts go to: a channel's (Personal: the private log) or a
+    /// person DM's. `start_ms`/`end_ms` are Unix ms; `seg` counts from 0
+    /// per device per call. Returns the line as [`Talk::call_posts`] has
+    /// it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_segment(
+        &self,
+        conv: &str,
+        call_id: &str,
+        seg: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: &str,
+        by: &str,
+    ) -> Result<Post> {
+        let by = need_by(by)?.to_string();
+        let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
+        if call_id.is_empty() {
+            return Err(invalid("a transcript line needs its call's id"));
+        }
+        if seg < 0 {
+            return Err(invalid("a transcript line's seg counts from 0"));
+        }
+        let text = check_text(&by, text)?;
+        let space = if is_channel(&conv) {
+            match self.channel(&conv) {
+                None => return Err(not_found(format!("no channel {conv}"))),
+                Some(c) if c.archived => {
+                    return Err(invalid(format!("#{} is archived", c.name)));
+                }
+                Some(c) => c.space_id,
+            }
+        } else if let Some(other) = self.pair_other(&conv) {
+            if !is_person_key(&by) {
+                return Err(not_allowed("agents don't speak in a DM with a person"));
+            }
+            let space = self.dm_space(&other)?;
+            self.join_log(&conv, &space, &by, &other)?;
+            space
+        } else {
+            return Err(invalid(format!(
+                "{conv} isn't a channel or a DM with a person: no huddle is there"
+            )));
+        };
+        let ev = self.write(
+            &space,
+            &by,
+            kinds::CALL_SEGMENT,
+            &SegmentRow {
+                call_id: call_id.clone(),
+                conv_id: conv,
+                seg,
+                start_ms,
+                end_ms: end_ms.max(start_ms),
+                text,
+                by: by.clone(),
+                at: (self.now)(),
+            },
+        )?;
+        let id = segment_id(&call_id, &ev.device_id, seg);
         self.lock()
-            .posts
-            .get(&conv)
-            .and_then(|ps| ps.iter().find(|x| x.post_id == post_id).cloned())
-            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the post didn't fold"))
+            .calls
+            .get(&call_id)
+            .and_then(|c| c.lines.iter().find(|x| x.post_id == id).cloned())
+            .ok_or_else(|| Error::raw(ErrorKind::Store, "talk: the line didn't fold"))
     }
 
     /// Writes both people's joins into `space`, the first time this person
@@ -1217,9 +1444,12 @@ impl Talk {
     pub fn notifies(&self, conv: &str, post_id: &str, reader: &str) -> Option<Post> {
         let posts = self.posts(conv);
         let cursor = self.cursor(reader, conv);
+        // A fallback transcript (card #656) is in no list, so never read.
+        let hidden = self.fallback_post(conv, post_id);
         let p = since(&posts, cursor.as_deref())
             .iter()
-            .find(|p| p.post_id == post_id)?;
+            .find(|p| p.post_id == post_id)
+            .or(hidden.as_ref())?;
         let me = canon(reader);
         if canon(&p.by) == me || p.thread_from.is_some() {
             return None;
@@ -1233,6 +1463,105 @@ impl Talk {
     pub fn card_of(&self, id: &str) -> Option<String> {
         self.lock().cards.get(id).cloned()
     }
+
+    /// The channel or DM huddle `call_id` was in (card #656), once a mark
+    /// or a line of it is here.
+    pub fn call_conv(&self, call_id: &str) -> Option<String> {
+        let s = self.lock();
+        s.calls.get(call_id.trim()).map(|c| c.conv.clone())
+    }
+
+    /// Huddle `call_id`'s transcript (card #656): one post per line, in
+    /// conversation `call:<id>`, by its speaker at the time they said it,
+    /// oldest first (by speaker at the same time).
+    pub fn call_posts(&self, call_id: &str) -> Vec<Post> {
+        let s = self.lock();
+        let mut out = s
+            .calls
+            .get(call_id.trim())
+            .map(|c| c.lines.clone())
+            .unwrap_or_default();
+        out.sort_by(|a, b| {
+            crate::gotime::cmp(&a.at, &b.at)
+                .then_with(|| a.by.cmp(&b.by))
+                .then_with(|| a.ord.cmp(&b.ord))
+        });
+        out
+    }
+
+    /// Every huddle with a mark or a line here (card #656), the latest
+    /// first.
+    pub fn calls(&self) -> Vec<CallInfo> {
+        let s = self.lock();
+        let mut out: Vec<CallInfo> = s
+            .calls
+            .iter()
+            .map(|(id, c)| {
+                let end = c
+                    .marks
+                    .iter()
+                    .filter_map(|p| p.call.as_ref())
+                    .rfind(|m| m.op == CALL_END)
+                    .cloned();
+                let last = c
+                    .marks
+                    .iter()
+                    .chain(&c.lines)
+                    .chain(&c.fallback)
+                    .map(|p| p.at)
+                    .max_by(crate::gotime::cmp)
+                    .unwrap_or_default();
+                CallInfo {
+                    call_id: id.clone(),
+                    conv_id: c.conv.clone(),
+                    end,
+                    last,
+                    lines: c.lines.len(),
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            crate::gotime::cmp(&b.last, &a.last).then_with(|| a.call_id.cmp(&b.call_id))
+        });
+        out
+    }
+
+    /// Fallback post `post_id` in `conv` (card #656), kept out of `conv`'s
+    /// posts.
+    fn fallback_post(&self, conv: &str, post_id: &str) -> Option<Post> {
+        let s = self.lock();
+        s.calls
+            .values()
+            .filter(|c| c.conv == conv)
+            .find_map(|c| c.fallback.iter().find(|p| p.post_id == post_id))
+            .cloned()
+    }
+}
+
+/// A `call.segment` line's id: one per call, writing device and seg.
+fn segment_id(call_id: &str, device: &str, seg: i64) -> String {
+    format!("seg_{call_id}_{device}_{seg}")
+}
+
+/// Huddle `call_id`'s entry, for a row in `conv`; None when the huddle is
+/// already in another conversation.
+fn call_idx<'a>(s: &'a mut State, call_id: &str, conv: &str) -> Option<&'a mut CallIdx> {
+    let c = s.calls.entry(call_id.to_string()).or_default();
+    if c.conv.is_empty() {
+        c.conv = conv.to_string();
+    }
+    (c.conv == conv).then_some(c)
+}
+
+/// Adds `p` to `v`, which stays sorted by `ord`.
+fn insert_sorted(v: &mut Vec<Post>, p: Post) {
+    let i = v.partition_point(|x| x.ord <= p.ord);
+    v.insert(i, p);
+}
+
+/// Unix ms as a time.
+fn at_ms(ms: i64) -> GoTime {
+    crate::gotime::from_ns(i128::from(ms) * 1_000_000)
 }
 
 /// Folds one row into `s`; whether it changed anything.
@@ -1383,9 +1712,18 @@ fn fold(s: &mut State, ev: &Event) -> bool {
             let Ok(r) = serde_json::from_slice::<PostRow>(&ev.payload) else {
                 return false;
             };
-            if r.post_id.is_empty() || r.conv_id.is_empty() || !s.ids.insert(r.post_id.clone()) {
+            if r.post_id.is_empty() || r.conv_id.is_empty() || s.ids.contains(&r.post_id) {
                 return false;
             }
+            // A huddle's posts go in its index too (card #656). One naming a
+            // huddle of another conversation is shown as a plain post.
+            let call_id = r
+                .transcript
+                .as_ref()
+                .map(|t| t.call_id.clone())
+                .or_else(|| r.call.as_ref().map(|c| c.call_id.clone()))
+                .filter(|id| !id.is_empty() && s.calls.get(id).is_none_or(|c| c.conv == r.conv_id));
+            s.ids.insert(r.post_id.clone());
             let p = Post {
                 card: s.cards.get(&r.post_id).cloned(),
                 post_id: r.post_id,
@@ -1401,14 +1739,74 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                     .filter(|f| blob::valid_id(&f.sha256))
                     .collect(),
                 call: r.call,
+                transcript: r.transcript,
                 at: r.at,
                 ord: at,
                 space: row_space(ev).unwrap_or_default(),
                 device: ev.device_id.clone(),
             };
-            let v = s.posts.entry(r.conv_id).or_default();
-            let i = v.partition_point(|x| x.ord <= p.ord);
-            v.insert(i, p);
+            let Some(id) = call_id else {
+                insert_sorted(s.posts.entry(r.conv_id).or_default(), p);
+                return true;
+            };
+            let c = call_idx(s, &id, &r.conv_id).expect("checked above");
+            let Some(t) = &p.transcript else {
+                // A start or end: shown in its conversation as ever.
+                insert_sorted(&mut c.marks, p.clone());
+                insert_sorted(s.posts.entry(r.conv_id).or_default(), p);
+                return true;
+            };
+            // A fallback post: its lines are the call's, and the post is in
+            // no conversation's list.
+            for (i, l) in t.lines.iter().enumerate() {
+                insert_sorted(
+                    &mut c.lines,
+                    Post {
+                        post_id: format!("{}#{i}", p.post_id),
+                        conv_id: format!("{CALL_PREFIX}{id}"),
+                        by: p.by.clone(),
+                        text: l.text.clone(),
+                        at: at_ms(l.start_ms),
+                        ord: (l.start_ms.max(0) as u64, p.device.clone(), i as i64),
+                        space: p.space.clone(),
+                        device: p.device.clone(),
+                        ..Post::default()
+                    },
+                );
+            }
+            insert_sorted(&mut c.fallback, p);
+            true
+        }
+        kinds::CALL_SEGMENT => {
+            let Ok(r) = serde_json::from_slice::<SegmentRow>(&ev.payload) else {
+                return false;
+            };
+            let conv_ok = is_channel(&r.conv_id) || is_dm(&r.conv_id);
+            if r.call_id.is_empty() || !conv_ok || r.text.trim().is_empty() || r.seg < 0 {
+                return false;
+            }
+            let id = segment_id(&r.call_id, &ev.device_id, r.seg);
+            if s.calls
+                .get(&r.call_id)
+                .is_some_and(|c| c.conv != r.conv_id || c.lines.iter().any(|p| p.post_id == id))
+            {
+                return false;
+            }
+            let c = call_idx(s, &r.call_id, &r.conv_id).expect("checked above");
+            insert_sorted(
+                &mut c.lines,
+                Post {
+                    post_id: id,
+                    conv_id: format!("{CALL_PREFIX}{}", r.call_id),
+                    by: r.by,
+                    text: r.text,
+                    at: at_ms(r.start_ms),
+                    ord: (r.start_ms.max(0) as u64, ev.device_id.clone(), r.seg),
+                    space: row_space(ev).unwrap_or_default(),
+                    device: ev.device_id.clone(),
+                    ..Post::default()
+                },
+            );
             true
         }
         kinds::TALK_READ => {

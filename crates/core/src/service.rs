@@ -61,6 +61,7 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+pub mod call_settings;
 pub(crate) mod calls;
 mod deskmerge;
 mod dm_spaces;
@@ -327,6 +328,8 @@ struct Services {
     dms: dm_spaces::Dms,
     /// Calls (card #654).
     calls: calls::Calls,
+    /// "Transcribe what I say in calls" (card #656).
+    call_settings: call_settings::CallSettings,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -1142,6 +1145,7 @@ impl Core {
         let svc_cell: Arc<OnceLock<Weak<Services>>> = Arc::new(OnceLock::new());
         let spawn_state = spawn::SpawnState::default();
         spawn::load_spawn(&st, &spawn_state);
+        let call_settings = call_settings::CallSettings::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1485,6 +1489,7 @@ impl Core {
             dm_spaces,
             dms: dm_spaces::Dms::default(),
             calls: calls::Calls::new(opts.call_platform.clone(), opts.call_audio.clone()),
+            call_settings,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1902,6 +1907,10 @@ impl Core {
                         }
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
+                        s.follow_call_settings();
+                    } else if ev.kind == kinds::TRANSCRIBE_SET {
+                        // Another device's switch (card #656).
+                        s.follow_call_settings();
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
@@ -2734,6 +2743,17 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_agent_starts(&self, on: bool, max: i64) -> Result<(), String> {
         self.s.set_agent_starts(on, max)
+    }
+
+    /// "Transcribe what I say in calls" (card #656): on unless the person
+    /// turned it off.
+    pub fn call_transcribe(&self) -> bool {
+        self.s.call_transcribe()
+    }
+
+    /// The person sets it, from the app only: no tool reaches this.
+    pub fn set_call_transcribe(&self, on: bool) -> Result<(), String> {
+        self.s.set_call_transcribe(on)
     }
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {

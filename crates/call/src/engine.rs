@@ -6,7 +6,9 @@
 //! every peer's [`Link`]. Playout pulls 20 ms from each peer's jitter
 //! buffer, mixes them, gives the mix to the echo canceller as what the
 //! speaker plays, and queues it for the device. Datagrams arrive from the
-//! network through [`Engine::receive`], which only queues them.
+//! network through [`Engine::receive`], which only queues them. A
+//! [`Tap`] set with [`Engine::set_tap`] hears each cleaned 10 ms chunk,
+//! after mute (a transcriber).
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,6 +24,7 @@ use crate::dsp::{self, Dsp, DspConfig, EchoStats};
 use crate::jitter::{JitterBuffer, JitterStats, Played};
 use crate::probe::{Clicker, Onsets, Voice};
 use crate::resample::Resample;
+use crate::transcribe::Tap;
 use crate::wire::{self, FLAG_DTX, FLAG_MUTED, FLAG_PROBE, FRAME, Header};
 
 const F: usize = FRAME as usize;
@@ -119,6 +122,7 @@ enum Cmd {
     Add(String, Arc<dyn Link>),
     Remove(String),
     Datagram(String, Vec<u8>, Instant),
+    Tap(Option<Tap>),
     Stop,
 }
 
@@ -203,6 +207,12 @@ impl Engine {
         self.shared.muted.store(on, Ordering::Relaxed);
     }
 
+    /// Hands each cleaned 10 ms chunk of the mic to `tap` (zeros while
+    /// muted), or stops with None. Never blocks.
+    pub fn set_tap(&self, tap: Option<Tap>) {
+        let _ = self.tx.send(Cmd::Tap(tap));
+    }
+
     pub fn stats(&self) -> Stats {
         self.shared.stats.lock().expect("stats").clone()
     }
@@ -268,6 +278,7 @@ struct Core {
     loud_until: Option<Instant>,
     clicker: Option<Clicker>,
     voice: Option<Voice>,
+    tap: Option<Tap>,
     sent_level: f32,
     /// The speaker played something above the speech gate until then (plus
     /// the time for it to reach the mic).
@@ -314,6 +325,7 @@ impl Core {
             loud_until: None,
             clicker: cfg.probe.then(Clicker::new),
             voice: cfg.say.then(Voice::new),
+            tap: None,
             sent_level: 0.0,
             playing_until: None,
             echo_raw: 0.0,
@@ -387,6 +399,7 @@ impl Core {
                     p.jb.insert(h, payload, now);
                 }
             }
+            Cmd::Tap(t) => self.tap = t,
             Cmd::Stop => {}
         }
     }
@@ -482,6 +495,10 @@ impl Core {
             // goes out).
             if self.shared.muted.load(Ordering::Relaxed) {
                 x.fill(0.0);
+            }
+            // The transcriber hears this person only: no stand-in voice.
+            if let Some(t) = self.tap.as_mut() {
+                t(&x);
             }
             if let Some(v) = self.voice.as_mut() {
                 v.add(&mut x);

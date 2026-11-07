@@ -573,6 +573,82 @@ fn the_calls_gate_waits_for_every_device_at_tolerant_2() {
     const { assert!(irori_core::CALLS_TOLERANT <= mesh::boardmesh::TOLERANT_PROTOCOL) };
 }
 
+/// Card #656: a huddle's line in a space's channel waits for the calls
+/// gate: refused while a device's latest word is below tolerant 2, with
+/// nothing written; then a `call.segment` row by the speaker's person key
+/// that folds into `call:<id>` on the other device.
+#[test]
+fn a_transcript_line_waits_for_the_calls_gate() {
+    let (a, b) = paired();
+    let id = a.core.create_board("Huddles", "huddle").unwrap();
+    let ch = a
+        .core
+        .talk()
+        .create_channel_in(&a.user(), "general", "", &id)
+        .unwrap();
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.12.4".into(),
+                spaces: 1,
+                spawns: 1,
+                tolerant: 1,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let segs = |c: &Core| {
+        c.board_store(&id)
+            .unwrap()
+            .list(&Filter {
+                kinds: vec![kinds::CALL_SEGMENT.into()],
+                ..Default::default()
+            })
+            .unwrap()
+    };
+    let t0 = 1_762_470_000_000;
+    let write = || {
+        a.core
+            .talk()
+            .write_segment(&ch.id, "call_1", 0, t0, t0 + 900, "hello", &a.user())
+    };
+    let e = write().unwrap_err();
+    assert!(e.to_string().contains("can't store call rows"), "{e}");
+    assert!(segs(&a.core).is_empty());
+    assert!(a.core.talk().call_posts("call_1").is_empty());
+
+    wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
+    wait_for(45, "a hears b at tolerant 2", || {
+        a.core.space_tolerance(&id).unwrap().ready()
+    });
+    let p = write().unwrap();
+    assert_eq!(p.conv_id, "call:call_1");
+    assert_eq!(p.by, a.user());
+    let rows = segs(&a.core);
+    assert_eq!(rows.len(), 1);
+    let v: serde_json::Value = serde_json::from_slice(&rows[0].payload).unwrap();
+    let person = format!("{PERSON_ACTOR_PREFIX}{}", a.core.person().id);
+    assert_eq!(rows[0].actor, person);
+    assert_eq!(v["by"], person.as_str());
+    assert_eq!(v["convId"], ch.id.as_str());
+    assert_eq!(v["startMs"], t0);
+
+    wait_for(45, "b folds the line", || {
+        b.core.talk().call_posts("call_1").len() == 1
+    });
+    let theirs = &b.core.talk().call_posts("call_1")[0];
+    assert_eq!(theirs.text, "hello");
+    assert!(coord::talk::is_person_key(&theirs.by), "{}", theirs.by);
+    assert_eq!(b.core.talk().call_conv("call_1"), Some(ch.id.clone()));
+    assert!(b.core.talk().posts(&ch.id).is_empty());
+}
+
 /// Card #590: a new board's tag is 8 characters at most, so a ref like
 /// `agility#1234` stays short; the error says so.
 #[test]

@@ -1,8 +1,10 @@
 //! Whisper timing on this machine:
 //! `cargo run --release -p irori-voice --example bench -- <model.bin> <speech.wav>`.
 //! Transcribes the first 1, 4 and 8 s of the WAV with a few settings.
+//! On the phone: build it for aarch64-linux-android (docs/android.md) and
+//! run it over adb, to see whether base.en keeps up with a call (#656).
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "android"))]
 fn main() {
     use std::time::Instant;
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -49,5 +51,5 @@ fn main() {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(any(windows, target_os = "macos", target_os = "android")))]
 fn main() {}

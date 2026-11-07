@@ -12,6 +12,7 @@ mod boards;
 mod boards2;
 mod bridge2;
 mod buildclean;
+mod call_transcribe;
 mod calls;
 mod common;
 mod core;

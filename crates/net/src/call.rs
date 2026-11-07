@@ -140,6 +140,69 @@ pub struct CallConn {
     pub control: (SendStream, RecvStream),
 }
 
+/// The byte limit of one control frame after the open messages.
+pub const CONTROL_MAX: usize = 16 * 1024;
+
+/// A message on the `call` stream after the open messages: JSON tagged by
+/// `"t"`. A reader skips a `"t"` it doesn't know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "t", rename_all = "lowercase")]
+pub enum ControlMsg {
+    /// A finished phrase of the sender's person.
+    Transcript(TranscriptLine),
+    /// The sender's call state.
+    State(CallPeerState),
+}
+
+/// One finished phrase, live. The receiver takes the speaker from the
+/// connection, never from `device_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptLine {
+    /// The speaker's device.
+    pub device_id: String,
+    /// Counts from 0 per device per call.
+    pub seq: u64,
+    /// Unix ms.
+    pub start_ms: i64,
+    /// Unix ms.
+    pub end_ms: i64,
+    pub text: String,
+}
+
+/// What a peer tells the others about itself in a call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallPeerState {
+    /// Whether this device writes down what its person says.
+    pub transcribe: bool,
+}
+
+/// Writes one control message on a call's `call` stream.
+pub async fn write_control(send: &mut SendStream, m: &ControlMsg) -> Result<(), String> {
+    let b = serde_json::to_vec(m).map_err(|e| e.to_string())?;
+    write_frame(send, &b, CONTROL_MAX)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Reads the next control message it knows from a call's `call` stream,
+/// skipping frames of an unknown `"t"` or that don't parse. `Ok(None)` is a
+/// clean end of stream.
+pub async fn read_control(recv: &mut RecvStream) -> Result<Option<ControlMsg>, String> {
+    loop {
+        let Some(b) = read_frame(recv, CONTROL_MAX, false)
+            .await
+            .map_err(|e| e.to_string())?
+        else {
+            return Ok(None);
+        };
+        if let Ok(m) = serde_json::from_slice(&b) {
+            return Ok(Some(m));
+        }
+    }
+}
+
 /// A joined call. [`CallHandle::leave`], or dropping it, closes every
 /// connection of the call `leaving` and stops accepting new ones.
 pub struct CallHandle {
@@ -713,5 +776,29 @@ mod tests {
             j,
             serde_json::json!({"v":1,"spaceId":"s","epoch":2,"callId":"c","deviceId":"d","proof":"p"})
         );
+    }
+
+    #[test]
+    fn control_msgs_use_the_wire_names() {
+        let m = ControlMsg::Transcript(TranscriptLine {
+            device_id: "d".into(),
+            seq: 3,
+            start_ms: 1_762_470_000_000,
+            end_ms: 1_762_470_002_400,
+            text: "hi".into(),
+        });
+        let j = serde_json::to_value(&m).unwrap();
+        assert_eq!(
+            j,
+            serde_json::json!({"t":"transcript","deviceId":"d","seq":3,
+                "startMs":1_762_470_000_000_i64,"endMs":1_762_470_002_400_i64,"text":"hi"})
+        );
+        assert_eq!(serde_json::from_value::<ControlMsg>(j).unwrap(), m);
+        let s = ControlMsg::State(CallPeerState { transcribe: true });
+        let j = serde_json::to_value(&s).unwrap();
+        assert_eq!(j, serde_json::json!({"t":"state","transcribe":true}));
+        assert_eq!(serde_json::from_value::<ControlMsg>(j).unwrap(), s);
+        // An unknown "t" doesn't parse as a known kind.
+        assert!(serde_json::from_str::<ControlMsg>(r#"{"t":"later","x":1}"#).is_err());
     }
 }

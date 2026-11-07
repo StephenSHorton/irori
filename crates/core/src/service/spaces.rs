@@ -754,14 +754,22 @@ pub(crate) fn gate_refusal(waiting: &[String]) -> Option<String> {
 
 // ---- a space's channels (Talk's rows in a space's log) -----------------------
 
-/// The talk.* kinds a space's log carries (read cursors never do).
-const SPACE_TALK_KINDS: [&str; 5] = [
+/// The Talk kinds a space's log carries (read cursors never do): the
+/// talk.* rows, and a huddle's transcript lines (card #656).
+const SPACE_TALK_KINDS: [&str; 6] = [
     kinds::TALK_CHANNEL_CREATED,
     kinds::TALK_CHANNEL_EDITED,
     kinds::TALK_MEMBER,
     kinds::TALK_POST,
     kinds::TALK_CARD,
+    kinds::CALL_SEGMENT,
 ];
+
+/// Why a space won't take a `call.segment` row yet (card #656): a device in
+/// it may be too old to store one. The caller keeps the lines for a
+/// fallback post instead.
+pub const TRANSCRIPT_NOT_READY: &str =
+    "a device in this space can't store call rows yet, so it takes no transcript";
 
 /// Rewrites the keys a talk.* payload names (`by`, `member.key`, each of
 /// `mentions` and of `call.people`) with `f`; a key `f` turns into None is
@@ -875,7 +883,7 @@ impl Services {
             return Err("only the person writes in a DM with a person".into());
         }
         match kind {
-            kinds::TALK_POST => {}
+            kinds::TALK_POST | kinds::CALL_SEGMENT => {}
             kinds::TALK_MEMBER => {
                 if payload.get("op").and_then(|o| o.as_str()) != Some(coord::talk::JOIN) {
                     return Err("a DM with a person has no leave row".into());
@@ -923,6 +931,15 @@ impl Services {
         if let Some(why) = gate_refusal(&self.space_not_ready(space_id).map_err(|e| e.to_string())?)
         {
             return Err(why);
+        }
+        // A device too old for call.* rows would stall on a line (#652).
+        if kind == kinds::CALL_SEGMENT
+            && !self
+                .space_tolerance(space_id)
+                .map_err(|e| e.to_string())?
+                .ready()
+        {
+            return Err(TRANSCRIPT_NOT_READY.into());
         }
         let actor = self.board_key(space_id, by).map_err(|e| e.to_string())?;
         let mut bad = None;

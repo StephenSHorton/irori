@@ -500,7 +500,7 @@ impl talk::SpaceLogs for FakeSpace {
     fn rows(&self) -> Vec<store::Event> {
         self.st
             .list(&store::Filter {
-                kinds: vec!["talk.".into()],
+                kinds: vec!["talk.".into(), kinds::CALL_SEGMENT.into()],
                 ..Default::default()
             })
             .unwrap()
@@ -509,7 +509,7 @@ impl talk::SpaceLogs for FakeSpace {
 
 fn kinds_in(st: &store::Store) -> Vec<String> {
     st.list(&store::Filter {
-        kinds: vec!["talk.".into()],
+        kinds: vec!["talk.".into(), kinds::CALL_SEGMENT.into()],
         ..Default::default()
     })
     .unwrap()
@@ -1317,6 +1317,7 @@ fn a_call_mark_is_written_and_folded() {
         op: talk::CALL_END.into(),
         duration_ms: 61_000,
         people: vec![USER.into(), ALICE.into(), USER.into(), " ".into()],
+        transcript: false,
     };
     let p = call_post(&t, &c.id, end).unwrap();
     let want_mark = talk::CallMark {
@@ -1324,6 +1325,7 @@ fn a_call_mark_is_written_and_folded() {
         op: talk::CALL_END.into(),
         duration_ms: 61_000,
         people: vec![USER.into(), ALICE.into()],
+        transcript: false,
     };
     assert_eq!(p.call.as_ref(), Some(&want_mark));
     assert_eq!(
@@ -1438,4 +1440,326 @@ fn a_post_row_with_objects_it_does_not_know_still_decodes() {
     let p = &t.posts(&ch.id)[0];
     assert_eq!(p.text, "ended a huddle");
     assert_eq!(p.call.as_ref().unwrap().people, vec![ALICE.to_string()]);
+}
+
+// ---- a huddle's transcript (card #656) -------------------------------------
+
+const T0: i64 = 1_762_470_000_000;
+
+fn line(t: &Talk, conv: &str, seg: i64, start: i64, text: &str) -> coord::Result<talk::Post> {
+    t.write_segment(
+        conv,
+        "call_1",
+        seg,
+        T0 + start,
+        T0 + start + 900,
+        text,
+        USER,
+    )
+}
+
+fn texts(ps: &[talk::Post]) -> Vec<&str> {
+    ps.iter().map(|p| p.text.as_str()).collect()
+}
+
+/// `call.segment` rows fold into `call:<id>`, by speaker at the phrase's
+/// time, whichever order they arrive in, each (call, device, seg) once; a
+/// fresh fold reads the same.
+#[test]
+fn segments_fold_into_call_posts_in_order() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let p = line(&t, &c.id, 1, 3000, " second ").unwrap();
+    assert_eq!(p.conv_id, "call:call_1");
+    assert_eq!((p.by.as_str(), p.text.as_str()), (USER, "second"));
+    let ms = T0 + 3000;
+    assert_eq!(
+        p.at,
+        gocompat::time::GoTime::unix(ms / 1000, (ms % 1000) * 1_000_000)
+    );
+    line(&t, &c.id, 0, 0, "first").unwrap();
+    // Alice's device writes its own lines, one twice.
+    let theirs = |seq: i64, seg: i64, start: i64, text: &str| {
+        row(
+            "dev-b",
+            seq,
+            hlc_at(fixed_now()) + 100 + seq as u64,
+            "user",
+            kinds::CALL_SEGMENT,
+            &serde_json::json!({
+                "callId": "call_1", "convId": c.id, "seg": seg, "startMs": T0 + start,
+                "endMs": T0 + start + 500, "text": text, "by": ALICE,
+            }),
+        )
+    };
+    assert!(t.apply(&theirs(1, 0, 1000, "between")));
+    assert!(t.apply(&theirs(2, 1, 3000, "same time")));
+    assert!(
+        !t.apply(&theirs(3, 1, 9000, "again")),
+        "seg 1 of dev-b again"
+    );
+    // dev-b's seg 0 isn't dev-a's seg 0.
+    assert_eq!(
+        texts(&t.call_posts("call_1")),
+        ["first", "between", "same time", "second"],
+        "by time, then by speaker"
+    );
+    assert!(
+        t.call_posts("call_1")
+            .iter()
+            .all(|p| p.conv_id == "call:call_1")
+    );
+    assert!(talk::is_call("call:call_1") && !talk::is_call(&c.id));
+    assert_eq!(t.call_conv("call_1").as_deref(), Some(c.id.as_str()));
+    assert_eq!(t.call_conv("nope"), None);
+    assert!(
+        t.posts(&c.id).is_empty(),
+        "lines aren't the channel's posts"
+    );
+
+    // A line of the same call naming another conversation is dropped.
+    let other = t.create_channel(USER, "other", "").unwrap();
+    assert!(!t.apply(&row(
+        "dev-b",
+        4,
+        hlc_at(fixed_now()) + 200,
+        "user",
+        kinds::CALL_SEGMENT,
+        &serde_json::json!({"callId": "call_1", "convId": other.id, "seg": 7, "startMs": T0, "endMs": T0, "text": "x", "by": ALICE}),
+    )));
+
+    // Marks join the listing: the end says it has a transcript.
+    let end = talk::CallMark {
+        call_id: "call_1".into(),
+        op: talk::CALL_END.into(),
+        duration_ms: 9000,
+        transcript: true,
+        ..Default::default()
+    };
+    let ended = call_post(&t, &c.id, end.clone()).unwrap();
+    assert_eq!(post_payload(&e, &ended.post_id)["call"]["transcript"], true);
+    assert_eq!(t.posts(&c.id).len(), 1, "the end post stays in the channel");
+    let calls = t.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].call_id, "call_1");
+    assert_eq!(calls[0].conv_id, c.id);
+    assert_eq!(calls[0].end.as_ref(), Some(&end));
+    assert_eq!(calls[0].lines, 4);
+    assert_eq!(calls[0].last, ended.at);
+
+    // The person's own lines reload from the store; Alice's rows were
+    // only handed over.
+    let t2 = talk(&e);
+    assert_eq!(texts(&t2.call_posts("call_1")), ["first", "second"]);
+    assert_eq!(t2.calls()[0].end.as_ref(), Some(&end));
+
+    // Refused: no words, no call, no such channel, a DM with an agent.
+    want(line(&t, &c.id, 2, 0, "  "), ErrorKind::Invalid);
+    want(
+        t.write_segment(&c.id, " ", 0, T0, T0, "x", USER),
+        ErrorKind::Invalid,
+    );
+    want(line(&t, "ch_nope", 2, 0, "x"), ErrorKind::NotFound);
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(ALICE), USER)
+        .unwrap();
+    want(line(&t, &dm, 2, 0, "x"), ErrorKind::Invalid);
+    want(line(&t, "call:call_1", 2, 0, "x"), ErrorKind::Invalid);
+}
+
+/// The fallback: one post carrying every line folds into `call:<id>` by its
+/// writer, isn't listed in the channel, and an older reader still sees a
+/// plain post.
+#[test]
+fn a_fallback_transcript_folds_and_is_hidden_from_the_channel() {
+    let e = Env::new();
+    let t = talk(&e);
+    let c = t.create_channel(USER, "dev", "").unwrap();
+    let before = post(&t, &c.id, USER, "hi");
+    let mark = talk::TranscriptMark {
+        call_id: " call_1 ".into(),
+        lines: vec![
+            talk::TranscriptLineMark {
+                start_ms: T0 + 4000,
+                end_ms: T0 + 5000,
+                text: "later".into(),
+            },
+            talk::TranscriptLineMark {
+                start_ms: T0,
+                end_ms: T0 + 900,
+                text: " sooner ".into(),
+            },
+            talk::TranscriptLineMark {
+                start_ms: T0 + 6000,
+                end_ms: T0,
+                text: "  ".into(),
+            },
+        ],
+    };
+    let p = t
+        .post(NewPost {
+            conv_id: c.id.clone(),
+            text: "0:00 sooner\n0:04 later".into(),
+            by: USER.into(),
+            transcript: Some(mark),
+            ..NewPost::default()
+        })
+        .unwrap();
+    let kept = p.transcript.clone().unwrap();
+    assert_eq!(kept.call_id, "call_1");
+    assert_eq!(kept.lines.len(), 2, "the empty line is dropped");
+    assert_eq!(
+        post_payload(&e, &p.post_id)["transcript"]["lines"][1],
+        serde_json::json!({"startMs": T0, "endMs": T0 + 900, "text": "sooner"})
+    );
+    assert!(
+        post_payload(&e, &before.post_id)
+            .get("transcript")
+            .is_none()
+    );
+
+    let ids: Vec<String> = t.posts(&c.id).into_iter().map(|p| p.post_id).collect();
+    assert_eq!(
+        ids,
+        std::slice::from_ref(&before.post_id),
+        "not in the channel"
+    );
+    assert!(t.has_post(&p.post_id));
+    let lines = t.call_posts("call_1");
+    assert_eq!(texts(&lines), ["sooner", "later"]);
+    assert!(
+        lines
+            .iter()
+            .all(|l| l.by == USER && l.conv_id == "call:call_1")
+    );
+    assert_eq!(t.call_conv("call_1").as_deref(), Some(c.id.as_str()));
+    assert_eq!(t.calls()[0].lines, 2);
+
+    let t2 = talk(&e);
+    assert_eq!(t2.call_posts("call_1"), lines);
+    assert_eq!(t2.posts(&c.id).len(), 1);
+
+    // An older reader, and a mark this version can't read: a plain post.
+    let mut raw = post_payload(&e, &p.post_id);
+    raw["transcript"] = serde_json::json!({"callId": "call_2", "lines": "lots"});
+    let r: talk::PostRow = serde_json::from_value(raw).unwrap();
+    assert!(r.transcript.is_none());
+    assert_eq!(r.text, "0:00 sooner\n0:04 later");
+
+    // A transcript with no call or no lines is refused.
+    for bad in [
+        talk::TranscriptMark {
+            call_id: "call_1".into(),
+            lines: vec![],
+        },
+        talk::TranscriptMark {
+            call_id: " ".into(),
+            lines: kept.lines.clone(),
+        },
+    ] {
+        want(
+            t.post(NewPost {
+                conv_id: c.id.clone(),
+                text: "x".into(),
+                by: USER.into(),
+                transcript: Some(bad),
+                ..NewPost::default()
+            }),
+            ErrorKind::Invalid,
+        );
+    }
+}
+
+/// A space's huddle lines go in its log and leave the fold with it, and
+/// fold back when it returns.
+#[test]
+fn dropping_a_space_takes_its_huddles_out() {
+    let (e, sp) = (Env::new(), Env::on("dev-a"));
+    let space = std::sync::Arc::new(FakeSpace {
+        st: sp.st.clone(),
+        ready: true.into(),
+    });
+    let t = talk(&e);
+    t.set_spaces(space.clone());
+    let mine = t.create_channel(USER, "notes", "").unwrap();
+    t.write_segment(&mine.id, "call_p", 0, T0, T0 + 1, "personal", USER)
+        .unwrap();
+    let c = t.create_channel_in(USER, "netcode", "", "s1").unwrap();
+    call_post(
+        &t,
+        &c.id,
+        talk::CallMark {
+            call_id: "call_1".into(),
+            op: talk::CALL_START.into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    line(&t, &c.id, 0, 0, "in the space").unwrap();
+    let fb = t
+        .post(NewPost {
+            conv_id: c.id.clone(),
+            text: "0:01 kept back".into(),
+            by: USER.into(),
+            transcript: Some(talk::TranscriptMark {
+                call_id: "call_1".into(),
+                lines: vec![talk::TranscriptLineMark {
+                    start_ms: T0 + 1000,
+                    end_ms: T0 + 2000,
+                    text: "kept back".into(),
+                }],
+            }),
+            ..NewPost::default()
+        })
+        .unwrap();
+    assert!(kinds_in(&sp.st).contains(&kinds::CALL_SEGMENT.to_string()));
+    assert!(
+        !kinds_in(&e.st).contains(&kinds::TALK_POST.to_string()),
+        "Personal's line is a segment, not a post"
+    );
+    assert_eq!(
+        texts(&t.call_posts("call_1")),
+        ["in the space", "kept back"]
+    );
+    assert_eq!(t.calls().len(), 2);
+
+    assert!(t.drop_space("s1"));
+    assert!(t.call_posts("call_1").is_empty());
+    assert_eq!(t.call_conv("call_1"), None);
+    assert!(!t.has_post(&fb.post_id));
+    let left: Vec<String> = t.calls().into_iter().map(|c| c.call_id).collect();
+    assert_eq!(left, ["call_p"], "Personal's huddle stays");
+    assert_eq!(texts(&t.call_posts("call_p")), ["personal"]);
+
+    for ev in talk::SpaceLogs::rows(&*space) {
+        t.apply(&ev);
+    }
+    assert_eq!(
+        texts(&t.call_posts("call_1")),
+        ["in the space", "kept back"]
+    );
+}
+
+/// A person DM's huddle lines go to the DM's space, by the person only.
+#[test]
+fn a_person_dm_huddle_line_goes_to_its_space() {
+    let e = Env::new();
+    let (t, sp) = pair_talk(&e, Ok("s1"));
+    let dm = t
+        .open_dm(&Member::of(USER), &Member::of(THEM), USER)
+        .unwrap();
+    let p = line(&t, &dm, 0, 0, "just us").unwrap();
+    assert_eq!(p.conv_id, "call:call_1");
+    assert_eq!(t.call_conv("call_1"), Some(dm.clone()));
+    assert_eq!(
+        kinds_in(&sp.st),
+        [kinds::TALK_MEMBER, kinds::TALK_MEMBER, kinds::CALL_SEGMENT],
+        "both joins first, as a first post"
+    );
+    assert!(kinds_in(&e.st).is_empty());
+    want(
+        t.write_segment(&dm, "call_1", 1, T0, T0, "x", ALICE),
+        ErrorKind::NotAllowed,
+    );
 }

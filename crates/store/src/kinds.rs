@@ -205,6 +205,9 @@ kinds! {
     /// `{key, on, by, at}`, actor `user`. Without it a terminal agent is
     /// never handed unheld cards, asks or threads. Set in the app only.
     AGENT_OFFER = "agent.offer" => Replicated, Refuses;
+    /// "Transcribe what I say in calls" (card #656): `{on, by, at}`, actor
+    /// `user`, newest wins, none means on. Set in the app only.
+    TRANSCRIBE_SET = "transcribe.set" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
@@ -338,6 +341,9 @@ kinds! {
     TALK_READ = "talk.read" => Replicated, Refuses;
     /// `{postId, taskId}`: a card made from a message.
     TALK_CARD = "talk.card" => Replicated, Accepts;
+    /// `{callId, convId, seg, startMs, endMs, text, by, at}`: one finished
+    /// phrase of a huddle, written only by the speaker's own device (card #656).
+    CALL_SEGMENT = "call.segment" => Replicated, Accepts;
     // device-local board rows
     /// `{cardId, agentKey}`; still read, no longer written.
     BOARD_CARD_KEY = "board.cardkey" => Local;

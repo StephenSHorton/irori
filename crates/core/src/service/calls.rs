@@ -1096,6 +1096,7 @@ impl Services {
                 op: "end".into(),
                 duration_ms: (now_ms() - a.started_at_ms).max(0),
                 people,
+                ..CallMark::default()
             };
             if let Err(e) = self.post_call_mark(&a.conv_id, "ended the huddle", mark) {
                 crate::logf(format_args!("call {}: end post: {e}", a.call_id));
