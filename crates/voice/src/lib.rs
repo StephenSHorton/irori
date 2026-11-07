@@ -152,12 +152,13 @@ impl Default for Options {
 }
 
 impl Options {
-    /// For a call's transcript: finals only, at most 2 threads, so the call
-    /// keeps its CPU.
+    /// For a call's transcript: finals only, at most 2 threads (4 on
+    /// Android, whose cores are slower: base.en's pass takes about 6 s on
+    /// 2 of a Pixel's, 4 s on 4), so the call keeps its CPU.
     pub fn call() -> Self {
         Options {
             partials: false,
-            max_threads: Some(2),
+            max_threads: Some(if cfg!(target_os = "android") { 4 } else { 2 }),
         }
     }
 }

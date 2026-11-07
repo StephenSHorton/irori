@@ -209,9 +209,17 @@ describe("the replying row (card #645)", () => {
   })
 })
 
-const { CallBar, CallPanel, HuddleEnded, HuddleLine, RingBanner } =
-  await import("./huddle")
-const { huddleNames } = await import("@/lib/call")
+const {
+  CallBar,
+  CallPanel,
+  HuddleEnded,
+  HuddleLine,
+  NoticeText,
+  RingBanner,
+  TranscriptOn,
+} = await import("./huddle")
+const { TranscriptView } = await import("./transcript-pane")
+const { huddleNames, transcriptNotice } = await import("@/lib/call")
 
 describe("a huddle names people, never keys (#654)", () => {
   // Ids a huddle carries that must never show.
@@ -225,6 +233,7 @@ describe("a huddle names people, never keys (#654)", () => {
     lossPct: 0,
     speaking: true,
     muted: false,
+    transcribing: true as boolean | null,
   }
   const mine = {
     callId,
@@ -238,9 +247,17 @@ describe("a huddle names people, never keys (#654)", () => {
     peers: [
       peer,
       { ...peer, name: `person:${card}`, device: callId },
-      { ...peer, name: "Aiko", phase: "connecting" },
+      { ...peer, name: "Aiko", phase: "connecting", transcribing: false },
     ],
     error: null,
+    transcribing: true,
+    canTranscribe: true,
+    transcribeOn: true,
+    captions: [
+      { name: spencersKey, mine: false, text: "the build", atMs: 0, endMs: 1 },
+      { name: "you", mine: true, text: "tag it", atMs: 2, endMs: 3 },
+      { name: "", mine: false, text: "ok", atMs: 4, endMs: 5 },
+    ],
   }
   const no = () => {}
 
@@ -266,6 +283,127 @@ describe("a huddle names people, never keys (#654)", () => {
     expect(panel).toContain("direct · 26 ms")
   })
 
+  test("the badge, who isn't transcribed and the captions (#656)", () => {
+    const panel = html(
+      createElement(CallPanel, { mine, onMute: no, onLeave: no })
+    )
+    noKeys(panel)
+    expect(panel).toContain("Transcript on")
+    expect(panel).toContain("not transcribed")
+    expect(panel).toContain("Transcript, as it&#x27;s written")
+    expect(panel).toContain("tag it")
+    expect(panel).toContain("You")
+    noKeys(html(createElement(TranscriptOn)))
+    // No captions, no section; nobody writing down, no badge.
+    const quiet = html(
+      createElement(CallPanel, {
+        mine: {
+          ...mine,
+          transcribing: false,
+          peers: mine.peers.map((p) => ({ ...p, transcribing: null })),
+          captions: [],
+        },
+        onMute: no,
+        onLeave: no,
+      })
+    )
+    expect(quiet).not.toContain("Transcript on")
+    expect(quiet).not.toContain("as it&#x27;s written")
+    // You aren't written down: your own tile says so.
+    expect(quiet).toContain("not transcribed")
+    noKeys(
+      html(
+        createElement(CallBar, {
+          mine,
+          onOpen: no,
+          onMute: no,
+          onLeave: no,
+        })
+      )
+    )
+  })
+
+  test("the notice before the mic opens (#656)", () => {
+    for (const convKind of ["channel", "dm"])
+      for (const transcribeOn of [true, false])
+        for (const canTranscribe of [true, false]) {
+          const text = transcriptNotice({
+            convKind,
+            convName: spencersKey,
+            transcribeOn,
+            canTranscribe,
+          })
+          noKeys(text)
+          noKeys(html(createElement(NoticeText, { text })))
+        }
+  })
+
+  test("the transcript pane and the end post's Transcript (#656)", () => {
+    for (const convKind of ["channel", "dm"]) {
+      const out = html(
+        createElement(TranscriptView, {
+          t: {
+            callId,
+            convId: spencersKey,
+            convName: `person:${card}`,
+            convKind,
+            startedAtMs: Date.now() - 60_000,
+            ended: true,
+            durationMs: 18 * 60_000,
+            lines: [
+              { name: spencersKey, mine: false, atMs: 0, text: "the build" },
+              { name: "you", mine: true, atMs: 1, text: "tag it" },
+            ],
+          },
+          now: new Date(),
+          onClose: no,
+        })
+      )
+      noKeys(out)
+      expect(out).toContain("Huddle transcript")
+      expect(out).toContain("18 min")
+      expect(out).toContain("another person")
+      expect(out).toContain("tag it")
+      expect(out).toContain(
+        convKind === "dm"
+          ? "Who can read it: the two of you."
+          : "Who can read it: the people and agents of #channel."
+      )
+    }
+    const ended = html(
+      createElement(HuddleEnded, {
+        durationMs: 60_000,
+        people: ["you"],
+        onTranscript: no,
+      })
+    )
+    expect(ended).toContain("Transcript")
+    const post = TalkPost({
+      postId: "p",
+      convId: "c",
+      by: spencersKey,
+      text: "huddle ended",
+      call: {
+        callId,
+        op: "end",
+        durationMs: 60_000,
+        people: [spencersKey],
+        transcript: true,
+      },
+    })
+    const row = html(
+      createElement(PostRow, {
+        post,
+        who: billing,
+        names: new Map(),
+        live,
+        onTranscript: no,
+      })
+    )
+    noKeys(row)
+    expect(row).toContain("Transcript")
+  })
+
   test("the ringing banner, a list row's line and the end post", () => {
     const ring = html(
       createElement(RingBanner, {
@@ -288,6 +426,7 @@ describe("a huddle names people, never keys (#654)", () => {
         mine: null,
         ringing: [],
         live: [{ callId, convId: "c", people: [spencersKey, "Aiko"] }],
+        transcribeOn: true,
       },
       "c"
     )
@@ -308,7 +447,13 @@ describe("a huddle names people, never keys (#654)", () => {
       convId: "c",
       by: spencersKey,
       text: "started a huddle",
-      call: { callId, op: "start", durationMs: 0, people: [] },
+      call: {
+        callId,
+        op: "start",
+        durationMs: 0,
+        people: [],
+        transcript: false,
+      },
     })
     const out = html(
       createElement(PostRow, {

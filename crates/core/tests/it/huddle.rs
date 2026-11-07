@@ -716,3 +716,199 @@ fn a_space_not_ready_gets_one_fallback_post() {
     assert!(all.iter().all(|p| p.transcript.is_none()));
     close(s);
 }
+
+/// The segs of device `dev`'s lines in huddle `call_id`, as `d` folds them.
+fn segs(d: &Dev, call_id: &str, dev: &str) -> Vec<i64> {
+    d.core
+        .talk()
+        .call_posts(call_id)
+        .into_iter()
+        .filter(|p| p.post_id.starts_with("seg_") && p.device == dev)
+        .map(|p| p.ord.2)
+        .collect()
+}
+
+/// #656: Alice leaves the huddle and joins it again. Her new lines count
+/// on from her old ones, so they're written and fold, the call's lines
+/// grow, and Bob sees them live.
+#[test]
+fn a_rejoin_keeps_the_speakers_lines() {
+    let s = setup_with(1, true, |s| vec![&s.alice[0], &s.bob[0]]);
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let a_dev = a1.core.device_id().to_string();
+    let call_id = huddle(a1, b1, &s.ch);
+    wait_for(WAIT, "bob sees alice's lines live", || {
+        captions_from(b1, &a_dev).len() >= 2
+    });
+
+    a1.core.call_leave().unwrap();
+    wait_for(WAIT, "bob sees alice gone", || live_peers(b1) == 0);
+    let before = segs(a1, &call_id, &a_dev);
+    assert!(!before.is_empty());
+    assert_eq!(segment_rows(&a1.core, &s.space).len(), before.len());
+    let last = *before.iter().max().unwrap();
+    wait_for(WAIT, "bob folds alice's first lines", || {
+        segs(b1, &call_id, &a_dev).len() == before.len()
+    });
+    let caps = captions_from(b1, &a_dev).len();
+
+    wait_for(WAIT, "alice sees the huddle go on", || {
+        a1.core
+            .call_snapshot()
+            .live
+            .iter()
+            .any(|l| l.call_id == call_id)
+    });
+    a1.core.call_join(&call_id).expect("alice joins again");
+    wait_for(WAIT, "connected again", || {
+        live_peers(a1) == 1 && live_peers(b1) == 1
+    });
+    wait_for(WAIT, "bob sees alice's new lines live", || {
+        captions_from(b1, &a_dev).len() >= caps + 2
+    });
+    let new: Vec<_> = captions_from(b1, &a_dev)
+        .into_iter()
+        .filter(|c| c.seq > last as u64)
+        .collect();
+    assert!(new.len() >= 2, "{new:?}");
+    wait_for(WAIT, "bob folds alice's new lines", || {
+        segs(b1, &call_id, &a_dev).len() >= before.len() + 2
+    });
+    let after = segs(b1, &call_id, &a_dev);
+    let mut uniq = after.clone();
+    uniq.sort();
+    uniq.dedup();
+    assert_eq!(uniq.len(), after.len(), "{after:?}");
+    assert!(
+        after.iter().filter(|g| **g > last).count() >= 2,
+        "{after:?}"
+    );
+
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    assert_eq!(
+        segment_rows(&a1.core, &s.space).len(),
+        segs(a1, &call_id, &a_dev).len()
+    );
+    assert!(mark(a1, &s.ch, &call_id, CALL_END).unwrap().transcript);
+    close(s);
+}
+
+/// What reached `d`'s agent referring to `conv`.
+fn told(d: &Dev, conv: &str) -> Vec<inbox::Delivery> {
+    d.core
+        .inbox()
+        .list(0)
+        .into_iter()
+        .filter(|x| x.to == d.agent && x.message.ref_ == format!("talk:{conv}"))
+        .collect()
+}
+
+/// What reached `d`'s agent naming huddle `call_id`.
+fn told_of(d: &Dev, call_id: &str) -> usize {
+    d.core
+        .inbox()
+        .list(0)
+        .into_iter()
+        .filter(|x| x.to == d.agent && x.message.text.contains(call_id))
+        .count()
+}
+
+/// #656, through the real leave: a channel huddle with lines wakes the
+/// channel's agents once on each person's side (Alice's from her own
+/// device, which ends it; Bob's from the end post); one with no lines and
+/// one in a person DM wake nobody.
+#[test]
+fn a_huddles_end_wakes_the_channels_agents_once() {
+    let s = setup_with(1, true, |s| vec![&s.alice[0], &s.bob[0]]);
+    let (a1, b1) = (&s.alice[0], &s.bob[0]);
+    let a_dev = a1.core.device_id().to_string();
+    wait_for(WAIT, "bob holds the channel", || {
+        b1.core.talk().channel(&s.ch).is_some()
+    });
+    for d in [a1, b1] {
+        let out = d.tool("talk_join", serde_json::json!({"conv": s.ch}));
+        assert!(!out.starts_with("Error"), "talk_join: {out}");
+    }
+
+    // No lines: Alice's switch is off and Bob is quiet.
+    a1.core.set_call_transcribe(false).unwrap();
+    let quiet = huddle(a1, b1, &s.ch);
+    std::thread::sleep(Duration::from_secs(4));
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    assert!(!mark(a1, &s.ch, &quiet, CALL_END).unwrap().transcript);
+    wait_for(WAIT, "bob has the quiet huddle's end", || {
+        mark(b1, &s.ch, &quiet, CALL_END).is_some()
+    });
+
+    // With lines.
+    a1.core.set_call_transcribe(true).unwrap();
+    let call_id = huddle(a1, b1, &s.ch);
+    wait_for(WAIT, "bob sees alice's lines live", || {
+        !captions_from(b1, &a_dev).is_empty()
+    });
+    b1.core.call_leave().unwrap();
+    wait_for(WAIT, "alice sees bob gone", || live_peers(a1) == 0);
+    a1.core.call_leave().unwrap();
+    assert!(mark(a1, &s.ch, &call_id, CALL_END).unwrap().transcript);
+    wait_for(WAIT, "both agents are woken", || {
+        !told(a1, &s.ch).is_empty() && !told(b1, &s.ch).is_empty()
+    });
+
+    // A person DM's huddle, Alice alone in it.
+    let dm = a1.core.talk_dm(&a1.user(), &b1.person_actor()).unwrap();
+    a1.core
+        .talk_post(
+            &a1.core.user_sender(),
+            &dm,
+            "hi bob",
+            &[],
+            false,
+            None,
+            vec![],
+        )
+        .unwrap();
+    let dm_call = std::cell::RefCell::new(String::new());
+    wait_for(WAIT, "a huddle starts in the DM", || {
+        match a1.core.call_start(&dm) {
+            Ok(id) => {
+                *dm_call.borrow_mut() = id;
+                true
+            }
+            Err(_) => false,
+        }
+    });
+    let dm_call = dm_call.into_inner();
+    wait_for(WAIT, "alice's line in the DM", || {
+        a1.core
+            .call_snapshot()
+            .mine
+            .is_some_and(|m| m.captions.iter().any(|c| c.mine))
+    });
+    a1.core.call_leave().unwrap();
+    assert!(mark(a1, &dm, &dm_call, CALL_END).unwrap().transcript);
+
+    // Once each, however often the log is pulled.
+    a1.core.kick_board(&s.space);
+    b1.core.kick_board(&s.space);
+    std::thread::sleep(Duration::from_secs(3));
+    for d in [a1, b1] {
+        let t = told(d, &s.ch);
+        assert_eq!(t.len(), 1, "{t:?}");
+        assert_eq!(t[0].mode, inbox::mode::WAKE);
+        assert!(
+            t[0].message
+                .text
+                .contains(&format!("talk_read conv=call:{call_id}")),
+            "{}",
+            t[0].message.text
+        );
+        assert_eq!(told_of(d, &quiet), 0);
+        assert_eq!(told_of(d, &dm_call), 0);
+        assert!(told(d, &dm).is_empty());
+    }
+    close(s);
+}

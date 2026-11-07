@@ -27,6 +27,7 @@
 //! began, kept for one fallback post at leave.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -197,12 +198,18 @@ struct Script {
     rows: bool,
     /// Held while a transcriber starts or stops, so a leave waits for it.
     toggle: Mutex<()>,
+    /// The call was left: a line the writer gets now (one the drain
+    /// didn't wait for) is dropped, never written after the end post.
+    closed: AtomicBool,
+    /// Lines dropped since `closed`.
+    dropped: AtomicU64,
     st: Mutex<ScriptState>,
 }
 
 #[derive(Default)]
 struct ScriptState {
-    /// This device's next line's seg and seq.
+    /// This device's next line's seg and seq: after its lines already in
+    /// the call, so a rejoin never reuses a seg.
     next: u64,
     /// The newest lines, oldest first.
     captions: VecDeque<Caption>,
@@ -213,6 +220,28 @@ struct ScriptState {
 }
 
 impl Script {
+    fn new(rows: bool, next: u64) -> Script {
+        Script {
+            rows,
+            toggle: Mutex::new(()),
+            closed: AtomicBool::new(false),
+            dropped: AtomicU64::new(0),
+            st: Mutex::new(ScriptState {
+                next,
+                ..ScriptState::default()
+            }),
+        }
+    }
+
+    /// Whether the call was left; counts a line dropped if so.
+    fn drop_late(&self) -> bool {
+        let closed = self.closed.load(Ordering::SeqCst);
+        if closed {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+        }
+        closed
+    }
+
     fn caption(&self, c: Caption) {
         let mut st = self.st.lock().expect("script");
         st.heard = true;
@@ -220,6 +249,22 @@ impl Script {
             st.captions.pop_front();
         }
         st.captions.push_back(c);
+    }
+}
+
+/// A transcriber made but not yet on a tap (card #656): stopped if
+/// dropped, so a call that fails to come up doesn't leak it.
+struct Opened {
+    t: Option<Box<dyn call::Transcriber>>,
+    tx: std::sync::mpsc::Sender<ScribeMsg>,
+    rx: Option<std::sync::mpsc::Receiver<ScribeMsg>>,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if let Some(t) = self.t.take() {
+            t.stop();
+        }
     }
 }
 
@@ -239,7 +284,8 @@ enum ScribeMsg {
 impl Scribe {
     /// Stops the transcriber (its last phrase is queued before this
     /// returns) and waits a while for the writer to finish every line.
-    /// Blocks: never under the calls lock. Take the tap off first.
+    /// Blocks: never under the calls lock. Take the tap off first. A
+    /// leave then closes the script, so a line still queued is dropped.
     fn finish(self) {
         self.t.stop();
         let _ = self.tx.send(ScribeMsg::Done);
@@ -887,6 +933,15 @@ impl Services {
             });
         }
 
+        // The transcriber before the mic opens or anyone can connect: a
+        // model may take seconds to load, and nothing is locked here.
+        let want_scribe = self.call_transcribe();
+        let opened = if want_scribe {
+            self.scribe_open(call_id)
+        } else {
+            None
+        };
+
         // The phone first: Android only lets the mic run on with its
         // service up, and only while Irori is on screen.
         let platform = self.calls.platform.clone();
@@ -990,20 +1045,23 @@ impl Services {
         people.retain(|p| !p.is_empty());
         // The calls gate, read once for the whole call (card #656): a
         // Personal channel has no board and writes to the private log.
-        let script = Arc::new(Script {
-            rows: space.is_empty() || self.space_tolerance(space).is_ok_and(|t| t.ready()),
-            toggle: Mutex::new(()),
-            st: Mutex::new(ScriptState::default()),
-        });
-        // May block while a model loads; nothing is locked here.
-        let (scribe, scribe_failed) = if self.call_transcribe() {
-            match self.scribe_start(call_id, conv, &engine, &script) {
-                Some(sc) => (Some(sc), false),
-                None => (None, self.calls.transcriber.is_some()),
-            }
-        } else {
-            (None, false)
-        };
+        // Lines count on from this device's last one in the call, if it
+        // was in it before.
+        let next = self
+            .talk
+            .call_posts(call_id)
+            .iter()
+            .filter(|p| p.post_id.starts_with("seg_") && p.device == me)
+            .map(|p| p.ord.2.max(0) as u64 + 1)
+            .max()
+            .unwrap_or(0);
+        let script = Arc::new(Script::new(
+            space.is_empty() || self.space_tolerance(space).is_ok_and(|t| t.ready()),
+            next,
+        ));
+        // The engine is up: the transcriber goes on its tap.
+        let scribe = opened.and_then(|o| self.scribe_attach(o, call_id, conv, &engine, &script));
+        let scribe_failed = want_scribe && scribe.is_none() && self.calls.transcriber.is_some();
         let (generation, hang_up) = {
             let mut g = self.calls.inner.lock().expect("calls");
             g.generation += 1;
@@ -1098,6 +1156,9 @@ impl Services {
             }
             slot.conn = Some(conn.clone());
             slot.gone = false;
+            // No line is resent across connections, and a device that left
+            // and came back may count its lines from 0 again.
+            slot.seen.clear();
             // Its control writer; first it hears whether this device
             // transcribes.
             let (ctl, ctl_rx) = tokio::sync::mpsc::channel(CTL_QUEUE);
@@ -1270,16 +1331,22 @@ impl Services {
             &a.mesh,
             self.frame(&a.call_id, &a.conv_id, &a.space_id, op, vec![me]),
         );
+        // The connections close before the transcriber stops, so the
+        // phrase in progress is stored but never reaches the peers live.
+        // Stopping it first and sending its line before leaving would fix
+        // that, at the cost of a longer leave.
         a.handle.leave();
         // The transcript (card #656): every line this device heard is
         // written before the end post, and a ticker's start or stop in
-        // progress finishes first.
+        // progress finishes first. A line the drain didn't wait for is
+        // dropped, never written after the end.
         a.engine.set_tap(None);
         {
             let _t = a.script.toggle.lock().expect("toggle");
             if let Some(sc) = a.scribe.take() {
                 sc.finish();
             }
+            a.script.closed.store(true, Ordering::SeqCst);
         }
         self.post_fallback(&a);
         if !others {
@@ -1349,17 +1416,10 @@ impl Services {
         Ok(())
     }
 
-    /// Starts a transcriber on `engine`'s tap for call `call_id` in `conv`
-    /// (card #656), with a thread that writes each line it finishes. Blocks
-    /// while a model loads: never under the calls lock. None when this
-    /// device can't or it failed (logged).
-    fn scribe_start(
-        self: &Arc<Self>,
-        call_id: &str,
-        conv: &str,
-        engine: &call::Engine,
-        script: &Arc<Script>,
-    ) -> Option<Scribe> {
+    /// Makes a transcriber for call `call_id` (card #656), not yet on a
+    /// tap. Blocks while a model loads: never under the calls lock. None
+    /// when this device can't or it failed (logged).
+    fn scribe_open(&self, call_id: &str) -> Option<Opened> {
         let f = self.calls.transcriber.clone()?;
         let (tx, rx) = std::sync::mpsc::channel();
         // The transcriber's thread only queues: the writer does the work.
@@ -1367,13 +1427,35 @@ impl Services {
         let sink: call::SegmentSink = Arc::new(move |seg| {
             let _ = sink_tx.send(ScribeMsg::Line(seg));
         });
-        let mut t = match f(sink) {
-            Ok(t) => t,
+        match f(sink) {
+            Ok(t) => Some(Opened {
+                t: Some(t),
+                tx,
+                rx: Some(rx),
+            }),
             Err(e) => {
                 crate::logf(format_args!("call {call_id}: no transcriber: {e}"));
-                return None;
+                None
             }
+        }
+    }
+
+    /// Puts transcriber `o` on `engine`'s tap for call `call_id` in `conv`,
+    /// with a thread that writes each line it finishes. None when the
+    /// thread couldn't start (logged).
+    fn scribe_attach(
+        self: &Arc<Self>,
+        mut o: Opened,
+        call_id: &str,
+        conv: &str,
+        engine: &call::Engine,
+        script: &Arc<Script>,
+    ) -> Option<Scribe> {
+        let (Some(mut t), Some(rx)) = (o.t.take(), o.rx.take()) else {
+            return None;
         };
+        let tx = o.tx.clone();
+        drop(o);
         let tap = t.tap();
         // A line's times count from the first tapped sample.
         let anchor_ms = now_ms();
@@ -1386,6 +1468,12 @@ impl Services {
                 while let Ok(ScribeMsg::Line(seg)) = rx.recv() {
                     let Some(s) = w.upgrade() else { return };
                     s.call_line(&cid, &conv, &sc, anchor_ms, seg);
+                }
+                let n = sc.dropped.load(Ordering::SeqCst);
+                if n > 0 {
+                    crate::logf(format_args!(
+                        "call {cid}: {n} lines came after the call was left: not written"
+                    ));
                 }
             });
         match writer {
@@ -1410,7 +1498,7 @@ impl Services {
         seg: call::Segment,
     ) {
         let text = cap_line(seg.text.trim()).to_string();
-        if text.is_empty() {
+        if text.is_empty() || script.drop_late() {
             return;
         }
         let start_ms = anchor_ms + seg.start_ms as i64;
@@ -1441,6 +1529,10 @@ impl Services {
             text: text.clone(),
         });
         self.calls_changed();
+        // Left while this line went out live.
+        if script.drop_late() {
+            return;
+        }
         if script.rows {
             match self.talk.write_segment(
                 conv,
@@ -1541,7 +1633,9 @@ impl Services {
         };
         let _t = script.toggle.lock().expect("toggle");
         let running = if on {
-            let started = self.scribe_start(call_id, &conv, &engine, &script);
+            let started = self
+                .scribe_open(call_id)
+                .and_then(|o| self.scribe_attach(o, call_id, &conv, &engine, &script));
             let failed = started.is_none();
             let mut g = self.calls.inner.lock().expect("calls");
             match g.mine.as_mut().filter(|a| a.generation == generation) {

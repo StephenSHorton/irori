@@ -394,7 +394,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
 
     /// Another person's end of a huddle with a transcript in a space's
     /// channel (card #656): this person's agents in the channel hear it once
-    /// (the row's id), woken, as the ending device's own agents hear it from
+    /// per huddle (however many end posts it has), woken, as the ending device's own agents hear it from
     /// [`tools::talk::tell_call_end`]. A person DM's is never told: it
     /// isn't a channel, and its hidden space never bridges anyway.
     fn call_end_bridge(&self, b: &BoardLog, ev: &Event, r: &coord::talk::PostRow) {
@@ -422,6 +422,16 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
         else {
             return;
         };
+        // This person's own end of it told them already (tell_call_end).
+        let me = self.person_id();
+        let mine = self.talk.posts(&r.conv_id).iter().any(|p| {
+            p.call.as_ref().is_some_and(|c| {
+                c.op == coord::talk::CALL_END && c.call_id == m.call_id && c.transcript
+            }) && b.verifier.person_of(&p.device).is_some_and(|x| x == me)
+        });
+        if mine {
+            return;
+        }
         // This person's agents go by their own keys; another person's
         // (board keys) hear it on their own Core.
         let mut to: Vec<String> = Vec::new();
@@ -443,7 +453,7 @@ Answer there with talk_post conv={conv} (or reply to this message) if you have s
             kind: row_kind::COMMENT,
             card_id: String::new(),
             to: Vec::new(),
-            row: format!("{}/{}", ev.device_id, ev.seq),
+            row: tools::talk::call_end_row(&m.call_id),
             wake: true,
             text: Box::new(move |_| text),
         };

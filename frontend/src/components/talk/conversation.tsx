@@ -63,22 +63,18 @@ import {
   type Member,
   type Post,
 } from "@/lib/conversations"
-import { AgentRef, TalkPost } from "@/lib/models"
-import {
-  callChannel,
-  callMock,
-  MockCallPanel,
-  MockHuddleEnded,
-  ShareStage,
-  TranscriptPane,
-} from "./call-mock"
+import { AgentRef } from "@/lib/models"
+import { callChannel, callMock, MockCallPanel, ShareStage } from "./call-mock"
 import {
   CallPanel,
   HuddleButton,
   HuddleEnded,
+  HuddleNotice,
   HuddleStarted,
   useCallPart,
+  type NoticeAsk,
 } from "./huddle"
+import { TranscriptPane } from "./transcript-pane"
 import {
   joinHuddle,
   leaveHuddle,
@@ -221,6 +217,30 @@ export function ConversationView({
   const onMute = (on: boolean) =>
     void setMuted(on).catch((err: unknown) => setHuddleError(errorText(err)))
   const onLeave = () => void huddle(leaveHuddle)
+  // The notice before the mic opens (#656): Huddle and every Join here ask
+  // first, and only Start or Join in it opens the mic.
+  const [asking, setAsking] = useState<
+    (NoticeAsk & { run: () => Promise<void> }) | null
+  >(null)
+  const askStart = () =>
+    setAsking({
+      action: "start",
+      convKind: conv.kind,
+      convName: plainLine(conv.name),
+      run: () => startHuddle(conv.convId, plainLine(conv.name)),
+    })
+  const askJoin = (callId: string) =>
+    setAsking({
+      action: "join",
+      convKind: conv.kind,
+      convName: plainLine(conv.name),
+      run: () => joinHuddle(callId),
+    })
+  // The transcript open beside the posts (#656); the preview's
+  // ?call=transcript opens #suzuri's earlier huddle's.
+  const [transcript, setTranscript] = useState(
+    mock === "transcript" ? "sample-call-1" : ""
+  )
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -390,14 +410,8 @@ export function ConversationView({
                 mine={mine}
                 live={livePeople}
                 busy={huddleBusy}
-                onStart={() =>
-                  void huddle(() =>
-                    startHuddle(conv.convId, plainLine(conv.name))
-                  )
-                }
-                onJoin={() =>
-                  liveHere && void huddle(() => joinHuddle(liveHere.callId))
-                }
+                onStart={askStart}
+                onJoin={() => liveHere && askJoin(liveHere.callId)}
               />
             </span>
           )}
@@ -462,6 +476,13 @@ export function ConversationView({
         </header>
         {narrow && mine ? (
           <CallPanel mine={mine} wide onMute={onMute} onLeave={onLeave} />
+        ) : narrow && transcript ? (
+          <TranscriptPane
+            callId={transcript}
+            now={now}
+            wide
+            onClose={() => setTranscript("")}
+          />
         ) : mock === "share" ? (
           <ShareStage />
         ) : narrow && showMembers && conv.kind === "channel" ? (
@@ -512,31 +533,15 @@ export function ConversationView({
                           // Join from its start post while it's on.
                           onJoinCall={
                             !mine && liveHere
-                              ? (id) =>
-                                  id === liveHere.callId &&
-                                  void huddle(() => joinHuddle(id))
+                              ? (id) => id === liveHere.callId && askJoin(id)
                               : undefined
                           }
                           liveCall={liveHere?.callId}
+                          onTranscript={setTranscript}
                         />
                       </div>
                     )
                   })}
-                  {mock === "transcript" && (
-                    <>
-                      <MockHuddleEnded />
-                      {mockAfter(conv).map((p) => (
-                        <PostRow
-                          key={p.postId}
-                          post={p}
-                          who={names.get(p.by)}
-                          names={names}
-                          live={live}
-                          channel={conv}
-                        />
-                      ))}
-                    </>
-                  )}
                 </div>
               )}
             </Loading>
@@ -559,13 +564,25 @@ export function ConversationView({
         ) : (
           <CallPanel mine={mine} onMute={onMute} onLeave={onLeave} />
         )
-      ) : mock === "transcript" && !narrow ? (
-        <TranscriptPane />
+      ) : transcript && !narrow ? (
+        <TranscriptPane
+          callId={transcript}
+          now={now}
+          onClose={() => setTranscript("")}
+        />
       ) : (
         showMembers &&
         conv.kind === "channel" &&
         !narrow && <Members members={conv.members} live={live} />
       )}
+      <HuddleNotice
+        ask={asking}
+        onConfirm={() => {
+          const run = asking?.run
+          if (run) void huddle(run)
+        }}
+        onClose={() => setAsking(null)}
+      />
       <NewCardDialog
         open={!!making}
         // A space's channel makes its cards in the space (card #558).
@@ -578,32 +595,6 @@ export function ConversationView({
       />
     </section>
   )
-}
-
-// mockAfter is what follows the ended huddle in the mock-up (card #571):
-// you ask an agent to act on the transcript, and it does.
-function mockAfter(conv: Conversation): Post[] {
-  const heron = conv.members.find((m) => m.name === "sample-heron")
-  const you = conv.members.find((m) => m.kind === "person")
-  if (!heron || !you) return []
-  const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString()
-  return [
-    TalkPost({
-      postId: "call-mock-1",
-      convId: conv.convId,
-      by: you.key,
-      at: at(4),
-      text: "@sample-heron make cards for the huddle's to-dos",
-      mentions: [heron.key],
-    }),
-    TalkPost({
-      postId: "call-mock-2",
-      convId: conv.convId,
-      by: heron.key,
-      at: at(3),
-      text: "Made #41 Rerun the latency test on the PC once it's idle, from the huddle at 10:07. The other to-do was the same one, so I didn't make a second card.",
-    }),
-  ]
 }
 
 // refOf is a member as a face needs it, with its live status.
@@ -638,6 +629,7 @@ export function PostRow({
   channel,
   liveCall,
   onJoinCall,
+  onTranscript,
 }: {
   post: Post
   who?: Member
@@ -650,6 +642,8 @@ export function PostRow({
   // The huddle on in its conversation now (#654), and joining it.
   liveCall?: string
   onJoinCall?: (callId: string) => void
+  // Opens an ended huddle's transcript (#656).
+  onTranscript?: (callId: string) => void
 }) {
   const [asking, setAsking] = useState(false)
   // Its @names, so the text shows them as mentions.
@@ -679,6 +673,11 @@ export function PostRow({
       <HuddleEnded
         durationMs={post.call.durationMs}
         people={post.call.people}
+        onTranscript={
+          post.call.transcript && onTranscript
+            ? () => onTranscript(post.call!.callId)
+            : undefined
+        }
       />
     ) : (
       <HuddleStarted

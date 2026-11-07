@@ -1668,13 +1668,29 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(e) => return err_text(&e),
     };
     let since = trim(a.str("since"));
+    let is_call = matches!(target, Target::Call(_));
+    let mark = if is_call {
+        Lines::parse(talk.cursor(me(c), &conv).as_deref(), &all)
+    } else {
+        Lines::default()
+    };
     let cursor = if since.is_empty() {
         talk.cursor(me(c), &conv)
     } else {
         Some(since.to_string())
     };
-    let after = ct::since(&all, cursor.as_deref());
-    let (shown, head) = if after.is_empty() || (since.is_empty() && after.len() == all.len()) {
+    let after: Vec<Post> = if is_call && since.is_empty() {
+        all.iter().filter(|p| !mark.has(p)).cloned().collect()
+    } else {
+        ct::since(&all, cursor.as_deref()).to_vec()
+    };
+    let (shown, head) = if is_call && since.is_empty() && mark.is_empty() {
+        // A transcript is read from its start (card #656).
+        (
+            all[..all.len().min(READ_PAGE)].to_vec(),
+            "The transcript, from the start",
+        )
+    } else if after.is_empty() || (!is_call && since.is_empty() && after.len() == all.len()) {
         // Nothing new, or never read: the latest page.
         let p = ct::page(&all, None, READ_PAGE);
         let h = if after.is_empty() && !all.is_empty() {
@@ -1712,17 +1728,30 @@ pub(crate) fn talk_read(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         }
     }
     if let Some(last) = shown.last() {
-        let left = all.len()
-            - 1
-            - all
-                .iter()
-                .position(|p| p.post_id == last.post_id)
-                .unwrap_or(0);
+        let at = all
+            .iter()
+            .position(|p| p.post_id == last.post_id)
+            .unwrap_or(0);
+        let left = match (is_call && since.is_empty(), mark.is_empty()) {
+            // A transcript's unread lines need not follow each other.
+            (true, false) => after.len().saturating_sub(shown.len()),
+            _ => all.len() - 1 - at,
+        };
         if left > 0 {
             out += &format!(
                 "{left} more: talk_read conv={conv} since={}\n",
                 last.post_id
             );
+        }
+        if is_call {
+            // A transcript's cursor is each speaker's newest line read, so
+            // a line that arrives late with an earlier time is still unread.
+            let mut next = mark;
+            next.read(&all[..=at]);
+            if let Some(up_to) = next.encode() {
+                let _ = talk.mark_read(&conv, &up_to, me(c));
+            }
+            return out + untrusted();
         }
         // Reading moves the caller's cursor (never back).
         let cur = talk.cursor(me(c), &conv);
@@ -1823,6 +1852,73 @@ pub(crate) fn talk_list(s: &Inner, c: &Caller, _: &[u8]) -> String {
 /// The most huddles talk_list shows.
 const HUDDLES_SHOWN: usize = 10;
 
+/// A transcript's read cursor (card #656): the newest line read from each
+/// source (a device's rows, or one fallback post), as `lines:src=n,…`.
+/// Lines sort by when they were said, but arrive in each source's order,
+/// so one post id can't say what has been read.
+#[derive(Debug, Default, PartialEq)]
+struct Lines(BTreeMap<String, i64>);
+
+const LINES_PREFIX: &str = "lines:";
+
+impl Lines {
+    /// The cursor `up_to` over transcript `all`. An older cursor that names
+    /// a line counts every line up to it as read.
+    fn parse(up_to: Option<&str>, all: &[Post]) -> Lines {
+        let mut out = Lines::default();
+        let Some(up_to) = up_to else {
+            return out;
+        };
+        if let Some(rest) = up_to.strip_prefix(LINES_PREFIX) {
+            for e in rest.split(',') {
+                if let Some((k, n)) = e.rsplit_once('=')
+                    && let Ok(n) = n.parse()
+                    && !k.is_empty()
+                {
+                    out.0.insert(k.to_string(), n);
+                }
+            }
+        } else if let Some(i) = all.iter().position(|p| p.post_id == up_to) {
+            out.read(&all[..=i]);
+        }
+        out
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Where line `p` comes from, and its place there.
+    fn key(p: &Post) -> (String, i64) {
+        match p.post_id.split_once('#') {
+            Some((post, i)) => (post.to_string(), i.parse().unwrap_or(p.ord.2)),
+            None => (p.device.clone(), p.ord.2),
+        }
+    }
+
+    fn has(&self, p: &Post) -> bool {
+        let (k, n) = Lines::key(p);
+        self.0.get(&k).is_some_and(|m| *m >= n)
+    }
+
+    /// Counts `lines` read (never back).
+    fn read(&mut self, lines: &[Post]) {
+        for p in lines {
+            let (k, n) = Lines::key(p);
+            let m = self.0.entry(k).or_insert(n);
+            *m = (*m).max(n);
+        }
+    }
+
+    fn encode(&self) -> Option<String> {
+        if self.is_empty() {
+            return None;
+        }
+        let es: Vec<String> = self.0.iter().map(|(k, n)| format!("{k}={n}")).collect();
+        Some(format!("{LINES_PREFIX}{}", es.join(",")))
+    }
+}
+
 /// Where a huddle was, for a line about it: `#name`, or the DM with whom.
 fn call_place(talk: &Talk, n: &crate::Names<'_>, conv: &str) -> String {
     if let Some(ch) = talk.channel(conv) {
@@ -1877,11 +1973,12 @@ fn huddles(talk: &Talk, n: &crate::Names<'_>, me: &str) -> String {
     let mut out = "Huddles with a transcript, newest first:\n".to_string();
     for c in shown.iter().take(HUDDLES_SHOWN) {
         let conv = format!("{}{}", ct::CALL_PREFIX, c.call_id);
-        let (unread, _) = ct::unread(
-            &talk.call_posts(&c.call_id),
-            talk.cursor(me, &conv).as_deref(),
-            me,
-        );
+        let lines = talk.call_posts(&c.call_id);
+        let mark = Lines::parse(talk.cursor(me, &conv).as_deref(), &lines);
+        let unread = lines
+            .iter()
+            .filter(|p| !mark.has(p) && ct::canon(&p.by) != ct::canon(me))
+            .count();
         let tail = if unread > 0 {
             format!(": {unread} unread")
         } else {
@@ -1916,11 +2013,18 @@ pub fn call_end_text(channel: &str, call_id: &str, lines: usize) -> String {
     )
 }
 
+/// The bridged row a huddle's end goes by (card #656), so every end post
+/// of one huddle wakes an agent once.
+pub fn call_end_row(call_id: &str) -> String {
+    format!("call-end/{}", call_id.trim())
+}
+
 /// Tells this person's agents in channel `conv` that huddle `call_id`
 /// ended and where its transcript is (card #656): one reading each, with
 /// a wake, its reference the channel (`talk:<conv>`) so a reply goes there.
-/// Nobody hears of a DM's huddle. Each call tells again: call it once per
-/// huddle (the last device out).
+/// Nobody hears of a DM's huddle, and an agent another person's end post
+/// already woke for it (the bridge) isn't told again. Otherwise each call
+/// tells again: call it once per huddle (the last device out).
 pub fn tell_call_end(
     b: &dyn Backend,
     from: &Sender,
@@ -1937,12 +2041,15 @@ pub fn tell_call_end(
     let Some(ch) = talk.channel(conv) else {
         return Vec::new();
     };
+    let row = call_end_row(call_id);
     let mut to: Vec<String> = Vec::new();
     for m in talk.members(conv) {
-        // Another person's agent (a board key) hears it on its own Core.
+        // Another person's agent (a board key) hears it on its own Core;
+        // one that heard another person's end of it already isn't told again.
         if m.kind == ct::AGENT
             && !coord::board_form(&m.key)
             && !to.iter().any(|k| ct::canon(k) == ct::canon(&m.key))
+            && !b.inbox().bridged(&ch.space_id, &row, &m.key)
         {
             to.push(m.key);
         }

@@ -239,8 +239,9 @@ impl Window {
     /// Ends any session and frees the speech model: the shell calls it as
     /// the app exits (macOS's Metal backend asserts at exit otherwise). A
     /// session still starting or stopping is waited for, and none starts
-    /// after.
+    /// after. Any huddle is left first: its transcriber holds the model.
     pub fn voice_shutdown(&self) {
+        self.call_shutdown();
         let _changing = self
             .voice
             .changing
@@ -265,10 +266,73 @@ impl Window {
     }
 }
 
+/// The call's transcriber (#656): Whisper hearing the call's cleaned mic
+/// through the engine's tap, separate from the mic button's session. Each
+/// start fails when the speech model isn't downloaded or this machine has
+/// no engine, and the call then shows this device as not transcribing.
+pub fn call_transcriber(data_dir: PathBuf) -> call::TranscriberFn {
+    Arc::new(move |sink: call::SegmentSink| {
+        if let voice::Status::Unsupported(why) = voice::status() {
+            return Err(why);
+        }
+        if !voice::model_ready(&data_dir, &voice::MODEL) {
+            return Err("the speech model isn't downloaded".into());
+        }
+        let model = voice::model_path(&data_dir, &voice::MODEL);
+        let on: voice::Sink = Arc::new(move |e| {
+            if let Some(s) = segment(e) {
+                sink(s);
+            }
+        });
+        let (session, feed) =
+            voice::start_feed(&model, 48_000, voice::Options::call(), on).map_err(|e| e.message)?;
+        Ok(Box::new(CallScribe { session, feed }) as Box<dyn call::Transcriber>)
+    })
+}
+
+/// A call's phrase, from a feed session's event.
+fn segment(e: voice::Event) -> Option<call::Segment> {
+    match e {
+        voice::Event::Segment {
+            text,
+            start_ms,
+            end_ms,
+        } if !text.trim().is_empty() => Some(call::Segment {
+            text,
+            start_ms,
+            end_ms,
+        }),
+        _ => None,
+    }
+}
+
+/// One call's Whisper session and its feed.
+struct CallScribe {
+    session: voice::Session,
+    /// Held here too, so the engine dropping its tap never frees the
+    /// backlog on the audio thread.
+    feed: voice::Feed,
+}
+
+impl call::Transcriber for CallScribe {
+    fn tap(&mut self) -> call::Tap {
+        let feed = self.feed.clone();
+        Box::new(move |chunk: &[f32]| feed.push(chunk))
+    }
+
+    fn stop(self: Box<Self>) {
+        let CallScribe { session, feed } = *self;
+        session.stop();
+        drop(feed);
+    }
+}
+
 fn event(session: u32, e: voice::Event) -> VoiceEvent {
     let (kind, text, code) = match e {
         voice::Event::Partial(t) => ("partial", t, ""),
         voice::Event::Final(t) => ("final", t, ""),
+        // Only a call's feed sends these, never dictation.
+        voice::Event::Segment { text, .. } => ("final", text, ""),
         voice::Event::Error { code, message } => ("error", message, code.as_str()),
         voice::Event::Ended => ("ended", String::new(), ""),
     };
@@ -311,6 +375,48 @@ mod tests {
             ("error", "mic-denied", "allow it")
         );
         assert_eq!(event(4, voice::Event::Ended).kind, "ended");
+        let e = event(
+            5,
+            voice::Event::Segment {
+                text: "hi".into(),
+                start_ms: 1,
+                end_ms: 2,
+            },
+        );
+        assert_eq!((e.kind.as_str(), e.text.as_str()), ("final", "hi"));
+    }
+
+    #[test]
+    fn only_a_spoken_segment_reaches_the_call() {
+        let s = segment(voice::Event::Segment {
+            text: "take the PC build".into(),
+            start_ms: 120,
+            end_ms: 2400,
+        });
+        assert_eq!(
+            s,
+            Some(call::Segment {
+                text: "take the PC build".into(),
+                start_ms: 120,
+                end_ms: 2400
+            })
+        );
+        let blank = voice::Event::Segment {
+            text: "  ".into(),
+            start_ms: 0,
+            end_ms: 1,
+        };
+        assert_eq!(segment(blank), None);
+        assert_eq!(segment(voice::Event::Final("x".into())), None);
+        assert_eq!(segment(voice::Event::Ended), None);
+    }
+
+    #[test]
+    fn a_missing_model_means_no_transcript() {
+        let dir = tempfile::tempdir().unwrap();
+        let start = call_transcriber(dir.path().to_path_buf());
+        let r = start(Arc::new(|_| {}));
+        assert!(r.is_err());
     }
 
     #[test]

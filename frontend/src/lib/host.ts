@@ -533,6 +533,11 @@ export const CallService = {
   Leave: () => done(commands.callLeave()),
   Mute: (on: boolean) => done(commands.callMute(on)),
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
+  // "Transcribe what I say in calls" (#656), on all the person's devices.
+  Transcribe: () => call(commands.callTranscribe()),
+  TranscribeSet: (on: boolean) => done(commands.callTranscribeSet(on)),
+  // A huddle's transcript (#656): every line, named.
+  Transcript: (callId: string) => call(commands.talkCallTranscript(callId)),
 }
 
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as

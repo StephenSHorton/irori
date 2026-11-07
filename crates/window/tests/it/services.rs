@@ -1337,7 +1337,13 @@ fn huddles_through_the_window() {
         .replace("\r\n", "\n");
     let r = Rig::new();
     let w = &r.w;
-    assert_eq!(w.call_state(), irori_window::call::CallView::default());
+    assert_eq!(
+        w.call_state(),
+        irori_window::call::CallView {
+            transcribe_on: true,
+            ..Default::default()
+        }
+    );
     assert!(w.call_start("  ").is_err());
 
     let ch = w.talk_channel_create("standup", None, None).unwrap();
@@ -1356,7 +1362,17 @@ fn huddles_through_the_window() {
         phase: "live".into(),
         path: "direct".into(),
         rtt_ms: 26.0,
+        transcribing: Some(true),
         ..Default::default()
+    };
+    let caption = |device: &str, person: &str, mine: bool, text: &str| irori_core::Caption {
+        device_id: device.into(),
+        person_id: person.into(),
+        mine,
+        seq: 0,
+        start_ms: 1_000,
+        end_ms: 2_400,
+        text: text.into(),
     };
     let v = w.call_view(irori_core::CallSnapshot {
         mine: Some(irori_core::MyCall {
@@ -1365,6 +1381,14 @@ fn huddles_through_the_window() {
             joined_at_ms: 5,
             peers: vec![peer(&here, &me), peer("dev-x", &stranger)],
             error: Some("  ".into()),
+            transcribing: true,
+            can_transcribe: true,
+            captions: vec![
+                caption(&here, &me, true, "I'll take the PC build"),
+                caption("dev-y", &me, false, "from my phone"),
+                caption("dev-x", &stranger, false, "thanks"),
+                caption("dev-z", "pfedcba9876543210", false, "gone now"),
+            ],
             ..Default::default()
         }),
         ringing: vec![irori_core::Ringing {
@@ -1398,6 +1422,23 @@ fn huddles_through_the_window() {
         "another person's device has no name here"
     );
     assert_eq!(m.error, None, "a blank error is none");
+    assert!(m.transcribing && m.can_transcribe && m.transcribe_on && v.transcribe_on);
+    assert_eq!(m.peers[1].transcribing, Some(true));
+    let said: Vec<(&str, bool, &str)> = m
+        .captions
+        .iter()
+        .map(|c| (c.name.as_str(), c.mine, c.text.as_str()))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("you", true, "I'll take the PC build"),
+            ("you", true, "from my phone"),
+            ("another person", false, "thanks"),
+            ("another person", false, "gone now"),
+        ]
+    );
+    assert_eq!((m.captions[0].at_ms, m.captions[0].end_ms), (1_000, 2_400));
     assert_eq!(v.ringing[0].by, "another person");
     assert_eq!(v.ringing[0].conv_name, "standup");
     assert_eq!(v.live[0].people, ["you", "another person"]);
@@ -1410,4 +1451,101 @@ fn huddles_through_the_window() {
         "CallPeerView",
         &serde_json::to_value(&m.peers[0]).unwrap(),
     );
+    check_shape(
+        &src,
+        "CallCaptionView",
+        &serde_json::to_value(&m.captions[0]).unwrap(),
+    );
+    assert!(!json.contains("dev-x") && !json.contains("pfedcba9876543210"));
+
+    // The switch round-trips, and the picture carries it.
+    assert!(w.call_transcribe());
+    w.call_transcribe_set(false).unwrap();
+    assert!(!w.call_transcribe());
+    assert!(!w.call_state().transcribe_on);
+    w.call_transcribe_set(true).unwrap();
+    assert!(w.call_transcribe());
+}
+
+/// A huddle's transcript (#656) through the window: every line named, the
+/// person's as "you", with the huddle's channel, start and length; its end
+/// post says it has one; an unknown huddle is refused.
+#[test]
+fn a_huddles_transcript_through_the_window() {
+    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let r = Rig::new();
+    let w = &r.w;
+    let ch = w.talk_channel_create("standup", None, None).unwrap();
+    let me = w.core.user_sender().key;
+    let start = coord::talk::CallMark {
+        call_id: "call_t1".into(),
+        op: coord::talk::CALL_START.into(),
+        ..Default::default()
+    };
+    let started = w.core.post_call_mark(&ch, "huddle started", start).unwrap();
+    let t0 = started.at.unix_milli_value();
+    let talk = w.core.talk();
+    talk.write_segment(&ch, "call_t1", 1, t0 + 5_000, t0 + 6_000, "second", &me)
+        .unwrap();
+    talk.write_segment(&ch, "call_t1", 0, t0 + 1_000, t0 + 2_000, "first", &me)
+        .unwrap();
+    let t = w.talk_call_transcript("call_t1").unwrap();
+    assert_eq!(
+        (
+            t.conv_id.as_str(),
+            t.conv_name.as_str(),
+            t.conv_kind.as_str()
+        ),
+        (ch.as_str(), "standup", "channel")
+    );
+    assert_eq!(t.started_at_ms, Some(t0));
+    assert!(!t.ended);
+    let lines: Vec<(&str, bool, i64, &str)> = t
+        .lines
+        .iter()
+        .map(|l| (l.name.as_str(), l.mine, l.at_ms, l.text.as_str()))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            ("you", true, t0 + 1_000, "first"),
+            ("you", true, t0 + 5_000, "second"),
+        ]
+    );
+
+    let end = coord::talk::CallMark {
+        call_id: "call_t1".into(),
+        op: coord::talk::CALL_END.into(),
+        duration_ms: 60_000,
+        people: vec![me.clone()],
+        transcript: true,
+    };
+    w.core.post_call_mark(&ch, "huddle ended", end).unwrap();
+    let t = w.talk_call_transcript(" call_t1 ").unwrap();
+    assert!(t.ended);
+    assert_eq!(t.duration_ms, 60_000);
+    let json = serde_json::to_string(&t).unwrap();
+    assert!(!json.contains(&me), "{json}");
+    check_shape(&src, "TalkTranscript", &serde_json::to_value(&t).unwrap());
+    check_shape(
+        &src,
+        "TalkTranscriptLine",
+        &serde_json::to_value(&t.lines[0]).unwrap(),
+    );
+
+    let posts = w.talk_posts(&ch, None, 50).unwrap();
+    let marks: Vec<(String, bool)> = posts
+        .iter()
+        .filter_map(|p| p.call.as_ref())
+        .map(|c| (c.op.clone(), c.transcript))
+        .collect();
+    assert_eq!(
+        marks,
+        [("start".to_string(), false), ("end".to_string(), true)]
+    );
+
+    assert!(w.talk_call_transcript("call_nope").is_err());
+    assert!(w.talk_call_transcript("  ").is_err());
 }

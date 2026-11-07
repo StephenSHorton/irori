@@ -1885,3 +1885,100 @@ fn a_huddles_end_wakes_the_channels_agents_once() {
     assert!(h.notices(KEY_B).is_empty());
     assert!(h.notices(USER).is_empty());
 }
+
+#[test]
+fn a_long_transcript_reads_from_its_start() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    let t = h.b.talk.clone();
+    for i in 0..35_i64 {
+        let at = 1_000 + i * 1_000;
+        t.write_segment(&ch.id, CALL, i, at, at + 500, &format!("line {i:02}"), USER)
+            .unwrap();
+    }
+    let conv = format!("call:{CALL}");
+
+    // The first 30, and how to get the rest.
+    let out = h.okj(&a, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("The transcript, from the start in {conv}"),
+            "line 00",
+            "line 29",
+            &format!("5 more: talk_read conv={conv} since=seg_"),
+        ],
+    );
+    has_not(&out, &["line 30"]);
+    let since = out
+        .split(&format!("talk_read conv={conv} since="))
+        .nth(1)
+        .and_then(|s| s.lines().next())
+        .unwrap()
+        .to_string();
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv, "since": since})),
+        &["line 30", "line 34"],
+    );
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["Nothing new"],
+    );
+
+    // Read without since, the next read goes on from the cursor.
+    let me = person();
+    h.okj(&me, "talk_read", json!({"conv": conv}));
+    let out = h.okj(&me, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("Posts since you last read in {conv}"),
+            "line 30",
+            "line 34",
+        ],
+    );
+    has_not(&out, &["line 29", "more:"]);
+}
+
+#[test]
+fn a_late_line_said_earlier_is_still_unread() {
+    let h = new_harness();
+    let a = call_a();
+    let ch = h.b.talk.create_channel(USER, "general", "").unwrap();
+    h.okj(&a, "talk_join", json!({"conv": "#general"}));
+    let t = h.b.talk.clone();
+    t.write_segment(&ch.id, CALL, 0, 10_000, 11_000, "first", USER)
+        .unwrap();
+    t.write_segment(&ch.id, CALL, 1, 20_000, 21_000, "second", USER)
+        .unwrap();
+    let conv = format!("call:{CALL}");
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["first", "second"],
+    );
+    has(&h.okj(&a, "talk_list", json!({})), &["2 lines, live)\n"]);
+
+    // It arrives after the read, but was said before both.
+    t.write_segment(&ch.id, CALL, 2, 5_000, 6_000, "said early", USER)
+        .unwrap();
+    has(
+        &h.okj(&a, "talk_list", json!({})),
+        &["3 lines, live): 1 unread"],
+    );
+    let out = h.okj(&a, "talk_read", json!({"conv": conv}));
+    has(
+        &out,
+        &[
+            &format!("Posts since you last read in {conv}"),
+            "said early",
+        ],
+    );
+    has_not(&out, &["): first", "): second", "more:"]);
+    has(
+        &h.okj(&a, "talk_read", json!({"conv": conv})),
+        &["Nothing new"],
+    );
+    has(&h.okj(&a, "talk_list", json!({})), &["3 lines, live)\n"]);
+}

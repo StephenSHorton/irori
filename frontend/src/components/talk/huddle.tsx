@@ -9,10 +9,14 @@
 // - HuddleLine: a Talk list row's huddle that's on.
 // - HuddleStarted, HuddleEnded: the posts a huddle leaves.
 // - RingBanner: someone started a huddle you can join.
+// - HuddleNotice: who reads what you say, before the mic opens (#656).
+// - Captions, TranscriptOn: the transcript as it's written (#656).
 // Ringing and PhoneCallBar read the store and act, for App.
 
-import { useState, useSyncExternalStore } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import {
+  CircleDotIcon,
+  FileTextIcon,
   HeadphonesIcon,
   MicIcon,
   MicOffIcon,
@@ -21,8 +25,20 @@ import {
   XIcon,
 } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/dialog"
+import {
+  canTranscribeHere,
+  clockText,
   convLabel,
   dismissRing,
   durationText,
@@ -36,6 +52,9 @@ import {
   setMuted,
   sharedCall,
   subscribeCall,
+  transcriptNotice,
+  transcriptOn,
+  type CallCaptionView,
   type CallMineView,
   type CallPeerView,
   type CallRingView,
@@ -72,7 +91,7 @@ const hues = [
 ]
 
 // hueOf picks a colour for a name, the same one every time.
-function hueOf(name: string): string {
+export function hueOf(name: string): string {
   let h = 0
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) | 0
   return hues[Math.abs(h) % hues.length]
@@ -80,7 +99,7 @@ function hueOf(name: string): string {
 
 // initials is a name's first letter, or its first two words' ("another
 // person": "AP").
-function initials(name: string): string {
+export function initials(name: string): string {
   const w = name.trim().split(/\s+/)
   return (w.length > 1 ? w[0][0] + w[1][0] : name.slice(0, 1)).toUpperCase()
 }
@@ -101,6 +120,8 @@ type Who = {
   health: Health | null
   speaking: boolean
   muted: boolean
+  // Whether what they say is written down (#656); null: not known.
+  transcribed: boolean | null
 }
 
 function peerWho(p: CallPeerView): Who {
@@ -111,6 +132,7 @@ function peerWho(p: CallPeerView): Who {
     health: healthOf(p),
     speaking: p.speaking,
     muted: p.muted,
+    transcribed: p.transcribing,
   }
 }
 
@@ -122,6 +144,7 @@ function selfWho(m: CallMineView): Who {
     health: null,
     speaking: m.speaking,
     muted: m.muted,
+    transcribed: m.transcribing,
   }
 }
 
@@ -242,6 +265,18 @@ function Tile({ w }: { w: Who }) {
         >
           {line}
         </span>
+        {w.transcribed === false && (
+          <span
+            className="truncate text-[11px] text-muted-foreground italic"
+            title={
+              w.name === "You"
+                ? "What you say isn't written down"
+                : `What ${w.name} says isn't written down`
+            }
+          >
+            not transcribed
+          </span>
+        )}
       </span>
       {w.muted && (
         <MicOffIcon
@@ -320,6 +355,7 @@ export function CallPanel({
   onLeave: () => void
 }) {
   const who = whoIn(mine)
+  const captions = mine.captions.length > 0
   return (
     <aside
       aria-label="Huddle"
@@ -334,8 +370,11 @@ export function CallPanel({
         <span className="text-[12px] text-muted-foreground tabular-nums">
           <Elapsed since={mine.joinedAtMs} />
         </span>
-        <span className="ml-auto text-[12px] text-muted-foreground">
-          {who.length === 1 ? "just you" : `${who.length} in it`}
+        <span className="ml-auto flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+          <span className="truncate">
+            {who.length === 1 ? "just you" : `${who.length} in it`}
+          </span>
+          {transcriptOn(mine) && <TranscriptOn />}
         </span>
       </div>
       {mine.error && (
@@ -343,7 +382,12 @@ export function CallPanel({
           <ErrorLine text={mine.error} />
         </div>
       )}
-      <div className="grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto px-3 pb-3">
+      <div
+        className={cn(
+          "grid min-h-0 content-start gap-1.5 overflow-y-auto px-3 pb-3",
+          captions ? "max-h-[45%] shrink-0" : "flex-1"
+        )}
+      >
         {who.map((w, i) => (
           <Tile key={i} w={w} />
         ))}
@@ -354,7 +398,8 @@ export function CallPanel({
           </p>
         )}
       </div>
-      <div className="flex items-center justify-center gap-2 border-t border-border px-3 py-2.5">
+      {captions && <Captions lines={mine.captions} />}
+      <div className="mt-auto flex items-center justify-center gap-2 border-t border-border px-3 py-2.5">
         <MuteButton muted={mine.muted} onMute={onMute} size="icon-lg" />
         <Button
           size="icon-lg"
@@ -367,6 +412,68 @@ export function CallPanel({
         </Button>
       </div>
     </aside>
+  )
+}
+
+// TranscriptOn is the badge a huddle shows while anyone in it is written
+// down.
+export function TranscriptOn() {
+  return (
+    <Badge
+      variant="destructive"
+      className="shrink-0 gap-1 normal-case"
+      title="Everyone in the huddle sees this. Each device writes down only its own person's voice."
+    >
+      <CircleDotIcon className="size-3" />
+      Transcript on
+    </Badge>
+  )
+}
+
+// Captions is the transcript as it's written, newest at the bottom; it
+// follows the newest line unless you've scrolled up to read.
+export function Captions({ lines }: { lines: readonly CallCaptionView[] }) {
+  const box = useRef<HTMLDivElement>(null)
+  const last = lines[lines.length - 1]
+  const lastKey = last ? `${lines.length}:${last.atMs}` : ""
+  const follow = useRef(true)
+  useEffect(() => {
+    const b = box.current
+    if (b && follow.current) b.scrollTop = b.scrollHeight
+  }, [lastKey])
+  return (
+    <section
+      aria-label="Transcript, as it's written"
+      className="flex min-h-0 flex-1 flex-col border-t border-border"
+    >
+      <h4 className="flex items-center gap-1.5 px-3 pt-2.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        <FileTextIcon className="size-3" />
+        Transcript, as it's written
+      </h4>
+      <div
+        ref={box}
+        onScroll={(e) => {
+          const b = e.currentTarget
+          follow.current = b.scrollHeight - b.scrollTop - b.clientHeight < 40
+        }}
+        aria-live="polite"
+        className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto px-3 py-2 text-[12.5px]"
+      >
+        {lines.map((l, i) => (
+          <p key={`${i}:${l.atMs}`} className="min-w-0 text-ink-2">
+            <span className="font-medium text-ink">{personWord(l.name)}</span>{" "}
+            <time
+              className="text-[11px] text-muted-foreground tabular-nums"
+              dateTime={new Date(l.atMs).toISOString()}
+            >
+              {clockText(l.atMs)}
+            </time>
+            <br />
+            <span className="break-words">{l.text}</span>
+          </p>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -400,7 +507,7 @@ export function CallBar({
           type="button"
           onClick={onOpen}
           className="relative flex size-8 items-center justify-center rounded-lg border border-success/40 bg-success/10 text-success hover:bg-success/20"
-          title={`Huddle · ${where}`}
+          title={`Huddle · ${where}${transcriptOn(mine) ? " · Transcript on" : ""}`}
           aria-label={`Huddle in ${where}`}
         >
           <HeadphonesIcon className="size-4" />
@@ -426,6 +533,15 @@ export function CallBar({
         >
           Huddle · {where}
         </button>
+        {transcriptOn(mine) && (
+          <span
+            className="flex shrink-0 items-center gap-1 text-[11px] text-destructive"
+            title="Transcript on: each device writes down only its own person's voice."
+          >
+            <CircleDotIcon className="size-3" aria-hidden />
+            <span className="sr-only">Transcript on</span>
+          </span>
+        )}
         <span className="text-[11px] text-muted-foreground tabular-nums">
           <Elapsed since={mine.joinedAtMs} />
         </span>
@@ -493,14 +609,17 @@ export function HuddleStarted({
   )
 }
 
-// HuddleEnded is the post a huddle leaves when it ends: how long, and who
-// was in it.
+// HuddleEnded is the post a huddle leaves when it ends: how long, who was
+// in it, and its transcript when it has one.
 export function HuddleEnded({
   durationMs,
   people,
+  onTranscript,
 }: {
   durationMs: number
   people: readonly string[]
+  // Set when it has a transcript (#656): opens it.
+  onTranscript?: () => void
 }) {
   return (
     <div className="mx-2 my-1.5 rounded-lg border border-border bg-card/60 px-3 py-2 text-[13px]">
@@ -515,6 +634,14 @@ export function HuddleEnded({
         <p className="pl-6 text-[12px] text-muted-foreground">
           {namesText(people)} {people.length === 1 ? "was" : "were"} in it.
         </p>
+      )}
+      {onTranscript && (
+        <div className="mt-2 pl-6">
+          <Button size="xs" variant="secondary" onClick={onTranscript}>
+            <FileTextIcon />
+            Transcript
+          </Button>
+        </div>
       )}
     </div>
   )
@@ -589,25 +716,141 @@ export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
   // next ring starts clean.
   const [busy, setBusy] = useState("")
   const [error, setError] = useState({ callId: "", text: "" })
-  if (!ring) return null
+  // The notice before the mic opens (#656), for the ring it was asked on.
+  const [asking, setAsking] = useState<CallRingView | null>(null)
+  if (!ring && !asking) return null
+  const join = (r: CallRingView) => {
+    const id = r.callId
+    setBusy(id)
+    setError({ callId: "", text: "" })
+    joinHuddle(id)
+      .then(() => onJoined(r.convId))
+      .catch((err: unknown) => setError({ callId: id, text: errorText(err) }))
+      .finally(() => setBusy((b) => (b === id ? "" : b)))
+  }
   return (
-    <RingBanner
-      ring={ring}
-      busy={busy === ring.callId}
-      error={error.callId === ring.callId ? error.text : ""}
-      onJoin={() => {
-        const id = ring.callId
-        setBusy(id)
-        setError({ callId: "", text: "" })
-        joinHuddle(id)
-          .then(() => onJoined(ring.convId))
-          .catch((err: unknown) =>
-            setError({ callId: id, text: errorText(err) })
-          )
-          .finally(() => setBusy((b) => (b === id ? "" : b)))
-      }}
-      onDismiss={() => void dismissRing(ring.callId).catch(() => {})}
-    />
+    <>
+      {ring && (
+        <RingBanner
+          ring={ring}
+          busy={busy === ring.callId}
+          error={error.callId === ring.callId ? error.text : ""}
+          onJoin={() => setAsking(ring)}
+          onDismiss={() => void dismissRing(ring.callId).catch(() => {})}
+        />
+      )}
+      <HuddleNotice
+        ask={
+          asking && {
+            action: "join",
+            convKind: asking.convKind,
+            convName: asking.convName,
+          }
+        }
+        onConfirm={() => asking && join(asking)}
+        onClose={() => setAsking(null)}
+      />
+    </>
+  )
+}
+
+// NoticeAsk is a huddle about to open the mic: starting one, or joining.
+export type NoticeAsk = {
+  action: "start" | "join"
+  convKind: string
+  convName: string
+}
+
+// NoticeText is the notice's words, with the badge's dot when what you say
+// is written down.
+export function NoticeText({ text }: { text: string }) {
+  const on = text.startsWith("This huddle is transcribed")
+  return (
+    <span className="flex items-start gap-2 text-left">
+      {on ? (
+        <CircleDotIcon
+          className="mt-0.5 size-4 shrink-0 text-destructive"
+          aria-hidden
+        />
+      ) : (
+        <MicIcon
+          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          aria-hidden
+        />
+      )}
+      <span className="min-w-0">{text}</span>
+    </span>
+  )
+}
+
+// HuddleNotice asks before the mic opens (#656): who reads what you say,
+// or that your voice isn't written down. Start or Join runs onConfirm;
+// Cancel or Escape just closes it.
+export function HuddleNotice({
+  ask,
+  onConfirm,
+  onClose,
+}: {
+  // The huddle it asks about; null: closed.
+  ask: NoticeAsk | null
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  const transcribeOn = useCallPart((s) => s.transcribeOn)
+  const [canTranscribe, setCanTranscribe] = useState(true)
+  const open = !!ask
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    void canTranscribeHere()
+      .then((ok) => live && setCanTranscribe(ok))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [open])
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const a = ask
+  const text = a
+    ? transcriptNotice({
+        convKind: a.convKind,
+        convName: a.convName,
+        transcribeOn,
+        canTranscribe,
+      })
+    : ""
+  const start = a?.action === "start"
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <AlertDialogContent initialFocus={confirmRef}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {start ? "Start a huddle" : "Join the huddle"}
+            {a &&
+              ` ${a.convKind === "channel" ? "in" : "with"} ${convLabel(a)}`}
+          </AlertDialogTitle>
+          <AlertDialogDescription render={<div />}>
+            <NoticeText text={text} />
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose render={<Button size="sm" variant="ghost" />}>
+            Cancel
+          </AlertDialogClose>
+          <Button
+            ref={confirmRef}
+            size="sm"
+            onClick={() => {
+              onClose()
+              onConfirm()
+            }}
+          >
+            <HeadphonesIcon />
+            {start ? "Start" : "Join"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

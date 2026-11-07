@@ -6,25 +6,45 @@
 // named, never as keys. This file keeps that picture for every component
 // (one store, like voice.ts's), starts, joins and leaves huddles, and holds
 // the pure parts the components need, so they are tested without a window.
+// Transcripts (#656): the switch, the notice before the mic opens, live
+// captions and the transcript an ended huddle leaves.
 
 import { CallService, Events } from "./host"
 import { inWails } from "./irori"
 import { nameOr, unknownPerson } from "./names"
 import { previewFlag } from "./preview"
-import { allowMic } from "./voice"
+import { allowMic, loadVoiceStatus } from "./voice"
 import type {
+  CallCaptionView,
   CallLiveView,
   CallMineView,
   CallPeerView,
   CallRingView,
   CallView,
+  TalkTranscript,
+  TalkTranscriptLine,
 } from "../gen/bindings"
 
-export type { CallLiveView, CallMineView, CallPeerView, CallRingView, CallView }
+export type {
+  CallCaptionView,
+  CallLiveView,
+  CallMineView,
+  CallPeerView,
+  CallRingView,
+  CallView,
+  TalkTranscript,
+  TalkTranscriptLine,
+}
 
 export const EventCallState = "call:state"
 
-export const noCall: CallView = { mine: null, ringing: [], live: [] }
+// The switch is on unless the person turned it off (decision 52).
+export const noCall: CallView = {
+  mine: null,
+  ringing: [],
+  live: [],
+  transcribeOn: true,
+}
 
 // ---- the shared picture ---------------------------------------------------------
 
@@ -126,6 +146,112 @@ export async function dismissRing(callId: string): Promise<void> {
   set({ ...shared, ringing: shared.ringing.filter((r) => r.callId !== callId) })
   if (!inWails()) return
   await CallService.Dismiss(callId)
+}
+
+// ---- transcripts (#656) ---------------------------------------------------------
+
+// loadTranscribe reads "Transcribe what I say in calls" (on in the
+// preview).
+export async function loadTranscribe(): Promise<boolean> {
+  if (!inWails()) return shared.transcribeOn
+  const on = await CallService.Transcribe()
+  if (on !== shared.transcribeOn) set({ ...shared, transcribeOn: on })
+  return on
+}
+
+// setTranscribe turns the switch on or off on all the person's devices; a
+// call in progress starts or stops writing down at once. It shows at once
+// and call:state confirms it.
+export async function setTranscribe(on: boolean): Promise<void> {
+  const m = shared.mine
+  set({
+    ...shared,
+    transcribeOn: on,
+    // The preview's huddle stops or starts writing down, as the app's does.
+    mine: m
+      ? {
+          ...m,
+          transcribeOn: on,
+          transcribing: inWails() ? m.transcribing : on && m.canTranscribe,
+        }
+      : null,
+  })
+  if (!inWails()) return
+  await CallService.TranscribeSet(on)
+}
+
+// canTranscribeHere is whether this device could write down its person's
+// voice before a huddle starts: it needs the speech engine and its model,
+// as the transcriber does (crates/window/src/voice.rs). The preview says
+// yes.
+export async function canTranscribeHere(): Promise<boolean> {
+  if (!inWails()) return true
+  return canTranscribeWith((await loadVoiceStatus()).state)
+}
+
+// canTranscribeWith is canTranscribeHere for a voice status: no engine or
+// no model can't; a mic that's denied still has the model.
+export function canTranscribeWith(voiceState: string): boolean {
+  return voiceState !== "unsupported" && voiceState !== "needs-model"
+}
+
+// transcriptNotice is what the window says before the mic opens: who reads
+// what you say, or that your voice isn't written down and why.
+export function transcriptNotice(c: {
+  convKind: string
+  convName: string
+  transcribeOn: boolean
+  canTranscribe: boolean
+}): string {
+  if (!c.canTranscribe) return "Your voice isn't transcribed on this device."
+  if (!c.transcribeOn) return "Your voice isn't transcribed (Settings > App)."
+  return c.convKind === "channel"
+    ? `This huddle is transcribed. What you say is written down in ${convLabel(c)} for its members and their agents.`
+    : "This huddle is transcribed. What you say is written down for the two of you."
+}
+
+// transcriptOn is whether anyone in the huddle is writing down: the
+// "Transcript on" badge.
+export function transcriptOn(m: CallMineView): boolean {
+  return (
+    m.transcribing ||
+    m.peers.some((p) => p.phase !== "gone" && p.transcribing === true)
+  )
+}
+
+// whoCanRead says who reads a huddle's transcript.
+export function whoCanRead(t: { convKind: string; convName: string }): string {
+  return t.convKind === "channel"
+    ? `Who can read it: the people and agents of ${convLabel(t)}.`
+    : "Who can read it: the two of you."
+}
+
+// clockText is a line's time of day: "10:02".
+export function clockText(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+// findLines is the transcript's lines that have every word of `q` in
+// what was said or who said it, any case.
+export function findLines(
+  lines: readonly TalkTranscriptLine[],
+  q: string
+): TalkTranscriptLine[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return [...lines]
+  return lines.filter((l) => {
+    const hay = `${personWord(l.name)} ${l.text}`.toLowerCase()
+    return words.every((w) => hay.includes(w))
+  })
+}
+
+// loadTranscript reads an ended (or running) huddle's transcript.
+export async function loadTranscript(callId: string): Promise<TalkTranscript> {
+  if (!inWails()) return previewTranscript(callId)
+  return CallService.Transcript(callId)
 }
 
 // ---- pure parts -----------------------------------------------------------------
@@ -238,6 +364,7 @@ export const previewPeers: CallPeerView[] = [
     lossPct: 0,
     speaking: true,
     muted: false,
+    transcribing: true,
   },
   {
     name: "Aiko",
@@ -248,6 +375,8 @@ export const previewPeers: CallPeerView[] = [
     lossPct: 1.4,
     speaking: false,
     muted: true,
+    // Aiko turned the switch off.
+    transcribing: false,
   },
   {
     name: "you",
@@ -258,6 +387,7 @@ export const previewPeers: CallPeerView[] = [
     lossPct: 0,
     speaking: false,
     muted: false,
+    transcribing: null,
   },
 ]
 
@@ -278,13 +408,80 @@ function previewMine(convId: string, name: string, ago: number): CallMineView {
     device: "MacBook Pro",
     peers: previewPeers,
     error: null,
+    transcribing: shared.transcribeOn,
+    canTranscribe: true,
+    transcribeOn: shared.transcribeOn,
+    captions: [],
+  }
+}
+
+// What the preview's huddle hears, a line every few ticks.
+const previewSaid: { name: string; text: string }[] = [
+  {
+    name: "you",
+    text: "Okay, quick one: are we tagging 0.10.0 today or waiting on #8?",
+  },
+  {
+    name: "Spencer",
+    text: "#8 merged an hour ago. The only thing left is the PC transfer, it still needs the Firewall click.",
+  },
+  {
+    name: "you",
+    text: "Then let's tag at two, right after the click.",
+  },
+  {
+    name: "Spencer",
+    text: "Someone should rerun the latency test on the PC once it's idle, the spikes looked like load.",
+  },
+  { name: "you", text: "I'll ask heron to make a card for that rerun." },
+]
+
+// previewCaptions is the first `n` lines, as if said `n` lines ago.
+function previewCaptions(n: number, now: number): CallCaptionView[] {
+  return previewSaid.slice(0, n).map((l, i) => {
+    const at = now - (n - i) * 9_000
+    return {
+      name: l.name,
+      mine: l.name === "you",
+      text: l.text,
+      atMs: at,
+      endMs: at + 4_000,
+    }
+  })
+}
+
+// previewTranscript is the stand-in for an ended huddle's transcript
+// (?call=transcript: #suzuri's earlier huddle).
+function previewTranscript(callId: string): TalkTranscript {
+  const started = Date.now() - 90 * 60_000
+  return {
+    callId,
+    convId: "sample-ch-suzuri",
+    convName: "suzuri",
+    convKind: "channel",
+    startedAtMs: started,
+    ended: true,
+    durationMs: 18 * 60_000,
+    lines: [
+      ...previewSaid,
+      { name: "Spencer", text: "Sounds good. I'll be at the PC around two." },
+    ].map((l, i) => ({
+      name: l.name,
+      mine: l.name === "you",
+      atMs: started + 20_000 + i * 75_000,
+      text: l.text,
+    })),
   }
 }
 
 function previewSeed(flag: string | null) {
   if (flag === "live" || flag === "share") {
     set({
-      mine: previewMine("sample-ch-suzuri", "", 252_000),
+      transcribeOn: shared.transcribeOn,
+      mine: {
+        ...previewMine("sample-ch-suzuri", "", 252_000),
+        captions: previewCaptions(3, Date.now()),
+      },
       ringing: [],
       live: [
         {
@@ -297,6 +494,7 @@ function previewSeed(flag: string | null) {
     previewTick(true)
   } else if (flag === "start") {
     set({
+      transcribeOn: shared.transcribeOn,
       mine: null,
       ringing: [
         {
@@ -336,6 +534,13 @@ function previewTick(on: boolean) {
       mine: {
         ...m,
         speaking: !m.muted && n % 5 === 2,
+        // A line is written down every few ticks, while anyone is.
+        captions:
+          n % 6 === 0 && transcriptOn(m)
+            ? [...m.captions, captionAt(m.captions.length, Date.now())].slice(
+                -40
+              )
+            : m.captions,
         peers: m.peers.map((p, i) =>
           p.phase !== "live"
             ? n > 3
@@ -355,8 +560,21 @@ function previewTick(on: boolean) {
   }, 700)
 }
 
+// captionAt is the preview's `i`th line, said just now.
+function captionAt(i: number, now: number): CallCaptionView {
+  const l = previewSaid[i % previewSaid.length]
+  return {
+    name: l.name,
+    mine: l.name === "you",
+    text: l.text,
+    atMs: now - 4_000,
+    endMs: now,
+  }
+}
+
 function previewStart(convId: string, name: string) {
   set({
+    transcribeOn: shared.transcribeOn,
     mine: previewMine(convId, name, 0),
     ringing: shared.ringing.filter((r) => r.convId !== convId),
     live: [
@@ -373,6 +591,7 @@ function previewJoin(callId: string) {
   const convId = l?.convId ?? r?.convId
   if (!convId) return
   set({
+    transcribeOn: shared.transcribeOn,
     mine: { ...previewMine(convId, r?.convName ?? "", 0), callId },
     ringing: shared.ringing.filter((x) => x.callId !== callId),
     live: shared.live.map((x) =>
@@ -386,6 +605,7 @@ function previewLeave() {
   const m = shared.mine
   previewTick(false)
   set({
+    transcribeOn: shared.transcribeOn,
     mine: null,
     ringing: shared.ringing,
     live: shared.live

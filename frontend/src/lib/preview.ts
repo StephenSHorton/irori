@@ -14,9 +14,13 @@
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied);
 //                   pressing it hears a sample sentence (lib/voice.ts)
 //   ?call=<state>   huddles (#654) on lib/call.ts's stand-in: start (one
-//                   on in #netcode, ringing here) or live (you're in
-//                   #suzuri's); share and transcript are still the #571
-//                   mock-up (components/talk/call-mock.tsx)
+//                   on in #netcode, ringing here; Huddle and Join show the
+//                   transcript notice first, #656) or live (you're in
+//                   #suzuri's: the Transcript on badge, Aiko not
+//                   transcribed, captions written as it goes); transcript
+//                   opens #suzuri's earlier huddle's transcript beside it
+//                   (#656); share is still the #571 mock-up
+//                   (components/talk/call-mock.tsx)
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
