@@ -17,7 +17,10 @@ use crate::inbox::notify::Tone;
 use crate::inbox::words;
 use crate::ui::{Dialog, Event, Frame, Route, State, icons};
 
-use queue::{DeskState, QueueLine, desk_on, desk_queue, desk_shown, inputs_of, owner_name, queue_count, state_label};
+use queue::{
+    DeskState, QueueLine, desk_on, desk_queue, desk_shown, inputs_of, owner_name, queue_count,
+    state_label,
+};
 
 macro_rules! lucide {
     ($name:ident, $id:literal, $body:literal) => {
@@ -33,10 +36,26 @@ macro_rules! lucide {
     };
 }
 
-lucide!(PR, "git-pull-request", r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>"#);
-lucide!(PR_DRAFT, "git-pull-request-draft", r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M18 6V5"/><path d="M18 11v-1"/><line x1="6" x2="6" y1="9" y2="21"/>"#);
-lucide!(CIRCLE_CHECK, "circle-check", r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#);
-lucide!(CLOUD_OFF, "cloud-off", r#"<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>"#);
+lucide!(
+    PR,
+    "git-pull-request",
+    r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>"#
+);
+lucide!(
+    PR_DRAFT,
+    "git-pull-request-draft",
+    r#"<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M18 6V5"/><path d="M18 11v-1"/><line x1="6" x2="6" y1="9" y2="21"/>"#
+);
+lucide!(
+    CIRCLE_CHECK,
+    "circle-check",
+    r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#
+);
+lucide!(
+    CLOUD_OFF,
+    "cloud-off",
+    r#"<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>"#
+);
 
 #[derive(Default)]
 pub struct Model {
@@ -128,10 +147,17 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .iter()
         .find(|d| desk_on(d) && !open.is_empty() && d.settings.repo_key == open)
         .or_else(|| on.first().copied());
-    let page = col().key("desk-page").w_full().h_full().min_h(0.0).child(crate::ui::page_header(f, "Merge desks", vec![]));
+    let page = col()
+        .key("desk-page")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(crate::ui::page_header(f, "Merge desks", vec![]));
     let Some(desk) = desk else {
         let body = if !s.desk.loaded {
-            text("Loading the merge desks…").font(k.ty.ui).color(k.c.text_muted)
+            text("Loading the merge desks…")
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
         } else {
             col()
                 .key("desk-none")
@@ -163,9 +189,20 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         return page.child(col().w_full().px(20.0).child(body));
     };
 
-    let mut main = row().key("desk-main").w_full().grow(1.0).min_h(0.0).px(20.0).gap(16.0);
+    let mut main = row()
+        .key("desk-main")
+        .w_full()
+        .grow(1.0)
+        .min_h(0.0)
+        .px(20.0)
+        .gap(16.0);
     if on.len() > 1 {
-        let mut nav = col().key("desk-nav").role("navigation").label("Merge desks").w(220.0).gap(2.0);
+        let mut nav = col()
+            .key("desk-nav")
+            .role("navigation")
+            .label("Merge desks")
+            .w(220.0)
+            .gap(2.0);
         for d in &on {
             let here = std::ptr::eq(*d, desk);
             let repo = d.settings.repo_key.clone();
@@ -192,11 +229,20 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                         .w_full(),
                 );
             if let Some(n) = n {
-                b = b.child(text(format!("{n} open")).font(k.ty.small).color(k.c.text_muted));
+                b = b.child(
+                    text(format!("{n} open"))
+                        .font(k.ty.small)
+                        .color(k.c.text_muted),
+                );
             }
             nav = nav.child(b);
         }
-        main = main.child(nav.scroll(ScrollSpec { stick_bottom: false }).min_h(0.0));
+        main = main.child(
+            nav.scroll(ScrollSpec {
+                stick_bottom: false,
+            })
+            .min_h(0.0),
+        );
     }
     let header = row()
         .key("desk-head")
@@ -298,11 +344,20 @@ fn panel(s: &State, f: &Frame, desk: &DeskView) -> El {
         .w_full()
         .radius(12.0)
         .fill(k.c.layer_01)
-        .border(1.0, if down.is_some() { k.c.warning.border } else { k.c.border_muted })
+        .border(
+            1.0,
+            if down.is_some() {
+                k.c.warning.border
+            } else {
+                k.c.border_muted
+            },
+        )
         .child(head)
         .child(el().w_full().h(1.0).fill(k.c.border_muted));
     if let Some(d) = down {
-        let shown = snap.map_or(String::new(), |sn| format!("Showing the {} list; ", words::clock(&sn.at)));
+        let shown = snap.map_or(String::new(), |sn| {
+            format!("Showing the {} list; ", words::clock(&sn.at))
+        });
         p = p.child(
             row()
                 .key("desk-down")
@@ -329,13 +384,16 @@ fn panel(s: &State, f: &Frame, desk: &DeskView) -> El {
         && sn.truncated
     {
         p = p.child(
-            text(format!("Showing {} of ours; GitHub has more open PRs than it listed.", sn.prs.len()))
-                .font(k.ty.small)
-                .color(k.c.warning.fg)
-                .px(12.0)
-                .pt(10.0)
-                .w_full()
-                .wrap(),
+            text(format!(
+                "Showing {} of ours; GitHub has more open PRs than it listed.",
+                sn.prs.len()
+            ))
+            .font(k.ty.small)
+            .color(k.c.warning.fg)
+            .px(12.0)
+            .pt(10.0)
+            .w_full()
+            .wrap(),
         );
     }
     if !s.desk.error.is_empty() {
@@ -357,7 +415,14 @@ fn panel(s: &State, f: &Frame, desk: &DeskView) -> El {
         } else {
             "Waiting for the first poll of GitHub's open PRs."
         };
-        p = p.child(col().w_full().px(16.0).py(24.0).center().child(text(t).font(k.ty.ui).color(k.c.text_muted).wrap()));
+        p = p.child(
+            col()
+                .w_full()
+                .px(16.0)
+                .py(24.0)
+                .center()
+                .child(text(t).font(k.ty.ui).color(k.c.text_muted).wrap()),
+        );
     } else if lines.is_empty() {
         p = p.child(
             col()
@@ -368,7 +433,11 @@ fn panel(s: &State, f: &Frame, desk: &DeskView) -> El {
                 .gap(4.0)
                 .center()
                 .child(icon(&CIRCLE_CHECK, 24.0).color(k.c.success.icon))
-                .child(text(format!("No open PRs of yours on {repo}")).font(k.ty.ui_medium).color(k.c.text_base))
+                .child(
+                    text(format!("No open PRs of yours on {repo}"))
+                        .font(k.ty.ui_medium)
+                        .color(k.c.text_base),
+                )
                 .child(
                     text(format!(
                         "Last poll {} · the desk shows here again once you or your people open one",
@@ -394,13 +463,24 @@ fn panel(s: &State, f: &Frame, desk: &DeskView) -> El {
 fn line_row(s: &State, f: &Frame, l: &QueueLine) -> El {
     let k = f.k;
     let dim = matches!(l.state, DeskState::Draft | DeskState::Merged);
-    let key = format!("{}{}", if l.state == DeskState::Merged { "m" } else { "o" }, l.pr);
+    let key = format!(
+        "{}{}",
+        if l.state == DeskState::Merged {
+            "m"
+        } else {
+            "o"
+        },
+        l.pr
+    );
     let ic = match l.state {
         DeskState::Draft => icon(&PR_DRAFT, 16.0).color(k.c.icon_muted),
         DeskState::Merged => icon(&icons::MERGE, 16.0).color(k.c.success.icon),
         _ => icon(&PR, 16.0).color(k.c.success.icon),
     };
-    let num = text(format!("#{}", l.pr)).font(k.ty.small.mono()).color(k.c.text_accent).w(44.0);
+    let num = text(format!("#{}", l.pr))
+        .font(k.ty.small.mono())
+        .color(k.c.text_accent)
+        .w(44.0);
     let num = if l.url.is_empty() {
         num
     } else {
@@ -416,7 +496,11 @@ fn line_row(s: &State, f: &Frame, l: &QueueLine) -> El {
                 }
             })
     };
-    let agent = if l.author.agent.is_empty() { String::new() } else { name_of(s, &l.author.agent) };
+    let agent = if l.author.agent.is_empty() {
+        String::new()
+    } else {
+        name_of(s, &l.author.agent)
+    };
     let who = if !agent.is_empty() && agent != words::UNKNOWN_AGENT {
         agent
     } else if !l.login.is_empty() {
@@ -459,7 +543,11 @@ fn line_row(s: &State, f: &Frame, l: &QueueLine) -> El {
                 .on_press(move |s: &mut State| s.open_card(&card)),
         );
     }
-    top = top.child(row().w(132.0).child(el().grow(1.0)).child(chip(f, format!("desk-chip-{key}"), l.state)));
+    top = top.child(row().w(132.0).child(el().grow(1.0)).child(chip(
+        f,
+        format!("desk-chip-{key}"),
+        l.state,
+    )));
     col()
         .key(format!("desk-line-{key}"))
         .w_full()

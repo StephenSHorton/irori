@@ -24,8 +24,8 @@
 
 // Home, Talk and the board package filter by the pick with these
 // (cardInSpace, convInSpace, threadsSpace, presenceLine).
-pub mod logic;
 mod board;
+pub mod logic;
 mod page;
 mod parts;
 mod switcher;
@@ -44,8 +44,8 @@ use irori_window::invites::{EVENT_INVITE_CHANGED, InviteStatus};
 use crate::ui::{Event, Frame, Route, State};
 
 pub use board::board_page;
-pub use parts::{invite_panel, new_space_dialog};
 pub use logic::{ALL_SPACES, PERSONAL};
+pub use parts::{invite_panel, new_space_dialog};
 pub use switcher::{switcher, switcher_folded};
 
 /// The prefs key of the space pick (the React app's localStorage
@@ -91,7 +91,9 @@ pub enum Ask {
     Leave,
     ForgetHere,
     /// Delete the open board; its cards go to `into`.
-    DeleteBoard { into: String },
+    DeleteBoard {
+        into: String,
+    },
 }
 
 /// The header bar's own state, for the page it was opened on.
@@ -317,7 +319,11 @@ pub(crate) fn reload_personal(s: &mut State) {
                     s.spaces.personal_error = None;
                     // Deleted on another device (card #563): its cards are
                     // on the default board now, so that is where it goes.
-                    if let Route::Board { space, board: Some(b) } = &s.nav.route {
+                    if let Route::Board {
+                        space,
+                        board: Some(b),
+                    } = &s.nav.route
+                    {
                         let gone = space == PERSONAL
                             && !s.spaces.personal.is_empty()
                             && !s.spaces.personal.iter().any(|x| x.board_id == *b);
@@ -374,7 +380,12 @@ fn reload_invite(s: &mut State) {
             if st.open() || (s.spaces.invite.is_some() && !st.state.is_empty()) {
                 // The host's words box takes the keyboard as it shows
                 // (autoFocus).
-                let was = s.spaces.invite.as_ref().map(|i| i.state.clone()).unwrap_or_default();
+                let was = s
+                    .spaces
+                    .invite
+                    .as_ref()
+                    .map(|i| i.state.clone())
+                    .unwrap_or_default();
                 if logic::words_box_shows(&was, &st) {
                     s.spaces.words.focused = true;
                 }
@@ -490,17 +501,26 @@ pub fn scene(s: &mut State) {
         None => (want, None),
     };
     let space = if space == "first" {
-        s.data.spaces.first().map(|b| b.board_id.clone()).unwrap_or_default()
+        s.data
+            .spaces
+            .first()
+            .map(|b| b.board_id.clone())
+            .unwrap_or_default()
     } else {
         space
     };
     set_pick(s, &space);
     s.spaces.synced_page.clear();
     match board {
-        Some(b) => s.go(Route::Board { space, board: Some(b) }),
+        Some(b) => s.go(Route::Board {
+            space,
+            board: Some(b),
+        }),
         None => s.go(Route::boards_for(&space)),
     }
-    let invite = std::env::var("IRORI_SCENE_INVITE").ok().and_then(|step| scene_invite(&step));
+    let invite = std::env::var("IRORI_SCENE_INVITE")
+        .ok()
+        .and_then(|step| scene_invite(&step));
     if std::env::var("IRORI_SCENE_NEW").is_ok() || invite.is_some() {
         open_new_space(s);
     }
@@ -517,7 +537,9 @@ pub fn scene(s: &mut State) {
 
 /// A stand-in invite at `step` (see [`scene`]).
 fn scene_invite(step: &str) -> Option<InviteStatus> {
-    use irori_window::invites::{INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS};
+    use irori_window::invites::{
+        INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS,
+    };
     let mut v = InviteStatus {
         role: "host".into(),
         board_name: "Netcode Lab".into(),
@@ -525,7 +547,9 @@ fn scene_invite(step: &str) -> Option<InviteStatus> {
         link: "irori-invite:v1:3q2hx7k0cz9m4t1wq8n6p5r2s4u7y3e0a9d8f6g5h4j2k1l0".into(),
         peer_fingerprint: "7c1e 90ab 44d2 e8f3".into(),
         my_fingerprint: "eda0 0926 ae6b 1e18".into(),
-        words: ["harbour", "lantern", "otter", "maple", "drift"].map(String::from).to_vec(),
+        words: ["harbour", "lantern", "otter", "maple", "drift"]
+            .map(String::from)
+            .to_vec(),
         ..InviteStatus::default()
     };
     v.state = match step {
@@ -564,9 +588,16 @@ pub fn wait_for_spaces(s: &mut State) {
     if let Ok(v) = w.boards_personal() {
         s.spaces.personal = v;
     }
-    s.spaces.fresh = w.freshness().into_iter().map(|f| (f.log.clone(), f)).collect();
+    s.spaces.fresh = w
+        .freshness()
+        .into_iter()
+        .map(|f| (f.log.clone(), f))
+        .collect();
     let ids: Vec<String> = s.data.spaces.iter().map(|b| b.board_id.clone()).collect();
-    s.spaces.agents = ids.iter().map(|id| (id.clone(), w.agents_settings(id))).collect();
+    s.spaces.agents = ids
+        .iter()
+        .map(|id| (id.clone(), w.agents_settings(id)))
+        .collect();
 }
 
 #[cfg(test)]
@@ -603,9 +634,25 @@ mod tests {
         );
         // All spaces stays to ask; a stale pick doesn't redirect, nor one
         // made before the list has loaded.
-        assert_eq!(follow(&Route::Spaces, false, ALL_SPACES, &spaces, true, &mut synced), Follow::Nothing);
-        assert_eq!(follow(&Route::Spaces, false, "gone", &spaces, true, &mut synced), Follow::Nothing);
-        assert_eq!(follow(&Route::Spaces, false, "b1", &[], false, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(
+                &Route::Spaces,
+                false,
+                ALL_SPACES,
+                &spaces,
+                true,
+                &mut synced
+            ),
+            Follow::Nothing
+        );
+        assert_eq!(
+            follow(&Route::Spaces, false, "gone", &spaces, true, &mut synced),
+            Follow::Nothing
+        );
+        assert_eq!(
+            follow(&Route::Spaces, false, "b1", &[], false, &mut synced),
+            Follow::Nothing
+        );
     }
 
     #[test]
@@ -618,32 +665,53 @@ mod tests {
         );
         assert_eq!(synced, "b1");
         // A pick made since on the same page isn't undone.
-        assert_eq!(follow(&board("b1"), false, "b2", &spaces, true, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(&board("b1"), false, "b2", &spaces, true, &mut synced),
+            Follow::Nothing
+        );
         // One of its boards is the same page.
         let list = Route::Board {
             space: "b1".into(),
             board: Some("x".into()),
         };
-        assert_eq!(follow(&list, false, "b2", &spaces, true, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(&list, false, "b2", &spaces, true, &mut synced),
+            Follow::Nothing
+        );
         // Away and back picks it again.
-        assert_eq!(follow(&Route::Home, false, "b2", &spaces, true, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(&Route::Home, false, "b2", &spaces, true, &mut synced),
+            Follow::Nothing
+        );
         assert_eq!(synced, "");
-        assert_eq!(follow(&board("b1"), false, "b2", &spaces, true, &mut synced), Follow::Pick("b1".into()));
+        assert_eq!(
+            follow(&board("b1"), false, "b2", &spaces, true, &mut synced),
+            Follow::Pick("b1".into())
+        );
     }
 
     #[test]
     fn a_pick_over_a_card_sticks() {
         let spaces = vec![space("b1")];
         let mut synced = String::new();
-        assert_eq!(follow(&board("b1"), true, ALL_SPACES, &spaces, true, &mut synced), Follow::Nothing);
-        assert_eq!(follow(&Route::Spaces, true, "b1", &spaces, true, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(&board("b1"), true, ALL_SPACES, &spaces, true, &mut synced),
+            Follow::Nothing
+        );
+        assert_eq!(
+            follow(&Route::Spaces, true, "b1", &spaces, true, &mut synced),
+            Follow::Nothing
+        );
     }
 
     #[test]
     fn an_unknown_page_waits_for_the_list() {
         let mut synced = String::new();
         // Not loaded: it isn't marked synced, so it picks once it loads.
-        assert_eq!(follow(&board("b1"), false, ALL_SPACES, &[], false, &mut synced), Follow::Nothing);
+        assert_eq!(
+            follow(&board("b1"), false, ALL_SPACES, &[], false, &mut synced),
+            Follow::Nothing
+        );
         assert_eq!(synced, "");
         let spaces = vec![space("b1")];
         assert_eq!(

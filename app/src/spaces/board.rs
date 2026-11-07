@@ -4,7 +4,9 @@
 //! `ListHeader`): `Route::Board { space, board }`.
 
 use rune::{El, col, el, icon, row, text};
-use rune_kit::{Button, ButtonVariant, IconButton, IconButtonVariant, Menu, MenuItem, Placement, TextInput};
+use rune_kit::{
+    Button, ButtonVariant, IconButton, IconButtonVariant, Menu, MenuItem, Placement, TextInput,
+};
 
 use irori_window::boards::{BoardSummary, SpaceBoard};
 use irori_window::cards::CardSummary;
@@ -27,8 +29,12 @@ enum Target {
 }
 
 /// The header state, when it belongs to the page now showing.
-fn header<'a>(s: &'a State, list: bool) -> Option<&'a Header> {
-    let h = if list { &s.spaces.list_header } else { &s.spaces.header };
+fn header(s: &State, list: bool) -> Option<&Header> {
+    let h = if list {
+        &s.spaces.list_header
+    } else {
+        &s.spaces.header
+    };
     (h.at.as_ref() == Some(&s.nav.route)).then_some(h)
 }
 
@@ -36,7 +42,11 @@ fn header<'a>(s: &'a State, list: bool) -> Option<&'a Header> {
 /// another page's.
 fn header_mut(s: &mut State, list: bool) -> &mut Header {
     let route = s.nav.route.clone();
-    let h = if list { &mut s.spaces.list_header } else { &mut s.spaces.header };
+    let h = if list {
+        &mut s.spaces.list_header
+    } else {
+        &mut s.spaces.header
+    };
     if h.at.as_ref() != Some(&route) {
         *h = Header {
             at: Some(route),
@@ -78,7 +88,10 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
             .key("spaces-board-page")
             .w_full()
             .h_full()
-            .child(bar("spaces-board-header").child(text("Space").font(title_font()).color(k.c.text_base)))
+            .child(
+                bar("spaces-board-header")
+                    .child(text("Space").font(title_font()).color(k.c.text_base)),
+            )
             .child(
                 col()
                     .px(24.0)
@@ -106,12 +119,18 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
     let head = match &open {
         Some(x) => {
             let first = boards_of(b).into_iter().next();
-            let remove = first.filter(|fb| fb.board_id != x.board_id).map(|fb| fb.name);
+            let remove = first
+                .filter(|fb| fb.board_id != x.board_id)
+                .map(|fb| fb.name);
             let space_name = plain_line(&b.name);
             list_header(
                 s,
                 f,
-                if space_name.is_empty() { "(unnamed)".into() } else { space_name },
+                if space_name.is_empty() {
+                    "(unnamed)".into()
+                } else {
+                    space_name
+                },
                 Route::Board {
                     space: b.board_id.clone(),
                     board: None,
@@ -165,7 +184,10 @@ pub fn board_page(s: &State, f: &mut Frame) -> El {
             ..Default::default()
         },
     );
-    let new_on = Some(open.as_ref().map_or_else(|| b.board_id.clone(), |x| x.board_id.clone()));
+    let new_on = Some(
+        open.as_ref()
+            .map_or_else(|| b.board_id.clone(), |x| x.board_id.clone()),
+    );
     parts::settings_dialog(s, f, b);
     let mut page = col()
         .key("spaces-board-page")
@@ -197,7 +219,11 @@ fn new_card(f: &Frame, board: Option<String>) -> El {
     Button::new("New card")
         .variant(ButtonVariant::Outline)
         .icon(&icons::PLUS)
-        .on_press(move |s: &mut State| s.open_dialog(Dialog::NewCard { board: board.clone() }))
+        .on_press(move |s: &mut State| {
+            s.open_dialog(Dialog::NewCard {
+                board: board.clone(),
+            })
+        })
         .build(f.k)
         .key("spaces-new-card")
 }
@@ -240,7 +266,11 @@ fn space_boards(s: &State, f: &Frame, b: &BoardSummary) -> El {
         head = head.child(add_board(s, f, &b.board_id));
     }
     let w = tile_width(f, "spaces-space-tiles", 260.0, 12.0);
-    let mut tiles = row().key("spaces-space-tiles").w_full().gap(12.0).flex_wrap();
+    let mut tiles = row()
+        .key("spaces-space-tiles")
+        .w_full()
+        .gap(12.0)
+        .flex_wrap();
     for (i, x) in boards_of(b).iter().enumerate() {
         let cards = logic::cards_on_board(b, &s.data.cards, &x.board_id);
         tiles = tiles.child(board_tile(
@@ -284,8 +314,17 @@ fn personal_home(s: &State, f: &mut Frame) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(rune::ScrollSpec { stick_bottom: false })
-                .child(col().w_full().px(24.0).pt(8.0).pb(24.0).child(personal_boards(s, f))),
+                .scroll(rune::ScrollSpec {
+                    stick_bottom: false,
+                })
+                .child(
+                    col()
+                        .w_full()
+                        .px(24.0)
+                        .pt(8.0)
+                        .pb(24.0)
+                        .child(personal_boards(s, f)),
+                ),
         )
 }
 
@@ -293,9 +332,15 @@ fn personal_home(s: &State, f: &mut Frame) -> El {
 /// the person's own cards on it.
 fn personal_page(s: &State, f: &mut Frame, list: &str) -> El {
     let k = f.k;
-    let x = s.spaces.personal.iter().find(|b| b.board_id == list).cloned();
+    let x = s
+        .spaces
+        .personal
+        .iter()
+        .find(|b| b.board_id == list)
+        .cloned();
     let head = match &x {
-        None => bar("spaces-board-header").child(text("Personal").font(title_font()).color(k.c.text_base)),
+        None => bar("spaces-board-header")
+            .child(text("Personal").font(title_font()).color(k.c.text_base)),
         Some(x) => {
             let remove = (x.board_id != PERSONAL).then(|| {
                 s.spaces
@@ -365,7 +410,9 @@ fn save_rename(s: &mut State, list: bool, target: Target) {
     s.spawn(
         move |w| match &target {
             Target::Space(id) => w.boards_rename(id, &name).map(|_| ()),
-            Target::List { space, board } => w.boards_rename_in_space(space, board, &name).map(|_| ()),
+            Target::List { space, board } => {
+                w.boards_rename_in_space(space, board, &name).map(|_| ())
+            }
             Target::Personal(board) => w.boards_rename_in_personal(board, &name).map(|_| ()),
         },
         move |s, r| {
@@ -387,7 +434,9 @@ fn save_rename(s: &mut State, list: bool, target: Target) {
 /// The rename form: the name, Save and Cancel.
 fn rename_form(s: &State, f: &Frame, list: bool, label: &str, target: Target) -> El {
     let k = f.k;
-    let Some(h) = header(s, list) else { return el() };
+    let Some(h) = header(s, list) else {
+        return el();
+    };
     let t2 = target.clone();
     row()
         .key("spaces-rename")
@@ -398,7 +447,9 @@ fn rename_form(s: &State, f: &Frame, list: bool, label: &str, target: Target) ->
                 .label(label.to_string())
                 .width(Some(256.0))
                 .on_edit(move |s: &mut State| &mut header_mut(s, list).name)
-                .on_change(move |s: &mut State, _| clamp(&mut header_mut(s, list).name, logic::MAX_BOARD_NAME))
+                .on_change(move |s: &mut State, _| {
+                    clamp(&mut header_mut(s, list).name, logic::MAX_BOARD_NAME)
+                })
                 .on_submit(move |s: &mut State, _| save_rename(s, list, t2.clone()))
                 .build(k)
                 .key("spaces-rename-name"),
@@ -437,11 +488,21 @@ fn space_header(s: &State, f: &mut Frame, b: &BoardSummary) -> El {
     let renaming = h.is_some_and(|h| h.renaming);
     let ok = b.ready && b.warnings.is_empty();
     let name = plain_line(&b.name);
-    let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+    let name = if name.is_empty() {
+        "(unnamed)".to_string()
+    } else {
+        name
+    };
     let id = b.board_id.clone();
     let mut r = bar("spaces-board-header");
     r = if renaming {
-        r.child(rename_form(s, f, false, "Space name", Target::Space(id.clone())))
+        r.child(rename_form(
+            s,
+            f,
+            false,
+            "Space name",
+            Target::Space(id.clone()),
+        ))
     } else {
         r.child(
             row()
@@ -450,7 +511,13 @@ fn space_header(s: &State, f: &mut Frame, b: &BoardSummary) -> El {
                 .min_w(0.0)
                 .shrink()
                 .child(u::dot(k, ok))
-                .child(text(name.clone()).font(title_font()).color(k.c.text_base).max_lines(1).shrink()),
+                .child(
+                    text(name.clone())
+                        .font(title_font())
+                        .color(k.c.text_base)
+                        .max_lines(1)
+                        .shrink(),
+                ),
         )
     };
     let n = boards_of(b).len();
@@ -458,8 +525,16 @@ fn space_header(s: &State, f: &mut Frame, b: &BoardSummary) -> El {
         text(if b.ready {
             format!(
                 "{} · {}",
-                if n == 1 { "1 board".to_string() } else { format!("{n} boards") },
-                b.people.iter().map(|p| plain_line(p)).collect::<Vec<_>>().join(", ")
+                if n == 1 {
+                    "1 board".to_string()
+                } else {
+                    format!("{n} boards")
+                },
+                b.people
+                    .iter()
+                    .map(|p| plain_line(p))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         } else {
             "Its cards are still arriving from your other device".into()
@@ -493,7 +568,9 @@ fn space_header(s: &State, f: &mut Frame, b: &BoardSummary) -> El {
                     move |w| w.boards_pin(&id, !pinned),
                     move |s, r| match r {
                         Ok(()) => super::reload_spaces(s),
-                        Err(e) if s.nav.route == at => header_mut(s, false).error = Some(logic::error_text(&e)),
+                        Err(e) if s.nav.route == at => {
+                            header_mut(s, false).error = Some(logic::error_text(&e))
+                        }
                         Err(_) => {}
                     },
                 );
@@ -545,16 +622,24 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
         .open(open)
         .placement(Placement::BottomEnd)
         .on_close(|s: &mut State| header_mut(s, false).menu = false)
-        .item(MenuItem::new("Leave the space").danger(true).on_select(|s: &mut State| {
-            let h = header_mut(s, false);
-            h.menu = false;
-            h.asking = Some(Ask::Leave);
-        }))
-        .item(MenuItem::new("Forget here").danger(true).on_select(|s: &mut State| {
-            let h = header_mut(s, false);
-            h.menu = false;
-            h.asking = Some(Ask::ForgetHere);
-        }))
+        .item(
+            MenuItem::new("Leave the space")
+                .danger(true)
+                .on_select(|s: &mut State| {
+                    let h = header_mut(s, false);
+                    h.menu = false;
+                    h.asking = Some(Ask::Leave);
+                }),
+        )
+        .item(
+            MenuItem::new("Forget here")
+                .danger(true)
+                .on_select(|s: &mut State| {
+                    let h = header_mut(s, false);
+                    h.menu = false;
+                    h.asking = Some(Ask::ForgetHere);
+                }),
+        )
         .build(k, f.layer);
     let name = plain_line(&b.name);
     let cancel = |s: &mut State| header_mut(s, false).asking = None;
@@ -570,41 +655,57 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
                     "Leave {name}? It goes from every one of your devices, with its cards. Coming back needs a new space."
                 )
             };
-            u::confirm(f, "spaces-leave", "Leave the space", &q, true, move |s: &mut State| {
-                header_mut(s, false).asking = None;
-                let id = id.clone();
-                s.spawn(
-                    move |w| w.boards_leave(&id),
-                    |s, r| match r {
-                        Ok(()) => {
-                            super::reload_spaces(s);
-                            // The space has gone: Home, as React went.
-                            s.go(Route::Home);
-                        }
-                        Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
-                    },
-                );
-            }, cancel);
+            u::confirm(
+                f,
+                "spaces-leave",
+                "Leave the space",
+                &q,
+                true,
+                move |s: &mut State| {
+                    header_mut(s, false).asking = None;
+                    let id = id.clone();
+                    s.spawn(
+                        move |w| w.boards_leave(&id),
+                        |s, r| match r {
+                            Ok(()) => {
+                                super::reload_spaces(s);
+                                // The space has gone: Home, as React went.
+                                s.go(Route::Home);
+                            }
+                            Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
+                        },
+                    );
+                },
+                cancel,
+            );
         }
         Some(Ask::ForgetHere) => {
             let q = format!(
                 "Forget {name} on this device only? Its file goes from here; your other devices keep it."
             );
-            u::confirm(f, "spaces-forget", "Forget on this device", &q, false, move |s: &mut State| {
-                header_mut(s, false).asking = None;
-                let id = id.clone();
-                s.spawn(
-                    move |w| w.boards_forget(&id),
-                    |s, r| match r {
-                        Ok(()) => {
-                            super::reload_spaces(s);
-                            // The space has gone: Home, as React went.
-                            s.go(Route::Home);
-                        }
-                        Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
-                    },
-                );
-            }, cancel);
+            u::confirm(
+                f,
+                "spaces-forget",
+                "Forget on this device",
+                &q,
+                false,
+                move |s: &mut State| {
+                    header_mut(s, false).asking = None;
+                    let id = id.clone();
+                    s.spawn(
+                        move |w| w.boards_forget(&id),
+                        |s, r| match r {
+                            Ok(()) => {
+                                super::reload_spaces(s);
+                                // The space has gone: Home, as React went.
+                                s.go(Route::Home);
+                            }
+                            Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
+                        },
+                    );
+                },
+                cancel,
+            );
         }
         _ => {}
     }
@@ -629,24 +730,31 @@ fn list_header(
     let k = f.k;
     let h = header(s, true);
     let renaming = h.is_some_and(|h| h.renaming);
-    let mut r = bar("spaces-board-header").gap(6.0).child(
-        Button::new(space)
-            .variant(ButtonVariant::Ghost)
-            .on_press(move |s: &mut State| s.go(back.clone()))
-            .build(k),
-    )
-    .child(icon(&icons::CHEVRON_RIGHT, 16.0).color(k.c.text_muted));
+    let mut r = bar("spaces-board-header")
+        .gap(6.0)
+        .child(
+            Button::new(space)
+                .variant(ButtonVariant::Ghost)
+                .on_press(move |s: &mut State| s.go(back.clone()))
+                .build(k),
+        )
+        .child(icon(&icons::CHEVRON_RIGHT, 16.0).color(k.c.text_muted));
     let name = plain_line(&x.name);
-    let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+    let name = if name.is_empty() {
+        "(unnamed)".to_string()
+    } else {
+        name
+    };
     if renaming {
         r = r.child(rename_form(s, f, true, "Board name", target.clone()));
     } else {
-        let mut t = row()
-            .gap(8.0)
-            .center_y()
-            .min_w(0.0)
-            .shrink()
-            .child(text(name.clone()).font(title_font()).color(k.c.text_base).max_lines(1).shrink());
+        let mut t = row().gap(8.0).center_y().min_w(0.0).shrink().child(
+            text(name.clone())
+                .font(title_font())
+                .color(k.c.text_base)
+                .max_lines(1)
+                .shrink(),
+        );
         if !x.tag.is_empty() {
             t = t.child(
                 text(format!("{}#", plain_line(&x.tag)))
@@ -687,11 +795,15 @@ fn list_header(
                 .open(open)
                 .placement(Placement::BottomEnd)
                 .on_close(|s: &mut State| header_mut(s, true).menu = false)
-                .item(MenuItem::new("Delete this board").danger(true).on_select(move |s: &mut State| {
-                    let h = header_mut(s, true);
-                    h.menu = false;
-                    h.asking = Some(Ask::DeleteBoard { into: into2.clone() });
-                }))
+                .item(MenuItem::new("Delete this board").danger(true).on_select(
+                    move |s: &mut State| {
+                        let h = header_mut(s, true);
+                        h.menu = false;
+                        h.asking = Some(Ask::DeleteBoard {
+                            into: into2.clone(),
+                        });
+                    },
+                ))
                 .build(k, f.layer),
         );
         if let Some(Ask::DeleteBoard { into }) = h.and_then(|h| h.asking.clone()) {

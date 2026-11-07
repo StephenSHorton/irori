@@ -471,7 +471,7 @@ pub fn scene(s: &mut State) {
         }
         _ => s.go(Route::Board {
             space: PERSONAL.into(),
-            board: None,
+            board: Some(PERSONAL.into()),
         }),
     }
 }

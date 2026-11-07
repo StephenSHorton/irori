@@ -27,7 +27,14 @@ pub fn now_ms() -> i64 {
 pub fn parse_rfc3339(s: &str) -> Option<i64> {
     let s = s.trim();
     let num = |a: usize, b: usize| -> Option<i64> { s.get(a..b)?.parse().ok() };
-    let (y, mo, d, h, mi, se) = (num(0, 4)?, num(5, 7)?, num(8, 10)?, num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    let (y, mo, d, h, mi, se) = (
+        num(0, 4)?,
+        num(5, 7)?,
+        num(8, 10)?,
+        num(11, 13)?,
+        num(14, 16)?,
+        num(17, 19)?,
+    );
     let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         rest = r.trim_start_matches(|c: char| c.is_ascii_digit());
@@ -56,7 +63,9 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
 /// A local clock time, "3:42 PM", from an RFC 3339 stamp ("" when it
 /// doesn't parse).
 pub fn clock_time(rfc3339: &str) -> String {
-    let Some(secs) = parse_rfc3339(rfc3339) else { return String::new() };
+    let Some(secs) = parse_rfc3339(rfc3339) else {
+        return String::new();
+    };
     let t = secs as libc::time_t;
     // SAFETY: localtime_r writes only into `tm`, which we own.
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
@@ -149,7 +158,10 @@ pub const THREADS_MODES: [Preset; 2] = [
 ];
 
 pub fn hint(presets: &[Preset], value: &str) -> &'static str {
-    presets.iter().find(|p| p.value == value).map_or("", |p| p.hint)
+    presets
+        .iter()
+        .find(|p| p.value == value)
+        .map_or("", |p| p.hint)
 }
 
 /// identity.valid_board_tag: a lowercase letter, then lowercase letters,
@@ -202,7 +214,11 @@ pub fn presence_line(m: &SummaryMember, now_ms: i64) -> String {
     if m.working > 0 {
         return format!("{head} · {} working", m.working);
     }
-    if m.free > 0 { head } else { format!("{head} · no agents") }
+    if m.free > 0 {
+        head
+    } else {
+        format!("{head} · no agents")
+    }
 }
 
 /// Why an invite link from this device may not reach someone away from
@@ -319,10 +335,30 @@ pub fn board_segs(mine: &[&CardSummary], done_week: usize) -> Vec<Seg> {
         }
     }
     vec![
-        Seg { key: "working", label: "working", n: working, tone: Tone::Info },
-        Seg { key: "open", label: "open", n: open, tone: Tone::Slate },
-        Seg { key: "blocked", label: "blocked", n: blocked, tone: Tone::Destructive },
-        Seg { key: "done", label: "done this week", n: done, tone: Tone::Success },
+        Seg {
+            key: "working",
+            label: "working",
+            n: working,
+            tone: Tone::Info,
+        },
+        Seg {
+            key: "open",
+            label: "open",
+            n: open,
+            tone: Tone::Slate,
+        },
+        Seg {
+            key: "blocked",
+            label: "blocked",
+            n: blocked,
+            tone: Tone::Destructive,
+        },
+        Seg {
+            key: "done",
+            label: "done this week",
+            n: done,
+            tone: Tone::Success,
+        },
     ]
 }
 
@@ -354,19 +390,27 @@ fn fresh_at(f: &LogFreshness) -> Option<i64> {
 }
 
 pub fn stale(f: Option<&LogFreshness>, now_ms: i64) -> bool {
-    let Some(f) = f.filter(|f| f.shared) else { return false };
+    let Some(f) = f.filter(|f| f.shared) else {
+        return false;
+    };
     fresh_at(f).is_none_or(|at| now_ms - at > STALE_AFTER_MS)
 }
 
 /// "Last synced with your PC 3h ago", "Synced with your PC just now", or
 /// "Not synced with another device since Irori started here".
 pub fn fresh_line(f: Option<&LogFreshness>, now_ms: i64) -> String {
-    let Some(f) = f.filter(|f| f.shared) else { return String::new() };
+    let Some(f) = f.filter(|f| f.shared) else {
+        return String::new();
+    };
     let Some(at) = fresh_at(f) else {
         return "Not synced with another device since Irori started here".into();
     };
     let ago = relative_time(at, now_ms);
-    let who = if f.with.is_empty() { String::new() } else { format!(" with {}", f.with) };
+    let who = if f.with.is_empty() {
+        String::new()
+    } else {
+        format!(" with {}", f.with)
+    };
     if ago == "just now" {
         format!("Synced{who} just now")
     } else {
@@ -376,7 +420,9 @@ pub fn fresh_line(f: Option<&LogFreshness>, now_ms: i64) -> String {
 
 /// The same in a few words: "Synced 3h ago", "Not synced yet".
 pub fn short_line(f: Option<&LogFreshness>, now_ms: i64) -> String {
-    let Some(f) = f.filter(|f| f.shared) else { return String::new() };
+    let Some(f) = f.filter(|f| f.shared) else {
+        return String::new();
+    };
     match fresh_at(f) {
         None => "Not synced yet".into(),
         Some(at) => format!("Synced {}", relative_time(at, now_ms)),
@@ -396,8 +442,8 @@ pub fn words_box_shows(was: &str, now: &irori_window::invites::InviteStatus) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use irori_window::boards::{BoardSummary, SpaceBoard};
     use gocompat::time::GoTime;
+    use irori_window::boards::{BoardSummary, SpaceBoard};
     use irori_window::cards::AgentRef;
 
     fn member(name: &str, me: bool) -> SummaryMember {
@@ -420,7 +466,10 @@ mod tests {
     }
 
     fn card(id: &str) -> CardSummary {
-        CardSummary { id: id.into(), ..Default::default() }
+        CardSummary {
+            id: id.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -428,7 +477,16 @@ mod tests {
         for t in ["mlg", "a", "site-2", "agility", "abcdefgh"] {
             assert!(valid_tag(t), "{t}");
         }
-        for t in ["", "MLG", "1mlg", "-x", "has space", "abcdefghi", "abcdefghijklmnop", "m#1"] {
+        for t in [
+            "",
+            "MLG",
+            "1mlg",
+            "-x",
+            "has space",
+            "abcdefghi",
+            "abcdefghijklmnop",
+            "m#1",
+        ] {
             assert!(!valid_tag(t), "{t}");
         }
     }
@@ -449,7 +507,11 @@ mod tests {
     #[test]
     fn presence_online_with_agents() {
         let now = 1_800_000_000_000;
-        let m = |working, free| SummaryMember { working, free, ..member("Blake", false) };
+        let m = |working, free| SummaryMember {
+            working,
+            free,
+            ..member("Blake", false)
+        };
         assert_eq!(presence_line(&m(2, 1), now), "online · 2 working");
         assert_eq!(presence_line(&m(0, 1), now), "online");
         assert_eq!(presence_line(&m(0, 0), now), "online · no agents");
@@ -472,22 +534,31 @@ mod tests {
         let now = 1_800_000_000_000;
         let m = SummaryMember {
             presence: "offline".into(),
-            last_seen: ago(now, 2 * 3600_000),
+            last_seen: ago(now, 2 * 3_600_000),
             working: 3,
             free: 1,
             ..member("Blake", false)
         };
         assert_eq!(presence_line(&m, now), "offline · seen 2h ago");
-        let m = SummaryMember { presence: "offline".into(), ..member("Blake", false) };
+        let m = SummaryMember {
+            presence: "offline".into(),
+            ..member("Blake", false)
+        };
         assert_eq!(presence_line(&m, now), "offline");
-        let m = SummaryMember { presence: "".into(), ..member("Blake", false) };
+        let m = SummaryMember {
+            presence: "".into(),
+            ..member("Blake", false)
+        };
         assert_eq!(presence_line(&m, now), "offline");
     }
 
     #[test]
     fn invite_open_only_while_in_progress() {
         use irori_window::invites::InviteStatus;
-        let st = |s: &str| InviteStatus { state: s.into(), ..Default::default() };
+        let st = |s: &str| InviteStatus {
+            state: s.into(),
+            ..Default::default()
+        };
         assert!(!st("").open());
         for s in ["waiting", "words", "joining"] {
             assert!(st(s).open());
@@ -506,7 +577,10 @@ mod tests {
 
     #[test]
     fn switcher_lists_all_personal_then_spaces_by_name() {
-        let gone = BoardSummary { leaving: true, ..board("b-gone", "Gone", "gone") };
+        let gone = BoardSummary {
+            leaving: true,
+            ..board("b-gone", "Gone", "gone")
+        };
         let s = spaces_of(&[mlg(), board("b-iro", "Irori", "iro"), gone]);
         let ids: Vec<&str> = s.iter().map(|x| x.id.as_str()).collect();
         assert_eq!(ids, [ALL_SPACES, PERSONAL, "b-iro", "b-mlg"]);
@@ -524,22 +598,28 @@ mod tests {
 
     #[test]
     fn a_pick_of_a_space_you_left_goes_back_to_all() {
-        let gone = BoardSummary { leaving: true, ..board("b-gone", "Gone", "gone") };
+        let gone = BoardSummary {
+            leaving: true,
+            ..board("b-gone", "Gone", "gone")
+        };
         assert_eq!(known("b-mlg", &[mlg()]), "b-mlg");
         assert_eq!(known("b-gone", &[mlg(), gone]), ALL_SPACES);
         assert_eq!(known("nope", &[mlg()]), ALL_SPACES);
         assert_eq!(known(PERSONAL, &[]), PERSONAL);
     }
 
-
-
-
-
     #[test]
     fn cards_on_personal_boards() {
-        let def = CardSummary { space_board: PERSONAL.into(), ..card("d") };
+        let def = CardSummary {
+            space_board: PERSONAL.into(),
+            ..card("d")
+        };
         let old = card("o");
-        let home = CardSummary { tag: "home".into(), space_board: "b-home".into(), ..card("h") };
+        let home = CardSummary {
+            tag: "home".into(),
+            space_board: "b-home".into(),
+            ..card("h")
+        };
         let shared = CardSummary {
             board: "b-mlg".into(),
             tag: "mlg".into(),
@@ -547,7 +627,12 @@ mod tests {
             ..card("s")
         };
         let cards = [def, old, home, shared];
-        let ids = |b: &str| cards_on_personal(&cards, b).iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let ids = |b: &str| {
+            cards_on_personal(&cards, b)
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids(PERSONAL), ["d", "o"]);
         assert_eq!(ids("b-home"), ["h"]);
     }
@@ -555,8 +640,16 @@ mod tests {
     fn wind() -> BoardSummary {
         BoardSummary {
             boards: vec![
-                SpaceBoard { board_id: "s".into(), name: "Wind Waker Multiplayer".into(), tag: "wind".into() },
-                SpaceBoard { board_id: "n".into(), name: "Netcode".into(), tag: "net".into() },
+                SpaceBoard {
+                    board_id: "s".into(),
+                    name: "Wind Waker Multiplayer".into(),
+                    tag: "wind".into(),
+                },
+                SpaceBoard {
+                    board_id: "n".into(),
+                    name: "Netcode".into(),
+                    tag: "net".into(),
+                },
             ],
             ..board("s", "Wind Waker Multiplayer", "wind")
         }
@@ -575,23 +668,41 @@ mod tests {
     fn cards_on_one_board() {
         let b = wind();
         let cards = [on("a", "s", "wind"), on("b", "n", "net"), on("c", "", "")];
-        let ids = |x: &str| cards_on_board(&b, &cards, x).iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let ids = |x: &str| {
+            cards_on_board(&b, &cards, x)
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids("n"), ["b"]);
         assert_eq!(ids("s"), ["a", "c"]);
     }
 
     #[test]
     fn another_spaces_cards_arent_on_it() {
-        let x = CardSummary { board: "t".into(), space_board: "n".into(), ..card("x") };
+        let x = CardSummary {
+            board: "t".into(),
+            space_board: "n".into(),
+            ..card("x")
+        };
         assert!(cards_on_board(&wind(), &[x], "n").is_empty());
     }
 
     #[test]
     fn two_boards_with_the_same_tag_keep_their_own_cards() {
         let mut twin = wind();
-        twin.boards.push(SpaceBoard { board_id: "m".into(), name: "Netcode (old)".into(), tag: "net".into() });
+        twin.boards.push(SpaceBoard {
+            board_id: "m".into(),
+            name: "Netcode (old)".into(),
+            tag: "net".into(),
+        });
         let both = [on("b", "n", "net"), on("d", "m", "net")];
-        let ids = |x: &str| cards_on_board(&twin, &both, x).iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        let ids = |x: &str| {
+            cards_on_board(&twin, &both, x)
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(ids("n"), ["b"]);
         assert_eq!(ids("m"), ["d"]);
         assert!(ids("s").is_empty());
@@ -600,7 +711,11 @@ mod tests {
     #[test]
     fn boards_of_falls_back_to_the_space() {
         let b = BoardSummary {
-            boards: vec![SpaceBoard { board_id: "s".into(), name: "".into(), tag: "".into() }],
+            boards: vec![SpaceBoard {
+                board_id: "s".into(),
+                name: "".into(),
+                tag: "".into(),
+            }],
             ..board("s", "MLG", "mlg")
         };
         assert_eq!(boards_of(&b)[0].name, "MLG");
@@ -609,7 +724,12 @@ mod tests {
     }
 
     fn who() -> AgentRef {
-        AgentRef { key: "a".into(), name: "a".into(), live: true, ..Default::default() }
+        AgentRef {
+            key: "a".into(),
+            name: "a".into(),
+            live: true,
+            ..Default::default()
+        }
     }
 
     fn counts(segs: &[Seg]) -> Vec<(&'static str, usize)> {
@@ -619,10 +739,25 @@ mod tests {
     #[test]
     fn board_segs_count_as_the_chips_colour_them() {
         let cs = [
-            CardSummary { state: "working".into(), working: vec![who()], ..card("1") },
-            CardSummary { state: "working".into(), working: vec![who()], open_blockers: 1, ..card("2") },
-            CardSummary { state: "submitted".into(), ..card("3") },
-            CardSummary { state: "submitted".into(), ..card("4") },
+            CardSummary {
+                state: "working".into(),
+                working: vec![who()],
+                ..card("1")
+            },
+            CardSummary {
+                state: "working".into(),
+                working: vec![who()],
+                open_blockers: 1,
+                ..card("2")
+            },
+            CardSummary {
+                state: "submitted".into(),
+                ..card("3")
+            },
+            CardSummary {
+                state: "submitted".into(),
+                ..card("4")
+            },
         ];
         let refs: Vec<&CardSummary> = cs.iter().collect();
         assert_eq!(
@@ -652,15 +787,18 @@ mod tests {
         assert_eq!(relative_time(now - 2_000, now), "just now");
         assert_eq!(relative_time(now - 42_000, now), "42s ago");
         assert_eq!(relative_time(now - 5 * 60_000, now), "5m ago");
-        assert_eq!(relative_time(now - 3 * 3600_000, now), "3h ago");
-        assert_eq!(relative_time(now - 50 * 3600_000, now), "2d ago");
+        assert_eq!(relative_time(now - 3 * 3_600_000, now), "3h ago");
+        assert_eq!(relative_time(now - 50 * 3_600_000, now), "2d ago");
     }
 
     #[test]
     fn rfc3339_parses() {
         assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_rfc3339("2026-11-03T20:00:00.5Z"), Some(1_793_736_000));
-        assert_eq!(parse_rfc3339("2026-11-03T21:00:00+01:00"), Some(1_793_736_000));
+        assert_eq!(
+            parse_rfc3339("2026-11-03T21:00:00+01:00"),
+            Some(1_793_736_000)
+        );
         assert_eq!(parse_rfc3339("nope"), None);
     }
 
@@ -676,17 +814,26 @@ mod tests {
         let now = 10 * STALE_AFTER_MS;
         let f = LogFreshness {
             log: "personal".into(),
-            at: GoTime::unix_milli(now - 3 * 3600_000),
+            at: GoTime::unix_milli(now - 3 * 3_600_000),
             with: "your PC".into(),
             shared: true,
         };
         assert_eq!(fresh_line(Some(&f), now), "Last synced with your PC 3h ago");
         assert_eq!(short_line(Some(&f), now), "Synced 3h ago");
         assert!(!stale(Some(&f), now));
-        let old = LogFreshness { at: GoTime::unix_milli(now - 2 * STALE_AFTER_MS), ..f.clone() };
+        let old = LogFreshness {
+            at: GoTime::unix_milli(now - 2 * STALE_AFTER_MS),
+            ..f.clone()
+        };
         assert!(stale(Some(&old), now));
-        let never = LogFreshness { at: GoTime::default(), ..f.clone() };
-        assert_eq!(fresh_line(Some(&never), now), "Not synced with another device since Irori started here");
+        let never = LogFreshness {
+            at: GoTime::default(),
+            ..f.clone()
+        };
+        assert_eq!(
+            fresh_line(Some(&never), now),
+            "Not synced with another device since Irori started here"
+        );
         assert_eq!(short_line(Some(&never), now), "Not synced yet");
         let alone = LogFreshness { shared: false, ..f };
         assert_eq!(fresh_line(Some(&alone), now), "");
@@ -694,12 +841,27 @@ mod tests {
 
     #[test]
     fn invite_reach() {
-        let h = HomeServerView { public_relays: true, ..Default::default() };
+        let h = HomeServerView {
+            public_relays: true,
+            ..Default::default()
+        };
         assert_eq!(invite_reach_line(&h), "");
-        let h = HomeServerView { can: true, on: false, ..Default::default() };
+        let h = HomeServerView {
+            can: true,
+            on: false,
+            ..Default::default()
+        };
         assert!(invite_reach_line(&h).starts_with("Your home server is off"));
-        let h = HomeServerView { can: true, on: true, running: true, outside: false, ..Default::default() };
-        assert!(invite_reach_line(&h).ends_with("Reachable from outside home in Settings, Devices."));
+        let h = HomeServerView {
+            can: true,
+            on: true,
+            running: true,
+            outside: false,
+            ..Default::default()
+        };
+        assert!(
+            invite_reach_line(&h).ends_with("Reachable from outside home in Settings, Devices.")
+        );
         assert!(invite_error("mesh: transport closed").starts_with("Irori couldn't make"));
         assert_eq!(invite_error("nope"), "nope");
     }

@@ -80,7 +80,12 @@ pub fn tone_badge(k: &Kit, key: impl Into<String>, label: &str, tone: Tone) -> E
 
 /// A row of buttons that wraps.
 pub(super) fn buttons(key: impl Into<String>, list: Vec<El>) -> El {
-    row().key(key.into()).w_full().gap(6.0).flex_wrap().children(list)
+    row()
+        .key(key.into())
+        .w_full()
+        .gap(6.0)
+        .flex_wrap()
+        .children(list)
 }
 
 /// An outcome line, or an error in red.
@@ -111,7 +116,9 @@ fn card_ref(c: &NotificationCard) -> String {
 
 /// Opening an item (any click inside it) marks it read; Unread keeps it.
 fn opened(s: &mut State, key: &str) {
-    let Some(n) = s.inbox.list.iter_mut().find(|n| n.key == key) else { return };
+    let Some(n) = s.inbox.list.iter_mut().find(|n| n.key == key) else {
+        return;
+    };
     if n.read {
         return;
     }
@@ -169,7 +176,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let tab = |fl: Filter, label: &'static str| {
         let on = m.filter == fl;
         Button::new(label)
-            .variant(if on { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+            .variant(if on {
+                ButtonVariant::Neutral
+            } else {
+                ButtonVariant::Ghost
+            })
             .on_press(move |s: &mut State| set_filter(s, fl))
             .build(k)
             .key(format!("inbox-tab-{label}"))
@@ -189,32 +200,42 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                     s.inbox.kept.insert(n.key.clone());
                 }
             }
-            s.spawn(|w| w.read_notifications(&[]), |s, r| {
-                if let Err(e) = r {
-                    s.error("Mark all read", &e);
-                }
-            });
+            s.spawn(
+                |w| w.read_notifications(&[]),
+                |s, r| {
+                    if let Err(e) = r {
+                        s.error("Mark all read", &e);
+                    }
+                },
+            );
         },
     );
     let header = crate::ui::page_header(
         f,
         &title,
-        vec![row()
-            .key("inbox-tabs")
-            .role("tablist")
-            .label("Which notifications")
-            .gap(4.0)
-            .center_y()
-            .child(tab(Filter::Unread, "Unread"))
-            .child(tab(Filter::All, "All"))
-            .child(mark_all)],
+        vec![
+            row()
+                .key("inbox-tabs")
+                .role("tablist")
+                .label("Which notifications")
+                .gap(4.0)
+                .center_y()
+                .child(tab(Filter::Unread, "Unread"))
+                .child(tab(Filter::All, "All"))
+                .child(mark_all),
+        ],
     );
 
     let now = words::now_ms();
     let items = super::items(m);
     let mut list = col().key("inbox-list").w_full().max_w(760.0).gap(10.0);
     if let Some(e) = &m.error {
-        list = list.child(line(k, "inbox-error", &format!("Could not load the notifications: {e}"), true));
+        list = list.child(line(
+            k,
+            "inbox-error",
+            &format!("Could not load the notifications: {e}"),
+            true,
+        ));
     }
     if !m.loaded {
         list = list.child(
@@ -229,26 +250,31 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         } else {
             "Nothing yet. Every notification Irori shows you is kept here."
         };
-        list = list.child(text(empty).key("inbox-empty").font(k.ty.ui).color(k.c.text_muted).w_full().wrap());
+        list = list.child(
+            text(empty)
+                .key("inbox-empty")
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap(),
+        );
     } else {
         for n in items.iter().take(m.limit) {
             list = list.child(item(s, f, n, now));
         }
         if items.len() > m.limit {
             let more = PAGE_SIZE.min(items.len() - m.limit);
-            list = list.child(
-                row().w_full().child(button(
-                    k,
-                    "inbox-more",
-                    format!("Show {more} more"),
-                    ButtonVariant::Ghost,
-                    false,
-                    |s: &mut State| {
-                        s.inbox.limit += PAGE_SIZE;
-                        super::load_live(s);
-                    },
-                )),
-            );
+            list = list.child(row().w_full().child(button(
+                k,
+                "inbox-more",
+                format!("Show {more} more"),
+                ButtonVariant::Ghost,
+                false,
+                |s: &mut State| {
+                    s.inbox.limit += PAGE_SIZE;
+                    super::load_live(s);
+                },
+            )));
         }
     }
     col()
@@ -266,7 +292,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .px(20.0)
                 .pb(24.0)
                 .child(list)
-                .scroll(ScrollSpec { stick_bottom: false }),
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                }),
         )
 }
 
@@ -276,11 +304,26 @@ fn item(s: &State, f: &mut Frame, n: &Notification, now: i64) -> El {
     let key = n.key.clone();
     let mut head = row().w_full().gap(8.0).center_y().flex_wrap();
     if !n.read {
-        head = head.child(el().key(format!("inbox-dot-{key}")).size(8.0, 8.0).radius(4.0).fill(k.c.bg_accent).help("Unread"));
+        head = head.child(
+            el().key(format!("inbox-dot-{key}"))
+                .size(8.0, 8.0)
+                .radius(4.0)
+                .fill(k.c.bg_accent)
+                .help("Unread"),
+        );
     }
-    head = head.child(tone_badge(k, format!("inbox-kind-{key}"), notify::kind_label(&n.kind), notify::kind_tone(&n.kind)));
+    head = head.child(tone_badge(
+        k,
+        format!("inbox-kind-{key}"),
+        notify::kind_label(&n.kind),
+        notify::kind_tone(&n.kind),
+    ));
     if let Some(c) = &n.card {
-        let label = if c.short.is_empty() { plain_line(&c.title) } else { card_ref(c) };
+        let label = if c.short.is_empty() {
+            plain_line(&c.title)
+        } else {
+            card_ref(c)
+        };
         let (id, nk) = (c.id.clone(), key.clone());
         head = head.child(
             text(label)
@@ -310,7 +353,11 @@ fn item(s: &State, f: &mut Frame, n: &Notification, now: i64) -> El {
     let mut body = col()
         .key(format!("inbox-item-{key}"))
         .role("article")
-        .label(format!("{}{}", if n.read { "" } else { "Unread: " }, plain_line(&n.title)))
+        .label(format!(
+            "{}{}",
+            if n.read { "" } else { "Unread: " },
+            plain_line(&n.title)
+        ))
         .w_full()
         .gap(8.0)
         .px(16.0)
@@ -324,7 +371,13 @@ fn item(s: &State, f: &mut Frame, n: &Notification, now: i64) -> El {
             move |s: &mut State| opened(s, &key)
         })
         .child(head)
-        .child(text(plain_line(&n.title)).font(title_font).color(k.c.text_base).w_full().wrap());
+        .child(
+            text(plain_line(&n.title))
+                .font(title_font)
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     if !n.body.is_empty() && n.kind != kind::DONE_CHECK && !notify::asks_on_card(n) {
         body = body.child(
             text(words::plain_block(&n.body))
@@ -342,7 +395,13 @@ fn item(s: &State, f: &mut Frame, n: &Notification, now: i64) -> El {
 }
 
 /// Outcome: how the thing ended, and when.
-fn outcome(k: &Kit, key: &str, line_: &str, when: Option<&irori_window::rune_inbox::GoTime>, now: i64) -> El {
+fn outcome(
+    k: &Kit,
+    key: &str,
+    line_: &str,
+    when: Option<&irori_window::rune_inbox::GoTime>,
+    now: i64,
+) -> El {
     let mut t = line_.to_string();
     if let Some(w) = when.filter(|w| !w.is_zero()) {
         t.push_str(&format!(" · {}", words::ago(w, now)));
@@ -360,10 +419,17 @@ fn open_card_button(k: &Kit, key: &str, card: &str) -> El {
     let (nk, id) = (key.to_string(), card.to_string());
     buttons(
         format!("inbox-open-{key}"),
-        vec![button(k, format!("inbox-open-card-{key}"), "Open card", ButtonVariant::Outline, false, move |s: &mut State| {
-            opened(s, &nk);
-            s.open_card(&id);
-        })],
+        vec![button(
+            k,
+            format!("inbox-open-card-{key}"),
+            "Open card",
+            ButtonVariant::Outline,
+            false,
+            move |s: &mut State| {
+                opened(s, &nk);
+                s.open_card(&id);
+            },
+        )],
     )
 }
 
@@ -371,7 +437,10 @@ fn open_card_button(k: &Kit, key: &str, card: &str) -> El {
 fn live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let k = f.k;
     let key = n.key.as_str();
-    let card_id = n.card.as_ref().map_or(n.task_id.as_str(), |c| c.id.as_str());
+    let card_id = n
+        .card
+        .as_ref()
+        .map_or(n.task_id.as_str(), |c| c.id.as_str());
     if notify::asks_on_card(n) {
         return card_live(s, f, n, now);
     }
@@ -392,22 +461,37 @@ fn live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
                 k,
                 format!("inbox-ask-{key}-{i}"),
                 l.clone(),
-                if i == 0 { ButtonVariant::Submit } else { ButtonVariant::Outline },
+                if i == 0 {
+                    ButtonVariant::Submit
+                } else {
+                    ButtonVariant::Outline
+                },
                 ask.is_empty(),
                 move |s: &mut State| pick_ask(s, &nk, &ask, &l2),
             ));
         }
-        return vec![buttons(format!("inbox-asks-{key}"), list).role("group").label("Answers")];
+        return vec![
+            buttons(format!("inbox-asks-{key}"), list)
+                .role("group")
+                .label("Answers"),
+        ];
     }
     // Several messages that waited: they're DMs, so Talk's list (card #482).
     if notify::waited_summary(n) {
         let nk = key.to_string();
         return vec![buttons(
             format!("inbox-waited-{key}"),
-            vec![button(k, format!("inbox-msgs-{key}"), "Open messages", ButtonVariant::Outline, false, move |s: &mut State| {
-                opened(s, &nk);
-                s.go(Route::Talk(None));
-            })],
+            vec![button(
+                k,
+                format!("inbox-msgs-{key}"),
+                "Open messages",
+                ButtonVariant::Outline,
+                false,
+                move |s: &mut State| {
+                    opened(s, &nk);
+                    s.go(Route::Talk(None));
+                },
+            )],
         )];
     }
     if (n.kind == kind::MESSAGE || n.kind == kind::HELD) && !n.delivery_id.is_empty() {
@@ -447,7 +531,12 @@ fn card_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     };
     let detail: &CardDetail = match s.inbox.cards.get(&card.id) {
         None => {
-            return vec![line(k, format!("inbox-loading-{key}"), "Loading the answers…", false)];
+            return vec![line(
+                k,
+                format!("inbox-loading-{key}"),
+                "Loading the answers…",
+                false,
+            )];
         }
         Some(Err(_)) => return vec![open_card_button(k, key, &card.id)],
         Some(Ok(d)) => d,
@@ -462,7 +551,11 @@ fn card_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
             && let Some(p) = &b.permission
         {
             return vec![
-                text(plain_line(&b.question)).font(k.ty.ui).color(k.c.text_base).w_full().wrap(),
+                text(plain_line(&b.question))
+                    .font(k.ty.ui)
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
                 permission_prompt(s, f, key, &card.id, b, p),
             ];
         }
@@ -476,9 +569,21 @@ fn card_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
             return out;
         }
         if !b.done_check {
-            out.push(text(plain_line(&b.question)).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+            out.push(
+                text(plain_line(&b.question))
+                    .font(k.ty.ui)
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
+            );
         }
-        out.push(outcome(k, key, &notify::blocker_outcome(b), b.resolved.as_ref().map(|r| &r.at), now));
+        out.push(outcome(
+            k,
+            key,
+            &notify::blocker_outcome(b),
+            b.resolved.as_ref().map(|r| &r.at),
+            now,
+        ));
         out.push(open_card_button(k, key, &card.id));
         return out;
     }
@@ -487,10 +592,22 @@ fn card_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El> {
     let asks = detail.summary.state == "input_required" || detail.summary.state == "blocked";
     let mut out = Vec::new();
     if !n.body.is_empty() {
-        out.push(text(plain_line(&n.body)).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+        out.push(
+            text(plain_line(&n.body))
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     }
     if !asks {
-        out.push(outcome(k, key, "Answered; the card has moved on", Some(&detail.summary.updated_at), now));
+        out.push(outcome(
+            k,
+            key,
+            "Answered; the card has moved on",
+            Some(&detail.summary.updated_at),
+            now,
+        ));
     }
     out.push(open_card_button(k, key, &card.id));
     out
@@ -512,20 +629,42 @@ fn blocker_answer(s: &State, f: &Frame, key: &str, card: &str, b: &CardBlocker) 
                     .color(k.c.text_muted),
             );
         }
-        out.push(q.child(text(question.clone()).font(k.ty.ui).color(k.c.text_base).w_full().wrap()));
+        out.push(
+            q.child(
+                text(question.clone())
+                    .font(k.ty.ui)
+                    .color(k.c.text_base)
+                    .w_full()
+                    .wrap(),
+            ),
+        );
     }
     if !b.context.is_empty() {
-        out.push(text(plain_line(&b.context)).font(k.ty.ui).color(k.c.text_muted).w_full().wrap().max_lines(3));
+        out.push(
+            text(plain_line(&b.context))
+                .font(k.ty.ui)
+                .color(k.c.text_muted)
+                .w_full()
+                .wrap()
+                .max_lines(3),
+        );
     }
     let replied = b.state == "replied";
     if replied && !b.missing.is_empty() {
         let need: Vec<String> = b.missing.iter().map(|m| plain_line(m)).collect();
-        out.push(text(format!("They still need: {}", need.join("; "))).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+        out.push(
+            text(format!("They still need: {}", need.join("; ")))
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     }
     let mut list = Vec::new();
     if !b.options_aside {
         // Recommended first, each keeping its index.
-        let mut order: Vec<(usize, &irori_window::cards::CardOption)> = b.options.iter().enumerate().collect();
+        let mut order: Vec<(usize, &irori_window::cards::CardOption)> =
+            b.options.iter().enumerate().collect();
         order.sort_by_key(|(_, o)| !o.recommended);
         for (n_, (i, o)) in order.into_iter().enumerate() {
             let mut label = plain_line(&o.answer);
@@ -533,14 +672,23 @@ fn blocker_answer(s: &State, f: &Frame, key: &str, card: &str, b: &CardBlocker) 
                 label.push_str(" (recommended)");
             }
             let primary = n_ == 0 && (o.recommended || b.done_check);
-            let (nk, c, bid, done_check) = (key.to_string(), card.to_string(), b.id.clone(), b.done_check);
+            let (nk, c, bid, done_check) = (
+                key.to_string(),
+                card.to_string(),
+                b.id.clone(),
+                b.done_check,
+            );
             // isDone (lib/optimistic.ts): a done check's "Done" option.
             let is_done = done_check && o.answer == "Done";
             let mut btn = button(
                 k,
                 format!("inbox-opt-{key}-{i}"),
                 label,
-                if primary { ButtonVariant::Submit } else { ButtonVariant::Outline },
+                if primary {
+                    ButtonVariant::Submit
+                } else {
+                    ButtonVariant::Outline
+                },
                 false,
                 move |s: &mut State| answer(s, &nk, &c, &bid, i as i64, done_check, is_done),
             );
@@ -560,25 +708,55 @@ fn blocker_answer(s: &State, f: &Frame, key: &str, card: &str, b: &CardBlocker) 
             "Answer…"
         };
         let (nk, c) = (nk.clone(), c.clone());
-        list.push(button(k, format!("inbox-own-{key}"), label, ButtonVariant::Outline, false, move |s: &mut State| {
+        list.push(button(
+            k,
+            format!("inbox-own-{key}"),
+            label,
+            ButtonVariant::Outline,
+            false,
+            move |s: &mut State| {
+                opened(s, &nk);
+                s.open_card(&c);
+            },
+        ));
+    }
+    list.push(button(
+        k,
+        format!("inbox-blocker-open-{key}"),
+        "Open card",
+        ButtonVariant::Ghost,
+        false,
+        move |s: &mut State| {
             opened(s, &nk);
             s.open_card(&c);
-        }));
-    }
-    list.push(button(k, format!("inbox-blocker-open-{key}"), "Open card", ButtonVariant::Ghost, false, move |s: &mut State| {
-        opened(s, &nk);
-        s.open_card(&c);
-    }));
-    out.push(buttons(format!("inbox-answers-{key}"), list).role("group").label(format!("Answers to: {question}")));
+        },
+    ));
+    out.push(
+        buttons(format!("inbox-answers-{key}"), list)
+            .role("group")
+            .label(format!("Answers to: {question}")),
+    );
     out
 }
 
 /// A pick shows at once and saves in the background (card #644); a
 /// refusal brings the buttons back and a note says why.
-fn answer(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, done_check: bool, is_done: bool) {
+fn answer(
+    s: &mut State,
+    key: &str,
+    card: &str,
+    blocker: &str,
+    option: i64,
+    done_check: bool,
+    is_done: bool,
+) {
     opened(s, key);
     let said = if done_check {
-        if is_done { "Marked done." } else { "Sent back to the agent." }
+        if is_done {
+            "Marked done."
+        } else {
+            "Sent back to the agent."
+        }
     } else {
         "Answer sent."
     };
@@ -607,10 +785,20 @@ fn answer(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, done
 /// answer box: Allow once and Deny answer the live prompt, Always allow
 /// also adds the rule to the board's allow list, and Attach answers at
 /// the prompt itself (the only way when Irori can't answer from the card).
-fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBlocker, p: &CardPermission) -> El {
+fn permission_prompt(
+    s: &State,
+    f: &mut Frame,
+    key: &str,
+    card: &str,
+    b: &CardBlocker,
+    p: &CardPermission,
+) -> El {
     let k = f.k;
     let agent = (!p.agent.key.is_empty()).then_some(&p.agent);
-    let name = agent.map_or_else(|| "Its agent".to_string(), crate::logic::names::display_name);
+    let name = agent.map_or_else(
+        || "Its agent".to_string(),
+        crate::logic::names::display_name,
+    );
     let tool = plain_line(&p.tool);
     let mut said = if tool.is_empty() {
         format!("{name} is stopped on a permission prompt")
@@ -623,16 +811,28 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
         .w_full()
         .min_w(0.0)
         .gap(6.0)
-        .child(text(said).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+        .child(
+            text(said)
+                .font(k.ty.ui)
+                .color(k.c.text_base)
+                .w_full()
+                .wrap(),
+        );
     if !p.input.is_empty() {
         c = c.child(
             col()
                 .key(format!("inbox-permission-input-{key}"))
-                .label(if tool.is_empty() { "What is waiting".to_string() } else { format!("The {tool} input waiting") })
+                .label(if tool.is_empty() {
+                    "What is waiting".to_string()
+                } else {
+                    format!("The {tool} input waiting")
+                })
                 .w_full()
                 .max_h(96.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .px(8.0)
                 .py(6.0)
                 .radius(6.0)
@@ -650,7 +850,11 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
     }
     if p.answerable && !p.expires.is_empty() {
         let at = crate::spaces::logic::clock_time(&p.expires);
-        let at = if at.is_empty() { "2 minutes after asking".to_string() } else { at };
+        let at = if at.is_empty() {
+            "2 minutes after asking".to_string()
+        } else {
+            at
+        };
         c = c.child(
             text(format!(
                 "A safety check Claude Code asks even in bypass mode: it denies the call by itself at {at} unless you answer."
@@ -665,11 +869,17 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
         c = c.child(line(
             k,
             format!("inbox-permission-attach-{key}"),
-            &format!("Irori can't answer this prompt from the card: attach to {name} to answer it."),
+            &format!(
+                "Irori can't answer this prompt from the card: attach to {name} to answer it."
+            ),
             false,
         ));
     }
-    let answers = if p.answerable { notify::permission_answers(b, &p.rule) } else { Vec::new() };
+    let answers = if p.answerable {
+        notify::permission_answers(b, &p.rule)
+    } else {
+        Vec::new()
+    };
     let mut list = Vec::new();
     for (a, i) in &answers {
         let (a, i) = (*a, *i);
@@ -680,9 +890,24 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
         };
         let said = notify::permission_said(a, &name, &plain_line(&p.rule));
         let (nk, c2, bid) = (key.to_string(), card.to_string(), b.id.clone());
-        let mut btn = small_button(k, format!("inbox-permission-{key}-{i}"), a, variant, false, move |s: &mut State| {
-            answer_said(s, &nk, &c2, &bid, i as i64, said.clone(), "Your answer to the permission prompt wasn't saved")
-        });
+        let mut btn = small_button(
+            k,
+            format!("inbox-permission-{key}-{i}"),
+            a,
+            variant,
+            false,
+            move |s: &mut State| {
+                answer_said(
+                    s,
+                    &nk,
+                    &c2,
+                    &bid,
+                    i as i64,
+                    said.clone(),
+                    "Your answer to the permission prompt wasn't saved",
+                )
+            },
+        );
         if a == notify::ALWAYS_ALLOW {
             btn = btn.help(format!("Also adds {} to the board's allow list", p.rule));
         } else if let Some(o) = b.options.get(i).filter(|o| !o.why.is_empty()) {
@@ -697,22 +922,32 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
             &format!("inbox-permission-acts-{key}"),
             w,
             card,
-            &[crate::widgets::spawned_actions::Action::Attach, crate::widgets::spawned_actions::Action::Logs],
+            &[
+                crate::widgets::spawned_actions::Action::Attach,
+                crate::widgets::spawned_actions::Action::Logs,
+            ],
         ));
     }
     if !list.is_empty() {
-        c = c.child(buttons(format!("inbox-permission-buttons-{key}"), list).role("group").label(format!("Answers to {name}'s permission prompt")));
+        c = c.child(
+            buttons(format!("inbox-permission-buttons-{key}"), list)
+                .role("group")
+                .label(format!("Answers to {name}'s permission prompt")),
+        );
     }
     if !p.rule.is_empty() && answers.iter().any(|(a, _)| *a == notify::ALWAYS_ALLOW) {
         let rule = plain_line(&p.rule);
         let head = "Always allow also adds ";
         let all = format!("{head}{rule} to the board's allow list (Settings › Agents).");
         c = c.child(
-            rune::rich(all, vec![rune::Span::new(head.len(), head.len() + rule.len()).mono()])
-                .font(k.ty.small)
-                .color(k.c.text_muted)
-                .w_full()
-                .wrap(),
+            rune::rich(
+                all,
+                vec![rune::Span::new(head.len(), head.len() + rule.len()).mono()],
+            )
+            .font(k.ty.small)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap(),
         );
     }
     c
@@ -720,7 +955,15 @@ fn permission_prompt(s: &State, f: &mut Frame, key: &str, card: &str, b: &CardBl
 
 /// A pick that shows `said` at once and saves in the background; a
 /// refusal brings the buttons back and a note says `failed`.
-fn answer_said(s: &mut State, key: &str, card: &str, blocker: &str, option: i64, said: String, failed: &'static str) {
+fn answer_said(
+    s: &mut State,
+    key: &str,
+    card: &str,
+    blocker: &str,
+    option: i64,
+    said: String,
+    failed: &'static str,
+) {
     opened(s, key);
     s.inbox.picked.insert(key.to_string(), said);
     let (c, b, k2) = (card.to_string(), blocker.to_string(), key.to_string());
@@ -747,7 +990,11 @@ fn delivery_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El
     };
     let ended = notify::delivery_outcome(d, held);
     if !ended.is_empty() {
-        let at = if d.decided_at.is_zero() { &d.updated_at } else { &d.decided_at };
+        let at = if d.decided_at.is_zero() {
+            &d.updated_at
+        } else {
+            &d.decided_at
+        };
         return vec![outcome(k, key, ended, Some(at), now)];
     }
     let act = s.inbox.acts.get(key);
@@ -764,44 +1011,89 @@ fn delivery_live(s: &State, f: &mut Frame, n: &Notification, now: i64) -> Vec<El
         out.push(buttons(
             format!("inbox-held-{key}"),
             vec![
-                button(k, format!("inbox-release-{key}"), "Release", ButtonVariant::Submit, busy, move |s: &mut State| {
-                    opened(s, &k1);
-                    let i = i1.clone();
-                    run(s, &k1, "Released.", move |w| w.inbox_release(&i));
-                }),
-                button(k, format!("inbox-dismiss-{key}"), "Dismiss", ButtonVariant::Outline, busy, move |s: &mut State| {
-                    opened(s, &k2);
-                    let i = i2.clone();
-                    run(s, &k2, "Dismissed.", move |w| w.inbox_dismiss(&i));
-                }),
+                button(
+                    k,
+                    format!("inbox-release-{key}"),
+                    "Release",
+                    ButtonVariant::Submit,
+                    busy,
+                    move |s: &mut State| {
+                        opened(s, &k1);
+                        let i = i1.clone();
+                        run(s, &k1, "Released.", move |w| w.inbox_release(&i));
+                    },
+                ),
+                button(
+                    k,
+                    format!("inbox-dismiss-{key}"),
+                    "Dismiss",
+                    ButtonVariant::Outline,
+                    busy,
+                    move |s: &mut State| {
+                        opened(s, &k2);
+                        let i = i2.clone();
+                        run(s, &k2, "Dismissed.", move |w| w.inbox_dismiss(&i));
+                    },
+                ),
             ],
         ));
     } else {
         let from = {
             let p = plain_line(&d.message.from.name);
-            if p.is_empty() { "the agent".to_string() } else { p }
+            if p.is_empty() {
+                "the agent".to_string()
+            } else {
+                p
+            }
         };
         if s.inbox.replying.as_deref() == Some(key) {
             out.push(own_words(s, f, key, &id, &from, busy));
         } else {
-            let (k1, k2, i2, k3, i3) = (key.to_string(), key.to_string(), id.clone(), key.to_string(), id.clone());
+            let (k1, k2, i2, k3, i3) = (
+                key.to_string(),
+                key.to_string(),
+                id.clone(),
+                key.to_string(),
+                id.clone(),
+            );
             out.push(buttons(
                 format!("inbox-msg-{key}"),
                 vec![
-                    button(k, format!("inbox-reply-{key}"), "Reply…", ButtonVariant::Submit, busy, move |s: &mut State| {
-                        opened(s, &k1);
-                        s.inbox.replying = Some(k1.clone());
-                        s.inbox.reply = super::focused_box();
-                    }),
-                    button(k, format!("inbox-read-{key}"), "Mark read", ButtonVariant::Outline, busy, move |s: &mut State| {
-                        opened(s, &k2);
-                        let i = i2.clone();
-                        run(s, &k2, "Marked read.", move |w| w.inbox_mark_read(&i));
-                    }),
-                    button(k, format!("inbox-open-msg-{key}"), "Open", ButtonVariant::Ghost, false, move |s: &mut State| {
-                        opened(s, &k3);
-                        s.open_dialog(Dialog::Message { id: i3.clone() });
-                    }),
+                    button(
+                        k,
+                        format!("inbox-reply-{key}"),
+                        "Reply…",
+                        ButtonVariant::Submit,
+                        busy,
+                        move |s: &mut State| {
+                            opened(s, &k1);
+                            s.inbox.replying = Some(k1.clone());
+                            s.inbox.reply = super::focused_box();
+                        },
+                    ),
+                    button(
+                        k,
+                        format!("inbox-read-{key}"),
+                        "Mark read",
+                        ButtonVariant::Outline,
+                        busy,
+                        move |s: &mut State| {
+                            opened(s, &k2);
+                            let i = i2.clone();
+                            run(s, &k2, "Marked read.", move |w| w.inbox_mark_read(&i));
+                        },
+                    ),
+                    button(
+                        k,
+                        format!("inbox-open-msg-{key}"),
+                        "Open",
+                        ButtonVariant::Ghost,
+                        false,
+                        move |s: &mut State| {
+                            opened(s, &k3);
+                            s.open_dialog(Dialog::Message { id: i3.clone() });
+                        },
+                    ),
                 ],
             ));
         }
@@ -852,12 +1144,22 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
         // Esc cancels the box, as OwnWords' onKeyDown did (an open picker
         // takes it first).
         on_escape: Some(Rc::new(cancel_reply)),
-        mic: Some(crate::call::mic_button(s, f, &format!("inbox-reply-{key}"), |s: &mut State| {
-            &mut s.inbox.reply.edit
-        })),
+        mic: Some(crate::call::mic_button(
+            s,
+            f,
+            &format!("inbox-reply-{key}"),
+            |s: &mut State| &mut s.inbox.reply.edit,
+        )),
         ..ComposerOpts::default()
     };
-    let field = txt::composer(s, f, &format!("inbox-reply-box-{key}"), reply_box, reply_box_mut, &o);
+    let field = txt::composer(
+        s,
+        f,
+        &format!("inbox-reply-box-{key}"),
+        reply_box,
+        reply_box_mut,
+        &o,
+    );
     let send = {
         let o = o.clone();
         move |s: &mut State| txt::submit(s, reply_box_mut, &o)
@@ -877,7 +1179,14 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
             busy || s.inbox.reply.is_empty(),
             send,
         ))
-        .child(button(k, format!("inbox-cancel-{key}"), "Cancel", ButtonVariant::Ghost, busy, cancel_reply))
+        .child(button(
+            k,
+            format!("inbox-cancel-{key}"),
+            "Cancel",
+            ButtonVariant::Ghost,
+            busy,
+            cancel_reply,
+        ))
 }
 
 /// A reply's answer: sent closes the box and says so; a failure keeps the
@@ -922,13 +1231,24 @@ mod tests {
         s.inbox.reply.edit = rune::TextEdit::new("on my way");
         s.inbox.reply.sending = true;
         s.inbox.acts.entry("msg:1".into()).or_default().busy = true;
-        reply_done(&mut s, "msg:1", Err("inbox: no such delivery or message".into()));
-        assert_eq!(s.inbox.replying.as_deref(), Some("msg:1"), "the box stays open");
+        reply_done(
+            &mut s,
+            "msg:1",
+            Err("inbox: no such delivery or message".into()),
+        );
+        assert_eq!(
+            s.inbox.replying.as_deref(),
+            Some("msg:1"),
+            "the box stays open"
+        );
         assert_eq!(s.inbox.reply.edit.text, "on my way", "with what was typed");
         assert!(!s.inbox.reply.sending);
         let a = &s.inbox.acts["msg:1"];
         assert!(!a.busy);
-        assert_eq!(a.error.as_deref(), Some("inbox: no such delivery or message"));
+        assert_eq!(
+            a.error.as_deref(),
+            Some("inbox: no such delivery or message")
+        );
         // A second try that goes through closes it and says so.
         reply_done(&mut s, "msg:1", Ok(()));
         assert!(s.inbox.replying.is_none());

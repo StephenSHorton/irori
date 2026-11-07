@@ -64,8 +64,13 @@ pub struct Model {
 /// Whether a query is one card ref: #12, wind#51.
 pub fn is_ref(q: &str) -> bool {
     let q = q.trim();
-    let Some((tag, rest)) = q.split_once('#') else { return false };
-    if !tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    let Some((tag, rest)) = q.split_once('#') else {
+        return false;
+    };
+    if !tag
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return false;
     }
     let digits = rest.chars().take_while(char::is_ascii_digit).count();
@@ -79,7 +84,11 @@ pub fn open_key(ev: &KeyEvent) -> bool {
 }
 
 fn card_ref_text(c: &CardSummary) -> String {
-    if c.tag.is_empty() { format!("#{}", c.short) } else { format!("{}#{}", c.tag, c.short) }
+    if c.tag.is_empty() {
+        format!("#{}", c.short)
+    } else {
+        format!("{}#{}", c.tag, c.short)
+    }
 }
 
 /// Each agent Irori started for a card, to that card: a working row
@@ -133,10 +142,22 @@ pub fn build_items(s: &State, dark: bool) -> Vec<Item> {
         let others = vec![
             format!("#{}", c.short),
             r.clone(),
-            if c.short_was.is_empty() { String::new() } else { format!("#{}", c.short_was) },
+            if c.short_was.is_empty() {
+                String::new()
+            } else {
+                format!("#{}", c.short_was)
+            },
             c.scope_label.clone(),
         ];
-        out.push(card(c, Kind::Card, format!("card:{}", c.id), c.title.clone(), r, "Cards", others));
+        out.push(card(
+            c,
+            Kind::Card,
+            format!("card:{}", c.id),
+            c.title.clone(),
+            r,
+            "Cards",
+            others,
+        ));
     }
     for b in &s.data.spaces {
         let id = b.board_id.clone();
@@ -144,7 +165,11 @@ pub fn build_items(s: &State, dark: bool) -> Vec<Item> {
             kind: Kind::Board,
             key: format!("board:{}", b.board_id),
             title: b.name.clone(),
-            hint: if b.tag.is_empty() { String::new() } else { format!("{}#", b.tag) },
+            hint: if b.tag.is_empty() {
+                String::new()
+            } else {
+                format!("{}#", b.tag)
+            },
             group: "Spaces",
             shortcut: None,
             order: 100,
@@ -169,9 +194,26 @@ pub fn build_items(s: &State, dark: bool) -> Vec<Item> {
             && a.status != "gone"
         {
             let r = card_ref_text(c);
-            let others = vec![r.clone(), format!("#{}", c.short), c.title.clone(), "agent".into()];
-            let title = if a.name.is_empty() { a.key.clone() } else { a.name.clone() };
-            out.push(card(c, Kind::Agent, format!("agent:{}", a.key), title, format!("on {r} {}", c.title), "Agents on cards", others));
+            let others = vec![
+                r.clone(),
+                format!("#{}", c.short),
+                c.title.clone(),
+                "agent".into(),
+            ];
+            let title = if a.name.is_empty() {
+                a.key.clone()
+            } else {
+                a.name.clone()
+            };
+            out.push(card(
+                c,
+                Kind::Agent,
+                format!("agent:{}", a.key),
+                title,
+                format!("on {r} {}", c.title),
+                "Agents on cards",
+                others,
+            ));
             continue;
         }
         if a.name.is_empty() || seen.contains(&a.name.as_str()) {
@@ -204,7 +246,15 @@ pub fn build_items(s: &State, dark: bool) -> Vec<Item> {
 }
 
 /// The order groups show in; any other group comes after Commands.
-const GROUP_ORDER: &[&str] = &["Recent", "Go to", "Cards", "Spaces", "Commands", "Agents", "Agents on cards"];
+const GROUP_ORDER: &[&str] = &[
+    "Recent",
+    "Go to",
+    "Cards",
+    "Spaces",
+    "Commands",
+    "Agents",
+    "Agents on cards",
+];
 
 fn group_index(g: &str) -> f64 {
     match GROUP_ORDER.iter().position(|x| *x == g) {
@@ -236,13 +286,27 @@ pub fn results(items: &[Item], query: &str, recent: &[String]) -> Vec<Item> {
         rows.extend(cmds.into_iter().map(|(_, i)| i.clone()));
         // Groups in GROUP_ORDER, rows in their order within a group.
         let mut idx: Vec<(usize, Item)> = rows.into_iter().enumerate().collect();
-        idx.sort_by(|a, b| group_index(a.1.group).total_cmp(&group_index(b.1.group)).then(a.0.cmp(&b.0)));
+        idx.sort_by(|a, b| {
+            group_index(a.1.group)
+                .total_cmp(&group_index(b.1.group))
+                .then(a.0.cmp(&b.0))
+        });
         return idx.into_iter().map(|(_, i)| i).collect();
     }
-    let r = if is_ref(query) { query.trim().to_lowercase() } else { String::new() };
+    let r = if is_ref(query) {
+        query.trim().to_lowercase()
+    } else {
+        String::new()
+    };
     let ranked = fuzzy::rank(items, query, |i| (i.title.as_str(), i.others.as_slice()));
-    let exact = |i: &Item| !r.is_empty() && i.kind == Kind::Card && i.others.iter().any(|o| o.to_lowercase() == r);
-    let mut out: Vec<Item> = ranked.iter().filter(|(i, _)| exact(i)).map(|(i, _)| (*i).clone()).collect();
+    let exact = |i: &Item| {
+        !r.is_empty() && i.kind == Kind::Card && i.others.iter().any(|o| o.to_lowercase() == r)
+    };
+    let mut out: Vec<Item> = ranked
+        .iter()
+        .filter(|(i, _)| exact(i))
+        .map(|(i, _)| (*i).clone())
+        .collect();
     // Best first within a group, and the group with the best match first.
     let mut groups: Vec<(&'static str, Vec<Item>)> = Vec::new();
     for (i, _) in ranked.iter().filter(|(i, _)| !exact(i)) {
@@ -280,7 +344,16 @@ pub fn shown(s: &State, dark: bool) -> Vec<Item> {
         && !rows.iter().any(|r| r.key == format!("card:{}", t.id))
     {
         let (id, thread) = (t.id.clone(), t.thread);
-        let hint = format!("{fq}{}", if t.thread { " · thread" } else if t.done { " · done" } else { "" });
+        let hint = format!(
+            "{fq}{}",
+            if t.thread {
+                " · thread"
+            } else if t.done {
+                " · done"
+            } else {
+                ""
+            }
+        );
         rows.insert(
             0,
             Item {
@@ -335,7 +408,11 @@ fn look_up(s: &mut State) {
         return;
     }
     let lower = q.to_lowercase();
-    if s.data.cards.iter().any(|c| format!("#{}", c.short) == lower || card_ref_text(c).to_lowercase() == lower) {
+    if s.data
+        .cards
+        .iter()
+        .any(|c| format!("#{}", c.short) == lower || card_ref_text(c).to_lowercase() == lower)
+    {
         return;
     }
     s.spawn(
@@ -380,7 +457,9 @@ pub fn on_key(s: &mut State, ev: &KeyEvent, _tx: &mut Tx) -> bool {
 /// exactly what the palette's row does.
 fn app_shortcut(ev: &KeyEvent) -> Option<&'static str> {
     let m = ev.mods;
-    let Key::Command(c) = &ev.key else { return None };
+    let Key::Command(c) = &ev.key else {
+        return None;
+    };
     if m.shift || m.alt {
         return None;
     }
@@ -398,7 +477,10 @@ fn app_shortcut(ev: &KeyEvent) -> Option<&'static str> {
 
 /// Runs the command `id` if it applies now (false when it doesn't).
 pub fn run_command(s: &mut State, id: &str) -> bool {
-    let Some(c) = commands::commands(s, false).into_iter().find(|c| c.id == id) else {
+    let Some(c) = commands::commands(s, false)
+        .into_iter()
+        .find(|c| c.id == id)
+    else {
         return false;
     };
     (c.run)(s);
@@ -505,16 +587,24 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .child(col().grow(1.0).min_w(0.0).child(input))
         .child(Keybind::new(&["Esc"]).build(k));
 
-    let mut list = col().key("palette-list").role("listbox").label("Results").w_full().padding(6.0);
+    let mut list = col()
+        .key("palette-list")
+        .role("listbox")
+        .label("Results")
+        .w_full()
+        .padding(6.0);
     if rows.is_empty() {
         list = list.child(
-            text(format!("Nothing matches “{}”.", s.palette.query.text.trim()))
-                .key("palette-none")
-                .font(k.ty.ui)
-                .color(k.c.text_muted)
-                .w_full()
-                .py(24.0)
-                .wrap(),
+            text(format!(
+                "Nothing matches “{}”.",
+                s.palette.query.text.trim()
+            ))
+            .key("palette-none")
+            .font(k.ty.ui)
+            .color(k.c.text_muted)
+            .w_full()
+            .py(24.0)
+            .wrap(),
         );
     }
     for (i, it) in rows.iter().enumerate() {
@@ -549,9 +639,21 @@ pub fn dialog(s: &State, f: &mut Frame) {
             })
             .on_press(move |s: &mut State| pick(s, &item))
             .child(icon(kind_icon(it.kind), 14.0).color(k.c.icon_muted))
-            .child(text(it.title.clone()).font(k.ty.ui).color(k.c.text_base).max_lines(1).shrink().min_w(0.0));
+            .child(
+                text(it.title.clone())
+                    .font(k.ty.ui)
+                    .color(k.c.text_base)
+                    .max_lines(1)
+                    .shrink()
+                    .min_w(0.0),
+            );
         if !it.hint.is_empty() {
-            r = r.child(text(it.hint.clone()).font(k.ty.small).color(k.c.text_muted).max_lines(1));
+            r = r.child(
+                text(it.hint.clone())
+                    .font(k.ty.small)
+                    .color(k.c.text_muted)
+                    .max_lines(1),
+            );
         }
         r = r.child(el().grow(1.0));
         if let Some(sc) = it.shortcut {
@@ -575,12 +677,32 @@ pub fn dialog(s: &State, f: &mut Frame) {
         .child(head)
         .child(el().w_full().h(1.0).fill(k.c.border_muted))
         // A grown scroll in an auto-height panel collapses: bound it instead.
-        .child(col().key("palette-scroll").w_full().max_h(500.0).min_h(0.0).child(list).scroll(ScrollSpec { stick_bottom: false }))
+        .child(
+            col()
+                .key("palette-scroll")
+                .w_full()
+                .max_h(500.0)
+                .min_h(0.0)
+                .child(list)
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                }),
+        )
         .modal(true, close);
     for sh in k.shadow_layers(&k.elevation.overlay) {
         panel = panel.box_shadow(sh);
     }
-    f.layer.push(el().key("palette-scrim").absolute(0.0, 0.0).w_full().h_full().fill(k.c.scrim).a11y_hidden());
+    // The Backdrop: black at 50% in the dark, 20% in the light, as React's
+    // bg-black/50 dark:… (rune-kit's own scrim is too faint behind it).
+    let scrim = rune::Color::BLACK.alpha(if dark { 0.5 } else { 0.2 });
+    f.layer.push(
+        el().key("palette-scrim")
+            .absolute(0.0, 0.0)
+            .w_full()
+            .h_full()
+            .fill(scrim)
+            .a11y_hidden(),
+    );
     f.layer.push(
         col()
             .key("palette-layer")
@@ -603,9 +725,11 @@ mod tests {
     fn an_agent_narrows_home_to_its_cards() {
         let mut s = State::default();
         s.go(Route::Notes);
-        let mut card = coord::roster::AgentCard::default();
-        card.key = "sess-1".into();
-        card.name = "oak".into();
+        let card = coord::roster::AgentCard {
+            key: "sess-1".into(),
+            name: "oak".into(),
+            ..Default::default()
+        };
         s.data.agents.push(irori_window::roster::RosterAgent {
             card,
             offers_cards: true,
@@ -613,7 +737,10 @@ mod tests {
             here: true,
         });
         let items = build_items(&s, true);
-        let oak = items.iter().find(|i| i.key == "agent:oak").expect("oak is listed");
+        let oak = items
+            .iter()
+            .find(|i| i.key == "agent:oak")
+            .expect("oak is listed");
         assert_eq!(oak.group, "Agents");
         (oak.run.clone())(&mut s);
         assert_eq!(s.nav.route, Route::Home);
@@ -652,7 +779,10 @@ mod tests {
             item(Kind::Command, "command:home", "Home", "Go to", &[]),
             item(Kind::Card, "card:a", "A card", "Cards", &["#1"]),
         ];
-        let got: Vec<(String, &str)> = results(&items, "", &["card:a".into()]).into_iter().map(|i| (i.key, i.group)).collect();
+        let got: Vec<(String, &str)> = results(&items, "", &["card:a".into()])
+            .into_iter()
+            .map(|i| (i.key, i.group))
+            .collect();
         assert_eq!(
             got,
             [
@@ -666,7 +796,13 @@ mod tests {
     #[test]
     fn a_ref_puts_its_card_first() {
         let items = vec![
-            item(Kind::Command, "command:x", "Open #12 notes", "Commands", &[]),
+            item(
+                Kind::Command,
+                "command:x",
+                "Open #12 notes",
+                "Commands",
+                &[],
+            ),
             item(Kind::Card, "card:b", "Other", "Cards", &["#120"]),
             item(Kind::Card, "card:a", "Twelve", "Cards", &["#12", "wind#12"]),
         ];
@@ -678,15 +814,48 @@ mod tests {
     fn a_title_word_a_space_name_and_settings() {
         let items = vec![
             item(Kind::Command, "command:nav.home", "Home", "Go to", &[]),
-            item(Kind::Command, "command:settings.open", "Settings", "Go to", &["preferences"]),
-            item(Kind::Command, "command:card.new", "New card", "Commands", &[]),
-            item(Kind::Card, "card:a", "Command palette for Irori", "Cards", &["#212"]),
-            item(Kind::Card, "card:b", "Boss relay on the Mac rig", "Cards", &["#51", "wind#51"]),
-            item(Kind::Board, "board:w", "Wind Waker co-op", "Spaces", &["wind", "space", "board"]),
+            item(
+                Kind::Command,
+                "command:settings.open",
+                "Settings",
+                "Go to",
+                &["preferences"],
+            ),
+            item(
+                Kind::Command,
+                "command:card.new",
+                "New card",
+                "Commands",
+                &[],
+            ),
+            item(
+                Kind::Card,
+                "card:a",
+                "Command palette for Irori",
+                "Cards",
+                &["#212"],
+            ),
+            item(
+                Kind::Card,
+                "card:b",
+                "Boss relay on the Mac rig",
+                "Cards",
+                &["#51", "wind#51"],
+            ),
+            item(
+                Kind::Board,
+                "board:w",
+                "Wind Waker co-op",
+                "Spaces",
+                &["wind", "space", "board"],
+            ),
         ];
         assert_eq!(results(&items, "palette", &[])[0].key, "card:a");
         assert_eq!(results(&items, "waker", &[])[0].key, "board:w");
-        assert_eq!(results(&items, "settings", &[])[0].key, "command:settings.open");
+        assert_eq!(
+            results(&items, "settings", &[])[0].key,
+            "command:settings.open"
+        );
         // Groups stay together.
         let groups: Vec<&str> = results(&items, "o", &[]).iter().map(|i| i.group).collect();
         let mut seen: Vec<&str> = Vec::new();
@@ -718,11 +887,16 @@ mod tests {
             ..Default::default()
         });
         s.data.cards.push(card);
-        for (key, name, status) in [("pc/thyme", "thyme", "busy"), ("pc/juniper", "juniper", "idle")] {
-            let mut c = coord::roster::AgentCard::default();
-            c.key = key.into();
-            c.name = name.into();
-            c.status = status.into();
+        for (key, name, status) in [
+            ("pc/thyme", "thyme", "busy"),
+            ("pc/juniper", "juniper", "idle"),
+        ] {
+            let c = coord::roster::AgentCard {
+                key: key.into(),
+                name: name.into(),
+                status: status.into(),
+                ..Default::default()
+            };
             s.data.agents.push(irori_window::roster::RosterAgent {
                 card: c,
                 offers_cards: true,
@@ -732,11 +906,21 @@ mod tests {
         }
         let items = build_items(&s, true);
         let t = items.iter().find(|i| i.key == "agent:pc/thyme").unwrap();
-        assert_eq!((t.group, t.hint.as_str()), ("Agents on cards", "on #58 Lantern flicker on the dock"));
+        assert_eq!(
+            (t.group, t.hint.as_str()),
+            ("Agents on cards", "on #58 Lantern flicker on the dock")
+        );
         (t.run.clone())(&mut s);
         assert_eq!(s.nav.card.as_deref(), Some("c58"));
-        assert_eq!(items.iter().find(|i| i.title == "juniper").unwrap().group, "Agents");
-        assert!(results(&items, "lantern", &[]).iter().any(|i| i.key == "agent:pc/thyme"));
+        assert_eq!(
+            items.iter().find(|i| i.title == "juniper").unwrap().group,
+            "Agents"
+        );
+        assert!(
+            results(&items, "lantern", &[])
+                .iter()
+                .any(|i| i.key == "agent:pc/thyme")
+        );
     }
 
     #[test]

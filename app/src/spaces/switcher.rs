@@ -20,8 +20,12 @@ fn mark(f: &Frame, s: &Space) -> El {
     let k = f.k;
     let base = el().size(20.0, 20.0).radius(4.0).center();
     match s.id.as_str() {
-        ALL_SPACES => base.fill(k.c.layer_03).child(icon(&icons::SPACES, 12.0).color(k.c.text_muted)),
-        PERSONAL => base.fill(k.c.layer_03).child(icon(&icons::USER, 12.0).color(k.c.text_muted)),
+        ALL_SPACES => base
+            .fill(k.c.layer_03)
+            .child(icon(&icons::SPACES, 12.0).color(k.c.text_muted)),
+        PERSONAL => base
+            .fill(k.c.layer_03)
+            .child(icon(&icons::USER, 12.0).color(k.c.text_muted)),
         _ => base.fill(k.alpha(k.c.text_accent, 0.2)).child(
             text(
                 plain_line(&s.name)
@@ -45,7 +49,11 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
     let k = f.k;
     let spaces = logic::spaces_of(&s.data.spaces);
     let picked = current(s);
-    let cur = spaces.iter().find(|x| x.id == picked).unwrap_or(&spaces[0]).clone();
+    let cur = spaces
+        .iter()
+        .find(|x| x.id == picked)
+        .unwrap_or(&spaces[0])
+        .clone();
     let others: Vec<String> = cur.others.iter().map(|o| plain_line(o)).collect();
     let line = logic::with_line(&others);
     let mut trigger = row()
@@ -150,5 +158,7 @@ pub fn switcher_folded(s: &State, f: &mut Frame, folded: bool) -> El {
 /// A foot item's icon in a mark-sized box, so its words line up with the
 /// spaces' names.
 fn foot_icon(f: &Frame, ic: &'static rune::Icon) -> El {
-    el().size(20.0, 20.0).center().child(icon(ic, 14.0).color(f.k.c.text_muted))
+    el().size(20.0, 20.0)
+        .center()
+        .child(icon(ic, 14.0).color(f.k.c.text_muted))
 }

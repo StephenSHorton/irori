@@ -19,7 +19,10 @@ pub enum Route {
     /// across spaces, so it asks for one ("#boards").
     Spaces,
     /// A space's page, or one board's card list in it.
-    Board { space: String, board: Option<String> },
+    Board {
+        space: String,
+        board: Option<String>,
+    },
     Profile,
     Notifications,
 }
@@ -123,7 +126,10 @@ const PREF: &str = "nav.route";
 impl Nav {
     pub fn restore(p: &Prefs) -> Nav {
         Nav {
-            route: p.get::<String>(PREF).map(|s| Route::from_pref(&s)).unwrap_or_default(),
+            route: p
+                .get::<String>(PREF)
+                .map(|s| Route::from_pref(&s))
+                .unwrap_or_default(),
             ..Nav::default()
         }
     }
@@ -167,7 +173,10 @@ impl Nav {
 
     pub fn back(&mut self) {
         if let Some((r, c)) = self.back.pop() {
-            self.forward.push((std::mem::replace(&mut self.route, r), std::mem::replace(&mut self.card, c)));
+            self.forward.push((
+                std::mem::replace(&mut self.route, r),
+                std::mem::replace(&mut self.card, c),
+            ));
         } else {
             self.card = None;
         }
@@ -175,7 +184,10 @@ impl Nav {
 
     pub fn forward(&mut self) {
         if let Some((r, c)) = self.forward.pop() {
-            self.back.push((std::mem::replace(&mut self.route, r), std::mem::replace(&mut self.card, c)));
+            self.back.push((
+                std::mem::replace(&mut self.route, r),
+                std::mem::replace(&mut self.card, c),
+            ));
         }
     }
 }
@@ -193,8 +205,14 @@ mod tests {
             Route::Notes,
             Route::Desk(Some("irori".into())),
             Route::Spaces,
-            Route::Board { space: "s".into(), board: None },
-            Route::Board { space: "s".into(), board: Some("b".into()) },
+            Route::Board {
+                space: "s".into(),
+                board: None,
+            },
+            Route::Board {
+                space: "s".into(),
+                board: Some("b".into()),
+            },
             Route::Profile,
             Route::Notifications,
         ] {
@@ -214,9 +232,18 @@ mod tests {
         assert_eq!(Route::boards_for(""), Route::Spaces);
         assert_eq!(
             Route::boards_for("personal"),
-            Route::Board { space: "personal".into(), board: None }
+            Route::Board {
+                space: "personal".into(),
+                board: None
+            }
         );
-        assert_eq!(Route::boards_for("b1"), Route::Board { space: "b1".into(), board: None });
+        assert_eq!(
+            Route::boards_for("b1"),
+            Route::Board {
+                space: "b1".into(),
+                board: None
+            }
+        );
         assert!(Route::Spaces.on_boards());
         assert!(Route::boards_for("b1").on_boards());
         assert!(!Route::Home.on_boards());
@@ -225,14 +252,26 @@ mod tests {
 
     #[test]
     fn a_spaces_page_and_personals_still_open_from_their_links() {
-        assert_eq!(Route::from_pref("board/b1"), Route::Board { space: "b1".into(), board: None });
+        assert_eq!(
+            Route::from_pref("board/b1"),
+            Route::Board {
+                space: "b1".into(),
+                board: None
+            }
+        );
         assert_eq!(
             Route::from_pref("board/personal"),
-            Route::Board { space: "personal".into(), board: None }
+            Route::Board {
+                space: "personal".into(),
+                board: None
+            }
         );
         assert_eq!(
             Route::from_pref("board/b1/b2"),
-            Route::Board { space: "b1".into(), board: Some("b2".into()) }
+            Route::Board {
+                space: "b1".into(),
+                board: Some("b2".into())
+            }
         );
     }
 

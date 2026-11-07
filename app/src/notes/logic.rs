@@ -281,7 +281,10 @@ mod tests {
     fn labels_read_as_the_mockups() {
         let none = |_: &str| String::new();
         assert_eq!(tag_label(&format!("repo:{IRORI}"), &none), "repo irori");
-        assert_eq!(tag_label(&format!("path:{IRORI}:frontend/"), &none), "irori frontend/");
+        assert_eq!(
+            tag_label(&format!("path:{IRORI}:frontend/"), &none),
+            "irori frontend/"
+        );
         assert_eq!(tag_label("machine:the pc", &none), "on the pc");
         assert_eq!(tag_label("board:mlg", &|_: &str| "MLG".to_string()), "MLG");
         assert_eq!(tag_label("topic:lobby", &none), "#lobby");
@@ -360,6 +363,9 @@ mod tests {
         assert_eq!(repo_name(IRORI), "irori");
         assert_eq!(repo_name("remote:github.com/o/x.git"), "x");
         assert_eq!(repo_name("root:1a2b3c4d5e"), "1a2b3c4");
-        assert_eq!(split_tags("everywhere, repo:x\ntopic:y,,"), ["everywhere", "repo:x", "topic:y"]);
+        assert_eq!(
+            split_tags("everywhere, repo:x\ntopic:y,,"),
+            ["everywhere", "repo:x", "topic:y"]
+        );
     }
 }

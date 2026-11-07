@@ -52,7 +52,11 @@ pub fn plain_block(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut newlines = 0;
     for ch in s.chars() {
-        let ch = if ch == '\n' || ch == '\t' || !hidden(ch) { ch } else { ' ' };
+        let ch = if ch == '\n' || ch == '\t' || !hidden(ch) {
+            ch
+        } else {
+            ' '
+        };
         if ch == '\n' {
             newlines += 1;
             if newlines > 3 {
@@ -129,7 +133,8 @@ fn is_hex(c: char) -> bool {
 pub fn is_key_like(s: &str) -> bool {
     let b: Vec<char> = s.chars().collect();
     let boundary = |i: usize| i == 0 || !(b[i - 1].is_alphanumeric() || b[i - 1] == '_');
-    let run = |from: usize, ok: &dyn Fn(char) -> bool| b[from..].iter().take_while(|c| ok(**c)).count();
+    let run =
+        |from: usize, ok: &dyn Fn(char) -> bool| b[from..].iter().take_while(|c| ok(**c)).count();
     for i in 0..b.len() {
         if !boundary(i) {
             continue;
@@ -137,7 +142,10 @@ pub fn is_key_like(s: &str) -> bool {
         let rest: String = b[i..].iter().take(7).collect();
         if rest.starts_with("board:") {
             let n = run(i + 6, &is_alnum);
-            if n > 0 && b.get(i + 6 + n) == Some(&'/') && b.get(i + 7 + n).is_some_and(|c| !c.is_whitespace()) {
+            if n > 0
+                && b.get(i + 6 + n) == Some(&'/')
+                && b.get(i + 7 + n).is_some_and(|c| !c.is_whitespace())
+            {
                 return true;
             }
         }
@@ -148,7 +156,8 @@ pub fn is_key_like(s: &str) -> bool {
             return true;
         }
         let n = run(i, &is_hex);
-        if n >= 16 && b.get(i + n) == Some(&'/') && run(i + n + 1, &|c| is_hex(c) || c == '-') >= 8 {
+        if n >= 16 && b.get(i + n) == Some(&'/') && run(i + n + 1, &|c| is_hex(c) || c == '-') >= 8
+        {
             return true;
         }
     }
@@ -158,7 +167,11 @@ pub fn is_key_like(s: &str) -> bool {
 /// `name` for a person to read, or `fallback` when it is empty or a key.
 pub fn name_or(name: &str, fallback: &str) -> String {
     let n = plain_line(name);
-    if n.is_empty() || is_key_like(&n) { fallback.to_string() } else { n }
+    if n.is_empty() || is_key_like(&n) {
+        fallback.to_string()
+    } else {
+        n
+    }
 }
 
 /// Names actor keys: the first name any source gives a key; "you" for the
@@ -182,7 +195,10 @@ impl Names {
         if key.starts_with("user:") {
             return "you".into();
         }
-        name_or(self.names.get(key).map_or("", String::as_str), UNKNOWN_AGENT)
+        name_or(
+            self.names.get(key).map_or("", String::as_str),
+            UNKNOWN_AGENT,
+        )
     }
 }
 
@@ -216,7 +232,11 @@ impl Repos {
 
 /// Why Irori holds a message, in plain words (card #488).
 pub fn hold_text(d: &Delivery, names: &Names, repos: &Repos) -> String {
-    let h = if d.hold.is_empty() { d.held_for.as_str() } else { d.hold.as_str() };
+    let h = if d.hold.is_empty() {
+        d.held_for.as_str()
+    } else {
+        d.hold.as_str()
+    };
     let named = |key: &str| {
         if key.is_empty() {
             String::new()
@@ -237,14 +257,26 @@ pub fn hold_text(d: &Delivery, names: &Names, repos: &Repos) -> String {
             "an agent".into()
         }
     };
-    let lead = if from == "you" { "You".to_string() } else { from.clone() };
+    let lead = if from == "you" {
+        "You".to_string()
+    } else {
+        from.clone()
+    };
     let to = if d.to.starts_with("user:") {
         "you".to_string()
     } else {
         let n = named(&d.to);
-        if n.is_empty() { "the other agent".into() } else { n }
+        if n.is_empty() {
+            "the other agent".into()
+        } else {
+            n
+        }
     };
-    let repo = if d.repo_key.is_empty() { "its repo".to_string() } else { repos.name(&d.repo_key) };
+    let repo = if d.repo_key.is_empty() {
+        "its repo".to_string()
+    } else {
+        repos.name(&d.repo_key)
+    };
     match h {
         hold::BLOCKED => format!("{lead} is on your block list."),
         hold::NOT_ALLOWED => format!("{lead} isn't on your allow list."),
@@ -289,11 +321,20 @@ pub fn allow_lifts(d: &Delivery) -> bool {
 /// What Start an agent did with the person's held message (card #488).
 pub fn started_line(s: &StartedAgent) -> String {
     if s.started {
-        format!("Starting an agent in {} on {}, with your message.", s.repo, s.card_ref)
+        format!(
+            "Starting an agent in {} on {}, with your message.",
+            s.repo, s.card_ref
+        )
     } else if s.offered {
-        format!("Your message is card {} in {}, handed to a free agent.", s.card_ref, s.repo)
+        format!(
+            "Your message is card {} in {}, handed to a free agent.",
+            s.card_ref, s.repo
+        )
     } else {
-        format!("Your message is card {} in {}; it waits for a free agent.", s.card_ref, s.repo)
+        format!(
+            "Your message is card {} in {}; it waits for a free agent.",
+            s.card_ref, s.repo
+        )
     }
 }
 
@@ -311,7 +352,11 @@ pub fn not_delivered(outcomes: &[MentionOutcome]) -> String {
             _ => format!("{} failed", o.name),
         })
         .collect();
-    if parts.is_empty() { String::new() } else { format!("Not delivered: {}.", parts.join("; ")) }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("Not delivered: {}.", parts.join("; "))
+    }
 }
 
 #[cfg(test)]
@@ -353,19 +398,24 @@ mod tests {
 
     #[test]
     fn repo_short_names() {
-        assert_eq!(repo_short("remote:github.com/o/ww-multiplayer.git"), "ww-multiplayer");
+        assert_eq!(
+            repo_short("remote:github.com/o/ww-multiplayer.git"),
+            "ww-multiplayer"
+        );
         assert_eq!(repo_short("root:5a3c1e0b9d7f"), "local repo 5a3c1e0");
         assert_eq!(repo_short("plain"), "plain");
     }
 
     fn held(hold: &str, from: &str) -> Delivery {
-        let mut d = Delivery::default();
-        d.state = st::HELD.into();
-        d.hold = hold.into();
+        let mut d = Delivery {
+            state: st::HELD.into(),
+            hold: hold.into(),
+            to: "dev/s2".into(),
+            repo_key: "remote:github.com/o/irori".into(),
+            ..Delivery::default()
+        };
         d.message.from.key = from.into();
         d.message.from.name = "otter".into();
-        d.to = "dev/s2".into();
-        d.repo_key = "remote:github.com/o/irori".into();
         d
     }
 
@@ -373,7 +423,10 @@ mod tests {
     fn hold_words() {
         let names = Names::default();
         let repos = Repos::default();
-        assert_eq!(hold_text(&held(hold::BLOCKED, "dev/s1"), &names, &repos), "otter is on your block list.");
+        assert_eq!(
+            hold_text(&held(hold::BLOCKED, "dev/s1"), &names, &repos),
+            "otter is on your block list."
+        );
         assert_eq!(
             hold_text(&held(hold::UNOWNED, "user:pc"), &names, &repos),
             "No agent is working in irori to take your message."
@@ -383,15 +436,26 @@ mod tests {
             "otter and the other agent kept messaging each other without stopping."
         );
         assert_eq!(hold_text(&held("", "dev/s1"), &names, &repos), "");
-        assert_eq!(hold_text(&held("weird", "dev/s1"), &names, &repos), "Irori held it.");
+        assert_eq!(
+            hold_text(&held("weird", "dev/s1"), &names, &repos),
+            "Irori held it."
+        );
         assert!(allow_lifts(&held(hold::NOT_ALLOWED, "dev/s1")));
         assert!(!allow_lifts(&held(hold::BLOCKED, "dev/s1")));
     }
 
     #[test]
     fn started_and_missed_lines() {
-        let s = StartedAgent { card_ref: "#12".into(), repo: "irori".into(), started: true, offered: false };
-        assert_eq!(started_line(&s), "Starting an agent in irori on #12, with your message.");
+        let s = StartedAgent {
+            card_ref: "#12".into(),
+            repo: "irori".into(),
+            started: true,
+            offered: false,
+        };
+        assert_eq!(
+            started_line(&s),
+            "Starting an agent in irori on #12, with your message."
+        );
         let o = |name: &str, state: &str, note: &str| MentionOutcome {
             key: String::new(),
             name: name.into(),

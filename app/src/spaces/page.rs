@@ -55,7 +55,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(body),
         )
 }
@@ -73,7 +75,11 @@ pub fn board_tile(
     let k = f.k;
     let decide = cards.iter().filter(|c| c.open_blockers > 0).count();
     let name = plain_line(&x.name);
-    let name = if name.is_empty() { "(unnamed)".to_string() } else { name };
+    let name = if name.is_empty() {
+        "(unnamed)".to_string()
+    } else {
+        name
+    };
     let key = format!("spaces-board-{}", x.board_id);
     let mut top = row().w_full().gap(8.0).center_y().child(
         text(name.clone())
@@ -103,18 +109,27 @@ pub fn board_tile(
         .gap(8.0)
         .on_press(move |s: &mut State| s.go(open.clone()))
         .child(top)
-        .child(u::state_bar(k, &key, &logic::board_segs(cards, 0), w - 24.0));
+        .child(u::state_bar(
+            k,
+            &key,
+            &logic::board_segs(cards, 0),
+            w - 24.0,
+        ));
     if let Some(r) = u::recent_cards(k, &key, &logic::recent(cards, 3)) {
         t = t.child(r);
     }
     if decide > 0 {
-        t = t.child(text(logic::decide_line(decide)).font(t12(k)).color(u::danger(k)));
+        t = t.child(
+            text(logic::decide_line(decide))
+                .font(t12(k))
+                .color(u::danger(k)),
+        );
     }
     t
 }
 
-/// + Add board and its small form (on `target`: a space's id or
-/// Personal).
+/// The "+ Add board" button and its small form (on `target`: a space's
+/// id or Personal).
 pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
     let k = f.k;
     let open = s.spaces.add.as_ref().filter(|a| a.target == target);
@@ -145,7 +160,9 @@ pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
                 .placeholder("Board name")
                 .label("New board's name")
                 .width(Some(192.0))
-                .on_edit(|s: &mut State| &mut s.spaces.add.get_or_insert_with(AddBoard::default).name)
+                .on_edit(|s: &mut State| {
+                    &mut s.spaces.add.get_or_insert_with(AddBoard::default).name
+                })
                 .on_change(|s: &mut State, _| {
                     if let Some(a) = s.spaces.add.as_mut() {
                         clamp(&mut a.name, logic::MAX_BOARD_NAME);
@@ -161,7 +178,9 @@ pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
                 .label("New board's tag (its card refs: tag#12)")
                 .width(Some(96.0))
                 .text_style(t13(k).mono())
-                .on_edit(|s: &mut State| &mut s.spaces.add.get_or_insert_with(AddBoard::default).tag)
+                .on_edit(|s: &mut State| {
+                    &mut s.spaces.add.get_or_insert_with(AddBoard::default).tag
+                })
                 .on_change(|s: &mut State, _| {
                     if let Some(a) = s.spaces.add.as_mut() {
                         lower(&mut a.tag);
@@ -191,7 +210,9 @@ pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
 }
 
 fn add_submit(s: &mut State) {
-    let Some(a) = s.spaces.add.as_ref() else { return };
+    let Some(a) = s.spaces.add.as_ref() else {
+        return;
+    };
     let (target, name, tag) = (a.target.clone(), a.name.text.clone(), a.tag.text.clone());
     if name.trim().is_empty() || tag.trim().is_empty() {
         return;
@@ -266,7 +287,11 @@ pub fn personal_boards(s: &State, f: &Frame) -> El {
         sec = sec.child(u::error_line(k, plain_line(e)));
     }
     let w = tile_width(f, "spaces-personal-tiles", 260.0, 12.0);
-    let mut tiles = row().key("spaces-personal-tiles").w_full().gap(12.0).flex_wrap();
+    let mut tiles = row()
+        .key("spaces-personal-tiles")
+        .w_full()
+        .gap(12.0)
+        .flex_wrap();
     for (i, x) in s.spaces.personal.iter().enumerate() {
         let cards = logic::cards_on_personal(&s.data.cards, &x.board_id);
         tiles = tiles.child(board_tile(

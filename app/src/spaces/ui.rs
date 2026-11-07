@@ -40,7 +40,10 @@ pub fn info(k: &Kit) -> Color {
 
 /// A glass panel (the React app's `glass-panel`).
 pub fn panel(k: &Kit) -> El {
-    col().radius(10.0).fill(k.c.layer_01).border(1.0, k.c.border_muted)
+    col()
+        .radius(10.0)
+        .fill(k.c.layer_01)
+        .border(1.0, k.c.border_muted)
 }
 
 /// A wrapped line of text.
@@ -100,16 +103,28 @@ pub fn state_bar(k: &Kit, key: &str, segs: &[Seg], width: f32) -> El {
         .clip_rounded(3.0)
         .fill(k.c.layer_03)
         .role("img")
-        .label(if words.is_empty() { "No cards".to_string() } else { words.clone() });
+        .label(if words.is_empty() {
+            "No cards".to_string()
+        } else {
+            words.clone()
+        });
     if total > 0 {
         for s in segs.iter().filter(|s| s.n > 0) {
-            bar = bar.child(el().h(6.0).w(width * s.n as f32 / total as f32).fill(tone_color(k, s.tone)));
+            bar = bar.child(
+                el().h(6.0)
+                    .w(width * s.n as f32 / total as f32)
+                    .fill(tone_color(k, s.tone)),
+            );
         }
     }
     col().gap(4.0).child(bar).child(
-        text(if words.is_empty() { "No cards yet".to_string() } else { words })
-            .font(t11(k))
-            .color(k.c.text_muted),
+        text(if words.is_empty() {
+            "No cards yet".to_string()
+        } else {
+            words
+        })
+        .font(t11(k))
+        .color(k.c.text_muted),
     )
 }
 
@@ -124,7 +139,11 @@ pub fn face(k: &Kit, name: &str, size: f32) -> El {
         .radius(size / 2.0)
         .fill(k.alpha(k.c.text_accent, 0.22))
         .center()
-        .child(text(initial).font(TextStyle::new(size * 0.5, 600.0)).color(k.c.text_accent))
+        .child(
+            text(initial)
+                .font(TextStyle::new(size * 0.5, 600.0))
+                .color(k.c.text_accent),
+        )
 }
 
 /// A tile's few most recently active cards, with their holders' faces.
@@ -132,7 +151,11 @@ pub fn recent_cards(k: &Kit, key: &str, cards: &[&CardSummary]) -> Option<El> {
     if cards.is_empty() {
         return None;
     }
-    let mut list = col().key(format!("{key}-recent")).gap(4.0).w_full().label("Recently active cards");
+    let mut list = col()
+        .key(format!("{key}-recent"))
+        .gap(4.0)
+        .w_full()
+        .label("Recently active cards");
     for c in cards {
         let lead = if c.holder.who.key.is_empty() {
             el().size(20.0, 20.0)
@@ -176,7 +199,11 @@ pub fn fresh_line(s: &State, k: &Kit, log: &str) -> Option<El> {
     }
     let old = logic::stale(f, now);
     let color = if old { warning(k) } else { k.c.text_muted };
-    let t = if old { format!("{t}{}", logic::STALE_TAIL) } else { t };
+    let t = if old {
+        format!("{t}{}", logic::STALE_TAIL)
+    } else {
+        t
+    };
     Some(
         row()
             .w_full()
@@ -213,7 +240,11 @@ pub fn confirm(
         )
         .child(
             Button::new(label.to_string())
-                .variant(if destructive { ButtonVariant::Danger } else { ButtonVariant::Neutral })
+                .variant(if destructive {
+                    ButtonVariant::Danger
+                } else {
+                    ButtonVariant::Neutral
+                })
                 .on_press(on_confirm)
                 .build(k)
                 .default_button(),
