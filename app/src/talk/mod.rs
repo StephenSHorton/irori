@@ -477,7 +477,8 @@ pub fn waiting_count(s: &State) -> usize {
 /// The headless scene: the busiest conversation open. `IRORI_TALK_SCENE`
 /// picks another pane: `channel` (the newest channel), `thread` (the newest open thread), `dm` (the
 /// newest DM), `start` (Start a thread), `search` (the list searched),
-/// `make` (Make a card on the busiest conversation's newest post).
+/// `make` (Make a card on the busiest conversation's newest post),
+/// `make-channel` (the same on the newest channel's).
 pub fn scene(s: &mut State) {
     s.close_card();
     // Headless, the loads run inline.
@@ -515,7 +516,7 @@ pub fn scene(s: &mut State) {
             .or_else(|| s.talk.threads.first())
             .map(|t| t.id.clone())
             .unwrap_or_default(),
-        "channel" => s
+        "channel" | "make-channel" => s
             .talk
             .convs
             .iter()
@@ -537,7 +538,7 @@ pub fn scene(s: &mut State) {
         s.talk.query.replace_text("re");
     }
     open(s, &id);
-    if pick == "make"
+    if (pick == "make" || pick == "make-channel")
         && let Some(p) = s
             .talk
             .posts

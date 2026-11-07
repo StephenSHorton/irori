@@ -877,6 +877,7 @@ fn card_chip(s: &State, f: &Frame, key: &str, id: &str) -> El {
         .gap(6.0)
         .center_y()
         .min_w(0.0)
+        .shrink()
         .on_press(move |s: &mut State| s.open_card(&open))
         .child(icon(&icons::ARROW_UP_RIGHT, 14.0).color(k.c.text_muted))
         .child(
@@ -892,6 +893,7 @@ fn card_chip(s: &State, f: &Frame, key: &str, id: &str) -> El {
                 .py(2.0)
                 .radius(6.0)
                 .min_w(0.0)
+                .shrink()
                 .center_y()
                 .fill(k.c.layer_02)
                 .hover(k.c.hover)
