@@ -288,6 +288,7 @@ const SCENES: &[(&str, fn(&mut State))] = &[
     ("term", crate::term::scene),
     ("status", crate::status::scene),
     ("text", crate::text::scene),
+    ("widgets", crate::widgets::scene),
 ];
 
 /// The OS opener (the Tauri opener plugin's open_path).

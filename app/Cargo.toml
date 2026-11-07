@@ -30,9 +30,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # The text package (app/src/text): rich text's links (regex, and url for
 # safeHref's WHATWG parse), and the composer's files (base64 for UploadFile).
+# The widgets' and logic's needs: lease names (logic/wait_name.rs), held
+# deliveries (logic/needs.rs), the person's avatar data URL (widgets/avatar.rs).
 regex = { workspace = true }
 url = "2.5"
 base64 = { workspace = true }
+irori-inbox = { workspace = true }
+irori-gocompat = { workspace = true }
+# Decodes the person's avatar (PNG, JPEG or WebP data URL; Rune's own
+# decoder has no WebP). The same image crate Rune pulls in.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
