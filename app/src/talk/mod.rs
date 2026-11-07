@@ -4,6 +4,8 @@
 //! Not ported yet: this is the package's stub. See ui/mod.rs for the
 //! package contract.
 
+pub mod logic;
+
 use rune::El;
 
 use crate::ui::{Event, Frame, Route, State};
