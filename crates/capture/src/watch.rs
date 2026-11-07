@@ -774,6 +774,15 @@ mod tests {
             )
             .unwrap(),
         );
+        // The replay thread outlives the test with its own Arc<Store>:
+        // close the store before the TempDirs go (#672).
+        struct CloseStore(Arc<store::Store>);
+        impl Drop for CloseStore {
+            fn drop(&mut self) {
+                let _ = self.0.close();
+            }
+        }
+        let _close = CloseStore(st.clone());
         let roster = Arc::new(OneCard(AgentCard {
             key: "dev1/sess-a".into(),
             session_id: "sess-a".into(),
