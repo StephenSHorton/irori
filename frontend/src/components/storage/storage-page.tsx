@@ -19,6 +19,11 @@ import { ConfirmButton } from "@/components/common/confirm-button"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loading } from "@/components/ui/loading"
+import {
+  ClosedBoards,
+  useClosedBoards,
+  type ClosedBoard,
+} from "@/components/storage/closed-boards"
 import { relativeTime } from "@/lib/irori"
 import {
   bytesText,
@@ -80,6 +85,24 @@ export function StoragePage({
   )
   const walkError = builds.error ?? claude.error
   const kind = kinds.find((k) => k.id === tab)
+  // Closed boards (#690) aren't a size of their own: their cards are in
+  // their space's log. They are browsed here all the same.
+  const closed = useClosedBoards()
+
+  if (tab === "closed")
+    return (
+      <div className="grid content-start gap-4">
+        <BackToStorage onTab={onTab} />
+        <h1 className="text-lg font-semibold text-ink">Closed boards</h1>
+        <p className="max-w-3xl text-[13px] text-ink-2">
+          A closed board keeps its cards, read-only, in its space's log
+          (Personal's in Irori's log), so it takes no space of its own. Its done
+          cards clear with Clear done cards on Irori's log's page. Open one to
+          read it or reopen it.
+        </p>
+        <ClosedBoards list={closed.list} error={closed.error} now={now} />
+      </div>
+    )
 
   if (tab && !loading && !kind)
     return (
@@ -143,7 +166,7 @@ export function StoragePage({
         </p>
       )}
       <Loading loading={loading} label="Measuring storage" className="min-w-0">
-        <Overview kinds={kinds} onTab={onTab} />
+        <Overview kinds={kinds} closed={closed.list} onTab={onTab} />
       </Loading>
       {report.dir && (
         <p className="text-[12px] break-all text-muted-foreground">
@@ -156,9 +179,11 @@ export function StoragePage({
 
 function Overview({
   kinds,
+  closed,
   onTab,
 }: {
   kinds: StorageKind[]
+  closed: ClosedBoard[]
   onTab: (tab: string) => void
 }) {
   const sum = total(kinds)
@@ -243,6 +268,33 @@ function Overview({
             </li>
           )
         })}
+      </ul>
+      <ul className="overflow-hidden p-0! glass-panel" aria-label="Archived">
+        <li>
+          <button
+            type="button"
+            onClick={() => onTab("closed")}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-secondary/50"
+          >
+            <span className="size-2.5 shrink-0" aria-hidden />
+            <span className="grid min-w-0 flex-1 gap-0.5">
+              <span className="text-[13.5px] font-medium text-ink">
+                Closed boards
+              </span>
+              <span className="truncate text-[12px] text-muted-foreground">
+                Boards you closed, kept read-only with their cards, in the logs
+                above.
+              </span>
+            </span>
+            <span className="shrink-0 text-[13px] text-ink tabular-nums">
+              {closed.length} {closed.length === 1 ? "board" : "boards"}
+            </span>
+            <ChevronRightIcon
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          </button>
+        </li>
       </ul>
     </div>
   )

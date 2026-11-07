@@ -45,7 +45,7 @@ Each kind shows its size, how many items it has, where it is on disk, what it ho
 
 **Conversations and threads.** Agents' conversations are `capture.*` rows in the log. Talk and threads are rows there too. All of them are listed in the log's breakdown.
 
-**Closed boards (#690).** Closed boards aren't on main yet. When they land, their cards are cards in the log like any other, and Clear done cards and the cleared list cover them.
+**Closed boards (#690).** A closed board keeps its cards, read-only, in its space's log (Personal's in Irori's log), so it has no size of its own. Storage lists every closed board under Closed boards (`#storage/closed`), with its space, when it closed and its description, and opens it on click; it reopens from its own page. Its done cards, the ones its close canceled among them, clear with Clear done cards. Deleting a board (#563) moves its cards to the space's first board, so it isn't a clean-out and Storage doesn't offer it.
 
 ## 4. Why the log can't be trimmed
 

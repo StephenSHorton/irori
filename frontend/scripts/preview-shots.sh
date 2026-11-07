@@ -97,3 +97,4 @@ shot 39-board-edit-description "?description=sample-board-mlg-net#board/sample-b
 shot 40-storage "?storage"                                   # Storage: what Irori keeps and its size (card #728)
 shot 41-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
 shot 42-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back
+shot 43-storage-closed "?storage=closed"                     # closed boards, to browse and open (with #690)
