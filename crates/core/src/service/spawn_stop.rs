@@ -13,6 +13,12 @@
 //!   and asked again (card #531: a question reads as one, not as a bad
 //!   path). If a copy turns up here (a Where, or a checkout Irori sees),
 //!   the blocker resolves itself and the agent starts.
+//! - Card #681: a path in a sentence ("put the clone in ~/projects/rune")
+//!   is the folder. One that isn't there yet but whose parent is (a clone
+//!   on its way) isn't asked about again: Irori says it waits, and each
+//!   sweep looks again, starting the agent once it is a folder. The
+//!   person's own agents may answer too, but only with a checkout of the
+//!   card's repo here: an agent can't point a card at any folder.
 //! - A card that names no repo is never asked about (card #600): its
 //!   agent starts where an ask's does and works the repo out itself.
 //! - The spawner itself fails [`SPAWN_TRIES`] times in a row (the person's
@@ -79,27 +85,88 @@ pub fn irori_acts_on(b: &Blocker) -> bool {
     is_no_copy(b) || is_start_failed(b) || coord::is_crash_question(b)
 }
 
-/// The folder a person's reply names: its first line that isn't a code
-/// fence, without the quotes or backticks people put around paths, with a
-/// leading `~` as the home folder.
-fn as_folder(text: &str) -> String {
-    let line = text
-        .lines()
+/// A leading `~` as the home folder.
+fn expand_home(s: &str) -> String {
+    if s == "~" || s.starts_with("~/") || s.starts_with("~\\") {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+        if let Some(h) = home {
+            return format!("{}{}", h.to_string_lossy(), &s[1..]);
+        }
+    }
+    s.to_string()
+}
+
+/// The lines of a reply as a person means them: trimmed, with no code
+/// fences and without the quotes or backticks people put around paths.
+fn reply_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.lines()
         .map(str::trim)
         .filter(|l| !l.starts_with("```"))
         .map(|l| {
             l.trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '“' | '”'))
                 .trim()
         })
-        .find(|l| !l.is_empty())
-        .unwrap_or("");
-    if line == "~" || line.starts_with("~/") || line.starts_with("~\\") {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
-        if let Some(h) = home {
-            return format!("{}{}", h.to_string_lossy(), &line[1..]);
+        .filter(|l| !l.is_empty())
+}
+
+/// The paths a line of words names (card #681: "put the clone in
+/// ~/projects/rune"): a span in backticks or quotes, then a word, that
+/// starts at a root or at `~`, without the punctuation around it.
+fn paths_in(line: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |s: &str| {
+        let f = expand_home(s.trim());
+        if rooted(&f) && !out.contains(&f) {
+            out.push(f);
+        }
+    };
+    for q in ['`', '"', '\''] {
+        for (i, span) in line.split(q).enumerate() {
+            if i % 2 == 1 {
+                add(span);
+            }
         }
     }
-    line.to_string()
+    for span in line.split('“').skip(1) {
+        if let Some((inner, _)) = span.split_once('”') {
+            add(inner);
+        }
+    }
+    for w in line.split_whitespace() {
+        let w = w.trim_start_matches(['(', '[', '{', '`', '"', '\'', '“', '‘']);
+        let w = w.trim_end_matches([
+            '.', ',', ';', ':', '!', '?', ')', ']', '}', '`', '"', '\'', '”', '’',
+        ]);
+        add(w);
+    }
+    out
+}
+
+/// The folder a person's reply names: a line that is a path (spaces and
+/// all), else a path in a line of words (card #681), with a leading `~` as
+/// the home folder. Of several, one that is a folder here wins. A question
+/// names none ("is it /Users/me/irori?", card #531). With no path, the
+/// reply's first line, which is quoted back to the person.
+fn as_folder(text: &str) -> String {
+    let first = reply_lines(text).next().unwrap_or("");
+    let mut found: Vec<String> = Vec::new();
+    for line in reply_lines(text) {
+        if line.ends_with('?') {
+            continue;
+        }
+        let whole = expand_home(line);
+        if rooted(&whole) {
+            found.push(whole);
+        }
+        found.extend(paths_in(line));
+    }
+    if let Some(f) = found.iter().find(|f| Path::new(f).is_dir()) {
+        return f.clone();
+    }
+    match found.into_iter().next() {
+        Some(f) => f,
+        None => expand_home(first),
+    }
 }
 
 /// `s` cut to `n` characters, marking the cut with `…`.
@@ -138,10 +205,25 @@ fn reads_as_path(f: &str) -> bool {
         && (rooted(f) || (f.contains(['/', '\\']) && !f.contains(char::is_whitespace)))
 }
 
+/// The folder a reply names when it isn't there yet but could be (card
+/// #681: "put the clone in ~/projects/rune" while it clones): a full path
+/// here whose parent is a folder. Its parent missing reads as a typo.
+fn awaited(reply: &str) -> Option<String> {
+    let f = as_folder(reply);
+    let p = Path::new(&f);
+    (reads_as_path(&f) && p.is_absolute() && !p.is_dir() && p.parent().is_some_and(Path::is_dir))
+        .then_some(f)
+}
+
 /// Why a reply wasn't used as the card's folder.
 fn not_a_folder_line(reply: &str, dev: &str) -> String {
     let f = as_folder(reply);
-    if !reads_as_path(&f) {
+    if awaited(reply).is_some() {
+        format!(
+            "{} isn't a folder on {dev} yet. Irori starts the agent there as soon as it is, with no need to answer again.",
+            quoted(reply)
+        )
+    } else if !reads_as_path(&f) {
         format!(
             "{} doesn't name a folder, so Irori can't start the agent yet and is asking again.",
             quoted(reply)
@@ -152,6 +234,14 @@ fn not_a_folder_line(reply: &str, dev: &str) -> String {
         // Relative, or a real folder named without its drive on Windows.
         format!("{} isn't a full path on {dev}.", quoted(reply))
     }
+}
+
+/// Words on a "no copy" blocker: the person's, or one of their own agents'
+/// (card #681: told to answer it, an agent resolves it with the path).
+#[derive(Debug, Clone)]
+pub(crate) struct Said {
+    text: String,
+    person: bool,
 }
 
 impl Services {
@@ -186,51 +276,105 @@ impl Services {
         root
     }
 
-    /// What the person said on blockers `on` of t, newest first: their
-    /// comments, and the answer a blocker was resolved with (the window
-    /// resolves an Irori ask with the answer, so it is on no comment, card
-    /// #531). Irori's own resolve lines and a close aren't the person's
-    /// words, even a close by them ("back on the Board: …").
-    fn said_on(&self, t: &Task, on: &[&Blocker]) -> Vec<String> {
-        let mut said: Vec<(i64, String)> = Vec::new();
+    /// What the person and their own agents said on blockers `on` of t,
+    /// newest first: their comments, and the answer a blocker was resolved
+    /// with (the window resolves an Irori ask with the answer, so it is on
+    /// no comment, card #531; an agent's board_unblock note is its answer,
+    /// card #681). Irori's own resolve lines and a close aren't anyone's
+    /// answer, even a close by the person ("back on the Board: …").
+    fn said_on(&self, t: &Task, on: &[&Blocker]) -> Vec<Said> {
+        let said_by = |by: &str, text: String| {
+            let person = self.chain.is_owner(by);
+            (person || (by != SWEEPER && self.own_agent(by))).then_some(Said { text, person })
+        };
+        let mut said: Vec<(i64, Said)> = Vec::new();
         for b in on {
             if let Some(r) = &b.resolved
                 && !r.closed
-                && self.chain.is_owner(&r.by)
+                && let Some(s) = said_by(&r.by, r.answer.clone())
             {
-                said.push((r.at.unix_nano(), r.answer.clone()));
+                said.push((r.at.unix_nano(), s));
             }
         }
         for c in self.coord.comments(&t.id).unwrap_or_default() {
             let on_it = on
                 .iter()
                 .any(|b| b.id == c.blocker_id && c.at.unix_nano() >= b.at.unix_nano());
-            if on_it && self.chain.is_owner(&c.by) {
-                said.push((c.at.unix_nano(), c.text));
+            if on_it && let Some(s) = said_by(&c.by, c.text) {
+                said.push((c.at.unix_nano(), s));
             }
         }
         said.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
         said.into_iter().map(|(_, s)| s).collect()
     }
 
-    /// The folder the person named in reply to a "no copy" blocker on t,
-    /// newest first, when it is a folder here.
+    /// The reply a "no copy" ask answers: the person's newest words on b,
+    /// or an agent's that name a path. An agent saying anything else there
+    /// ("looking into it") is no answer to quote back.
+    fn reply_on(&self, t: &Task, b: &Blocker) -> Option<Said> {
+        self.said_on(t, &[b])
+            .into_iter()
+            .find(|s| s.person || rooted(&as_folder(&s.text)))
+    }
+
+    /// Whether `dir` is a checkout of repo `repo_key` here: it shares a
+    /// main checkout with one Irori has seen for the repo, or git names
+    /// its repo as this one. Unlike a person's, an agent's folder counts
+    /// only when it is (card #681), so it can't point a card anywhere.
+    pub(crate) fn checkout_of(&self, dir: &str, repo_key: &str) -> bool {
+        if repo_key.is_empty() {
+            return false;
+        }
+        let main = |d: &str| crate::helpertree::main_root(Path::new(d));
+        let mine = main(dir);
+        if mine.is_some()
+            && self
+                .capture
+                .repo_roots(repo_key)
+                .iter()
+                .filter(|r| Path::new(r).is_dir())
+                .any(|r| main(r) == mine)
+        {
+            return true;
+        }
+        let k = self.capture.repo_key_of(dir);
+        !k.is_empty() && coord::same_repo_key(&k, repo_key)
+    }
+
+    /// The folder the person (or one of their agents, with a checkout of
+    /// the card's repo) named in reply to a "no copy" blocker on t, newest
+    /// first, when it is a folder here. A folder named before it was there
+    /// counts once it is (card #681): each sweep looks again.
     pub(crate) fn chosen_folder(&self, t: &Task) -> Option<String> {
         let on: Vec<&Blocker> = t.blockers.iter().filter(|b| is_no_copy(b)).collect();
         if on.is_empty() {
             return None;
         }
-        self.said_on(t, &on)
-            .into_iter()
-            .map(|s| as_folder(&s))
-            .find(|f| !f.is_empty() && Path::new(f).is_absolute() && Path::new(f).is_dir())
+        self.said_on(t, &on).into_iter().find_map(|s| {
+            let f = as_folder(&s.text);
+            let here = !f.is_empty() && Path::new(&f).is_absolute() && Path::new(&f).is_dir();
+            (here && (s.person || self.checkout_of(&f, &t.repo_key))).then_some(f)
+        })
+    }
+
+    /// Why reply `said` wasn't used as card t's folder on `dev`.
+    fn not_used_line(&self, t: &Task, said: &Said, dev: &str) -> String {
+        let f = as_folder(&said.text);
+        if !said.person && Path::new(&f).is_absolute() && Path::new(&f).is_dir() {
+            let name = coord::repo_name(&t.repo_key);
+            return format!(
+                "{} isn't a checkout of {name} on {dev}, and only the person can choose a folder that isn't, so Irori is asking again.",
+                quoted(&said.text)
+            );
+        }
+        not_a_folder_line(&said.text, dev)
     }
 
     /// The "no copy" question, its context and its options for t on this
     /// device. `reply` is what the person said to the last one, if it
     /// wasn't a folder: the new question quotes it, so it can't read as the
     /// same one coming back.
-    fn no_copy_ask(&self, t: &Task, reply: Option<&str>) -> (String, String, Vec<BlockerOption>) {
+    fn no_copy_ask(&self, t: &Task, reply: Option<&Said>) -> (String, String, Vec<BlockerOption>) {
         let dev = self.this_device_name();
         let name = coord::repo_name(&t.repo_key);
         let (question, why) = if self.capture.repo_roots(&t.repo_key).is_empty() {
@@ -249,15 +393,24 @@ impl Services {
             )
         };
         let question = match reply {
+            Some(r)
+                if r.person
+                    && let Some(f) = awaited(&r.text) =>
+            {
+                format!(
+                    "Irori starts the agent in “{}” once it's there. {CHOOSE_FOLDER} on {dev} instead?",
+                    cut(&f, 60)
+                )
+            }
             Some(r) => format!(
-                "Irori still needs a folder after your reply, “{}”. {CHOOSE_FOLDER} on {dev}?",
-                cut(&as_folder(r), 60)
+                "Irori still needs a folder after the reply “{}”. {CHOOSE_FOLDER} on {dev}?",
+                cut(&as_folder(&r.text), 60)
             ),
             None => question,
         };
         let mut context = String::new();
         if let Some(r) = reply {
-            context += &not_a_folder_line(r, &dev);
+            context += &self.not_used_line(t, r, &dev);
             context.push(' ');
         }
         context += &why;
@@ -296,7 +449,7 @@ impl Services {
             .iter()
             .filter(|b| is_no_copy(b))
             .max_by_key(|b| b.at.unix_nano());
-        let reply = latest.and_then(|b| self.said_on(&t, &[b]).into_iter().next());
+        let reply = latest.and_then(|b| self.reply_on(&t, b));
         if let Some(b) = latest.filter(|b| b.open()) {
             // Still blocked and nobody replied: it is already asking.
             if reply.is_none() && t.state == coord::BLOCKED {
@@ -305,7 +458,7 @@ impl Services {
             // Put back on the Board ("Start an agent", or a reply): still no
             // folder, so this one closes and a fresh one asks.
             let text = match &reply {
-                Some(r) => not_a_folder_line(r, &dev),
+                Some(r) => self.not_used_line(&t, r, &dev),
                 None => format!("Still no folder for it on {dev}."),
             };
             let a = BlockerAnswer {
@@ -318,7 +471,7 @@ impl Services {
                 return;
             }
         }
-        let (question, context, options) = self.no_copy_ask(&t, reply.as_deref());
+        let (question, context, options) = self.no_copy_ask(&t, reply.as_ref());
         let nb = NewBlocker {
             question,
             context,
@@ -509,6 +662,68 @@ mod tests {
             not_a_folder_line("/nope/irori", "Desktop Computer"),
             "“/nope/irori” isn't a folder on Desktop Computer."
         );
+    }
+
+    /// Card #681: a path in a sentence is the folder, `~` and all.
+    #[test]
+    fn a_path_in_words_is_read() {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(|h| h.to_string_lossy().into_owned());
+        if let Some(h) = &home {
+            assert_eq!(
+                as_folder("put the clone in ~/projects/rune"),
+                format!("{h}/projects/rune")
+            );
+            assert_eq!(
+                as_folder("Sure.\nClone it to ~/projects/rune, thanks!"),
+                format!("{h}/projects/rune")
+            );
+        }
+        assert_eq!(as_folder("clone it to /x/y."), "/x/y");
+        assert_eq!(as_folder("use `C:\\src\\rune`, thanks"), "C:\\src\\rune");
+        assert_eq!(as_folder("it's in (/opt/rune)"), "/opt/rune");
+        assert_eq!(
+            as_folder("put it in \"/Users/me/My Projects/rune\" please"),
+            "/Users/me/My Projects/rune"
+        );
+        assert_eq!(
+            as_folder("“/Users/me/My Projects/rune”"),
+            "/Users/me/My Projects/rune"
+        );
+        assert_eq!(as_folder("/srv/My Projects/rune"), "/srv/My Projects/rune");
+        assert_eq!(as_folder("clone it to /tmp/"), "/tmp/");
+        // Words with no path are quoted back as they were.
+        assert_eq!(as_folder("I'll clone it later"), "I'll clone it later");
+        assert_eq!(
+            as_folder("see https://github.com/x/rune"),
+            "see https://github.com/x/rune"
+        );
+        assert_eq!(
+            as_folder("is it /Users/me/irori?"),
+            "is it /Users/me/irori?"
+        );
+
+        // Of two, the one that is a folder here wins.
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().display().to_string();
+        assert_eq!(as_folder(&format!("not /nope/rune but {real}")), real);
+
+        // A sentence about a real folder starts there.
+        let line = not_a_folder_line(&format!("put the clone in {real}/rune"), "Macbook Pro");
+        assert_eq!(
+            line,
+            format!(
+                "“{real}/rune” isn't a folder on Macbook Pro yet. Irori starts the agent there as soon as it is, with no need to answer again."
+            )
+        );
+        assert_eq!(
+            awaited(&format!("put the clone in {real}/rune")),
+            Some(format!("{real}/rune"))
+        );
+        // A missing parent is a typo, not a clone on its way.
+        assert_eq!(awaited("put the clone in /nope/at/all/rune"), None);
+        assert_eq!(awaited(&format!("use {real}")), None);
     }
 
     /// A real folder named without its drive is there, but not a full path.
