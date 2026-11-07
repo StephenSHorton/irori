@@ -228,6 +228,22 @@ impl Window {
         Ok(self.agents_permissions(&p.board_id))
     }
 
+    /// Always allow on a permission prompt (card #682): `rule` joins the
+    /// allow list of the board card `task_id` is on, for the agents Irori
+    /// starts there next. The person's click, never a tool.
+    pub(crate) fn allow_rule(&self, task_id: &str, rule: &str) -> Result<(), String> {
+        let (board, _) = self.core.route(task_id).map_err(|e| e.to_string())?;
+        let s = self.core.spawn_setting(&board);
+        if s.allow.iter().any(|r| r == rule) {
+            return Ok(());
+        }
+        let mut allow = s.allow.clone();
+        allow.push(rule.to_string());
+        self.core
+            .set_spawn_permissions(&board, &s.permission, allow, s.deny, s.merge)?;
+        Ok(())
+    }
+
     /// The person's Trust and start: records trust for the card's repo on
     /// this device, then starts its agent again.
     pub fn agents_trust_and_start(&self, task_id: &str) -> Result<TrustStarted, String> {

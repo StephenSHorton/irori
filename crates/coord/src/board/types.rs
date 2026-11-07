@@ -104,6 +104,43 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// What a spawned agent's permission prompt waits on (card #682): the
+    /// typed "Waiting for your permission" item. The window shows the tool
+    /// and its input, and Allow once / Always allow / Deny buttons instead
+    /// of an answer box when `request` names a prompt Irori can answer.
+    /// Every field is a string: older folds drop the key, and the type is
+    /// frozen once shipped.
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct PermissionWait {
+        /// The agent on the prompt (`<device>/<session>`).
+        pub agent: String = "agent",
+        /// The tool waiting, e.g. `Bash`, `Write`; empty when unknown.
+        pub tool: String = "tool" "omit",
+        /// What it would run or touch: the command, the path or the URL,
+        /// cut to [`PERMISSION_INPUT_MAX`] characters.
+        pub input: String = "input" "omit",
+        /// The rule Always allow adds to the board's allow list, e.g.
+        /// `Bash(cargo test)`; empty: no Always allow (a bypass agent's
+        /// prompt is a safety check no rule skips).
+        pub rule: String = "rule" "omit",
+        /// The waiting hook's request, on the agent's device; empty when
+        /// Irori only saw the prompt in presence and can't answer it.
+        pub request: String = "request" "omit",
+        /// When Claude Code denies the call by itself (RFC 3339): set for a
+        /// safety check, which it holds for 2 minutes; empty otherwise.
+        pub expires: String = "expires" "omit",
+    }
+}
+
+/// The most characters of a permission wait's input kept on the card.
+pub const PERMISSION_INPUT_MAX: usize = 2000;
+
+/// A permission wait's answers (card #682), as its options carry them.
+pub const PERMISSION_ALLOW_ONCE: &str = "Allow once";
+pub const PERMISSION_ALWAYS: &str = "Always allow";
+pub const PERMISSION_DENY: &str = "Deny";
+
+crate::go_struct! {
     /// One ordered step of a task.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct Step {
@@ -258,6 +295,10 @@ pub struct Blocker {
     /// [`Blocker::back`] reads it. Empty on every other item.
     #[serde(skip_serializing_if = "omit")]
     pub later: String,
+    /// A spawned agent's permission prompt (card #682): the typed
+    /// "Waiting for your permission" item. `None` on every other item.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission: Option<PermissionWait>,
     /// The row's reason: Task.reason while this is the first open item.
     #[serde(skip)]
     pub(crate) reason: String,
@@ -739,6 +780,10 @@ pub struct NewTask {
     /// On a space (card #392): another board in it, by id; empty for the
     /// space's own board.
     pub board: String,
+    /// The caller named the board, even the space's own (stored as ""):
+    /// the board of the thread it comes from doesn't override it (card
+    /// #708).
+    pub board_named: bool,
     /// The work/personal side (card #494). Empty: a subtask's parent's,
     /// else the side of this device (the first it runs), else none.
     /// Ignored on a shared board.
@@ -1081,6 +1126,8 @@ pub struct NewBlocker {
     pub blocked_by: Option<BlockedBy>,
     pub links: Vec<String>,
     pub files: Vec<FileRef>,
+    /// A permission wait (card #682): only Irori raises one.
+    pub permission: Option<PermissionWait>,
 }
 
 /// Revise's input: what an open blocker asks now.

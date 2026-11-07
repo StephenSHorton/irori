@@ -36,6 +36,7 @@ import {
   type Need,
 } from "@/lib/needs"
 import { SpawnedActions } from "@/components/cards/spawned-actions"
+import { PermissionPrompt } from "@/components/cards/permission-prompt"
 import { openSettings } from "@/components/settings/settings-menu"
 import { answerable } from "@/lib/thread"
 import { useDraft } from "@/lib/drafts"
@@ -636,14 +637,19 @@ function CardNeed({
   const c = need.card
   const { detail } = useCard(c.id)
   const spawn = need.kind === "decision" ? spawnNeed(c) : null
-  // The permission wait is answered at the agent's prompt, not here.
+  // A permission wait has its own row: the command and its buttons (card
+  // #682), never an answer box, since words don't reach the prompt.
+  const isPerm = (b: CardBlocker) =>
+    !!b.permission || b.question.startsWith(WAITING_PERMISSION)
+  const prompts = detail
+    ? detail.blockers.filter((b) => waitsOnYou(b) && !!b.permission)
+    : []
   const blockers = detail
     ? detail.blockers.filter(
-        (b) =>
-          waitsOnYou(b) &&
-          !(spawn === "permission" && b.question.startsWith(WAITING_PERMISSION))
+        (b) => waitsOnYou(b) && !(spawn === "permission" && isPerm(b))
       )
     : []
+  const who = c.working.find((w) => w.spawned && !w.assigned)
   const where = <Where card={c} />
   return (
     <Row
@@ -654,7 +660,20 @@ function CardNeed({
       title={plainLine(c.title)}
     >
       {spawn === "permission" ? (
-        <PermissionWait card={c} onOpen={onOpen} />
+        prompts.length > 0 ? (
+          prompts.map((b) => (
+            <PermissionPrompt
+              key={b.id}
+              cardId={c.id}
+              b={b}
+              who={who}
+              onOpenCard={onOpen}
+              compact
+            />
+          ))
+        ) : (
+          <PermissionWait card={c} onOpen={onOpen} />
+        )
       ) : null}
       {spawn === "permission" &&
       blockers.length === 0 ? null : blockers.length === 0 ? (

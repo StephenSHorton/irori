@@ -57,6 +57,11 @@ pub const OUTCOME_NONE: &str = "none";
 pub const ASK_UNCLAIMED: Duration = super::GONE_GRACE;
 /// How long ask_claim waits for the owner's answer.
 pub const ASK_WAIT: Duration = Duration::from_secs(5);
+/// What a thread says while every computer that could start its agent is
+/// full (card #686).
+pub const ALL_FULL: &str =
+    "Every computer is at its agent limit. It starts by itself when one has room.";
+
 const MAX_ASK_TITLE: usize = 80;
 const MAX_ASK_NOTICE: usize = 600;
 pub const MAX_OUTCOME: usize = 300;
@@ -90,6 +95,26 @@ pub(crate) struct TakeMark {
 /// move anything.
 pub const ASK_AWAY: Duration = Duration::from_secs(30);
 
+/// How long an ask that moved because its owner was full (card #686) stays
+/// before it may move again for the same reason: a computer that filled up
+/// between taking it and starting its agent doesn't hand it straight back.
+pub const ASK_FULL_SETTLE: Duration = Duration::from_secs(60);
+
+/// How long an ask waits on a full owner before it first moves (card
+/// #686): the owner's own pass starts it at once when it has room, and a
+/// computer that counted the owner's agents a moment late doesn't take it
+/// from under that start.
+pub const ASK_FULL_GRACE: Duration = Duration::from_secs(5);
+
+/// How many times an ask may move within [`ASK_FULL_WINDOW`] and still
+/// move because its owner is full (card #686): past this it waits where it
+/// is for a free slot. A thread that goes on for days isn't held by moves
+/// its earlier turns made.
+pub const MAX_FULL_MOVES: usize = 3;
+
+/// See [`MAX_FULL_MOVES`].
+pub const ASK_FULL_WINDOW: Duration = Duration::from_secs(10 * 60);
+
 /// The take lock's fold beside the tasks.
 #[derive(Debug, Default)]
 pub(crate) struct AskBook {
@@ -97,6 +122,9 @@ pub(crate) struct AskBook {
     pub state_seq: HashMap<String, i64>,
     /// Asks that moved (card #541): how many times, and who has them.
     pub moved: HashMap<String, (i64, String)>,
+    /// When each ask moved, by each winning row's own time, oldest first
+    /// (card #686).
+    pub moved_at: HashMap<String, Vec<GoTime>>,
     pub seen: HashMap<String, BTreeMap<String, i64>>,
     pub notices: Vec<Notice>,
     pub again: BTreeMap<String, AskAgain>,
@@ -1227,32 +1255,56 @@ impl Fold {
     /// pulls rather than the owner giving: a phone asleep or a computer
     /// with its lid shut writes nothing, and all the rows that follow
     /// (take lock, spawn) are this device's own, in order.
+    ///
+    /// An owner that is connected but full (card #686: at its cap, held by
+    /// a usage limit, or paused) loses its ask to the first computer with
+    /// room ([`Self::room_home`]); with none, it waits where it is. An ask
+    /// moved this way settles for [`ASK_FULL_SETTLE`] and moves at most
+    /// [`MAX_FULL_MOVES`] times, so it never goes back and forth.
     pub(crate) fn pull_asks(&mut self) -> Result<()> {
         if !self.can_run(&self.dev) {
             return Ok(());
         }
         let now = self.stamp();
-        let lost: Vec<(String, i64)> = self
+        let mut waiting: Vec<&Task> = self
             .tasks
             .values()
             .filter(|t| self.waits_for_agent(t))
-            .filter(|t| {
-                t.open_ask().is_some_and(|a| {
-                    a.owner != self.dev
-                        && self.same_person_dev(&a.owner, &self.dev)
-                        // On a board every member's hello says so instead.
-                        && (self.on_board || self.reads_moves(&a.owner))
-                        && (!self.can_run(&a.owner)
-                            || (self.away_for(&a.owner, ASK_AWAY)
-                                && gotime::at_least(&now, &t.created_at, ASK_AWAY)))
-                })
-            })
-            .filter(|t| self.agent_home(&t.side).as_deref() == Some(self.dev.as_str()))
-            .map(|t| {
-                let moves = self.asks.moved.get(&t.id).map_or(0, |m| m.0);
-                (t.id.clone(), moves + 1)
-            })
             .collect();
+        waiting.sort_by(|x, y| {
+            (x.created_at.unix_nano(), &x.id).cmp(&(y.created_at.unix_nano(), &y.id))
+        });
+        // Moves off a full owner take this device's free slots, oldest
+        // first: one free slot doesn't take every waiting thread.
+        let mut room = self.free_slots(&self.dev);
+        let mut lost: Vec<(String, i64)> = Vec::new();
+        for t in waiting {
+            let Some(a) = t.open_ask() else {
+                continue;
+            };
+            if a.owner == self.dev
+                || !self.same_person_dev(&a.owner, &self.dev)
+                // On a board every member's hello says so instead.
+                || !(self.on_board || self.reads_moves(&a.owner))
+            {
+                continue;
+            }
+            let takes = if !self.can_run(&a.owner)
+                || (self.away_for(&a.owner, ASK_AWAY)
+                    && gotime::at_least(&now, &t.created_at, ASK_AWAY))
+            {
+                self.lost_home(&t.side, &a.owner).as_deref() == Some(self.dev.as_str())
+            } else if room > 0 && self.full_move(t, &now) {
+                room -= 1;
+                true
+            } else {
+                false
+            };
+            if takes {
+                let moves = self.asks.moved.get(&t.id).map_or(0, |m| m.0);
+                lost.push((t.id.clone(), moves + 1));
+            }
+        }
         for (id, moves) in lost {
             let row = AskMovedRow {
                 task_id: id,
@@ -1263,6 +1315,83 @@ impl Fold {
             self.write_as(SWEEPER, self.ask_kind(kinds::ASK_MOVED), &row)?;
         }
         Ok(())
+    }
+
+    /// Whether this device takes ask t from `owner` because the owner is
+    /// full (card #686): the owner is connected (one away is
+    /// [`ASK_AWAY`]'s), this is the computer with room it goes to, and it
+    /// hasn't moved too often or too lately.
+    fn full_move(&self, t: &Task, now: &GoTime) -> bool {
+        // The grace counts from when it last went out (a wake or reopen
+        // sets since), not from when the thread was made.
+        let Some(a) = t.open_ask() else {
+            return false;
+        };
+        let since = if a.since.unix_nano() > t.created_at.unix_nano() {
+            a.since
+        } else {
+            t.created_at
+        };
+        if !gotime::at_least(now, &since, ASK_FULL_GRACE) {
+            return false;
+        }
+        if self
+            .asks
+            .moved_at
+            .get(&t.id)
+            .and_then(|v| v.last())
+            .is_some_and(|at| !gotime::at_least(now, at, ASK_FULL_SETTLE))
+        {
+            return false;
+        }
+        self.full_target(t).as_deref() == Some(self.dev.as_str())
+    }
+
+    /// The computer ask t moves to because its owner is full (card #686):
+    /// the owner is connected (one away is [`ASK_AWAY`]'s) and full, the
+    /// ask hasn't moved [`MAX_FULL_MOVES`] times lately, and a computer has
+    /// room. A short grace or settle may still hold the move a moment.
+    pub(crate) fn full_target(&self, t: &Task) -> Option<String> {
+        let a = t.open_ask()?;
+        if !self.is_full(&a.owner) || self.is_away(&a.owner) {
+            return None;
+        }
+        let now = self.stamp();
+        let lately = self.asks.moved_at.get(&t.id).map_or(0, |v| {
+            v.iter()
+                .filter(|at| !gotime::at_least(&now, at, ASK_FULL_WINDOW))
+                .count()
+        });
+        if lately >= MAX_FULL_MOVES {
+            return None;
+        }
+        self.room_home(&t.side, &a.owner)
+    }
+
+    /// Where an ask whose owner can't serve it goes (card #541): the ask
+    /// home, or a computer with room when that one is full (card #686).
+    fn lost_home(&self, side: &str, owner: &str) -> Option<String> {
+        let home = self.agent_home(side)?;
+        if self.is_full(&home) {
+            return self.room_home(side, owner).or(Some(home));
+        }
+        Some(home)
+    }
+
+    /// Why ask t waits on its full owner (card #686), or "" when it doesn't:
+    /// its owner has no free slot and no other computer has one either. A
+    /// computer with room takes it, so this is said only when none has.
+    pub(crate) fn ask_full_wait(&self, t: &Task) -> String {
+        let Some(a) = t.open_ask() else {
+            return String::new();
+        };
+        if !self.waits_for_agent(t)
+            || !self.is_full(&a.owner)
+            || self.room_home(&t.side, &a.owner).is_some()
+        {
+            return String::new();
+        }
+        ALL_FULL.to_string()
     }
 
     /// An `ask.moved` row: a device of the same person takes the ask. The
@@ -1294,6 +1423,9 @@ impl Fold {
         self.asks
             .moved
             .insert(p.task_id.clone(), (p.moves, p.owner.clone()));
+        let times = self.asks.moved_at.entry(p.task_id.clone()).or_default();
+        times.push(p.at);
+        times.sort_by_key(|t| t.unix_nano());
         if let Some(a) = self.tasks.get_mut(&p.task_id).and_then(|t| t.ask.as_mut()) {
             a.owner = p.owner;
         }

@@ -56,7 +56,7 @@ import {
 } from "@/lib/boards"
 import { useThreads, type CardSummary, type DoneState } from "@/lib/cards"
 import { plainLine } from "@/lib/irori"
-import { go } from "@/lib/nav"
+import { go, Home } from "@/lib/nav"
 import { boardsOf } from "@/lib/spaces"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -133,7 +133,7 @@ export function BoardPage({
   if (!b)
     return (
       <div className="grid gap-2">
-        <BackToBoards />
+        <BackHome />
         <p className="text-sm text-muted-foreground">
           This space isn't here any more: you may have left or forgotten it.
         </p>
@@ -225,16 +225,18 @@ function BoardHeaderShape() {
   )
 }
 
-function BackToBoards() {
+// BackHome leaves a space that isn't here any more (the Spaces page it
+// went back to is gone, card #689).
+function BackHome() {
   return (
     <Button
       variant="ghost"
       size="sm"
       className="w-fit px-1.5"
-      onClick={() => go({ kind: "boards" })}
+      onClick={() => go(Home)}
     >
       <ArrowLeftIcon aria-hidden />
-      Spaces
+      Home
     </Button>
   )
 }
@@ -509,7 +511,7 @@ function BoardActionsMenu({
         // The board goes from every list at once (card #304).
         await actions.leave(b.boardId)
         await reload()
-        go({ kind: "boards" })
+        go(Home)
       },
     },
     forgetHere: {
@@ -522,7 +524,7 @@ function BoardActionsMenu({
       ),
       onConfirm: async () => {
         await actions.forget(b.boardId)
-        go({ kind: "boards" })
+        go(Home)
       },
     },
   }

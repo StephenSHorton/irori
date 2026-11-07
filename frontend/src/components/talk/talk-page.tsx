@@ -3,7 +3,7 @@
 // holds Threads (the person's asks to the room, card #116, once a panel
 // beside Home's Board); Channels and Direct messages join it once Talk 1
 // (#389) stores them. Resolved threads leave the list but stay one click
-// away, folded at its foot.
+// away, folded at the bottom of Threads (card #687).
 
 import { cardRef } from "@/components/cards/bits"
 import { useContext, useEffect, useState, type ReactNode } from "react"
@@ -315,8 +315,6 @@ export function TalkPage({
       </Group>
     )
   }
-  // Folded, Threads lists no rows either, as every section (card #484).
-  const liveThreads = folded("threads") ? [] : live
 
   const list = (
     <nav
@@ -348,34 +346,23 @@ export function TalkPage({
           <SquarePenIcon className="size-4" aria-hidden />
         </button>
       </div>
-      <Group
-        label="Threads"
-        count={live.length}
-        unread={live.filter(needsYou).length}
+      <ThreadsSection
+        live={live}
+        resolved={resolved}
+        loading={threadsLoading}
         folded={folded("threads")}
-        onToggle={searching ? undefined : () => toggleFold("threads")}
-      >
-        {!folded("threads") && (
-          <Rows loading={threadsLoading} label="Threads">
-            {live.length === 0 && (
-              <p className="px-2 py-1 text-[12px] text-muted-foreground">
-                {query.trim()
-                  ? "No open thread matches."
-                  : "No open threads. Start one with the pen above."}
-              </p>
-            )}
-            {liveThreads.map((t) => (
-              <ThreadItem
-                key={t.id}
-                t={t}
-                current={t.id === open}
-                why={why}
-                onClick={() => onOpen(t.id)}
-              />
-            ))}
-          </Rows>
-        )}
-      </Group>
+        onFold={searching ? undefined : () => toggleFold("threads")}
+        searching={searching}
+        open={open}
+        why={why}
+        onOpen={onOpen}
+        showResolved={showResolved}
+        onToggleResolved={() => {
+          const t = resolvedToggle(showResolvedPick, open, threads)
+          setShowResolved(t.pick)
+          if (t.closeOpen) onOpen("")
+        }}
+      />
       {convSection(
         "channels",
         "Channels",
@@ -419,33 +406,6 @@ export function TalkPage({
       {sections.agents.length > 0 && agentsSection()}
       {sections.gone.length > 0 &&
         convSection("gone", "Archive", sections.gone, "")}
-      {resolved.length > 0 && (
-        <div className="mt-auto grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-3">
-          <button
-            type="button"
-            className="px-2 text-left text-[11px] text-muted-foreground hover:text-ink"
-            aria-expanded={showResolved}
-            onClick={() => {
-              const t = resolvedToggle(showResolvedPick, open, threads)
-              setShowResolved(t.pick)
-              if (t.closeOpen) onOpen("")
-            }}
-          >
-            Resolved threads: {resolved.length}
-            {showResolved ? " · hide" : " · show"}
-          </button>
-          {showResolved &&
-            resolved.map((t) => (
-              <ThreadItem
-                key={t.id}
-                t={t}
-                current={t.id === open}
-                why={why}
-                onClick={() => onOpen(t.id)}
-              />
-            ))}
-        </div>
-      )}
     </nav>
   )
 
@@ -995,6 +955,82 @@ function NewDm({
         <span className="px-2 text-[11px] text-destructive">{error}</span>
       )}
     </div>
+  )
+}
+
+// ThreadsSection is Talk's Threads: the open threads, then the resolved
+// ones folded at its bottom (card #687), above Channels. Folded, it lists
+// no rows, as every section (card #484), and so hides the resolved too.
+export function ThreadsSection({
+  live,
+  resolved,
+  loading,
+  folded,
+  onFold,
+  searching,
+  open,
+  why,
+  onOpen,
+  showResolved,
+  onToggleResolved,
+}: {
+  live: ThreadSummary[]
+  resolved: ThreadSummary[]
+  loading: boolean
+  folded: boolean
+  // Undefined while searching: search looks through everything.
+  onFold?: () => void
+  searching: boolean
+  open: string
+  why: string
+  onOpen: (id: string) => void
+  showResolved: boolean
+  onToggleResolved: () => void
+}) {
+  const item = (t: ThreadSummary) => (
+    <ThreadItem
+      key={t.id}
+      t={t}
+      current={t.id === open}
+      why={why}
+      onClick={() => onOpen(t.id)}
+    />
+  )
+  return (
+    <Group
+      label="Threads"
+      count={live.length}
+      unread={live.filter(needsYou).length}
+      folded={folded}
+      onToggle={onFold}
+    >
+      {!folded && (
+        <Rows loading={loading} label="Threads">
+          {live.length === 0 && (
+            <p className="px-2 py-1 text-[12px] text-muted-foreground">
+              {searching
+                ? "No open thread matches."
+                : "No open threads. Start one with the pen above."}
+            </p>
+          )}
+          {live.map(item)}
+        </Rows>
+      )}
+      {!folded && !loading && resolved.length > 0 && (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5 pt-1">
+          <button
+            type="button"
+            className="px-2 text-left text-[11px] text-muted-foreground hover:text-ink"
+            aria-expanded={showResolved}
+            onClick={onToggleResolved}
+          >
+            Resolved threads: {resolved.length}
+            {showResolved ? " · hide" : " · show"}
+          </button>
+          {showResolved && resolved.map(item)}
+        </div>
+      )}
+    </Group>
   )
 }
 

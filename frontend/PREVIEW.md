@@ -57,7 +57,7 @@ unchanged.
 | `/?talk` | Talk (card #390): the Threads list beside the new-thread box; `#talk` in the address does the same |
 | `/?thread=sample-thread-1` | Talk with a thread open: sample-heron's answer, the reply box, Resolve (cards #116, #390); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
 | `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, a picture inline under sample-heron's post (card #643), the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card. The composer takes files (card #643): the clip, a drop or a paste; with files Send works on no text; `?voice=ready` shows its mic |
-| `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar, Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
+| `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar (Boards is the picked space's, card #689), Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
 | `/?replying#talk/sample-ch-suzuri` | agents replying (card #645): "sample-heron and sample-otter are replying…" under the channel's posts; `/?replying#talk/sample-dm-heron` "sample-heron is replying…" in a DM |
 | `/#talk/sample-dm-heron` | a DM with an agent (unread until opened), its newest post with a picture inline (card #643); `/#talk/sample-dm-otter-badger` two agents' DM, read-only |
 | `/#talk/sample-dm-gone-3` | an archived DM open (card #473): gone agents' DMs, read or not, sit in the Archive at the bottom, which folded lists no rows and shows only its count, "Archive · N", muted: no "N new" pill, no Mark all read (card #514); open it and its unread rows keep their marks, with Mark all read beside its name |
@@ -84,7 +84,9 @@ unchanged.
 | `/?settings=agents&spawn=limit` | Settings › Agents with a Claude usage limit holding the queue (card #450): caps per device, today's count and cost, then the idle limit, crashes and failed starts in a row (card #576) |
 | `/?spawn=first` | spawned agents' first-run notice (card #448): Home leads with "Irori now starts an agent for each card…", Keep it on / Turn it off / Settings › Agents |
 | `/?spawn=states` | spawned agents' card lines (card #448): #65 "Starting an agent on Macbook Pro (this one)", #66 and #68 "Queued: 1st/2nd for Macbook Pro (this one)" (card #450; the card page leads with it, the sidebar says "2 queued"), #67 "Can't start: no checkout…"; #64's page shows End for the agent Irori started, and its hover "Irori started it for #64" |
-| `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt, with Attach, Logs and Add to allow-list; #62 "Crashed", its agents crashed twice, with Start another agent |
+| `/?spawn=states` on Home | spawned agents in Needs you (card #456, sa-7): #58 "Permission", sample-thyme stopped on a prompt to use Bash, its command, and Allow once / Always allow (with the rule) / Deny / Attach / Logs, no answer box (card #682); #62 "Crashed", its agents crashed twice, with Start another agent |
+| `/?spawn=states&open=board:task:sample-card-spawn-perm` | #58's page (card #682): the permission item shows the command and the same buttons, no answer box or thread; a pick resolves it |
+| `/?spawn=states&open=board:task:sample-card-spawn-safety` | #59's page (card #682, as on #675): a bypass agent on one of Claude Code's safety checks (`rm` on a target it can't resolve): Allow once / Deny / Attach, no Always allow (no rule skips it), and the time Claude Code denies it by itself |
 | `/?spawn=states` on Home, given | a card given to you (card #573): #71 "Given to you", "OK to start an agent on this?" with who gave it and what it asks, Start an agent / Not now |
 | `/#board/sample-board-mlg` | a space's agents switch off (card #573): the line over its cards with Turn on; the same switch in its cog and under Spaces in `?settings=agents` |
 | `/?spawn=states&open=board:task:sample-card-spawn-on` | Who's on it for an agent Irori started (card #456, sa-2): Attach, Logs, Stop, End, no Revive |
@@ -101,7 +103,10 @@ unchanged.
 | `/?open=held:sample-device/grok-sample7` | the Held list showing one sender's, as a held notification opens it |
 | `/?devices` | Settings at Devices and connections (this PC, a MacBook, an offline node) |
 | `/?sidebar=folded` | the sidebar folded to icons (card #135); its top button opens it again |
-| `/?boards` | the Boards dialog: two boards of your own (MLG, Website refresh), New board |
+| `/?boards` | New or join a space (card #689), the dialog the sidebar's space picker opens: Make a space, Join with an invite |
+| `/?spaces=open` | the space picker open: All spaces, Personal, each shared space, then Space settings (a shared pick) and New or join a space (card #689) |
+| `/#board/personal` | Personal's page: its boards and Add board (card #689; it was on the Spaces page) |
+| `/#boards` | Boards with All spaces picked: pick a space to see its boards (card #689); with a space picked (`?space=sample-board-mlg#boards`) it opens that space's page |
 | `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
 | `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
 | `/#board/sample-board-mlg` | MLG, shared with Blake (card #268): each card's owner chip (Stephen, Blake, Former member) and the Mine / Blake chips |
