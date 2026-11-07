@@ -29,6 +29,11 @@ impl NameEdit {
     pub fn changed(&self) -> bool {
         self.name.as_deref().is_some_and(|n| self.edit.text.trim() != n)
     }
+    /// "Saved." shows after a save until the field is edited again (the
+    /// field's accessor runs for focus and caret too, so it can't clear it).
+    pub fn shows_saved(&self) -> bool {
+        self.saved && !self.changed()
+    }
 }
 
 /// JoinInvite's form (boards/parts.tsx): the link pasted, a join on its
@@ -99,11 +104,7 @@ pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: f
         .label("Your name")
         .width(width)
         .disabled(ne.name.is_none())
-        .on_edit(move |s: &mut State| {
-            let ne = at(s);
-            ne.saved = false;
-            &mut ne.edit
-        })
+        .on_edit(move |s: &mut State| &mut at(s).edit)
         .on_submit(move |s: &mut State, _: &mut Tx| save_name(s, at))
         .on_key(move |s: &mut State, ev: &rune::KeyEvent, _: &mut Tx| {
             if ev.key == rune::Key::Escape {
@@ -137,7 +138,7 @@ pub fn name_field(f: &Frame, key: &str, ne: &NameEdit, width: Option<f32>, at: f
 fn your_name(s: &State, f: &Frame) -> El {
     let k = f.k;
     let ne = &s.settings.people.name;
-    let line = match (&ne.error, ne.saved) {
+    let line = match (&ne.error, ne.shows_saved()) {
         (Some(e), _) => e.clone(),
         (None, true) => "Saved. Your other devices and your spaces pick it up as they sync.".into(),
         _ => "What people in your spaces see you as, on all your devices.".into(),
@@ -287,4 +288,25 @@ fn join_submit(s: &mut State) {
         },
     );
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_shows_until_the_name_is_edited_again() {
+        let mut ne = NameEdit::default();
+        ne.set("Stephen".into());
+        assert!(!ne.changed() && !ne.shows_saved());
+        ne.edit = TextEdit::new("Stephen H");
+        assert!(ne.changed());
+        ne.set("Stephen H".into());
+        ne.saved = true;
+        assert!(ne.shows_saved(), "a focus or caret pass leaves it");
+        ne.edit = TextEdit::new("Stephen Ho");
+        assert!(!ne.shows_saved(), "typing again hides it");
+        ne.edit = TextEdit::new("Stephen H ");
+        assert!(ne.shows_saved(), "only a real change counts");
+    }
 }
