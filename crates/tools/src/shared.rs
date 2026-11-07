@@ -63,6 +63,59 @@ impl BoardInfo {
     }
 }
 
+/// One of Personal's boards (card #558) as the tools show it: an agent
+/// puts a private card on one by its tag (card #698).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonalBoard {
+    /// Its id: [`PERSONAL_DEFAULT`] for the default board.
+    pub board_id: String,
+    pub name: String,
+    /// Its short handle; empty for the default, which has none.
+    pub tag: String,
+}
+
+/// The id of Personal's default board, as Core names it
+/// (`irori_core::PERSONAL_BOARD`), and the word that names it in `board`.
+pub const PERSONAL_DEFAULT: &str = "personal";
+
+impl PersonalBoard {
+    fn is_default(&self) -> bool {
+        self.tag.is_empty() || self.board_id == PERSONAL_DEFAULT
+    }
+
+    /// The board a card's row names: empty for the default, as the
+    /// window's New card does.
+    pub(crate) fn inner(&self) -> &str {
+        if self.is_default() {
+            ""
+        } else {
+            &self.board_id
+        }
+    }
+
+    pub(crate) fn label(&self) -> String {
+        if self.is_default() {
+            return format!(
+                "{}, Personal's default board",
+                crate::format::q(&one_line(&self.name, 80))
+            );
+        }
+        format!(
+            "{} ({}), one of Personal's boards",
+            crate::format::q(&one_line(&self.name, 80)),
+            self.tag
+        )
+    }
+}
+
+/// Where a `board` argument points (card #698).
+pub(crate) enum BoardTarget {
+    /// One of Personal's boards: the card stays private.
+    Personal(PersonalBoard),
+    /// A board in a shared space.
+    Space(BoardInfo),
+}
+
 /// Someone this person can DM (card #538).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PersonInfo {
@@ -231,12 +284,77 @@ impl Inner {
         self.b.shared_boards()
     }
 
-    /// The board `v` names, by tag or boardId.
+    /// The Personal board `v` names (card #698): one of its boards by tag
+    /// or id, or `personal` for its default. None: not one of Personal's.
+    pub(crate) fn personal_board(&self, v: &str) -> Option<PersonalBoard> {
+        let v = trim(v).trim_start_matches('#');
+        if v.is_empty() {
+            return None;
+        }
+        let all = self.b.personal_boards();
+        if v.eq_ignore_ascii_case(PERSONAL_DEFAULT) {
+            return Some(
+                all.into_iter()
+                    .find(PersonalBoard::is_default)
+                    .unwrap_or_else(|| PersonalBoard {
+                        board_id: PERSONAL_DEFAULT.into(),
+                        name: "Personal".into(),
+                        tag: String::new(),
+                    }),
+            );
+        }
+        all.into_iter()
+            .find(|b| !b.is_default() && (b.board_id == v || b.tag.eq_ignore_ascii_case(v)))
+    }
+
+    /// The board a call's `board` names (card #698): one of Personal's or
+    /// one in a shared space, by tag or id. A tag both have is refused.
+    pub(crate) fn resolve_board(&self, v: &str) -> Result<BoardTarget, String> {
+        let Some(p) = self.personal_board(v) else {
+            return self.find_board(v).map(BoardTarget::Space);
+        };
+        if self.shared().is_some()
+            && let Ok(b) = self.find_board(v)
+        {
+            return Err(err_text(&format!(
+                "more than one board has the tag {}: give its boardId ({} on Personal, {} on {}).",
+                crate::format::q(trim(v).trim_start_matches('#')),
+                p.board_id,
+                if b.space_board.is_empty() {
+                    &b.board_id
+                } else {
+                    &b.space_board
+                },
+                b.label()
+            )));
+        }
+        Ok(BoardTarget::Personal(p))
+    }
+
+    /// ", or one of Personal's boards: hw, bc" when Personal has more than
+    /// its default, for a refusal to list.
+    fn personal_tags(&self) -> String {
+        let tags: Vec<String> = self
+            .b
+            .personal_boards()
+            .into_iter()
+            .filter(|b| !b.is_default())
+            .map(|b| b.tag)
+            .collect();
+        if tags.is_empty() {
+            return String::new();
+        }
+        format!(" Personal's boards: {}.", tags.join(", "))
+    }
+
+    /// The board `v` names in a shared space, by tag or boardId.
     pub(crate) fn find_board(&self, v: &str) -> Result<BoardInfo, String> {
         let Some(sb) = self.shared() else {
-            return Err(err_text(
-                "shared spaces aren't on here; leave out board for a private card.",
-            ));
+            return Err(err_text(&format!(
+                "no board {}: shared spaces aren't on here; leave out board for a private card.{}",
+                crate::format::q(trim(v).trim_start_matches('#')),
+                self.personal_tags()
+            )));
         };
         let v = trim(v).trim_start_matches('#');
         let all = sb.boards();
@@ -253,13 +371,14 @@ impl Inner {
             [] => {
                 let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
                 Err(err_text(&format!(
-                    "no board {} in a shared space. {}",
+                    "no board {} in a shared space. {}{}",
                     crate::format::q(v),
                     if list.is_empty() {
                         "You aren't in any shared space.".to_string()
                     } else {
                         format!("Yours: {}.", list.join(", "))
-                    }
+                    },
+                    self.personal_tags()
                 )))
             }
             _ => Err(err_text(&format!(
@@ -295,15 +414,15 @@ impl Inner {
         args: &[u8],
         run: impl FnOnce() -> String,
     ) -> String {
-        if self.shared().is_none() {
-            return run();
-        }
         if name == "board" {
             let out = run();
             return match self.boards_section() {
                 Some(s) => format!("{out}\n{s}"),
                 None => out,
             };
+        }
+        if self.shared().is_none() {
+            return run();
         }
         if !CARD_WRITES.contains(&name) {
             return run();
@@ -325,9 +444,41 @@ impl Inner {
         format!("{out}\n{}", b.visible_to())
     }
 
-    /// The board tool's list of spaces, each with who sees it, the agents'
-    /// autonomy there and its boards (card #558).
+    /// The board tool's list of boards to post on: Personal's, when it has
+    /// more than its default (card #698), then the spaces.
     fn boards_section(&self) -> Option<String> {
+        let parts: Vec<String> = [self.personal_section(), self.spaces_section()]
+            .into_iter()
+            .flatten()
+            .collect();
+        (!parts.is_empty()).then(|| parts.join("\n"))
+    }
+
+    /// Personal's boards past its default, private like every Personal card.
+    fn personal_section(&self) -> Option<String> {
+        let all = self.b.personal_boards();
+        let boards: Vec<String> = all
+            .iter()
+            .filter(|b| !b.is_default())
+            .map(|b| format!("{} {}", b.tag, crate::format::q(&one_line(&b.name, 80))))
+            .collect();
+        if boards.is_empty() {
+            return None;
+        }
+        let default = all
+            .iter()
+            .find(|b| b.is_default())
+            .map_or("Personal", |b| b.name.as_str());
+        Some(format!(
+            "Personal's boards (board_create board=<board tag>, or board_share one of your person's private cards onto one; private: only your person sees them): {}; leave board out for its default, {}.",
+            boards.join(", "),
+            crate::format::q(&one_line(default, 80))
+        ))
+    }
+
+    /// The spaces, each with who sees it, the agents' autonomy there and
+    /// its boards (card #558).
+    fn spaces_section(&self) -> Option<String> {
         let all = self.shared()?.boards();
         if all.is_empty() {
             return None;
@@ -639,10 +790,13 @@ pub(crate) fn board_share(s: &Inner, c: &Caller, raw: &[u8]) -> String {
         Err(m) => return m,
     };
     if trim(a.str("board")).is_empty() {
-        return err_text("say which shared space: board = its tag (the board tool lists them).");
+        return err_text(
+            "say which shared space, or which of Personal's boards: board = its tag (the board tool lists them).",
+        );
     }
-    let b = match s.find_board(a.str("board")) {
-        Ok(b) => b,
+    let b = match s.resolve_board(a.str("board")) {
+        Ok(BoardTarget::Space(b)) => b,
+        Ok(BoardTarget::Personal(p)) => return move_to_personal(s, c, &id, &p),
         Err(e) => return e,
     };
     let Some(sb) = s.shared() else {
@@ -730,6 +884,41 @@ pub(crate) fn board_share(s: &Inner, c: &Caller, raw: &[u8]) -> String {
                 Err(e) => e,
             }
         }
+    }
+}
+
+/// board_share onto one of Personal's boards (card #698): a private card
+/// moves there, with its subtasks, and takes the next number. It stays
+/// private, so nobody is asked.
+fn move_to_personal(s: &Inner, c: &Caller, id: &str, p: &PersonalBoard) -> String {
+    let (co, keys) = match s.on(id, std::slice::from_ref(&c.sender.key)) {
+        Ok(v) => v,
+        Err(e) => return map_err(e),
+    };
+    if !Arc::ptr_eq(&co, s.b.coord()) {
+        let on = s
+            .shared()
+            .and_then(|sb| sb.board_of(id))
+            .map_or_else(|| "a shared space".to_string(), |b| b.label());
+        return err_text(&format!(
+            "that card is on {on}: a card in a shared space stays there. Personal's boards take your person's private cards."
+        ));
+    }
+    let Some(t) = co.get_task(id) else {
+        return err_text(&format!("no card {}.", crate::format::q(&one_line(id, 80))));
+    };
+    if t.board == p.inner() {
+        return format!("{} is already on {}.", t.short_ref(), p.label());
+    }
+    match co.move_task(&keys[0], id, p.inner()) {
+        Ok(moved) => format!(
+            "Moved {} to {} as {} (task:{}); its old ref still finds it. It stays private: only your person sees it.",
+            t.short_ref(),
+            p.label(),
+            moved.short_ref(),
+            moved.id
+        ),
+        Err(e) => map_err(e),
     }
 }
 

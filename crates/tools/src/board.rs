@@ -1007,8 +1007,24 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
     };
     let ordered = !after.is_empty() || later.is_some();
     let board = trim(a.str("board"));
+    // Card #698: one of Personal's boards keeps the card private, made
+    // here like any; a space's goes through its rules.
+    let mut personal = None;
     if !board.is_empty() {
-        return crate::shared::create_on_board(s, c, &a, board, repo, to, waits, after, later);
+        match s.resolve_board(board) {
+            Ok(crate::shared::BoardTarget::Personal(p)) => personal = Some(p),
+            Ok(crate::shared::BoardTarget::Space(_)) => {
+                return crate::shared::create_on_board(
+                    s, c, &a, board, repo, to, waits, after, later,
+                );
+            }
+            Err(e) => return e,
+        }
+        if !trim(a.str("parent")).is_empty() {
+            return err_text(
+                "a subtask goes on its parent's board: give parent and leave out board.",
+            );
+        }
     }
     // A subtask goes in its parent's log, with the caller and assignee as
     // that log knows them.
@@ -1045,6 +1061,10 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             blocked_by: waits.as_ref().map(|w| w.1.clone()),
             after,
             later: later.map(|l| l.0),
+            board: personal
+                .as_ref()
+                .map(|p| p.inner().to_string())
+                .unwrap_or_default(),
             ..NewTask::default()
         },
     ) {
@@ -1058,6 +1078,13 @@ pub(crate) fn board_create(s: &Inner, c: &Caller, raw: &[u8]) -> String {
             t.short_ref(),
             t.id,
             s.short_of(&t.parent)
+        )
+    } else if let Some(p) = &personal {
+        format!(
+            "Created {} (task:{}) on {}.",
+            t.short_ref(),
+            t.id,
+            p.label()
         )
     } else {
         format!("Created {} (task:{}).", t.short_ref(), t.id)
