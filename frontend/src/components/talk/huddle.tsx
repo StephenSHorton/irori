@@ -1094,7 +1094,7 @@ export function startNotice(
 ): string {
   if (canTranscribe === null) return "Checking…"
   return transcriptNotice({
-    convKind: start.kind === "dm" ? "dm" : "channel",
+    convKind: start.kind,
     // The label is "#suzuri" for a channel; the notice names it itself.
     convName: start.kind === "dm" ? start.label : start.label.replace(/^#/, ""),
     transcribeOn,

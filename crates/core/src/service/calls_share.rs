@@ -337,6 +337,33 @@ impl ShareHub {
         rx
     }
 
+    /// Like [`Self::add_peer`], for a stream that carries only the share's
+    /// messages (share-call-dev, tests): this hub writes and reads it.
+    pub fn add_peer_stream(
+        self: &Arc<Self>,
+        peer: &str,
+        conn: Connection,
+        control: (SendStream, RecvStream),
+    ) {
+        let (mut send, mut recv) = control;
+        let mut rx = self.add_peer(peer, conn);
+        self.rt.spawn(async move {
+            while let Some(m) = rx.recv().await {
+                if wire::write_msg(&mut send, &m).await.is_err() {
+                    return;
+                }
+            }
+        });
+        let w = Arc::downgrade(self);
+        let p = peer.to_string();
+        self.rt.spawn(async move {
+            while let Ok(Some(m)) = wire::read_msg(&mut recv).await {
+                let Some(h) = w.upgrade() else { return };
+                h.on_msg(&p, m);
+            }
+        });
+    }
+
     pub(crate) fn remove_peer(&self, peer: &str, conn: &Connection) {
         let mut g = self.lock();
         if g.peers

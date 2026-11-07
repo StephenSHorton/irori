@@ -142,6 +142,20 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
   expect(transcriptNotice({ convKind: "dm", convName: "Spencer", ...on })).toBe(
     "This huddle is transcribed. What you say is written down for the two of you."
   )
+  // A Personal channel: you and your agents.
+  expect(
+    transcriptNotice({ convKind: "personal", convName: "us", ...on })
+  ).toBe(
+    "This huddle is transcribed. What you say is written down in #us for you and your agents."
+  )
+  expect(
+    transcriptNotice({
+      convKind: "personal",
+      convName: "us",
+      ...on,
+      transcribeOn: false,
+    })
+  ).toBe("Your voice isn't transcribed (Settings > App).")
   // Your own voice off still says the others' may be written down.
   const off = { ...on, transcribeOn: false }
   expect(

@@ -247,6 +247,12 @@ export function transcriptNotice(c: {
   transcribeOn: boolean
   canTranscribe: boolean
 }): string {
+  // A Personal channel: only you and your agents read it.
+  if (c.convKind === "personal") {
+    if (!c.canTranscribe) return "Your voice isn't transcribed on this device."
+    if (!c.transcribeOn) return "Your voice isn't transcribed (Settings > App)."
+    return `This huddle is transcribed. What you say is written down in ${convLabel({ ...c, convKind: "channel" })} for you and your agents.`
+  }
   // Your own voice not written down doesn't stop the others' being.
   const others =
     c.convKind === "channel"
