@@ -360,6 +360,7 @@ fn dispatch(s: &Arc<Shared>, port: u16, r: &Req) -> Resp {
         .or_else(|| crate::pair::route(&h))
         .or_else(|| crate::slots::route(&h))
         .or_else(|| crate::usage::route(&h))
+        .or_else(|| crate::permission::route(&h))
     {
         return resp;
     }

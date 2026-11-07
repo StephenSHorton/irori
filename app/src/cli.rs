@@ -4,7 +4,7 @@
 //! --startup` (the login launch) is the window with `["--startup"]`.
 
 /// Every role Go knows, in the order its unknown-command error lists them.
-pub const ROLES: &str = "gui, serve, mcp, attach, events, pair, node, version";
+pub const ROLES: &str = "gui, serve, mcp, attach, events, pair, node, permission-hook, version";
 
 /// Go's split of `os.Args[1:]` into the role and its arguments. The one
 /// exception: a leading `--version` or `-V` is the version role, so it
@@ -24,13 +24,14 @@ pub fn unknown(cmd: &str) -> String {
 
 /// Go `wantsConsole` (console.go): the command-line roles print for a
 /// person at a prompt; the window never wants a console, and `irori mcp`
-/// speaks only on the stdio pipes its agent gave it.
+/// and `irori permission-hook` (card #682) speak only on the stdio pipes
+/// Claude Code gave them.
 #[cfg_attr(
     not(windows),
     allow(dead_code, reason = "only the Windows exe attaches a console")
 )]
 pub fn wants_console(cmd: &str) -> bool {
-    !matches!(cmd, "" | "gui" | "mcp")
+    !matches!(cmd, "" | "gui" | "mcp" | "permission-hook")
 }
 
 #[cfg(test)]
@@ -67,17 +68,17 @@ mod tests {
     fn unknown_command_text() {
         assert_eq!(
             unknown("bogus"),
-            "unknown command \"bogus\" (gui, serve, mcp, attach, events, pair, node, version)"
+            "unknown command \"bogus\" (gui, serve, mcp, attach, events, pair, node, permission-hook, version)"
         );
         assert_eq!(
             unknown("a\tb"),
-            "unknown command \"a\\tb\" (gui, serve, mcp, attach, events, pair, node, version)"
+            "unknown command \"a\\tb\" (gui, serve, mcp, attach, events, pair, node, permission-hook, version)"
         );
     }
 
     #[test]
     fn console_roles() {
-        for c in ["", "gui", "mcp"] {
+        for c in ["", "gui", "mcp", "permission-hook"] {
             assert!(!wants_console(c), "{c}");
         }
         for c in [

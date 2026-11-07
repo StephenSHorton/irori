@@ -1150,6 +1150,8 @@ pub(crate) fn build_ask_brief(
 #[derive(Default)]
 pub(crate) struct SpawnState {
     pub spawner: Mutex<Option<Spawner>>,
+    /// Permission prompts' hooks and what presence saw (card #682).
+    pub perm: super::spawn_waiting::PermState,
     /// Whether this device knows what it can run: a spawner is installed,
     /// or it said it runs none. Before that, and as it closes, it speaks
     /// for nobody (card #541).
@@ -2196,6 +2198,11 @@ impl Services {
             }
         };
         let mut settings = perms.settings.clone();
+        // Its permission prompts reach the card (card #682).
+        if let Some(hook) = self.permission_hook() {
+            let v = settings.get_or_insert_with(|| serde_json::json!({}));
+            v["hooks"] = hook["hooks"].clone();
+        }
         let mut env = Vec::new();
         if let Some(tree) = &tree {
             self.note_tree(tree, &t.id);
