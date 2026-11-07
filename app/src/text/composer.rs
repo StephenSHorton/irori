@@ -32,7 +32,8 @@ use super::mentions::{
     is_full, is_gone, keep_mentions, menu_key, move_highlight, row_name, settle, settle_range,
     split_mentions, token_at,
 };
-use super::refs::{RefStatus, card_status, device_color, tone_color};
+use super::refs::{RefStatus, card_status, device_color};
+use super::render::ref_dot;
 use super::rich::plain_line;
 use crate::ui::{Frame, State};
 
@@ -80,19 +81,6 @@ pub struct Composer {
 }
 
 impl Composer {
-    /// An empty box keeping its draft under `key` ("" for none). The draft
-    /// itself loads with [`open_draft`].
-    pub fn new(key: &str) -> Composer {
-        Composer {
-            key: key.to_string(),
-            ..Composer::default()
-        }
-    }
-
-    pub fn text(&self) -> &str {
-        &self.edit.text
-    }
-
     /// Nothing typed and no files.
     pub fn is_empty(&self) -> bool {
         self.edit.text.trim().is_empty() && self.files.is_empty()
@@ -695,7 +683,7 @@ fn picker(s: &State, f: &mut Frame, key: &str, box_key: &str, get: Get, get_mut:
                         row()
                             .gap(6.0)
                             .center_y()
-                            .child(el().size(6.0, 6.0).radius(3.0).fill(tone_color(st.tone)))
+                            .child(ref_dot(f, &st))
                             .child(text(c.r#ref.clone()).font(k.ty.small.mono()).color(k.c.text_muted)),
                     )
                     .description(d),

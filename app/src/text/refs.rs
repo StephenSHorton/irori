@@ -7,15 +7,13 @@
 //! on `s.text.refs` until the board changes.
 
 use irori_window::threads::RefTarget;
-use rune::Color;
 
-use super::mentions::{CardRef, RefRow, card_refs, local_ref, ref_text};
+use super::mentions::{CardRef, RefRow, local_ref, ref_text};
 use crate::ui::State;
-use crate::ui::theme::status;
 
 // One source for a ref's status: logic::cards (lib/cards.ts refStatus,
 // cardStatus), with a chip's tones.
-pub use crate::logic::cards::{RefOf, RefStatus, Tone, card_status, ref_status};
+pub use crate::logic::cards::{RefOf, RefStatus, card_status, ref_status};
 // One source for the device palette: the faces' (coord::devcolor).
 pub use crate::widgets::faces::device_color;
 
@@ -30,17 +28,6 @@ pub fn target_status(t: &RefTarget) -> RefStatus {
         working: None,
         progress: Some((t.progress.done, t.progress.total)),
     })
-}
-
-/// A tone's dot colour.
-pub fn tone_color(t: Tone) -> Color {
-    match t {
-        Tone::Info => status::review(),
-        Tone::Destructive => status::failed(),
-        Tone::Success => status::working(),
-        Tone::Warning => status::decide(),
-        Tone::Slate | Tone::Outline | Tone::Secondary => status::idle(),
-    }
 }
 
 /// What a ref in text shows as: a card or thread to open, with its title
@@ -74,27 +61,6 @@ pub fn resolve(s: &State, r: &CardRef) -> Option<Resolved> {
     })
 }
 
-/// The refs in `text` the window can't resolve by itself and hasn't
-/// asked about yet.
-pub fn unresolved(s: &State, text: &str) -> Vec<String> {
-    if !text.contains('#') {
-        return Vec::new();
-    }
-    let rows: Vec<RefRow> = s.data.cards.iter().map(RefRow::from).collect();
-    let mut out: Vec<String> = Vec::new();
-    for r in card_refs(text) {
-        let t = ref_text(&r);
-        if local_ref(&r, &rows, &[]).is_none()
-            && !s.text.refs.contains_key(&t)
-            && !s.text.refs_pending.contains(&t)
-            && !out.contains(&t)
-        {
-            out.push(t);
-        }
-    }
-    out
-}
-
 /// Looks up each ref in `refs` the window doesn't hold (off the UI thread),
 /// so the rich text that shows it can make it a chip. Rich text calls this
 /// itself when it comes on screen; a page may call it when it loads.
@@ -119,12 +85,6 @@ pub fn prefetch_refs(s: &mut State, refs: Vec<String>) {
             }
         },
     );
-}
-
-/// [`prefetch_refs`] for every ref in `text`.
-pub fn prefetch_text(s: &mut State, text: &str) {
-    let refs = unresolved(s, text);
-    prefetch_refs(s, refs);
 }
 
 #[cfg(test)]

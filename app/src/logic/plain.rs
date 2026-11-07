@@ -1,6 +1,6 @@
 //! Untrusted text made safe to show, and the small time and path words
 //! rows use (the React app's lib/irori.ts: plainLine, plainBlock,
-//! relativeTime, untilTime, shortRepo, shortPath, sessionShort).
+//! relativeTime, shortRepo, shortPath).
 
 /// C0/C1 controls, zero-width marks, bidi embeddings, overrides and
 /// isolates, and the BOM.
@@ -70,29 +70,6 @@ pub fn relative_time(then_ms: i64, now_ms: i64) -> String {
     format!("{}d ago", h / 24)
 }
 
-/// "in 42s", "in 5m", "in 3h 12m", "in 2d", or "expired".
-pub fn until_time(then_ms: i64, now_ms: i64) -> String {
-    if then_ms <= 0 {
-        return "never".into();
-    }
-    let s = ((then_ms - now_ms) as f64 / 1000.0).round() as i64;
-    if s <= 0 {
-        return "expired".into();
-    }
-    if s < 60 {
-        return format!("in {s}s");
-    }
-    let m = s / 60;
-    if m < 60 {
-        return format!("in {m}m");
-    }
-    let h = m / 60;
-    if h < 24 {
-        return format!("in {h}h {}m", m % 60);
-    }
-    format!("in {}d", h / 24)
-}
-
 /// A repo key in a row: "owner/name" for a hosted remote, "local repo
 /// 1a2b3c4" for a root-commit key.
 pub fn short_repo(key: &str) -> String {
@@ -108,11 +85,6 @@ pub fn short_repo(key: &str) -> String {
     } else {
         key.to_string()
     }
-}
-
-/// The first 8 characters of a key's session part.
-pub fn session_short(key: &str) -> String {
-    key.rsplit('/').next().unwrap_or(key).chars().take(8).collect()
 }
 
 /// A cwd that fits a row: the home directory becomes "~" and only the last
@@ -204,8 +176,6 @@ mod tests {
         assert_eq!(relative_time(now - 5 * 60_000, now), "5m ago");
         assert_eq!(relative_time(now - 3 * 3_600_000, now), "3h ago");
         assert_eq!(relative_time(now - 49 * 3_600_000, now), "2d ago");
-        assert_eq!(until_time(now - 1, now), "expired");
-        assert_eq!(until_time(now + 3 * 3_600_000 + 12 * 60_000, now), "in 3h 12m");
     }
 
     #[test]
@@ -218,6 +188,5 @@ mod tests {
         assert_eq!(short_path("C:\\Users\\me\\projects\\a\\b"), "~\\…\\a\\b");
         assert_eq!(short_path("/srv/x"), "/srv/x");
         assert_eq!(short_path(""), "(no directory)");
-        assert_eq!(session_short("dev/0123456789ab"), "01234567");
     }
 }

@@ -23,7 +23,8 @@ use rune_kit::{ControlSize, IconButton, IconButtonVariant};
 
 use super::icons;
 use super::mentions::{MentionSpan, Named, card_refs, is_gone, split_mentions};
-use super::refs::{self, device_color, tone_color};
+use super::refs::{self, device_color};
+use crate::widgets::bits::tone_solid;
 use super::rich::{Block, Inline, LinkPiece, plain_line, rich_blocks, rich_inline, safe_href};
 use crate::ui::{Frame, State};
 
@@ -326,7 +327,7 @@ fn ref_chip(f: &Frame, run: &mut Run, label: &str, hit: &refs::Resolved, o: &Ric
         .collect::<Vec<_>>()
         .join(" · ");
     let start = run.s.len();
-    run.push("●\u{2009}", Some(Span::new(0, 0).color(tone_color(st.tone)).size(8.0)));
+    run.push("●\u{2009}", Some(Span::new(0, 0).color(tone_solid(f, st.tone)).size(8.0)));
     run.push(label, Some(Span::new(0, 0).color(k.c.text_accent).weight(560.0)));
     if !name.is_empty() {
         run.push(" ", None);
@@ -492,6 +493,6 @@ pub fn link_chip(f: &Frame, key: &str, kind: &str, reference: &str, label: &str)
 }
 
 /// A card's state as a dot in its status colour (card #343).
-pub fn ref_dot(st: &refs::RefStatus) -> El {
-    el().size(6.0, 6.0).radius(3.0).fill(tone_color(st.tone))
+pub fn ref_dot(f: &Frame, st: &refs::RefStatus) -> El {
+    el().size(6.0, 6.0).radius(3.0).fill(tone_solid(f, st.tone))
 }

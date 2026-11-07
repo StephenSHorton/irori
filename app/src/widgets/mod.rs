@@ -52,10 +52,9 @@
 //! - [`agents_now::agents_now_toggle(f, key, on, disabled, |s, on|
 //!   ..)`](agents_now::agents_now_toggle).
 //! - [`loading`]: skeletons in the shape of what loads: `block`,
-//!   `home_shape`, `needs_you_shape`, `need_row_shape`,
-//!   `progress_rows_shape`, `tile_grid_shape`, `card_tile_shape`,
-//!   `ask_box_shape`, `filter_row_shape`, `list_rows_shape`,
-//!   `message_rows_shape`, `post_rows_shape`, `answers_shape`.
+//!   `needs_you_shape`, `need_row_shape`, `tile_grid_shape`,
+//!   `card_tile_shape`, `list_rows_shape`, `message_rows_shape`,
+//!   `post_rows_shape`.
 //! - [`avatar`]: `is_avatar`, `initials`, `crop_square`, `decode`.
 //! - [`check_slots`]: the check.sh runs holding this device's slots
 //!   (`Window::check_slots`, crates/window/src/rune_widgets.rs).
@@ -64,9 +63,6 @@
 //! Offer it cards in flight, the avatar, the check slots) is [`Model`],
 //! `s.widgets`. The headless scene `widgets` shows a gallery of all of
 //! them on live data.
-
-// The screen packages' API: parts stay unused until they land.
-#![allow(dead_code)]
 
 pub mod agent_hover;
 pub mod agent_strip;

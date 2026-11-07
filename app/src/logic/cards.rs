@@ -9,13 +9,13 @@ use std::collections::{HashMap, HashSet};
 use irori_window::cards::{AgentRef, CardAsk, CardDetail, CardHolder, CardSummary, CardWait, Holding};
 
 use super::agent_status::{Tone as StatusTone, Who, agent_status, ms};
-use super::later;
 use super::names::display_name;
 use super::plain::plain_line;
 use super::wait_name::{Wait, wait_label, wait_tip};
 
 /// TaskState's words (crates/window ts.rs).
 pub mod state {
+    #[cfg(test)]
     pub const SUBMITTED: &str = "submitted";
     pub const WORKING: &str = "working";
     pub const INPUT_REQUIRED: &str = "input_required";
@@ -671,11 +671,6 @@ pub fn device_chips<'a>(cards: impl IntoIterator<Item = &'a CardSummary>) -> Vec
     }
     seen.sort_by(|a, b| super::spaces::name_order(&a.name, &b.name));
     if seen.len() > 1 { seen } else { vec![] }
-}
-
-/// A card's Not yet line, when it is held (later.ts whenLater).
-pub fn later_line(c: &CardSummary) -> Option<String> {
-    c.later.as_ref().map(later::when_later)
 }
 
 #[cfg(test)]

@@ -312,7 +312,8 @@ pub fn count_mention(text: &str, name: &str, longer: &[String]) -> usize {
 }
 
 /// `text` still holds "@name" (exact, case as inserted).
-pub fn has_mention(text: &str, name: &str, longer: &[String]) -> bool {
+#[cfg(test)]
+fn has_mention(text: &str, name: &str, longer: &[String]) -> bool {
     count_mention(text, name, longer) > 0
 }
 
