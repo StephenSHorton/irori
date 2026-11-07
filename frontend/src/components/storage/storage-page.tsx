@@ -11,6 +11,7 @@ import {
   ArrowLeftIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  RefreshCwIcon,
 } from "lucide-react"
 
 import { ClearDone, clearAges } from "@/components/cards/clear-done"
@@ -25,6 +26,7 @@ import {
   infoOf,
   measuredFrom,
   partLabels,
+  refreshStorage,
   storage,
   total,
   useStorageFresh,
@@ -91,7 +93,18 @@ export function StoragePage({
     return <KindPage kind={kind} onTab={onTab} onOpen={onOpen} now={now} />
   return (
     <div className="grid content-start gap-4">
-      <h1 className="text-lg font-semibold text-ink">Storage</h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-lg font-semibold text-ink">Storage</h1>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="ml-auto"
+          onClick={() => refreshStorage()}
+        >
+          <RefreshCwIcon className="size-3.5" aria-hidden />
+          Measure again
+        </Button>
+      </div>
       <p className="max-w-3xl text-[13px] text-muted-foreground">
         Everything Irori keeps on this device, and how much space it takes.
         Nothing here is cleaned out by itself: open a kind to see what it holds
@@ -649,7 +662,7 @@ function ClearedList({
     [],
     "cleared cards"
   )
-  useStorageFresh(reload)
+  useStorageFresh(reload, true)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState(50)
   return (

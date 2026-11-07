@@ -561,19 +561,26 @@ export const storage = {
   },
 }
 
-// useStorageFresh re-reads on every change made here and, in the app, on
-// board:changed (a clear writes rows, and cards settling change briefs).
-export function useStorageFresh(reload: () => Promise<void>) {
+// useStorageFresh re-reads on every change made here (a clean, a clear,
+// Put back, Refresh) and, with board, on board:changed too. Sizes walk the
+// disk and the log, so only the cleared list follows board:changed; the
+// rest is read when the page opens and after each change made here.
+export function useStorageFresh(reload: () => Promise<void>, board = false) {
   useEffect(() => {
     void reload()
     const fn = () => void reload()
     listeners.add(fn)
-    const off = inWails() ? Events.On(EventBoardChanged, fn) : () => {}
+    const off = board && inWails() ? Events.On(EventBoardChanged, fn) : () => {}
     return () => {
       listeners.delete(fn)
       off()
     }
-  }, [reload])
+  }, [reload, board])
+}
+
+// refreshStorage re-reads everything the page shows (its Refresh).
+export function refreshStorage() {
+  changed()
 }
 
 // useStorageReport is the overview's report.
