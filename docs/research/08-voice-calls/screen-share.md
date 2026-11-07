@@ -209,14 +209,15 @@ Mac: MacBook Pro, M5 Max, 18 cores, macOS 26.6.2. PC: Ryzen 7 9850X3D (8 cores),
 | Mac synth 1080p, 20 s, no asks | videotoolbox | 10.04 | 837 kbit/s (1451) | 1 × 594 KB | 7.5 KB | — | 4.87 / 5.39 | 0.8 % (+0.6 %) |
 | Mac synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | videotoolbox | 10.03 | 1936 kbit/s (1451 → 800) | 6 × 855 KB avg | 7.2 KB | 5/5, 121 ms avg | 5.15 / 5.48 | 0.9 % (+0.5 %) |
 | Mac synth 1080p, 20 s, ask every 2 s, 2500 kbit/s | videotoolbox | 10.04 | 4367 kbit/s (2500) | 10 × 917 KB avg | 9.2 KB | 9/9, 119 ms | 5.13 / 5.56 | 0.9 % (+0.6 %) |
-| PC synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | mediafoundation (NVENC) | 10.03 | 912 kbit/s (1451 → 800) | 6 × 179 KB avg | 8.0 KB | 5/5, 99 ms¹ | 0.71 / 1.03² | 2.0 % |
-| PC window (Discord 1280x1392)³, 30 s, ask every 5 s | mediafoundation | 9.43 | 1005 kbit/s (1451) | 6 × 86 KB | 11.7 KB | 5/5, 108 ms¹ | 0.29 / 0.68² | 1.0 % |
-| PC window (Task Manager 320x412)³, 30 s | mediafoundation | 9.41 | 575 kbit/s | 6 × 54 KB | 6.6 KB | 5/5, 108 ms¹ | 0.27 / 0.43² | 0.7 % |
+| PC synth 1080p, 30 s, ask every 5 s, 800 kbit/s from 20 s | mediafoundation (NVENC) | 10.03 | 915 kbit/s (1451 → 800) | 6 × 176 KB avg | 8.0 KB | 5/5, 209 ms avg | 0.67 / 0.87 | 1.5 % |
+| PC window (Discord, 1280x1392 → 992x1080), 30 s, ask every 5 s | mediafoundation | 9.37 | 611 kbit/s (749) | 6 × 52 KB | 7.2 KB | 5/5, 166 ms avg, 206 max | 0.28 / 0.45 | 0.4 % |
+| PC window (Discord), 30 s, resized twice mid-run | mediafoundation | 9.13, 2 reopens | 592 kbit/s (749) | 7 × 45 KB | 7.1 KB | 5/5, 220 ms avg, 515 max¹ | 0.29 / — | 0.8 % |
 
-¹ Measured by the first version of `share-dev`, from the frame the ask landed on to the keyframe, so it excludes the wait for that frame. That it is about one frame interval suggests Media Foundation forces the IDR one frame after the ask; the Mac's equivalent figure was 14 ms (the IDR came out on the same frame). ² Keyframes and P-frames mixed. ³ Before the aspect fix, so the window was stretched to 1920x1080; no yellow WGC border (moq-video asks for borderless) and no prompt. _Captured-window numbers on the Mac and the PC re-runs after the fixes: below._
+The PC has no yellow WGC border (moq-video asks for borderless) and no prompt. ¹ The slow ask was the one that met a reopen; each reopen makes a keyframe of its own (the 7th). A first PC run before the aspect fix stretched the same Discord window to 1920x1080 (1005 kbit/s, 86 KB keyframes); a 320x412 Task Manager window, not scaled up, ran at 575 kbit/s and 0.7 % CPU. _Captured-window numbers on the Mac: below._
 
 What the numbers say:
 - **CPU is not a concern** on either machine: about 1–2 % of one core all told.
+- **A keyframe takes one frame longer on the PC.** At 10 fps the ask waits up to 100 ms for the next picture on both machines; VideoToolbox makes that picture the IDR (about 120 ms all told), while Media Foundation makes the one after it (about 210 ms). A viewer joining a share waits about a fifth of a second either way.
 - **Keyframes are the cost on the Mac:** 0.6–1 MB each. VideoToolbox spends what it likes on an IDR, so the bitrate holds only while keyframes are rare: asks every 5 s more than double the stream, and every 2 s it reaches 1.75× the target. NVENC's CBR keeps them at 50–180 KB. The sending layer has to ration keyframes: coalesce viewers' asks, at most one per few seconds, and a long `keyframe_every` (default 10 s).
 - P-frames sit under the target, and a live bitrate change shows within a second (about 500 → 270 kbit/s on the Mac).
 
