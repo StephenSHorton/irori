@@ -299,8 +299,9 @@ pub fn tile(s: &State, f: &mut Frame, c: &CardSummary, dim: bool, movable: bool,
     body = body.on_press(move |s: &mut State| on_tile(s, &id));
     if movable {
         let id = c.id.clone();
-        // While a drag is on, the pinned tiles' rects ride in the handler.
-        let rects = if dragging.is_some() { pin_rects(s, f) } else { Vec::new() };
+        // The pinned tiles' rects ride in the handler (a gesture keeps the
+        // handler it started with).
+        let rects = pin_rects(s, f);
         body = body.on_drag(move |s: &mut State, d: &mut Drag, _tx: &mut Tx| match d.phase {
             Phase::Down => {}
             Phase::Move => {
