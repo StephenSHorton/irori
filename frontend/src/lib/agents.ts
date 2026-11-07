@@ -9,18 +9,20 @@ import type {
   AgentsChange,
   AgentStartsView,
   AgentsLimits,
+  AgentsPauseView,
   AgentsSettings,
   RunningAgent,
   TermInfo,
   TrustedRepo,
 } from "../gen/bindings"
-import { AgentsService } from "./host"
+import { AgentsService, Events } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
 export type {
   AgentsChange,
   AgentsLimits,
+  AgentsPauseView,
   AgentStartsView,
   AgentsSettings,
   RunningAgent,
@@ -532,4 +534,64 @@ export function runningSince(at: number, now: number): string {
   if (m < 1) return "just now"
   if (m < 60) return `${m} min`
   return `${Math.floor(m / 60)} h`
+}
+
+// Pause agents (card #665): one switch, on every one of the person's
+// devices, that stops Irori starting or restarting any agent. Running agents
+// keep running. Their agents may set it too (the agents_pause tool), and
+// another device may, so it is read again on the event, on focus and every
+// few seconds. The preview's sample: `?agentspause=on`.
+function samplePause(): AgentsPauseView {
+  return previewFlag("agentspause") === "on"
+    ? { on: true, since: Date.now() - 42 * 60_000, by: "the person on MacBook Pro" }
+    : { on: false, since: 0, by: "" }
+}
+
+export const EVENT_AGENTS_PAUSED = "agents:paused"
+
+export function useAgentsPause() {
+  const [p, setP] = useState<AgentsPauseView | null>(() =>
+    inWails() ? null : samplePause()
+  )
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!inWails()) return
+    let live = true
+    const load = () =>
+      AgentsService.Pause().then(
+        (v) => live && (setP(v), setError("")),
+        (e: Error) => live && setError(e.message)
+      )
+    void load()
+    const id = window.setInterval(load, 10_000)
+    const off = Events.On<AgentsPauseView>(EVENT_AGENTS_PAUSED, (ev) => {
+      if (live && ev.data) setP(ev.data)
+    })
+    window.addEventListener("focus", load)
+    return () => {
+      live = false
+      window.clearInterval(id)
+      window.removeEventListener("focus", load)
+      off()
+    }
+  }, [])
+  const set = useCallback((on: boolean) => {
+    if (!inWails()) {
+      setP(
+        on
+          ? { on: true, since: Date.now(), by: "the person on MacBook Pro" }
+          : { on: false, since: 0, by: "the person on MacBook Pro" }
+      )
+      return
+    }
+    setBusy(true)
+    AgentsService.PauseSet(on)
+      .then(
+        (v) => (setP(v), setError("")),
+        (e: Error) => setError(e.message)
+      )
+      .finally(() => setBusy(false))
+  }, [])
+  return { pause: p, error, busy, set }
 }

@@ -3,6 +3,7 @@ import { MenuIcon, PlusIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PauseAgentsButton } from "@/components/pause-agents-button"
 import type { Roster } from "@/lib/irori"
 import type { Section } from "@/lib/nav"
 
@@ -71,6 +72,8 @@ export function AppHeader({
         )}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {actions}
+          {/* Pause agents (card #665): every device, one click each way. */}
+          <PauseAgentsButton />
           {onWindDown && roster.source !== "sample" && (
             <Button
               size="sm"

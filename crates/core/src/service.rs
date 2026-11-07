@@ -2703,6 +2703,11 @@ impl Core {
         self.s.agents_pause()
     }
 
+    /// Who set Pause agents, for people (`by` from [`Self::agents_pause`]).
+    pub fn agents_pause_by(&self, by: &str) -> String {
+        self.s.pause_by_name(by)
+    }
+
     /// The person turns Pause agents on or off for every device, from the
     /// app (their agents use the `agents_pause` tool).
     pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {

@@ -11,6 +11,7 @@ export type AgentRef = B.AgentRef
 export type AgentStartsView = B.AgentStartsView
 export type AgentsChange = B.AgentsChange
 export type AgentsLimits = B.AgentsLimits
+export type AgentsPauseView = B.AgentsPauseView
 export type AgentsSettings = B.AgentsSettings
 export type AnswerResult = B.AnswerResult
 export type Ask = B.Ask
@@ -183,6 +184,11 @@ export function AgentsChange(p: Partial<B.AgentsChange> = {}): B.AgentsChange {
 /** AgentsLimits with Go's zero values for every field left out. */
 export function AgentsLimits(p: Partial<B.AgentsLimits> = {}): B.AgentsLimits {
   return { "devices": [], "maxCap": 0, "today": 0, "todayHere": 0, "costUsd": null, "queued": 0, ...p } as B.AgentsLimits
+}
+
+/** AgentsPauseView with Go's zero values for every field left out. */
+export function AgentsPauseView(p: Partial<B.AgentsPauseView> = {}): B.AgentsPauseView {
+  return { "on": false, "since": null, "by": "", ...p } as B.AgentsPauseView
 }
 
 /** AgentsSettings with Go's zero values for every field left out. */
