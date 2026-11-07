@@ -87,18 +87,16 @@ fn a_github_repo_an_agent_works_in_shows_its_open_prs_within_one_poll() {
     let d = r.core.coord().desk(REPO).unwrap();
     assert!(d.on() && d.is_default());
     assert_eq!(d.settings.poll_device, r.core.device_id());
-    assert_eq!(d.settings.holder, "", "nobody holds it: nothing merges");
 
     r.core.check_desks();
     let s = r.core.coord().desk(REPO).unwrap().prs.expect("one poll");
     assert_eq!(s.prs.iter().map(|p| p.number).collect::<Vec<_>>(), [7, 8]);
     assert_eq!(s.viewer, "StephenSHorton");
 
-    // The person's own login is trusted; a stranger's PR is Outside.
+    // The person's own login is trusted; a stranger's PR isn't ours and
+    // isn't listed (card #625).
     let v = r.core.desk_verdicts(REPO);
-    let outside = |n: i64| v.iter().find(|a| a.pr == n).unwrap().outside;
-    assert!(!outside(7), "the person's own PR is trusted");
-    assert!(outside(8), "a stranger's PR waits for the person's OK");
+    assert_eq!(v.iter().map(|a| a.pr).collect::<Vec<_>>(), [7]);
 }
 
 #[test]

@@ -115,11 +115,46 @@ export async function leaveHuddle(): Promise<void> {
   await CallService.Leave()
 }
 
-// setMuted shows the change at once; call:state confirms it.
+// setMuted shows the change at once; call:state confirms it. Unmuting
+// while deafened undeafens too: the mic was off for the deafen, and the
+// person asked for it on.
 export async function setMuted(on: boolean): Promise<void> {
-  if (shared.mine) set({ ...shared, mine: { ...shared.mine, muted: on } })
+  const deafened = !on && !!shared.mine?.deafened
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        muted: on,
+        deafened: deafened ? false : shared.mine.deafened,
+      },
+    })
   if (!inWails()) return
+  if (deafened) await CallService.Deafen(false)
   await CallService.Mute(on)
+}
+
+// setDeafened turns the speaker and the mic off (or back) at once;
+// call:state confirms it. Undeafen keeps the mute it had.
+export async function setDeafened(on: boolean): Promise<void> {
+  if (shared.mine)
+    set({
+      ...shared,
+      mine: {
+        ...shared.mine,
+        deafened: on,
+        speaking: on ? false : shared.mine.speaking,
+      },
+    })
+  if (!inWails()) return
+  await CallService.Deafen(on)
+}
+
+// micName is the mic a huddle would open, for the start sheet ("" when it
+// can't say). It opens nothing.
+export async function micName(): Promise<string> {
+  if (!inWails()) return "MacBook Pro Microphone"
+  return CallService.Mic()
 }
 
 export async function dismissRing(callId: string): Promise<void> {
@@ -228,6 +263,7 @@ export function convLabel(c: { convKind: string; convName: string }): string {
 // tick so the dots and rings can be seen. The app never runs it.
 //   ?call=live (and share): you're in #suzuri's huddle
 //   ?call=start: Spencer's huddle is on in #netcode and rings here
+//   ?call=sheet: the open channel's Huddle start sheet (conversation.tsx)
 export const previewPeers: CallPeerView[] = [
   {
     name: "Spencer",
@@ -274,6 +310,7 @@ function previewMine(convId: string, name: string, ago: number): CallMineView {
     convKind: convId.includes("-dm-") ? "dm" : "channel",
     joinedAtMs: Date.now() - ago,
     muted: false,
+    deafened: false,
     speaking: false,
     device: "MacBook Pro",
     peers: previewPeers,
@@ -335,7 +372,7 @@ function previewTick(on: boolean) {
       ...shared,
       mine: {
         ...m,
-        speaking: !m.muted && n % 5 === 2,
+        speaking: !m.muted && !m.deafened && n % 5 === 2,
         peers: m.peers.map((p, i) =>
           p.phase !== "live"
             ? n > 3

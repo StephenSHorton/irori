@@ -34,7 +34,7 @@ import {
 import { Face } from "@/components/profile/face"
 import { SettingsMenu } from "@/components/settings/settings-menu"
 import { CallBar, useCallPart } from "@/components/talk/huddle"
-import { leaveHuddle, setMuted } from "@/lib/call"
+import { leaveHuddle, setDeafened, setMuted } from "@/lib/call"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
@@ -80,7 +80,7 @@ export function AppSidebar({
   held,
   onHeld,
   talk,
-  desks = { on: 0, needYou: 0 },
+  desks = 0,
   unread = 0,
   section,
   boardsNeedYou,
@@ -99,9 +99,9 @@ export function AppSidebar({
   onHeld: () => void
   // Threads answered and waiting on the person (card #390), Talk's count.
   talk: number
-  // Merge desks that are on, and their Outside PRs waiting on the
-  // person's OK (card #417); the Desks item shows once one is on.
-  desks?: { on: number; needYou: number }
+  // Merge desks with an open PR of ours (card #417, #625); the Desks
+  // item shows while one has.
+  desks?: number
   // Notifications the person hasn't read (card #377).
   unread?: number
   // Where the window is; null on a card's page.
@@ -395,15 +395,12 @@ export function AppSidebar({
             countTitle="Threads an agent answered and DMs you haven't read"
             onClick={() => go({ kind: "talk", id: "" })}
           />
-          {desks.on > 0 && (
+          {desks > 0 && (
             <NavItem
               icon={GitMergeIcon}
               label="Merge desks"
               folded={folded}
               current={here({ kind: "desk", repo: "" })}
-              count={desks.needYou}
-              countTone="destructive"
-              countTitle="Outside PRs waiting on your OK"
               onClick={() => go({ kind: "desk", repo: "" })}
             />
           )}
@@ -557,6 +554,7 @@ export function AppSidebar({
             folded={folded}
             onOpen={() => go({ kind: "talk", id: huddle.convId })}
             onMute={(on) => void setMuted(on).catch(() => {})}
+            onDeafen={(on) => void setDeafened(on).catch(() => {})}
             onLeave={() => void leaveHuddle().catch(() => {})}
           />
         )}

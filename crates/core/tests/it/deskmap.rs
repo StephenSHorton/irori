@@ -2,7 +2,9 @@
 //! order) and the trust rule (§5).
 
 use coord::{Link, Task, Where};
-use irori_core::deskmap::{PrRef, Rule, Trust, Verdict, judge, map_pr, new_card_title, trusted};
+use irori_core::deskmap::{
+    PrRef, RepoEvidence, Rule, Trust, Verdict, judge, map_pr, new_card_title, our_repo, trusted,
+};
 
 const ME: &str = "dev-mine/s-author";
 const OTHER_MINE: &str = "dev-mine/s-other";
@@ -167,15 +169,15 @@ fn the_rules_go_in_order() {
 }
 
 #[test]
-fn an_untrusted_login_is_an_outside_pr() {
+fn an_untrusted_login_is_not_ours() {
     let none: Vec<String> = vec![];
     // A stranger's PR whose branch name matches one of our cards.
     let tasks = vec![card("01A", OTHER_MINE, "toffee/212-fix")];
-    assert_eq!(judge(&pr(), &tasks, "", &trust(&none)), Verdict::Outside);
+    assert_eq!(judge(&pr(), &tasks, "", &trust(&none)), Verdict::NotOurs);
     // No card at all: still no "PR #n" card for it.
-    assert_eq!(judge(&pr(), &[], "", &trust(&none)), Verdict::Outside);
+    assert_eq!(judge(&pr(), &[], "", &trust(&none)), Verdict::NotOurs);
     // A ledger author that isn't the person's agent.
-    assert_eq!(judge(&pr(), &[], STRANGER, &trust(&none)), Verdict::Outside);
+    assert_eq!(judge(&pr(), &[], STRANGER, &trust(&none)), Verdict::NotOurs);
 }
 
 #[test]
@@ -256,18 +258,24 @@ fn an_opened_pr_goes_on_the_authors_only_held_card() {
     assert_eq!(opened_card(&opened(now), &[other], now), None);
 }
 
+/// Card #625: the desk's logins are its trusted list, the snapshot's viewer
+/// and the person's people; an old OK adds no one.
 #[test]
-fn the_persons_ok_trusts_one_head_only() {
+fn desk_logins_are_the_list_the_viewer_and_the_people() {
     use irori_core::deskmap::desk_logins;
     let mut desk = coord::Desk::default();
-    desk.settings.trusted = vec!["StephenSHorton".into()];
-    let p = coord::DeskPr {
-        number: 5,
-        author: "a-stranger".into(),
-        head_ref_oid: "sha5".into(),
-        ..coord::DeskPr::default()
-    };
-    assert_eq!(desk_logins(&desk, &p), vec!["StephenSHorton".to_string()]);
+    desk.settings.trusted = vec!["Trusted-Bot".into()];
+    assert_eq!(desk_logins(&desk, &[]), ["Trusted-Bot"]);
+    desk.prs = Some(coord::DeskPrsRow {
+        viewer: "StephenSHorton".into(),
+        ..coord::DeskPrsRow::default()
+    });
+    let people = vec![" member-one ".to_string(), "  ".to_string(), String::new()];
+    assert_eq!(
+        desk_logins(&desk, &people),
+        ["Trusted-Bot", "StephenSHorton", "member-one"]
+    );
+    // An old desk.ok on a stranger's PR no longer adds the stranger.
     desk.oks.insert(
         5,
         coord::DeskOkRow {
@@ -276,14 +284,85 @@ fn the_persons_ok_trusts_one_head_only() {
             ..coord::DeskOkRow::default()
         },
     );
-    assert!(desk_logins(&desk, &p).contains(&"a-stranger".to_string()));
-    // A new push needs a new OK.
-    let pushed = coord::DeskPr {
-        head_ref_oid: "sha6".into(),
-        ..p.clone()
-    };
-    assert!(!desk_logins(&desk, &pushed).contains(&"a-stranger".to_string()));
-    // An OK on another PR doesn't carry over.
-    let other = coord::DeskPr { number: 6, ..p };
-    assert!(!desk_logins(&desk, &other).contains(&"a-stranger".to_string()));
+    desk.prs.as_mut().unwrap().prs = vec![coord::DeskPr {
+        number: 5,
+        author: "a-stranger".into(),
+        head_ref_oid: "sha5".into(),
+        ..coord::DeskPr::default()
+    }];
+    assert!(!desk_logins(&desk, &people).contains(&"a-stranger".to_string()));
+}
+
+fn desk_on(repo_key: &str, viewer: &str, authors: &[&str]) -> coord::Desk {
+    let mut d = coord::Desk::default();
+    d.settings.repo_key = repo_key.into();
+    d.prs = Some(coord::DeskPrsRow {
+        repo_key: repo_key.into(),
+        viewer: viewer.into(),
+        prs: authors
+            .iter()
+            .enumerate()
+            .map(|(i, a)| coord::DeskPr {
+                number: i as i64 + 1,
+                author: (*a).into(),
+                ..coord::DeskPr::default()
+            })
+            .collect(),
+        ..coord::DeskPrsRow::default()
+    });
+    d
+}
+
+fn evidence(logins: &[&str], pr_repos: &[&str]) -> RepoEvidence {
+    RepoEvidence {
+        logins: logins.iter().map(|l| l.to_string()).collect(),
+        pr_repos: pr_repos.iter().map(|r| r.to_string()).collect(),
+    }
+}
+
+/// Card #625: a repo is the person's when a login owns it, one of them
+/// opened a PR there, or its snapshot lists a PR by one of them or by the
+/// person's own login; a cloned upstream with none of these isn't.
+#[test]
+fn our_repo_needs_an_owner_a_pr_or_a_snapshot_pr_of_ours() {
+    let upstream = "remote:github.com/blaizzy/mlx-video";
+    let mine = "remote:github.com/StephenSHorton/irori";
+    let none = evidence(&["stephenshorton"], &[]);
+    // The owner is a login, any case.
+    assert!(our_repo(&desk_on(mine, "", &[]), &none));
+    assert!(our_repo(
+        &desk_on(mine, "", &[]),
+        &evidence(&["STEPHENSHORTON"], &[])
+    ));
+    // A cloned upstream with only a stranger's PR: not ours.
+    assert!(!our_repo(&desk_on(upstream, "", &["a-stranger"]), &none));
+    assert!(!our_repo(&desk_on(upstream, "", &[]), &evidence(&[], &[])));
+    // One of them opened a PR there (any case).
+    assert!(our_repo(
+        &desk_on(upstream, "", &[]),
+        &evidence(&["stephenshorton"], &["Blaizzy/MLX-Video"])
+    ));
+    assert!(!our_repo(
+        &desk_on(upstream, "", &[]),
+        &evidence(&["stephenshorton"], &["blaizzy/other"])
+    ));
+    // Its snapshot lists a PR by a login, or by the snapshot's viewer.
+    assert!(our_repo(
+        &desk_on(upstream, "", &["a-stranger", "StephenSHorton"]),
+        &none
+    ));
+    assert!(our_repo(
+        &desk_on(upstream, "Someone", &["someone"]),
+        &evidence(&[], &[])
+    ));
+    assert!(!our_repo(
+        &desk_on(upstream, "Someone", &["a-stranger"]),
+        &evidence(&[], &[])
+    ));
+    // A repo that isn't on GitHub never is.
+    let gitlab = "remote:gitlab.com/stephenshorton/thing";
+    assert!(!our_repo(
+        &desk_on(gitlab, "", &[]),
+        &evidence(&["stephenshorton"], &["stephenshorton/thing"])
+    ));
 }

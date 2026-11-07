@@ -295,19 +295,24 @@ kinds! {
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
-    /// `{repoKey, enabled, takesPrs, holder?, pollDevice, trusted[],
-    /// checks[], mergeMethod, perPrOk, by, at}`: person only.
+    /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,
+    /// at}`: person only. Older rows also carry `holder`, `checks` and
+    /// `mergeMethod`, no longer written or read (card #418).
     REPO_DESK = "repo.desk" => Replicated, Refuses;
     /// `{repoKey, truncated, prs[], by, at}`: Irori's snapshot of the
     /// repo's open PRs, written on change by the poll device.
     DESK_PRS = "desk.prs" => Replicated, Refuses;
-    /// `{repoKey, pr, note?, cleared?, by, at}`: person only.
+    /// `{repoKey, pr, note?, cleared?, by, at}`: no longer written (card
+    /// #418, the desk never merges); old rows are folded past.
     DESK_HOLD = "desk.hold" => Replicated, Refuses;
-    /// `{repoKey, paused, by, at}`: person only.
+    /// `{repoKey, paused, by, at}`: no longer written (card #418); old
+    /// rows are folded past.
     DESK_PAUSE = "desk.pause" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, by, at}`: person only.
+    /// `{repoKey, pr, headSha, by, at}`: legacy, read only. Old rows still
+    /// decode; nothing writes it since card #625 removed Outside PR's OK.
     DESK_OK = "desk.ok" => Replicated, Refuses;
-    /// `{repoKey, pr, headSha, baseSha?, by, at}`: the holder's run.
+    /// `{repoKey, pr, headSha, baseSha?, by, at}`: the old desk holder's
+    /// merge run, no longer written (card #418); old rows are folded past.
     DESK_RUN = "desk.run" => Replicated, Refuses;
     // v0.5 private-log rows, never in a board log
     BOARD_JOINED = "board.joined" => Replicated, Refuses;

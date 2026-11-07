@@ -362,10 +362,15 @@ pub struct MemberProfile {
     /// Outside `personSig` like `color`.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub avatar: String,
+    /// The GitHub login the person's `gh` is signed in as, or "" (card
+    /// #625): the merge desk shows a member's PRs by it. Outside
+    /// `personSig` like `color`, so older builds still count the row.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub github_login: String,
 }
 go_struct!(MemberProfile { "personId" => person_id: str, "name" => name: str,
     "personEpoch" => person_epoch: int, "personSig" => person_sig: str, "color" => color: str,
-    "avatar" => avatar: str });
+    "avatar" => avatar: str, "githubLogin" => github_login: str });
 
 impl MemberProfile {
     pub fn body(&self) -> MemberProfileBody {
