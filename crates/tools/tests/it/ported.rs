@@ -463,6 +463,7 @@ fn test_specs() {
         "agent_start",
         "agents_started",
         "agent_end",
+        "agents_pause",
     ];
     for n in want {
         assert!(

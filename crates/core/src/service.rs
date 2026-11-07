@@ -73,6 +73,7 @@ pub mod spawn_agents;
 pub mod spawn_boards;
 pub mod spawn_capable;
 pub mod spawn_limits;
+pub mod spawn_pause;
 pub mod spawn_permissions;
 pub mod spawn_remote;
 pub mod spawn_stop;
@@ -426,6 +427,21 @@ impl tools::Backend for ToolsView {
     }
     fn agent_end(&self, caller: &str, key: &str) -> Result<String, String> {
         self.0.agent_end(caller, key)
+    }
+    fn agents_pause(&self, caller: &str, on: bool) -> Result<String, String> {
+        self.0.agent_set_paused(caller, on)
+    }
+    fn agents_paused(&self) -> Option<tools::AgentsPaused> {
+        let p = self.0.agents_pause();
+        Some(tools::AgentsPaused {
+            on: p.on,
+            since: if p.on {
+                p.since.format_rfc3339()
+            } else {
+                String::new()
+            },
+            by: self.0.pause_by_name(&p.by),
+        })
     }
     fn agent_limit(&self) -> Option<tools::AgentLimit> {
         let u = self.0.agent_starts_use();
@@ -2680,6 +2696,18 @@ impl Core {
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {
         self.s.start_agent(id, note)
+    }
+
+    /// Pause agents (card #665): whether no device starts agents now.
+    pub fn agents_pause(&self) -> spawn_pause::AgentsPause {
+        self.s.agents_pause()
+    }
+
+    /// The person turns Pause agents on or off for every device, from the
+    /// app (their agents use the `agents_pause` tool).
+    pub fn set_agents_paused(&self, on: bool) -> Result<spawn_pause::AgentsPause, String> {
+        let by = format!("user:{}", self.s.device.id);
+        self.s.set_agents_paused(on, &by)
     }
 
     /// "Hand to an agent" (card #485): the person moves a card whose items

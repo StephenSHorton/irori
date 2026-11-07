@@ -1159,6 +1159,8 @@ pub(crate) struct SpawnState {
     pub caps: RwLock<HashMap<String, i64>>,
     /// "My agents may start agents on my cards" (card #575).
     pub agent_starts: RwLock<AgentStarts>,
+    /// Pause agents (card #665): no start on any device while on.
+    pub agents_pause: RwLock<super::spawn_pause::AgentsPause>,
     /// Cards an agent asked for an agent on, until the request is written.
     pub agent_asks: Mutex<HashMap<String, AgentAsk>>,
     /// Cards the person asked for an agent on, which never count.
@@ -1326,6 +1328,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     let mut caps = HashMap::new();
     let mut offers = HashMap::new();
     let mut starts = None;
+    let mut pause = super::spawn_pause::PauseFold::default();
     for ev in evs {
         if ev.actor != "user" {
             continue;
@@ -1361,7 +1364,10 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
             && !r.device.is_empty()
         {
             // The person's limit on their agents' starts (card #575).
-            if r.device == AGENT_STARTS_ROW {
+            if r.device == super::spawn_pause::AGENTS_PAUSED_ROW {
+                // Pause agents (card #665).
+                pause.add(&r);
+            } else if r.device == AGENT_STARTS_ROW {
                 starts = Some(AgentStarts {
                     on: r.on.unwrap_or(AGENT_STARTS_ON),
                     max: r.cap.clamp(0, AGENT_STARTS_CEILING),
@@ -1400,6 +1406,7 @@ pub(crate) fn load_spawn(st: &Store, s: &SpawnState) {
     *s.caps.write().unwrap_or_else(|e| e.into_inner()) = caps;
     *s.agent_starts.write().unwrap_or_else(|e| e.into_inner()) = starts.unwrap_or_default();
     *s.offers.write().unwrap_or_else(|e| e.into_inner()) = offers;
+    *s.agents_pause.write().unwrap_or_else(|e| e.into_inner()) = pause.done();
 }
 
 fn session_of(key: &str) -> &str {
@@ -1631,7 +1638,10 @@ impl Services {
             self.publish_host(sp.as_ref(), ready);
             self.refresh_agent_devices(ready);
         }
-        if self.inbox.policy().paused {
+        // Pause all (wakes and starts), or Pause agents (starts only, every
+        // device, card #665): nothing below starts an agent while either is
+        // on. Requests stay pending, so turning it off starts them in order.
+        if self.inbox.policy().paused || self.agents_paused() {
             return;
         }
         if decided {

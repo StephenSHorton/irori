@@ -322,7 +322,7 @@ impl Services {
     }
 
     /// Whether `key` is an agent on one of the person's own devices.
-    fn own_agent(&self, key: &str) -> bool {
+    pub(crate) fn own_agent(&self, key: &str) -> bool {
         let dev = device_of(key);
         !dev.is_empty() && self.chain.is_owner(&format!("user:{dev}"))
     }

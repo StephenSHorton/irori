@@ -205,6 +205,16 @@ pub struct AgentLimit {
     pub used: i64,
 }
 
+/// Pause agents (card #665), as an agent may read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentsPaused {
+    pub on: bool,
+    /// When it went on, RFC 3339; empty when off.
+    pub since: String,
+    /// Who set it last, for people: "the person" or an agent's name.
+    pub by: String,
+}
+
 /// Shared boards to show (Go `BoardViewer`).
 pub trait BoardViewer: Send + Sync {
     fn board_views(&self, f: &coord::BoardFilter) -> Vec<coord::BoardView>;
@@ -271,6 +281,15 @@ pub trait Backend: Send + Sync {
     /// was on, or why not.
     fn agent_end(&self, _caller: &str, _key: &str) -> Result<String, String> {
         Err("agents can't end agents here".into())
+    }
+    /// Pause agents (card #665): agent `caller` turns it on or off for
+    /// every device; what it says, or why not.
+    fn agents_pause(&self, _caller: &str, _on: bool) -> Result<String, String> {
+        Err("agents can't pause agents here".into())
+    }
+    /// Whether Pause agents is on; `None` when the backend keeps none.
+    fn agents_paused(&self) -> Option<AgentsPaused> {
+        None
     }
     /// The person's limit on their agents' starts. There is no setter here,
     /// and none may be added: only the app changes it.
@@ -356,11 +375,12 @@ const CALLER_READS: [&str; 8] = [
 ];
 
 fn handlers() -> HashMap<&'static str, Handler> {
-    let list: [(&'static str, Handler); 56] = [
+    let list: [(&'static str, Handler); 57] = [
         ("avatar", avatar::avatar),
         ("agent_start", started::agent_start),
         ("agents_started", started::agents_started),
         ("agent_end", started::agent_end),
+        ("agents_pause", started::agents_pause),
         ("agents", observe::agents),
         ("events", observe::events),
         ("send", messages::send),
