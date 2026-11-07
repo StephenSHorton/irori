@@ -452,6 +452,7 @@ pub fn scene(s: &mut State) {
     s.close_card();
     // The Core opens the shared spaces a few seconds in.
     crate::spaces::wait_for_spaces(s);
+    crate::canvas::set_view(s, "list");
     let mut best: Option<(String, String, usize)> = None;
     for b in &s.data.spaces {
         for x in boards_of(b) {

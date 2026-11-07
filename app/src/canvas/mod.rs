@@ -1048,11 +1048,10 @@ fn minimap(s: &State, f: &Frame, map: &Map, mini: Mini) -> El {
         })
 }
 
-/// The headless scene: the canvas as the page, over Home's cards.
+/// The headless scene: Home with Canvas picked, so the board list draws
+/// the canvas in its grid's place.
 pub fn scene(s: &mut State) {
     s.close_card();
     s.go(Route::Home);
-    s.canvas.scene = true;
-    s.prefs.set(VIEW_PREF, "canvas".to_string());
-    refresh_details(s);
+    set_view(s, "canvas");
 }

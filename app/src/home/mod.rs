@@ -517,6 +517,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 /// The headless scene that shows it (`irori --snap x.png --scene home`).
 pub fn scene(s: &mut State) {
     s.close_card();
+    // A headless run keeps its prefs: the canvas scene leaves Canvas picked.
+    crate::canvas::set_view(s, "list");
+    crate::spaces::wait_for_spaces(s);
     s.go(Route::Home);
 }
 
