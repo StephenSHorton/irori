@@ -4,6 +4,9 @@
 //! Not ported yet: this is the package's stub. See ui/mod.rs for the
 //! package contract.
 
+pub mod mentions;
+pub mod rich;
+
 use rune::El;
 
 use crate::ui::{Event, Frame, State};
