@@ -18,7 +18,6 @@
 //! [`needs::blocker_answer`] (one item's answers).
 
 pub mod ask;
-pub mod held;
 mod icons;
 pub mod needs;
 pub mod pure;
@@ -34,7 +33,7 @@ use irori_window::cards::{CardDetail, CardSummary, IdleReport};
 use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_INBOX_CHANGED, EVENT_ROSTER_CHANGED};
 use irori_window::ts::RepoName;
 use irori_window::wind_down::{EVENT_WIND_DOWN, WindDownStatus};
-use rune::{El, ScrollSpec, TextEdit, col, icon, row, text};
+use rune::{El, TextEdit, col, icon, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize};
 
 use crate::logic::agent_counts::{Untaken, idle_line};
@@ -90,10 +89,29 @@ pub struct Model {
     rev: u64,
 }
 
-/// Home's cards: the private ones and the shared ones the person's agents
-/// hold or watch.
+/// The space the switcher picked (card #393), and Home's own scope in it:
+/// your cards (the private ones and the shared ones your agents hold or
+/// watch), or a shared space's when one is picked.
+pub fn home_scope(s: &State) -> (String, String) {
+    let space = crate::spaces::current(s);
+    let shared = space != crate::spaces::ALL_SPACES && space != crate::spaces::PERSONAL;
+    let scope = if shared { space.clone() } else { crate::board::SCOPE_OWN.to_string() };
+    (space, scope)
+}
+
+/// The cards in the picked space.
+fn space_cards<'a>(s: &'a State, space: &str) -> Vec<&'a CardSummary> {
+    s.data.cards.iter().filter(|c| crate::logic::spaces::card_in_space(c, space)).collect()
+}
+
+/// Home's cards: the picked space's, in Home's scope.
 pub fn home_cards(s: &State) -> Vec<CardSummary> {
-    s.data.cards.iter().filter(|c| pure::on_home(c)).cloned().collect()
+    let (space, scope) = home_scope(s);
+    space_cards(s, &space)
+        .into_iter()
+        .filter(|c| crate::board::filter::in_scope(c, &scope))
+        .cloned()
+        .collect()
 }
 
 /// The ids Needs you lists as cards (All leaves them out of the list).
@@ -201,7 +219,8 @@ pub fn on_event(s: &mut State, ev: &Event) {
     match ev.name.as_str() {
         "app:start" => {
             s.home.wd_seen = s.prefs.get(wind_down::SEEN_PREF).unwrap_or_default();
-            crate::text::open_draft(s, ask::ask_mut, ask::DRAFT);
+            let here = ask::here(s);
+            crate::text::open_draft(s, ask::ask_mut, &ask::draft_key(&here));
             load_held(s);
             load_cards(s);
             load_spawn(s);
@@ -213,6 +232,17 @@ pub fn on_event(s: &mut State, ev: &Event) {
             wind_down::reload(s);
         }
         irori_window::boards::EVENT_BOARDS_CHANGED => load_spawn(s),
+        // The ask box keeps a draft per place (Home, or a space's page).
+        "app:route-changed" => {
+            let here = ask::here(s);
+            ask::follow(s, &here);
+        }
+        // Another space: its Needs you rows and its own ask draft.
+        crate::spaces::EVENT_SPACE_PICKED => {
+            let here = ask::here(s);
+            ask::follow(s, &here);
+            load_cards(s);
+        }
         _ => {}
     }
 }
@@ -309,9 +339,10 @@ fn spawn_notice(s: &State, f: &Frame) -> Option<El> {
 
 /// One line naming each space with decisions Home doesn't list as cards
 /// (cards #237, #509, #520).
-fn boards_need_you(s: &State, f: &Frame) -> Option<El> {
+fn boards_need_you(s: &State, f: &Frame, space: &str) -> Option<El> {
     let k = f.k;
-    let by = pure::boards_need_you(&s.data.cards);
+    let cards: Vec<CardSummary> = space_cards(s, space).into_iter().cloned().collect();
+    let by = pure::boards_need_you(&cards);
     if by.is_empty() {
         return None;
     }
@@ -355,12 +386,18 @@ fn boards_need_you(s: &State, f: &Frame) -> Option<El> {
     Some(line)
 }
 
-/// Home's page.
+/// Home's page: the board list (board::board_view) over the picked
+/// space's cards, with Needs you leading it and the ask box over it.
 pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let now = now_ms();
+    let (space, scope) = home_scope(s);
+    let shared = scope != crate::board::SCOPE_OWN;
     let cards = home_cards(s);
-    let needs = needs_of(&cards, &s.home.held);
+    // Held ones are yours, not a shared space's (card #393).
+    let no_held: Vec<Delivery> = Vec::new();
+    let held = if shared { &no_held } else { &s.home.held };
+    let needs = needs_of(&cards, held);
     let in_needs = listed(&needs);
 
     // The idle line counts the cards Home files under Stuck because nobody
@@ -392,7 +429,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let home_ids: HashSet<String> = cards.iter().map(|c| c.id.clone()).collect();
     let idle = idle_line(&s.home.idle, &untaken, &home_ids);
 
-    let mut top = col().key("home/top").w_full().gap(14.0).px(20.0).pt(18.0);
+    let mut top = col().key("home/top").w_full().gap(14.0);
     if let Some(n) = spawn_notice(s, f) {
         top = top.child(n);
     }
@@ -413,22 +450,29 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     }
     // Held messages read apart from the cards: until they land, "Nothing
     // waits on you" could be false.
-    top = top.child(if !s.home.held_loaded && needs.is_empty() {
+    let lead = if !shared && !s.home.held_loaded && needs.is_empty() {
         crate::widgets::loading::needs_you_shape(f, "home/needs-loading", 1)
     } else {
         needs::needs_section(s, f, &needs, now)
-    });
-    if let Some(b) = boards_need_you(s, f) {
-        top = top.child(b);
-    }
-
-    let all = s.board.filter == crate::board::Filter::All;
-    let listed_cards: Vec<&CardSummary> = s
-        .data
-        .cards
-        .iter()
-        .filter(|c| pure::on_home(c) && !(all && in_needs.contains(&c.id)))
-        .collect();
+    };
+    let notice = boards_need_you(s, f, &space);
+    let empty = crate::board::grid::empty_cards(f);
+    let list = crate::board::board_view(
+        s,
+        f,
+        crate::board::Opts {
+            scope,
+            cards: space_cards(s, &space),
+            home: true,
+            header: Some(top),
+            lead: Some(lead),
+            notice,
+            empty: Some(empty),
+            rows: true,
+            listed: in_needs,
+            ..Default::default()
+        },
+    );
     let header = crate::ui::page_header(
         f,
         "Home",
@@ -460,13 +504,13 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .child(header)
         .child(
             col()
-                .key("home/scroll")
+                .key("home/body")
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
-                .child(top)
-                .child(crate::board::cards_list(s, f, &listed_cards)),
+                .px(20.0)
+                .pt(18.0)
+                .child(list.grow(1.0).min_h(0.0)),
         )
 }
 

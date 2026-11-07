@@ -5,8 +5,9 @@
 use irori_window::boards::SummaryMember;
 use rune::{El, el, icon, row, text};
 
-use super::filter::{FILTERS, Filter, RowBoard, presence_line};
-use super::{View, VIEW_PREF, set_filter};
+use super::filter::{FILTERS, Filter, RowBoard};
+use crate::spaces::logic::presence_line;
+use super::set_filter;
 use crate::logic::agent_status::now_ms;
 use crate::logic::cards::DeviceChip;
 use crate::logic::owners::owner_filter;
@@ -211,16 +212,4 @@ pub fn member_bar(f: &Frame, home: bool, on: &Filter, members: &[SummaryMember],
         ));
     }
     Some(r)
-}
-
-/// List or Canvas (card #93), kept in the prefs.
-pub fn view_switch(s: &State, f: &Frame) -> El {
-    let mut r = row().key("board-views").role("group").label("Board view").gap(4.0).center_y();
-    for (v, label, id) in [(View::List, "List", "list"), (View::Canvas, "Canvas", "canvas")] {
-        r = r.child(chip(f, &format!("board-view-{id}"), label, s.board.view == v, Look::Secondary, "", None, None, move |s: &mut State| {
-            s.board.view = v;
-            s.prefs.set(VIEW_PREF, id);
-        }));
-    }
-    r
 }

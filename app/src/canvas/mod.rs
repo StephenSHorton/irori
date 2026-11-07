@@ -200,12 +200,21 @@ impl Model {
 // ---- the cards ---------------------------------------------------------------
 
 /// The cards of the current route's scope, as the board's list holds them:
-/// your own on Home (with shared cards your agents are on, card #199), a
+/// Home's in the picked space (your own with the shared cards your agents
+/// are on, card #199, or the picked shared space's), a
 /// space's on its page, every card elsewhere. Open asks and blockers
 /// first, then newest change first (the backend's grid order).
 pub fn scoped(s: &State) -> Vec<&CardSummary> {
     let mut v: Vec<&CardSummary> = match &s.nav.route {
-        Route::Home => s.data.cards.iter().filter(|c| c.scope != "board" || c.ours).collect(),
+        // Home's scope in the switcher's space (card #393).
+        Route::Home => {
+            let (space, scope) = crate::home::home_scope(s);
+            s.data
+                .cards
+                .iter()
+                .filter(|c| crate::logic::spaces::card_in_space(c, &space) && crate::board::filter::in_scope(c, &scope))
+                .collect()
+        }
         Route::Board { space, board } => s
             .data
             .cards
