@@ -378,6 +378,12 @@ pub fn poll(s: &mut State, _t: f64, tx: &mut rune::Tx) -> bool {
     before != s.notes.len() || widgets
 }
 
+/// Keys nothing focused took (AppSpec::on_key): each package's
+/// window-wide keys.
+pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    crate::board::on_key(s, ev, tx)
+}
+
 /// A page a package hasn't ported yet: says so, so a screenshot shows
 /// where the port stands.
 pub fn not_yet(f: &Frame, title: &str, what: &str) -> El {

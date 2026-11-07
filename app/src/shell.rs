@@ -128,6 +128,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         scenes: SCENES,
         min_size: Some((720.0, 480.0)),
         poll: Some(ui::poll),
+        on_key: Some(ui::on_key),
         ..AppSpec::new("Irori", (1100.0, 720.0), State::default, ui::view)
     };
     let init_window = window.clone();
