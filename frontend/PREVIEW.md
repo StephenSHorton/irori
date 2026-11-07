@@ -104,13 +104,6 @@ unchanged.
 | `/?devices` | Settings at Devices and connections (this PC, a MacBook, an offline node) |
 | `/?sidebar=folded` | the sidebar folded to icons (card #135); its top button opens it again |
 | `/?boards` | the Boards dialog: two boards of your own (MLG, Website refresh), New board |
-| `/#board/sample-board-mlg` (boards are projects) | MLG's tiles with each board's mission under its name (Art has none), and "Archived boards · 1" folded under them (card #690); `?archived#board/sample-board-mlg` opens it on the finished Prototype, with its Finished badge; `?addboard#board/sample-board-mlg` opens New board with its mission and done-when |
-| `/#board/sample-board-mlg/sample-board-mlg-net` | a board's mission and "Done when: …" at its top, Edit beside it (card #690); the header's ⋯ has Edit mission… and Finish board…; `?mission=sample-board-mlg-net` opens Edit mission |
-| `/#board/sample-board-mlg/sample-board-mlg-art` | a board with no mission yet: a quiet "Add a mission" at its top (card #690) |
-| `/#board/sample-board-mlg/sample-board-mlg-trailer` | every card done and nothing moved for days: "Looks finished? Finish board" at its top (card #690) |
-| `/?finish=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net` | the Finish dialog with an open card: Open, or move it to another board, then Finish board (card #690); `?finish=sample-board-mlg-trailer` on the trailer's page has none open |
-| `/#board/sample-board-mlg/sample-board-mlg-proto` | a finished board (card #690): read-only, no ask box or Rename, "Finished 4d ago" and Reopen board |
-| `/?space=personal&archived#boards` | Personal's tiles, House with its mission, and its Archived boards fold open on Taxes 2025 (card #690) |
 | `/?filter=board:sample-board-mlg` | the grid on the MLG board's chip: mlg#1 and mlg#2 |
 | `/?open=board:task:sample-board-1` | a card on a shared board: `mlg#1`, "Visible to", Withdraw |
 | `/#board/sample-board-mlg` | MLG, shared with Blake (card #268): each card's owner chip (Stephen, Blake, Former member) and the Mine / Blake chips |

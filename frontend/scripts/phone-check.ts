@@ -67,18 +67,6 @@ const PAGES: Array<[name: string, query: string]> = [
   ["board-mlg", "#board/sample-board-mlg"],
   ["board-net", "#board/sample-board-mlg/sample-board-mlg-net"],
   ["personal", "?space=personal#boards"],
-  // Boards are projects (card #690): missions, Looks finished, Finish, a
-  // finished board and the Archived boards folds.
-  ["board-archived", "?archived#board/sample-board-mlg"],
-  ["board-art", "#board/sample-board-mlg/sample-board-mlg-art"],
-  ["board-trailer", "#board/sample-board-mlg/sample-board-mlg-trailer"],
-  [
-    "board-finish",
-    "?finish=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net",
-  ],
-  ["board-proto", "#board/sample-board-mlg/sample-board-mlg-proto"],
-  ["personal-archived", "?space=personal&archived#boards"],
-  ["board-new", "?addboard#board/sample-board-mlg"],
   // Freshness lines (card #580): a space's Home, Personal's, every log a few
   // days behind, and the space menu open with each one's.
   ["home-space", "?space=sample-board-mlg"],

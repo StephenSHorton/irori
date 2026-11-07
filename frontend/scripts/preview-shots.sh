@@ -86,11 +86,3 @@ shot 28-meters-board "#board/sample-board-mlg" 1440 300      # a board's page: t
 shot 29-usage-none "?meters=open&usage=none"                 # no Claude usage reading yet
 shot 30-usage-stale "?meters=open&usage=stale"               # an old usage reading: "as of"
 shot 31-meters-nogpu "?meters=open&gpu=none"                 # a machine with no GPU
-shot 32-board-archived "?archived#board/sample-board-mlg"    # tiles with missions, Archived boards open (card #690)
-shot 33-board-mission "#board/sample-board-mlg/sample-board-mlg-net" # a board's mission and done-when at its top
-shot 34-board-no-mission "#board/sample-board-mlg/sample-board-mlg-art" # "Add a mission"
-shot 35-board-looks-finished "#board/sample-board-mlg/sample-board-mlg-trailer" # "Looks finished? Finish board"
-shot 36-board-finish "?finish=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # the Finish dialog with an open card
-shot 37-board-finished "#board/sample-board-mlg/sample-board-mlg-proto" # a finished board: read-only, Reopen
-shot 38-personal-archived "?space=personal&archived#boards"  # Personal's boards and its Archived boards fold
-shot 39-board-new "?addboard#board/sample-board-mlg"         # New board with its mission
