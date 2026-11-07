@@ -154,3 +154,23 @@ fn board_share_moves_a_private_card_between_personal_boards() {
     );
     assert_eq!(h.b.co.get_task(&t.id).unwrap().board, "");
 }
+
+#[test]
+fn a_board_tagged_personal_wins_over_the_default() {
+    let h = new_harness();
+    h.b.personal.lock().unwrap().push(tools::PersonalBoard {
+        board_id: "a1b2c3".into(),
+        name: "Personal stuff".into(),
+        tag: "personal".into(),
+    });
+    let out = h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Stuff", "board": "personal"}),
+    );
+    has(
+        &out,
+        &["on \"Personal stuff\" (personal), one of Personal's boards."],
+    );
+    assert_eq!(private_card(&h, "Stuff").board, "a1b2c3");
+}

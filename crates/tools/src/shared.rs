@@ -279,60 +279,92 @@ fn refusal(b: &BoardInfo, reasons: &[String]) -> String {
     ))
 }
 
+/// Whether `v` (no `#`) names board `b`: its id or its tag.
+fn names_board(b: &BoardInfo, v: &str) -> bool {
+    (b.space_board.is_empty() && b.board_id == v)
+        || (!b.space_board.is_empty() && b.space_board == v)
+        || b.tag.eq_ignore_ascii_case(v)
+}
+
+/// The id that names board `b` alone: its own inside a space, else the
+/// space's.
+fn inner_id(b: &BoardInfo) -> &str {
+    if b.space_board.is_empty() {
+        &b.board_id
+    } else {
+        &b.space_board
+    }
+}
+
 impl Inner {
     fn shared(&self) -> Option<&dyn SharedBoards> {
         self.b.shared_boards()
     }
 
-    /// The Personal board `v` names (card #698): one of its boards by tag
-    /// or id, or `personal` for its default. None: not one of Personal's.
-    pub(crate) fn personal_board(&self, v: &str) -> Option<PersonalBoard> {
+    /// The Personal board `v` names by its tag or id (card #698); None:
+    /// none of Personal's boards past its default.
+    fn personal_board(&self, v: &str) -> Option<PersonalBoard> {
         let v = trim(v).trim_start_matches('#');
         if v.is_empty() {
             return None;
         }
-        let all = self.b.personal_boards();
-        if v.eq_ignore_ascii_case(PERSONAL_DEFAULT) {
-            return Some(
-                all.into_iter()
-                    .find(PersonalBoard::is_default)
-                    .unwrap_or_else(|| PersonalBoard {
-                        board_id: PERSONAL_DEFAULT.into(),
-                        name: "Personal".into(),
-                        tag: String::new(),
-                    }),
-            );
-        }
-        all.into_iter()
+        self.b
+            .personal_boards()
+            .into_iter()
             .find(|b| !b.is_default() && (b.board_id == v || b.tag.eq_ignore_ascii_case(v)))
+    }
+
+    /// Personal's default board, which `personal` names.
+    fn personal_default(&self) -> PersonalBoard {
+        self.b
+            .personal_boards()
+            .into_iter()
+            .find(PersonalBoard::is_default)
+            .unwrap_or_else(|| PersonalBoard {
+                board_id: PERSONAL_DEFAULT.into(),
+                name: "Personal".into(),
+                tag: String::new(),
+            })
     }
 
     /// The board a call's `board` names (card #698): one of Personal's or
     /// one in a shared space, by tag or id. A tag both have is refused.
+    /// `personal` is Personal's default unless a board has it as its tag.
     pub(crate) fn resolve_board(&self, v: &str) -> Result<BoardTarget, String> {
-        let Some(p) = self.personal_board(v) else {
-            return self.find_board(v).map(BoardTarget::Space);
-        };
-        if self.shared().is_some()
-            && let Ok(b) = self.find_board(v)
-        {
-            return Err(err_text(&format!(
-                "more than one board has the tag {}: give its boardId ({} on Personal, {} on {}).",
-                crate::format::q(trim(v).trim_start_matches('#')),
+        let key = trim(v).trim_start_matches('#');
+        let spaces: Vec<BoardInfo> = self
+            .shared()
+            .map(|sb| sb.boards())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| names_board(b, key))
+            .collect();
+        match self.personal_board(v) {
+            Some(p) if !spaces.is_empty() => Err(err_text(&format!(
+                "more than one board has the tag {}: give its boardId ({} on Personal, {}).",
+                crate::format::q(key),
                 p.board_id,
-                if b.space_board.is_empty() {
-                    &b.board_id
-                } else {
-                    &b.space_board
-                },
-                b.label()
-            )));
+                spaces
+                    .iter()
+                    .map(|b| format!("{} on {}", inner_id(b), b.label()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+            Some(p) => Ok(BoardTarget::Personal(p)),
+            None if !spaces.is_empty() => self.find_board(v).map(BoardTarget::Space),
+            None if key.eq_ignore_ascii_case(PERSONAL_DEFAULT) => {
+                Ok(BoardTarget::Personal(self.personal_default()))
+            }
+            None => Err(format!(
+                "{}{}",
+                self.find_board(v).err().unwrap_or_default(),
+                self.personal_tags()
+            )),
         }
-        Ok(BoardTarget::Personal(p))
     }
 
-    /// ", or one of Personal's boards: hw, bc" when Personal has more than
-    /// its default, for a refusal to list.
+    /// " Personal's boards: hw, bc." when Personal has more than its
+    /// default, for a refusal to list.
     fn personal_tags(&self) -> String {
         let tags: Vec<String> = self
             .b
@@ -351,45 +383,32 @@ impl Inner {
     pub(crate) fn find_board(&self, v: &str) -> Result<BoardInfo, String> {
         let Some(sb) = self.shared() else {
             return Err(err_text(&format!(
-                "no board {}: shared spaces aren't on here; leave out board for a private card.{}",
-                crate::format::q(trim(v).trim_start_matches('#')),
-                self.personal_tags()
+                "no board {}: shared spaces aren't on here; leave out board for a private card.",
+                crate::format::q(trim(v).trim_start_matches('#'))
             )));
         };
         let v = trim(v).trim_start_matches('#');
         let all = sb.boards();
-        let hits: Vec<&BoardInfo> = all
-            .iter()
-            .filter(|b| {
-                (b.space_board.is_empty() && b.board_id == v)
-                    || (!b.space_board.is_empty() && b.space_board == v)
-                    || b.tag.eq_ignore_ascii_case(v)
-            })
-            .collect();
+        let hits: Vec<&BoardInfo> = all.iter().filter(|b| names_board(b, v)).collect();
         match hits.as_slice() {
             [one] => Ok((*one).clone()),
             [] => {
                 let list: Vec<String> = all.iter().map(|b| b.tag.clone()).collect();
                 Err(err_text(&format!(
-                    "no board {} in a shared space. {}{}",
+                    "no board {} in a shared space. {}",
                     crate::format::q(v),
                     if list.is_empty() {
                         "You aren't in any shared space.".to_string()
                     } else {
                         format!("Yours: {}.", list.join(", "))
-                    },
-                    self.personal_tags()
+                    }
                 )))
             }
             _ => Err(err_text(&format!(
                 "more than one board has the tag {}: give its boardId ({}).",
                 crate::format::q(v),
                 hits.iter()
-                    .map(|b| if b.space_board.is_empty() {
-                        b.board_id.as_str()
-                    } else {
-                        b.space_board.as_str()
-                    })
+                    .map(|b| inner_id(b))
                     .collect::<Vec<_>>()
                     .join(", ")
             ))),

@@ -1101,3 +1101,20 @@ fn board_share_wont_move_a_shared_card_to_personal() {
     );
     assert_eq!(r.board_titles(), ["On the space"]);
 }
+
+#[test]
+fn talk_space_errors_dont_offer_personal_boards() {
+    let r = rig();
+    personal_board(&r, "a1b2c3", "Buzzing Cars", "bc");
+    // talk's space= takes spaces only: Personal's boards aren't offered.
+    let out = r.h.call(
+        &call_a(),
+        "talk_post",
+        r#"{"space": "nope", "conv": "general", "text": "hi"}"#,
+    );
+    has(
+        &out,
+        &["no board \"nope\" in a shared space", "Yours: mlg."],
+    );
+    has_not(&out, &["Personal's boards"]);
+}
