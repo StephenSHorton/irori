@@ -48,6 +48,14 @@ irori-inbox = { workspace = true }
 # decoder has no WebP), and Settings/Profile crop and shrink it
 # (lib/avatar.ts). The same image crate Rune pulls in.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+# Watching a huddle's screen share (#658, P6): H.264 on the platform's
+# decoder (VideoToolbox, Media Foundation) through moq-video, the crate
+# crates/share encodes with; hang and moq-net for the two types its decoder
+# takes. Same pins as crates/share.
+moq-video = { version = "=0.1.21", default-features = false }
+hang = "=0.21.22"
+moq-net = "=0.3.21"
+bytes = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
