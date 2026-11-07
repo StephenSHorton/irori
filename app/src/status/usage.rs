@@ -76,10 +76,7 @@ pub fn window_label(kind: &str) -> String {
         "seven_day_opus" => "Weekly (Opus)".into(),
         "seven_day_sonnet" => "Weekly (Sonnet)".into(),
         _ => {
-            let words: Vec<&str> = kind
-                .split(['_', '-'])
-                .filter(|w| !w.is_empty())
-                .collect();
+            let words: Vec<&str> = kind.split(['_', '-']).filter(|w| !w.is_empty()).collect();
             let words = words.join(" ");
             let mut c = words.chars();
             match c.next() {
@@ -247,10 +244,19 @@ mod tests {
     fn reset_countdown() {
         let n = now();
         let r = |t| reset_line(t, n, utc);
-        assert_eq!(r(Some(n + 2 * HOUR + 10 * MIN)).as_deref(), Some("resets in 2h 10m"));
+        assert_eq!(
+            r(Some(n + 2 * HOUR + 10 * MIN)).as_deref(),
+            Some("resets in 2h 10m")
+        );
         assert_eq!(r(Some(n + 45 * MIN)).as_deref(), Some("resets in 45m"));
-        assert_eq!(r(Some(n + 20_000)).as_deref(), Some("resets in under a minute"));
-        assert_eq!(r(Some(at(2026, 11, 12, 14, 0))).as_deref(), Some("resets Thu 14:00"));
+        assert_eq!(
+            r(Some(n + 20_000)).as_deref(),
+            Some("resets in under a minute")
+        );
+        assert_eq!(
+            r(Some(at(2026, 11, 12, 14, 0))).as_deref(),
+            Some("resets Thu 14:00")
+        );
         assert_eq!(r(Some(n - 1)).as_deref(), Some("reset"));
         assert_eq!(r(None), None);
     }
@@ -262,7 +268,10 @@ mod tests {
         assert_eq!(s(n - 2 * MIN), None);
         assert_eq!(s(at(2026, 11, 5, 14, 5)), None);
         assert_eq!(s(at(2026, 11, 5, 14, 4)).as_deref(), Some("as of 14:04"));
-        assert_eq!(s(at(2026, 11, 3, 9, 30)).as_deref(), Some("as of Tue 09:30"));
+        assert_eq!(
+            s(at(2026, 11, 3, 9, 30)).as_deref(),
+            Some("as of Tue 09:30")
+        );
         assert_eq!(s(0), None);
     }
 

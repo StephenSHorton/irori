@@ -45,25 +45,33 @@ pub fn on_event(s: &mut State, ev: &Event) {
 // ---- Notifications ------------------------------------------------------------
 
 pub fn load_notify(s: &mut State) {
-    s.spawn(|w| w.get_notifications(), |s, n| {
-        s.settings.general.notify = Some(n);
-        s.settings.general.notify_err = None;
-    });
+    s.spawn(
+        |w| w.get_notifications(),
+        |s, n| {
+            s.settings.general.notify = Some(n);
+            s.settings.general.notify_err = None;
+        },
+    );
 }
 
 fn set_notify(s: &mut State, patch: impl FnOnce(&mut NotifyOptions)) {
-    let Some(mut n) = s.settings.general.notify.clone() else { return };
+    let Some(mut n) = s.settings.general.notify.clone() else {
+        return;
+    };
     patch(&mut n);
     // The control moves at once; the reply settles it.
     s.settings.general.notify = Some(n.clone());
     s.settings.general.tested = None;
-    s.spawn(move |w| w.set_notifications(n), |s, r| match r {
-        Ok(n) => {
-            s.settings.general.notify = Some(n);
-            s.settings.general.notify_err = None;
-        }
-        Err(e) => s.settings.general.notify_err = Some(e),
-    });
+    s.spawn(
+        move |w| w.set_notifications(n),
+        |s, r| match r {
+            Ok(n) => {
+                s.settings.general.notify = Some(n);
+                s.settings.general.notify_err = None;
+            }
+            Err(e) => s.settings.general.notify_err = Some(e),
+        },
+    );
 }
 
 pub fn notifications(s: &State, f: &mut Frame) -> El {
@@ -71,14 +79,21 @@ pub fn notifications(s: &State, f: &mut Frame) -> El {
     let Some(n) = &m.notify else {
         return match &m.notify_err {
             Some(e) => muted_line(f, &format!("Could not load: {e}")),
-            None => loading(f, "settings-notify-loading", "Loading notification settings"),
+            None => loading(
+                f,
+                "settings-notify-loading",
+                "Loading notification settings",
+            ),
         };
     };
     let off = !n.enabled;
     let k = f.k;
     let reduced = f.cx.is_reduced_motion();
     let volume = m.volume_drag.unwrap_or(n.volume as f32);
-    let corners: Vec<(String, String)> = CORNERS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    let corners: Vec<(String, String)> = CORNERS
+        .iter()
+        .map(|(v, l)| (v.to_string(), l.to_string()))
+        .collect();
     let mut out = col()
         .key("settings-notifications")
         .w_full()
@@ -92,9 +107,15 @@ pub fn notifications(s: &State, f: &mut Frame) -> El {
             false,
             |s, v| set_notify(s, |n| n.enabled = v),
         ))
-        .child(toggle(f, "settings-notify-sound", "Sound", None, n.sound, off, |s, v| {
-            set_notify(s, |n| n.sound = v)
-        }))
+        .child(toggle(
+            f,
+            "settings-notify-sound",
+            "Sound",
+            None,
+            n.sound,
+            off,
+            |s, v| set_notify(s, |n| n.sound = v),
+        ))
         .child(toggle(
             f,
             "settings-notify-confetti",
@@ -130,20 +151,27 @@ pub fn notifications(s: &State, f: &mut Frame) -> El {
         },
     );
     out = out.child(labeled(f, "settings-notify-corner", "Corner", off, corner));
-    let mut test = col().key("settings-notify-test").gap(4.0).items_start().child(
-        Button::new("Send a test notification")
-            .variant(ButtonVariant::Outline)
-            .disabled(off)
-            .on_press(|s: &mut State| {
-                s.spawn(|w| w.test_notification(), |s, r| {
-                    s.settings.general.tested = Some(match r {
-                        Ok(()) => "Sent. Look in the corner of your screen.".into(),
-                        Err(e) => e,
-                    })
+    let mut test = col()
+        .key("settings-notify-test")
+        .gap(4.0)
+        .items_start()
+        .child(
+            Button::new("Send a test notification")
+                .variant(ButtonVariant::Outline)
+                .disabled(off)
+                .on_press(|s: &mut State| {
+                    s.spawn(
+                        |w| w.test_notification(),
+                        |s, r| {
+                            s.settings.general.tested = Some(match r {
+                                Ok(()) => "Sent. Look in the corner of your screen.".into(),
+                                Err(e) => e,
+                            })
+                        },
+                    )
                 })
-            })
-            .build(k),
-    );
+                .build(k),
+        );
     if let Some(t) = &m.tested {
         test = test.child(hint(f, t));
     }
@@ -160,7 +188,8 @@ fn slider(f: &Frame, v: f32, disabled: bool) -> El {
     let k = f.k;
     let (w, h, knob, bar) = (160.0, 20.0, 16.0, 4.0);
     let travel = w - knob;
-    let to_value = move |x: f32| (((x - knob / 2.0) / travel).clamp(0.0, 1.0) * 20.0).round() / 20.0;
+    let to_value =
+        move |x: f32| (((x - knob / 2.0) / travel).clamp(0.0, 1.0) * 20.0).round() / 20.0;
     let mut e = el()
         .key("settings-volume")
         .role("slider")
@@ -197,7 +226,9 @@ fn slider(f: &Frame, v: f32, disabled: bool) -> El {
     e = e
         .focusable(true)
         .on_step(|s: &mut State, steps, _| {
-            let Some(n) = &s.settings.general.notify else { return };
+            let Some(n) = &s.settings.general.notify else {
+                return;
+            };
             let v = (n.volume + f64::from(steps) * 0.05).clamp(0.0, 1.0);
             set_notify(s, move |n| n.volume = v);
         })
@@ -219,28 +250,34 @@ fn slider(f: &Frame, v: f32, disabled: bool) -> El {
 // ---- App ----------------------------------------------------------------------
 
 pub fn load_app(s: &mut State) {
-    s.spawn(|w| w.get_launch_at_login(), |s, r| {
-        let g = &mut s.settings.general;
-        g.launch_read = true;
-        match r {
-            Ok(on) => {
-                g.launch = Some(on);
-                g.launch_err = None;
+    s.spawn(
+        |w| w.get_launch_at_login(),
+        |s, r| {
+            let g = &mut s.settings.general;
+            g.launch_read = true;
+            match r {
+                Ok(on) => {
+                    g.launch = Some(on);
+                    g.launch_err = None;
+                }
+                Err(e) => {
+                    g.launch = None;
+                    g.launch_err = Some(e);
+                }
             }
-            Err(e) => {
-                g.launch = None;
-                g.launch_err = Some(e);
-            }
-        }
-    });
+        },
+    );
     // The voice note reads the call package's status, read afresh here.
     crate::call::refresh_voice(s);
     // TranscribeSwitch reads into the call package's own state, which
     // the huddle's notices read too.
-    s.spawn(|w| w.call_transcribe(), |s, t| {
-        s.call.view.transcribe_on = t;
-        s.settings.general.transcribe_read = true;
-    });
+    s.spawn(
+        |w| w.call_transcribe(),
+        |s, t| {
+            s.call.view.transcribe_on = t;
+            s.settings.general.transcribe_read = true;
+        },
+    );
 }
 
 const LAUNCH_HINT: &str = "Irori starts in the tray when you sign in. The tray offers it too.";
@@ -249,7 +286,11 @@ const TRANSCRIBE_HINT: &str = "Huddles write down what each person says, on thei
 
 /// The version as shown: "dev" as it is, else "v1.2.3".
 pub fn version_label(v: &str) -> String {
-    if v == "dev" || v == "sample" { v.to_string() } else { format!("v{}", v.trim_start_matches('v')) }
+    if v == "dev" || v == "sample" {
+        v.to_string()
+    } else {
+        format!("v{}", v.trim_start_matches('v'))
+    }
 }
 
 pub fn app(s: &State, f: &mut Frame) -> El {
@@ -270,16 +311,22 @@ pub fn app(s: &State, f: &mut Frame) -> El {
             m.launch.is_none(),
             |s, v| {
                 s.settings.general.launch = Some(v);
-                s.spawn(move |w| w.set_launch_at_login(v), move |s, r| {
-                    if let Err(e) = r {
-                        s.settings.general.launch_err = Some(e);
-                        s.spawn(|w| w.get_launch_at_login(), move |s, r| {
-                            s.settings.general.launch = Some(r.unwrap_or(!v));
-                        });
-                    } else {
-                        s.settings.general.launch_err = None;
-                    }
-                });
+                s.spawn(
+                    move |w| w.set_launch_at_login(v),
+                    move |s, r| {
+                        if let Err(e) = r {
+                            s.settings.general.launch_err = Some(e);
+                            s.spawn(
+                                |w| w.get_launch_at_login(),
+                                move |s, r| {
+                                    s.settings.general.launch = Some(r.unwrap_or(!v));
+                                },
+                            );
+                        } else {
+                            s.settings.general.launch_err = None;
+                        }
+                    },
+                );
             },
         )
     });
@@ -292,11 +339,21 @@ pub fn app(s: &State, f: &mut Frame) -> El {
     }
     // TranscribeSwitch (#656): on all the person's devices.
     let tr = if !m.transcribe_read {
-        loading(f, "settings-transcribe-loading", "Loading huddle transcripts")
+        loading(
+            f,
+            "settings-transcribe-loading",
+            "Loading huddle transcripts",
+        )
     } else {
-        toggle(f, "settings-transcribe", TRANSCRIBE_LABEL, Some(TRANSCRIBE_HINT), crate::call::transcribe_on(s), false, |s, v| {
-            crate::call::set_transcribe(s, v)
-        })
+        toggle(
+            f,
+            "settings-transcribe",
+            TRANSCRIBE_LABEL,
+            Some(TRANSCRIBE_HINT),
+            crate::call::transcribe_on(s),
+            false,
+            crate::call::set_transcribe,
+        )
     };
     out = out.child(ruled(f, "settings-transcribe-box", tr));
     // Updates: UpdateStatusLine and Keep this device up to date.

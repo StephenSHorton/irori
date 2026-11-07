@@ -40,7 +40,9 @@ pub fn github_key(s: &str) -> String {
     let pair = |x: &str| {
         let mut p = x.split('/');
         match (p.next(), p.next(), p.next()) {
-            (Some(a), Some(b), None) if !a.is_empty() && !b.is_empty() && !x.contains(char::is_whitespace) => {
+            (Some(a), Some(b), None)
+                if !a.is_empty() && !b.is_empty() && !x.contains(char::is_whitespace) =>
+            {
                 Some(format!("{a}/{b}"))
             }
             _ => None,
@@ -49,16 +51,24 @@ pub fn github_key(s: &str) -> String {
     let rest = t
         .strip_prefix("remote:github.com/")
         .or_else(|| {
-            let u = t.strip_prefix("https://").or_else(|| t.strip_prefix("http://")).unwrap_or(t);
+            let u = t
+                .strip_prefix("https://")
+                .or_else(|| t.strip_prefix("http://"))
+                .unwrap_or(t);
             let u = u.strip_prefix("www.").unwrap_or(u);
             u.strip_prefix("github.com/")
         })
         .or_else(|| t.strip_prefix("git@github.com:"));
     let found = match rest {
         Some(r) => pair(r),
-        None => pair(t).filter(|p| p.chars().all(|c| c.is_ascii_alphanumeric() || "_.-/".contains(c))),
+        None => pair(t).filter(|p| {
+            p.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "_.-/".contains(c))
+        }),
     };
-    found.map(|p| format!("remote:github.com/{p}")).unwrap_or_default()
+    found
+        .map(|p| format!("remote:github.com/{p}"))
+        .unwrap_or_default()
 }
 
 /// "Owner/Name" from a repo key, or the key itself.
@@ -67,7 +77,11 @@ pub fn owner_name(key: &str) -> String {
         Some(i) => {
             let rest = key[i + "github.com".len()..].trim_start_matches(['/', ':']);
             let rest = rest.strip_suffix(".git").unwrap_or(rest);
-            if rest.split('/').count() == 2 { rest.to_string() } else { key.to_string() }
+            if rest.split('/').count() == 2 {
+                rest.to_string()
+            } else {
+                key.to_string()
+            }
         }
         None => key.to_string(),
     }
@@ -75,7 +89,10 @@ pub fn owner_name(key: &str) -> String {
 
 /// The logins typed, split on commas and spaces.
 pub fn list(s: &str) -> Vec<String> {
-    s.split(|c: char| c == ',' || c.is_whitespace()).filter(|x| !x.is_empty()).map(str::to_string).collect()
+    s.split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|x| !x.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// The settings a new desk starts from (coord new_desk).
@@ -100,7 +117,12 @@ pub fn on_event(s: &mut State, ev: &Event) {
 }
 
 fn here(s: &State) -> String {
-    s.data.devices.iter().find(|d| d.this).map(|d| d.device_id.clone()).unwrap_or_default()
+    s.data
+        .devices
+        .iter()
+        .find(|d| d.this)
+        .map(|d| d.device_id.clone())
+        .unwrap_or_default()
 }
 
 /// A poll device that follows where the repo was seen last (the
@@ -114,13 +136,16 @@ fn start_of(d: &DeskView) -> DeskSettings {
 }
 
 fn save(s: &mut State, st: DeskSettings, done: impl FnOnce(&mut State) + Send + 'static) {
-    s.spawn(move |w| w.desk_set(st).map(|_| w.desks()), move |s, r| match r {
-        Ok(d) => {
-            s.settings.desks.desks = Some(d);
-            done(s);
-        }
-        Err(e) => s.settings.desks.err = e,
-    });
+    s.spawn(
+        move |w| w.desk_set(st).map(|_| w.desks()),
+        move |s, r| match r {
+            Ok(d) => {
+                s.settings.desks.desks = Some(d);
+                done(s);
+            }
+            Err(e) => s.settings.desks.err = e,
+        },
+    );
 }
 
 fn open_editor(s: &mut State, st: DeskSettings) {
@@ -139,7 +164,13 @@ fn add(s: &mut State) {
     }
     s.settings.desks.err.clear();
     s.settings.desks.adding = TextEdit::new("");
-    let existing = s.settings.desks.desks.as_ref().and_then(|ds| ds.iter().find(|d| d.settings.repo_key == key)).map(start_of);
+    let existing = s
+        .settings
+        .desks
+        .desks
+        .as_ref()
+        .and_then(|ds| ds.iter().find(|d| d.settings.repo_key == key))
+        .map(start_of);
     let here = here(s);
     open_editor(s, existing.unwrap_or_else(|| new_desk(&key, &here)));
 }
@@ -156,22 +187,50 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .devices
         .iter()
         .filter(|d| !d.revoked)
-        .map(|d| (d.device_id.clone(), if d.name.is_empty() { d.device_id.clone() } else { d.name.clone() }))
+        .map(|d| {
+            (
+                d.device_id.clone(),
+                if d.name.is_empty() {
+                    d.device_id.clone()
+                } else {
+                    d.name.clone()
+                },
+            )
+        })
         .collect();
-    let device_name = |id: &str| devices.iter().find(|(v, _)| v == id).map(|(_, l)| l.clone()).unwrap_or_else(|| "another device".into());
+    let device_name = |id: &str| {
+        devices
+            .iter()
+            .find(|(v, _)| v == id)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_else(|| "another device".into())
+    };
     match &m.desks {
         None => out = out.child(loading(f, "settings-desks-loading", "Loading merge desks")),
         Some(desks) => {
             let mut shown: Vec<DeskView> = desks.clone();
             if !m.editing.is_empty() && !shown.iter().any(|d| d.settings.repo_key == m.editing) {
-                shown.insert(0, DeskView { settings: m.draft.clone().unwrap_or_else(|| new_desk(&m.editing, &here(s))), ..Default::default() });
+                shown.insert(
+                    0,
+                    DeskView {
+                        settings: m
+                            .draft
+                            .clone()
+                            .unwrap_or_else(|| new_desk(&m.editing, &here(s))),
+                        ..Default::default()
+                    },
+                );
             }
             for d in &shown {
                 let st = &d.settings;
                 let on = st.enabled && st.takes_prs;
                 let open = m.editing == st.repo_key;
                 let start = start_of(d);
-                let follow = if d.seen_on.is_empty() { String::new() } else { device_name(&d.seen_on) };
+                let follow = if d.seen_on.is_empty() {
+                    String::new()
+                } else {
+                    device_name(&d.seen_on)
+                };
                 let line = if !st.takes_prs {
                     "No desk: this repo takes no PRs."
                 } else if d.is_default {
@@ -184,7 +243,14 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                     .gap(12.0)
                     .center_y()
                     .child(icon(&icons::MERGE, 16.0).color(k.c.text_base))
-                    .child(text(owner_name(&st.repo_key)).font(k.ty.ui.mono()).color(k.c.text_base).truncate().shrink().min_w(0.0))
+                    .child(
+                        text(owner_name(&st.repo_key))
+                            .font(k.ty.ui.mono())
+                            .color(k.c.text_base)
+                            .truncate()
+                            .shrink()
+                            .min_w(0.0),
+                    )
                     .child(text(line).font(k.ty.small).color(k.c.text_muted))
                     .child(el().grow(1.0));
                 if !open {
@@ -201,7 +267,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 let st3 = start.clone();
                 let enabled = st.enabled;
                 head = head
-                    .child(text(format!("Desk {}", if st.enabled { "on" } else { "off" })).font(k.ty.ui).color(k.c.text_muted))
+                    .child(
+                        text(format!("Desk {}", if st.enabled { "on" } else { "off" }))
+                            .font(k.ty.ui)
+                            .color(k.c.text_muted),
+                    )
                     .child(
                         Switch::new(st.enabled)
                             .label(format!("Desk for {}", owner_name(&st.repo_key)))
@@ -226,7 +296,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                     .radius(12.0)
                     .border(1.0, k.c.border_base)
                     .child(head);
-                card = if on { card.fill(k.c.layer_02) } else { card.border_dash(4.0, 3.0).opacity(0.85) };
+                card = if on {
+                    card.fill(k.c.layer_02)
+                } else {
+                    card.border_dash(4.0, 3.0).opacity(0.85)
+                };
                 if open {
                     card = card.child(editor(s, f, &devices, &follow));
                 }
@@ -272,7 +346,13 @@ fn field(f: &Frame, label: &str, hint_text: Option<&str>, control: El) -> El {
         .gap(12.0)
         .py(6.0)
         .items_start()
-        .child(text(label.to_string()).font(f.k.ty.ui).color(f.k.c.text_muted).w(130.0).pt(6.0))
+        .child(
+            text(label.to_string())
+                .font(f.k.ty.ui)
+                .color(f.k.c.text_muted)
+                .w(130.0)
+                .pt(6.0),
+        )
         .child(right)
 }
 
@@ -282,7 +362,11 @@ fn editor(s: &State, f: &mut Frame, devices: &[(String, String)], follow: &str) 
     let k = f.k;
     let mut polls = vec![(
         NONE.to_string(),
-        if follow.is_empty() { "Pick a device".to_string() } else { format!("Where agents last worked in it ({follow})") },
+        if follow.is_empty() {
+            "Pick a device".to_string()
+        } else {
+            format!("Where agents last worked in it ({follow})")
+        },
     )];
     polls.extend(devices.iter().cloned());
     let poll = choice(
@@ -290,13 +374,21 @@ fn editor(s: &State, f: &mut Frame, devices: &[(String, String)], follow: &str) 
         f,
         "settings-desk-poll",
         "Poll device",
-        if d.poll_device.is_empty() { NONE } else { &d.poll_device },
+        if d.poll_device.is_empty() {
+            NONE
+        } else {
+            &d.poll_device
+        },
         &polls,
         300.0,
         false,
         |s, v| {
             if let Some(d) = &mut s.settings.desks.draft {
-                d.poll_device = if v == NONE { String::new() } else { v.to_string() };
+                d.poll_device = if v == NONE {
+                    String::new()
+                } else {
+                    v.to_string()
+                };
             }
         },
     );
@@ -347,22 +439,27 @@ fn editor(s: &State, f: &mut Frame, devices: &[(String, String)], follow: &str) 
                     .disabled(m.saving)
                     .on_press(|s: &mut State| {
                         let dm = &mut s.settings.desks;
-                        let Some(mut st) = dm.draft.clone() else { return };
+                        let Some(mut st) = dm.draft.clone() else {
+                            return;
+                        };
                         st.trusted = list(&dm.trusted.text);
                         dm.saving = true;
                         dm.edit_err.clear();
-                        s.spawn(move |w| w.desk_set(st).map(|_| w.desks()), |s, r| {
-                            let dm = &mut s.settings.desks;
-                            dm.saving = false;
-                            match r {
-                                Ok(d) => {
-                                    dm.desks = Some(d);
-                                    dm.editing.clear();
-                                    dm.draft = None;
+                        s.spawn(
+                            move |w| w.desk_set(st).map(|_| w.desks()),
+                            |s, r| {
+                                let dm = &mut s.settings.desks;
+                                dm.saving = false;
+                                match r {
+                                    Ok(d) => {
+                                        dm.desks = Some(d);
+                                        dm.editing.clear();
+                                        dm.draft = None;
+                                    }
+                                    Err(e) => dm.edit_err = e,
                                 }
-                                Err(e) => dm.edit_err = e,
-                            }
-                        });
+                            },
+                        );
                     })
                     .build(k),
             )
@@ -401,7 +498,10 @@ mod tests {
 
     #[test]
     fn owner_names_and_login_lists() {
-        assert_eq!(owner_name("remote:github.com/sample-org/irori"), "sample-org/irori");
+        assert_eq!(
+            owner_name("remote:github.com/sample-org/irori"),
+            "sample-org/irori"
+        );
         assert_eq!(owner_name("root:abc"), "root:abc");
         assert_eq!(list("a, b  c,,d"), vec!["a", "b", "c", "d"]);
     }

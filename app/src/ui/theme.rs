@@ -40,7 +40,11 @@ pub fn kit(dark: bool, p: &Prefs) -> Kit {
             .get::<String>(ACCENT)
             .filter(|a| rune::color::hex(a).is_some())
             .unwrap_or_else(|| ACCENT_DEFAULT.to_string());
-        let (bg, fg) = if dark { (DARK_BG, DARK_FG) } else { (LIGHT_BG, LIGHT_FG) };
+        let (bg, fg) = if dark {
+            (DARK_BG, DARK_FG)
+        } else {
+            (LIGHT_BG, LIGHT_FG)
+        };
         PaletteSeed {
             bg: hex(bg),
             fg: hex(fg),

@@ -70,10 +70,14 @@ pub fn friends_of(boards: &[BoardSummary]) -> Vec<Friend> {
             if f.avatar.is_empty() {
                 f.avatar = m.avatar.clone();
             }
-            f.spaces.push(if b.name.is_empty() { b.tag.clone() } else { b.name.clone() });
+            f.spaces.push(if b.name.is_empty() {
+                b.tag.clone()
+            } else {
+                b.name.clone()
+            });
         }
     }
-    by.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    by.sort_by_key(|a| a.name.to_lowercase());
     by
 }
 
@@ -89,12 +93,15 @@ pub fn with_line(others: &[String]) -> String {
 
 fn load(s: &mut State) {
     load_name(s, |s| &mut s.profile.name);
-    s.spawn(|w| (w.person_color(), w.person_avatar()), |s, (c, a)| {
-        s.profile.color = c;
-        s.profile.avatar = a;
-        s.profile.loaded = true;
-        decode_pics(s);
-    });
+    s.spawn(
+        |w| (w.person_color(), w.person_avatar()),
+        |s, (c, a)| {
+            s.profile.color = c;
+            s.profile.avatar = a;
+            s.profile.loaded = true;
+            decode_pics(s);
+        },
+    );
 }
 
 /// Decodes the pictures on the page not yet decoded (yours and friends').
@@ -110,7 +117,11 @@ fn decode_pics(s: &mut State) {
         return;
     }
     s.spawn(
-        move |_| want.into_iter().filter_map(|a| avatar::decode(&a).map(|d| (a, d))).collect::<Vec<_>>(),
+        move |_| {
+            want.into_iter()
+                .filter_map(|a| avatar::decode(&a).map(|d| (a, d)))
+                .collect::<Vec<_>>()
+        },
         |s, got| {
             for (a, (w, h, px)) in got {
                 s.profile.pics.insert(a, avatar::pixels(w, h, px));
@@ -143,17 +154,20 @@ pub fn scene(s: &mut State) {
 
 fn set_avatar(s: &mut State, a: String) {
     let a2 = a.clone();
-    s.spawn(move |w| w.set_person_avatar(&a2), move |s, r| {
-        s.profile.busy = false;
-        match r {
-            Ok(()) => {
-                s.profile.avatar = a;
-                s.profile.error.clear();
-                decode_pics(s);
+    s.spawn(
+        move |w| w.set_person_avatar(&a2),
+        move |s, r| {
+            s.profile.busy = false;
+            match r {
+                Ok(()) => {
+                    s.profile.avatar = a;
+                    s.profile.error.clear();
+                    decode_pics(s);
+                }
+                Err(e) => s.profile.error = e,
             }
-            Err(e) => s.profile.error = e,
-        }
-    });
+        },
+    );
 }
 
 /// A picked or dropped file as your picture.
@@ -172,7 +186,11 @@ fn pick_file(s: &mut State, path: std::path::PathBuf) {
 }
 
 fn choose(s: &mut State, tx: &mut Tx) {
-    let opts = rune::FileDialogOptions { title: "Your picture".into(), ..Default::default() }.filter("Pictures", avatar::PICTURE_TYPES);
+    let opts = rune::FileDialogOptions {
+        title: "Your picture".into(),
+        ..Default::default()
+    }
+    .filter("Pictures", avatar::PICTURE_TYPES);
     tx.open_file(opts, |s: &mut State, r, _| match r {
         Ok(Some(p)) => pick_file(s, p),
         Ok(None) => {}
@@ -187,7 +205,11 @@ fn choose(s: &mut State, tx: &mut Tx) {
 pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
     let p = &s.profile;
-    let me = p.name.name.clone().unwrap_or_else(|| s.data.your_name.clone());
+    let me = p
+        .name
+        .name
+        .clone()
+        .unwrap_or_else(|| s.data.your_name.clone());
     let my_color = device_color(&p.color);
     let my_pic = p.pics.get(&p.avatar);
     let live = s.data.devices.iter().filter(|d| !d.revoked).count();
@@ -198,8 +220,16 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let pic_button = col()
         .key("profile-face-button")
         .role("button")
-        .label(if has_pic { "Change your picture" } else { "Add a picture" })
-        .help(if has_pic { "Change your picture" } else { "Add a picture" })
+        .label(if has_pic {
+            "Change your picture"
+        } else {
+            "Add a picture"
+        })
+        .help(if has_pic {
+            "Change your picture"
+        } else {
+            "Add a picture"
+        })
         .focusable(true)
         .on_press_tx(|s: &mut State, tx: &mut Tx| choose(s, tx))
         .accepts_extensions(avatar::PICTURE_TYPES)
@@ -208,7 +238,14 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 pick_file(s, p.clone());
             }
         })
-        .child(avatar::face(f, "profile-face".into(), &me, my_color, my_pic, 64.0));
+        .child(avatar::face(
+            f,
+            "profile-face".into(),
+            &me,
+            my_color,
+            my_pic,
+            64.0,
+        ));
     let mut buttons = row().gap(4.0).pt(4.0).child(
         Button::new(if p.busy {
             "Shrinking…"
@@ -233,27 +270,32 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .build(k),
         );
     }
-    let who = row()
-        .gap(12.0)
-        .center_y()
-        .child(pic_button)
-        .child(
-            col()
-                .grow(1.0)
-                .min_w(0.0)
-                .gap(2.0)
-                .child(text(if me.is_empty() { "…".into() } else { me.clone() }).font(rune::tok::TextStyle::new(16.0, 600.0)).color(k.c.text_base).truncate())
-                .child(
-                    text(format!(
-                        "{live} {} · {agents} {}",
-                        if live == 1 { "device" } else { "devices" },
-                        if agents == 1 { "agent" } else { "agents" }
-                    ))
-                    .font(k.ty.small)
-                    .color(k.c.text_muted),
-                )
-                .child(buttons),
-        );
+    let who = row().gap(12.0).center_y().child(pic_button).child(
+        col()
+            .grow(1.0)
+            .min_w(0.0)
+            .gap(2.0)
+            .child(
+                text(if me.is_empty() {
+                    "…".into()
+                } else {
+                    me.clone()
+                })
+                .font(rune::tok::TextStyle::new(16.0, 600.0))
+                .color(k.c.text_base)
+                .truncate(),
+            )
+            .child(
+                text(format!(
+                    "{live} {} · {agents} {}",
+                    if live == 1 { "device" } else { "devices" },
+                    if agents == 1 { "agent" } else { "agents" }
+                ))
+                .font(k.ty.small)
+                .color(k.c.text_muted),
+            )
+            .child(buttons),
+    );
     let mut pal = row().gap(6.0).center_y();
     for (c, _) in DEVICE_COLORS {
         let on = p.color == *c;
@@ -275,18 +317,29 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         pal = pal.child(sw);
     }
     let note = if !p.error.is_empty() {
-        text(p.error.clone()).font(k.ty.small).color(k.c.danger.fg).w_full().wrap()
+        text(p.error.clone())
+            .font(k.ty.small)
+            .color(k.c.danger.fg)
+            .w_full()
+            .wrap()
     } else {
         let mut t = "Others see your name, colour and picture everywhere you share: spaces, channels, DMs. Your agents wear the colour as a stripe.".to_string();
         if p.color.is_empty() {
             t.push_str(" With no pick, each friend's screen picks one none of their devices wear.");
         }
-        text(t).font(k.ty.small).color(k.c.text_muted).w_full().wrap()
+        text(t)
+            .font(k.ty.small)
+            .color(k.c.text_muted)
+            .w_full()
+            .wrap()
     };
-    let mut name_box = col()
-        .gap(4.0)
-        .child(caps(f, "Your name"))
-        .child(name_field(f, "profile-name", &p.name, None, |s| &mut s.profile.name));
+    let mut name_box = col().gap(4.0).child(caps(f, "Your name")).child(name_field(
+        f,
+        "profile-name",
+        &p.name,
+        None,
+        |s| &mut s.profile.name,
+    ));
     if let Some(e) = &p.name.error {
         name_box = name_box.child(text(e.clone()).font(k.ty.small).color(k.c.danger.fg));
     }
@@ -312,7 +365,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         );
     }
     for fd in &friends {
-        let spaces: Vec<String> = fd.spaces.iter().map(|x| crate::settings::plain_line(x)).collect();
+        let spaces: Vec<String> = fd
+            .spaces
+            .iter()
+            .map(|x| crate::settings::plain_line(x))
+            .collect();
         fr = fr.child(
             row()
                 .key(format!("profile-friend-{}", fd.person_id))
@@ -321,9 +378,29 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .center_y()
                 .px(4.0)
                 .py(4.0)
-                .child(avatar::face(f, format!("profile-friend-face-{}", fd.person_id), &fd.name, device_color(&fd.color), p.pics.get(&fd.avatar), 28.0))
-                .child(text(crate::settings::plain_line(&fd.name)).font(k.ty.ui).color(k.c.text_base).truncate().grow(1.0).min_w(0.0))
-                .child(text(format!("in {}", spaces.join(", "))).font(k.ty.small).color(k.c.text_muted).truncate().max_w(200.0)),
+                .child(avatar::face(
+                    f,
+                    format!("profile-friend-face-{}", fd.person_id),
+                    &fd.name,
+                    device_color(&fd.color),
+                    p.pics.get(&fd.avatar),
+                    28.0,
+                ))
+                .child(
+                    text(crate::settings::plain_line(&fd.name))
+                        .font(k.ty.ui)
+                        .color(k.c.text_base)
+                        .truncate()
+                        .grow(1.0)
+                        .min_w(0.0),
+                )
+                .child(
+                    text(format!("in {}", spaces.join(", ")))
+                        .font(k.ty.small)
+                        .color(k.c.text_muted)
+                        .truncate()
+                        .max_w(200.0),
+                ),
         );
     }
     fr = fr.child(
@@ -354,34 +431,81 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     // Spaces.
     let current = s.prefs.get::<String>(SPACE_PREF).unwrap_or_default();
     let me_face = avatar::face(f, "profile-me-small".into(), &me, my_color, my_pic, 20.0);
-    let mut spaces = col().key("profile-spaces").w_full().gap(16.0).child(space_card(
-        f,
-        "profile-space-personal",
-        "Personal",
-        current == PERSONAL,
-        PERSONAL.into(),
-        row().gap(6.0).center_y().child(me_face).child(text("just you + your agents").font(k.ty.small).color(k.c.text_muted)),
-        &[],
-        "Everything not shared lives here: your own cards and threads.",
-    ));
+    let mut spaces = col()
+        .key("profile-spaces")
+        .w_full()
+        .gap(16.0)
+        .child(space_card(
+            f,
+            "profile-space-personal",
+            "Personal",
+            current == PERSONAL,
+            PERSONAL.into(),
+            row().gap(6.0).center_y().child(me_face).child(
+                text("just you + your agents")
+                    .font(k.ty.small)
+                    .color(k.c.text_muted),
+            ),
+            &[],
+            "Everything not shared lives here: your own cards and threads.",
+        ));
     let mut shared: Vec<&BoardSummary> = s.data.spaces.iter().filter(|b| !b.leaving).collect();
-    shared.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    shared.sort_by_key(|a| a.name.to_lowercase());
     for b in shared {
         let mut people = row().gap(2.0).center_y();
         for m in &b.members {
             let (name, color, pic) = if m.me {
-                (if me.is_empty() { m.name.clone() } else { me.clone() }, my_color, my_pic)
+                (
+                    if me.is_empty() {
+                        m.name.clone()
+                    } else {
+                        me.clone()
+                    },
+                    my_color,
+                    my_pic,
+                )
             } else {
-                (m.name.clone(), device_color(&m.color), p.pics.get(&m.avatar))
+                (
+                    m.name.clone(),
+                    device_color(&m.color),
+                    p.pics.get(&m.avatar),
+                )
             };
-            people = people.child(avatar::face(f, format!("profile-m-{}-{}", b.board_id, m.person_id), &name, color, pic, 20.0).border(2.0, k.c.bg_base));
+            people = people.child(
+                avatar::face(
+                    f,
+                    format!("profile-m-{}-{}", b.board_id, m.person_id),
+                    &name,
+                    color,
+                    pic,
+                    20.0,
+                )
+                .border(2.0, k.c.bg_base),
+            );
         }
         let boards: Vec<(String, String)> = if b.boards.is_empty() {
             vec![(b.board_id.clone(), b.name.clone())]
         } else {
-            b.boards.iter().map(|x| (x.board_id.clone(), if x.name.is_empty() { x.tag.clone() } else { x.name.clone() })).collect()
+            b.boards
+                .iter()
+                .map(|x| {
+                    (
+                        x.board_id.clone(),
+                        if x.name.is_empty() {
+                            x.tag.clone()
+                        } else {
+                            x.name.clone()
+                        },
+                    )
+                })
+                .collect()
         };
-        let others: Vec<String> = b.members.iter().filter(|m| !m.me).map(|m| crate::settings::plain_line(&m.name)).collect();
+        let others: Vec<String> = b
+            .members
+            .iter()
+            .filter(|m| !m.me)
+            .map(|m| crate::settings::plain_line(&m.name))
+            .collect();
         let note = if b.members.len() > 1 {
             format!(
                 "Shared {}. Who's in, and what reaches your agents from them, is set once here, not per board.",
@@ -398,7 +522,10 @@ pub fn view(s: &State, f: &mut Frame) -> El {
             current == b.board_id,
             b.board_id.clone(),
             people,
-            &boards.into_iter().map(|(id, n)| (b.board_id.clone(), id, crate::settings::plain_line(&n))).collect::<Vec<_>>(),
+            &boards
+                .into_iter()
+                .map(|(id, n)| (b.board_id.clone(), id, crate::settings::plain_line(&n)))
+                .collect::<Vec<_>>(),
             &note,
         ));
     }
@@ -406,7 +533,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .key("profile-right")
         .grow(1.0)
         .min_w(0.0)
-        .child(column(f, "Spaces: a group of people that holds many boards and channels", spaces));
+        .child(column(
+            f,
+            "Spaces: a group of people that holds many boards and channels",
+            spaces,
+        ));
 
     col()
         .key("profile-page")
@@ -420,7 +551,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(
                     row()
                         .key("profile-columns")
@@ -439,19 +572,32 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 
 /// A small uppercase label (text-[11px] tracking-wide uppercase).
 fn caps(f: &Frame, s: &str) -> El {
-    text(s.to_uppercase()).font(rune::tok::TextStyle::new(11.0, 500.0)).color(f.k.c.text_muted)
+    text(s.to_uppercase())
+        .font(rune::tok::TextStyle::new(11.0, 500.0))
+        .color(f.k.c.text_muted)
 }
 
 /// A glass panel (the React app's glass-panel): a raised card.
 fn panel(f: &Frame, key: &str) -> El {
-    col().key(key.to_string()).w_full().radius(12.0).fill(f.k.c.layer_01).border(1.0, f.k.c.border_base)
+    col()
+        .key(key.to_string())
+        .w_full()
+        .radius(12.0)
+        .fill(f.k.c.layer_01)
+        .border(1.0, f.k.c.border_base)
 }
 
 fn column(f: &Frame, title: &str, body: El) -> El {
     col()
         .w_full()
         .gap(12.0)
-        .child(text(title.to_string()).font(rune::tok::TextStyle::new(15.0, 600.0)).color(f.k.c.text_base).w_full().wrap())
+        .child(
+            text(title.to_string())
+                .font(rune::tok::TextStyle::new(15.0, 600.0))
+                .color(f.k.c.text_base)
+                .w_full()
+                .wrap(),
+        )
         .child(body)
 }
 
@@ -472,13 +618,28 @@ fn space_card(
             .w_full()
             .gap(12.0)
             .center_y()
-            .child(text(name.to_string()).font(rune::tok::TextStyle::new(15.0, 600.0)).color(k.c.text_base).truncate().grow(1.0).min_w(0.0))
+            .child(
+                text(name.to_string())
+                    .font(rune::tok::TextStyle::new(15.0, 600.0))
+                    .color(k.c.text_base)
+                    .truncate()
+                    .grow(1.0)
+                    .min_w(0.0),
+            )
             .child(people)
             .child(
                 Button::new(if current { "Showing" } else { "Show" })
-                    .variant(if current { ButtonVariant::Neutral } else { ButtonVariant::Outline })
+                    .variant(if current {
+                        ButtonVariant::Neutral
+                    } else {
+                        ButtonVariant::Outline
+                    })
                     .control_size(ControlSize::Small)
-                    .help(if current { "The sidebar shows this space" } else { "Show this space in the sidebar" })
+                    .help(if current {
+                        "The sidebar shows this space"
+                    } else {
+                        "Show this space in the sidebar"
+                    })
                     .on_press(move |s: &mut State| s.prefs.set(SPACE_PREF, pick.clone()))
                     .build(k),
             ),
@@ -500,7 +661,10 @@ fn space_card(
                     .focusable(true)
                     .on_press(move |s: &mut State| {
                         let board = (id2 != space).then(|| id2.clone());
-                        s.go(Route::Board { space: space.clone(), board })
+                        s.go(Route::Board {
+                            space: space.clone(),
+                            board,
+                        })
                     })
                     .child(icon(&icons::GRID, 14.0).color(k.c.text_muted))
                     .child(text(n.clone()).font(k.ty.ui).color(k.c.text_base)),
@@ -525,7 +689,13 @@ mod tests {
     use irori_window::boards::SummaryMember;
 
     fn member(id: &str, name: &str, me: bool, color: &str) -> SummaryMember {
-        SummaryMember { person_id: id.into(), name: name.into(), me, color: color.into(), ..Default::default() }
+        SummaryMember {
+            person_id: id.into(),
+            name: name.into(),
+            me,
+            color: color.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -533,7 +703,11 @@ mod tests {
         let a = BoardSummary {
             board_id: "a".into(),
             name: "Garden".into(),
-            members: vec![member("me", "Me", true, ""), member("p2", "Casey", false, ""), member("p1", "blake", false, "teal")],
+            members: vec![
+                member("me", "Me", true, ""),
+                member("p2", "Casey", false, ""),
+                member("p1", "blake", false, "teal"),
+            ],
             ..Default::default()
         };
         let b = BoardSummary {
@@ -542,9 +716,16 @@ mod tests {
             members: vec![member("p2", "Casey", false, "pink")],
             ..Default::default()
         };
-        let gone = BoardSummary { leaving: true, members: vec![member("p3", "Dana", false, "")], ..Default::default() };
+        let gone = BoardSummary {
+            leaving: true,
+            members: vec![member("p3", "Dana", false, "")],
+            ..Default::default()
+        };
         let f = friends_of(&[a, b, gone]);
-        assert_eq!(f.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), vec!["blake", "Casey"]);
+        assert_eq!(
+            f.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(),
+            vec!["blake", "Casey"]
+        );
         assert_eq!(f[1].spaces, vec!["Garden", "site"]);
         assert_eq!(f[1].color, "pink");
         assert_eq!(f[0].color, "teal");
@@ -554,7 +735,13 @@ mod tests {
     fn with_lines() {
         assert_eq!(with_line(&[]), "");
         assert_eq!(with_line(&["Blake".into()]), "with Blake");
-        assert_eq!(with_line(&["Blake".into(), "Casey".into()]), "with Blake and Casey");
-        assert_eq!(with_line(&["Blake".into(), "Casey".into(), "Dana".into()]), "with Blake +2");
+        assert_eq!(
+            with_line(&["Blake".into(), "Casey".into()]),
+            "with Blake and Casey"
+        );
+        assert_eq!(
+            with_line(&["Blake".into(), "Casey".into(), "Dana".into()]),
+            "with Blake +2"
+        );
     }
 }

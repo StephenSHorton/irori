@@ -9,8 +9,14 @@ use std::path::Path;
 fn main() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", dir.join("icons/icon.ico").display());
-    println!("cargo:rerun-if-changed={}", dir.join("irori.exe.manifest").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        dir.join("icons/icon.ico").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        dir.join("irori.exe.manifest").display()
+    );
     println!("cargo:rerun-if-env-changed=IRORI_VERSION");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;

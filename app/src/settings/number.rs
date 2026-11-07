@@ -92,28 +92,38 @@ impl WholeNumber {
     }
 }
 
-/// The box with its label, and the line under it while the entry isn't a
+/// Which box: its key, its name for a screen reader ("At most on
+/// Macbook"), its top, and whether it is off.
+pub struct Spec<'a> {
+    pub key: &'a str,
+    pub name: &'a str,
+    pub ceiling: u32,
+    pub disabled: bool,
+}
+
+/// "At most" and the box, and the line under it while the entry isn't a
 /// whole number in range.
-#[allow(clippy::too_many_arguments)]
 pub fn field(
     f: &Frame,
-    key: &str,
-    label: &str,
-    name: &str,
+    spec: Spec,
     n: &WholeNumber,
-    ceiling: u32,
-    disabled: bool,
     at: impl Fn(&mut State) -> &mut WholeNumber + Clone + 'static,
     save: impl Fn(&mut State) + 'static,
 ) -> El {
     let k = f.k;
+    let Spec {
+        key,
+        name,
+        ceiling,
+        disabled,
+    } = spec;
     let valid = n.valid(ceiling);
     let (a, b) = (at.clone(), at);
     let mut out = col().items_end().gap(4.0).child(
         row()
             .gap(8.0)
             .center_y()
-            .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_muted))
+            .child(text("At most").font(k.ty.ui).color(k.c.text_muted))
             .child(
                 TextInput::new(&n.edit)
                     .label(name.to_string())
@@ -173,7 +183,10 @@ mod tests {
         assert_eq!(n.save(4, 10), Some(7));
         assert_eq!(n.save(4, 10), None, "Enter then blur sends it once");
         n.settle("7", 7);
-        assert_eq!((n.edit.text.as_str(), n.draft, n.saving.as_deref()), ("7", false, None));
+        assert_eq!(
+            (n.edit.text.as_str(), n.draft, n.saving.as_deref()),
+            ("7", false, None)
+        );
         n.follow(7);
         assert_eq!(n.edit.text, "7");
     }

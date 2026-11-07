@@ -20,7 +20,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use rune::{Color, El, ScrollSpec, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, IconButton, IconButtonVariant, Select, SelectAppearance, Switch};
+use rune_kit::{
+    Button, ButtonVariant, IconButton, IconButtonVariant, Select, SelectAppearance, Switch,
+};
 
 use crate::ui::{Dialog, Event, Frame, State, icons};
 
@@ -183,7 +185,9 @@ fn tick(s: &mut State) {
 /// Starts the dialog's ticker (not headless: a snapshot has one frame).
 fn start_ticker(s: &mut State) {
     let generation = s.settings.tick_gen.fetch_add(1, Ordering::SeqCst) + 1;
-    let (Some(h), false) = (s.handle.clone(), s.headless) else { return };
+    let (Some(h), false) = (s.handle.clone(), s.headless) else {
+        return;
+    };
     let gen_now = s.settings.tick_gen.clone();
     std::thread::spawn(move || {
         loop {
@@ -213,7 +217,11 @@ pub fn poll(s: &mut State) -> bool {
 #[allow(dead_code)] // The package contract; Settings is a dialog.
 pub fn view(s: &State, f: &mut Frame) -> El {
     let _ = s;
-    crate::ui::not_yet(f, "Settings", "Settings is a dialog: the gear in the sidebar opens it.")
+    crate::ui::not_yet(
+        f,
+        "Settings",
+        "Settings is a dialog: the gear in the sidebar opens it.",
+    )
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -266,7 +274,9 @@ pub fn scene(s: &mut State) {
 /// The dialog: a large modal, the panes down the left and the chosen one
 /// on the right, scrolling.
 pub fn dialog(s: &State, f: &mut Frame) {
-    let Some(Dialog::Settings(id)) = &s.dialog else { return };
+    let Some(Dialog::Settings(id)) = &s.dialog else {
+        return;
+    };
     let here = pane(id);
     let k = f.k;
     // The panes' menus (selects) go into the layer as they build; the
@@ -295,7 +305,11 @@ pub fn dialog(s: &State, f: &mut Frame) {
         let current = p.id == here.id;
         nav = nav.child(
             Button::new(p.label)
-                .variant(if current { ButtonVariant::Neutral } else { ButtonVariant::Ghost })
+                .variant(if current {
+                    ButtonVariant::Neutral
+                } else {
+                    ButtonVariant::Ghost
+                })
                 .icon(p.icon)
                 .on_press(move |s: &mut State| show(s, id))
                 .build(k)
@@ -327,7 +341,9 @@ pub fn dialog(s: &State, f: &mut Frame) {
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll(ScrollSpec {
+                    stick_bottom: false,
+                })
                 .child(
                     col()
                         .key("settings-pane")
@@ -343,7 +359,13 @@ pub fn dialog(s: &State, f: &mut Frame) {
                                         .font(rune::tok::TextStyle::new(16.0, 600.0))
                                         .color(k.c.text_base),
                                 )
-                                .child(text(here.hint).font(k.ty.ui).color(k.c.text_muted).w_full().wrap()),
+                                .child(
+                                    text(here.hint)
+                                        .font(k.ty.ui)
+                                        .color(k.c.text_muted)
+                                        .w_full()
+                                        .wrap(),
+                                ),
                         )
                         .child(body),
                 ),
@@ -414,19 +436,33 @@ pub fn confirm_button(s: &State, f: &Frame, c: Confirm, button: &str, disabled: 
     let k = f.k;
     let id = c.id.clone();
     let err = s.settings.confirm_err.get(&id).cloned();
-    let mut out = col().key(format!("settings-confirm-{id}")).items_end().gap(4.0).child(
-        Button::new(button.to_string())
-            .variant(if c.danger { ButtonVariant::Danger } else { ButtonVariant::Outline })
-            .control_size(rune_kit::ControlSize::Small)
-            .disabled(disabled)
-            .on_press(move |s: &mut State| {
-                s.settings.confirm_err.remove(&c.id);
-                s.settings.confirm = Some(c.clone());
-            })
-            .build(k),
-    );
+    let mut out = col()
+        .key(format!("settings-confirm-{id}"))
+        .items_end()
+        .gap(4.0)
+        .child(
+            Button::new(button.to_string())
+                .variant(if c.danger {
+                    ButtonVariant::Danger
+                } else {
+                    ButtonVariant::Outline
+                })
+                .control_size(rune_kit::ControlSize::Small)
+                .disabled(disabled)
+                .on_press(move |s: &mut State| {
+                    s.settings.confirm_err.remove(&c.id);
+                    s.settings.confirm = Some(c.clone());
+                })
+                .build(k),
+        );
     if let Some(e) = err {
-        out = out.child(text(e).font(k.ty.small).color(k.c.danger.fg).max_w(320.0).wrap());
+        out = out.child(
+            text(e)
+                .font(k.ty.small)
+                .color(k.c.danger.fg)
+                .max_w(320.0)
+                .wrap(),
+        );
     }
     out
 }
@@ -456,7 +492,11 @@ fn confirm_dialog(s: &State, f: &mut Frame) {
                 )
                 .child(
                     Button::new(label)
-                        .variant(if c.danger { ButtonVariant::Danger } else { ButtonVariant::Contrast })
+                        .variant(if c.danger {
+                            ButtonVariant::Danger
+                        } else {
+                            ButtonVariant::Contrast
+                        })
                         .on_press(|s: &mut State| run_confirm(s))
                         .build(k)
                         .default_button(),
@@ -467,7 +507,9 @@ fn confirm_dialog(s: &State, f: &mut Frame) {
 }
 
 fn run_confirm(s: &mut State) {
-    let Some(c) = s.settings.confirm.take() else { return };
+    let Some(c) = s.settings.confirm.take() else {
+        return;
+    };
     let id = c.id.clone();
     let fail = move |s: &mut State, e: String| {
         s.settings.confirm_err.insert(id, e);
@@ -475,29 +517,41 @@ fn run_confirm(s: &mut State) {
     match c.act {
         Act::EndAgent(key) => {
             let k2 = key.clone();
-            s.spawn(move |w| w.agents_end(&key), move |s, r| match r {
-                Ok(()) => {
-                    s.settings.agents.ending.insert(k2);
-                    agents::load_running(s);
+            s.spawn(
+                move |w| w.agents_end(&key),
+                move |s, r| match r {
+                    Ok(()) => {
+                        s.settings.agents.ending.insert(k2);
+                        agents::load_running(s);
+                    }
+                    Err(e) => fail(s, e),
+                },
+            )
+        }
+        Act::TrustRepo(repo) => s.spawn(
+            move |w| w.agents_trust_repo(&repo),
+            move |s, r| match r {
+                Ok(rows) => {
+                    s.settings.agents.trusted = Some(rows);
                 }
                 Err(e) => fail(s, e),
-            })
-        }
-        Act::TrustRepo(repo) => s.spawn(move |w| w.agents_trust_repo(&repo), move |s, r| match r {
-            Ok(rows) => {
-                s.settings.agents.trusted = Some(rows);
-            }
-            Err(e) => fail(s, e),
-        }),
-        Act::RemoveDevice(id) => s.spawn(move |w| w.remove_device(&id), move |s, r| match r {
-            Ok(()) => devices::load_devices(s),
-            Err(e) => fail(s, e),
-        }),
-        Act::ResetDevice => s.spawn(|w| w.reset_device(), move |s, r| {
-            if let Err(e) = r {
-                fail(s, e)
-            }
-        }),
+            },
+        ),
+        Act::RemoveDevice(id) => s.spawn(
+            move |w| w.remove_device(&id),
+            move |s, r| match r {
+                Ok(()) => devices::load_devices(s),
+                Err(e) => fail(s, e),
+            },
+        ),
+        Act::ResetDevice => s.spawn(
+            |w| w.reset_device(),
+            move |s, r| {
+                if let Err(e) = r {
+                    fail(s, e)
+                }
+            },
+        ),
     }
 }
 
@@ -533,7 +587,11 @@ pub fn relative_time(then_ms: i64, now_ms: i64) -> String {
         return format!("{m}m ago");
     }
     let h = m / 60;
-    if h < 24 { format!("{h}h ago") } else { format!("{}d ago", h / 24) }
+    if h < 24 {
+        format!("{h}h ago")
+    } else {
+        format!("{}d ago", h / 24)
+    }
 }
 
 pub fn hex(s: &str) -> Color {
@@ -545,25 +603,43 @@ pub const XS: rune::tok::TextStyle = rune::tok::TextStyle::new(12.0, 400.0).lh(1
 
 /// A small muted line (text-xs text-muted-foreground).
 pub fn hint(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(XS).color(f.k.c.text_muted).w_full().wrap()
+    text(s.to_string())
+        .font(XS)
+        .color(f.k.c.text_muted)
+        .w_full()
+        .wrap()
 }
 
 /// A muted paragraph (text-[12.5px] text-muted-foreground).
 pub fn muted_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(rune::tok::TextStyle::new(12.5, 400.0)).color(f.k.c.text_muted).w_full().wrap()
+    text(s.to_string())
+        .font(rune::tok::TextStyle::new(12.5, 400.0))
+        .color(f.k.c.text_muted)
+        .w_full()
+        .wrap()
 }
 
 pub fn error_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(XS).color(f.k.c.danger.fg).w_full().wrap()
+    text(s.to_string())
+        .font(XS)
+        .color(f.k.c.danger.fg)
+        .w_full()
+        .wrap()
 }
 
 pub fn warn_line(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(XS).color(f.k.c.warning.fg).w_full().wrap()
+    text(s.to_string())
+        .font(XS)
+        .color(f.k.c.warning.fg)
+        .w_full()
+        .wrap()
 }
 
 /// A section's heading (h3 text-sm font-medium).
 pub fn heading(f: &Frame, s: &str) -> El {
-    text(s.to_string()).font(f.k.ty.ui_medium).color(f.k.c.text_base)
+    text(s.to_string())
+        .font(f.k.ty.ui_medium)
+        .color(f.k.c.text_base)
 }
 
 /// A rule above a group (border-t pt-3).
@@ -587,10 +663,13 @@ pub fn toggle(
     on: impl Fn(&mut State, bool) + 'static,
 ) -> El {
     let k = f.k;
-    let mut words = col()
-        .grow(1.0)
-        .min_w(0.0)
-        .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_base).w_full().wrap());
+    let mut words = col().grow(1.0).min_w(0.0).child(
+        text(label.to_string())
+            .font(k.ty.ui)
+            .color(k.c.text_base)
+            .w_full()
+            .wrap(),
+    );
     if let Some(h) = hint_text {
         words = words.child(hint(f, h));
     }
@@ -645,7 +724,10 @@ pub fn choice(
     on: impl Fn(&mut State, &str) + Clone + 'static,
 ) -> El {
     let labels: Vec<&str> = choices.iter().map(|(_, l)| l.as_str()).collect();
-    let current = choices.iter().find(|(v, _)| v == value).map(|(_, l)| l.as_str());
+    let current = choices
+        .iter()
+        .find(|(v, _)| v == value)
+        .map(|(_, l)| l.as_str());
     let pairs = choices.to_vec();
     let k2 = key.to_string();
     let k3 = key.to_string();
@@ -659,7 +741,11 @@ pub fn choice(
         .open(s.settings.open_select.as_deref() == Some(key))
         .on_toggle(move |s: &mut State| {
             let o = &mut s.settings.open_select;
-            *o = if o.as_deref() == Some(k2.as_str()) { None } else { Some(k2.clone()) };
+            *o = if o.as_deref() == Some(k2.as_str()) {
+                None
+            } else {
+                Some(k2.clone())
+            };
         })
         .on_close(move |s: &mut State| {
             if s.settings.open_select.as_deref() == Some(k3.as_str()) {
@@ -689,7 +775,11 @@ pub fn loading(f: &Frame, key: &str, what: &str) -> El {
 pub fn boxed(f: &Frame, key: &str, rows: Vec<El>) -> El {
     let k = f.k;
     let n = rows.len();
-    let mut out = col().key(key.to_string()).w_full().radius(6.0).border(1.0, k.c.border_base);
+    let mut out = col()
+        .key(key.to_string())
+        .w_full()
+        .radius(6.0)
+        .border(1.0, k.c.border_base);
     for (i, r) in rows.into_iter().enumerate() {
         let r = r.w_full().px(12.0).py(8.0);
         out = out.child(if i + 1 < n {
@@ -709,7 +799,11 @@ mod tests {
     fn settings_opens_where_it_was_left() {
         let mut s = State::default();
         s.open_dialog(Dialog::Settings(String::new()));
-        assert_eq!(open_pane(&s), Some("notifications"), "first time: the first pane");
+        assert_eq!(
+            open_pane(&s),
+            Some("notifications"),
+            "first time: the first pane"
+        );
         show(&mut s, "desks");
         s.close_dialog();
         s.open_dialog(Dialog::Settings(String::new()));

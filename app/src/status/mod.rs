@@ -82,7 +82,10 @@ fn now_ms() -> i64 {
 /// [`update_section`]); this is both, for a page that wants them.
 #[allow(dead_code)] // The package contract: no route shows it.
 pub fn view(s: &State, f: &mut Frame) -> El {
-    col().w_full().child(banner(s, f)).child(col().padding(20.0).child(update_section(s, f)))
+    col()
+        .w_full()
+        .child(banner(s, f))
+        .child(col().padding(20.0).child(update_section(s, f)))
 }
 
 pub fn on_event(s: &mut State, ev: &Event) {
@@ -203,7 +206,11 @@ fn dismissed(s: &State) -> bool {
 }
 
 fn vtag(v: &str) -> String {
-    if v.is_empty() { String::new() } else { format!("v{v}") }
+    if v.is_empty() {
+        String::new()
+    } else {
+        format!("v{v}")
+    }
 }
 
 // ---- the banner -------------------------------------------------------------
@@ -240,7 +247,11 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                         .gap(8.0)
                         .center_y()
                         .child(icon(&icons::DOWNLOAD, 14.0).color(muted))
-                        .child(text(format!("Downloading Irori {v}…")).font(small(f)).color(muted)),
+                        .child(
+                            text(format!("Downloading Irori {v}…"))
+                                .font(small(f))
+                                .color(muted),
+                        ),
                 )
                 .child(
                     el().key("status-update-sweep")
@@ -250,11 +261,12 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                         .clip_soft(0.0)
                         // irori-sweep: a quarter-width segment crosses the
                         // track, then comes round from the left again.
-                        .child(el().w_frac(0.25).h_full().fill(accent(f)).looping(rune::LoopSpec::slide(
-                            1.4,
-                            [-1.0, 0.0],
-                            [4.0, 0.0],
-                        ))),
+                        .child(
+                            el().w_frac(0.25)
+                                .h_full()
+                                .fill(accent(f))
+                                .looping(rune::LoopSpec::slide(1.4, [-1.0, 0.0], [4.0, 0.0])),
+                        ),
                 ),
         ),
         "installing" => Some(
@@ -278,10 +290,12 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                         .color(k.c.text_strong),
                 )
                 .child(
-                    text("Restart now to update, or keep working. It installs when you quit Irori.")
-                        .font(small(f))
-                        .color(muted)
-                        .wrap(),
+                    text(
+                        "Restart now to update, or keep working. It installs when you quit Irori.",
+                    )
+                    .font(small(f))
+                    .color(muted)
+                    .wrap(),
                 );
             if !s.status.restart_error.is_empty() {
                 words = words.child(
@@ -328,7 +342,14 @@ fn update_banner(s: &State, f: &mut Frame) -> Option<El> {
                                 .key("status-later"),
                         ),
                 );
-            Some(col().key("status-update").w_full().px(20.0).pt(12.0).child(panel))
+            Some(
+                col()
+                    .key("status-update")
+                    .w_full()
+                    .px(20.0)
+                    .pt(12.0)
+                    .child(panel),
+            )
         }
         _ => None,
     }
@@ -392,7 +413,13 @@ fn fit(width: f32) -> Fit {
 /// The bar the meters strip sits in, right-aligned over the page.
 fn meters_bar(s: &State, f: &mut Frame) -> El {
     let width = f.cx.layout_size("main").map_or(1100.0, |w| w[0]);
-    let mut bar = row().key("status-bar").w_full().h(34.0).px(12.0).center_y().child(el().grow(1.0));
+    let mut bar = row()
+        .key("status-bar")
+        .w_full()
+        .h(34.0)
+        .px(12.0)
+        .center_y()
+        .child(el().grow(1.0));
     let fit = fit(width);
     if fit.strip {
         bar = bar.child(meters_strip(s, f, &fit));
@@ -404,9 +431,19 @@ fn values(samples: &[MetersSample], f: impl Fn(&MetersSample) -> Option<f64>) ->
     samples.iter().map(f).collect()
 }
 
-/// One meter in the strip: its name, its tiny graph, its reading.
-fn item(f: &Frame, key: &str, label: &str, color: Color, vals: &[Option<f64>], max: Max, value: String, wide: bool) -> El {
+/// One meter in the strip: its name, its tiny graph, its reading. A
+/// reading with no fixed top (the network's bits) is the wide one.
+fn item(
+    f: &Frame,
+    key: &str,
+    label: &str,
+    color: Color,
+    vals: &[Option<f64>],
+    max: Max,
+    value: String,
+) -> El {
     let k = f.k;
+    let wide = matches!(max, Max::Auto);
     row()
         .key(format!("status-meter-{key}"))
         .gap(4.0)
@@ -455,7 +492,6 @@ fn meters_strip(s: &State, f: &mut Frame, fit: &Fit) -> El {
             &values(m, |s| s.cpu.pct.map(f64::from)),
             Max::Fixed(100.0),
             meters::fmt_pct(last.and_then(|l| l.cpu.pct.map(f64::from))),
-            false,
         ))
         .child(item(
             f,
@@ -465,15 +501,26 @@ fn meters_strip(s: &State, f: &mut Frame, fit: &Fit) -> El {
             &values(m, |s| meters::mem_pct(&s.mem)),
             Max::Fixed(100.0),
             meters::fmt_pct(last.and_then(|l| meters::mem_pct(&l.mem))),
-            false,
         ));
     if fit.gpu
         && let Some(g) = meters::pick_gpu(m)
     {
-        let util = |s: &MetersSample| meters::gpu_by_name(s, &g).and_then(|x| x.util_pct).map(f64::from);
+        let util = |s: &MetersSample| {
+            meters::gpu_by_name(s, &g)
+                .and_then(|x| x.util_pct)
+                .map(f64::from)
+        };
         strip = strip.child(
-            item(f, "gpu", "GPU", h.gpu, &values(m, util), Max::Fixed(100.0), meters::fmt_pct(last.and_then(util)), false)
-                .help(g.clone()),
+            item(
+                f,
+                "gpu",
+                "GPU",
+                h.gpu,
+                &values(m, util),
+                Max::Fixed(100.0),
+                meters::fmt_pct(last.and_then(util)),
+            )
+            .help(g.clone()),
         );
     }
     if fit.more
@@ -487,16 +534,27 @@ fn meters_strip(s: &State, f: &mut Frame, fit: &Fit) -> El {
             &values(m, |s| Some(meters::net_total(s))),
             Max::Auto,
             meters::fmt_bits(meters::net_total(l)),
-            true,
         ));
     }
     if fit.more
         && let Some(d) = meters::pick_disk(m)
     {
-        let active = |s: &MetersSample| meters::disk_by_name(s, &d).and_then(|x| x.active_pct).map(f64::from);
+        let active = |s: &MetersSample| {
+            meters::disk_by_name(s, &d)
+                .and_then(|x| x.active_pct)
+                .map(f64::from)
+        };
         strip = strip.child(
-            item(f, "disk", "Disk", h.disk, &values(m, active), Max::Fixed(100.0), meters::fmt_pct(last.and_then(active)), false)
-                .help(meters::disk_name(&d)),
+            item(
+                f,
+                "disk",
+                "Disk",
+                h.disk,
+                &values(m, active),
+                Max::Fixed(100.0),
+                meters::fmt_pct(last.and_then(active)),
+            )
+            .help(meters::disk_name(&d)),
         );
     }
     if fit.claude
@@ -509,7 +567,11 @@ fn meters_strip(s: &State, f: &mut Frame, fit: &Fit) -> El {
                 .center_y()
                 .child(el().w(1.0).h(16.0).fill(k.c.border_weak).mr(8.0))
                 .child(text("Claude").font(small(f)).color(k.c.text_muted))
-                .child(text(line.text).font(small(f).features(TNUM)).color(k.c.text_base))
+                .child(
+                    text(line.text)
+                        .font(small(f).features(TNUM))
+                        .color(k.c.text_base),
+                )
                 .help(format!("Claude usage: {}", line.title)),
         );
     }
@@ -525,16 +587,20 @@ fn meters_panel(s: &State, f: &mut Frame, now: i64) {
     let k = f.k;
     let h = hues(f.dark);
     let m = &s.status.meters;
-    let mut body = col().key("status-meters-panel").w(352.0).child(usage_section(s, f, now)).child(
-        text("This computer")
-            .font(k.ty.text_small_medium)
-            .color(k.c.text_muted)
-            .w_full()
-            .px(12.0)
-            .pt(10.0)
-            .pb(6.0)
-            .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak),
-    );
+    let mut body = col()
+        .key("status-meters-panel")
+        .w(352.0)
+        .child(usage_section(s, f, now))
+        .child(
+            text("This computer")
+                .font(k.ty.text_small_medium)
+                .color(k.c.text_muted)
+                .w_full()
+                .px(12.0)
+                .pt(10.0)
+                .pb(6.0)
+                .border_sides([1.0, 0.0, 0.0, 0.0], k.c.border_weak),
+        );
     match m.last() {
         None => {
             body = body.child(
@@ -548,10 +614,30 @@ fn meters_panel(s: &State, f: &mut Frame, now: i64) {
         Some(last) => {
             let mut rows = col().key("status-meters-rows").w_full().pb(6.0);
             rows = rows
-                .child(panel_row(f, "cpu", h.cpu, &values(m, |s| s.cpu.pct.map(f64::from)), Max::Fixed(100.0), "CPU", vec![meters::fmt_cpu(&last.cpu)]))
-                .child(panel_row(f, "mem", h.mem, &values(m, |s| meters::mem_pct(&s.mem)), Max::Fixed(100.0), "Memory", vec![meters::fmt_memory(&last.mem)]));
+                .child(panel_row(
+                    f,
+                    "cpu",
+                    h.cpu,
+                    &values(m, |s| s.cpu.pct.map(f64::from)),
+                    Max::Fixed(100.0),
+                    "CPU",
+                    vec![meters::fmt_cpu(&last.cpu)],
+                ))
+                .child(panel_row(
+                    f,
+                    "mem",
+                    h.mem,
+                    &values(m, |s| meters::mem_pct(&s.mem)),
+                    Max::Fixed(100.0),
+                    "Memory",
+                    vec![meters::fmt_memory(&last.mem)],
+                ));
             for d in &last.disks {
-                let vals = values(m, |s| meters::disk_by_name(s, &d.name).and_then(|x| x.active_pct).map(f64::from));
+                let vals = values(m, |s| {
+                    meters::disk_by_name(s, &d.name)
+                        .and_then(|x| x.active_pct)
+                        .map(f64::from)
+                });
                 rows = rows.child(panel_row(
                     f,
                     &format!("disk-{}", d.name),
@@ -579,7 +665,11 @@ fn meters_panel(s: &State, f: &mut Frame, now: i64) {
                 vec![meters::fmt_net(&last.net)],
             ));
             for (i, g) in last.gpus.iter().enumerate() {
-                let vals = values(m, |s| meters::gpu_by_name(s, &g.name).and_then(|x| x.util_pct).map(f64::from));
+                let vals = values(m, |s| {
+                    meters::gpu_by_name(s, &g.name)
+                        .and_then(|x| x.util_pct)
+                        .map(f64::from)
+                });
                 let line = match meters::fmt_gpu_memory(g) {
                     Some(mem) => format!("{} · {mem}", meters::fmt_gpu(g)),
                     None => meters::fmt_gpu(g),
@@ -598,13 +688,30 @@ fn meters_panel(s: &State, f: &mut Frame, now: i64) {
         }
     }
     let surface = popover::raised(k, col().min_h(0.0).child(body), k.radius.md);
-    f.layer.push(rune_kit::scrim("status-meters-scrim", |s: &mut State| s.status.meters_open = false));
-    f.layer.push(popover::anchored(k, surface, "status-meters-trigger", Placement::BottomEnd, 4.0));
+    f.layer
+        .push(rune_kit::scrim("status-meters-scrim", |s: &mut State| {
+            s.status.meters_open = false
+        }));
+    f.layer.push(popover::anchored(
+        k,
+        surface,
+        "status-meters-trigger",
+        Placement::BottomEnd,
+        4.0,
+    ));
 }
 
 /// One meter in the panel: its graph in a frame on the left, its name
 /// and readings on the right.
-fn panel_row(f: &Frame, key: &str, color: Color, vals: &[Option<f64>], max: Max, title: &str, lines: Vec<String>) -> El {
+fn panel_row(
+    f: &Frame,
+    key: &str,
+    color: Color,
+    vals: &[Option<f64>],
+    max: Max,
+    title: &str,
+    lines: Vec<String>,
+) -> El {
     let k = f.k;
     let mut words = col().min_w(0.0).shrink().child(
         text(title.to_string())
@@ -646,14 +753,20 @@ fn usage_section(s: &State, f: &Frame, now: i64) -> El {
     let k = f.k;
     let u = &s.status.usage;
     let stale = usage::stale_line(u.observed_at_ms, now, usage::local);
-    let mut head = row()
-        .w_full()
-        .justify_between()
-        .child(text("Claude usage left").font(k.ty.text_small_medium).color(k.c.text_muted));
+    let mut head = row().w_full().justify_between().child(
+        text("Claude usage left")
+            .font(k.ty.text_small_medium)
+            .color(k.c.text_muted),
+    );
     if let Some(st) = stale.filter(|_| usage::has_usage(u)) {
         head = head.child(text(st).font(small(f).features(TNUM)).color(k.c.text_muted));
     }
-    let mut sec = col().key("status-usage").w_full().padding(12.0).gap(8.0).child(head);
+    let mut sec = col()
+        .key("status-usage")
+        .w_full()
+        .padding(12.0)
+        .gap(8.0)
+        .child(head);
     if !usage::has_usage(u) {
         return sec.child(
             text("No reading yet: appears after a Claude Code reply on this computer")
@@ -680,15 +793,28 @@ fn usage_section(s: &State, f: &Frame, now: i64) -> El {
                 row()
                     .w_full()
                     .justify_between()
-                    .child(text(usage::window_label(&w.kind)).font(k.ty.text_small_medium).color(k.c.text_strong))
-                    .child(text(format!("{left}% left")).font(small(f).features(TNUM)).color(k.c.text_strong)),
+                    .child(
+                        text(usage::window_label(&w.kind))
+                            .font(k.ty.text_small_medium)
+                            .color(k.c.text_strong),
+                    )
+                    .child(
+                        text(format!("{left}% left"))
+                            .font(small(f).features(TNUM))
+                            .color(k.c.text_strong),
+                    ),
             )
             .child(
                 el().w_full()
                     .h(6.0)
                     .radius(3.0)
                     .fill(k.c.surface_weak)
-                    .child(el().w_frac(left as f32 / 100.0).h_full().radius(3.0).fill(tone)),
+                    .child(
+                        el().w_frac(left as f32 / 100.0)
+                            .h_full()
+                            .radius(3.0)
+                            .fill(tone),
+                    ),
             );
         if let Some(r) = usage::reset_line(w.resets_at_ms, now, usage::local) {
             one = one.child(text(r).font(small(f).features(TNUM)).color(k.c.text_muted));
@@ -725,10 +851,15 @@ pub fn update_section(s: &State, f: &mut Frame) -> El {
             ),
             on,
             false,
-            |s, v| set_keep(s, v),
+            set_keep,
         )));
         if let Some(e) = &s.status.keep_error {
-            c = c.child(text(e.clone()).font(small(f)).color(theme::status::failed()).wrap());
+            c = c.child(
+                text(e.clone())
+                    .font(small(f))
+                    .color(theme::status::failed())
+                    .wrap(),
+            );
         }
     }
     c
@@ -741,18 +872,32 @@ pub fn status_line(s: &State, f: &mut Frame) -> El {
     let st = &s.status.update;
     let muted = k.c.text_muted;
     let target = vtag(&st.version);
-    let v = if s.status.version.is_empty() { "dev" } else { s.status.version.as_str() };
+    let v = if s.status.version.is_empty() {
+        "dev"
+    } else {
+        s.status.version.as_str()
+    };
     let busy = s.status.checking || st.phase == "downloading" || st.phase == "checking";
     let line = row().key("status-line").gap(8.0).center_y().flex_wrap();
     let t = |x: String, c: Color| text(x).font(small(f)).color(c);
     if st.phase == "installing" {
-        let to = if target.is_empty() { String::new() } else { format!(" to {target}") };
+        let to = if target.is_empty() {
+            String::new()
+        } else {
+            format!(" to {target}")
+        };
         return line
             .child(Spinner::new().size(14.0).build(k))
             .child(t(format!("Restarting to update{to}…"), muted));
     }
-    let name = if v == "dev" { "Irori (dev build)".to_string() } else { format!("Irori v{v}") };
-    let mut line = line.child(t(name, muted)).child(t("·".into(), muted.alpha(0.4)));
+    let name = if v == "dev" {
+        "Irori (dev build)".to_string()
+    } else {
+        format!("Irori v{v}")
+    };
+    let mut line = line
+        .child(t(name, muted))
+        .child(t("·".into(), muted.alpha(0.4)));
     let failed = |line: El, what: &str, why: &str| {
         line.child(
             row()
@@ -764,7 +909,10 @@ pub fn status_line(s: &State, f: &mut Frame) -> El {
         )
     };
     if !s.status.supported {
-        return line.child(t("Updates are not supported on this platform yet".into(), muted));
+        return line.child(t(
+            "Updates are not supported on this platform yet".into(),
+            muted,
+        ));
     }
     if st.phase == "ready" {
         line = line
@@ -802,7 +950,11 @@ pub fn status_line(s: &State, f: &mut Frame) -> El {
             .variant(ButtonVariant::Ghost)
             .control_size(ControlSize::Small)
             .disabled(busy || v == "dev")
-            .help(if v == "dev" { "Dev builds never update" } else { "Check GitHub Releases for a newer Irori" })
+            .help(if v == "dev" {
+                "Dev builds never update"
+            } else {
+                "Check GitHub Releases for a newer Irori"
+            })
             .on_press(check)
             .build(k)
             .key("status-check"),
@@ -819,7 +971,11 @@ pub fn status_line(s: &State, f: &mut Frame) -> El {
     if st.phase == "error" {
         // A version means the check found one and the download or the
         // verify failed.
-        let what = if st.version.is_empty() { "Check failed".to_string() } else { format!("Download of {target} failed") };
+        let what = if st.version.is_empty() {
+            "Check failed".to_string()
+        } else {
+            format!("Download of {target} failed")
+        };
         line = failed(line, &what, &st.error);
     }
     line
@@ -842,7 +998,9 @@ fn sample_meters(now: i64) -> Vec<MetersSample> {
             MetersSample {
                 at_ms: now - i * 2000,
                 cpu: MetersCpu {
-                    pct: Some(clamp(14.0 + 18.0 * wave(17.0, 0.0) + 30.0 * burst + 4.0 * wave(3.0, 0.5))),
+                    pct: Some(clamp(
+                        14.0 + 18.0 * wave(17.0, 0.0) + 30.0 * burst + 4.0 * wave(3.0, 0.5),
+                    )),
                     ghz: Some((4.6 + 0.8 * wave(11.0, 0.0)) as f32),
                     cores: 16,
                 },

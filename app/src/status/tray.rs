@@ -219,7 +219,9 @@ impl Tray {
             id::LOGIN => {
                 let t = self.clone();
                 std::thread::spawn(move || {
-                    let want = !crate::login::LoginItem::system().is_enabled().unwrap_or(false);
+                    let want = !crate::login::LoginItem::system()
+                        .is_enabled()
+                        .unwrap_or(false);
                     let r = match &set_login {
                         Some(set) => set(want),
                         None => crate::login::LoginItem::system().set(want),
@@ -266,7 +268,9 @@ pub fn items(lines: &[Line]) -> Vec<rune::tray::TrayItem> {
     lines
         .iter()
         .map(|l| match l {
-            Line::Item { id, label, enabled } => TrayItem::action(*id, label.clone()).enabled(*enabled),
+            Line::Item { id, label, enabled } => {
+                TrayItem::action(*id, label.clone()).enabled(*enabled)
+            }
             Line::Check { id, label, checked } => {
                 TrayItem::action(*id, check_label(label, *checked))
             }
@@ -279,7 +283,11 @@ pub fn items(lines: &[Line]) -> Vec<rune::tray::TrayItem> {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn check_label(label: &str, checked: bool) -> String {
     // Figure space keeps the unchecked labels lined up with the checked.
-    if checked { format!("✓ {label}") } else { format!("\u{2007}  {label}") }
+    if checked {
+        format!("✓ {label}")
+    } else {
+        format!("\u{2007}  {label}")
+    }
 }
 
 #[cfg(test)]

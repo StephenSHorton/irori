@@ -17,9 +17,9 @@
 //! last sent (settings.json's "cards": its theme and mode), so nobody's
 //! appearance is lost to the move.
 
+use irori_window::settings::{CardColors, CardLook};
 use rune::{El, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, PaletteSeed, SegmentedControl, TextInput};
-use irori_window::settings::{CardColors, CardLook};
 use serde::{Deserialize, Serialize};
 
 use crate::ui::prefs::Prefs;
@@ -99,12 +99,19 @@ pub fn contrast(fg: Oklch, bg: Oklch, under: Option<Oklch>) -> f32 {
 /// Reads "#rrggbb" (a bad one is a mid blue, as the React app's).
 pub fn hex_to_oklch(hex: &str) -> Oklch {
     let t = hex.trim().trim_start_matches('#');
-    let Some(v) = (t.len() == 6).then(|| u32::from_str_radix(t, 16).ok()).flatten() else {
+    let Some(v) = (t.len() == 6)
+        .then(|| u32::from_str_radix(t, 16).ok())
+        .flatten()
+    else {
         return ok(0.6, 0.15, 250.0);
     };
     let lin = [(v >> 16) & 255, (v >> 8) & 255, v & 255].map(|c| {
         let s = c as f32 / 255.0;
-        if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
     });
     let [r, g, b] = lin;
     let l = (0.412_221_46 * r + 0.536_332_55 * g + 0.051_445_995 * b).cbrt();
@@ -114,13 +121,23 @@ pub fn hex_to_oklch(hex: &str) -> Oklch {
     let aa = 1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s;
     let bb = 0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s;
     let c = aa.hypot(bb);
-    let h = if c < 1e-4 { 0.0 } else { bb.atan2(aa).to_degrees() };
+    let h = if c < 1e-4 {
+        0.0
+    } else {
+        bb.atan2(aa).to_degrees()
+    };
     ok(ll, c, h)
 }
 
 /// The nearest sRGB "#rrggbb" (for the colour fields).
 pub fn oklch_to_hex(x: Oklch) -> String {
-    let enc = |v: f32| if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+    let enc = |v: f32| {
+        if v <= 0.003_130_8 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
     let [r, g, b] = to_linear(x).map(|v| (enc(v).clamp(0.0, 1.0) * 255.0).round() as u8);
     format!("#{r:02x}{g:02x}{b:02x}")
 }
@@ -228,53 +245,96 @@ pub static THEMES: &[Theme] = &[
         id: IRORI,
         name: "Irori",
         note: "The window's own: plain neutrals, a violet accent",
-        seed: Seed { nh: 270.0, nc: 0.006, light: acc(292.0, 0.17, Some(0.6)), dark: acc(292.0, 0.17, Some(0.6)) },
+        seed: Seed {
+            nh: 270.0,
+            nc: 0.006,
+            light: acc(292.0, 0.17, Some(0.6)),
+            dark: acc(292.0, 0.17, Some(0.6)),
+        },
         exact: None,
     },
     Theme {
         id: "blue",
         name: "Blue",
         note: "Cool slate, a clear blue accent",
-        seed: Seed { nh: 255.0, nc: 0.014, light: acc(255.0, 0.17, Some(0.53)), dark: acc(250.0, 0.14, Some(0.74)) },
+        seed: Seed {
+            nh: 255.0,
+            nc: 0.014,
+            light: acc(255.0, 0.17, Some(0.53)),
+            dark: acc(250.0, 0.14, Some(0.74)),
+        },
         exact: None,
     },
     Theme {
         id: "hearth",
         name: "Hearth",
         note: "Warm ash, an ember accent",
-        seed: Seed { nh: 55.0, nc: 0.012, light: acc(38.0, 0.17, None), dark: acc(52.0, 0.15, None) },
+        seed: Seed {
+            nh: 55.0,
+            nc: 0.012,
+            light: acc(38.0, 0.17, None),
+            dark: acc(52.0, 0.15, None),
+        },
         // Hearth keeps #266's numbers.
         exact: Some([
-            (k(0.955, 0.008, 70.0), k(0.22, 0.012, 50.0), k(0.56, 0.17, 38.0)),
-            (k(0.17, 0.012, 45.0), k(0.96, 0.006, 70.0), k(0.75, 0.15, 52.0)),
+            (
+                k(0.955, 0.008, 70.0),
+                k(0.22, 0.012, 50.0),
+                k(0.56, 0.17, 38.0),
+            ),
+            (
+                k(0.17, 0.012, 45.0),
+                k(0.96, 0.006, 70.0),
+                k(0.75, 0.15, 52.0),
+            ),
         ]),
     },
     Theme {
         id: "midnight",
         name: "Midnight",
         note: "Deep indigo, a violet glow",
-        seed: Seed { nh: 280.0, nc: 0.02, light: acc(285.0, 0.17, Some(0.5)), dark: acc(290.0, 0.13, Some(0.74)) },
+        seed: Seed {
+            nh: 280.0,
+            nc: 0.02,
+            light: acc(285.0, 0.17, Some(0.5)),
+            dark: acc(290.0, 0.13, Some(0.74)),
+        },
         exact: None,
     },
     Theme {
         id: "forest",
         name: "Forest",
         note: "Moss and bark, a green accent",
-        seed: Seed { nh: 145.0, nc: 0.014, light: acc(150.0, 0.13, Some(0.5)), dark: acc(150.0, 0.13, Some(0.76)) },
+        seed: Seed {
+            nh: 145.0,
+            nc: 0.014,
+            light: acc(150.0, 0.13, Some(0.5)),
+            dark: acc(150.0, 0.13, Some(0.76)),
+        },
         exact: None,
     },
     Theme {
         id: "sakura",
         name: "Sakura",
         note: "Petal pink on soft stone",
-        seed: Seed { nh: 350.0, nc: 0.012, light: acc(355.0, 0.16, Some(0.54)), dark: acc(355.0, 0.12, Some(0.78)) },
+        seed: Seed {
+            nh: 350.0,
+            nc: 0.012,
+            light: acc(355.0, 0.16, Some(0.54)),
+            dark: acc(355.0, 0.12, Some(0.78)),
+        },
         exact: None,
     },
     Theme {
         id: "mono",
         name: "Mono",
         note: "Greys only; the status colours keep theirs",
-        seed: Seed { nh: 0.0, nc: 0.0, light: acc(0.0, 0.0, Some(0.3)), dark: acc(0.0, 0.0, Some(0.88)) },
+        seed: Seed {
+            nh: 0.0,
+            nc: 0.0,
+            light: acc(0.0, 0.0, Some(0.3)),
+            dark: acc(0.0, 0.0, Some(0.88)),
+        },
         exact: None,
     },
 ];
@@ -287,7 +347,11 @@ pub fn theme_tokens(t: &Theme, dark: bool) -> Tokens {
     let mut out = tokens_from(&t.seed, dark);
     if t.id == IRORI {
         // ui/theme.rs's own colours.
-        let (bg, fg) = if dark { ("#0b0c0f", "#e8e9ec") } else { ("#ffffff", "#17181c") };
+        let (bg, fg) = if dark {
+            ("#0b0c0f", "#e8e9ec")
+        } else {
+            ("#ffffff", "#17181c")
+        };
         out.background = hex_to_oklch(bg);
         out.foreground = hex_to_oklch(fg);
         out.primary = hex_to_oklch("#8b6cf0");
@@ -352,7 +416,8 @@ pub fn guard(mut t: Tokens, dark: bool) -> Tokens {
     let step = if dark { 0.02 } else { -0.02 };
     let fgs = [ok(0.99, 0.005, t.primary.h), ok(0.2, 0.03, t.primary.h)];
     for _ in 0..30 {
-        let best = if contrast(fgs[0], t.primary, Some(bg)) >= contrast(fgs[1], t.primary, Some(bg)) {
+        let best = if contrast(fgs[0], t.primary, Some(bg)) >= contrast(fgs[1], t.primary, Some(bg))
+        {
             fgs[0]
         } else {
             fgs[1]
@@ -427,7 +492,13 @@ pub fn seed(p: &Prefs, dark: bool) -> Option<PaletteSeed> {
 
 /// Encoded sRGB, 0..1.
 fn encoded(x: Oklch) -> Rgb {
-    let enc = |v: f32| if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+    let enc = |v: f32| {
+        if v <= 0.003_130_8 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
     to_linear(x).map(enc)
 }
 
@@ -473,9 +544,17 @@ fn glass_knobs(glass: &str, dark: bool) -> (f32, f32) {
 /// The status hues (they don't follow the theme): success, warn, error.
 fn status_hues(dark: bool) -> [Oklch; 3] {
     if dark {
-        [ok(0.78, 0.14, 150.0), ok(0.84, 0.13, 80.0), ok(0.68, 0.19, 27.0)]
+        [
+            ok(0.78, 0.14, 150.0),
+            ok(0.84, 0.13, 80.0),
+            ok(0.68, 0.19, 27.0),
+        ]
     } else {
-        [ok(0.5, 0.13, 150.0), ok(0.52, 0.12, 70.0), ok(0.55, 0.2, 27.0)]
+        [
+            ok(0.5, 0.13, 150.0),
+            ok(0.52, 0.12, 70.0),
+            ok(0.55, 0.2, 27.0),
+        ]
     }
 }
 
@@ -490,14 +569,26 @@ pub fn card_colors(id: &str, custom: Option<&Custom>, glass: &str, dark: bool) -
         _ => theme_tokens(theme(id), dark),
     };
     let (alpha, rim_a) = glass_knobs(glass, dark);
-    let tint = if glass == "ember" { t.glass_ember_tint } else { t.glass_tint };
+    let tint = if glass == "ember" {
+        t.glass_ember_tint
+    } else {
+        t.glass_tint
+    };
     let background = mix_hex(&[t.background, tint.alpha(alpha)]);
     let bg = hex_to_oklch(&background);
     // The glass rim; where it all but vanishes into a pale card, the
     // theme's hairline keeps an edge.
     let rim = mix_hex(&[bg, ok(1.0, 0.0, 0.0).alpha(rim_a)]);
-    let border = if contrast(hex_to_oklch(&rim), bg, None) >= MIN_EDGE { rim } else { mix_hex(&[bg, t.border]) };
-    let hover = if dark { ok(1.0, 0.0, 0.0).alpha(0.1) } else { t.foreground.alpha(0.08) };
+    let border = if contrast(hex_to_oklch(&rim), bg, None) >= MIN_EDGE {
+        rim
+    } else {
+        mix_hex(&[bg, t.border])
+    };
+    let hover = if dark {
+        ok(1.0, 0.0, 0.0).alpha(0.1)
+    } else {
+        t.foreground.alpha(0.08)
+    };
     let [success, warn, error] = status_hues(dark);
     CardColors {
         background,
@@ -551,12 +642,15 @@ pub fn send_card_look(s: &mut State) {
         return;
     }
     s.settings.appearance.sent = Some(look.clone());
-    s.spawn(move |w| w.set_card_look(look), |s, r| {
-        if let Err(e) = r {
-            s.settings.appearance.sent = None;
-            eprintln!("irori: couldn't send the notification cards' look: {e}");
-        }
-    });
+    s.spawn(
+        move |w| w.set_card_look(look),
+        |s, r| {
+            if let Err(e) = r {
+                s.settings.appearance.sent = None;
+                eprintln!("irori: couldn't send the notification cards' look: {e}");
+            }
+        },
+    );
 }
 
 /// Marks that the look was carried over (or there was none to carry), so
@@ -582,9 +676,8 @@ pub fn carry_over(p: &mut Prefs, data_dir: &std::path::Path) {
             if theme != IRORI && THEMES.iter().any(|t| t.id == theme) {
                 p.set(THEME, theme);
             }
-            match c.get("mode").and_then(|v| v.as_str()) {
-                Some(m @ ("light" | "dark")) => p.set(MODE, m),
-                _ => {}
+            if let Some(m @ ("light" | "dark")) = c.get("mode").and_then(|v| v.as_str()) {
+                p.set(MODE, m);
             }
         }
     }
@@ -650,13 +743,21 @@ fn pick_theme(s: &mut State, id: &str) {
 /// Sets one of your colours ("accent" or "tint") and switches to Custom.
 fn pick_colour(s: &mut State, which: &str, hex: &str) {
     let hex = hex.trim().to_ascii_lowercase();
-    let hex = if hex.starts_with('#') { hex } else { format!("#{hex}") };
+    let hex = if hex.starts_with('#') {
+        hex
+    } else {
+        format!("#{hex}")
+    };
     if !valid_hex(&hex) {
         s.settings.appearance.error = "A colour is # and six hex digits, like #3b82f6.".into();
         return;
     }
     let (base, mut c) = custom_or_base(&s.prefs);
-    c.base = if base == "custom" { "blue".into() } else { base };
+    c.base = if base == "custom" {
+        "blue".into()
+    } else {
+        base
+    };
     if which == "accent" {
         c.accent = hex;
     } else {
@@ -671,8 +772,8 @@ fn pick_colour(s: &mut State, which: &str, hex: &str) {
 
 /// The swatches a colour field offers besides typing one.
 const PRESETS: &[&str] = &[
-    "#e5534b", "#e8762d", "#e0a526", "#8fbf3f", "#3fb37f", "#2bb5a8", "#3fa7d6", "#3b82f6", "#6b6cf0",
-    "#8b6cf0", "#c25fd6", "#e5609a", "#8b8f98", "#1f2937",
+    "#e5534b", "#e8762d", "#e0a526", "#8fbf3f", "#3fb37f", "#2bb5a8", "#3fa7d6", "#3b82f6",
+    "#6b6cf0", "#8b6cf0", "#c25fd6", "#e5609a", "#8b8f98", "#1f2937",
 ];
 
 pub fn view(s: &State, f: &mut Frame) -> El {
@@ -688,7 +789,15 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .iter()
         .map(|t| {
             let id = t.id;
-            swatch(f, id, t.name, t.note, theme_tokens(t, dark), cur == id, move |s| pick_theme(s, id))
+            swatch(
+                f,
+                id,
+                t.name,
+                t.note,
+                theme_tokens(t, dark),
+                cur == id,
+                move |s| pick_theme(s, id),
+            )
         })
         .collect();
     if let Some(c) = &saved {
@@ -709,11 +818,22 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let mut it = cards.into_iter().peekable();
     let mut i = 0;
     while it.peek().is_some() {
-        let mut r = row().key(format!("settings-theme-row-{i}")).w_full().gap(8.0);
+        let mut r = row()
+            .key(format!("settings-theme-row-{i}"))
+            .w_full()
+            .gap(8.0);
         for _ in 0..3 {
             match it.next() {
                 Some(c) => r = r.child(c),
-                None => r = r.child(el().w(0.0).grow(1.0).min_w(0.0).padding(8.0).border(1.0, rune::Color::TRANSPARENT)),
+                None => {
+                    r = r.child(
+                        el().w(0.0)
+                            .grow(1.0)
+                            .min_w(0.0)
+                            .padding(8.0)
+                            .border(1.0, rune::Color::TRANSPARENT),
+                    )
+                }
             }
         }
         grid = grid.child(r);
@@ -724,7 +844,11 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let colour = |f: &mut Frame, which: &'static str, label: &str, edit: &rune::TextEdit| -> El {
         let k = f.k;
         let value = edit.text.clone();
-        let shown = if valid_hex(&value) { super::hex(&value) } else { k.c.layer_02 };
+        let shown = if valid_hex(&value) {
+            super::hex(&value)
+        } else {
+            k.c.layer_02
+        };
         col()
             .key(format!("settings-colour-{which}"))
             .gap(6.0)
@@ -895,7 +1019,14 @@ fn swatch(
         .gap(6.0)
         .padding(8.0)
         .radius(8.0)
-        .border(if checked { 2.0 } else { 1.0 }, if checked { t.primary.color() } else { k.c.border_base })
+        .border(
+            if checked { 2.0 } else { 1.0 },
+            if checked {
+                t.primary.color()
+            } else {
+                k.c.border_base
+            },
+        )
         .role("radio")
         .checked(checked)
         .label(name.to_string())
@@ -913,7 +1044,13 @@ fn swatch(
                 .border(1.0, k.c.border_base)
                 .fill(t.background.color())
                 .child(el().size(16.0, 16.0).radius(8.0).fill(t.primary.color()))
-                .child(el().grow(1.0).h(6.0).radius(3.0).fill(t.foreground.color()).opacity(0.7)),
+                .child(
+                    el().grow(1.0)
+                        .h(6.0)
+                        .radius(3.0)
+                        .fill(t.foreground.color())
+                        .opacity(0.7),
+                ),
         )
         .child(label)
 }
@@ -927,8 +1064,14 @@ mod tests {
         vec![
             ("foreground on background", contrast(t.foreground, bg, None)),
             ("muted text on background", contrast(t.muted_fg, bg, None)),
-            ("primary text on primary", contrast(t.primary_fg, t.primary, Some(bg))),
-            ("accent text on accent", contrast(t.accent_fg, t.accent, Some(bg))),
+            (
+                "primary text on primary",
+                contrast(t.primary_fg, t.primary, Some(bg)),
+            ),
+            (
+                "accent text on accent",
+                contrast(t.accent_fg, t.accent, Some(bg)),
+            ),
         ]
     }
 
@@ -945,10 +1088,16 @@ mod tests {
 
     #[test]
     fn custom_colours_are_guarded() {
-        for accent in ["#ff0000", "#ffff00", "#00ff00", "#0000ff", "#ffffff", "#000000", "#808080"] {
+        for accent in [
+            "#ff0000", "#ffff00", "#00ff00", "#0000ff", "#ffffff", "#000000", "#808080",
+        ] {
             for tint in ["#000000", "#ffffff", "#ff00ff"] {
                 for dark in [false, true] {
-                    let c = Custom { base: "blue".into(), accent: accent.into(), tint: tint.into() };
+                    let c = Custom {
+                        base: "blue".into(),
+                        accent: accent.into(),
+                        tint: tint.into(),
+                    };
                     for (what, r) in checks(&custom_tokens(&c, dark)) {
                         if what.starts_with("primary") || what.starts_with("accent") {
                             assert!(r >= AA, "{accent} on {tint} dark={dark}: {what} is {r}");
@@ -1008,7 +1157,10 @@ mod tests {
             let got = serde_json::to_value(card_colors("forest", None, GLASS, dark)).unwrap();
             for (name, hex) in want.iter() {
                 let g = got[name].as_str().unwrap();
-                assert!(near(g, hex), "dark={dark} {name}: {g}, the React window's {hex}");
+                assert!(
+                    near(g, hex),
+                    "dark={dark} {name}: {g}, the React window's {hex}"
+                );
             }
         }
     }
@@ -1018,14 +1170,24 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let mut p = Prefs::load(d.path());
         let l = card_look(&p);
-        assert_eq!((l.theme.as_str(), l.mode.as_str(), l.glass.as_str()), (IRORI, "system", "frost"));
+        assert_eq!(
+            (l.theme.as_str(), l.mode.as_str(), l.glass.as_str()),
+            (IRORI, "system", "frost")
+        );
         assert_eq!((l.alpha, l.radius), (0.62, 14.0));
         p.set(THEME, "sakura");
         p.set(MODE, "light");
         let l2 = card_look(&p);
         assert_eq!((l2.theme.as_str(), l2.mode.as_str()), ("sakura", "light"));
         assert_ne!(l2.light, l.light);
-        p.set(CUSTOM, Custom { base: "forest".into(), accent: "#ff8800".into(), tint: "#112233".into() });
+        p.set(
+            CUSTOM,
+            Custom {
+                base: "forest".into(),
+                accent: "#ff8800".into(),
+                tint: "#112233".into(),
+            },
+        );
         p.set(THEME, "custom");
         let l3 = card_look(&p);
         assert_eq!(l3.theme, "custom");
@@ -1103,7 +1265,14 @@ mod tests {
         // A custom theme without colours falls back.
         p.set(THEME, "custom");
         assert_eq!(current(&p), IRORI);
-        p.set(CUSTOM, Custom { base: "forest".into(), accent: "#ff8800".into(), tint: "#112233".into() });
+        p.set(
+            CUSTOM,
+            Custom {
+                base: "forest".into(),
+                accent: "#ff8800".into(),
+                tint: "#112233".into(),
+            },
+        );
         assert_eq!(current(&p), "custom");
     }
 }

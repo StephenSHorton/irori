@@ -41,7 +41,14 @@ pub fn points(values: &[Option<f64>], slots: usize, max: Max) -> (Vec<[f32; 2]>,
 }
 
 /// The graph, `width` × `height` points, in `color`.
-pub fn sparkline(values: &[Option<f64>], slots: usize, max: Max, width: f32, height: f32, color: Color) -> El {
+pub fn sparkline(
+    values: &[Option<f64>],
+    slots: usize,
+    max: Max,
+    width: f32,
+    height: f32,
+    color: Color,
+) -> El {
     let (pts, left) = points(values, slots, max);
     let mut shape = Shape::new().view_box(W, H);
     if pts.len() > 1 {

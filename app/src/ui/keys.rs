@@ -104,15 +104,26 @@ mod tests {
             board: None,
         });
         assert!(run(&mut s, key(Key::Command('n'), true)));
-        assert_eq!(s.dialog, Some(Dialog::NewCard { board: Some("sp".into()) }));
+        assert_eq!(
+            s.dialog,
+            Some(Dialog::NewCard {
+                board: Some("sp".into())
+            })
+        );
     }
 
     #[test]
     fn escape_and_brackets_walk_the_history() {
         let mut s = State::default();
-        assert!(!run(&mut s, key(Key::Escape, false)), "nothing to go back to");
+        assert!(
+            !run(&mut s, key(Key::Escape, false)),
+            "nothing to go back to"
+        );
         s.nav.go(Route::Talk(None));
-        assert!(!run(&mut s, key(Key::Escape, false)), "Esc on a page that isn't a card's does nothing");
+        assert!(
+            !run(&mut s, key(Key::Escape, false)),
+            "Esc on a page that isn't a card's does nothing"
+        );
         assert_eq!(s.nav.route, Route::Talk(None));
         s.nav.open_card("c1".into());
         assert!(run(&mut s, key(Key::Escape, false)));
