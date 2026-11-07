@@ -301,8 +301,16 @@ impl Fold {
             .map(|t| self.shown(t))
             .collect();
         out.sort_by(|a, b| {
-            let pa = if a.parent.is_empty() { &a.id } else { &a.parent };
-            let pb = if b.parent.is_empty() { &b.id } else { &b.parent };
+            let pa = if a.parent.is_empty() {
+                &a.id
+            } else {
+                &a.parent
+            };
+            let pb = if b.parent.is_empty() {
+                &b.id
+            } else {
+                &b.parent
+            };
             (pa, !a.parent.is_empty(), &a.id).cmp(&(pb, !b.parent.is_empty(), &b.id))
         });
         out

@@ -2372,3 +2372,123 @@ fn sync_out_waits_until_another_device_holds_the_last_row() {
     let p = alone.log(irori_core::PERSONAL_LOG).unwrap();
     assert_eq!(p.taken_by, None, "{alone:?}");
 }
+
+/// Card #690: a Personal board's mission and finish reach the person's
+/// other device through the private log, and its reopen does too.
+#[test]
+fn a_personal_boards_mission_and_finish_reach_the_other_device() {
+    let (a, b) = paired();
+    let home = a
+        .core
+        .create_personal_board_with("House", "home", "Fix up the house", "Gate shuts")
+        .unwrap();
+    let on = |c: &Core| {
+        c.personal_boards()
+            .ok()
+            .and_then(|bs| bs.into_iter().find(|x| x.board_id == home))
+    };
+    wait_for(45, "b gets the board with its mission", || {
+        on(&b.core).is_some_and(|x| x.mission == "Fix up the house" && x.done_when == "Gate shuts")
+    });
+    b.core
+        .set_personal_board_mission(irori_core::PERSONAL_BOARD, "Everything else", "")
+        .unwrap();
+    wait_for(45, "a gets b's mission on the default board", || {
+        a.core
+            .personal_boards()
+            .is_ok_and(|bs| bs[0].mission == "Everything else")
+    });
+    a.core.finish_personal_board(&home, true).unwrap();
+    wait_for(45, "b sees it finished", || {
+        on(&b.core).is_some_and(|x| x.finished)
+    });
+    // b's coord reads it too: no card goes on it there.
+    let e = b
+        .core
+        .coord()
+        .create_task(
+            &b.core.user_sender().key,
+            coord::NewTask {
+                title: "late".into(),
+                board: home.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("is finished"), "{e}");
+    b.core.finish_personal_board(&home, false).unwrap();
+    wait_for(45, "a sees it reopened", || {
+        on(&a.core).is_some_and(|x| !x.finished)
+    });
+}
+
+/// Card #690: a space writes a board's mission or finish only once every
+/// member device stores unknown `space.*` rows (`tolerant` 1). A device
+/// last heard at `tolerant` 0 (spaces, but before v0.12.4) blocks it,
+/// named; a New board's mission rides its create row, so the spaces gate
+/// alone holds that.
+#[test]
+fn board_rows_wait_for_every_device_to_store_them() {
+    let (a, b) = paired();
+    let id = a.core.create_board("Wind", "wind").unwrap();
+    // As if a last heard b on an Irori with spaces but before v0.12.4.
+    a.core
+        .board_store(&id)
+        .unwrap()
+        .append_local(
+            "irori",
+            mesh::boardmesh::KIND_BOARD_HELLO,
+            &mesh::boardmesh::SavedHello {
+                device_id: b.core.device_id().to_string(),
+                core_version: "0.12.3".into(),
+                spaces: 1,
+                tolerant: 0,
+                seq: i64::MAX,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let short = b.core.device_id()[..6].to_string();
+    {
+        let net = a
+            .core
+            .create_space_board_with(&id, "Netcode", "net", "Ship it", "")
+            .unwrap();
+        let e = a
+            .core
+            .set_space_board_mission(&id, &net, "x", "")
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("0.12.4") && e.to_string().contains(&short),
+            "{e}"
+        );
+        let e = a.core.finish_space_board(&id, &net, true).unwrap_err();
+        assert!(e.to_string().contains(&short), "{e}");
+        let rows = a
+            .core
+            .board_store(&id)
+            .unwrap()
+            .list(&Filter {
+                kinds: vec![
+                    kinds::SPACE_BOARD_MISSION.into(),
+                    kinds::SPACE_BOARD_FINISHED.into(),
+                ],
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(rows.is_empty(), "nothing written");
+        assert_eq!(a.core.space_boards(&id).unwrap()[1].mission, "Ship it");
+    }
+    wait_for(45, "b opens the space", || b.core.board_coord(&id).is_ok());
+    wait_for(45, "a hears b store space rows", || {
+        a.core.board_rows_not_ready(&id).unwrap().is_empty()
+    });
+    a.core
+        .set_space_board_mission(&id, &id, "The game", "")
+        .unwrap();
+    wait_for(45, "b gets the first board's mission", || {
+        b.core
+            .space_boards(&id)
+            .is_ok_and(|bs| bs[0].mission == "The game")
+    });
+}

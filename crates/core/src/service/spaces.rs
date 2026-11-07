@@ -300,8 +300,8 @@ fn finishes(own: &str, rows: &[BoardRowAt], rules: &Rules) -> BTreeMap<String, S
             continue;
         };
         let by = (rules.person)(&row.at.dev);
-        let may = (rules.owner)(&row.at)
-            || (by.is_some() && by == *maker && (rules.member)(&row.at));
+        let may =
+            (rules.owner)(&row.at) || (by.is_some() && by == *maker && (rules.member)(&row.at));
         if may {
             state.insert(r.board_id, r.finished.then_some(r.at));
         }
@@ -377,7 +377,10 @@ pub(crate) fn fold_projects(
             && match me {
                 None => true,
                 Some((me, owner)) => {
-                    owner || made.get(&b.board_id).is_some_and(|m| m.as_deref() == Some(me))
+                    owner
+                        || made
+                            .get(&b.board_id)
+                            .is_some_and(|m| m.as_deref() == Some(me))
                 }
             };
     }
@@ -1120,7 +1123,8 @@ fn short(id: &str) -> &str {
 }
 
 fn check_mission(mission: &str, done_when: &str) -> Result<()> {
-    if mission.chars().count() <= MAX_BOARD_MISSION && done_when.chars().count() <= MAX_BOARD_MISSION
+    if mission.chars().count() <= MAX_BOARD_MISSION
+        && done_when.chars().count() <= MAX_BOARD_MISSION
     {
         return Ok(());
     }
@@ -1750,7 +1754,8 @@ impl super::Core {
         mission: &str,
         done_when: &str,
     ) -> Result<()> {
-        self.s.set_personal_board_mission(board_id, mission, done_when)
+        self.s
+            .set_personal_board_mission(board_id, mission, done_when)
     }
 
     /// Finishes or reopens one of Personal's boards; not its default
@@ -2053,7 +2058,13 @@ mod tests {
     fn a_mission_comes_from_the_create_then_the_newest_row_and_survives_a_rename() {
         let rows = [
             created("b1", "net", "Ship netcode", "bob", 1),
-            mission("b1", "Ship rollback netcode", "Two PCs play a match", "alice", 3),
+            mission(
+                "b1",
+                "Ship rollback netcode",
+                "Two PCs play a match",
+                "alice",
+                3,
+            ),
             mission("b1", "Lost to an older row", "", "bob", 2),
             at(row(kinds::SPACE_BOARD_RENAMED, "b1", "Netcode", ""), 5),
             mission("s", "The space's first board", "", "bob", 4),
@@ -2070,14 +2081,20 @@ mod tests {
         assert_eq!(got[0].mission, "The space's first board");
         // A board with none keeps none, and nobody wrote it.
         let got = projects(&[created("b2", "art", "", "bob", 1)], None);
-        assert_eq!((got[1].mission.as_str(), got[1].mission_by.as_str()), ("", ""));
+        assert_eq!(
+            (got[1].mission.as_str(), got[1].mission_by.as_str()),
+            ("", "")
+        );
     }
 
     #[test]
     fn a_finish_and_a_reopen_take_the_newest_whatever_order_the_rows_sit_in() {
         let base = [created("b1", "net", "", "bob", 1)];
         let mut rows = base.to_vec();
-        rows.extend([finish("b1", true, "bob", 5), finish("b1", false, "alice", 7)]);
+        rows.extend([
+            finish("b1", true, "bob", 5),
+            finish("b1", false, "alice", 7),
+        ]);
         for order in [rows.clone(), rows.iter().rev().cloned().collect()] {
             let got = projects(&order, None);
             assert!(!got[1].finished, "the reopen is newer: {got:?}");
@@ -2105,7 +2122,10 @@ mod tests {
             finish("b2", true, "eve", 6),
         ];
         let got = projects(&rows, Some(("person:bob", false)));
-        assert!(!got[0].finished && got[1].finished && !got[2].finished, "{got:?}");
+        assert!(
+            !got[0].finished && got[1].finished && !got[2].finished,
+            "{got:?}"
+        );
         // Who may now: never the first; Bob his own; an owner any.
         let may: Vec<bool> = got.iter().map(|b| b.may_finish).collect();
         assert_eq!(may, [false, true, false]);
@@ -2128,7 +2148,10 @@ mod tests {
         }
         let r = created("b1", "net", "Ship it", "bob", 1);
         let old: Old = serde_json::from_slice(&r.payload).unwrap();
-        assert_eq!((old.board_id.as_str(), old.name.as_str(), old.tag.as_str()), ("b1", "net", "net"));
+        assert_eq!(
+            (old.board_id.as_str(), old.name.as_str(), old.tag.as_str()),
+            ("b1", "net", "net")
+        );
         let v: serde_json::Value = serde_json::from_slice(&r.payload).unwrap();
         assert_eq!(v["mission"], "Ship it");
         // No mission: no field at all.
@@ -2136,7 +2159,11 @@ mod tests {
             serde_json::from_slice(&created("b2", "art", "", "bob", 1).payload).unwrap();
         assert!(v.get("mission").is_none() && v.get("doneWhen").is_none());
         // The tags and deletes an older device keeps never see these rows.
-        let rows = [r, mission("b1", "x", "", "bob", 2), finish("b1", true, "bob", 3)];
+        let rows = [
+            r,
+            mission("b1", "x", "", "bob", 2),
+            finish("b1", true, "bob", 3),
+        ];
         assert_eq!(tag_ids(&rows), [("net".to_string(), "b1".to_string())]);
         assert!(deletes("s", &rows, &|_| true).is_empty());
     }

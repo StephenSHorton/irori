@@ -57,6 +57,7 @@ fn space(dev: &str) -> Space {
             ("net".to_string(), NET.to_string()),
             ("art".to_string(), ART.to_string()),
         ],
+        finished: Vec::new(),
     };
     Space {
         _dir: dir,
@@ -726,4 +727,79 @@ fn a_delete_folded_by_a_catch_up_moves_the_cards() {
     c.catch_up().unwrap();
     assert_eq!(place(&c, "n"), (String::new(), "wind#1".to_string()));
     assert_eq!(c.task_ref("net#1").unwrap(), "n");
+}
+
+/// Finishes `board` (or reopens it) as if its row had just landed.
+fn set_finished(s: &Space, c: &Coord, seq: i64, at: u64, board: &str, finished: bool) {
+    {
+        let mut l = s.list.lock().unwrap();
+        l.finished.retain(|b| b != board);
+        if finished {
+            l.finished.push(board.into());
+        }
+    }
+    let raw = format!(r#"{{"boardId":"{board}","finished":{finished}}}"#);
+    land(
+        s,
+        c,
+        &event(
+            "dev-b",
+            seq,
+            at,
+            kinds::SPACE_BOARD_FINISHED,
+            raw.into_bytes(),
+        ),
+    );
+}
+
+/// Card #690: a finished board is read-only on this device (no new card,
+/// no move onto it, none of its cards reopens), its cards stay where they
+/// are with their refs, and a card another device put there still folds.
+#[test]
+fn a_finished_board_takes_no_card_here_and_keeps_its_own() {
+    let s = space("dev-a");
+    let c = coord_on(&s);
+    let n1 = card(&c, NET, "n1");
+    let n2 = card(&c, NET, "n2");
+    let w = card(&c, "", "w1");
+    let names = |ts: Vec<Task>| ts.into_iter().map(|t| t.title).collect::<Vec<_>>();
+    assert_eq!(names(c.open_on_board(NET)), ["n1", "n2"]);
+    c.set_task_state(ME, &n1.id, "completed", "").unwrap();
+    c.set_task_state(ME, &n2.id, "canceled", "").unwrap();
+    assert!(c.open_on_board(NET).is_empty());
+    assert_eq!(names(c.open_on_board("")), ["w1"]);
+    assert_eq!(
+        names(c.open_on_board("b")),
+        ["w1"],
+        "the first board by its id"
+    );
+
+    set_finished(&s, &c, 1, 100, NET, true);
+    let e = c
+        .create_task(
+            ME,
+            NewTask {
+                title: "late".into(),
+                board: NET.into(),
+                ..NewTask::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("board \"net\" is finished"), "{e}");
+    let e = c.move_task(ME, &w.id, NET).unwrap_err();
+    assert!(e.to_string().contains("is finished"), "{e}");
+    let e = c.reopen(ME, &n1.id).unwrap_err();
+    assert!(e.to_string().contains("is finished"), "{e}");
+    // Its cards keep their place and refs, and other boards are as before.
+    assert_eq!(place(&c, &n1.id), (NET.to_string(), "net#1".to_string()));
+    assert_eq!(card(&c, ART, "a1").short_ref(), "art#1");
+    // An older device's card onto it still folds: the check is a writer's.
+    land(&s, &c, &created("dev-b", 2, 200, "t-old", 3, NET));
+    assert_eq!(place(&c, "t-old"), (NET.to_string(), "net#3".to_string()));
+    // A restart reads the same, and a reopen opens it up again.
+    let c = coord_on(&s);
+    assert!(c.move_task(ME, &w.id, NET).is_err());
+    set_finished(&s, &c, 3, 300, NET, false);
+    c.reopen(ME, &n1.id).unwrap();
+    assert_eq!(c.move_task(ME, &w.id, NET).unwrap().board, NET);
 }

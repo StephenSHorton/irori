@@ -270,3 +270,102 @@ fn a_private_card_moves_and_a_deleted_personal_board_empties_onto_the_default() 
     let e = r.core.delete_personal_board(PERSONAL_BOARD).unwrap_err();
     assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
 }
+
+/// Card #690: a Personal board has a mission from New board on, edited
+/// later; it finishes only once its cards are done, is read-only while
+/// finished, and reopens. The default board never finishes. Every row is
+/// in the private log, with no gate.
+#[test]
+fn a_personal_board_has_a_mission_and_finishes_once_its_cards_are_done() {
+    let r = Rig::new();
+    let home = r
+        .core
+        .create_personal_board_with("House", "home", "Fix up the house", "")
+        .unwrap();
+    let got = |id: &str| {
+        r.core
+            .personal_boards()
+            .unwrap()
+            .into_iter()
+            .find(|b| b.board_id == id)
+            .unwrap()
+    };
+    let b = got(&home);
+    assert_eq!(
+        (b.mission.as_str(), b.mission_by.as_str()),
+        ("Fix up the house", "user")
+    );
+    assert!(b.may_finish && !b.finished);
+    assert!(!got(PERSONAL_BOARD).may_finish);
+    r.core
+        .set_personal_board_mission(&home, "Fix the fence", "The gate shuts")
+        .unwrap();
+    assert_eq!(
+        (got(&home).mission.as_str(), got(&home).done_when.as_str()),
+        ("Fix the fence", "The gate shuts")
+    );
+    let long = "x".repeat(irori_core::MAX_BOARD_MISSION + 1);
+    assert!(r.core.set_personal_board_mission(&home, &long, "").is_err());
+
+    // An open card holds the finish, and the refusal names it.
+    let t = card(&r, &home, "paint");
+    let e = r.core.finish_personal_board(&home, true).unwrap_err();
+    assert!(e.to_string().contains("home#1"), "{e}");
+    let open = r.core.open_on_board("", &home).unwrap();
+    assert_eq!(open.len(), 1);
+    let by = r.core.user_sender().key;
+    r.core
+        .coord()
+        .set_task_state(&by, &t.id, "completed", "")
+        .unwrap();
+    r.core.finish_personal_board(&home, true).unwrap();
+    let b = got(&home);
+    assert!(b.finished && !b.finished_at.is_empty());
+
+    // Read-only: no card, no mission edit, no reopened card.
+    let e = r
+        .core
+        .coord()
+        .create_task(
+            &by,
+            coord::NewTask {
+                title: "late".into(),
+                board: home.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("is finished"), "{e}");
+    assert!(r.core.set_personal_board_mission(&home, "x", "").is_err());
+    assert!(r.core.coord().reopen(&by, &t.id).is_err());
+    assert_eq!(
+        r.core.task_ref("home#1").unwrap(),
+        t.id,
+        "its refs still work"
+    );
+
+    // Reopened, it takes cards again, with its mission as it was.
+    r.core.finish_personal_board(&home, false).unwrap();
+    assert!(!got(&home).finished);
+    assert_eq!(got(&home).mission, "Fix the fence");
+    card(&r, &home, "stain");
+
+    let e = r
+        .core
+        .finish_personal_board(PERSONAL_BOARD, true)
+        .unwrap_err();
+    assert!(matches!(&e, BoardError::Coord(c) if c.kind() == CK::NotAllowed));
+    let rows = r
+        .core
+        .store()
+        .list(&Filter {
+            kinds: vec![
+                kinds::SPACE_BOARD_MISSION.into(),
+                kinds::SPACE_BOARD_FINISHED.into(),
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|e| e.actor == "user"));
+}
