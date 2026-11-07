@@ -339,6 +339,7 @@ fn device_row(s: &State, f: &Frame, d: &DeviceView) -> El {
             .grow(1.0)
             .min_w(0.0)
             .gap(6.0)
+            .center_y()
             .flex_wrap()
             .child(name_el)
             .child(text(small).font(k.ty.small).color(k.c.text_muted).wrap_anywhere().min_w(0.0)),

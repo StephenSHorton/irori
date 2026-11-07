@@ -183,9 +183,8 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                     .w_full()
                     .gap(12.0)
                     .center_y()
-                    .flex_wrap()
                     .child(icon(&icons::MERGE, 16.0).color(k.c.text_base))
-                    .child(text(owner_name(&st.repo_key)).font(k.ty.ui.mono()).color(k.c.text_base))
+                    .child(text(owner_name(&st.repo_key)).font(k.ty.ui.mono()).color(k.c.text_base).truncate().shrink().min_w(0.0))
                     .child(text(line).font(k.ty.small).color(k.c.text_muted))
                     .child(el().grow(1.0));
                 if !open {
