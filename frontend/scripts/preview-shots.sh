@@ -86,3 +86,6 @@ shot 28-meters-board "#board/sample-board-mlg" 1440 300      # a board's page: t
 shot 29-usage-none "?meters=open&usage=none"                 # no Claude usage reading yet
 shot 30-usage-stale "?meters=open&usage=stale"               # an old usage reading: "as of"
 shot 31-meters-nogpu "?meters=open&gpu=none"                 # a machine with no GPU
+shot 32-storage "?storage"                                   # Storage: what Irori keeps and its size (card #728)
+shot 33-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
+shot 34-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back

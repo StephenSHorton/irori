@@ -97,7 +97,7 @@ pub struct StorageItem {
     pub at: GoTime,
     /// A second line: the cards it belongs to, who sent it, ...
     pub detail: String,
-    /// The cards it belongs to, as short refs (`#12`, `mlg#4`), to open.
+    /// The cards on this device it belongs to (ids), to open.
     pub cards: Vec<String>,
     /// Whether a clean takes it.
     pub cleanable: bool,
@@ -533,7 +533,8 @@ impl Window {
                 let refs: Vec<String> = t
                     .cards
                     .iter()
-                    .filter_map(|id| cards.get(id).map(|(c, _)| c.short_ref()))
+                    .filter(|id| cards.contains_key(*id))
+                    .cloned()
                     .collect();
                 let titles: Vec<String> = t
                     .cards
@@ -648,7 +649,7 @@ impl Window {
                             ""
                         }
                     ),
-                    cards: card.map(|t| vec![t.short_ref()]).unwrap_or_default(),
+                    cards: card.map(|t| vec![t.id.clone()]).unwrap_or_default(),
                     bytes: bytes as i64,
                     at,
                     cleanable: !open,
