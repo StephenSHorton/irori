@@ -232,7 +232,17 @@ struct Member {
     mesh: BoardMesh,
     heard: Arc<Heard>,
     secrets: Arc<BoardSecrets>,
+    log: Arc<Store>,
+    // Last: fields drop in order, and Windows can't delete an open file.
     _tmp: tempfile::TempDir,
+}
+
+impl Drop for Member {
+    fn drop(&mut self) {
+        self.mesh.close();
+        // The mesh's tasks may still hold the log: close it so its files can go.
+        let _ = self.log.close();
+    }
 }
 
 fn secrets_at(dir: &std::path::Path, board: &str) -> Arc<BoardSecrets> {
@@ -242,13 +252,15 @@ fn secrets_at(dir: &std::path::Path, board: &str) -> Arc<BoardSecrets> {
 
 async fn member(net: &FakeNet, s: &Space, dev: &str, own: Option<OwnDevicesFn>) -> Member {
     let tmp = tempfile::tempdir().unwrap();
-    let log = Store::open_with(
-        tmp.path().join("board.db"),
-        dev,
-        Arc::new(store::Clock::new()),
-        store::OpenOptions::default(),
-    )
-    .unwrap();
+    let log = Arc::new(
+        Store::open_with(
+            tmp.path().join("board.db"),
+            dev,
+            Arc::new(store::Clock::new()),
+            store::OpenOptions::default(),
+        )
+        .unwrap(),
+    );
     let secrets = secrets_at(tmp.path(), S);
     secrets.add(1, "a1", &SECRET).unwrap();
     let heard = Arc::new(Heard::default());
@@ -257,7 +269,7 @@ async fn member(net: &FakeNet, s: &Space, dev: &str, own: Option<OwnDevicesFn>) 
         self_id: dev.into(),
         person_id: s.person_of(dev),
         core_version: "0.12.0-test".into(),
-        log: Arc::new(log),
+        log: log.clone(),
         verifier: s.verifier(),
         secrets: secrets.clone(),
         transport: Arc::new(net.keyed(s.device_pub(dev))),
@@ -277,6 +289,7 @@ async fn member(net: &FakeNet, s: &Space, dev: &str, own: Option<OwnDevicesFn>) 
         mesh: m,
         heard,
         secrets,
+        log,
         _tmp: tmp,
     }
 }
