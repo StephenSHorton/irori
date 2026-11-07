@@ -689,6 +689,9 @@ pub struct CardPermission {
     /// Whether Irori can answer the prompt from the card (its hook waits
     /// on it): Allow once and Deny. Else only Attach answers it.
     pub answerable: bool,
+    /// When Claude Code denies the call by itself, for a safety check it
+    /// asks even in bypass mode (RFC 3339); empty when it waits.
+    pub expires: String,
 }
 
 /// The done check the person sent back before this one (card #476).
@@ -3370,6 +3373,7 @@ fn permission_of(p: &People, bl: &coord::Blocker) -> Option<CardPermission> {
         input: w.input,
         rule: if answerable { w.rule } else { String::new() },
         answerable,
+        expires: w.expires,
     })
 }
 

@@ -397,7 +397,7 @@ export function CardOrder(p: Partial<B.CardOrder> = {}): B.CardOrder {
 
 /** CardPermission with Go's zero values for every field left out. */
 export function CardPermission(p: Partial<B.CardPermission> = {}): B.CardPermission {
-  return { "agent": AgentRef(), "tool": "", "input": "", "rule": "", "answerable": false, ...p } as B.CardPermission
+  return { "agent": AgentRef(), "tool": "", "input": "", "rule": "", "answerable": false, "expires": "", ...p } as B.CardPermission
 }
 
 /** CardPR with Go's zero values for every field left out. */

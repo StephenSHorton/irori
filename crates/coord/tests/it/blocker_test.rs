@@ -1393,6 +1393,7 @@ fn test_permission_wait_is_typed() {
         input: "cargo test".into(),
         rule: "Bash(cargo test)".into(),
         request: "h1".into(),
+        ..PermissionWait::default()
     };
     let (_, b) =
         e.c.raise(

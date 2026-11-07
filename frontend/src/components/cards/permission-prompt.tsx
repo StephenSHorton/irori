@@ -32,6 +32,14 @@ export const ALLOW_ONCE = "Allow once"
 export const ALWAYS_ALLOW = "Always allow"
 export const DENY = "Deny"
 
+// clock is an RFC 3339 time as the person's clock reads it, e.g. "6:47 PM".
+function clock(at: string): string {
+  const d = new Date(at)
+  return Number.isNaN(d.getTime())
+    ? "2 minutes after asking"
+    : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+}
+
 // The order the buttons come in, whatever order the item's options are.
 const ORDER = [ALLOW_ONCE, ALWAYS_ALLOW, DENY]
 
@@ -113,6 +121,12 @@ export function PermissionPrompt({
         >
           {p.input}
         </pre>
+      )}
+      {open && p.answerable && p.expires && (
+        <p className="text-[13px] break-words text-warning">
+          A safety check Claude Code asks even in bypass mode: it denies the
+          call by itself at {clock(p.expires)} unless you answer.
+        </p>
       )}
       {open && !p.answerable && (
         <p className="text-[13px] break-words text-muted-foreground">

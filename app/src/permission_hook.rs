@@ -99,10 +99,13 @@ fn run(input: &[u8]) -> Result<Option<String>, String> {
         .map_err(|e| e.to_string())?;
     rt.block_on(async {
         let mut down_since: Option<Instant> = None;
-        let mut answered = false;
+        // Once a Core answered here, a failed call (a slow answer, an app
+        // restart) is retried: its item may be on the card already.
+        let mut reached = false;
         loop {
             let got = match attach::client::dial(&dir).await {
                 Ok(c) => {
+                    reached = true;
                     c.post_json("/v1/permission/wait", body.clone(), CALL_WAIT)
                         .await
                 }
@@ -111,7 +114,6 @@ fn run(input: &[u8]) -> Result<Option<String>, String> {
             match got {
                 Ok((status, b)) => {
                     down_since = None;
-                    answered = true;
                     if status != 200 {
                         eprintln!(
                             "permission-hook: the Core answered {status}: {}",
@@ -125,7 +127,7 @@ fn run(input: &[u8]) -> Result<Option<String>, String> {
                 }
                 Err(e) => {
                     // Never reached: no Irori here, so nothing to wait on.
-                    if !answered {
+                    if !reached {
                         return Err(e.to_string());
                     }
                     let since = *down_since.get_or_insert_with(Instant::now);

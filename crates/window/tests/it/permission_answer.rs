@@ -53,6 +53,7 @@ fn always_allow_resolves_the_prompt_and_adds_the_rule() {
                     input: "cargo test".into(),
                     rule: "Bash(cargo test)".into(),
                     request: request.into(),
+                    ..PermissionWait::default()
                 }),
                 ..NewBlocker::default()
             },

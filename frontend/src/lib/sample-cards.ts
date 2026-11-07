@@ -531,6 +531,73 @@ export function sampleCards(now: Date): CardDetail[] {
             ],
             updatedAt: at(2),
           }),
+          // Card #682, as on #675: a bypass agent stopped on one of Claude
+          // Code's safety checks (rm on a target it can't resolve). No rule
+          // skips it, so no Always allow, and Claude Code denies it by
+          // itself 2 minutes after asking.
+          card({
+            id: "sample-card-spawn-safety",
+            short: "59",
+            title: "Flaky net test on the PC",
+            goal: "Find the race in the stall assertion.",
+            working: [
+              AgentRef({
+                ...agent(
+                  "sample07-synthetic-session",
+                  "sample-woodruff",
+                  "waiting"
+                ),
+                spawned: true,
+              }),
+            ],
+            blockers: [
+              CardBlocker({
+                id: "b-safety",
+                question:
+                  'Waiting for your permission: sample-woodruff wants to use Bash: for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                context:
+                  "sample-woodruff, the agent Irori started for #59, is stopped on a permission prompt. Allow once or Deny answers it from here. Or attach to it and answer in its terminal. It is one of Claude Code's safety checks, which it asks even in bypass mode and no allow rule skips; it denies the call by itself 2 minutes after asking.",
+                raisedBy: AgentRef({
+                  key: "irori",
+                  name: "Irori",
+                  status: "person",
+                }),
+                at: at(0),
+                options: [
+                  CardOption({
+                    answer: "Allow once",
+                    why: "Lets the agent run it this time; it asks again next time.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                  CardOption({
+                    answer: "Deny",
+                    why: "Tells the agent no; it goes on without it.",
+                    by: AgentRef({ key: "irori", name: "Irori" }),
+                    at: at(0),
+                  }),
+                ],
+                resolved: null,
+                state: "open",
+                permission: CardPermission({
+                  agent: AgentRef({
+                    ...agent(
+                      "sample07-synthetic-session",
+                      "sample-woodruff",
+                      "waiting"
+                    ),
+                    spawned: true,
+                  }),
+                  tool: "Bash",
+                  input:
+                    'TMPW=$(cygpath -u "$TEMP"); for f in $(find "$TMPW" -maxdepth 2 -name \'*.secrets\'); do rm -rf "$(dirname "$f")"; done',
+                  answerable: true,
+                  expires: new Date(Date.now() + 100_000).toISOString(),
+                }),
+              }),
+            ],
+            updatedAt: at(0),
+          }),
           // #71 was given by Spencer: nothing starts without the yes.
           card({
             id: "sample-card-given",

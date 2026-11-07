@@ -1273,6 +1273,10 @@ fn a_hooked_permission_prompt_is_answered_from_the_card() {
         wait_for(30, "the bypass item", || item("h3").is_some());
         let b = item("h3").unwrap();
         assert!(b.permission.as_ref().unwrap().rule.is_empty());
+        // Claude Code denies a safety check by itself after 2 minutes: the
+        // card says when.
+        assert!(!b.permission.as_ref().unwrap().expires.is_empty());
+        assert!(b.context.contains("2 minutes"), "{}", b.context);
         let answers: Vec<&str> = b.options.iter().map(|o| o.answer.as_str()).collect();
         assert_eq!(answers, ["Allow once", "Deny"]);
         pick(&b, "Allow once");
@@ -1288,6 +1292,21 @@ fn a_hooked_permission_prompt_is_answered_from_the_card() {
             item("h4").is_none()
         });
         assert_eq!(h4.join().unwrap(), PermissionDecision::Nothing);
+
+        // Two prompts up at once whose questions would match (one file, two
+        // edits) are two items: each pick answers its own.
+        let h7 = wait(ask("h7", "cat <<'EOF' > a\none", "default"));
+        wait_for(30, "the seventh item", || item("h7").is_some());
+        let h8 = wait(ask("h8", "cat <<'EOF' > a\ntwo", "default"));
+        wait_for(30, "the eighth item", || item("h8").is_some());
+        let (b7, b8) = (item("h7").unwrap(), item("h8").unwrap());
+        assert_ne!(b7.id, b8.id);
+        assert_ne!(b7.question, b8.question);
+        pick(&b8, "Deny");
+        assert_eq!(h8.join().unwrap(), PermissionDecision::Deny);
+        assert!(item("h7").is_some(), "the first prompt's item stays");
+        pick(&b7, "Allow once");
+        assert_eq!(h7.join().unwrap(), PermissionDecision::AllowOnce);
 
         // An agent can't answer its own prompt: resolving the item as an
         // agent allows nothing.

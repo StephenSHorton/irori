@@ -233,14 +233,11 @@ pub fn allow_rule(
     if mode == "bypassPermissions" {
         return String::new();
     }
-    if let Some(r) = suggested_rule(suggestions) {
-        return r;
-    }
     let field = |k: &str| input.get(k).and_then(|v| v.as_str()).unwrap_or("").trim();
-    match tool {
+    let r = suggested_rule(suggestions).unwrap_or_else(|| match tool {
         "Bash" | "PowerShell" => {
             let c = field("command");
-            if c.is_empty() || c.contains('\n') || c.chars().count() > 300 {
+            if c.is_empty() {
                 String::new()
             } else {
                 format!("{tool}({c})")
@@ -251,8 +248,21 @@ pub fn allow_rule(
             .unwrap_or_default(),
         t if t.starts_with("mcp__") => t.to_string(),
         _ => String::new(),
+    });
+    // What Settings › Agents takes: one line of at most 300 bytes.
+    if r.trim() != r || r.len() > RULE_MAX || r.contains(['\n', '\r']) {
+        return String::new();
     }
+    r
 }
+
+/// The longest rule the board's allow list takes (`valid_permissions`).
+const RULE_MAX: usize = 300;
+
+/// How long Claude Code holds a safety-check prompt (the ones it asks even
+/// in bypass mode) before it denies the call by itself, hook or no hook:
+/// seen live on the Mac, and in woodruff's transcript on the PC (#675).
+pub const SAFETY_PROMPT_LIMIT: Duration = Duration::from_secs(120);
 
 /// The first allow rule among Claude Code's `permission_suggestions`.
 fn suggested_rule(s: &serde_json::Value) -> Option<String> {
@@ -416,6 +426,44 @@ impl Services {
                 self.close_permission_wait(&t, b, "Superseded by the prompt Irori can answer.");
             }
         }
+        // Reserved before the item is written, so a sweep in between
+        // sees a young hook for this agent and doesn't close its item.
+        self.spawn.perm.pending.lock().unwrap().insert(
+            ask.id.clone(),
+            Pending {
+                agent: key.to_string(),
+                task_id: task_id.clone(),
+                blocker_id: String::new(),
+                rule: String::new(),
+                seen: Instant::now(),
+                raised: Instant::now(),
+                prompted: false,
+            },
+        );
+        let got = self.write_permission_wait(key, ask, &t);
+        let mut pending = self.spawn.perm.pending.lock().unwrap();
+        match got {
+            Some((blocker_id, rule)) => {
+                let p = pending.get_mut(&ask.id)?;
+                p.blocker_id = blocker_id;
+                p.rule = rule;
+                Some(p.clone())
+            }
+            None => {
+                pending.remove(&ask.id);
+                None
+            }
+        }
+    }
+
+    /// Writes the hook's item; its id and Always allow's rule.
+    fn write_permission_wait(
+        &self,
+        key: &str,
+        ask: &PermissionAsk,
+        t: &coord::Task,
+    ) -> Option<(String, String)> {
+        let task_id = t.id.clone();
         let tool = ask.tool_name.trim().to_string();
         let input = input_summary(&tool, &ask.tool_input);
         let rule = allow_rule(
@@ -447,24 +495,55 @@ impl Services {
         } else {
             tool.clone()
         };
+        let base = format!(
+            "{WAITING_PERMISSION}: {name} wants to use {what}{}",
+            if input.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", cut(&first_line(&input), 80))
+            }
+        );
+        // Each prompt its own item: the board merges a raise into an open
+        // item with the same question, and two prompts' first lines can
+        // match (parallel calls on one file, one heredoc start).
+        let mut question = base.clone();
+        let mut n = 2;
+        while t
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.question == question)
+        {
+            question = format!("{base} ({n})");
+            n += 1;
+        }
+        // Under bypass only Claude Code's safety checks prompt, and it
+        // denies one by itself after a while.
+        let safety = ask.permission_mode == "bypassPermissions";
+        let expires = if safety {
+            gocompat::time::GoTime::from_system(std::time::SystemTime::now() + SAFETY_PROMPT_LIMIT)
+                .utc()
+                .format_rfc3339()
+        } else {
+            String::new()
+        };
         let nb = NewBlocker {
-            question: format!(
-                "{WAITING_PERMISSION}: {name} wants to use {what}{}",
-                if input.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", cut(&first_line(&input), 80))
-                }
-            ),
+            question,
             context: format!(
                 "{name}, the agent Irori started for {}, is stopped on a permission prompt. \
                  Allow once or Deny answers it from here{}. Or attach to it and answer in its \
-                 terminal.",
+                 terminal.{}",
                 t.short_ref(),
                 if rule.is_empty() {
                     String::new()
                 } else {
                     "; Always allow also adds the rule to the board's allow list".to_string()
+                },
+                if safety {
+                    " It is one of Claude Code's safety checks, which it asks even in bypass \
+                     mode and no allow rule skips; it denies the call by itself 2 minutes after \
+                     asking."
+                } else {
+                    ""
                 }
             ),
             options,
@@ -478,32 +557,17 @@ impl Services {
                 input,
                 rule: rule.clone(),
                 request: ask.id.clone(),
+                expires,
             }),
             ..NewBlocker::default()
         };
-        let (_, b) = match self.coord.raise(SWEEPER, &task_id, nb) {
-            Ok(got) => got,
+        match self.coord.raise(SWEEPER, &task_id, nb) {
+            Ok((_, b)) => Some((b.id, rule)),
             Err(e) => {
                 logf(format_args!("permission wait on {}: {e}", t.short_ref()));
-                return None;
+                None
             }
-        };
-        let p = Pending {
-            agent: key.to_string(),
-            task_id,
-            blocker_id: b.id,
-            rule,
-            seen: Instant::now(),
-            raised: Instant::now(),
-            prompted: false,
-        };
-        self.spawn
-            .perm
-            .pending
-            .lock()
-            .unwrap()
-            .insert(ask.id.clone(), p.clone());
-        Some(p)
+        }
     }
 
     fn agent_label(&self, key: &str) -> String {
@@ -527,33 +591,16 @@ impl Services {
     }
 
     /// Raises or resolves each spawned card's "Waiting for your
-    /// permission" item from its agent's presence and the hooks waiting.
+    /// permission" items from its agents' presence and the hooks waiting,
+    /// agent by agent: a card can have several agents (its own, a step's).
     pub(crate) fn sweep_permission_waits(&self) {
         let me = self.device.id.as_str();
         let agents = self.presence.snapshot();
         let now = Instant::now();
-        // Hooks that stopped asking are gone (their session ended, or the
-        // prompt was answered at the terminal).
         let on_prompt: Vec<&presence::AgentCard> = agents
             .iter()
             .filter(|a| on_permission_prompt(a) && runs_here(&a.key, &a.device_id, me))
             .collect();
-        // By agent: its hook's item, and whether that item is too young to
-        // call the agent past it.
-        let hooked: HashMap<String, (String, bool)> = {
-            let mut pending = self.spawn.perm.pending.lock().unwrap();
-            pending.retain(|_, p| now.duration_since(p.seen) < HOOK_GONE);
-            for p in pending.values_mut() {
-                p.prompted |= on_prompt.iter().any(|a| a.key == p.agent);
-            }
-            pending
-                .values()
-                .map(|p| {
-                    let young = !p.prompted && now.duration_since(p.raised) < PROMPT_LAG;
-                    (p.agent.clone(), (p.blocker_id.clone(), young))
-                })
-                .collect()
-        };
         let since: HashMap<String, Instant> = {
             let mut seen = self.spawn.perm.prompt_seen.lock().unwrap();
             seen.retain(|k, _| on_prompt.iter().any(|a| &a.key == k));
@@ -562,39 +609,79 @@ impl Services {
             }
             seen.clone()
         };
-        // Card → its agent on a prompt.
-        let waiting: HashMap<String, &presence::AgentCard> = on_prompt
-            .iter()
-            .filter_map(|a| self.coord.spawned_card(&a.key).map(|t| (t, *a)))
-            .collect();
+        // Card → its agents on a prompt.
+        let mut waiting: HashMap<String, Vec<&presence::AgentCard>> = HashMap::new();
+        for a in &on_prompt {
+            if let Some(t) = self.coord.spawned_card(&a.key) {
+                waiting.entry(t).or_default().push(*a);
+            }
+        }
         let open = self.coord.list_tasks(&TaskFilter {
             open: true,
             ..TaskFilter::default()
         });
+        // Read after the cards: a hook that raised its item since is in
+        // here (it reserves before it writes).
+        let (hooked, young): (Vec<String>, Vec<String>) = {
+            let mut pending = self.spawn.perm.pending.lock().unwrap();
+            // Hooks that stopped asking are gone (their session ended).
+            pending.retain(|_, p| now.duration_since(p.seen) < HOOK_GONE);
+            for p in pending.values_mut() {
+                p.prompted |= on_prompt.iter().any(|a| a.key == p.agent);
+            }
+            let hooked = pending.values().map(|p| p.agent.clone()).collect();
+            // The hook fires before the session file says `waiting`: until
+            // presence shows the prompt (or PROMPT_LAG), its agent isn't
+            // past it.
+            let young = pending
+                .values()
+                .filter(|p| !p.prompted && now.duration_since(p.raised) < PROMPT_LAG)
+                .map(|p| p.agent.clone())
+                .collect();
+            (hooked, young)
+        };
+        let none = Vec::new();
         for t in open {
-            let mine = t
+            let here = waiting.get(&t.id).unwrap_or(&none);
+            let items: Vec<&Blocker> = t
                 .blockers
                 .iter()
-                .find(|b| b.open() && is_permission_wait(b));
-            match (waiting.get(&t.id), mine) {
-                (Some(a), None) => {
-                    // The hook raises its own item with more on it.
-                    if hooked.contains_key(&a.key)
-                        || since
-                            .get(&a.key)
-                            .is_some_and(|s| now.duration_since(*s) < HOOK_GRACE)
-                    {
-                        continue;
-                    }
-                    self.raise_presence_wait(&t, a);
+                .filter(|b| b.open() && is_permission_wait(b))
+                .collect();
+            for b in &items {
+                let agent = b.permission.as_ref().map_or("", |w| w.agent.as_str());
+                let still = if agent.is_empty() {
+                    // An older Irori's item names no agent: any of the card's.
+                    !here.is_empty()
+                } else {
+                    here.iter().any(|a| a.key == agent)
+                };
+                if still || young.iter().any(|k| k == agent) {
+                    continue;
                 }
-                (None, Some(b))
-                    if !hooked.values().any(|(id, young)| *young && *id == b.id)
-                        && self.decides_permission_wait(&t, me) =>
-                {
+                let decides = if agent.is_empty() {
+                    self.decides_permission_wait(&t, me)
+                } else {
+                    runs_here(agent, "", me)
+                };
+                if decides {
                     self.close_permission_wait(&t, b, "The agent is past the prompt.");
                 }
-                _ => {}
+            }
+            for a in here {
+                let has = items.iter().any(|b| {
+                    b.permission
+                        .as_ref()
+                        .is_none_or(|w| w.agent.is_empty() || w.agent == a.key)
+                });
+                // The hook raises its own item with more on it.
+                let grace = since
+                    .get(&a.key)
+                    .is_some_and(|s| now.duration_since(*s) < HOOK_GRACE);
+                if has || grace || hooked.contains(&a.key) {
+                    continue;
+                }
+                self.raise_presence_wait(&t, a);
             }
         }
     }
@@ -746,6 +833,22 @@ mod tests {
         );
         assert_eq!(
             allow_rule("Write", &json!({"file_path": "/a"}), "default", &none),
+            ""
+        );
+        // Settings › Agents takes one line of at most 300 bytes.
+        let long = "x".repeat(295);
+        assert_eq!(
+            allow_rule("Bash", &json!({"command": long}), "default", &none),
+            ""
+        );
+        let ok = "x".repeat(294);
+        assert_eq!(
+            allow_rule("Bash", &json!({"command": ok}), "default", &none).len(),
+            300
+        );
+        let odd = json!([{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "a\nb"}], "behavior": "allow"}]);
+        assert_eq!(
+            allow_rule("Bash", &json!({"command": "a"}), "default", &odd),
             ""
         );
         let sugg = json!([

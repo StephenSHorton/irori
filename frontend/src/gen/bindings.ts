@@ -1354,6 +1354,11 @@ export type CardPermission = {
 	 *  on it): Allow once and Deny. Else only Attach answers it.
 	 */
 	answerable: boolean,
+	/**
+	 *  When Claude Code denies the call by itself, for a safety check it
+	 *  asks even in bypass mode (RFC 3339); empty when it waits.
+	 */
+	expires: string,
 };
 
 /**  Done steps over all steps; total 0 means no bar. */

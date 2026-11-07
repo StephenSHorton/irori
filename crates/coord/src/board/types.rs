@@ -126,6 +126,9 @@ crate::go_struct! {
         /// The waiting hook's request, on the agent's device; empty when
         /// Irori only saw the prompt in presence and can't answer it.
         pub request: String = "request" "omit",
+        /// When Claude Code denies the call by itself (RFC 3339): set for a
+        /// safety check, which it holds for 2 minutes; empty otherwise.
+        pub expires: String = "expires" "omit",
     }
 }
 

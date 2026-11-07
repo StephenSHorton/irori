@@ -641,6 +641,7 @@ impl Window {
             .permission
             .as_ref()
             .filter(|w| !w.request.is_empty() && bl.open())
+            && irori_core::spawn_waiting::is_permission_wait(bl)
             && option >= 0
         {
             let Some(picked) = bl.options.get(option as usize) else {
