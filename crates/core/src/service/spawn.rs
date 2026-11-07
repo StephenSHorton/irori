@@ -2721,8 +2721,8 @@ impl Services {
 
     /// A start refused as not trusted says so on the card (card #699): the
     /// failed request alone showed only while it was the card's newest and
-    /// no question outranked it, so #677's went unseen. Once per refusal in
-    /// a row: not again while Irori's last line on the card is this one.
+    /// no question outranked it, so #677's went unseen. Once per device
+    /// and folder on a card: two devices taking turns failing add no more.
     fn say_not_trusted(&self, t: &Task, folder: &str) {
         let line = not_trusted_line(&self.this_device_name(), folder);
         let said = self
@@ -2730,9 +2730,7 @@ impl Services {
             .comments(&t.id)
             .unwrap_or_default()
             .iter()
-            .rev()
-            .find(|c| c.by == SWEEPER)
-            .is_some_and(|c| c.text == line);
+            .any(|c| c.by == SWEEPER && c.text == line);
         if said {
             return;
         }
@@ -3337,7 +3335,7 @@ impl Services {
 /// `device` doesn't trust `folder` (card #699).
 pub fn not_trusted_line(device: &str, folder: &str) -> String {
     format!(
-        "Irori couldn't start an agent for this card on {device}: Claude Code there doesn't trust {folder} yet. Use Trust and start on the card, or run `claude` in that folder once and accept its prompt; Irori looks again every minute."
+        "Irori couldn't start an agent for this card on {device}: Claude Code there doesn't trust {folder} yet. Use Trust and start on the card, or run `claude` in that folder once and accept its prompt; once it's trusted, Irori starts the agent at its next look."
     )
 }
 

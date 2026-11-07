@@ -198,6 +198,19 @@ export function StatePill({ card }: { card: CardSummary }) {
         Offered
       </Badge>
     )
+  // Card #699: offered to an agent that is gone, not answering or offline,
+  // nobody is working it; the holder line says which.
+  if (
+    card.holder.who.assigned &&
+    (card.holder.state === Holding.HoldGone ||
+      card.holder.state === Holding.HoldSilent ||
+      card.holder.state === Holding.HoldOffline)
+  )
+    return (
+      <Badge variant="warning" className="rounded-full">
+        Not taken up
+      </Badge>
+    )
   // Held, its holders idle a while, and nothing named that it waits on
   // (card #305): not calm Waiting, so the person can tell.
   if (idleUnnamed(card))

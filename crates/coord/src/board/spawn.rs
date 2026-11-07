@@ -730,7 +730,13 @@ impl Fold {
         let Some(t) = self.tasks.get(id) else {
             return Ok(false);
         };
-        if is_terminal(&t.state) || t.open_ask().is_some() || !contains(&t.assigned, key) {
+        // A held card is taken by nobody (parked_take_refusal): its agent
+        // is ended, not made its holder.
+        if is_terminal(&t.state)
+            || t.parked().is_some()
+            || t.open_ask().is_some()
+            || !contains(&t.assigned, key)
+        {
             return Ok(false);
         }
         let now = self.stamp();

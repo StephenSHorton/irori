@@ -98,6 +98,13 @@ function away(w: CardSummary["working"][number]): boolean {
   )
 }
 
+// downed says an offered agent won't take the card up (card #699): gone,
+// not answering or on an offline device. Not merely unknown here (a
+// shared board's agent this device doesn't know is not live, not dead).
+function downed(w: CardSummary["working"][number]): boolean {
+  return w.status === "gone" || w.status === NotAnswering || !!w.offline
+}
+
 function awayLine(w: CardSummary["working"][number], h: string): string {
   const name = w.key ? displayName(w) : "Its agent"
   if (h === Holding.HoldSilent || w.status === NotAnswering)
@@ -207,7 +214,7 @@ function row(c: CardSummary, now: number): Row {
     if (c.working.length) {
       // Card #699: an offered agent that is gone, not answering or offline
       // says so; it isn't a slow one about to take the card up.
-      if (c.working.every(away))
+      if (c.working.every(downed))
         return {
           state: "stuck",
           line: awayLine(c.working[0], c.holder.state),

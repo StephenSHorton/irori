@@ -809,6 +809,10 @@ describe("Home's groups (card #487)", () => {
       expect(rowState(c)).toEqual({ state: "stuck", line })
       expect(nobodyTook(c)).toBe(true)
     }
+    // Unknown here (a shared board's agent) is not dead: still offered.
+    expect(
+      rowState(away({ status: "unknown", live: false }, "assigned"))
+    ).toEqual({ state: "stuck", line: "Offered, not taken up yet" })
   })
   test("someone on it, or starting: Working, not counted", () => {
     const taken = ask({ state: "taken", taker: heron })
