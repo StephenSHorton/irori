@@ -296,32 +296,19 @@ describe("a huddle names people, never keys (#654)", () => {
   })
 
   test("the start sheet names who's told and keeps no transcript (#655)", () => {
-    const start = {
-      label: "#suzuri",
-      kind: "channel" as const,
-      people: ["Spencer", "Aiko"],
-    }
+    const start = { label: "#suzuri", kind: "channel" as const }
     const sheet = html(
       createElement(StartSheet, { start, onStart: no, onCancel: no })
     )
     noKeys(sheet)
     expect(sheet).toContain("Start a huddle in #suzuri")
-    expect(sheet).toContain("Spencer and Aiko get a notice")
+    expect(sheet).toContain("Everyone in #suzuri&#x27;s space gets a notice")
     expect(sheet).toContain("No transcript.")
     expect(sheet).toContain("Microphone")
-    expect(toldText({ ...start, people: [] })).toContain(
-      "The people in #suzuri get"
-    )
-    expect(toldText({ ...start, people: ["Spencer"] })).toContain(
-      "Spencer gets"
-    )
-    expect(
-      toldText({ ...start, people: ["A1", "B1", "C1", "D1", "E1"] })
-    ).toContain("A1, B1, C1 and 2 more get")
-    expect(toldText({ label: "Spencer", kind: "dm", people: [] })).toContain(
+    expect(toldText({ label: "Spencer", kind: "dm" })).toContain(
       "Spencer gets a notice"
     )
-    expect(toldText({ label: "#me", kind: "personal", people: [] })).toContain(
+    expect(toldText({ label: "#me", kind: "personal" })).toContain(
       "Your other devices"
     )
   })

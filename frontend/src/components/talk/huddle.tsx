@@ -263,8 +263,6 @@ export type StartWhere = {
   // channel (in a space), personal (a Personal channel: your own devices)
   // or dm.
   kind: "channel" | "personal" | "dm"
-  // The other people a channel's huddle tells, by name.
-  people: readonly string[]
 }
 
 // toldText is who a huddle's start reaches: the devices it rings, as the
@@ -275,13 +273,8 @@ export function toldText(w: StartWhere): string {
     return "Your other devices get a notice and can join. It's just you here."
   if (w.kind === "dm")
     return `${w.label} gets a notice on each of their devices, and so do your other devices. Either of you can join from any of them.`
-  const who =
-    w.people.length === 0
-      ? `The people in ${w.label}`
-      : w.people.length <= 3
-        ? namesText(w.people)
-        : `${namesText([...w.people.slice(0, 3), `${w.people.length - 3} more`])}`
-  return `${who} ${w.people.length === 1 ? "gets" : "get"} a notice on each of their devices, and so do your other devices. They can join from any of them; agents aren't told.`
+  // The ring goes to the whole space, not only the channel's members.
+  return `Everyone in ${w.label}'s space gets a notice on each of their devices, and so do your other devices. They can join from any of them; agents aren't told.`
 }
 
 // StartSheet is what Huddle opens before anything starts: who gets told,

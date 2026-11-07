@@ -288,14 +288,19 @@ export function ConversationView({
   // huddle; an agent's DM and a read-only one never do.
   const canHuddle =
     !conv.readOnly && (conv.kind === "channel" || (!!person && !waiting))
+  // The sheet closes when a huddle comes on here (yours or another's): its
+  // button turns into Join or In huddle and the popover goes with it.
+  const huddleOn = !!mine || livePeople > 0
+  const [wasOn, setWasOn] = useState(huddleOn)
+  if (huddleOn !== wasOn) {
+    setWasOn(huddleOn)
+    if (huddleOn) setSheetOpen(false)
+  }
   // Who the start sheet says gets told.
   const startWhere: StartWhere = {
     label: conv.kind === "channel" ? `#${plainLine(conv.name)}` : personName,
     kind:
       conv.kind !== "channel" ? "dm" : conv.spaceId ? "channel" : "personal",
-    people: conv.members
-      .filter((m) => m.kind === "person" && m.name !== "you")
-      .map(memberName),
   }
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")

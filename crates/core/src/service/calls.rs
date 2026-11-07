@@ -1150,6 +1150,10 @@ impl Services {
             // Tests' fake devices.
             return "Test microphone".into();
         }
+        if self.calls.platform.is_some() {
+            // The phone: cpal's AAudio only knows "Default Device".
+            return String::new();
+        }
         call::device::default_mic_name()
     }
 
