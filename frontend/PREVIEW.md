@@ -127,6 +127,10 @@ unchanged.
 | `/?refs` | Home's Working rows with a cross-board ref, `agility#1234` (card #586): at sm+ the list's ref column widens to fit it whole and every title in the list stays lined up |
 | `/?refs=long` | the same plus `platform-infrastructure#98765`: the ref column stops at 10rem, the ref is cut with "…" and its full ref on hover |
 | `/?notes` | Notes (card #413; one list, no approvals since #616): the kind chips, and the notes with their tags, source chip and author, agents' among them, each with Edit and Remove; one says Still true?, and one is tagged `board:mlg` (a note about a space) |
+| `/?storage` | Storage (card #728): what Irori keeps on this device, its size by kind with a bar, build output and Claude Code's folder measured after the rest |
+| `/?storage=files` | One kind's page: what it holds, what deleting does (and that it can't be undone), its items with Select and Delete; try `builds`, `updates`, `logs`, `briefs` |
+| `/?storage=log` | Irori's log: what its rows are, Clear done cards (it was Settings > Maintenance), Clear resolved threads, and the cleared cards and threads with Put back |
+| `/?storage=closed` | Closed boards (with #690): every closed board in Personal and the spaces, its space, when it closed and its description; a click opens it |
 | `/?open=board:task:sample-card-4` | (Notes) under Who's on it: the notes sample-heron got on wake and the tag that matched each |
 | `/?meters=open` | the top bar's hardware meters (card #599) open: Claude usage left first, 5-hour 62% and Weekly 39% with when each resets; then CPU, Memory, a row per disk, Network and a row per GPU (an RTX 5080 and the CPU's Radeon), each with its last two minutes, Task Manager style. Every page's top bar has the strip (desktop only): CPU and Mem first, "Claude 62% · 39% left" (hover for which is which), GPU, then Net and Disk (the system disk, C:) as the header widens; a board's page needs more room for each |
 | `/?meters=open&usage=none` | Claude usage left before any reading: "No reading yet: appears after a Claude Code reply on this computer"; the strip has no Claude part |

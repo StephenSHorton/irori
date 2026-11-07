@@ -18,6 +18,7 @@ mod permission_answer;
 mod pumps;
 mod services;
 mod spawned_actions;
+mod storage;
 mod terms;
 mod transcribe_e2e;
 mod trust_and_start;
