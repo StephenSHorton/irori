@@ -116,6 +116,13 @@ import {
   isTerminalToggle,
   toggleTermPanel,
 } from "@/lib/term-panel"
+import {
+  backShortcut,
+  forwardShortcut,
+  listenAppShortcuts,
+  NewCardShortcut,
+  SectionShortcuts,
+} from "@/lib/app-shortcuts"
 import { spawnedKeys } from "@/lib/roster-groups"
 import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
 import { startCallState } from "@/lib/call"
@@ -609,6 +616,10 @@ export function App() {
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
   }, [])
+  // The desktop shortcuts (card #733): Back and Forward, Cmd+1..5, Cmd+B,
+  // Cmd+, Cmd+N and Cmd+F run the commands below and the sidebar's,
+  // Settings' and the search box's.
+  useEffect(() => listenAppShortcuts(), [])
   // A jump from the palette closes the Held list and a message left open
   // under it (#218).
   useEffect(() => {
@@ -690,8 +701,29 @@ export function App() {
             .find((x) => x.boardId === section.board)
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
+    // Back and Forward (card #733): the window's history, as the mouse's
+    // side buttons and the browser's own keys move it.
+    {
+      id: "nav.back",
+      title: "Back",
+      group: "Go to",
+      order: 5,
+      shortcut: backShortcut(),
+      keywords: ["previous", "history"],
+      run: () => window.history.back(),
+    },
+    {
+      id: "nav.forward",
+      title: "Forward",
+      group: "Go to",
+      order: 5,
+      shortcut: forwardShortcut(),
+      keywords: ["next", "history"],
+      run: () => window.history.forward(),
+    },
     {
       id: "nav.home",
+      shortcut: SectionShortcuts[0],
       title: "Home",
       group: "Go to",
       order: 1,
@@ -700,6 +732,7 @@ export function App() {
     },
     {
       id: "nav.talk",
+      shortcut: SectionShortcuts[1],
       title: "Talk",
       group: "Go to",
       order: 2,
@@ -708,6 +741,7 @@ export function App() {
     },
     {
       id: "nav.notes",
+      shortcut: SectionShortcuts[2],
       title: "Notes",
       group: "Go to",
       order: 2,
@@ -716,6 +750,7 @@ export function App() {
     },
     {
       id: "nav.boards",
+      shortcut: SectionShortcuts[3],
       title: "Boards",
       group: "Go to",
       order: 2,
@@ -724,6 +759,7 @@ export function App() {
     },
     {
       id: "nav.notifications",
+      shortcut: SectionShortcuts[4],
       title: "Notifications",
       group: "Go to",
       order: 3,
@@ -740,6 +776,7 @@ export function App() {
     },
     {
       id: "card.new",
+      shortcut: NewCardShortcut,
       title:
         section.kind === "board" && !open
           ? section.board

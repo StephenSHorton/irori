@@ -432,8 +432,7 @@ pub(crate) fn each_row(st: &Store, mut f: Filter, mut fun: impl FnMut(&Event)) -
 pub(crate) fn summary_row(ev: &Event) -> bool {
     ev.seq == 0
         || (kinds::is_board_identity_kind(&ev.kind) && ev.kind != kinds::AGENT_CARD)
-        || ev.kind == kinds::SPACE_BOARD_CREATED
-        || ev.kind == kinds::SPACE_BOARD_RENAMED
+        || ev.kind.starts_with("space.board.")
 }
 
 pub(crate) fn created_task_id(ev: &Event) -> String {
@@ -1471,7 +1470,9 @@ impl Services {
                         let (st, v, id) = (Arc::downgrade(&st), v.clone(), b.id.clone());
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            super::spaces::board_list_in(&st, &id, &super::spaces::member_wrote(&v))
+                            super::spaces::with_space_rules(&v, |r| {
+                                super::spaces::board_list_in(&st, &id, r)
+                            })
                         })
                     }),
                     ..Default::default()

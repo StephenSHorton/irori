@@ -300,6 +300,15 @@ kinds! {
     SPACE_BOARD_CREATED = "space.board.created" => Replicated, Accepts;
     /// `{boardId, name, tag, by, at}`: a board in the space renamed.
     SPACE_BOARD_RENAMED = "space.board.renamed" => Replicated, Accepts;
+    /// `{boardId, description, by, at}`: a board's description (card
+    /// #690), empty clears it; the newest row stands. Stored unread by an
+    /// Irori at hello `tolerant` 1, so a space writes it only once every
+    /// member device is there.
+    SPACE_BOARD_DESCRIBED = "space.board.described" => Replicated, Accepts;
+    /// `{boardId, closed, by, at}`: a board closed (read-only, out of the
+    /// lists) or reopened (`closed: false`) (card #690); the newest valid
+    /// row stands. Gated like `space.board.described`.
+    SPACE_BOARD_CLOSED = "space.board.closed" => Replicated, Accepts;
     // merge desk (card #415, docs/design/merge-desk.md §7): the person's
     // private log in v1
     /// `{repoKey, enabled, takesPrs, pollDevice, trusted[], perPrOk, by,

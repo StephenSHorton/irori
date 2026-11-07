@@ -5,7 +5,7 @@
 // keys) to resize; the height is remembered. Desktop only: a phone runs
 // no shells (inline-terminals.md section 2).
 
-import { useRef } from "react"
+import { type PointerEvent as ReactPointerEvent, useRef } from "react"
 import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -78,10 +78,40 @@ export function TerminalPanel({
 // Edge is the panel's top edge: drag it, or focus it and press the arrow
 // keys, to resize. The height is remembered when the drag ends.
 function Edge({ height: kept }: { height: number }) {
-  const drag = useRef<{ y: number; h: number } | null>(null)
+  const dragging = useRef(false)
   // The height as shown: a remembered one taller than this window allows
   // is drawn at the most it can be, and dragging starts from there.
   const height = clampHeight(kept, window.innerHeight)
+  // The drag follows the pointer on the window, not through pointer
+  // capture, which WKWebView drops after the first move (card #730).
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || dragging.current) return
+    e.preventDefault()
+    dragging.current = true
+    const y0 = e.clientY
+    let h = height
+    // The page under the pointer would show its own cursor and select text.
+    document.body.style.cursor = "row-resize"
+    document.body.style.userSelect = "none"
+    const move = (ev: PointerEvent) => {
+      h = height + (y0 - ev.clientY)
+      setTermPanelHeight(h)
+    }
+    const end = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", end)
+      window.removeEventListener("pointercancel", end)
+      window.removeEventListener("blur", end)
+      dragging.current = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      setTermPanelHeight(h, true)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", end)
+    window.addEventListener("pointercancel", end)
+    window.addEventListener("blur", end)
+  }
   return (
     <div
       role="separator"
@@ -90,28 +120,9 @@ function Edge({ height: kept }: { height: number }) {
       aria-valuenow={height}
       aria-valuemin={MinHeight}
       tabIndex={0}
-      className="absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize outline-none hover:bg-primary/30 focus-visible:bg-primary/40"
-      onPointerDown={(e) => {
-        if (e.button !== 0) return
-        e.preventDefault()
-        e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { y: e.clientY, h: height }
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current
-        if (!d) return
-        setTermPanelHeight(d.h + (d.y - e.clientY))
-      }}
-      onPointerUp={(e) => {
-        const d = drag.current
-        if (!d) return
-        drag.current = null
-        setTermPanelHeight(d.h + (d.y - e.clientY), true)
-      }}
-      onPointerCancel={() => {
-        if (drag.current) setTermPanelHeight(height, true)
-        drag.current = null
-      }}
+      title="Drag to change the panel's height"
+      className="absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize touch-none outline-none hover:bg-primary/30 focus-visible:bg-primary/40"
+      onPointerDown={startDrag}
       onKeyDown={(e) => {
         if (e.key === "ArrowUp") setTermPanelHeight(height + Step, true)
         else if (e.key === "ArrowDown") setTermPanelHeight(height - Step, true)

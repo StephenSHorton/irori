@@ -43,6 +43,7 @@ import { rosterGroups } from "@/lib/roster-groups"
 import { AgentStrip, OnCards } from "@/components/cards/agent-strip"
 import { CheckSlots } from "@/components/cards/check-slots"
 import { useCommands } from "@/lib/commands"
+import { SidebarShortcut } from "@/lib/app-shortcuts"
 import type { BoardSummary } from "@/lib/boards"
 import type { CardSummary } from "@/lib/cards"
 import { plainLine, type Roster } from "@/lib/irori"
@@ -223,6 +224,7 @@ export function AppSidebar({
   useCommands([
     {
       id: "sidebar.fold",
+      shortcut: SidebarShortcut,
       title: folded ? "Open the sidebar" : "Fold the sidebar",
       keywords: ["nav", "collapse", "expand"],
       run: () => fold(!folded),
@@ -393,7 +395,7 @@ export function AppSidebar({
             current={here({ kind: "talk", id: "" })}
             count={talk}
             countTone="default"
-            countTitle="Threads an agent answered and DMs you haven't read"
+            countTitle="Threads and DMs with replies you haven't read, and channels that mention you"
             onClick={() => go({ kind: "talk", id: "" })}
           />
           {desks > 0 && (

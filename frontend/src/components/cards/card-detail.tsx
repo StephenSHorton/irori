@@ -132,7 +132,7 @@ import {
   TransferButton,
   WithdrawButton,
 } from "./share-dialog"
-import { boardsOf, Personal } from "@/lib/spaces"
+import { boardsOf, openBoards, Personal } from "@/lib/spaces"
 import { cardOwner, sharedBoard } from "@/lib/owners"
 
 // Answered is a note answer the person just sent: the note item leaves the
@@ -788,6 +788,21 @@ function DeleteButton({
   )
 }
 
+// useOnClosedBoard says whether the card sits on a closed board (card
+// #690), in a space or in Personal.
+function useOnClosedBoard(detail: CardDetail): boolean {
+  const { boards } = useBoards()
+  const { boards: personal } = usePersonalBoards()
+  if (detail.onBoard || detail.board) {
+    const space = boards.find((b) => b.boardId === detail.board)
+    if (!space) return false
+    const id = detail.spaceBoard || space.boardId
+    return !!boardsOf(space).find((x) => x.boardId === id)?.closed
+  }
+  const id = detail.spaceBoard || Personal
+  return !!personal.find((x) => x.boardId === id)?.closed
+}
+
 // ReopenBar is a finished card's line under the page header: how it ended
 // and Reopen, which brings it back with whoever held it. A comment on it
 // reopens it too when someone holds it. A parent whose subtasks have all
@@ -797,6 +812,19 @@ function ReopenBar({ detail }: { detail: CardDetail }) {
   const held = detail.working.length > 0
   const followsSubtasks =
     (detail.subtaskList?.length ?? 0) > 0 && detail.subtaskList.every(over)
+  const boardClosed = useOnClosedBoard(detail)
+  if (boardClosed) {
+    // A closed board is read-only (card #690): its cards stay done, and a
+    // comment doesn't reopen them.
+    return (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
+        <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
+          {overLabel(detail)}. Its board is closed: reopen the board to reopen
+          this card.
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 glass-panel">
       <span className="min-w-48 flex-1 text-[13px] text-muted-foreground">
@@ -878,22 +906,9 @@ function BoardActions({
             initialOpen={previewFlag("transfer") === detail.id}
           />
         )}
-        {shared &&
-          !detail.parent &&
-          !openAsk(detail) &&
-          boardsOf(shared).length > 1 && (
-            <MoveBoardButton
-              id={detail.id}
-              boards={boardsOf(shared)}
-              current={
-                !detail.spaceBoard || detail.spaceBoard === shared.boardId
-                  ? boardsOf(shared)[0].boardId
-                  : detail.spaceBoard
-              }
-              family={(detail.subtasks ?? 0) > 0}
-              initialOpen={previewFlag("move") === detail.id}
-            />
-          )}
+        {shared && !detail.parent && !openAsk(detail) && (
+          <SpaceMove detail={detail} space={shared} />
+        )}
         {/* The private card the work carries on in, else back to the grid:
             a withdrawn card is hidden and can't be reopened. */}
         {detail.onBoard.canWithdraw && !detail.parent && (
@@ -922,16 +937,45 @@ function BoardActions({
   )
 }
 
+// SpaceMove is Move on a shared card (card #558): to another of its
+// space's boards, never a closed one (card #690).
+function SpaceMove({
+  detail,
+  space,
+}: {
+  detail: CardDetail
+  space: BoardSummary
+}) {
+  const all = boardsOf(space)
+  const current =
+    !detail.spaceBoard || detail.spaceBoard === space.boardId
+      ? all[0].boardId
+      : detail.spaceBoard
+  const live = openBoards(all)
+  if (!live.some((b) => b.boardId !== current)) return null
+  return (
+    <MoveBoardButton
+      id={detail.id}
+      boards={live}
+      current={current}
+      family={(detail.subtasks ?? 0) > 0}
+      initialOpen={previewFlag("move") === detail.id}
+    />
+  )
+}
+
 // PersonalMove is Move on a private card (card #563): to another of
-// Personal's boards, once there is more than one.
+// Personal's boards that isn't closed, once there is one.
 function PersonalMove({ detail }: { detail: CardDetail }) {
-  const { boards } = usePersonalBoards()
-  if (boards.length < 2) return null
+  const { boards: all } = usePersonalBoards()
+  const current = detail.spaceBoard || Personal
+  const boards = openBoards(all)
+  if (!boards.some((b) => b.boardId !== current)) return null
   return (
     <MoveBoardButton
       id={detail.id}
       boards={boards}
-      current={detail.spaceBoard || Personal}
+      current={current}
       family={(detail.subtasks ?? 0) > 0}
       initialOpen={previewFlag("move") === detail.id}
     />
