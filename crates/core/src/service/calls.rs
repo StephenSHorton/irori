@@ -29,6 +29,7 @@ use irori_identity::Chain;
 use mesh::boardmesh::{BoardMesh, CallFrame, CallHooks, LivePeer};
 use mesh::owncalls::OwnCalls;
 
+use super::calls_share::{ShareHub, ShareNote, ShareNow, ShareSink, ShareSource};
 use super::{Core, Services};
 use crate::events::CoreEvent;
 
@@ -129,6 +130,8 @@ struct Active {
     generation: u64,
     engine: Arc<call::Engine>,
     handle: irori_net::call::CallHandle,
+    /// The call's screen share, both ends (#658).
+    share: Arc<ShareHub>,
     mesh: Ride,
     peers: BTreeMap<String, Slot>,
     /// Person ids of everyone seen in the call, this person included.
@@ -272,6 +275,26 @@ fn wait_on<T: Send + 'static>(
         let _ = tx.send(f.await);
     });
     rx.recv().map_err(|_| "the network stopped".to_string())
+}
+
+/// Runs future `f()` on a thread of its own with a current-thread runtime:
+/// capture's futures (ScreenCaptureKit, WGC) aren't `Send`.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn on_own_thread<T, F, Fut>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = T>,
+{
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map(|rt| rt.block_on(f()))
+            .map_err(|e| e.to_string())
+    })
+    .join()
+    .map_err(|_| "the screen capture crashed".to_string())?
 }
 
 /// A peer's datagrams, for the engine.
@@ -621,7 +644,43 @@ impl Services {
                     }
                 })
                 .collect();
+            let (share_now, share_note) = a.share.view();
+            let share = share_now.map(|n| {
+                let slot = a.peers.get(&n.device_id);
+                let path = slot
+                    .and_then(|s| s.conn.as_ref().filter(|_| !s.gone))
+                    .map(|c| match irori_net::path::report(c).kind {
+                        irori_net::path::PathKind::Direct => "direct",
+                        irori_net::path::PathKind::Relay => "relay",
+                        irori_net::path::PathKind::None => "",
+                    })
+                    .unwrap_or("")
+                    .to_string();
+                CallShare {
+                    person_id: if n.mine {
+                        self.person_id()
+                    } else {
+                        slot.map(|s| s.person_id.clone()).unwrap_or_default()
+                    },
+                    now: n,
+                    path,
+                }
+            });
+            let share_note = share_note.map(|n| match n {
+                ShareNote::Replaced(d) => CallShareNote::Replaced {
+                    person_id: a
+                        .peers
+                        .get(&d)
+                        .map(|s| s.person_id.clone())
+                        .unwrap_or_default(),
+                    device_id: d,
+                },
+                ShareNote::Failed(why) => CallShareNote::Failed(why),
+            });
             MyCall {
+                share,
+                share_note,
+                can_share: CAN_SHARE,
                 call_id: a.call_id.clone(),
                 conv_id: a.conv_id.clone(),
                 space_id: a.space_id.clone(),
@@ -856,6 +915,16 @@ impl Services {
         let mut people: BTreeSet<String> = peers.values().map(|s| s.person_id.clone()).collect();
         people.insert(self.person_id());
         people.retain(|p| !p.is_empty());
+        let w = Arc::downgrade(self);
+        let share = ShareHub::new(
+            me.clone(),
+            self.pairing.handle.clone(),
+            Arc::new(move || {
+                if let Some(s) = w.upgrade() {
+                    s.calls_changed();
+                }
+            }),
+        );
         let (generation, hang_up) = {
             let mut g = self.calls.inner.lock().expect("calls");
             g.generation += 1;
@@ -874,6 +943,7 @@ impl Services {
                 deafened: false,
                 engine,
                 handle,
+                share,
                 mesh: m.clone(),
                 peers,
                 people,
@@ -958,9 +1028,11 @@ impl Services {
                     .map(|(d, _)| d.clone()),
             );
             let f = self.frame(&a.call_id, &a.conv_id, &a.space_id, "join", roster);
-            (a.engine.inlet(), a.mesh.clone(), f)
+            (a.engine.inlet(), a.mesh.clone(), f, a.share.clone())
         };
-        let (inlet, m, f) = inlet;
+        let (inlet, m, f, share) = inlet;
+        // The control stream carries the share's messages (#658).
+        share.add_peer(&peer, conn.clone(), control);
         crate::logf(format_args!(
             "call {call_id}: {} connected to {peer} (conn {})",
             self.device.id,
@@ -972,13 +1044,10 @@ impl Services {
         let w = Arc::downgrade(self);
         let cid = call_id.to_string();
         self.pairing.handle.spawn(async move {
-            // Held for the connection's life: the control stream carries
-            // nothing yet, but closing it would end the stream for the
-            // peer.
-            let _control = control;
             while let Ok(d) = conn.read_datagram().await {
                 inlet.receive(&peer, d.to_vec());
             }
+            share.remove_peer(&peer, &conn);
             let Some(s) = w.upgrade() else { return };
             crate::logf(format_args!(
                 "call {cid}: {} lost {peer} (conn {}): {:?}",
@@ -1111,6 +1180,7 @@ impl Services {
                 .live
                 .remove(&a.call_id);
         }
+        a.share.close();
         a.handle.leave();
         drop(a.engine);
         // Not if another call has begun since: its service is the phone's
@@ -1126,6 +1196,107 @@ impl Services {
         }
         self.calls_changed();
         Ok(())
+    }
+
+    /// The call's share hub, while in a call.
+    fn share_hub(&self) -> Option<Arc<ShareHub>> {
+        self.calls
+            .inner
+            .lock()
+            .expect("calls")
+            .mine
+            .as_ref()
+            .map(|a| a.share.clone())
+    }
+
+    pub(crate) fn share_sources(&self) -> Result<Vec<ShareSource>, String> {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            on_own_thread(super::calls_share::sources)?
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            Err("this device can't share its screen".into())
+        }
+    }
+
+    /// Starts sharing source `id` in the call this device is in. Blocks
+    /// until the capture and the encoder are running (or failed).
+    pub(crate) fn share_start(&self, id: &str) -> Result<(), String> {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            use super::calls_share::{FPS, Picture, START_KBPS, picture_of, spawn_encoder};
+            let hub = self.share_hub().ok_or("join a huddle first")?;
+            let picture = picture_of(id)?;
+            let (kind, title, app) = match &picture {
+                Picture::Synthetic(..) => ("window".into(), "Test picture".into(), "Irori".into()),
+                Picture::Source(_) => {
+                    let found = on_own_thread(super::calls_share::sources)??
+                        .into_iter()
+                        .find(|s| s.id == id);
+                    match found {
+                        Some(s) => (s.kind, s.title, s.app),
+                        None => return Err("that window or screen is gone".into()),
+                    }
+                }
+            };
+            let info = irori_net::share::ShareInfo {
+                v: irori_net::share::SHARE_V,
+                share_id: new_call_id()?,
+                started_ms: now_ms(),
+                kind,
+                title,
+                app,
+                width: 0,
+                height: 0,
+                fps: FPS,
+                kbps: START_KBPS,
+            };
+            let ctl = hub.begin(info)?;
+            self.calls_changed();
+            if let Err(e) = spawn_encoder(Arc::downgrade(&hub), ctl.clone(), picture) {
+                hub.end(Some(&ctl), Some(e.clone()));
+                return Err(e);
+            }
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let _ = id;
+            Err("this device can't share its screen".into())
+        }
+    }
+
+    pub(crate) fn share_stop(&self) {
+        if let Some(h) = self.share_hub() {
+            h.end(None, None);
+        }
+        self.calls_changed();
+    }
+
+    pub(crate) fn share_attach(&self, sink: ShareSink) -> Result<(), String> {
+        let h = self.share_hub().ok_or("you're not in a huddle")?;
+        h.attach(sink);
+        Ok(())
+    }
+
+    pub(crate) fn share_detach(&self) {
+        if let Some(h) = self.share_hub() {
+            h.detach();
+        }
+    }
+
+    pub(crate) fn share_keyframe(&self) {
+        if let Some(h) = self.share_hub() {
+            h.keyframe();
+        }
+    }
+
+    pub(crate) fn share_note_seen(&self) {
+        if let Some(h) = self.share_hub() {
+            h.clear_note();
+        }
+        self.calls_changed();
     }
 
     pub(crate) fn call_mute(&self, on: bool) {
@@ -1239,6 +1410,39 @@ pub struct MyCall {
     pub peers: Vec<CallPeer>,
     /// Why the call isn't working, in plain words (the mic, the network).
     pub error: Option<String>,
+    /// The screen share on in the call, this device's or another's (#658).
+    pub share: Option<CallShare>,
+    /// Something to tell the person about sharing.
+    pub share_note: Option<CallShareNote>,
+    /// This device can share its screen (the desktops).
+    pub can_share: bool,
+}
+
+/// Whether this build can share a screen: capture and the hardware encoder
+/// are the Mac's and the PC's.
+pub const CAN_SHARE: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+
+/// The share on in a call.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CallShare {
+    pub now: ShareNow,
+    /// Who shares (this person when it is this device).
+    pub person_id: String,
+    /// How this device reaches the sharer: "direct", "relay", or "" (it is
+    /// this device, or not connected).
+    pub path: String,
+}
+
+/// Something to tell the person about sharing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallShareNote {
+    /// Someone else started sharing, so this device's share stopped.
+    Replaced {
+        device_id: String,
+        person_id: String,
+    },
+    /// This device's share stopped or couldn't start, and why.
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1318,6 +1522,46 @@ impl Core {
     /// Stops ringing for `call_id` here.
     pub fn call_dismiss(&self, call_id: &str) {
         self.s.call_dismiss(call_id)
+    }
+
+    /// What this device can share: its displays, then its windows. On the
+    /// Mac this needs the Screen Recording permission.
+    pub fn share_sources(&self) -> Result<Vec<ShareSource>, String> {
+        self.s.share_sources()
+    }
+
+    /// Shares source `id` (from [`Core::share_sources`]) in the huddle this
+    /// device is in, replacing any share on in it. Blocks until capture
+    /// runs.
+    pub fn share_start(&self, id: &str) -> Result<(), String> {
+        self.s.share_start(id)
+    }
+
+    /// Stops this device's share.
+    pub fn share_stop(&self) {
+        self.s.share_stop()
+    }
+
+    /// Watches the huddle's share: decoder configs and access units go to
+    /// `sink` (irori_net::share's window messages). Replaces an earlier
+    /// sink.
+    pub fn share_attach(&self, sink: ShareSink) -> Result<(), String> {
+        self.s.share_attach(sink)
+    }
+
+    /// Stops watching the share.
+    pub fn share_detach(&self) {
+        self.s.share_detach()
+    }
+
+    /// Asks the sharer for a keyframe (the window's decoder lost its place).
+    pub fn share_keyframe(&self) {
+        self.s.share_keyframe()
+    }
+
+    /// The person saw the share note: clear it.
+    pub fn share_note_seen(&self) {
+        self.s.share_note_seen()
     }
 
     /// On quit: leave any call and close the devices.

@@ -232,6 +232,34 @@ What the numbers say:
 
 **Recommendation for the share UI:** on macOS 14+, start a share with `SCContentSharingPicker` and capture on its filter with our own `SCStream` (as `share-picker.rs` does), feeding `share::Encoder`. No grant, no Settings trip, no re-asks, and it works on ad hoc builds too. Keep moq-video's capture (the persistent grant) for the PC, where WGC asks nothing, and as the Mac fallback below 14. `crates/share/grant-test.sh` and `grant-walk.sh` stay for anyone who wants to test the persistent grant by hand: the walk shows its own instructions on screen and notices each switch by itself.
 
+## Sending and watching (#658, 2026-11-07)
+
+What was built: a share rides the huddle's own `irori/call/1` connections (`crates/net/src/share.rs`, the wire; `crates/core/src/service/calls_share.rs`, the `ShareHub`; window commands `share_*` in `crates/window`; the stage in the frontend).
+
+- **Control** goes on the call's first bi stream, the `call` stream, which carried nothing past its open messages before: length-prefixed JSON `start` (who, which window, size, fps, kbps; sent again when the picture or rate changes), `stop`, `watch {on}` and `keyframe`. An unknown `t` is skipped, so a newer build can add messages.
+- **Video** is one uni stream per keyframe group: the label `share`, a header `{shareId, gop}`, then access units (`ts_us`, a key flag, Annex-B). GOP numbers rise through the whole share (one counter for every viewer's sender), and a viewer stops a GOP as soon as a newer one opens. A sender resets one viewer's stream, waits for the next keyframe and lowers the rate when an access unit goes out more than 500 ms behind its GOP's pace, a write blocks that long on QUIC's buffer, or its queue to that viewer fills; the GOP before a new keyframe is reset, not drained. Video streams sit below the control stream (`set_priority(-1)`); noq writes DATAGRAM frames before STREAM frames in every packet, so voice goes first anyway, and the rate cap is what keeps the path clear for it.
+- **Only watchers get video**: a viewer says `watch` when its window shows the stage, so a phone in the background costs the sharer nothing.
+- **Rate**: start at 1000 kbit/s, up a quarter every 2 s to **2500 kbit/s** while nobody falls behind (#653: 2.5 Mbit/s held on n0 with voice beside it untouched; 8 Mbit/s from the Mac didn't; the phone's first second over a relay was slow), down 30 % (to 300 at least) each time a viewer falls behind. A keyframe every 10 s unasked; asked-for keyframes at most one per 2 s, since a Mac keyframe is 0.6-1.2 MB.
+- **To the window**: the viewer's Rust turns each keyframe's SPS/PPS into an `avcC` description and the codec string (`avc1.640028` from the Mac's encoder), and every access unit into AVCC; a new config goes out whenever the parameter sets change (a resized window on the PC reopens the encoder). The window gets them as raw ArrayBuffers on a Tauri channel and feeds WebCodecs `VideoDecoder`, drawing to a canvas.
+- **One share at a time**: the newer `start` wins (its time, then the device id). A device sharing when a newer one starts stops its own and the stage says who took over. Starting a share over someone else's always counts as newer than theirs, whatever the clocks say, and a sharer that hears an older share answers with its own, so a skewed clock can't leave two shares running.
+- **Mac as sharer** uses moq-video's capture, so it needs the persistent Screen Recording grant (Developer ID builds keep it, #537); the picker path (no grant, #657) needs its own `SCStream` and is not built yet.
+
+**Checked on this Mac (M5 Max, Wi-Fi), 2026-11-07:**
+- `cargo test -p irori-core --test it huddle::a_share`: two real Cores in a two-person huddle on loopback iroh; one shares the test picture through VideoToolbox, the other's sink gets a config, then 20+ AVCC access units starting at a keyframe; the other sharing replaces it and the first is told who; stop clears both.
+- `examples/share-call-dev.rs`: sharer and viewer `ShareHub`s in one process on n0's relays, 1080p test picture (harder than a real window: 1.2 MB keyframes), delay from just before the encoder starts + the frame's time to the viewer's sink (an upper bound):
+
+| Path | Frames | Delay p50 / p95 / max | Over 1 s | Keyframes (delay p50 / max) |
+| --- | --- | --- | --- | --- |
+| direct | 201 of ~200 | 63 / 66 / 123 ms | 0 | 3 (119 / 123 ms) |
+| relay only (n0) | 280 of ~300 | 118 / 159 / 940 ms | 0 | 3 (412 / 940 ms) |
+| direct, after the review fixes | 202 of ~200 | 72 / 74 / 134 ms | 0 | 3 (117 / 134 ms) |
+| relay only (n0), after the review fixes | 280 of ~300 | 133 / 187 / 1000 ms | 0 | 3 (426 / 1000 ms) |
+
+  The worst frame each time is the first keyframe. The missing relay frames are the first second's, dropped while the first keyframe (1.2 MB) crawled through the relay and the viewer waited for it.
+- **WKWebView decodes it**: a WKWebView on macOS 26 (WebKit 605.1.15) decoded all 30 access units of `frontend/public/preview/share-fixture.bin` (this Mac's VideoToolbox output through the same conversion: `avc1.64001f`, avcC description, AVCC chunks) with `VideoDecoder` and drew them on a canvas: `docs/img/658/wkwebview-decode.png`. Chromium (the preview, WebView2's engine and Android WebView's) draws the same fixture in the stage screenshots.
+
+**Not checked here** (the person tries these in a release, #658): the PC as sharer through Media Foundation over the call (#666 measured its encoder alone), the Pixel as viewer, and a huddle between machines. A Mac sharer's keyframes (0.6-1.2 MB, VideoToolbox has no size cap) take ~0.4-0.9 s over n0; the PC's NVENC keyframes are a fifth of that.
+
 ## Next steps (spikes, in order)
 1. **Picker without TCC:** test `11_content_picker` on an ad-hoc-signed build, before and after a rebuild.
 2. **Relay throughput:** 2 Mbps sustained plus bursts, relay-only, Mac↔PC, via `spike-call`.

@@ -23,7 +23,7 @@ pub mod grant;
 mod synthetic;
 
 pub use chunk::{Chunk, is_keyframe};
-pub use synthetic::synthetic_frame;
+pub use synthetic::{i420_frame, synthetic_frame};
 
 /// The raw picture type a [`Capture`] yields and an [`Encoder`] takes.
 pub use moq_video::Frame;

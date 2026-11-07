@@ -71,7 +71,10 @@ pub use crate::service::boards::{
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
     migrate_board_files, new_board_id, valid_board_id,
 };
-pub use crate::service::calls::{CallPeer, CallSnapshot, LiveCall, MyCall, Ringing};
+pub use crate::service::calls::{
+    CAN_SHARE, CallPeer, CallShare, CallShareNote, CallSnapshot, LiveCall, MyCall, Ringing,
+};
+pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::invites::{InviteStatus, InviteWatchFn};
 pub use crate::service::space_move::{MOVED_FIELD, MoveOpts, SpaceMove};
@@ -93,6 +96,15 @@ pub use crate::service::{
 };
 pub use capture::DecisionView;
 pub use events::{CoreEvent, Feed, Hub, Topic};
+pub use irori_net::share::ShareInfo;
+/// The share hub's insides, for `examples/share-call-dev.rs` (#658): not an
+/// API.
+#[doc(hidden)]
+pub mod share_dev {
+    pub use crate::service::calls_share::{EncCtl, ShareHub};
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub use crate::service::calls_share::{Picture, picture_of, spawn_encoder};
+}
 
 /// Go `core.ErrAlreadyRunning`'s text.
 pub const ALREADY_RUNNING: &str = "irori is already running on this device";

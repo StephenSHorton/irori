@@ -19,6 +19,7 @@ import {
   HeadphonesIcon,
   MicIcon,
   MicOffIcon,
+  MonitorUpIcon,
   PhoneOffIcon,
   TriangleAlertIcon,
   XIcon,
@@ -53,9 +54,12 @@ import {
   type Health,
 } from "@/lib/call"
 import { useNow } from "@/lib/irori"
+import type { CallShareView } from "@/lib/share"
 import { nameOr } from "@/lib/names"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
+
+import { ShareButton } from "./share"
 
 // useCallPart is one part of the call picture (lib/call.ts's store): the
 // component renders again only when that part changes, not on every
@@ -114,6 +118,8 @@ type Who = {
   muted: boolean
   // Nothing plays there: only this device knows its own.
   deafened: boolean
+  // Shares a window or screen in the huddle (#658).
+  sharing?: boolean
 }
 
 function peerWho(p: CallPeerView): Who {
@@ -140,9 +146,22 @@ function selfWho(m: CallMineView): Who {
   }
 }
 
+// sharesFrom is whether the share comes from peer `p`: its person, and the
+// device when the share names one (your own other device).
+function sharesFrom(s: CallShareView, p: CallPeerView): boolean {
+  if (s.mine || s.name !== p.name) return false
+  return !s.device || s.device === p.device
+}
+
 // whoIn is everyone in the huddle, you first.
 function whoIn(m: CallMineView): Who[] {
-  return [selfWho(m), ...m.peers.filter((p) => p.phase !== "gone").map(peerWho)]
+  const s = m.share ?? null
+  return [
+    { ...selfWho(m), sharing: !!s?.mine },
+    ...m.peers
+      .filter((p) => p.phase !== "gone")
+      .map((p) => ({ ...peerWho(p), sharing: !!s && sharesFrom(s, p) })),
+  ]
 }
 
 function Avatar({ w, size = "md" }: { w: Who; size?: "sm" | "md" }) {
@@ -369,8 +388,14 @@ function Tile({ w }: { w: Who }) {
     >
       <Avatar w={w} />
       <span className="grid min-w-0 flex-1">
-        <span className="truncate text-[13px] font-medium text-ink">
-          {w.name}
+        <span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-ink">
+          <span className="truncate">{w.name}</span>
+          {w.sharing && (
+            <MonitorUpIcon
+              className="size-3.5 shrink-0 text-info"
+              aria-label="sharing"
+            />
+          )}
         </span>
         <span
           className="truncate text-[11px] text-muted-foreground"
@@ -483,21 +508,85 @@ function ErrorLine({ text }: { text: string }) {
 }
 
 // CallPanel is the huddle beside the posts (or the whole page on a phone):
-// who's in it, how each device reaches you, and Mute, Deafen and Leave.
+// who's in it, how each device reaches you, and Mute, Deafen, Share (a
+// desktop's, #658) and Leave.
 export function CallPanel({
   mine,
   wide,
+  controlsOnly,
   onMute,
   onDeafen,
   onLeave,
+  onShare,
+  onStopShare,
+  onShareNoteSeen,
 }: {
   mine: CallMineView
   wide?: boolean
+  // Just the controls (and any note): a phone's share stage fills the rest.
+  controlsOnly?: boolean
   onMute: (on: boolean) => void
   onDeafen: (on: boolean) => void
   onLeave: () => void
+  onShare?: (sourceId: string) => void
+  onStopShare?: () => void
+  // The share's note line was dismissed (its ×).
+  onShareNoteSeen?: () => void
 }) {
   const who = whoIn(mine)
+  const share = mine.share ?? null
+  const controls = (
+    <div className="flex items-center justify-center gap-2 border-t border-border px-3 py-2.5">
+      <MuteButton muted={micOff(mine)} onMute={onMute} size="icon-lg" />
+      <DeafenButton
+        deafened={mine.deafened}
+        onDeafen={onDeafen}
+        size="icon-lg"
+      />
+      {mine.canShare && onShare && onStopShare && (
+        <ShareButton share={share} onStart={onShare} onStop={onStopShare} />
+      )}
+      <Button
+        size="icon-lg"
+        variant="destructive"
+        title="Leave the huddle"
+        aria-label="Leave the huddle"
+        onClick={onLeave}
+      >
+        <PhoneOffIcon />
+      </Button>
+    </div>
+  )
+  const notes = (mine.error || mine.shareNote) && (
+    <div className="grid gap-1 px-3 pb-2">
+      {mine.error && <ErrorLine text={mine.error} />}
+      {mine.shareNote && (
+        <p className="flex items-start gap-1.5 text-[12px] text-muted-foreground">
+          <MonitorUpIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">{mine.shareNote}</span>
+          {onShareNoteSeen && (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className="-my-0.5 shrink-0"
+              title="Dismiss"
+              aria-label="Dismiss"
+              onClick={onShareNoteSeen}
+            >
+              <XIcon />
+            </Button>
+          )}
+        </p>
+      )}
+    </div>
+  )
+  if (controlsOnly)
+    return (
+      <div aria-label="Huddle" className="shrink-0">
+        {notes && <div className="pt-1">{notes}</div>}
+        {controls}
+      </div>
+    )
   return (
     <aside
       aria-label="Huddle"
@@ -516,11 +605,7 @@ export function CallPanel({
           {who.length === 1 ? "just you" : `${who.length} in it`}
         </span>
       </div>
-      {mine.error && (
-        <div className="px-3 pb-2">
-          <ErrorLine text={mine.error} />
-        </div>
-      )}
+      {notes}
       <div className="grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto px-3 pb-3">
         {who.map((w, i) => (
           <Tile key={i} w={w} />
@@ -532,23 +617,7 @@ export function CallPanel({
           </p>
         )}
       </div>
-      <div className="flex items-center justify-center gap-2 border-t border-border px-3 py-2.5">
-        <MuteButton muted={micOff(mine)} onMute={onMute} size="icon-lg" />
-        <DeafenButton
-          deafened={mine.deafened}
-          onDeafen={onDeafen}
-          size="icon-lg"
-        />
-        <Button
-          size="icon-lg"
-          variant="destructive"
-          title="Leave the huddle"
-          aria-label="Leave the huddle"
-          onClick={onLeave}
-        >
-          <PhoneOffIcon />
-        </Button>
-      </div>
+      {controls}
     </aside>
   )
 }

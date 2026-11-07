@@ -40,3 +40,10 @@ pub fn synthetic_frame(width: u32, height: u32, n: u64, at: Duration) -> Result<
     let i420 = moq_video::I420::new(moq_video::Size::new(width, height), data)?;
     Ok(Frame::new(moq_video::Surface::I420(i420), timestamp(at)?))
 }
+
+/// A frame from planar I420 bytes (Y, then U, then V; each chroma plane a
+/// quarter of the luma), for feeding the encoder a picture from a file.
+pub fn i420_frame(width: u32, height: u32, data: Vec<u8>, at: Duration) -> Result<Frame> {
+    let i420 = moq_video::I420::new(moq_video::Size::new(width, height), data)?;
+    Ok(Frame::new(moq_video::Surface::I420(i420), timestamp(at)?))
+}

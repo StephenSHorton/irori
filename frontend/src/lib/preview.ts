@@ -15,8 +15,9 @@
 //                   pressing it hears a sample sentence (lib/voice.ts)
 //   ?call=<state>   huddles (#654) on lib/call.ts's stand-in: start (one
 //                   on in #netcode, ringing here), sheet (the open
-//                   channel's Huddle start sheet, #655) or live (you're in
-//                   #suzuri's); share and transcript are still the #571
+//                   channel's Huddle start sheet, #655), live (you're in
+//                   #suzuri's), share (and Spencer shares a window, #658)
+//                   or sharing (you do); transcript is still the #571
 //                   mock-up (components/talk/call-mock.tsx)
 //   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue

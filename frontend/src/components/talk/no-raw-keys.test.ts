@@ -219,6 +219,7 @@ const {
   toldText,
 } = await import("./huddle")
 const { huddleNames } = await import("@/lib/call")
+const { ShareStage } = await import("./share")
 
 describe("a huddle names people, never keys (#654)", () => {
   // Ids a huddle carries that must never show.
@@ -249,6 +250,9 @@ describe("a huddle names people, never keys (#654)", () => {
       { ...peer, name: "Aiko", phase: "connecting" },
     ],
     error: null,
+    share: null,
+    canShare: false,
+    shareNote: null,
   }
   const no = () => {}
 
@@ -278,6 +282,61 @@ describe("a huddle names people, never keys (#654)", () => {
     expect(panel).toContain("another person")
     expect(panel).toContain("Aiko")
     expect(panel).toContain("direct · 26 ms")
+  })
+
+  test("a share names its sharer, never a key (#658)", () => {
+    const share = {
+      shareId: callId,
+      mine: false,
+      // The second peer's (a key nothing names).
+      name: `person:${card}`,
+      device: "",
+      kind: "window",
+      title: "Windows Terminal",
+      app: "Windows Terminal",
+      width: 1920,
+      height: 1080,
+      fps: 10,
+      kbps: 1800,
+      path: "relay",
+    }
+    const stage = html(createElement(ShareStage, { share }))
+    noKeys(stage)
+    expect(stage).toContain("another person")
+    expect(stage).toContain("is sharing a window: Windows Terminal")
+    expect(stage).toContain("1080p · 10 fps · relay")
+    // No decoder in a server render: it says so in plain words.
+    expect(stage).toContain("can&#x27;t show shared screens")
+    const panel = html(
+      createElement(CallPanel, {
+        mine: {
+          ...mine,
+          share,
+          canShare: true,
+          shareNote: "Aiko started sharing, so yours stopped.",
+        },
+        onMute: no,
+        onDeafen: no,
+        onLeave: no,
+        onShare: no,
+        onStopShare: no,
+        onShareNoteSeen: no,
+      })
+    )
+    noKeys(panel)
+    expect(panel).toContain('aria-label="sharing"')
+    expect(panel).toContain('aria-label="Share a window or screen"')
+    expect(panel).toContain("so yours stopped")
+    expect(panel).toContain('aria-label="Dismiss"')
+    const yours = html(
+      createElement(ShareStage, {
+        share: { ...share, mine: true, name: "you", path: "" },
+        onStop: no,
+      })
+    )
+    noKeys(yours)
+    expect(yours).toContain("You&#x27;re sharing a window: Windows Terminal")
+    expect(yours).toContain("Stop sharing")
   })
 
   test("deafened: the panel says so and offers Undeafen (#655)", () => {
