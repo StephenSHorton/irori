@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# rune-ui (card #674): the Tauri phone app is gone, so `cargo tauri android
+# build` below has nothing to build until Rune runs on Android (#677). Kept
+# for its signing steps and because crates/update tests read its asset name.
 # Builds the signed Android release APK on the Mac and, with --publish, adds
 # it to the draft release scripts/release.ps1 made on the PC (card #269;
 # there is no CI). Run it after scripts/release-mac.sh, before --finalize.

@@ -17,7 +17,7 @@
 # Go v0.5.x updater, which installs the first Rust release):
 # crates/update/tests/it/release_names.rs reads the names below.
 #
-# Needs bun, cargo, NSIS (makensis), and gh for -Publish/-Finalize.
+# Needs cargo, NSIS (makensis), and gh for -Publish/-Finalize.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [switch]$Publish,
@@ -93,23 +93,14 @@ if (-not $SkipChecks) {
     if ($LASTEXITCODE -ne 0) { throw "scripts/check.sh failed" }
 }
 
-Push-Location frontend
-& bun install --frozen-lockfile
-if ($LASTEXITCODE -ne 0) { throw "bun install failed" }
-& bun run build
-if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
-Pop-Location
-
 # IRORI_VERSION is what `irori version`, the API, the lockfile and the
-# updater report; TAURI_CONFIG stamps the exe's version resource.
+# updater report. The Rune app (card #674) is plain cargo. Gap: nothing
+# stamps the exe's version resource now (TAURI_CONFIG did); embed-resource
+# in app/build.rs would.
 $env:IRORI_VERSION = $v
-$env:TAURI_CONFIG = "{`"version`":`"$numeric`"}"
-# tauri/custom-protocol is what `tauri build` adds: without it the exe is
-# compiled with cfg(dev) (tauri::is_dev() true, the build machine's config
-# path embedded).
-& cargo build --release --locked -p irori-app --features tauri/custom-protocol
+& cargo build --release --locked -p irori-app
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-Remove-Item Env:IRORI_VERSION, Env:TAURI_CONFIG
+Remove-Item Env:IRORI_VERSION
 $targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root "target" }
 $exe = Join-Path $targetDir "release\irori.exe"
 

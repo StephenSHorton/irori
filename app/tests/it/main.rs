@@ -5,4 +5,3 @@
 
 mod attach_exe;
 mod cli;
-mod shell_exe;

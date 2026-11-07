@@ -100,4 +100,3 @@ pub fn setup_diagnostics(cmd: &str) {
         eprint!("{l}");
     });
 }
-

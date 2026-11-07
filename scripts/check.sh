@@ -1,9 +1,6 @@
 #!/usr/bin/env sh
 # Local checks (architecture.md 7.1; there are no CI checks). Run from
 # anywhere before every merge or push.
-#
-# The frontend builds first: tauri::generate_context! embeds frontend/dist,
-# so no cargo step compiles the app crate without it.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -82,20 +79,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 slot_take
 
-(
-  cd frontend
-  bun install --frozen-lockfile
-  # Same files as `bun run format` (card #615). end-of-line auto: a Windows
-  # checkout (core.autocrlf) has CRLF, and git stores LF either way.
-  bunx prettier --check --end-of-line auto "**/*.{ts,tsx}"
-  # src/gen/models.ts follows src/gen/bindings.ts (cargo xtask bindings).
-  bun scripts/gen-models.ts --check
-  bun run build
-  bun run typecheck
-  bun run lint
-  bun test
-)
-sh scripts/one-test-binary.sh
+cargo xtask one-test-binary
 if [ -n "$check_pc" ]; then
   # cargo fmt hands rustfmt every file of a crate with its full path in one
   # command line, and from a deep worktree (~/.claude/jobs/...) that passes
@@ -114,16 +98,16 @@ cargo test --workspace --no-run
 # Every crate's tests run even when one fails, so one failure can't hide
 # another (card #609); the run still fails at the end.
 temp_clean cargo test --workspace --no-fail-fast
-# frontend/src/gen/bindings.ts is what the window's commands generate (D10).
-cargo xtask bindings --check
 # Timing-sensitive, as in Go: capture's tests once more on one thread.
 # -p builds with its own features, so it gets its own build first (#607).
 cargo test -p irori-capture --no-run
 temp_clean cargo test -p irori-capture -- --test-threads=1
-sh scripts/no-third-party.sh
+cargo xtask no-third-party
 
-# The phone build (docs/android.md): desktop-only calls must stay behind
-# #[cfg(desktop)], which only an Android build catches (#220 broke it, #234).
+# The phone's backend (docs/android.md): the window's services and the Core
+# must keep building for Android, which only an Android build catches (#220
+# broke it, #234). The phone app itself waits for Rune on Android (#674,
+# #677); until then there is no Android app crate to check.
 # Runs when an NDK and the aarch64-linux-android target are installed;
 # otherwise it is skipped so machines without them still pass.
 ndk="${NDK_HOME:-}"
@@ -152,7 +136,7 @@ if [ -n "$android_bin" ] && [ -e "$android_bin/aarch64-linux-android26-clang" ] 
     AR_aarch64_linux_android="$android_bin/llvm-ar" \
     BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android="--sysroot=$android_bin/../sysroot --target=aarch64-linux-android26" \
     CMAKE_TOOLCHAIN_FILE_aarch64_linux_android="$PWD/scripts/android/arm64.toolchain.cmake" \
-    cargo check --target aarch64-linux-android -p irori-app --lib
+    cargo check --target aarch64-linux-android -p irori-window
 else
   echo "android: skipped (no NDK)"
 fi

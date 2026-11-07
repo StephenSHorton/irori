@@ -4,7 +4,7 @@
 git-fetch-with-cli = true
 
 [alias]
-# `cargo xtask bindings [--check]` (architecture.md 7.1, D10).
+# `cargo xtask no-third-party`, `cargo xtask one-test-binary` (architecture.md 7.1).
 xtask = "run --quiet -p xtask --"
 
 # Android 15+ phones (Pixel 10) use 16 KB pages: align the app's .so to

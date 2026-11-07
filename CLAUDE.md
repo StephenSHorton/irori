@@ -27,12 +27,12 @@ that has the details; read that rather than guessing.
 - PC build tools (cmake, libclang): [docs/releasing.md](docs/releasing.md),
   Build tools.
 
-## Browser preview
+## Window screenshots (rune-ui branch)
 
-- Run your own preview from your worktree (`bun run preview:look` takes the
-  first free port and the shot scripts shoot your checkout's), and never stop
-  another worktree's. Phone width, which browser, and WebKit:
-  [frontend/PREVIEW.md](frontend/PREVIEW.md).
+- The window is Rune (docs/rune-ui.md). See it headless, no window on
+  screen: `target/debug/irori --snap board.png` (`--scene detail` opens a
+  card, `--tree tree.json` dumps the elements, `--script` drives it), with
+  the scratch env below on a copy of the data dir.
 
 ## Scratch builds never touch the live app
 

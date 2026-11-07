@@ -1,16 +1,15 @@
 # Irori (Rust)
 
-The Rust and Tauri rewrite of Irori, using iroh for networking. It is developed here until it is done and tested, then it replaces the Go code in ~/projects/irori.
+The Rust rewrite of Irori, using iroh for networking. On the rune-ui branch the window is Rune instead of Tauri and a React webview (docs/rune-ui.md). It is developed here until it is done and tested, then it replaces the Go code in ~/projects/irori.
 
 ## Build and check
 
 ```sh
-(cd frontend && bun install --frozen-lockfile && bun run build)   # the app embeds frontend/dist
-cargo build -p irori-app                                          # target/debug/irori.exe
-sh scripts/check.sh                                               # every local check
+cargo build -p irori-app     # target/debug/irori: every role and the Rune window
+sh scripts/check.sh          # every local check
 ```
 
-Run a dev build only with `IRORI_HOME` set to a scratch dir. `scripts/window-shot.ps1` starts a build on one, captures the window and closes it by process id.
+Run a dev build only with `IRORI_HOME` set to a scratch dir. `irori --snap board.png` renders the window headless on it (docs/rune-ui.md).
 
 ## Release
 

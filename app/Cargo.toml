@@ -4,86 +4,41 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The irori binary: CLI roles and the Tauri window"
-
-# The phone build loads the app as a library (card #226).
-[lib]
-name = "irori_app_lib"
-path = "src/lib.rs"
-crate-type = ["staticlib", "cdylib", "rlib"]
+description = "The irori binary: every CLI role and the Rune window (rune-ui spike, card #674: no Tauri, no webview)"
 
 [[bin]]
 name = "irori"
 path = "src/main.rs"
 
-[build-dependencies]
-tauri-build = { workspace = true }
-
 [dependencies]
 irori-roles = { workspace = true }
-irori-api = { workspace = true }
-irori-attach = { workspace = true }
 irori-core = { workspace = true }
-irori-gocompat = { workspace = true }
-irori-home = { workspace = true }
-# Keep this device up to date (card #578): whether an agent is working.
-irori-presence = { workspace = true }
-irori-coord = { workspace = true }
-irori-pair = { workspace = true }
 irori-sys = { workspace = true }
-irori-store = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
-tokio-util = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tauri = { workspace = true, features = ["tray-icon", "image-png"] }
-sha2 = { workspace = true }
-hex = { workspace = true }
-tauri-plugin-opener = { workspace = true }
-tauri-plugin-clipboard-manager = { workspace = true }
-irori-mcp = { workspace = true }
-irori-window = { workspace = true }
 irori-notify = { workspace = true }
-# Calls (#654): the phone fills its call::Platform (shell/call_android.rs).
-irori-call = { workspace = true }
-irori-update = { workspace = true }
-
-# Desktop only: a phone runs one copy by itself (card #226).
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tauri-plugin-single-instance = { workspace = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
-# The phone's notifications (card #395): a toaster over the Kotlin plugin.
-irori-toast = { workspace = true }
-
-[target.'cfg(windows)'.dependencies]
-winreg = { workspace = true }
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# SMAppService.mainAppService, as Wails registered it (surface.md 7.4).
-objc2-service-management = { workspace = true }
-objc2 = { workspace = true }
-objc2-foundation = { workspace = true, features = ["NSBundle", "NSError", "NSString"] }
-libc = { workspace = true }
+# The window's services (their Tauri commands went with the frontend).
+irori-window = { workspace = true }
+tokio = { workspace = true }
+png = { workspace = true }
+# Rune (github.com/StephenSHorton/rune, the person's fork), pinned: Rune is
+# pre-release and asks for a rev of dev. Its ogg-audio (symphonia) and
+# native-file-dialog stay off.
+rune = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-# shell::update's card tests: a fake card system.
-irori-toast = { workspace = true }
-# src/events.rs tests: a follow backend over a bare store.
-irori-capture = { workspace = true }
-irori-coord = { workspace = true }
-irori-presence = { workspace = true }
 # tests/it/attach_exe.rs: the real binary against a Core behind the API server.
-irori-core = { workspace = true }
+irori-api = { workspace = true }
 irori-identity = { workspace = true }
 irori-inbox = { workspace = true }
 bytes = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
-# src/pair_cmd/tests.rs: two Cores pairing over loopback iroh and LAN.
-irori-net = { workspace = true }
-irori-lan = { workspace = true }
-iroh = "1.4.1"
+serde_json = { workspace = true }
+tokio-util = { workspace = true }
+irori-gocompat = { workspace = true }
+irori-attach = { workspace = true }
+
+# The Mac's menu-bar item: Rune's Tray is Windows and Linux only.
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.25.1"

@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Local tasks: `cargo xtask bindings [--check]` writes or checks frontend/src/gen/bindings.ts"
+description = "Local tasks: `cargo xtask no-third-party`, `cargo xtask one-test-binary` (std only)"
 
 [dependencies]
-irori-window.workspace = true

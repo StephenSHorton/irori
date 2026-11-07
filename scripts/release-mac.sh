@@ -111,26 +111,17 @@ fi
 DIST="$ROOT/dist/release/$tag-mac"
 mkdir -p "$DIST"
 
-# release-android.sh may be running too (scripts/release-lock.sh): it
-# rebuilds frontend/dist, which check.sh and the build below embed, so this
-# tree's frontend lock is held from here until the binary is built.
 . scripts/release-lock.sh
-release_lock "$ROOT/dist/release/frontend.lock" "building with frontend/dist"
 
 if [[ "${IRORI_SKIP_CHECKS:-0}" != 1 ]]; then sh scripts/check.sh; fi
 
-(cd frontend && bun install --frozen-lockfile && bun run build)
-
 # The deployment target matches Info.plist's LSMinimumSystemVersion.
-# tauri/custom-protocol is what `tauri build` adds: without it the binary is
-# compiled with cfg(dev) (tauri::is_dev() true, the build machine's config
-# path embedded).
+# The Rune app (card #674) is plain cargo: no frontend, no Tauri config.
 export MACOSX_DEPLOYMENT_TARGET=12.0
-IRORI_VERSION="$v" TAURI_CONFIG="{\"version\":\"${v%%[-+]*}\"}" \
-  cargo build --release --locked -p irori-app --target aarch64-apple-darwin --features tauri/custom-protocol
+IRORI_VERSION="$v" \
+  cargo build --release --locked -p irori-app --target aarch64-apple-darwin
 BIN="${CARGO_TARGET_DIR:-$ROOT/target}/aarch64-apple-darwin/release/irori"
 file "$BIN"
-release_unlock "$ROOT/dist/release/frontend.lock"
 
 if [[ -z "${APPLE_ID:-}" && -z "${APPLE_API_KEY_ID:-}" ]]; then
   if xcrun notarytool history --keychain-profile "${IRORI_NOTARY_PROFILE:-irori-notary}" >/dev/null 2>&1; then
