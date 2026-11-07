@@ -834,7 +834,7 @@ fn moved_on_a(e: &Env, id: &str, moves: i64, at: GoTime) {
         task_id: id.into(),
         owner: "dev-a".into(),
         moves,
-        at: at.clone(),
+        at,
     };
     e.remote(
         "dev-a",
