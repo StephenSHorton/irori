@@ -3352,6 +3352,27 @@ fn family_of(
     }
 }
 
+/// The window's view of a permission wait (card #682); an older Irori's
+/// untyped one (found by its question) shows as one Irori can't answer.
+fn permission_of(p: &People, bl: &coord::Blocker) -> Option<CardPermission> {
+    if !irori_core::spawn_waiting::is_permission_wait(bl) {
+        return None;
+    }
+    let w = bl.permission.clone().unwrap_or_default();
+    let answerable = !w.request.is_empty() && bl.open();
+    Some(CardPermission {
+        agent: if w.agent.is_empty() {
+            AgentRef::default()
+        } else {
+            p.ref_(&w.agent)
+        },
+        tool: w.tool,
+        input: w.input,
+        rule: if answerable { w.rule } else { String::new() },
+        answerable,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3787,25 +3808,4 @@ mod tests {
         assert_eq!((both.open_blockers, both.waiting_on), (1, 1));
         assert_eq!(both.blocker_question, "Ship it?");
     }
-}
-
-/// The window's view of a permission wait (card #682); an older Irori's
-/// untyped one (found by its question) shows as one Irori can't answer.
-fn permission_of(p: &People, bl: &coord::Blocker) -> Option<CardPermission> {
-    if !irori_core::spawn_waiting::is_permission_wait(bl) {
-        return None;
-    }
-    let w = bl.permission.clone().unwrap_or_default();
-    let answerable = !w.request.is_empty() && bl.open();
-    Some(CardPermission {
-        agent: if w.agent.is_empty() {
-            AgentRef::default()
-        } else {
-            p.ref_(&w.agent)
-        },
-        tool: w.tool,
-        input: w.input,
-        rule: if answerable { w.rule } else { String::new() },
-        answerable,
-    })
 }

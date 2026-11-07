@@ -286,10 +286,16 @@ fn cut(s: &str, n: usize) -> String {
     out
 }
 
-/// What the person's pick on the item means for the hook.
-fn decision_of(b: &Blocker, rule: &str) -> Option<PermissionDecision> {
+/// What the person's pick on the item means for the hook. Only the
+/// person's pick counts: an agent resolving the item (its own, through
+/// `board_unblock`) allows nothing, and the prompt stays for the terminal.
+fn decision_of(
+    b: &Blocker,
+    rule: &str,
+    is_person: impl Fn(&str) -> bool,
+) -> Option<PermissionDecision> {
     let r = b.resolved.as_ref()?;
-    if r.by == SWEEPER {
+    if r.by == SWEEPER || !is_person(&r.by) {
         return Some(PermissionDecision::Nothing);
     }
     let picked = usize::try_from(r.option)
@@ -367,7 +373,7 @@ impl Services {
             return Some(PermissionDecision::Nothing);
         };
         match t.blockers.iter().find(|b| b.id == p.blocker_id) {
-            Some(b) => decision_of(b, &p.rule),
+            Some(b) => decision_of(b, &p.rule, |k| self.coord.is_person(k)),
             None => Some(PermissionDecision::Nothing),
         }
     }
