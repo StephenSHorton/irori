@@ -617,8 +617,6 @@ pub fn conv_item(
     } else {
         String::new()
     };
-    // TODO(call): a huddle on here shows who's in it in place of the sub
-    // line (talk-page.tsx HuddleLine) once the call package has it.
     let ink = if c.read_only { k.c.text_muted } else { k.c.text_base };
     let mut name = row().key(format!("{key}-n")).w_full().gap(8.0).center_y().child(
         text(label)
@@ -631,7 +629,9 @@ pub fn conv_item(
     if !at.is_empty() {
         name = name.child(when(f, &format!("{key}-when"), &at));
     }
-    let sub = (!sub.is_empty()).then(|| sub_line(f, &format!("{key}-sub"), &sub, k.c.text_muted));
+    // A huddle on here (#654) shows who's in it in place of the sub line.
+    let sub = crate::call::huddle_line(s, f, &c.conv_id)
+        .or_else(|| (!sub.is_empty()).then(|| sub_line(f, &format!("{key}-sub"), &sub, k.c.text_muted)));
     let trail = if c.mentions > 0 {
         Some(
             row()

@@ -35,7 +35,6 @@ fn reply_mut(s: &mut State) -> &mut Composer {
 }
 
 /// Loads a thread's reply draft when Talk opens it.
-#[allow(dead_code)] // Talk's (P5) API
 pub fn open_reply(s: &mut State, card_id: &str) {
     let key = format!("{card_id}/comment");
     if s.card.reply.key != key {
@@ -44,7 +43,6 @@ pub fn open_reply(s: &mut State, card_id: &str) {
 }
 
 /// A Talk thread's reply box.
-#[allow(dead_code)] // Talk's (P5) API
 pub fn reply_box(s: &State, f: &mut Frame, card_id: &str) -> El {
     comment_box(s, f, card_id, true, false)
 }
@@ -58,6 +56,14 @@ fn accessors(s: &State, card: &str, reply: bool) -> Option<(Get, GetMut)> {
         return Some((reply_get, reply_mut));
     }
     super::slot(s, &format!("{card}/comment"))
+}
+
+/// Where the box's mic puts its words.
+fn mic_target(s: &State, card: &str, reply: bool) -> Option<crate::call::MicTarget> {
+    if reply {
+        return Some(|s: &mut State| &mut s.card.reply.edit);
+    }
+    super::slot_edit(s, &format!("{card}/comment"))
 }
 
 fn submit(s: &mut State, card: &str, reply: bool, stop: bool) {
@@ -121,6 +127,8 @@ pub fn comment_box(s: &State, f: &mut Frame, card: &str, reply: bool, no_files: 
     let empty = CommentUi::default();
     let ui = s.card.comments.get(&ui_key(card, reply)).unwrap_or(&empty);
     let c1 = card.to_string();
+    let key = if reply { format!("card/reply-{card}") } else { "card/comment".to_string() };
+    let mic = mic_target(s, card, reply).map(|t| crate::call::mic_button(s, f, &key, t));
     let opts = ComposerOpts {
         placeholder: if reply { "Reply…" } else { "Comment on the card…" }.into(),
         label: if reply { "Your reply" } else { "Your comment on the card" }.into(),
@@ -130,9 +138,9 @@ pub fn comment_box(s: &State, f: &mut Frame, card: &str, reply: bool, no_files: 
         no_files: no_files.then(|| SHARED_NO_FILES.to_string()),
         disabled: ui.busy,
         rows: Some((2, 10)),
+        mic,
         ..ComposerOpts::default()
     };
-    let key = if reply { format!("card/reply-{card}") } else { "card/comment".to_string() };
     let field = tt::composer(s, f, &key, get, get_mut, &opts);
     let mut controls = row().w_full().gap(12.0).center_y();
     if !reply {

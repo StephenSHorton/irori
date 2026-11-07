@@ -3,9 +3,9 @@
 //! (the card's own thread, events left out), the reply box and Resolve;
 //! and "Start a thread" (the ask box) when nothing is open.
 //!
-//! The answers are drawn here in the compact form card/thread.tsx gives a
-//! thread; P3's card page owns the full one (the card package has no
-//! shared thread view in this base).
+//! The answers and the reply box are the card package's thread view and
+//! CommentBox (`crate::card::thread_view`, `reply_box`), as threads.tsx
+//! used cards/thread.tsx; StartPastLimit is the card package's too.
 
 use std::rc::Rc;
 
@@ -16,12 +16,13 @@ use rune_kit::{Button, ButtonVariant, ControlSize};
 
 use super::list::ts;
 use super::logic;
-use super::{ask_box, ask_box_mut, icons, reply_box, reply_box_mut};
+use super::{ask_box, ask_box_mut, icons};
+use crate::card::{On, ThreadOpts};
 use crate::logic::agent_status::now_ms;
 use crate::logic::names::display_name;
 use crate::logic::plain::{plain_line, relative_time};
-use crate::logic::thread::{LineTone, THREAD_PAGE, heard_line, live_roster, thread_label, visible, working_line};
-use crate::text::{ComposerOpts, File, RichOpts, Sent};
+use crate::logic::spawn_line::SpawnState;
+use crate::text::{ComposerOpts, RichOpts, Sent};
 use crate::ui::theme::status;
 use crate::ui::{Frame, State};
 use crate::widgets::bits::badge;
@@ -126,11 +127,11 @@ fn shown(it: &CardThreadItem) -> bool {
 /// Resolve. Only its answers scroll (card #564).
 fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
     let k = f.k;
-    let now = now_ms();
     let resolved = t.state == THREAD_RESOLVED;
     let detail = s.talk.thread.as_ref().filter(|d| d.summary.id == t.id);
     let reading = detail.is_none() && s.talk.thread_error.is_none();
-    let items: Vec<&CardThreadItem> = detail.map(|d| d.thread.iter().filter(|it| shown(it)).collect()).unwrap_or_default();
+    let items: Vec<CardThreadItem> =
+        detail.map(|d| d.thread.iter().filter(|it| shown(it)).cloned().collect()).unwrap_or_default();
 
     let mut top = col().key("talk-thread-top").w_full().gap(4.0);
     if let Some(o) = &t.opened_by {
@@ -186,69 +187,54 @@ fn thread_view(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
         top = top.child(told);
     }
 
-    // The answers, newest in view.
-    let mut list = col().key("talk-thread-items").w_full().gap(4.0);
-    let paged = visible(&items, s.talk.show_all, THREAD_PAGE);
-    let hidden = items.len() - paged.len();
-    if hidden > 0 {
-        list = list.child(
-            Button::new(format!("Show {hidden} earlier"))
-                .variant(ButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
-                .on_press(|s: &mut State| s.talk.show_all = true)
-                .build(k)
-                .key("talk-thread-earlier"),
-        );
-    }
-    for it in paged {
-        list = list.child(item_row(s, f, it, now));
-    }
+    // The answers, newest in view, with the reply box under them: the
+    // card package's thread (cards/thread.tsx) in its compact, scrolling
+    // form.
     let mut agents: Vec<AgentRef> = Vec::new();
     agents.extend(t.opened_by.iter().cloned());
     agents.extend(t.told.iter().cloned());
     agents.extend(t.answered_by.iter().cloned());
-    let live = live_roster(&s.data.agents);
-    let owned: Vec<CardThreadItem> = items.iter().map(|x| (*x).clone()).collect();
-    let line = working_line(&agents, &owned, &live, now, resolved, None, None);
-    if let Some(l) = &line {
-        let color = if l.tone == LineTone::Stopped { status::decide() } else { k.c.text_muted };
-        let mut r = row().key("talk-thread-working").gap(6.0).center_y().py(2.0);
-        if l.tone == LineTone::Working {
-            r = r.child(crate::widgets::bits::spinner(f, "talk-thread-spin"));
-        }
-        list = list.child(r.child(text(l.text.clone()).font(ts(12.0, 400.0)).color(color)));
-    }
-    if items.is_empty() && line.is_none() {
-        if reading {
-            list = list.child(crate::widgets::loading::message_rows_shape(f, "talk-thread-loading", 2));
-        } else {
-            list = list.child(
-                text(logic::empty_line(t))
-                    .key("talk-thread-empty")
-                    .font(ts(12.5, 400.0))
-                    .color(k.c.text_muted)
-                    .w_full()
-                    .wrap(),
-            );
-        }
-    }
-    if let Some(e) = &s.talk.thread_error {
-        list = list.child(text(format!("Could not read the thread: {e}")).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
-    }
-    let answers = col()
-        .key("talk-thread-scroll")
+    let empty = if reading {
+        Some(crate::widgets::loading::message_rows_shape(f, "talk-thread-loading", 2))
+    } else {
+        None
+    };
+    let composer = (!resolved).then(|| crate::card::reply_box(s, f, &t.id));
+    let opts = ThreadOpts {
+        card_id: t.id.clone(),
+        items: &items,
+        empty_text: Some(logic::empty_line(t)),
+        empty,
+        compact: true,
+        composer,
+        scroll: true,
+        on: Some(On {
+            agents: &agents,
+            over: resolved,
+            working: None,
+            jobs: None,
+        }),
+        ..ThreadOpts::default()
+    };
+    let answers = crate::card::thread_view(s, f, "talk/thread", &opts);
+
+    let mut out = col()
+        .key("talk-thread-view")
         .w_full()
         .min_h(0.0)
-        .grow(1.0)
-        .scroll(ScrollSpec { stick_bottom: true })
-        .child(list);
-
-    let mut out = col().key("talk-thread-view").w_full().min_h(0.0).gap(8.0).child(top).child(answers);
-    if !resolved {
-        out = out.child(reply(s, f, t));
+        .gap(8.0)
+        .child(top)
+        .child(answers.grow(1.0).min_h(0.0));
+    if let Some(e) = &s.talk.thread_error {
+        out = out.child(text(format!("Could not read the thread: {e}")).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
     }
-    // TODO(card): StartPastLimit ("Start one anyway") for a waiting thread
-    // past its device's cap, once P3 ports start-past-limit.tsx.
+    // A waiting thread past its device's usage limit: start one anyway
+    // (cards #450, #576).
+    if t.state == THREAD_WAITING
+        && let Some(b) = crate::card::start_past_limit(s, f, "talk-thread-past-limit", &t.id, &spawn_state(t), true)
+    {
+        out = out.child(b);
+    }
     let mut actions = row().key("talk-thread-actions").w_full().gap(8.0).center_y();
     let id = t.id.clone();
     actions = actions.child(if resolved {
@@ -322,174 +308,17 @@ fn act(
     });
 }
 
-/// One entry: who wrote it (to whom), its badges and when, then its text
-/// and files; a card made from the thread is a muted line.
-fn item_row(s: &State, f: &mut Frame, it: &CardThreadItem, now: i64) -> El {
-    let k = f.k;
-    let key = format!("talk-ti-{}", it.id);
-    let l = thread_label(it, false);
-    if it.kind == "event" {
-        return row()
-            .key(key.clone())
-            .w_full()
-            .py(2.0)
-            .gap(6.0)
-            .center_y()
-            .child(icon(&icons::ARROW_UP_RIGHT, 12.0).color(k.c.text_muted))
-            .child(
-                crate::text::rich_line(s, f, &format!("{key}-t"), &event_text(s, &plain_line(&it.text)), &RichOpts {
-                    font: Some(ts(12.0, 400.0)),
-                    color: Some(k.c.text_muted),
-                    ..RichOpts::default()
-                })
-                .min_w(0.0)
-                .shrink(),
-            )
-            .child(text(relative_time(logic::at_ms(&it.at), now)).font(ts(11.0, 400.0)).color(k.c.text_muted));
+/// What a thread says about starting its agent, as the card package's
+/// StartPastLimit reads it.
+fn spawn_state(t: &ThreadSummary) -> SpawnState {
+    SpawnState {
+        starting: t.starting.clone(),
+        at_cap: t.at_cap.clone(),
+        queue_place: t.queue_place,
+        usage_limit: t.usage_limit.filter(|u| !u.is_zero()),
+        cant_start: t.cant_start.clone(),
+        no_agent: t.no_agent.clone(),
     }
-    let mut head = row()
-        .key(format!("{key}-head"))
-        .w_full()
-        .gap(6.0)
-        .center_y()
-        .child(face(s, f, &format!("{key}-f"), &it.who, FaceOpts { inline: true, ..FaceOpts::default() }))
-        .child(text(l.author.clone()).font(ts(12.5, 500.0)).color(k.c.text_base).max_lines(1).shrink());
-    if let Some(to) = &l.arrow {
-        head = head.child(text(format!("→ {to}")).font(ts(12.0, 400.0)).color(k.c.text_muted).max_lines(1).shrink());
-    }
-    if !l.device.is_empty() {
-        head = head.child(text(format!("on {}", l.device)).font(ts(11.0, 400.0)).color(k.c.text_muted));
-    }
-    for (i, b) in l.badges.iter().enumerate() {
-        head = head.child(badge(f, &format!("{key}-b{i}"), &b.label, b.tone, false, ""));
-    }
-    head = head
-        .child(el().grow(1.0))
-        .child(text(relative_time(logic::at_ms(&it.at), now)).font(ts(11.0, 400.0)).color(k.c.text_muted));
-    let mut body = col().key(key.clone()).w_full().gap(2.0).py(4.0).child(head);
-    if !it.text.trim().is_empty() {
-        body = body.child(el().pl(20.0).w_full().child(crate::text::rich_with(s, f, &format!("{key}-t"), &it.text, &RichOpts {
-            font: Some(ts(13.0, 400.0)),
-            mentions: &it.mentions,
-            ..RichOpts::default()
-        })));
-    }
-    if !it.attachments.is_empty() {
-        body = body.child(el().pl(20.0).w_full().child(crate::text::attachment_list(
-            s,
-            f,
-            &format!("{key}-files"),
-            &File::all(&it.attachments),
-            true,
-        )));
-    }
-    if !l.waiting.is_empty() {
-        body = body.child(
-            text(format!("Waiting to hear it: {}", l.waiting.join(", ")))
-                .font(ts(11.0, 400.0))
-                .color(k.c.text_muted)
-                .pl(20.0),
-        );
-    }
-    body
-}
-
-/// An event's words with each `task:<id>` as the card's ref ("#12"), so
-/// it reads as a ref chip and never as an id.
-fn event_text(s: &State, t: &str) -> String {
-    t.split(' ')
-        .map(|w| match w.strip_prefix("task:") {
-            Some(id) => {
-                let id = id.trim_end_matches(|c: char| !c.is_ascii_alphanumeric());
-                let found = s.data.card(id).map(crate::logic::card_status::card_ref).or_else(|| {
-                    s.talk.threads.iter().flat_map(|t| &t.cards).find(|c| c.id == id).map(|c| logic::thread_ref(&c.tag, &c.short))
-                });
-                found.filter(|r| r != "new" && !r.is_empty()).unwrap_or_else(|| "a card".into())
-            }
-            None => w.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// The reply box (card-detail.tsx `CommentBox` with `reply`): Enter
-/// replies, waking the thread's agents; Stop and read cuts their turns.
-fn reply(s: &State, f: &mut Frame, t: &ThreadSummary) -> El {
-    let k = f.k;
-    let id = t.id.clone();
-    let stop_id = t.id.clone();
-    let opts = ComposerOpts {
-        placeholder: "Reply…".into(),
-        label: "Your reply".into(),
-        send_button: true,
-        card: t.id.clone(),
-        board: t.space_id.clone(),
-        rows: Some((1, 8)),
-        extra: vec![
-            Button::new("Stop and read")
-                .variant(ButtonVariant::Outline)
-                .control_size(ControlSize::Small)
-                .disabled(reply_box(s).sending || reply_box(s).edit.text.trim().is_empty())
-                .help("Cut the agents' running turns: they read this first and answer you before anything else")
-                .on_press(move |s: &mut State| {
-                    let c = reply_box(s);
-                    let m = Sent {
-                        text: c.edit.text.clone(),
-                        mentions: c.mentions.clone(),
-                        files: Vec::new(),
-                    };
-                    send_reply(s, &stop_id, m, "stop");
-                })
-                .build(k),
-        ],
-        on_send: Some(Rc::new(move |s: &mut State, m: Sent| send_reply(s, &id, m, "wake"))),
-        ..ComposerOpts::default()
-    };
-    let mut out = col()
-        .key("talk-reply")
-        .w_full()
-        .gap(4.0)
-        .child(crate::text::composer(s, f, "talk-reply-box", reply_box, reply_box_mut, &opts));
-    if !s.talk.reply_error.is_empty() {
-        out = out.child(text(s.talk.reply_error.clone()).font(ts(12.0, 400.0)).color(status::failed()).w_full().wrap());
-    } else if !s.talk.reply_heard.is_empty() {
-        out = out.child(text(s.talk.reply_heard.clone()).font(ts(12.0, 400.0)).color(k.c.text_muted).w_full().wrap());
-    }
-    out
-}
-
-fn send_reply(s: &mut State, id: &str, m: Sent, tell: &'static str) {
-    if m.text.trim().is_empty() {
-        s.talk.reply_error = "Write a comment first.".into();
-        return;
-    }
-    if reply_box(s).sending {
-        return;
-    }
-    reply_box_mut(s).sending = true;
-    s.talk.reply_error.clear();
-    s.talk.reply_heard.clear();
-    let id = id.to_string();
-    let ms = crate::text::mentions::to_ts(&m.mentions);
-    s.spawn(
-        move |w| w.comment(&id, &m.text, tell, &ms, &m.files),
-        |s, r| match r {
-            Ok(r) => {
-                crate::text::sent(s, reply_box_mut);
-                reply_box_mut(s).missed(&r.mentioned);
-                s.talk.reply_heard = if r.told.error.is_empty() {
-                    heard_line(&r.answers, &r.watching, &r.told.mode)
-                } else {
-                    format!("On the card, but not everyone could be told: {}", r.told.error)
-                };
-                super::load_thread(s);
-            }
-            Err(e) => {
-                reply_box_mut(s).sending = false;
-                s.talk.reply_error = e;
-            }
-        },
-    );
 }
 
 /// "Start a thread": ask the room about anything (the React app's
@@ -509,6 +338,7 @@ pub fn start_view(s: &State, f: &mut Frame) -> El {
         board: board.clone(),
         popup_below: true,
         rows: Some((2, 10)),
+        mic: Some(crate::call::mic_button(s, f, "talk-ask", |s: &mut State| &mut s.talk.ask_box.edit)),
         no_mentions: (!board.is_empty())
             .then(|| "A shared space's thread takes no mentions: name a card instead".to_string()),
         no_files: (!board.is_empty()).then(|| "Files on a shared space's thread aren't supported yet".to_string()),

@@ -45,13 +45,10 @@ use crate::logic::card_status;
 use crate::text::Composer;
 use crate::ui::{Dialog, Event, Frame, State};
 
-#[allow(unused_imports)]
 pub use comment::{open_reply, reply_box};
 pub use new_card::new_card_dialog;
-#[allow(unused_imports)]
 pub use page::start_past_limit;
 pub use share::share_dialog;
-#[allow(unused_imports)]
 pub use thread::{On, ThreadOpts, thread_view};
 
 /// How many composers the page can hold at once: its comment box, and an
@@ -145,6 +142,8 @@ macro_rules! slots {
     ($($n:literal),*) => {
         const GETS: [crate::text::Get; SLOTS] = [$(|s: &State| &s.card.boxes[$n]),*];
         const GET_MUTS: [crate::text::GetMut; SLOTS] = [$(|s: &mut State| &mut s.card.boxes[$n]),*];
+        /// Each slot's text, for its mic (call::mic_button).
+        const EDITS: [crate::call::MicTarget; SLOTS] = [$(|s: &mut State| &mut s.card.boxes[$n].edit),*];
     };
 }
 slots!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23);
@@ -152,6 +151,11 @@ slots!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
 /// The slot holding box `key`, with its accessors.
 pub(crate) fn slot(s: &State, key: &str) -> Option<(crate::text::Get, crate::text::GetMut)> {
     s.card.slot_of.get(key).map(|&i| (GETS[i], GET_MUTS[i]))
+}
+
+/// The text of the slot holding box `key`, for its mic.
+pub(crate) fn slot_edit(s: &State, key: &str) -> Option<crate::call::MicTarget> {
+    s.card.slot_of.get(key).map(|&i| EDITS[i])
 }
 
 /// The boxes the open card needs: its comment box, and per open (or
