@@ -690,6 +690,9 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
         rows: Some((1, 6)),
         popup_below: true,
         disabled: busy,
+        // Esc cancels the box, as OwnWords' onKeyDown did (an open picker
+        // takes it first).
+        on_escape: Some(Rc::new(cancel_reply)),
         mic: Some(crate::call::mic_button(s, f, &format!("inbox-reply-{key}"), |s: &mut State| {
             &mut s.inbox.reply.edit
         })),
@@ -715,9 +718,12 @@ fn own_words(s: &State, f: &mut Frame, key: &str, id: &str, from: &str, busy: bo
             busy || s.inbox.reply.is_empty(),
             send,
         ))
-        .child(button(k, format!("inbox-cancel-{key}"), "Cancel", ButtonVariant::Ghost, busy, |s: &mut State| {
-            s.inbox.replying = None;
-        }))
+        .child(button(k, format!("inbox-cancel-{key}"), "Cancel", ButtonVariant::Ghost, busy, cancel_reply))
+}
+
+/// Closes the open Reply box (its Cancel, and Esc in it).
+fn cancel_reply(s: &mut State) {
+    s.inbox.replying = None;
 }
 
 fn reply_box(s: &State) -> &Composer {
@@ -726,4 +732,17 @@ fn reply_box(s: &State) -> &Composer {
 
 fn reply_box_mut(s: &mut State) -> &mut Composer {
     &mut s.inbox.reply
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_closes_the_reply_box() {
+        let mut s = State::default();
+        s.inbox.replying = Some("msg:1".into());
+        cancel_reply(&mut s);
+        assert!(s.inbox.replying.is_none());
+    }
 }

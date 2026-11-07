@@ -318,6 +318,11 @@ fn start_rename(s: &mut State, list: bool, name: &str) {
     h.name.focused = true;
 }
 
+/// The palette's "Rename this space", on the space's page.
+pub fn start_space_rename(s: &mut State, name: &str) {
+    start_rename(s, false, name);
+}
+
 fn save_rename(s: &mut State, list: bool, target: Target) {
     let name = header_mut(s, list).name.text.clone();
     if name.trim().is_empty() {
@@ -541,7 +546,8 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
                     |s, r| match r {
                         Ok(()) => {
                             super::reload_spaces(s);
-                            s.go(Route::Spaces);
+                            // The space has gone: Home, as React went.
+                            s.go(Route::Home);
                         }
                         Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
                     },
@@ -560,7 +566,8 @@ fn space_menu(f: &mut Frame, b: &BoardSummary, h: Option<&Header>) -> El {
                     |s, r| match r {
                         Ok(()) => {
                             super::reload_spaces(s);
-                            s.go(Route::Spaces);
+                            // The space has gone: Home, as React went.
+                            s.go(Route::Home);
                         }
                         Err(e) => header_mut(s, false).error = Some(logic::error_text(&e)),
                     },

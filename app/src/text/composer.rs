@@ -196,6 +196,9 @@ pub struct ComposerOpts {
     /// Show "Asking @oak only" under the box while it names agents (the
     /// ask box).
     pub asking: bool,
+    /// Esc with no picker open (a fold-out box's Cancel). The field's
+    /// editor takes Esc before the window's on_key would see it.
+    pub on_escape: Option<Rc<dyn Fn(&mut State)>>,
 }
 
 /// The picker rows a box offers: the agents (own board's, or this shared
@@ -499,6 +502,7 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
     let (b2, c2) = (board.clone(), card.clone());
     let (b3, c3) = (board.clone(), card.clone());
     let on_send = o.on_send.clone();
+    let on_escape = o.on_escape.clone();
     let no_files = o.no_files.clone();
     let hide_files = o.hide_files;
     let mut field = text_input(&c.edit, style)
@@ -518,6 +522,10 @@ pub fn composer(s: &State, f: &mut Frame, key: &str, get: Get, get_mut: GetMut, 
             .on_input_change(move |s: &mut State, _tx: &mut Tx| changed(s, get_mut, &b1, &c1, no_m))
             .on_input_key(move |s: &mut State, ev: &KeyEvent, _tx: &mut Tx| {
                 let p = popup(s, get(s), &b2, &c2, no_m);
+                if let Some(f) = on_escape.as_ref().filter(|_| ev.key == Key::Escape && !p.open) {
+                    f(s);
+                    return true;
+                }
                 let Some(t) = &p.token else { return false };
                 match menu_key(key_name(ev), ev.mods.shift, false, p.open, p.rows()) {
                     Some(MenuKey::Next | MenuKey::Prev) => {

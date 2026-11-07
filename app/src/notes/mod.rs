@@ -243,7 +243,17 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .wrap(),
         );
     }
-    if !m.loading {
+    if m.loading {
+        // React drew the list's shape here (NotesShape); a line says the
+        // same until the first read lands.
+        page = page.child(
+            text("Loading the notes…")
+                .key("notes-loading")
+                .role("status")
+                .font(t(13.0))
+                .color(k.c.text_muted),
+        );
+    } else {
         page = page.child(list(s, f));
     }
     form_dialog(s, f);
@@ -352,7 +362,8 @@ fn note_row(s: &State, f: &Frame, n: &NoteView) -> El {
                 .label("Edit the note")
                 .help("Edit the note")
                 .on_press(move |s: &mut State| open_edit(s, &edit))
-                .build(k),
+                .build(k)
+                .key(format!("notes-edit-{}", n.id)),
         )
         .child(
             IconButton::new(&icons::TRASH)
@@ -373,7 +384,8 @@ fn note_row(s: &State, f: &Frame, n: &NoteView) -> El {
                         },
                     );
                 })
-                .build(k),
+                .build(k)
+                .key(format!("notes-remove-{}", n.id)),
         );
     let mut c = col()
         .key(format!("notes-row-{}", n.id))
@@ -494,6 +506,9 @@ fn form_dialog(s: &State, f: &mut Frame) {
     let chars = fm.text.text.trim().chars().count();
     let tags = logic::split_tags(&fm.tags.text);
     let kinds: Vec<String> = NOTE_KINDS.iter().map(|x| capital(x)).collect();
+    // The Kind list goes above the dialog: an overlay finds its anchor
+    // only in what was laid out before it.
+    let n = f.layer.len();
     let kind_sel = Select::new("notes-kind", &kinds)
         .label("Kind")
         .appearance(SelectAppearance::Field)
@@ -511,6 +526,7 @@ fn form_dialog(s: &State, f: &mut Frame) {
             fm.kind_open = false;
         })
         .build(k, f.layer);
+    let over: Vec<El> = f.layer.drain(n..).collect();
     let label = |s: &str| text(s.to_string()).font(t(12.5)).color(k.c.text_base).w(80.0);
     let mut applies = col()
         .grow(1.0)
@@ -598,7 +614,8 @@ fn form_dialog(s: &State, f: &mut Frame) {
                 Button::new(if busy { "Saving…" } else { "Keep" })
                     .disabled(busy)
                     .on_press(submit)
-                    .build(k),
+                    .build(k)
+                    .key("notes-form-keep"),
             ),
     );
     Dialog::new("notes-form-dialog", fm.title.clone())
@@ -612,4 +629,5 @@ fn form_dialog(s: &State, f: &mut Frame) {
         })
         .child(body)
         .build(k, f.layer);
+    f.layer.extend(over);
 }

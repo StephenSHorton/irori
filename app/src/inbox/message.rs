@@ -84,13 +84,14 @@ fn send_reply(s: &mut State, m: Sent, stop: bool) {
         return;
     }
     let id = s.inbox.message.id.clone();
-    let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
     s.inbox.message.reply.sending = true;
     if stop {
         // Stop and read (card #207): the sender's running turn is cut and
-        // the reply is its next prompt.
-        act(s, move |w| w.inbox_reply_mode(&id, &m.text, &ms, &m.files, mode::STOP));
+        // the reply is its next prompt. Text only, as talk.replyStop sent
+        // it: mentions and files go with Reply.
+        act(s, move |w| w.inbox_reply_mode(&id, &m.text, &[], &[], mode::STOP));
     } else {
+        let ms: Vec<irori_window::ts::Mention> = m.mentions.iter().map(|x| x.to_ts()).collect();
         act(s, move |w| w.inbox_reply_files(&id, &m.text, &ms, &m.files));
     }
 }

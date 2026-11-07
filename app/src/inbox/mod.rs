@@ -69,6 +69,8 @@ pub struct Held {
     pub busy: String,
     pub act_error: Option<String>,
     pub said: String,
+    /// (Headless scenes only.) Stand-in lists a re-read leaves alone.
+    pub scene: bool,
 }
 
 /// The Message dialog's message and reply.
@@ -105,6 +107,9 @@ pub struct Model {
     pub reply: Composer,
     /// Picks shown at once while they save (card #644), by item key.
     pub picked: HashMap<String, String>,
+    /// (Headless scenes only.) Stand-in items kept at the top of the
+    /// list across re-reads; their deliveries are never read back.
+    pub scene_items: Vec<Notification>,
 
     // Shared by the page and the dialogs.
     pub repos: Repos,
@@ -141,7 +146,7 @@ pub fn load(s: &mut State) {
     s.spawn(
         |w| w.notifications(),
         |s, list| {
-            s.inbox.list = list;
+            s.inbox.list = s.inbox.scene_items.iter().cloned().chain(list).collect();
             s.inbox.loaded = true;
             s.inbox.error = None;
             load_live(s);
@@ -171,6 +176,7 @@ pub fn load_live(s: &mut State) {
         }
         if matches!(n.kind.as_str(), notify::kind::MESSAGE | notify::kind::HELD)
             && !n.delivery_id.is_empty()
+            && !n.delivery_id.starts_with(SCENE_PREFIX)
             && !notify::waited_summary(n)
             && !deliveries.contains(&n.delivery_id)
         {
@@ -200,8 +206,10 @@ pub fn load_held(s: &mut State) {
         |s, (mut list, history, repos)| {
             list.sort_by_key(|d| std::cmp::Reverse(d.created_at.unix_milli_value()));
             let h = &mut s.inbox.held;
-            h.list = list;
-            h.history = history;
+            if !h.scene {
+                h.list = list;
+                h.history = history;
+            }
             h.loaded = true;
             h.error = None;
             s.inbox.repos = Repos(repos.into_iter().map(|r| (r.repo_key, r.name)).collect());
@@ -288,15 +296,7 @@ pub fn scene(s: &mut State) {
     // IRORI_SCENE_MESSAGE=1: the Message dialog over it, on a stand-in
     // message from an agent (its reply box is the shared composer).
     if std::env::var("IRORI_SCENE_MESSAGE").is_ok_and(|v| !v.is_empty()) {
-        let mut d = Delivery {
-            id: "scene-msg".into(),
-            to: "user:you".into(),
-            state: irori_window::rune_inbox::st::DELIVERED.into(),
-            ..Delivery::default()
-        };
-        d.message.from.key = "scene/oak".into();
-        d.message.from.name = "oak".into();
-        d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+        let d = scene_delivery("scene-msg");
         s.inbox.message = Message {
             id: d.id.clone(),
             d: Some(Ok(d)),
@@ -306,13 +306,87 @@ pub fn scene(s: &mut State) {
         // Set directly: opening it the usual way would read it back.
         s.dialog = Some(Dialog::Message { id: "scene-msg".into() });
     }
+    // IRORI_SCENE_REPLY=1: a stand-in message item at the top, with its
+    // Reply…, Mark read and Open (inbox-reply-msg:scene opens the box).
+    if std::env::var("IRORI_SCENE_REPLY").is_ok_and(|v| !v.is_empty()) {
+        let n = Notification {
+            key: "msg:scene".into(),
+            kind: notify::kind::MESSAGE.into(),
+            title: "oak sent you a message".into(),
+            body: "The merge desk is clear. Shall I take #12 next?".into(),
+            delivery_id: "scene-reply".into(),
+            at: irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000),
+            ..Notification::default()
+        };
+        s.inbox.deliveries.insert(n.delivery_id.clone(), Ok(scene_delivery("scene-reply")));
+        s.inbox.list.insert(0, n.clone());
+        s.inbox.scene_items = vec![n];
+    }
+}
+
+/// A stand-in message's id prefix: never read from the inbox.
+const SCENE_PREFIX: &str = "scene-";
+
+/// The stand-in message from an agent the scenes show.
+fn scene_delivery(id: &str) -> Delivery {
+    let mut d = Delivery {
+        id: id.into(),
+        to: "user:you".into(),
+        state: irori_window::rune_inbox::st::DELIVERED.into(),
+        ..Delivery::default()
+    };
+    d.message.from.key = "scene/oak".into();
+    d.message.from.name = "oak".into();
+    // Sent two minutes ago.
+    d.message.sent_at = irori_window::rune_inbox::GoTime::unix_milli(words::now_ms() - 120_000);
+    d.message.text = "The merge desk is clear. Shall I take #12 next, or wait for your review of #9?".into();
+    d
 }
 
 /// The Held list over the Notifications page (`--scene held`).
+///
+/// IRORI_SCENE_HELD=1 fills it with stand-ins: an agent's message held by
+/// a pause (Release, Dismiss), one blocked by the allow list (Allow sender
+/// & deliver), your own to a repo nobody is in (Start an agent), and a
+/// History of one released and one dismissed.
 pub fn held_scene(s: &mut State) {
     s.close_card();
     s.go(Route::Notifications);
     s.open_dialog(Dialog::Held { from: None });
+    if std::env::var("IRORI_SCENE_HELD").is_ok_and(|v| !v.is_empty()) {
+        use irori_window::rune_inbox::{GoTime, hold, st};
+        let now = words::now_ms();
+        let d = |id: &str, from: (&str, &str), to: &str, state: &str, why: &str, text: &str, ago_min: i64| {
+            let mut d = scene_delivery(id);
+            d.message.from.key = from.0.into();
+            d.message.from.name = from.1.into();
+            d.message.text = text.into();
+            d.message.sent_at = GoTime::unix_milli(now - ago_min * 60_000);
+            d.created_at = d.message.sent_at;
+            d.updated_at = d.message.sent_at;
+            d.to = to.into();
+            d.state = state.into();
+            d.hold = why.into();
+            d
+        };
+        let mut unowned = d("scene-h3", ("user:you", "You"), "", st::HELD, hold::UNOWNED, "Can someone look at the flaky lobby test?", 30);
+        unowned.repo_key = "github.com/stephenshorton/irori".into();
+        let mut released = d("scene-h4", ("scene/oak", "oak"), "user:you", st::DELIVERED, hold::PAUSED, "Done with #12; the PR is up.", 120);
+        released.decided_by = "user:you".into();
+        released.decided_at = GoTime::unix_milli(now - 100 * 60_000);
+        let mut dismissed = d("scene-h5", ("scene/elm", "elm"), "user:you", st::DISMISSED, hold::NOT_ALLOWED, "Ping from elm.", 300);
+        dismissed.decided_by = "user:you".into();
+        dismissed.decided_at = GoTime::unix_milli(now - 280 * 60_000);
+        let h = &mut s.inbox.held;
+        h.scene = true;
+        h.loaded = true;
+        h.list = vec![
+            d("scene-h1", ("scene/oak", "oak"), "user:you", st::HELD, hold::PAUSED, "The merge desk is clear. Shall I take #12 next?", 5),
+            d("scene-h2", ("scene/elm", "elm"), "user:you", st::HELD, hold::NOT_ALLOWED, "Can you check my branch?", 12),
+            unowned,
+        ];
+        h.history = vec![released, dismissed];
+    }
 }
 
 /// Held or Message, whichever `s.dialog` names (mounted in `f.layer`).

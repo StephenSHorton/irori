@@ -177,11 +177,16 @@ pub fn pick(s: &mut State, id: &str) {
     crate::ui::dispatch(s, &ev);
 }
 
-/// Opens New space over the Spaces page (the palette's "New space").
+pub use board::start_space_rename;
+
+/// Opens New space on the Spaces page (the header's and the palette's).
 pub fn open_new_space(s: &mut State) {
     s.close_card();
     s.go(Route::Spaces);
-    s.spaces.new_space = Some(NewSpace::default());
+    // The name field takes the keyboard (autoFocus).
+    let mut n = NewSpace::default();
+    n.name.focused = true;
+    s.spaces.new_space = Some(n);
 }
 
 /// Re-reads Personal's boards.
@@ -245,6 +250,12 @@ fn reload_invite(s: &mut State) {
         |w| w.boards_invite_status(),
         |s, st| {
             if st.open() || (s.spaces.invite.is_some() && !st.state.is_empty()) {
+                // The host's words box takes the keyboard as it shows
+                // (autoFocus).
+                let was = s.spaces.invite.as_ref().map(|i| i.state.clone()).unwrap_or_default();
+                if logic::words_box_shows(&was, &st) {
+                    s.spaces.words.focused = true;
+                }
                 s.spaces.invite = Some(st);
             }
         },
@@ -274,12 +285,25 @@ fn start_ticker(s: &mut State) {
     std::thread::Builder::new()
         .name("irori-spaces-tick".into())
         .spawn(move || {
+            // The Core opens the shared spaces a few seconds after launch;
+            // a list read before then is empty. For the first minute an
+            // empty list is read again every 2 s, so the sidebar and the
+            // Spaces page don't wait for the next event or the 20 s tick.
+            let started = std::time::Instant::now();
+            let mut last = std::time::Instant::now();
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(logic::PRESENCE_RELOAD_SECS));
-                h.update(|s: &mut State, _| {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let early = started.elapsed().as_secs() < 60;
+                let tick = last.elapsed().as_secs() >= logic::PRESENCE_RELOAD_SECS;
+                if tick {
+                    last = std::time::Instant::now();
+                } else if !early {
+                    continue;
+                }
+                h.update(move |s: &mut State, _| {
                     let shown = s.nav.card.is_none()
                         && matches!(s.nav.route, Route::Spaces | Route::Board { .. });
-                    if shown {
+                    if (shown && tick) || (early && s.data.spaces.is_empty()) {
                         reload_spaces(s);
                         reload_fresh(s);
                     }
@@ -321,10 +345,58 @@ pub fn view(s: &State, f: &mut Frame) -> El {
 /// The Core opens the shared spaces a few seconds after launch, and a
 /// headless clock doesn't wait for it: give it up to 12 s here so the
 /// scene shows them.
+///
+/// IRORI_SCENE_INVITE shows a stand-in invite over the list, at one of its
+/// steps (no network needed): `waiting` (the host's link), `words-host`
+/// (the host types the five words, one miss), `words-guest` (the guest
+/// reads them out), `joining`, `done` or `failed`.
 pub fn scene(s: &mut State) {
     s.close_card();
     s.go(Route::Spaces);
     wait_for_spaces(s);
+    if let Ok(step) = std::env::var("IRORI_SCENE_INVITE") {
+        s.spaces.invite = scene_invite(&step);
+        if let Some(i) = &s.spaces.invite
+            && logic::words_box_shows("", i)
+        {
+            s.spaces.words.focused = true;
+        }
+    }
+}
+
+/// A stand-in invite at `step` (see [`scene`]).
+fn scene_invite(step: &str) -> Option<InviteStatus> {
+    use irori_window::invites::{INVITE_DONE, INVITE_FAILED, INVITE_JOINING, INVITE_WAITING, INVITE_WORDS};
+    let mut v = InviteStatus {
+        role: "host".into(),
+        board_name: "Netcode Lab".into(),
+        peer_name: "Casey".into(),
+        link: "irori-invite:v1:3q2hx7k0cz9m4t1wq8n6p5r2s4u7y3e0a9d8f6g5h4j2k1l0".into(),
+        peer_fingerprint: "7c1e 90ab 44d2 e8f3".into(),
+        my_fingerprint: "eda0 0926 ae6b 1e18".into(),
+        words: ["harbour", "lantern", "otter", "maple", "drift"].map(String::from).to_vec(),
+        ..InviteStatus::default()
+    };
+    v.state = match step {
+        "waiting" => INVITE_WAITING,
+        "words-host" => {
+            v.misses = 1;
+            INVITE_WORDS
+        }
+        "words-guest" => {
+            v.role = "guest".into();
+            INVITE_WORDS
+        }
+        "joining" => INVITE_JOINING,
+        "done" => INVITE_DONE,
+        "failed" => {
+            v.error = "Those words didn't match twice, so the invite ended.".into();
+            INVITE_FAILED
+        }
+        _ => return None,
+    }
+    .into();
+    Some(v)
 }
 
 /// (Headless scenes only.) Waits for the Core's spaces to open.
