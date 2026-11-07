@@ -381,6 +381,7 @@ fn notes(s: &State, f: &mut Frame) {
 /// one hook: each package's keys chain here, the first to take it wins.
 pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
     crate::palette::on_key(s, ev, tx)
+        || crate::inbox::on_key(s, ev, tx)
         || crate::call::on_key(s, ev, tx)
         || crate::board::on_key(s, ev, tx)
         || keys::on_key(s, ev, tx)

@@ -50,6 +50,11 @@ pub fn new_space_dialog(s: &State, f: &mut Frame) {
                         if let Some(n) = s.spaces.new_space.as_mut() {
                             n.tab = t;
                             n.error = None;
+                            // Each tab's field takes the keyboard (autoFocus).
+                            match t {
+                                NewTab::Make => n.name.focused = true,
+                                NewTab::Join => n.link.focused = true,
+                            }
                         }
                     })
                     .build(k)

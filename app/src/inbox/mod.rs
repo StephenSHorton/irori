@@ -234,6 +234,33 @@ fn load_gone(s: &mut State) {
     s.spawn(|w| w.gone(20).unwrap_or_default(), |s, g| s.inbox.gone = g);
 }
 
+/// The Notifications page's window keys (chained in `ui::on_key`): Esc in
+/// an open Reply box cancels it, as OwnWords' onKeyDown did, instead of
+/// going back a page. The box's own pickers take Esc first.
+pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    if !matches!(ev.key, rune::Key::Escape) {
+        return false;
+    }
+    let focused = tx.focused().map(str::to_string);
+    cancels_reply(s, focused.as_deref())
+}
+
+/// Esc's effect on the Reply box: true (and the box closed) when it is
+/// open on the Notifications page, no dialog is over it, and the keyboard
+/// is in it.
+fn cancels_reply(s: &mut State, focused: Option<&str>) -> bool {
+    let Some(key) = s.inbox.replying.as_deref() else { return false };
+    if s.dialog.is_some() || s.nav.card.is_some() || s.nav.route != Route::Notifications {
+        return false;
+    }
+    let inside = format!("inbox-reply-box-{key}");
+    if !focused.is_some_and(|f| f.starts_with(&inside)) {
+        return false;
+    }
+    s.inbox.replying = None;
+    true
+}
+
 pub fn on_event(s: &mut State, ev: &Event) {
     match ev.name.as_str() {
         "app:start" => {
@@ -336,4 +363,42 @@ pub fn focused_edit() -> TextEdit {
     let mut e = TextEdit::default();
     e.focused = true;
     e
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn replying() -> State {
+        let mut s = State::default();
+        s.go(Route::Notifications);
+        s.inbox.replying = Some("msg:1".into());
+        s
+    }
+
+    #[test]
+    fn esc_in_the_reply_box_cancels_it() {
+        let mut s = replying();
+        assert!(cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
+        assert!(s.inbox.replying.is_none());
+    }
+
+    #[test]
+    fn esc_elsewhere_leaves_the_box() {
+        let mut s = replying();
+        assert!(!cancels_reply(&mut s, None));
+        assert!(!cancels_reply(&mut s, Some("inbox-mark-all")));
+        assert!(s.inbox.replying.is_some());
+        // A dialog over the page takes Esc for itself.
+        s.dialog = Some(Dialog::Palette);
+        assert!(!cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
+        assert!(s.inbox.replying.is_some());
+    }
+
+    #[test]
+    fn esc_with_no_box_open_passes() {
+        let mut s = State::default();
+        s.go(Route::Notifications);
+        assert!(!cancels_reply(&mut s, Some("inbox-reply-box-msg:1/input")));
+    }
 }

@@ -274,10 +274,12 @@ pub fn add_board(s: &State, f: &Frame, target: &str) -> El {
         return Button::new("+ Add board")
             .variant(ButtonVariant::Ghost)
             .on_press(move |s: &mut State| {
-                s.spaces.add = Some(AddBoard {
+                let mut a = AddBoard {
                     target: t.clone(),
                     ..AddBoard::default()
-                })
+                };
+                a.name.focused = true;
+                s.spaces.add = Some(a);
             })
             .build(k);
     };

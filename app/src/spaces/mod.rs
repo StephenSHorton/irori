@@ -177,11 +177,16 @@ pub fn pick(s: &mut State, id: &str) {
     crate::ui::dispatch(s, &ev);
 }
 
-/// Opens New space over the Spaces page (the palette's "New space").
+pub use board::start_space_rename;
+
+/// Opens New space on the Spaces page (the header's and the palette's).
 pub fn open_new_space(s: &mut State) {
     s.close_card();
     s.go(Route::Spaces);
-    s.spaces.new_space = Some(NewSpace::default());
+    // The name field takes the keyboard (autoFocus).
+    let mut n = NewSpace::default();
+    n.name.focused = true;
+    s.spaces.new_space = Some(n);
 }
 
 /// Re-reads Personal's boards.

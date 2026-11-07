@@ -318,6 +318,11 @@ fn start_rename(s: &mut State, list: bool, name: &str) {
     h.name.focused = true;
 }
 
+/// The palette's "Rename this space", on the space's page.
+pub fn start_space_rename(s: &mut State, name: &str) {
+    start_rename(s, false, name);
+}
+
 fn save_rename(s: &mut State, list: bool, target: Target) {
     let name = header_mut(s, list).name.text.clone();
     if name.trim().is_empty() {

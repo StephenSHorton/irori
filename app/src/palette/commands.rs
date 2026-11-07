@@ -130,7 +130,8 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
             .words(&["create", "add", "task"]),
     );
     out.push(
-        Command::new("board.new", "New space", |s| go_to(s, Route::Spaces))
+        // Goes to Spaces with New space open (App.tsx setNewBoard).
+        Command::new("board.new", "New space", crate::spaces::open_new_space)
             .order(2)
             .words(&["create", "add", "join", "invite", "board"]),
     );
@@ -149,6 +150,33 @@ pub fn commands(s: &State, dark: bool) -> Vec<Command> {
                 );
             })
             .words(&["sidebar", "favourite", "favorite"]),
+        );
+        // Owners rename the space from its own page.
+        if b.owner && on_board.as_ref().is_some_and(|(_, list)| list.is_none()) {
+            let name = b.name.clone();
+            out.push(Command::new("board.rename", "Rename this space", move |s| {
+                crate::spaces::start_space_rename(s, &name)
+            }));
+        }
+    }
+    // The cards' page (Home, a board): its List/Canvas switch and search.
+    let on_list = s.nav.card.is_none() && matches!(s.nav.route, Route::Home | Route::Board { .. });
+    if on_list {
+        if crate::canvas::wants_canvas(s) {
+            out.push(
+                Command::new("view.list", "Switch to List", |s| crate::canvas::set_view(s, "list"))
+                    .words(&["grid", "view"]),
+            );
+        } else {
+            out.push(
+                Command::new("view.canvas", "Switch to Canvas", |s| crate::canvas::set_view(s, "canvas"))
+                    .words(&["flow", "chart", "view"]),
+            );
+        }
+        out.push(
+            Command::new("search.cards", "Search cards on this page", |s| s.status.focus_search = true)
+                .keys("/")
+                .words(&["find", "filter", "search"]),
         );
     }
     if s.nav.card.is_some() {
@@ -228,5 +256,33 @@ mod tests {
         assert_eq!(theme.title, "Switch to light theme");
         (theme.run)(&mut s);
         assert_eq!(s.prefs.get::<String>(theme::MODE).as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn the_cards_page_offers_its_view_and_search() {
+        let mut s = State::default();
+        s.go(Route::Home);
+        let ids = |s: &State| commands(s, true).into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert!(ids(&s).contains(&"view.canvas".to_string()));
+        assert!(!ids(&s).contains(&"view.list".to_string()));
+        let search = commands(&s, true).into_iter().find(|c| c.id == "search.cards").unwrap();
+        assert_eq!(search.shortcut, Some("/"));
+        (search.run)(&mut s);
+        assert!(s.status.focus_search);
+        // Not on Notes, nor over a card.
+        s.go(Route::Notes);
+        assert!(!ids(&s).contains(&"search.cards".to_string()));
+        s.go(Route::Home);
+        s.nav.open_card("c".into());
+        assert!(!ids(&s).contains(&"view.canvas".to_string()));
+    }
+
+    #[test]
+    fn new_space_opens_its_dialog() {
+        let mut s = State::default();
+        let c = commands(&s, true).into_iter().find(|c| c.id == "board.new").unwrap();
+        (c.run)(&mut s);
+        assert_eq!(s.nav.route, Route::Spaces);
+        assert!(s.spaces.new_space.is_some());
     }
 }
