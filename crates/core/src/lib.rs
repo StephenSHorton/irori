@@ -97,6 +97,14 @@ pub use crate::service::{
 pub use capture::DecisionView;
 pub use events::{CoreEvent, Feed, Hub, Topic};
 pub use irori_net::share::ShareInfo;
+/// The share hub's insides, for `examples/share-call-dev.rs` (#658): not an
+/// API.
+#[doc(hidden)]
+pub mod share_dev {
+    pub use crate::service::calls_share::{EncCtl, ShareHub};
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub use crate::service::calls_share::{Picture, picture_of, spawn_encoder};
+}
 
 /// Go `core.ErrAlreadyRunning`'s text.
 pub const ALREADY_RUNNING: &str = "irori is already running on this device";

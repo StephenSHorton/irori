@@ -94,7 +94,7 @@ pub struct ShareSource {
 
 /// What the encoder thread is told while it runs.
 #[derive(Default)]
-pub(crate) struct EncCtl {
+pub struct EncCtl {
     stop: AtomicBool,
     key_ask: AtomicBool,
     /// The bitrate wanted, kbit/s.
@@ -198,7 +198,7 @@ struct Inner {
 }
 
 /// One call's share, both ends.
-pub(crate) struct ShareHub {
+pub struct ShareHub {
     me: String,
     rt: Handle,
     changed: Arc<dyn Fn() + Send + Sync>,
@@ -211,7 +211,7 @@ fn newer(a: &ShareInfo, da: &str, b: &ShareInfo, db: &str) -> bool {
 }
 
 impl ShareHub {
-    pub(crate) fn new(
+    pub fn new(
         me: String,
         rt: Handle,
         changed: Arc<dyn Fn() + Send + Sync>,
@@ -229,7 +229,7 @@ impl ShareHub {
     }
 
     /// The share on now and the note for the person.
-    pub(crate) fn view(&self) -> (Option<ShareNow>, Option<ShareNote>) {
+    pub fn view(&self) -> (Option<ShareNow>, Option<ShareNote>) {
         let g = self.lock();
         let now = match (&g.mine, &g.theirs) {
             (Some(m), _) => Some(ShareNow {
@@ -276,7 +276,7 @@ impl ShareHub {
 
     /// A call connection to `peer` is up: run its control stream and take
     /// its video streams. The connection's datagrams stay the call's.
-    pub(crate) fn add_peer(
+    pub fn add_peer(
         self: &Arc<Self>,
         peer: &str,
         conn: Connection,
@@ -535,7 +535,7 @@ impl ShareHub {
     /// The window watches the share: frames go to `sink`. Replaces an
     /// earlier sink; the sharer is asked for a keyframe so the new decoder
     /// can start.
-    pub(crate) fn attach(&self, sink: ShareSink) {
+    pub fn attach(&self, sink: ShareSink) {
         let mut g = self.lock();
         let had = g.sink.replace(sink).is_some();
         if let Some(t) = g.theirs.as_mut() {
@@ -601,7 +601,7 @@ impl ShareHub {
     /// Starts sharing `info` (its size and rate filled in as the encoder
     /// opens): any share of ours ends first, and a share of theirs gives way.
     /// Returns the encoder's controls.
-    pub(crate) fn begin(&self, info: ShareInfo) -> Result<Arc<EncCtl>, String> {
+    pub fn begin(&self, info: ShareInfo) -> Result<Arc<EncCtl>, String> {
         let mut g = self.lock();
         if g.closed {
             return Err("you're not in a huddle".into());
@@ -666,7 +666,7 @@ impl ShareHub {
     }
 
     /// Stops our share, with `why` for the person when it failed.
-    pub(crate) fn end(&self, ctl: Option<&Arc<EncCtl>>, why: Option<String>) {
+    pub fn end(&self, ctl: Option<&Arc<EncCtl>>, why: Option<String>) {
         let mut g = self.lock();
         let ours = match (&g.mine, ctl) {
             (Some(m), Some(c)) => Arc::ptr_eq(&m.ctl, c),
@@ -742,14 +742,14 @@ async fn send_gops(
 /// What to share: a window or display by its source id, or the test
 /// picture (`synthetic:WxH`, no capture, no grant).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(crate) enum Picture {
+pub enum Picture {
     Source(share::Source),
     Synthetic(u32, u32),
 }
 
 /// Parses a source id from [`ShareSource::id`] (or `synthetic:WxH`).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(crate) fn picture_of(id: &str) -> Result<Picture, String> {
+pub fn picture_of(id: &str) -> Result<Picture, String> {
     if let Some(w) = id.strip_prefix("w:")
         && !w.is_empty()
     {
@@ -815,7 +815,7 @@ pub(crate) async fn sources() -> Result<Vec<ShareSource>, String> {
 /// Runs the capture and the encoder on a thread of their own until the
 /// share stops. Returns once the picture is open (or failed to open).
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-pub(crate) fn spawn_encoder(
+pub fn spawn_encoder(
     hub: Weak<ShareHub>,
     ctl: Arc<EncCtl>,
     picture: Picture,
