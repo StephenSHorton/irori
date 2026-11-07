@@ -283,6 +283,7 @@ const SCENES: &[(&str, fn(&mut State))] = &[
     ("settings", crate::settings::scene),
     ("profile", crate::profile::scene),
     ("notifications", crate::inbox::scene),
+    ("held", crate::inbox::held_scene),
     ("palette", crate::palette::scene),
     ("desk", crate::desk::scene),
     ("term", crate::term::scene),

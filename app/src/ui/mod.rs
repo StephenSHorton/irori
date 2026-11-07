@@ -203,8 +203,14 @@ impl State {
         self.nav.card = None;
     }
 
+    /// Opens a dialog; its package hears `app:dialog-opened` (to load).
     pub fn open_dialog(&mut self, d: Dialog) {
         self.dialog = Some(d);
+        let ev = Event {
+            name: "app:dialog-opened".into(),
+            payload: serde_json::Value::Null,
+        };
+        dispatch(self, &ev);
     }
 
     pub fn close_dialog(&mut self) {
