@@ -987,12 +987,8 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (
-  id: string
-) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(
-  fn: (id: string) => { boardId: string; tag: string } | undefined
-) {
+let samplePersonalOf: (id: string) => SampleList | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => SampleList | undefined) {
   samplePersonalOf = fn
 }
 
@@ -1011,6 +1007,7 @@ function sampleCreate(input: NewCardInput): TaskResult {
     : input.spaceBoard
       ? samplePersonalOf(input.spaceBoard)
       : undefined
+  refuseClosed(list)
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
@@ -1211,15 +1208,45 @@ function sampleDelete(id: string) {
 
 // sampleMoveBoard is BoardService.Move on the sample: the card shows the
 // new board and its tag at once, and the sample keeps no numbers per board.
-function sampleMoveBoard(id: string, board: string) {
+export function sampleMoveBoard(id: string, board: string) {
   const c = sampleCard(id)
   const space = c.board ? sampleBoardOf(c.board) : undefined
   const list = space
     ? space.boards?.find((x) => x.boardId === board)
     : samplePersonalOf(board)
+  refuseClosed(list)
   c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()
+}
+
+// sampleCancel is BoardService.Close as canceled on the sample, with its
+// note (card #690: a closed board's open cards).
+export function sampleCancel(id: string, note: string) {
+  sampleClose(id, TaskState.Canceled, note)
+}
+
+// refuseClosed is coord's read-only closed board on the sample (card
+// #690): nothing new goes onto one.
+function refuseClosed(list: SampleList | undefined) {
+  if (list?.closed)
+    throw new Error(
+      `coord: not allowed: board "${list.tag || list.name}" is closed: reopen it first, or pick another board`
+    )
+}
+
+// sampleOpenOn is the open cards on one board of a space (or of Personal
+// when space is ""), for the sample's Close board (card #690). Only a
+// board that isn't the first can close, so a card with no inner board
+// never counts.
+export function sampleOpenOn(space: string, boardId: string): CardDetail[] {
+  return sampleState().filter(
+    (c) =>
+      (c.board ?? "") === space &&
+      c.spaceBoard === boardId &&
+      !over(c) &&
+      !sampleThreadIds.has(c.id)
+  )
 }
 
 // sampleBoardGone is a board delete on the sample (card #563): its cards go
@@ -1248,7 +1275,15 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
-  boards?: { boardId: string; name: string; tag: string }[]
+  boards?: SampleList[]
+}
+
+// SampleList is one board inside a sample space or Personal.
+type SampleList = {
+  boardId: string
+  name?: string
+  tag: string
+  closed?: boolean
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and
