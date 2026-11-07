@@ -59,11 +59,21 @@ impl State {
         }
     }
 
+    /// A card's press: opens its page, or closes it when it is open.
     pub fn select(&mut self, id: &str) {
         if self.open.as_deref() == Some(id) {
             self.open = None;
             self.detail = None;
             return;
+        }
+        self.open_card(id);
+    }
+
+    /// Opens a card's page (a desktop card's Open: never closes it). A
+    /// draft for another card doesn't follow.
+    pub fn open_card(&mut self, id: &str) {
+        if self.open.as_deref() != Some(id) {
+            self.draft.clear();
         }
         self.open = Some(id.to_string());
         self.detail = self.window.as_ref().and_then(|w| w.card(id).ok());

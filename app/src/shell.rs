@@ -1,12 +1,13 @@
 //! The window role (card #674): the Core in-process with its API, the
 //! window backend (crates/window, without its Tauri commands) and a Rune
-//! window on it. What the Tauri shell (app/src/shell) does that this one
-//! doesn't yet is listed in the card's report: launch at login, the
-//! updater and Keep this device up to date, handing a second launch to the
-//! running copy, the macOS tray, calls and voice on a phone.
+//! window on it. What the Tauri shell did that this one doesn't yet is in
+//! docs/rune-ui.md: launch at login, the updater and Keep this device up to
+//! date, calls and voice UI.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use irori_roles::commands::version;
 use irori_roles::{datadir, host};
@@ -18,23 +19,31 @@ use rune::{App, AppSpec};
 
 use crate::board::{self, State};
 
-/// Rune's own flags: a run with any of them renders headless (no window,
-/// no tray, no agents started), the Core still reading the data dir.
-const HEADLESS_FLAGS: &[&str] = &[
-    "--snap",
-    "--tree",
-    "--script",
-    "--trace",
-    "--video",
-    "--out",
-    "--list-scenes",
-    "--strip",
-    "--desktop",
-];
+/// The last rows' send when the app quits (the Tauri shell's).
+const QUIT: Duration = Duration::from_secs(3);
+/// macOS waits up to 30 s for a will-sleep answer; Windows about 2 s.
+#[cfg(target_os = "macos")]
+const SLEEP: Duration = Duration::from_secs(5);
+#[cfg(not(target_os = "macos"))]
+const SLEEP: Duration = Duration::from_millis(1500);
+
+/// Everything the app does on its way out, once (see [`on_exit`]).
+static SHUTDOWN: OnceLock<Box<dyn Fn() -> Result<(), String> + Send + Sync>> = OnceLock::new();
+
+/// macOS: Cmd-Q, the Dock's Quit and a logout go through AppKit's
+/// `terminate:`, which calls exit() itself, so `try_run` never returns (the
+/// Tauri shell's card #535). The shutdown then runs from the C exit hooks,
+/// with every thread still alive. Other platforms take it too, once.
+extern "C" fn on_exit() {
+    if let Some(f) = SHUTDOWN.get()
+        && let Err(e) = f()
+    {
+        irori_core::log(&format!("irori: closing: {e}"));
+    }
+}
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let launched = std::time::Instant::now();
-    let headless = args.iter().any(|a| HEADLESS_FLAGS.contains(&a.as_str()));
     // `--startup` (launch at login) is Irori's; everything else is Rune's.
     let startup = args.iter().any(|a| a == "--startup" || a == "-startup");
     let rune_args: Vec<String> = args
@@ -42,6 +51,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .filter(|a| *a != "--startup" && *a != "-startup")
         .cloned()
         .collect();
+    // Rune decides what is headless (a render, a script, a listing), and
+    // answers `--help` here, before the Core starts.
+    let headless = rune::tooling::Args::parse_from(rune_args.clone()).headless();
     if !headless {
         // Opened from Finder, the Dock or at login, the app has launchd's
         // PATH: take the login shell's before anything starts claude.
@@ -132,10 +144,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let h = handle.clone();
         // IRORI_DESK_TRACE=1 logs each refresh (the spike's live check).
         let trace = std::env::var_os("IRORI_DESK_TRACE").is_some();
+        // A burst of changes is one re-read: a refresh already queued
+        // reads them all.
+        let queued = Arc::new(AtomicBool::new(false));
         window.set_emitter(move |name, _payload| {
-            if name == EVENT_BOARD_CHANGED || name == EVENT_ROSTER_CHANGED {
+            if (name == EVENT_BOARD_CHANGED || name == EVENT_ROSTER_CHANGED)
+                && !queued.swap(true, Ordering::SeqCst)
+            {
                 let name = name.to_string();
+                let queued = queued.clone();
                 h.update(move |s: &mut State, _| {
+                    queued.store(false, Ordering::SeqCst);
                     s.refresh();
                     if trace {
                         irori_core::log(&format!(
@@ -155,15 +174,29 @@ pub fn run(args: &[String]) -> Result<(), String> {
             h.open();
             if !t.ref_.is_empty() {
                 let id = t.ref_.trim_start_matches("task:").to_string();
-                h.update(move |s: &mut State, _| s.select(&id));
+                h.update(move |s: &mut State, _| s.open_card(&id));
             }
         });
     }
     let pumps_stop = sys::cancel::Cancel::new();
     irori_window::events::start(window.clone(), pumps_stop.clone());
 
+    // Sleep sends this device's newest rows first; waking syncs again.
+    if !headless {
+        let c = core.clone();
+        let r = sys::power::watch(Arc::new(move |ch| match ch {
+            sys::power::Change::WillSleep => {
+                c.sync_out(SLEEP);
+            }
+            sys::power::Change::Woke => c.kick_sync(),
+        }));
+        if let Err(e) = r {
+            irori_core::log(&format!("irori: sleep and wake: {e}"));
+        }
+    }
+
     // A second launch on this data dir shows this window.
-    let _instance = if headless {
+    let instance = if headless {
         None
     } else {
         let h = handle.clone();
@@ -182,16 +215,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
         "start: Rune window starting {} ms after launch",
         launched.elapsed().as_millis()
     ));
+    // On the way out: the last rows leave, the pumps stop, the Core
+    // closes, the port file goes. Once, from whichever way out comes first.
+    let left = Mutex::new(Some((hosted, instance)));
+    let _ = SHUTDOWN.set(Box::new(move || {
+        let Some((hosted, instance)) = left.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+            return Ok(());
+        };
+        pumps_stop.cancel();
+        core.sync_out(QUIT);
+        window.call_shutdown();
+        window.voice_shutdown();
+        core.set_reviver(None);
+        core.set_spawner(None);
+        drop(instance);
+        hosted.close()
+    }));
+    // SAFETY: registers a plain extern "C" fn with no arguments.
+    unsafe { libc::atexit(on_exit) };
     let ran = app.try_run();
-
-    // On the way out: the last rows leave, the pumps stop, the Core closes.
-    pumps_stop.cancel();
-    core.sync_out(std::time::Duration::from_secs(3));
-    window.call_shutdown();
-    window.voice_shutdown();
-    core.set_reviver(None);
-    core.set_spawner(None);
-    let closed = hosted.close();
+    let closed = SHUTDOWN.get().map_or(Ok(()), |f| f());
     ran.and(closed)
 }
 

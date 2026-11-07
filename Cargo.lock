@@ -3464,6 +3464,7 @@ dependencies = [
  "irori-roles",
  "irori-sys",
  "irori-window",
+ "libc",
  "png 0.18.1",
  "rune",
  "serde_json",

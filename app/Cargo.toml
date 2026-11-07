@@ -19,6 +19,7 @@ irori-notify = { workspace = true }
 irori-window = { workspace = true }
 tokio = { workspace = true }
 png = { workspace = true }
+libc = { workspace = true }
 # Rune (github.com/StephenSHorton/rune, the person's fork), pinned: Rune is
 # pre-release and asks for a rev of dev. Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
