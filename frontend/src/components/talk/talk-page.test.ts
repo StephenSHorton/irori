@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 
 import type { ThreadSummary } from "@/lib/cards"
-import { needsYou, talkMatches } from "./talk-page"
+import { needsYou, talkMatches, ThreadsSection } from "./talk-page"
 
 const t = (p: Partial<ThreadSummary>): ThreadSummary =>
   ({
@@ -120,5 +122,69 @@ describe("talkMatches with a tag", () => {
     expect(talkMatches(t({ tag: "mlg" }), "mlg#12")).toBe(true)
     expect(talkMatches(t({ tag: "mlg" }), "#12")).toBe(true)
     expect(talkMatches(t({ tag: "" }), "mlg#12")).toBe(false)
+  })
+})
+
+describe("Resolved threads sit at the bottom of Threads (card #687)", () => {
+  const section = (
+    live: ThreadSummary[],
+    resolved: ThreadSummary[],
+    p: { folded?: boolean; showResolved?: boolean } = {}
+  ) => {
+    // Loading's preview flag reads the page's address.
+    const was = globalThis.window
+    globalThis.window = { location: { search: "" } } as Window &
+      typeof globalThis
+    try {
+      return renderToStaticMarkup(
+        createElement(ThreadsSection, {
+          live,
+          resolved,
+          loading: false,
+          folded: !!p.folded,
+          onFold: () => {},
+          searching: false,
+          open: "",
+          why: "",
+          onOpen: () => {},
+          showResolved: !!p.showResolved,
+          onToggleResolved: () => {},
+        })
+      )
+    } finally {
+      globalThis.window = was
+    }
+  }
+  const done = t({ id: "d", short: "9", title: "Old ask", state: "resolved" })
+  const at = (html: string, s: string) => html.indexOf(s)
+
+  test("the toggle comes after the open threads, inside Threads", () => {
+    const html = section([t({ id: "a", title: "Live ask" })], [done])
+    expect(at(html, "Threads")).toBeGreaterThan(-1)
+    expect(at(html, "Live ask")).toBeGreaterThan(at(html, "Threads"))
+    expect(at(html, "Resolved threads: 1")).toBeGreaterThan(
+      at(html, "Live ask")
+    )
+    expect(html).not.toContain("mt-auto")
+  })
+  test("unfolded, its rows follow the toggle", () => {
+    const html = section([], [done], { showResolved: true })
+    expect(at(html, "Old ask")).toBeGreaterThan(at(html, "Resolved threads: 1"))
+  })
+  test("with no open threads it sits under that line", () => {
+    const html = section([], [done])
+    expect(at(html, "No open threads")).toBeGreaterThan(-1)
+    expect(at(html, "Resolved threads: 1")).toBeGreaterThan(
+      at(html, "No open threads")
+    )
+  })
+  test("folding Threads hides it", () => {
+    const html = section([t({ title: "Live ask" })], [done], { folded: true })
+    expect(html).toContain("Threads")
+    expect(html).not.toContain("Resolved threads")
+    expect(html).not.toContain("Live ask")
+  })
+  test("no resolved threads, no toggle", () => {
+    expect(section([t({})], [])).not.toContain("Resolved threads")
   })
 })
