@@ -375,7 +375,8 @@ pub fn poll(s: &mut State, _t: f64, tx: &mut rune::Tx) -> bool {
         tx.wake_after(next.saturating_duration_since(now));
     }
     let widgets = crate::widgets::poll(s, tx);
-    before != s.notes.len() || widgets
+    let talk = crate::talk::poll(s);
+    before != s.notes.len() || widgets || talk
 }
 
 /// A page a package hasn't ported yet: says so, so a screenshot shows

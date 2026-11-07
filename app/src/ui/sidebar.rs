@@ -43,7 +43,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
     let main = SidebarSection::new("")
         .key("sb-main")
         .row(nav_row(s, k, "Home", &icons::HOME, Route::Home, count(d.decide as i64)))
-        .row(nav_row(s, k, "Talk", &icons::TALK, Route::Talk(None), count(d.inbox.unread)))
+        .row(nav_row(s, k, "Talk", &icons::TALK, Route::Talk(None), count(crate::talk::waiting_count(s) as i64)))
         .row(nav_row(s, k, "Merge desks", &icons::MERGE, Route::Desk(None), None))
         .row(nav_row(s, k, "Notes", &icons::NOTES, Route::Notes, None))
         .row(nav_row(s, k, "Spaces", &icons::SPACES, Route::Spaces, None))
