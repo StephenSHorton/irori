@@ -208,6 +208,7 @@ impl State {
         self.nav.card = None;
     }
 
+    /// Opens a dialog; its package hears `app:dialog-opened` (to load).
     pub fn open_dialog(&mut self, d: Dialog) {
         self.dialog = Some(d);
         // The dialog's package reads what it shows (settings: its pane).
@@ -371,6 +372,12 @@ fn notes(s: &State, f: &mut Frame) {
         region = region.toast(t.build(f.k));
     }
     f.layer.push(region.build(f.k));
+}
+
+/// The window's keys (AppSpec::on_key): a key nothing focused took. The
+/// one hook: each package's keys chain here, the first to take it wins.
+pub fn on_key(s: &mut State, ev: &rune::KeyEvent, tx: &mut rune::Tx) -> bool {
+    crate::palette::on_key(s, ev, tx) || keys::on_key(s, ev, tx)
 }
 
 /// Drops notes whose time is up (AppSpec::poll).

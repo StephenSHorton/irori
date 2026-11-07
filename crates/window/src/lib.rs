@@ -62,6 +62,7 @@ pub mod ready;
 pub mod roster;
 pub mod rune_term;
 pub mod rune_spaces;
+pub mod rune_inbox;
 pub mod seams;
 pub mod settings;
 pub mod spawn;

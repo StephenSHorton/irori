@@ -160,7 +160,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         scenes: SCENES,
         min_size: Some((720.0, 480.0)),
         poll: Some(ui::poll),
-        on_key: Some(ui::keys::on_key),
+        on_key: Some(ui::on_key),
         ..AppSpec::new("Irori", (1100.0, 720.0), State::default, ui::view)
     };
     let init_window = window.clone();
@@ -381,6 +381,7 @@ const SCENES: &[(&str, fn(&mut State))] = &[
     ("settings", crate::settings::scene),
     ("profile", crate::profile::scene),
     ("notifications", crate::inbox::scene),
+    ("held", crate::inbox::held_scene),
     ("palette", crate::palette::scene),
     ("desk", crate::desk::scene),
     ("term", crate::term::scene),
