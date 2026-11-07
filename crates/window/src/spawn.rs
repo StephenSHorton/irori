@@ -1568,8 +1568,13 @@ echo 'test result: ok'
     /// when it is over 64 KiB.
     #[test]
     fn logs_replay_a_captured_repaint_stream_and_keep_its_tail() {
-        let fixture =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../term/testdata/claude-logs.bin");
+        // Joined part by part: cmd's `type` refuses a path with `/` in it.
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("term")
+            .join("testdata")
+            .join("claude-logs.bin");
         let bytes = std::fs::read(&fixture).unwrap();
         // The prompt is "❯", a no-break space, a colour, then its text.
         let newest = "itsed do eius modt-em";

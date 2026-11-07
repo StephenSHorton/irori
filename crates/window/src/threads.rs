@@ -439,11 +439,17 @@ impl Window {
     /// ones newest first, then the newest resolved ones.
     fn thread_rows(&self, found: Vec<Found>, space: &str) -> Vec<ThreadSummary> {
         let p = self.people();
+        // Threads the person cleared from Storage (card #728) leave the
+        // lists while they stay closed, as cleared cards do (#138).
+        let cleared = self.core.coord().archived_ids();
         let me = self.core.user_sender().key;
         let mut open = Vec::new();
         let mut done = Vec::new();
         for (co, t, private) in found {
-            if !is_thread(&t) || t.withdrawn {
+            if !is_thread(&t)
+                || t.withdrawn
+                || (cleared.contains(&t.id) && coord::is_terminal(coord::effective_state(&t)))
+            {
                 continue;
             }
             let raw = co.comments(&t.id).unwrap_or_default();

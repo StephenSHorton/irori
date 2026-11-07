@@ -94,3 +94,7 @@ shot 36-board-closed "#board/sample-board-mlg/sample-board-mlg-proto" # a closed
 shot 37-personal-closed "?closed#board/personal"             # Personal's boards and its Closed boards fold
 shot 38-board-new "?addboard#board/sample-board-mlg"         # New board with its optional description
 shot 39-board-edit-description "?description=sample-board-mlg-net#board/sample-board-mlg/sample-board-mlg-net" # Edit description
+shot 40-storage "?storage"                                   # Storage: what Irori keeps and its size (card #728)
+shot 41-storage-builds "?storage=builds"                     # one kind's page: build output with Delete
+shot 42-storage-log "?storage=log"                           # the log's page: Clear done cards and threads, Put back
+shot 43-storage-closed "?storage=closed"                     # closed boards, to browse and open (with #690)

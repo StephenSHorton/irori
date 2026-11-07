@@ -359,6 +359,21 @@ export const NotesService = {
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
 }
 
+// StorageService is the window's storage_* commands (card #728).
+export const StorageService = {
+  Report: () => call(commands.storageReport()),
+  Log: () => call(commands.storageLog()),
+  Items: (kind: string) => call(commands.storageItems(kind)),
+  Clean: (kind: string, ids: string[]) =>
+    call(commands.storageClean(kind, ids)),
+  Cleared: () => call(commands.storageCleared()),
+  Unclear: (ids: string[]) => call(commands.storageUnclear(ids)),
+  ClearThreadsCount: (olderThanSecs: number) =>
+    call(commands.threadsClearCount(olderThanSecs)),
+  ClearThreads: (olderThanSecs: number) =>
+    call(commands.threadsClear(olderThanSecs)),
+}
+
 // AgentsService is the window's agents_* commands (card #449): Trust and
 // start for a card whose repo isn't trusted, and a board's permissions;
 // and (card #448) a board's spawning switch, model and effort.

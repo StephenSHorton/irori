@@ -78,6 +78,7 @@ import {
 } from "@/components/boards/space-boards"
 import { NewBoardDialog, PickSpace } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
+import { StoragePage } from "@/components/storage/storage-page"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -244,6 +245,9 @@ export function App() {
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
     if (previewFlag("notes") !== null) return { kind: "notes" }
+    // ?storage starts on Storage, ?storage=<kind> on one kind's page.
+    const storageTab = previewFlag("storage")
+    if (storageTab !== null) return { kind: "storage", tab: storageTab }
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
@@ -737,6 +741,24 @@ export function App() {
       run: () => goTo(boardsFor(space)),
     },
     {
+      id: "nav.storage",
+      title: "Storage",
+      group: "Go to",
+      order: 3,
+      keywords: [
+        "disk",
+        "space",
+        "archive",
+        "maintenance",
+        "clean",
+        "clear",
+        "delete",
+        "attachments",
+        "build output",
+      ],
+      run: () => goTo({ kind: "storage", tab: "" }),
+    },
+    {
       id: "nav.notifications",
       shortcut: SectionShortcuts[4],
       title: "Notifications",
@@ -898,7 +920,9 @@ export function App() {
                                 ? "Merge desks"
                                 : section.kind === "notifications"
                                   ? "Notifications"
-                                  : "Home"
+                                  : section.kind === "storage"
+                                    ? "Storage"
+                                    : "Home"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -1011,6 +1035,15 @@ export function App() {
               ) : section.kind === "boards" ? (
                 <Scroll>
                   <PickSpace boards={boards} onPick={pickSpace} />
+                </Scroll>
+              ) : section.kind === "storage" ? (
+                <Scroll>
+                  <StoragePage
+                    tab={section.tab}
+                    onTab={(tab) => go({ kind: "storage", tab })}
+                    onOpen={openCard}
+                    now={now}
+                  />
                 </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>

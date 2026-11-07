@@ -1092,6 +1092,72 @@ pub async fn boards_set_reviewer(
 
 // ---- Notes (card #401; Mine only since #616) ------------------------------------
 
+// ---- Storage (card #728) ------------------------------------------------
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_report(w: W<'_>) -> R<crate::storage::StorageReport> {
+    blocking(&w, move |w| w.storage_report()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_log(w: W<'_>) -> R<Vec<crate::storage::LogPart>> {
+    blocking(&w, move |w| w.storage_log()).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_items(w: W<'_>, kind: String) -> R<Vec<crate::storage::StorageItem>> {
+    blocking(&w, move |w| w.storage_items(&kind)).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_clean(
+    w: W<'_>,
+    kind: String,
+    ids: Vec<String>,
+) -> R<crate::storage::StorageCleaned> {
+    timed(
+        "storage_clean",
+        blocking(&w, move |w| w.storage_clean(&kind, &ids)),
+    )
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_cleared(w: W<'_>) -> R<Vec<crate::storage::ClearedCard>> {
+    blocking(&w, move |w| Ok(w.storage_cleared())).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn storage_unclear(w: W<'_>, ids: Vec<String>) -> R<i64> {
+    timed(
+        "storage_unclear",
+        blocking(&w, move |w| w.storage_unclear(&ids)),
+    )
+    .await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn threads_clear_count(w: W<'_>, older_than_secs: i64) -> R<i64> {
+    blocking(&w, move |w| Ok(w.clear_threads_count(older_than_secs))).await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn threads_clear(w: W<'_>, older_than_secs: i64) -> R<i64> {
+    timed(
+        "threads_clear",
+        blocking(&w, move |w| w.clear_threads(older_than_secs)),
+    )
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn notes_list(w: W<'_>, removed: bool) -> R<Vec<crate::notes::NoteView>> {
@@ -2175,6 +2241,14 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             boards_set_threads,
             boards_set_reviewer,
             notes_list,
+            storage_report,
+            storage_log,
+            storage_items,
+            storage_clean,
+            storage_cleared,
+            storage_unclear,
+            threads_clear_count,
+            threads_clear,
             note_new,
             note_edit,
             note_remove,
