@@ -249,8 +249,16 @@ fn tokio_block<T>(f: impl std::future::Future<Output = T>) -> T {
 
 /// The mic for a composer: `key` names it (prefixed by its package, e.g.
 /// "talk-composer"), `target` gets its box. Nothing where this device has
-/// no speech engine.
+/// no speech engine. Never disabled by its box: see [`mic_button_in`].
 pub fn mic_button(s: &State, f: &mut Frame, key: &str, target: Target) -> El {
+    mic_button_in(s, f, key, target, false)
+}
+
+/// [`mic_button`] for a box that may be off: `disabled` (the box is
+/// disabled or read-only) greys the mic and keeps the shortcut off it, as
+/// React's `disabled` prop did.
+pub fn mic_button_in(s: &State, f: &mut Frame, key: &str, target: Target, disabled: bool) -> El {
+    let off = disabled;
     let k = f.k;
     let Some(st) = s.call.voice.as_ref().filter(|v| v.state != "unsupported") else {
         return el().key(format!("call-mic-{key}")).w(0.0);
@@ -262,12 +270,12 @@ pub fn mic_button(s: &State, f: &mut Frame, key: &str, target: Target) -> El {
     let dl = s.call.download;
     let call = in_call(s);
     let denied = st.state == "denied" && !live;
-    let disabled = (call && !live) || busy || dl.is_some();
+    let disabled = off || (call && !live) || busy || dl.is_some();
     // The shortcut's view of it (the latest frame's mics).
     s.call.mics.borrow_mut().0.push(Drawn {
         key: key.to_string(),
         target,
-        usable: !call && dl.is_none() && phase.is_none(),
+        usable: !off && !call && dl.is_none() && phase.is_none(),
     });
     let label = if live {
         "Stop voice input".to_string()

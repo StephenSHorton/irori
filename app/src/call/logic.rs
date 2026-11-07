@@ -285,12 +285,11 @@ pub fn huddle_names(s: &CallView, conv: &str) -> Vec<String> {
     names
 }
 
-/// clockText: a time of day, "10:02", in this machine's zone.
+/// clockText: a time of day in this machine's zone, as React's
+/// toLocaleTimeString with 2-digit hour and minute said it ("03:02 PM"),
+/// the same as a post's time in Talk.
 pub fn clock_text(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let local = secs + sys::tz::local_offset(secs) as i64;
-    let day = local.rem_euclid(86_400);
-    format!("{:02}:{:02}", day / 3600, (day % 3600) / 60)
+    crate::talk::logic::local(ms).1
 }
 
 /// The local day number of `ms` (days since the epoch, in this zone).
@@ -729,7 +728,9 @@ mod tests {
         assert_eq!(day_label(1_000_000_000_000 - 86_400_000, 1_000_000_000_000), "Yesterday");
         assert_eq!(civil(0), (1970, 1, 1));
         assert_eq!(civil(19_723), (2024, 1, 1));
-        assert_eq!(clock_text(0).len(), 5);
+        let c = clock_text(0);
+        assert_eq!(c.len(), 8, "{c}");
+        assert!(c.ends_with(" AM") || c.ends_with(" PM"), "{c}");
     }
 
     // ---- share.test.ts ----

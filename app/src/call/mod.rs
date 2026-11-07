@@ -46,7 +46,7 @@ use crate::ui::{Event, Frame, Route, State};
 // The pieces other packages place (Talk, the card page, the window's keys).
 pub use huddle::{huddle_button, huddle_ended, huddle_line, huddle_panel, huddle_started};
 pub use logic::StartWhere;
-pub use mic::{Target as MicTarget, mic_button, on_key};
+pub use mic::{Target as MicTarget, mic_button, mic_button_in, on_key};
 // Settings' voice note.
 pub use mic::{refresh_voice, voice_note};
 pub use share::share_stage;
@@ -132,6 +132,9 @@ pub struct Model {
     demo: bool,
     /// The scene's composer, for its mic.
     demo_draft: TextEdit,
+    /// The scene's huddle is in a real Talk channel (IRORI_CALL_SCENE
+    /// "talk"): Talk draws it, not the stand-in conversation.
+    demo_in_talk: bool,
 }
 
 fn now_ms() -> i64 {
@@ -517,13 +520,19 @@ pub fn overlay(s: &State, f: &mut Frame) {
         let drawn = std::mem::take(&mut m.0);
         m.1 = drawn;
     }
-    if s.call.demo {
+    if s.call.demo && !s.call.demo_in_talk {
         huddle::demo(s, f);
     }
     share::full_screen(s, f);
-    huddle::ring(s, f);
     huddle::call_bar(s, f);
     huddle::notice(s, f);
+}
+
+/// The ring banner's row, between the update banner and the page (the
+/// root view puts it there): a huddle someone started where you can join
+/// it. Empty when nothing rings.
+pub fn ring_row(s: &State, f: &mut Frame) -> El {
+    huddle::ring(s, f)
 }
 
 /// The headless scene: a fake huddle in a channel with two others, one
@@ -595,10 +604,25 @@ pub fn scene(s: &mut State) {
     };
     // IRORI_CALL_SCENE picks a variant: "posts" (no share: the posts, a
     // composer with its mic), "mine" (your own share), "alone" (just you,
-    // an error, no captions).
+    // an error, no captions), "talk" (no share, in the newest real
+    // channel, drawn by Talk itself: the panel beside its posts).
     let variant = std::env::var("IRORI_CALL_SCENE").unwrap_or_default();
     let mut mine = mine;
+    let mut in_talk = None;
     match variant.as_str() {
+        "talk" => {
+            mine.share = None;
+            let convs = s.win().talk_conversations().unwrap_or_default();
+            in_talk = convs
+                .iter()
+                .filter(|c| c.kind == "channel" && !c.read_only)
+                .max_by_key(|c| crate::talk::logic::at_ms(&c.last_at))
+                .map(|c| (c.conv_id.clone(), c.name.clone()));
+            if let Some((id, name)) = &in_talk {
+                mine.conv_id = id.clone();
+                mine.conv_name = name.clone();
+            }
+        }
         "posts" => mine.share = None,
         "mine" => {
             if let Some(x) = mine.share.as_mut() {
@@ -635,10 +659,18 @@ pub fn scene(s: &mut State) {
         }],
         live: vec![CallLiveView {
             call_id: "scene-call".into(),
-            conv_id: "scene-ch".into(),
+            conv_id: in_talk.as_ref().map_or("scene-ch".into(), |(id, _)| id.clone()),
             people: vec!["you".into(), "Spencer".into(), "Aiko".into()],
         }],
         transcribe_on: true,
         can_transcribe: true,
     };
+    if let Some((id, _)) = in_talk {
+        s.call.demo_in_talk = true;
+        crate::talk::on_event(s, &crate::ui::Event {
+            name: "app:start".into(),
+            payload: serde_json::Value::Null,
+        });
+        crate::talk::open(s, &id);
+    }
 }

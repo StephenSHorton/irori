@@ -357,60 +357,69 @@ fn spawn_state(t: &ThreadSummary) -> SpawnState {
 /// AskBox on the Talk page).
 pub fn start_view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
-    let board = crate::logic::spaces::threads_space(super::picked_space(s)).to_string();
+    let board = crate::logic::spaces::threads_space(&super::picked_space(s)).to_string();
     let c = ask_box(s);
     let kinds = logic::mention_kinds(c.mentions.iter().map(|m| m.key.as_str()));
     let now_on = s.talk.ask_now.unwrap_or(logic::agents_now_for(&kinds));
     let b = board.clone();
+    let on_send: crate::text::SendFn = Rc::new(move |s: &mut State, m: Sent| {
+        if m.text.trim().is_empty() {
+            return;
+        }
+        let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
+        let now = s.talk.ask_now.unwrap_or(logic::agents_now_for(&kinds));
+        let ms = crate::text::mentions::to_ts(&m.mentions);
+        let board = b.clone();
+        ask_box_mut(s).sending = true;
+        s.talk.ask_error.clear();
+        s.spawn(
+            move |w| w.start_thread_with(&m.text, &ms, &m.files, &board, Some(now)),
+            |s, r| match r {
+                Ok(r) => {
+                    crate::text::sent(s, ask_box_mut);
+                    ask_box_mut(s).missed(&r.mentioned);
+                    s.talk.ask_now = None;
+                    let id = r.task.id.clone();
+                    s.spawn(|w| w.threads_all(), move |s, ts| {
+                        s.talk.threads = ts;
+                        super::open(s, &id);
+                    });
+                }
+                Err(e) => {
+                    ask_box_mut(s).sending = false;
+                    s.talk.ask_error = e;
+                }
+            },
+        );
+    });
+    let no_mentions = (!board.is_empty())
+        .then(|| "A shared space's thread takes no mentions: name a card instead".to_string());
+    let mut extra = vec![crate::widgets::agents_now::agents_now_toggle(
+        f,
+        "talk-ask-now",
+        now_on,
+        c.sending,
+        |s: &mut State, on| s.talk.ask_now = Some(on),
+    )];
+    extra.push(super::conv::send_button(f, "talk-ask-send", c, &board, no_mentions.clone(), on_send.clone(), ask_box_mut));
     let opts = ComposerOpts {
         placeholder: "Ask your agents…".into(),
         label: "Ask the room".into(),
-        send_button: true,
         asking: true,
         board: board.clone(),
         popup_below: true,
         rows: Some((2, 10)),
-        mic: Some(crate::call::mic_button(s, f, "talk-ask", |s: &mut State| &mut s.talk.ask_box.edit)),
-        no_mentions: (!board.is_empty())
-            .then(|| "A shared space's thread takes no mentions: name a card instead".to_string()),
-        no_files: (!board.is_empty()).then(|| "Files on a shared space's thread aren't supported yet".to_string()),
-        extra: vec![crate::widgets::agents_now::agents_now_toggle(
+        mic: Some(crate::call::mic_button_in(
+            s,
             f,
-            "talk-ask-now",
-            now_on,
+            "talk-ask",
+            |s: &mut State| &mut s.talk.ask_box.edit,
             c.sending,
-            |s: &mut State, on| s.talk.ask_now = Some(on),
-        )],
-        on_send: Some(Rc::new(move |s: &mut State, m: Sent| {
-            if m.text.trim().is_empty() {
-                return;
-            }
-            let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
-            let now = s.talk.ask_now.unwrap_or(logic::agents_now_for(&kinds));
-            let ms = crate::text::mentions::to_ts(&m.mentions);
-            let board = b.clone();
-            ask_box_mut(s).sending = true;
-            s.talk.ask_error.clear();
-            s.spawn(
-                move |w| w.start_thread_with(&m.text, &ms, &m.files, &board, Some(now)),
-                |s, r| match r {
-                    Ok(r) => {
-                        crate::text::sent(s, ask_box_mut);
-                        ask_box_mut(s).missed(&r.mentioned);
-                        s.talk.ask_now = None;
-                        let id = r.task.id.clone();
-                        s.spawn(|w| w.threads_all(), move |s, ts| {
-                            s.talk.threads = ts;
-                            super::open(s, &id);
-                        });
-                    }
-                    Err(e) => {
-                        ask_box_mut(s).sending = false;
-                        s.talk.ask_error = e;
-                    }
-                },
-            );
-        })),
+        )),
+        no_mentions,
+        no_files: (!board.is_empty()).then(|| "Files on a shared space's thread aren't supported yet".to_string()),
+        extra,
+        on_send: Some(on_send),
         ..ComposerOpts::default()
     };
     let mut out = col()

@@ -743,36 +743,43 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
         ));
     }
     let conv = c.conv_id.clone();
+    let on_send: crate::text::SendFn = Rc::new(move |s: &mut State, m: Sent| {
+        let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
+        let now = if channel { s.talk.agents_now.unwrap_or(logic::agents_now_for(&kinds)) } else { logic::agents_now_for(&kinds) };
+        let keys: Vec<String> = m.mentions.iter().map(|x| x.key.clone()).collect();
+        let conv = conv.clone();
+        post_box_mut(s).sending = true;
+        s.talk.post_error.clear();
+        s.spawn(
+            move |w| w.talk_post(&conv, m.text.trim(), &keys, now, None, &m.files),
+            |s, r| match r {
+                Ok(_) => {
+                    crate::text::sent(s, post_box_mut);
+                    s.talk.agents_now = None;
+                    super::load_posts(s);
+                }
+                Err(e) => {
+                    post_box_mut(s).sending = false;
+                    s.talk.post_error = e;
+                }
+            },
+        );
+    });
+    extra.push(send_button(f, "talk-post-send", boxc, &c.space_id, None, on_send.clone(), post_box_mut));
     let opts = ComposerOpts {
         placeholder: placeholder.clone(),
         label: placeholder,
-        send_button: true,
         extra,
         board: c.space_id.clone(),
         rows: Some((1, 8)),
-        mic: Some(crate::call::mic_button(s, f, "talk-composer", |s: &mut State| &mut s.talk.post_box.edit)),
-        on_send: Some(Rc::new(move |s: &mut State, m: Sent| {
-            let kinds = logic::mention_kinds(m.mentions.iter().map(|x| x.key.as_str()));
-            let now = if channel { s.talk.agents_now.unwrap_or(logic::agents_now_for(&kinds)) } else { logic::agents_now_for(&kinds) };
-            let keys: Vec<String> = m.mentions.iter().map(|x| x.key.clone()).collect();
-            let conv = conv.clone();
-            post_box_mut(s).sending = true;
-            s.talk.post_error.clear();
-            s.spawn(
-                move |w| w.talk_post(&conv, m.text.trim(), &keys, now, None, &m.files),
-                |s, r| match r {
-                    Ok(_) => {
-                        crate::text::sent(s, post_box_mut);
-                        s.talk.agents_now = None;
-                        super::load_posts(s);
-                    }
-                    Err(e) => {
-                        post_box_mut(s).sending = false;
-                        s.talk.post_error = e;
-                    }
-                },
-            );
-        })),
+        mic: Some(crate::call::mic_button_in(
+            s,
+            f,
+            "talk-composer",
+            |s: &mut State| &mut s.talk.post_box.edit,
+            boxc.sending,
+        )),
+        on_send: Some(on_send),
         ..ComposerOpts::default()
     };
     let mut out = col()
@@ -789,6 +796,36 @@ fn composer(s: &State, f: &mut Frame, c: &TalkConversation, other: Option<&TalkM
         );
     }
     out
+}
+
+/// A box's Send, as React's Talk boxes had it: a "Send" button
+/// ("Sending…" while it goes), off while the box is empty. It sends what
+/// the composer holds, as Enter does.
+pub(crate) fn send_button(
+    f: &Frame,
+    key: &str,
+    c: &crate::text::Composer,
+    board: &str,
+    no_mentions: Option<String>,
+    on_send: crate::text::SendFn,
+    get_mut: crate::text::GetMut,
+) -> El {
+    let board = board.to_string();
+    Button::new(if c.sending { "Sending…" } else { "Send" })
+        .variant(ButtonVariant::Submit)
+        .control_size(ControlSize::Small)
+        .disabled(c.sending || c.is_empty())
+        .on_press(move |s: &mut State| {
+            let o = ComposerOpts {
+                board: board.clone(),
+                no_mentions: no_mentions.clone(),
+                on_send: Some(on_send.clone()),
+                ..ComposerOpts::default()
+            };
+            crate::text::submit(s, get_mut, &o);
+        })
+        .build(f.k)
+        .key(key.to_string())
 }
 
 /// Make a card from post `post_id` (design §4): its form, filled.

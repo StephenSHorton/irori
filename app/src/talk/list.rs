@@ -32,7 +32,7 @@ pub(crate) fn ts(size: f32, weight: f32) -> TextStyle {
 /// The list column.
 pub fn view(s: &State, f: &mut Frame, open_id: &str) -> El {
     let k = f.k;
-    let space = super::picked_space(s);
+    let space = &super::picked_space(s);
     let query = s.talk.query.text.clone();
     let searching = !query.trim().is_empty();
     let live = live_roster(&s.data.agents);
@@ -409,6 +409,7 @@ fn conv_section(
         add,
         (mark && !s.talk.marking).then(|| items.to_vec()),
     ));
+    let has_extra = extra.is_some();
     if let Some(x) = extra {
         nav = nav.child(x);
     }
@@ -418,7 +419,8 @@ fn conv_section(
     if !s.talk.convs_loaded {
         return nav.child(crate::widgets::loading::list_rows_shape(f, &format!("talk-{}-loading", k_.name()), 3, true));
     }
-    if items.is_empty() && s.talk.adding == Adding::None && !empty_line.is_empty() {
+    // Its own new-channel or new-DM form stands in for the empty line.
+    if items.is_empty() && !has_extra && !empty_line.is_empty() {
         nav = nav.child(empty(f, &format!("talk-{}-empty", k_.name()), empty_line));
     }
     let (rows, hidden) =
@@ -777,7 +779,7 @@ fn thread_item(f: &Frame, t: &ThreadSummary, current: bool, why: &str) -> El {
 /// picked shared space, else Personal (card #461).
 fn new_channel(s: &State, f: &Frame) -> El {
     let k = f.k;
-    let space = threads_space(super::picked_space(s)).to_string();
+    let space = threads_space(&super::picked_space(s)).to_string();
     let mut c = col().key("talk-new-channel").w_full().px(4.0).pb(4.0).gap(4.0).child(
         TextInput::new(&s.talk.new_channel)
             .placeholder("channel-name")

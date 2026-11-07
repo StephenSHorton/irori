@@ -10,7 +10,7 @@ use irori_window::threads::{THREAD_ANSWERED, THREAD_HANDED, THREAD_RESOLVED, THR
 
 use crate::logic::agent_status::{Who, agent_status};
 use crate::logic::cards::{Tone, names_line};
-use crate::logic::names::{display_name, is_key_like, is_others_key, member_name, name_or, UNKNOWN_AGENT};
+use crate::logic::names::{display_name, is_key_like, is_others_key, member_name};
 use crate::logic::plain::{plain_line, relative_time};
 use crate::logic::spawn_line::{SpawnState, spawn_line};
 use crate::logic::thread::LiveAgent;
@@ -770,25 +770,9 @@ pub fn empty_opened(who: &AgentRef) -> String {
 
 // ---------- talk.ts (its pure helpers) ----------
 
-/// Names agent keys: "you" for the person, else the first name any source
-/// gives, else "unknown agent"; never a key (card #478).
-pub fn name_lookup<'a>(sources: impl IntoIterator<Item = (&'a str, &'a str)>) -> impl Fn(&str) -> String {
-    let mut names: HashMap<String, String> = HashMap::new();
-    for (k, n) in sources {
-        if !k.is_empty() && !n.is_empty() && !names.contains_key(k) {
-            names.insert(k.to_string(), n.to_string());
-        }
-    }
-    move |key: &str| {
-        if key.is_empty() {
-            return String::new();
-        }
-        if key.starts_with("user:") {
-            return "you".into();
-        }
-        name_or(names.get(key).map_or("", String::as_str), UNKNOWN_AGENT)
-    }
-}
+// talk.ts's nameLookup is inbox::words::Names: one lookup names agent
+// keys ("you" for the person, else the first name any source gives, else
+// "unknown agent"; never a key, card #478).
 
 /// Per agent key: deliveries not yet picked up, and held for the person.
 /// `deliveries` are each delivery's (to, state).
@@ -1574,11 +1558,14 @@ mod tests {
 
     #[test]
     fn names_never_keys() {
-        let name = name_lookup([("dev/a", "oak"), ("dev/a", "elm"), ("dev/b", "")]);
-        assert_eq!(name("dev/a"), "oak");
-        assert_eq!(name("dev/b"), UNKNOWN_AGENT);
-        assert_eq!(name("user:mac"), "you");
-        assert_eq!(name(""), "");
+        let mut names = crate::inbox::words::Names::default();
+        for (k, n) in [("dev/a", "oak"), ("dev/a", "elm"), ("dev/b", "")] {
+            names.add(k, n);
+        }
+        assert_eq!(names.name("dev/a"), "oak");
+        assert_eq!(names.name("dev/b"), crate::logic::names::UNKNOWN_AGENT);
+        assert_eq!(names.name("user:mac"), "you");
+        assert_eq!(names.name(""), "");
     }
 
     #[test]
