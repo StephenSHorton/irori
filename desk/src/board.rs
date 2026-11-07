@@ -33,8 +33,9 @@ pub struct State {
     pub draft: TextEdit,
     /// The last failed action, shown under the comment box.
     pub error: String,
-    /// The tray (Windows and Linux; Rune has no macOS tray yet).
-    pub tray: Option<rune::tray::Tray>,
+    /// The tray, kept alive with the state: Rune's on Windows and Linux,
+    /// tray-icon's on macOS (shell.rs).
+    pub tray: Option<Box<dyn std::any::Any>>,
 }
 
 impl State {
@@ -405,6 +406,16 @@ fn detail_pane(s: &State, d: &CardDetail, t: Theme) -> El {
                 )
                 .child(text(state_label(c)).font(type_::LABEL).color(color))
                 .child(el().grow(1.0))
+                .child({
+                    // The clipboard: Rune's own (Tx::copy), no plugin.
+                    let r = format!("{}, task:{}", card_ref(c), c.id);
+                    text("Copy ref")
+                        .key("copy-ref")
+                        .role("button")
+                        .font(type_::LABEL)
+                        .color(t.text_secondary)
+                        .on_press_tx(move |_: &mut State, tx: &mut Tx| tx.copy(r.clone()))
+                })
                 .child(
                     text("Close")
                         .key("close")

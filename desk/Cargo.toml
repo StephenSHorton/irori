@@ -23,3 +23,10 @@ png = { workspace = true }
 # pre-release and asks for a rev of dev. Its ogg-audio (symphonia) and
 # native-file-dialog stay off.
 rune = { git = "https://github.com/StephenSHorton/rune", rev = "5fd9bfa2ec89e6325d6435d95066336d93369d69", default-features = false, features = ["accessibility", "dbus", "embedded-fonts", "metal-backend", "svg"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# The Mac's menu-bar item: Rune's Tray is Windows and Linux only.
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.25.1"

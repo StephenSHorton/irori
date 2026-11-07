@@ -12,6 +12,7 @@ use irori_roles::commands::version;
 use irori_roles::{datadir, host};
 use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_ROSTER_CHANGED};
 use irori_window::{Config, Window, attachments};
+#[cfg(not(target_os = "macos"))]
 use rune::tray::{Tray, TrayEvent, TrayIcon, TrayItem, TraySpec};
 use rune::{App, AppSpec};
 
@@ -49,11 +50,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let data = datadir::process_data_dir()?;
 
-    // Another Irori holding this data dir. The Tauri shell hands the launch
-    // to it (its window shows); this one says so and stops.
+    // Another Irori holding this data dir: a window gets the launch handed
+    // to it (its window shows, instance.rs); a headless one is an error.
     if let Ok(lf) = irori_core::lockfile::read(&data)
         && lf.pid != irori_core::lockfile::own_pid()
     {
+        if !lf.headless && !headless && crate::instance::hand_off(&data) {
+            return Ok(());
+        }
         return Err(format!(
             "another Irori (pid {}) holds {}; quit it first",
             lf.pid,
@@ -158,33 +162,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let pumps_stop = sys::cancel::Cancel::new();
     irori_window::events::start(window.clone(), pumps_stop.clone());
 
-    // The tray: Rune has one on Windows and Linux. With it, closing the
-    // window keeps Irori running, as the Tauri app does.
-    if !headless {
+    // A second launch on this data dir shows this window.
+    let _instance = if headless {
+        None
+    } else {
         let h = handle.clone();
-        let tray = Tray::new(
-            TraySpec::new("irori", "Irori", tray_icon())
-                .tooltip(format!("Irori {}", version()))
-                .menu(vec![
-                    TrayItem::action("open", "Open Irori"),
-                    TrayItem::Separator,
-                    TrayItem::action("quit", "Quit"),
-                ]),
-            move |ev| match ev {
-                TrayEvent::Activate { token: Some(t) } => h.activate(t),
-                TrayEvent::Activate { token: None } => h.open(),
-                TrayEvent::Menu(id) if id == "open" => h.open(),
-                TrayEvent::Menu(id) if id == "quit" => h.quit(),
-                _ => {}
-            },
-        );
-        match tray {
-            Ok(t) => {
-                app = app.keep_running();
-                handle.update(move |s: &mut State, _| s.tray = Some(t));
-            }
-            Err(e) => irori_core::log(&format!("irori: tray: {e}")),
-        }
+        crate::instance::listen(&data, move || h.open())
+            .map_err(|e| irori_core::log(&format!("irori: single instance: {e}")))
+            .ok()
+    };
+
+    // The tray: closing the window keeps Irori running, as the Tauri app
+    // does; Open and Quit are in its menu.
+    if !headless && install_tray(&handle) {
+        app = app.keep_running();
     }
 
     irori_core::log(&format!(
@@ -219,22 +210,63 @@ fn open_path(p: &Path) -> Result<(), String> {
     c.arg(p).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// The tray's icon: the app icon's 32 px PNG, decoded.
-fn tray_icon() -> TrayIcon {
-    const PNG: &[u8] = include_bytes!("../../app/icons/32x32.png");
-    let decoded = (|| {
-        let mut dec = png::Decoder::new(std::io::Cursor::new(PNG));
-        dec.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
-        let mut r = dec.read_info().ok()?;
-        let mut buf = vec![0; r.output_buffer_size()?];
-        let info = r.next_frame(&mut buf).ok()?;
-        buf.truncate(info.buffer_size());
-        (info.color_type == png::ColorType::Rgba).then_some((info.width, info.height, buf))
-    })();
-    match decoded {
-        Some((w, h, px)) => TrayIcon::rgba(w, h, px),
-        None => TrayIcon::rgba(1, 1, vec![0, 0, 0, 0]),
+/// Makes the tray. Windows and Linux: Rune's `Tray`, made here. macOS:
+/// tray-icon's, made on the main thread once the loop runs (tray_mac.rs).
+/// True when a tray is (or will be) there.
+fn install_tray(handle: &rune::AppHandle<State>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::tray_mac::route(handle.clone());
+        handle.update(|s: &mut State, _| match crate::tray_mac::install(version()) {
+            Ok(t) => s.tray = Some(Box::new(t)),
+            Err(e) => irori_core::log(&format!("irori: tray: {e}")),
+        });
+        true
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let h = handle.clone();
+        let Some((w, ht, px)) = decode_png(include_bytes!("../../app/icons/32x32.png")) else {
+            return false;
+        };
+        let tray = Tray::new(
+            TraySpec::new("irori", "Irori", TrayIcon::rgba(w, ht, px))
+                .tooltip(format!("Irori {}", version()))
+                .menu(vec![
+                    TrayItem::action("open", "Open Irori"),
+                    TrayItem::Separator,
+                    TrayItem::action("quit", "Quit Irori"),
+                ]),
+            move |ev| match ev {
+                TrayEvent::Activate { token: Some(t) } => h.activate(t),
+                TrayEvent::Activate { token: None } => h.open(),
+                TrayEvent::Menu(id) if id == "open" => h.open(),
+                TrayEvent::Menu(id) if id == "quit" => h.quit(),
+                _ => {}
+            },
+        );
+        match tray {
+            Ok(t) => {
+                handle.update(move |s: &mut State, _| s.tray = Some(Box::new(t)));
+                true
+            }
+            Err(e) => {
+                irori_core::log(&format!("irori: tray: {e}"));
+                false
+            }
+        }
+    }
+}
+
+/// A PNG as RGBA pixels: (width, height, pixels).
+pub(crate) fn decode_png(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
+    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
+    let mut r = dec.read_info().ok()?;
+    let mut buf = vec![0; r.output_buffer_size()?];
+    let info = r.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    (info.color_type == png::ColorType::Rgba).then_some((info.width, info.height, buf))
 }
 
 /// The Core's spawner: `claude` sessions for cards (the Tauri shell's).

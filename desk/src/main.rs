@@ -13,7 +13,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod board;
+mod instance;
 mod shell;
+#[cfg(target_os = "macos")]
+mod tray_mac;
 
 fn main() -> std::process::ExitCode {
     irori_roles::run_main(shell::run)
