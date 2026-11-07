@@ -303,7 +303,7 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
             Route::Notes => crate::notes::view(s, &mut f),
             Route::Desk(_) => crate::desk::view(s, &mut f),
             Route::Spaces => crate::spaces::view(s, &mut f),
-            Route::Board { .. } => crate::board::view(s, &mut f),
+            Route::Board { .. } => crate::spaces::board_page(s, &mut f),
             Route::Profile => crate::profile::view(s, &mut f),
             Route::Notifications => crate::inbox::view(s, &mut f),
         }
