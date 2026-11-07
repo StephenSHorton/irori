@@ -314,8 +314,6 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
         crate::text::view(s, &mut f)
     } else if let Some(g) = crate::widgets::page(s, &mut f) {
         g
-    } else if let Some(c) = crate::canvas::page(s, &mut f) {
-        c
     } else if s.nav.card.is_some() {
         crate::card::view(s, &mut f)
     } else {

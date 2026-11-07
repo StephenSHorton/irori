@@ -21,9 +21,8 @@
 //!
 //! - [`view_switch`]: the List / Canvas switch for the board's header;
 //!   [`wants_canvas`] says Canvas is picked (`board.view` in prefs).
-//! - [`view`]: the canvas over the cards of the current route's scope (as
-//!   the board's list shows them), filling its parent: give it
-//!   `.grow(1.0).min_h(0.0)`. [`view_of`] takes the cards.
+//! - [`view_of`]: the canvas over the cards the board's filter and search
+//!   show, filling its parent: give it `.grow(1.0).min_h(0.0)`.
 //! - [`overlay`]: the canvas full screen (the corner button or F), drawn
 //!   over the whole window; ui/mod.rs calls it.
 
@@ -32,7 +31,7 @@ mod edges;
 mod icons;
 pub mod node;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use irori_window::cards::{CardDetail, CardSummary};
@@ -112,8 +111,9 @@ pub struct Model {
     flash_gen: u64,
     /// The canvas fills the window (card #410).
     pub full: bool,
-    /// The headless scene shows the canvas as the page.
-    pub scene: bool,
+    /// The cards the page's canvas was last given (its filter and
+    /// search), for full screen to show the same map.
+    shown: RefCell<Option<Vec<String>>>,
 }
 
 impl Default for Model {
@@ -139,7 +139,7 @@ impl Default for Model {
             flash: HashSet::new(),
             flash_gen: 0,
             full: false,
-            scene: false,
+            shown: RefCell::new(None),
         }
     }
 }
@@ -234,7 +234,7 @@ pub fn wants_canvas(s: &State) -> bool {
 }
 
 fn active(s: &State) -> bool {
-    s.canvas.scene || s.canvas.full || wants_canvas(s)
+    s.canvas.full || wants_canvas(s)
 }
 
 /// Picks the board's view.
@@ -434,15 +434,10 @@ fn signature(g: &Graph, size: [f32; 2]) -> u64 {
     h.finish() | 1
 }
 
-/// The canvas over the cards of the current route's scope. While it is
-/// full screen the page keeps an empty box and [`overlay`] draws it.
-pub fn view(s: &State, f: &mut Frame) -> El {
-    let cards = scoped(s);
-    view_of(s, f, &cards)
-}
-
-/// The canvas over `cards`.
+/// The canvas over `cards`. While it is full screen the page keeps an
+/// empty box and [`overlay`] draws it.
 pub fn view_of(s: &State, f: &mut Frame, cards: &[&CardSummary]) -> El {
+    *s.canvas.shown.borrow_mut() = Some(cards.iter().map(|c| c.id.clone()).collect());
     if s.canvas.full {
         return el().key("canvas/box").w_full().h_full().min_h(0.0);
     }
@@ -468,7 +463,15 @@ pub fn overlay(s: &State, f: &mut Frame) {
     if !s.canvas.full {
         return;
     }
-    let cards = scoped(s);
+    // The same cards as the page's canvas (its filter and search); the
+    // route's whole scope when no page drew one.
+    let cards: Vec<&CardSummary> = match s.canvas.shown.borrow().as_ref() {
+        Some(ids) => {
+            let by: HashMap<&str, &CardSummary> = s.data.cards.iter().map(|c| (c.id.as_str(), c)).collect();
+            ids.iter().filter_map(|id| by.get(id.as_str()).copied()).collect()
+        }
+        None => scoped(s),
+    };
     let c = board_canvas(s, f, &cards, true);
     f.layer.push(
         el().key("canvas/full")
@@ -477,44 +480,6 @@ pub fn overlay(s: &State, f: &mut Frame) {
             .modal(false, |s: &mut State| s.canvas.full = false)
             .child(c),
     );
-}
-
-/// The headless scene's page: the board's header with the view switch over
-/// the canvas. `None` unless the scene is on.
-pub fn page(s: &State, f: &mut Frame) -> Option<El> {
-    // A card opened from the canvas shows its page over it.
-    if !s.canvas.scene || s.nav.card.is_some() {
-        return None;
-    }
-    let title = match &s.nav.route {
-        Route::Board { space, .. } => s
-            .data
-            .spaces
-            .iter()
-            .find(|b| &b.board_id == space)
-            .map_or_else(|| "Board".to_string(), |b| b.name.clone()),
-        _ => "Home".to_string(),
-    };
-    let header = crate::ui::page_header(f, &title, vec![view_switch(s, f)]);
-    let body = view(s, f);
-    Some(
-        col()
-            .key("canvas/page")
-            .w_full()
-            .h_full()
-            .min_h(0.0)
-            .child(header)
-            .child(
-                col()
-                    .key("canvas/page-body")
-                    .w_full()
-                    .grow(1.0)
-                    .min_h(0.0)
-                    .px(20.0)
-                    .pb(20.0)
-                    .child(body),
-            ),
-    )
 }
 
 fn board_canvas(s: &State, f: &mut Frame, cards: &[&CardSummary], full: bool) -> El {
