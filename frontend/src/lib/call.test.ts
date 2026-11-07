@@ -142,15 +142,20 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
   expect(transcriptNotice({ convKind: "dm", convName: "Spencer", ...on })).toBe(
     "This huddle is transcribed. What you say is written down for the two of you."
   )
+  // Your own voice off still says the others' may be written down.
   const off = { ...on, transcribeOn: false }
-  expect(transcriptNotice({ convKind: "channel", convName: "x", ...off })).toBe(
-    "Your voice isn't transcribed (Settings > App)."
+  expect(
+    transcriptNotice({ convKind: "channel", convName: "suzuri", ...off })
+  ).toBe(
+    "Your voice isn't transcribed (Settings > App). Others in the huddle may still be written down in #suzuri."
   )
-  expect(transcriptNotice({ convKind: "dm", convName: "x", ...off })).toBe(
-    "Your voice isn't transcribed (Settings > App)."
+  expect(
+    transcriptNotice({ convKind: "dm", convName: "Spencer", ...off })
+  ).toBe(
+    "Your voice isn't transcribed (Settings > App). The other person may still be written down."
   )
   // No model or no engine here: the switch can't help, so it isn't named.
-  for (const transcribeOn of [true, false])
+  for (const transcribeOn of [true, false]) {
     expect(
       transcriptNotice({
         convKind: "channel",
@@ -158,7 +163,20 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
         transcribeOn,
         canTranscribe: false,
       })
-    ).toBe("Your voice isn't transcribed on this device.")
+    ).toBe(
+      "Your voice isn't transcribed on this device. Others in the huddle may still be written down in #suzuri."
+    )
+    expect(
+      transcriptNotice({
+        convKind: "dm",
+        convName: "Spencer",
+        transcribeOn,
+        canTranscribe: false,
+      })
+    ).toBe(
+      "Your voice isn't transcribed on this device. The other person may still be written down."
+    )
+  }
   // A key is never shown (card #478).
   expect(
     transcriptNotice({
@@ -167,6 +185,13 @@ test("transcriptNotice says who reads it, or why it isn't written", () => {
       ...on,
     })
   ).toContain("in #channel for")
+  expect(
+    transcriptNotice({
+      convKind: "channel",
+      convName: "person:0123abcdef",
+      ...off,
+    })
+  ).toContain("written down in #channel.")
 })
 
 test("canTranscribeWith: no engine or no model can't", () => {

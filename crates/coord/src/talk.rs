@@ -574,6 +574,8 @@ pub struct CallInfo {
     pub call_id: String,
     /// The channel or DM it was in.
     pub conv_id: String,
+    /// When it started: its start mark's time, when that is here.
+    pub start_at: Option<GoTime>,
     /// Its end mark, once the huddle has ended.
     pub end: Option<CallMark>,
     /// The newest of its marks and lines.
@@ -1512,6 +1514,11 @@ impl Talk {
                     .filter_map(|p| p.call.as_ref())
                     .rfind(|m| m.op == CALL_END)
                     .cloned();
+                let start_at = c
+                    .marks
+                    .iter()
+                    .find(|p| p.call.as_ref().is_some_and(|m| m.op == CALL_START))
+                    .map(|p| p.at);
                 let last = c
                     .marks
                     .iter()
@@ -1523,6 +1530,7 @@ impl Talk {
                 CallInfo {
                     call_id: id.clone(),
                     conv_id: c.conv.clone(),
+                    start_at,
                     end,
                     last,
                     lines: c.lines.len(),

@@ -1374,6 +1374,31 @@ fn huddles_through_the_window() {
         end_ms: 2_400,
         text: text.into(),
     };
+    // Transcribing needs the speech model here (and an engine): without
+    // it the device can't, whatever the call says.
+    let only_mine = |can_transcribe: bool| irori_core::CallSnapshot {
+        mine: Some(irori_core::MyCall {
+            call_id: "call-0".into(),
+            conv_id: ch.clone(),
+            can_transcribe,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let v = w.call_view(only_mine(true));
+    assert!(!v.can_transcribe && !v.mine.as_ref().unwrap().can_transcribe);
+    let model = voice::model_path(w.core.data_dir(), &voice::MODEL);
+    std::fs::create_dir_all(model.parent().unwrap()).unwrap();
+    std::fs::File::create(&model)
+        .unwrap()
+        .set_len(voice::MODEL.size)
+        .unwrap();
+    let engine = !matches!(voice::status(), voice::Status::Unsupported(_));
+    let v = w.call_view(only_mine(false));
+    assert_eq!(v.can_transcribe, engine);
+    assert!(!v.mine.as_ref().unwrap().can_transcribe, "no transcriber");
+    assert_eq!(w.call_state().can_transcribe, engine);
+
     let v = w.call_view(irori_core::CallSnapshot {
         mine: Some(irori_core::MyCall {
             call_id: "call-1".into(),
@@ -1422,7 +1447,8 @@ fn huddles_through_the_window() {
         "another person's device has no name here"
     );
     assert_eq!(m.error, None, "a blank error is none");
-    assert!(m.transcribing && m.can_transcribe && m.transcribe_on && v.transcribe_on);
+    assert!(m.transcribing && m.transcribe_on && v.transcribe_on);
+    assert_eq!((m.can_transcribe, v.can_transcribe), (engine, engine));
     assert_eq!(m.peers[1].transcribing, Some(true));
     let said: Vec<(&str, bool, &str)> = m
         .captions

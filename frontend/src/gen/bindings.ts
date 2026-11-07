@@ -912,7 +912,10 @@ export type CallMineView = {
 	error: string | null,
 	/**  What this device says is written down now (#656). */
 	transcribing: boolean,
-	/**  This device has a transcriber (the speech model is set up here). */
+	/**
+	 *  This device can write down what the person says now: it has a
+	 *  transcriber, a speech engine, and the speech model is downloaded.
+	 */
 	canTranscribe: boolean,
 	/**  "Transcribe what I say in calls", the person's switch. */
 	transcribeOn: boolean,
@@ -974,6 +977,14 @@ export type CallView = {
 	 *  notice before the mic opens reads it.
 	 */
 	transcribeOn: boolean,
+	/**
+	 *  This device can write down what the person says now (#656): this
+	 *  machine has a speech engine and the speech model is downloaded.
+	 *  Known before any call, for the notice; worked out each time the view
+	 *  is built. (Whether the app installed a transcriber isn't part of it:
+	 *  the app always does.)
+	 */
+	canTranscribe: boolean,
 };
 
 /**  A card's spot on the Board's canvas, in canvas pixels (card #93). */

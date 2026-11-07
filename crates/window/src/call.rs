@@ -28,6 +28,12 @@ pub struct CallView {
     /// "Transcribe what I say in calls" (#656), the person's switch: the
     /// notice before the mic opens reads it.
     pub transcribe_on: bool,
+    /// This device can write down what the person says now (#656): this
+    /// machine has a speech engine and the speech model is downloaded.
+    /// Known before any call, for the notice; worked out each time the view
+    /// is built. (Whether the app installed a transcriber isn't part of it:
+    /// the app always does.)
+    pub can_transcribe: bool,
 }
 
 /// The call this device is in.
@@ -53,7 +59,8 @@ pub struct CallMineView {
     pub error: Option<String>,
     /// What this device says is written down now (#656).
     pub transcribing: bool,
-    /// This device has a transcriber (the speech model is set up here).
+    /// This device can write down what the person says now: it has a
+    /// transcriber, a speech engine, and the speech model is downloaded.
     pub can_transcribe: bool,
     /// "Transcribe what I say in calls", the person's switch.
     pub transcribe_on: bool,
@@ -139,11 +146,13 @@ impl Window {
     pub fn call_view(&self, s: CallSnapshot) -> CallView {
         let names = Names::new(self, &s);
         let transcribe_on = self.core.call_transcribe();
+        let can_transcribe = crate::voice::can_transcribe_here(self.core.data_dir());
         CallView {
-            mine: s.mine.map(|m| names.mine(m, transcribe_on)),
+            mine: s.mine.map(|m| names.mine(m, transcribe_on, can_transcribe)),
             ringing: s.ringing.into_iter().map(|r| names.ring(r)).collect(),
             live: s.live.into_iter().map(|l| names.live(l)).collect(),
             transcribe_on,
+            can_transcribe,
         }
     }
 
@@ -301,7 +310,8 @@ impl<'a> Names<'a> {
         self.convs.get(conv).cloned().unwrap_or_default()
     }
 
-    fn mine(&self, m: MyCall, transcribe_on: bool) -> CallMineView {
+    /// `here`: [`crate::voice::can_transcribe_here`].
+    fn mine(&self, m: MyCall, transcribe_on: bool, here: bool) -> CallMineView {
         let (conv_kind, conv_name) = self.conv(&m.conv_id);
         CallMineView {
             device: self
@@ -344,7 +354,7 @@ impl<'a> Names<'a> {
                 })
                 .collect(),
             transcribing: m.transcribing,
-            can_transcribe: m.can_transcribe,
+            can_transcribe: m.can_transcribe && here,
             transcribe_on,
             call_id: m.call_id,
             conv_id: m.conv_id,

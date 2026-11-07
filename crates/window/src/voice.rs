@@ -11,6 +11,7 @@
 //! the person edits and sends it.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use serde::Serialize;
@@ -111,6 +112,13 @@ pub(crate) fn status_with(engine: voice::Status, model_ready: bool) -> VoiceStat
         voice::Status::Ready => {}
     }
     s
+}
+
+/// Whether this device can write down what its person says in a call now
+/// (#656): this machine has a speech engine and the model is downloaded.
+pub(crate) fn can_transcribe_here(data_dir: &std::path::Path) -> bool {
+    !matches!(voice::status(), voice::Status::Unsupported(_))
+        && voice::model_ready(data_dir, &voice::MODEL)
 }
 
 fn code_from(s: &str) -> Option<voice::ErrorCode> {
@@ -286,7 +294,11 @@ pub fn call_transcriber(data_dir: PathBuf) -> call::TranscriberFn {
         });
         let (session, feed) =
             voice::start_feed(&model, 48_000, voice::Options::call(), on).map_err(|e| e.message)?;
-        Ok(Box::new(CallScribe { session, feed }) as Box<dyn call::Transcriber>)
+        Ok(Box::new(CallScribe {
+            session,
+            feed,
+            stopped: Arc::new(AtomicBool::new(false)),
+        }) as Box<dyn call::Transcriber>)
     })
 }
 
@@ -307,21 +319,40 @@ fn segment(e: voice::Event) -> Option<call::Segment> {
 }
 
 /// One call's Whisper session and its feed.
+///
+/// The tap only holds a weak handle to the session's backlog, so the engine
+/// dropping its tap frees at most that handle's small allocation, never the
+/// backlog. Taking the tap off
+/// (`set_tap(None)`) is only a message to the engine, so the tap can still
+/// run after [`call::Transcriber::stop`]: `stopped` makes it push nothing
+/// from then on. A push already past that check when `stop` runs can still
+/// hold the backlog's last reference and free it on the audio thread; that
+/// window is one chunk wide.
 struct CallScribe {
     session: voice::Session,
-    /// Held here too, so the engine dropping its tap never frees the
-    /// backlog on the audio thread.
     feed: voice::Feed,
+    /// Set by `stop` before the session stops: the tap pushes nothing more.
+    stopped: Arc<AtomicBool>,
 }
 
 impl call::Transcriber for CallScribe {
     fn tap(&mut self) -> call::Tap {
         let feed = self.feed.clone();
-        Box::new(move |chunk: &[f32]| feed.push(chunk))
+        let stopped = self.stopped.clone();
+        Box::new(move |chunk: &[f32]| {
+            if !stopped.load(Ordering::Acquire) {
+                feed.push(chunk);
+            }
+        })
     }
 
     fn stop(self: Box<Self>) {
-        let CallScribe { session, feed } = *self;
+        let CallScribe {
+            session,
+            feed,
+            stopped,
+        } = *self;
+        stopped.store(true, Ordering::Release);
         session.stop();
         drop(feed);
     }

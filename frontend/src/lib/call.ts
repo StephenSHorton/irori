@@ -44,6 +44,8 @@ export const noCall: CallView = {
   ringing: [],
   live: [],
   transcribeOn: true,
+  // Unknown until the app says; the notice asks fresh anyway.
+  canTranscribe: false,
 }
 
 // ---- the shared picture ---------------------------------------------------------
@@ -75,6 +77,8 @@ export function startCallState(): () => void {
   if (started) return () => {}
   started = true
   if (!inWails()) {
+    // The preview's device can write down.
+    set({ ...shared, canTranscribe: true })
     previewSeed(previewFlag("call"))
     return () => {
       started = false
@@ -181,12 +185,16 @@ export async function setTranscribe(on: boolean): Promise<void> {
 }
 
 // canTranscribeHere is whether this device could write down its person's
-// voice before a huddle starts: it needs the speech engine and its model,
-// as the transcriber does (crates/window/src/voice.rs). The preview says
-// yes.
+// voice before a huddle starts: the app's own answer (CallView's
+// canTranscribe: a speech engine and its model), read fresh. If that read
+// fails, the voice status says the same thing. The preview says yes.
 export async function canTranscribeHere(): Promise<boolean> {
   if (!inWails()) return true
-  return canTranscribeWith((await loadVoiceStatus()).state)
+  try {
+    return (await CallService.State()).canTranscribe
+  } catch {
+    return canTranscribeWith((await loadVoiceStatus()).state)
+  }
 }
 
 // canTranscribeWith is canTranscribeHere for a voice status: no engine or
@@ -203,8 +211,15 @@ export function transcriptNotice(c: {
   transcribeOn: boolean
   canTranscribe: boolean
 }): string {
-  if (!c.canTranscribe) return "Your voice isn't transcribed on this device."
-  if (!c.transcribeOn) return "Your voice isn't transcribed (Settings > App)."
+  // Your own voice not written down doesn't stop the others' being.
+  const others =
+    c.convKind === "channel"
+      ? `Others in the huddle may still be written down in ${convLabel(c)}.`
+      : "The other person may still be written down."
+  if (!c.canTranscribe)
+    return `Your voice isn't transcribed on this device. ${others}`
+  if (!c.transcribeOn)
+    return `Your voice isn't transcribed (Settings > App). ${others}`
   return c.convKind === "channel"
     ? `This huddle is transcribed. What you say is written down in ${convLabel(c)} for its members and their agents.`
     : "This huddle is transcribed. What you say is written down for the two of you."
@@ -478,6 +493,7 @@ function previewSeed(flag: string | null) {
   if (flag === "live" || flag === "share") {
     set({
       transcribeOn: shared.transcribeOn,
+      canTranscribe: shared.canTranscribe,
       mine: {
         ...previewMine("sample-ch-suzuri", "", 252_000),
         captions: previewCaptions(3, Date.now()),
@@ -495,6 +511,7 @@ function previewSeed(flag: string | null) {
   } else if (flag === "start") {
     set({
       transcribeOn: shared.transcribeOn,
+      canTranscribe: shared.canTranscribe,
       mine: null,
       ringing: [
         {
@@ -575,6 +592,7 @@ function captionAt(i: number, now: number): CallCaptionView {
 function previewStart(convId: string, name: string) {
   set({
     transcribeOn: shared.transcribeOn,
+    canTranscribe: shared.canTranscribe,
     mine: previewMine(convId, name, 0),
     ringing: shared.ringing.filter((r) => r.convId !== convId),
     live: [
@@ -592,6 +610,7 @@ function previewJoin(callId: string) {
   if (!convId) return
   set({
     transcribeOn: shared.transcribeOn,
+    canTranscribe: shared.canTranscribe,
     mine: { ...previewMine(convId, r?.convName ?? "", 0), callId },
     ringing: shared.ringing.filter((x) => x.callId !== callId),
     live: shared.live.map((x) =>
@@ -606,6 +625,7 @@ function previewLeave() {
   previewTick(false)
   set({
     transcribeOn: shared.transcribeOn,
+    canTranscribe: shared.canTranscribe,
     mine: null,
     ringing: shared.ringing,
     live: shared.live

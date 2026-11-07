@@ -232,6 +232,7 @@ export function ConversationView({
   const askJoin = (callId: string) =>
     setAsking({
       action: "join",
+      callId,
       convKind: conv.kind,
       convName: plainLine(conv.name),
       run: () => joinHuddle(callId),

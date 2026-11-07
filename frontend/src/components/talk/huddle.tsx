@@ -743,6 +743,7 @@ export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
         ask={
           asking && {
             action: "join",
+            callId: asking.callId,
             convKind: asking.convKind,
             convName: asking.convName,
           }
@@ -757,6 +758,9 @@ export function Ringing({ onJoined }: { onJoined: (convId: string) => void }) {
 // NoticeAsk is a huddle about to open the mic: starting one, or joining.
 export type NoticeAsk = {
   action: "start" | "join"
+  // The huddle a join is for: the notice closes once it's no longer
+  // ringing or on, so a Join can't fail out of sight.
+  callId?: string
   convKind: string
   convName: string
 }
@@ -797,28 +801,50 @@ export function HuddleNotice({
   onClose: () => void
 }) {
   const transcribeOn = useCallPart((s) => s.transcribeOn)
-  const [canTranscribe, setCanTranscribe] = useState(true)
+  // null until this device says whether it can write down; asked afresh
+  // each time the notice opens, and Start or Join waits for it.
+  const [canTranscribe, setCanTranscribe] = useState<boolean | null>(null)
   const open = !!ask
+  // Opening forgets the last answer (set while rendering, so no stale
+  // frame shows it).
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setCanTranscribe(null)
+  }
   useEffect(() => {
     if (!open) return
     let live = true
     void canTranscribeHere()
+      .catch(() => false)
       .then((ok) => live && setCanTranscribe(ok))
-      .catch(() => {})
     return () => {
       live = false
     }
   }, [open])
+  // A join's huddle that ended, or stopped ringing, closes the notice.
+  const callId = ask?.callId
+  const stillOn = useCallPart(
+    (s) =>
+      !callId ||
+      s.ringing.some((r) => r.callId === callId) ||
+      s.live.some((l) => l.callId === callId)
+  )
+  useEffect(() => {
+    if (open && !stillOn) onClose()
+  }, [open, stillOn, onClose])
   const confirmRef = useRef<HTMLButtonElement>(null)
   const a = ask
-  const text = a
-    ? transcriptNotice({
-        convKind: a.convKind,
-        convName: a.convName,
-        transcribeOn,
-        canTranscribe,
-      })
-    : ""
+  const text = !a
+    ? ""
+    : canTranscribe === null
+      ? "Checking…"
+      : transcriptNotice({
+          convKind: a.convKind,
+          convName: a.convName,
+          transcribeOn,
+          canTranscribe,
+        })
   const start = a?.action === "start"
   return (
     <AlertDialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -840,6 +866,7 @@ export function HuddleNotice({
           <Button
             ref={confirmRef}
             size="sm"
+            disabled={canTranscribe === null}
             onClick={() => {
               onClose()
               onConfirm()

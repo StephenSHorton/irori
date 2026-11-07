@@ -328,14 +328,16 @@ impl Window {
         if id.is_empty() {
             return Err("pick a huddle".into());
         }
-        // The read rule, through Talk's own check; the lines below aren't
-        // paged.
-        let conv = format!("{}{id}", coord::talk::CALL_PREFIX);
-        self.core.talk_posts(&self.me(), &conv, None, 1)?;
+        // The read rule, `tools::talk::call_parent`'s for the person (the
+        // reader here is always their own key): the huddle's conversation
+        // is here, and a channel still is. A DM is always theirs to read.
         let talk = self.core.talk();
         let conv_id = talk
             .call_conv(id)
             .ok_or_else(|| "that huddle isn't here".to_string())?;
+        if coord::talk::is_channel(&conv_id) && talk.channel(&conv_id).is_none() {
+            return Err("that huddle's channel isn't here".into());
+        }
         let lines = talk.call_posts(id);
         let (conv_kind, mut keys) = if coord::talk::is_channel(&conv_id) {
             ("channel", Vec::new())
@@ -371,22 +373,13 @@ impl Window {
             store::kinds::PERSON_ACTOR_PREFIX,
             self.core.chain().person_id()
         );
-        // Its start post, in the conversation it was in.
-        let start = talk
-            .posts(&conv_id)
-            .iter()
-            .find(|p| {
-                p.call
-                    .as_ref()
-                    .is_some_and(|m| m.call_id == id && m.op == coord::talk::CALL_START)
-            })
-            .map(|p| p.at.unix_milli_value());
-        let end = talk
-            .calls()
-            .into_iter()
-            .find(|c| c.call_id == id)
-            .and_then(|c| c.end)
-            .map(|m| m.duration_ms);
+        // Its start and end, from the huddle's own marks.
+        let info = talk.calls().into_iter().find(|c| c.call_id == id);
+        let start = info
+            .as_ref()
+            .and_then(|c| c.start_at)
+            .map(|at| at.unix_milli_value());
+        let end = info.and_then(|c| c.end).map(|m| m.duration_ms);
         Ok(TalkTranscript {
             call_id: id.to_string(),
             conv_id,

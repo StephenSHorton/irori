@@ -300,7 +300,7 @@ export function CallRingView(p: Partial<B.CallRingView> = {}): B.CallRingView {
 
 /** CallView with Go's zero values for every field left out. */
 export function CallView(p: Partial<B.CallView> = {}): B.CallView {
-  return { "mine": null, "ringing": [], "live": [], "transcribeOn": false, ...p } as B.CallView
+  return { "mine": null, "ringing": [], "live": [], "transcribeOn": false, "canTranscribe": false, ...p } as B.CallView
 }
 
 /** CanvasPos with Go's zero values for every field left out. */
