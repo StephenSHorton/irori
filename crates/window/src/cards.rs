@@ -1595,6 +1595,17 @@ pub(crate) fn cant_start_text(t: &Task, sp: &coord::Spawn, p: &People) -> String
     irori_core::spawn_stop::no_folder_words(&t.repo_key, &dev)
 }
 
+/// Whether card t's failed spawn still keeps it waiting (card #717). The
+/// failed row stays the card's newest until another request replaces it,
+/// but the sweep only starts an agent for a card nobody holds or was
+/// given to: once an agent is on it, the reason no longer applies. Nor
+/// once it has a place in this device's queue (the person asked again,
+/// say after Trust and start, and it waits for a slot): the queue line is
+/// what it waits on then.
+pub(crate) fn failed_wait_applies(t: &Task, p: &People) -> bool {
+    t.holders.is_empty() && t.assigned.is_empty() && !p.queue.places.contains_key(&t.id)
+}
+
 /// Where card `t` of space `s` sits: its tag (a card folded with none has
 /// the space's) and the board in the space it's on (card #558).
 pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, String) {
@@ -1667,7 +1678,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         paused: t.paused,
         cant_start: t
             .spawn_request()
-            .filter(|sp| sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp))
+            .filter(|sp| {
+                sp.op == coord::SPAWN_FAILED && !coord::usage_limited(sp) && failed_wait_applies(t, p)
+            })
             .map(|sp| cant_start_text(t, sp, p))
             .unwrap_or_default(),
         no_agent: p.no_agent_for(&t.id),

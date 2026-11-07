@@ -4223,3 +4223,20 @@ fn a_teammates_card_waits_on_nobody_here() {
         "not p2's to start"
     );
 }
+
+/// Card #717: an agent takes a given card while "OK to start an agent on
+/// this?" is open. Nothing is left to start, so it closes on every member,
+/// and the card leaves Needs you.
+#[test]
+fn an_agent_taking_a_given_card_closes_its_question() {
+    let (a, b) = two_people_shared();
+    let t = given(&a, &b);
+    assert!(given_question(&t).open());
+    a.c.claim_task(CARD1, &t.id).unwrap();
+    sync(&a, &b);
+    for s in [&a, &b] {
+        let got = s.c.get_task(&t.id).unwrap();
+        assert!(!given_question(&got).open(), "closed on {}", s.c.device_id());
+        assert_ne!(got.state, coord::BLOCKED);
+    }
+}

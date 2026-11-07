@@ -52,6 +52,11 @@ pub struct TrustStarted {
     pub folder: String,
     /// It was already trusted (another window got there first).
     pub already: bool,
+    /// What happens next, in the words the row shows (card #717): its
+    /// agent starting, or why none does now (an agent already holds the
+    /// card, the device is at its cap, paused or on a usage limit, or
+    /// another device starts it). Never a "Starting…" that doesn't.
+    pub said: String,
 }
 
 /// A board's agent permissions as Settings › Agents edits them (card #449,
@@ -150,12 +155,26 @@ pub fn refused_folder(reason: &str, device: &str, folder: &str) -> Option<String
 impl Window {
     /// The card's trust need, when its agent couldn't start for lack of
     /// trust; `None` otherwise.
+    /// A card an agent holds, or one waiting in the queue, no longer waits
+    /// on trust (card #717): its failed request stays its newest, but
+    /// nothing starts an agent for a held card.
     pub fn agents_trust_need(&self, task_id: &str) -> Result<Option<TrustNeed>, String> {
         let co = self.core.coord();
         let id = co.task_ref(task_id).unwrap_or_else(|_| task_id.to_string());
         let t = co
             .get_task(&id)
             .ok_or_else(|| format!("no card {task_id}"))?;
+        if !t.holders.is_empty() || !t.assigned.is_empty() {
+            return Ok(None);
+        }
+        if self.core.spawn_queue().places.contains_key(&t.id) {
+            return Ok(None);
+        }
+        self.trust_wait(&t)
+    }
+
+    /// Card t's trust need from its newest request alone, held or not.
+    fn trust_wait(&self, t: &coord::Task) -> Result<Option<TrustNeed>, String> {
         let Some(sp) = t.spawn_request() else {
             return Ok(None);
         };
@@ -239,9 +258,19 @@ impl Window {
     /// [`Window::agents_trust_and_start`] with `.claude.json` at `file`
     /// (tests point it at a scratch file).
     #[doc(hidden)]
+    ///
+    /// The row may be a beat behind the card: an agent may have taken it
+    /// since, or another click got there first. Trust is still recorded
+    /// (the person asked for it), and the answer says what happens now
+    /// (card #717).
     pub fn trust_and_start_in(&self, file: &Path, task_id: &str) -> Result<TrustStarted, String> {
+        let co = self.core.coord();
+        let id = co.task_ref(task_id).unwrap_or_else(|_| task_id.to_string());
+        let t = co
+            .get_task(&id)
+            .ok_or_else(|| format!("no card {task_id}"))?;
         let need = self
-            .agents_trust_need(task_id)?
+            .trust_wait(&t)?
             .ok_or("this card's agent isn't waiting on trust")?;
         if !need.here {
             return Err(format!(
@@ -253,11 +282,54 @@ impl Window {
         if !claude_trust::is_trusted(file, &need.folder) {
             return Err(format!("{} still reads as not trusted", need.folder));
         }
-        self.core.start_agent(&need.task_id, "")?;
+        let said = match self.held_by(&need.task_id) {
+            Some(who) => format!("Trusted. {who} already has it, so no new agent starts."),
+            None => {
+                self.core.start_agent(&need.task_id, "")?;
+                self.what_starts(&need.task_id)
+            }
+        };
         Ok(TrustStarted {
             folder: need.folder,
             already: r == claude_trust::Recorded::Already,
+            said,
         })
+    }
+
+    /// Who card `id` is with, when an agent holds it or it was given to
+    /// one: no agent starts for it then.
+    fn held_by(&self, id: &str) -> Option<String> {
+        let t = self.core.coord().get_task(id)?;
+        let key = t.holders.first().or(t.assigned.first())?;
+        let name = self.core.agent_name(key);
+        Some(if name.is_empty() {
+            "An agent".to_string()
+        } else {
+            name
+        })
+    }
+
+    /// What happens to card `id` after the person's ask to start its agent
+    /// (card #717), in the row's words.
+    pub(crate) fn what_starts(&self, id: &str) -> String {
+        let co = self.core.coord();
+        if !co.hands_out_here(id) {
+            return "Trusted. Another of your computers starts its agent.".into();
+        }
+        if self.core.agents_pause().on {
+            return "Trusted. Its agent starts when you turn off Pause agents.".into();
+        }
+        let q = self.core.spawn_queue();
+        if q.held_until.is_some() {
+            return "Trusted. Its agent starts when the usage limit resets.".into();
+        }
+        if q.places.contains_key(id) {
+            return format!(
+                "Trusted. It starts when a slot frees ({} of {} in use).",
+                q.running, q.cap
+            );
+        }
+        "Trusted. Its agent is starting.".into()
     }
 }
 

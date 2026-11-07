@@ -1083,7 +1083,12 @@ pub async fn agents_trust_and_start(
     w: W<'_>,
     task_id: String,
 ) -> R<crate::agents_trust::TrustStarted> {
-    blocking(&w, move |w| w.agents_trust_and_start(&task_id)).await
+    // Logged, so a click is found in irori.log (card #717).
+    timed(
+        "agents_trust_and_start",
+        blocking(&w, move |w| w.agents_trust_and_start(&task_id)),
+    )
+    .await
 }
 
 /// The person asks the device a card's agent must start on to trust its

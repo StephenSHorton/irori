@@ -797,6 +797,7 @@ impl Fold {
                 add_holder(&mut t, &p.by);
                 t.assigned = remove_str(&t.assigned, &p.by);
                 sync_holder(&mut t);
+                close_given_for_agent(&mut t, &p.by, at(p.at));
                 if t.state == SUBMITTED {
                     t.state = WORKING.into();
                 }
@@ -899,6 +900,7 @@ impl Fold {
                     if !contains(&t.holders, &p.who) {
                         t.holders.push(p.who.clone());
                     }
+                    close_given_for_agent(&mut t, &p.who, at(p.at));
                     if t.state == SUBMITTED {
                         t.state = WORKING.into();
                     }
@@ -2749,5 +2751,14 @@ fn offered_by(st: &Store, dev: &str) -> Result<HashSet<String>> {
             return Ok(out);
         }
         f.after = evs.last().map(Event::cursor).unwrap_or_default();
+    }
+}
+
+/// An agent took card t (card #717): "OK to start an agent on this?" no
+/// longer asks anything, so it closes, as the given card's other turns do.
+/// A person joining leaves it: the question is whether an agent starts.
+fn close_given_for_agent(t: &mut Task, who: &str, when: GoTime) {
+    if !who.starts_with(kinds::PERSON_ACTOR_PREFIX) && !who.starts_with("user:") {
+        super::cards::close_given_question(t, when);
     }
 }

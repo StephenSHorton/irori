@@ -552,7 +552,8 @@ function TrustRow({
             onClick={() =>
               void act.run(
                 () => AgentsService.TrustAndStart(c.id),
-                "Trusted. Starting its agent…"
+                // What happens next (card #717): started, or why not.
+                (r) => r?.said || "Trusted."
               )
             }
           >

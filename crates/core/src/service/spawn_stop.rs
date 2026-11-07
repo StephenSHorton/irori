@@ -434,6 +434,48 @@ impl Services {
         }
     }
 
+    /// Closes the questions Irori asked because no agent could start for a
+    /// card, once an agent holds it (card #717): "no copy here", "couldn't
+    /// start: try again?" and "crashed: start another?" all ask about
+    /// starting one, which no longer happens. Only the device that hands
+    /// the card out, which asked them, closes them. The crash count stays,
+    /// so if the holder goes before it's done the crash question comes back.
+    pub(crate) fn drop_held_waits(&self) {
+        let open = TaskFilter {
+            open: true,
+            ..TaskFilter::default()
+        };
+        for (_, co) in self.agent_coords() {
+            for t in co.list_tasks(&open) {
+                let Some(who) = agent_holder(&t) else {
+                    continue;
+                };
+                let asks: Vec<&Blocker> = t
+                    .blockers
+                    .iter()
+                    .filter(|b| b.open() && irori_acts_on(b))
+                    .collect();
+                if asks.is_empty() || !co.hands_out_here(&t.id) {
+                    continue;
+                }
+                let name = match self.agent_name(who) {
+                    n if n.is_empty() => "An agent".to_string(),
+                    n => n,
+                };
+                for b in asks {
+                    let a = BlockerAnswer {
+                        text: format!("{name} took the card, so no agent needs to start for it."),
+                        resolve: true,
+                        ..BlockerAnswer::default()
+                    };
+                    if let Err(e) = co.answer(SWEEPER, &t.id, &b.id, a) {
+                        logf(format_args!("held {}: {e}", t.short_ref()));
+                    }
+                }
+            }
+        }
+    }
+
     /// Lifts the "no copy" blockers this device raised once a copy is here
     /// (a Where, a checkout, or a folder the person named): the card then
     /// starts as any other does.
@@ -464,6 +506,14 @@ impl Services {
             self.resolve_no_copy(&t, &folder, trusted);
         }
     }
+}
+
+/// The first of card t's holders that is an agent, not a person: one on
+/// it means no agent needs to start for it (card #717).
+pub(crate) fn agent_holder(t: &Task) -> Option<&String> {
+    t.holders
+        .iter()
+        .find(|k| !k.starts_with(irori_identity::kinds::PERSON_ACTOR_PREFIX) && !k.starts_with("user:"))
 }
 
 /// A helper's part (spawned agents part 7): its folder is a worktree of the

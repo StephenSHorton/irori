@@ -906,7 +906,7 @@ export function TrustNeed(p: Partial<B.TrustNeed> = {}): B.TrustNeed {
 
 /** TrustStarted with Go's zero values for every field left out. */
 export function TrustStarted(p: Partial<B.TrustStarted> = {}): B.TrustStarted {
-  return { "folder": "", "already": false, ...p } as B.TrustStarted
+  return { "folder": "", "already": false, "said": "", ...p } as B.TrustStarted
 }
 
 /** UnofferedCard with Go's zero values for every field left out. */

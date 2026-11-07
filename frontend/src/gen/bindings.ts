@@ -3042,6 +3042,13 @@ export type TrustStarted = {
 	folder: string,
 	/**  It was already trusted (another window got there first). */
 	already: boolean,
+	/**
+	 *  What happens next, in the words the row shows (card #717): its
+	 *  agent starting, or why none does now (an agent already holds the
+	 *  card, the device is at its cap, paused or on a usage limit, or
+	 *  another device starts it). Never a "Starting…" that doesn't.
+	 */
+	said: string,
 };
 
 /**
