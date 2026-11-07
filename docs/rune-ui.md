@@ -110,18 +110,20 @@ packages as the desktop, in the app's private files dir, with no spawner
 (`set_runs_no_agents`), no tray, single instance or exit hook. Rune's Kotlin host
 (`RuneActivity`, from the Rune fork's Android shell, #677 and #679) loads `libirori_app.so` and
 takes the on-screen keyboard. The phone frame (`State::phone`) has no sidebar, pads 32 dp for
-the status bar and puts a card's comment box under its title. Join with a code
-(`app/src/phone`) shows until the phone has another device.
+the status bar, and leaves 360 dp under a card's page so its comment box scrolls above the
+keyboard. Join with a code (`app/src/phone`) shows until the phone has another device. Home,
+the Board and the card page are the full rune-ui ports, which fit phone width as they are.
 
 ```sh
 sh scripts/android-rune.sh --install     # needs the env in docs/android.md (ANDROID_HOME, JAVA_HOME, NDK)
 ```
 
-It builds `target/android/irori-rune.apk` (56.5 MB, debug-signed; the library is 54 MB of
-it, plus 1.8 MB of libc++_shared). The applicationId is `com.stephenshorton.irori.rune`, so it
-never replaces a Tauri install. Gradle (`app/android`) only wraps the cargo-built library.
-The Kotlin host comes from cargo's checkout of the pinned Rune rev, so its keyboard protocol
-always matches.
+It builds `target/android/irori-rune.apk` (66 MB, debug-signed; the library is 64 MB of it,
+plus 1.8 MB of libc++_shared). The applicationId is `com.stephenshorton.irori.rune`, so it
+never replaces a Tauri install. Gradle (`app/android`) only wraps the cargo-built library,
+and the script runs it from a clean build dir: its incremental packager kept a replaced
+library inside the zip (a 120 MB APK). The Kotlin host comes from cargo's checkout of the
+pinned Rune rev, so its keyboard protocol always matches.
 
 To pair it on an emulator without touching your own Irori, use a scratch peer on the Mac:
 `irori-dev pair-peer --home <empty dir> --claude <empty dir> [--port 24817]`. It makes a
@@ -131,17 +133,21 @@ server as `10.0.2.2:24817`: the emulator's NAT hides the LAN lookup. Then type
 `words <the phone's words>` into the peer.
 
 Checked on an API 35 emulator (2026-11-07; screenshots in `docs/img/rune-android/`):
-- It paired with the scratch peer, and the Board showed the peer's cards.
+- It paired with the scratch peer, and Home showed the peer's cards.
 - New cards and steps ticked on the peer appeared within seconds, without a touch.
-- A comment typed with Gboard reached the peer's thread, written by the phone's device.
+- A comment typed with Gboard reached the peer's thread, written by the phone's device. After
+  a cold start the first one took about 1.5 min, until the mesh redialed.
 - After a trip to the background, it sent its rows, redrew and caught up.
-- The Core is up 125 ms after launch.
+- The Core is up in about 110 ms on a fresh data dir. main's phone took 21 s to open a fully
+  synced one.
 
 Gaps:
 - The system Back closes the app.
-- The keyboard comes back after a resume even when no field is on screen.
-- Insets are hand-padded (Rune doesn't feed `safe_area` on Android).
-- There is no settings or devices page.
+- The keyboard can come back after a resume with no field focused (typing goes nowhere until
+  a field is tapped).
+- Enter in the composer adds a line; Comment sends.
+- Insets are hand-padded: Rune feeds neither `safe_area` nor the keyboard's height on Android.
+- Settings, Devices and Talk weren't checked at phone width.
 - Notifications, calls and updates have no Kotlin side. Their move from Tauri's plugin bridge
   to JNI is costed on card #680.
 

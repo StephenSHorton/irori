@@ -95,6 +95,12 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         Some(d) => body = page_body(s, f, d, body, wide),
     }
 
+    // The phone (card #680): room to scroll the comment box above
+    // Android's keyboard, which Rune's host lays over the bottom half
+    // (adjustNothing; Rune has no keyboard insets on Android yet).
+    if s.phone {
+        body = body.child(rune::el().key("card/keyboard-room").h(360.0));
+    }
     let scroll_to = s.card.scroll_to.clone();
     let mut page = col()
         .key("card/page")

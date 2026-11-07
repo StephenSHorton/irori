@@ -74,6 +74,9 @@ cp "$so" "$stage/lib/arm64-v8a/"
 # whisper.cpp and opus link the C++ runtime dynamically.
 cp "$llvm/../sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$stage/lib/arm64-v8a/"
 
+# From a clean build dir: Gradle's incremental packager keeps a replaced
+# library as a dead block inside the zip (a 64 MB library made a 120 MB APK).
+rm -rf app/android/build
 (cd app/android && ./gradlew -q assembleDebug "-Prune.jniLibs=$stage/lib" "-Prune.kotlin=$kotlin")
 apk=$out/irori-rune.apk
 cp app/android/build/outputs/apk/debug/*-debug.apk "$apk"
