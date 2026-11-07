@@ -30,6 +30,7 @@ use inbox::Delivery;
 use irori_window::agents::{AgentsChange, AgentsSettings};
 use irori_window::agents_trust::TrustNeed;
 use irori_window::cards::{CardDetail, CardSummary, IdleReport};
+use irori_window::freshness::LogFreshness;
 use irori_window::events::{EVENT_BOARD_CHANGED, EVENT_INBOX_CHANGED, EVENT_ROSTER_CHANGED};
 use irori_window::ts::RepoName;
 use irori_window::wind_down::{EVENT_WIND_DOWN, WindDownStatus};
@@ -61,6 +62,8 @@ pub struct Model {
     pub repo_names: Vec<RepoName>,
     /// The idle line's input.
     pub idle: IdleReport,
+    /// How fresh each log is (the freshness line under the idle line).
+    pub fresh: Vec<LogFreshness>,
     /// Needs you's cards' pages (their open items), by card id.
     pub details: HashMap<String, CardDetail>,
     /// Trust rows: who must trust the repo (None: the host said nothing).
@@ -162,6 +165,7 @@ fn load_cards(s: &mut State) {
     s.spawn(
         move |w| {
             let idle = w.idle_report();
+            let fresh = w.freshness();
             let pages: Vec<(String, CardDetail)> = pages
                 .into_iter()
                 .filter_map(|id| w.card(&id).ok().map(|d| (id, d)))
@@ -173,13 +177,14 @@ fn load_cards(s: &mut State) {
                     (id, t)
                 })
                 .collect();
-            (idle, pages, trust)
+            (idle, fresh, pages, trust)
         },
-        move |s, (idle, pages, trust)| {
+        move |s, (idle, fresh, pages, trust)| {
             if s.home.rev != rev {
                 return;
             }
             s.home.idle = idle;
+            s.home.fresh = fresh;
             s.home.details = pages.into_iter().collect();
             s.home.trust = trust.into_iter().collect();
             // A said that the cards caught up with goes; a kept draft
@@ -231,7 +236,13 @@ pub fn on_event(s: &mut State, ev: &Event) {
         EVENT_WIND_DOWN => {
             wind_down::reload(s);
         }
-        irori_window::boards::EVENT_BOARDS_CHANGED => load_spawn(s),
+        // However it opens (Home's button or line, the tray, the palette),
+        // the dialog reads the run afresh, as React's did on mount.
+        "app:dialog-opened" if s.dialog == Some(Dialog::WindDown) => wind_down::reload(s),
+        irori_window::boards::EVENT_BOARDS_CHANGED => {
+            load_spawn(s);
+            load_cards(s);
+        }
         // The ask box keeps a draft per place (Home, or a space's page).
         "app:route-changed" => {
             let here = ask::here(s);
@@ -334,6 +345,32 @@ fn spawn_notice(s: &State, f: &Frame) -> Option<El> {
                     .child(b("Turn it off", ButtonVariant::Outline).on_press(set(false)).build(k))
                     .child(b("Keep it on", ButtonVariant::Contrast).on_press(set(true)).build(k)),
             ),
+    )
+}
+
+/// Home's freshness line (HomeFreshness, card #580): when the picked
+/// space last caught up with another device, amber after a day; on All
+/// spaces only the stalest log, once it is stale.
+fn fresh_line(s: &State, f: &Frame, space: &str, now: i64) -> Option<El> {
+    let k = f.k;
+    let name = |log: &str| {
+        s.data
+            .spaces
+            .iter()
+            .find(|b| b.board_id == log)
+            .map(|b| if b.name.is_empty() { b.tag.clone() } else { b.name.clone() })
+    };
+    let (t, old) = pure::home_fresh_line(space, &s.home.fresh, name, now)?;
+    let color = if old { k.c.warning.icon } else { k.c.text_muted };
+    Some(
+        row()
+            .key("home/fresh")
+            .w_full()
+            .px(4.0)
+            .gap(6.0)
+            .center_y()
+            .child(icon(&crate::ui::icons::REFRESH, 12.0).color(color))
+            .child(text(t).font(k.ty.text_xsmall).color(color).wrap().shrink().min_w(0.0)),
     )
 }
 
@@ -448,6 +485,9 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .wrap(),
         );
     }
+    if let Some(l) = fresh_line(s, f, &space, now) {
+        top = top.child(l);
+    }
     // Held messages read apart from the cards: until they land, "Nothing
     // waits on you" could be false.
     let lead = if !shared && !s.home.held_loaded && needs.is_empty() {
@@ -481,10 +521,7 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .variant(ButtonVariant::Ghost)
                 .control_size(ControlSize::Small)
                 .help("Ask every agent to save its place, hand back its cards and stop")
-                .on_press(|s: &mut State| {
-                    s.open_dialog(Dialog::WindDown);
-                    wind_down::reload(s);
-                })
+                .on_press(|s: &mut State| s.open_dialog(Dialog::WindDown))
                 .build(k)
                 .key("home/wind-down"),
             Button::new("+ New card")

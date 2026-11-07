@@ -9,7 +9,11 @@ use irori_window::agents_trust::TrustNeed;
 use irori_window::cards::{CardBlocker, CardOption, CardSummary};
 use irori_window::wind_down::WindDownStatus;
 
+use irori_window::freshness::LogFreshness;
+
 use crate::logic::cards::blocker;
+use crate::logic::spaces::ALL_SPACES;
+use crate::spaces::logic::{STALE_TAIL, fresh_line, stale};
 use crate::logic::spawn_line::NOT_TRUSTED;
 use crate::logic::thread::answerable;
 
@@ -172,6 +176,50 @@ pub fn wind_down_state(state: &str) -> &str {
         "no_answer" => "No answer",
         s => s,
     }
+}
+
+
+// ---- Home's freshness line (freshness-line.tsx HomeFreshness) ----------
+
+/// The log that has gone longest without catching up, among those old
+/// enough to warn about (lib/freshness.ts stalest): All spaces names only
+/// that one.
+pub fn stalest(all: &[LogFreshness], now_ms: i64) -> Option<&LogFreshness> {
+    let mut worst: Option<(&LogFreshness, i64)> = None;
+    for f in all.iter().filter(|f| stale(Some(f), now_ms)) {
+        let at = if f.at.is_zero() { 0 } else { f.at.unix_milli_value() };
+        if worst.is_none_or(|(_, w)| at < w) {
+            worst = Some((f, at));
+        }
+    }
+    worst.map(|(f, _)| f)
+}
+
+/// Home's line for the picked space, and whether it is amber: the space's
+/// own line ("Last synced with your PC 3h ago"), or on All spaces the
+/// stalest log's, named ("Dent Charter: last synced …"). `name` names a
+/// space's log (None: Personal).
+pub fn home_fresh_line(
+    space: &str,
+    all: &[LogFreshness],
+    name: impl Fn(&str) -> Option<String>,
+    now_ms: i64,
+) -> Option<(String, bool)> {
+    if space != ALL_SPACES {
+        let f = all.iter().find(|f| f.log == space);
+        let t = fresh_line(f, now_ms);
+        if t.is_empty() {
+            return None;
+        }
+        let old = stale(f, now_ms);
+        return Some((if old { format!("{t}{STALE_TAIL}") } else { t }, old));
+    }
+    let f = stalest(all, now_ms)?;
+    let line = fresh_line(Some(f), now_ms);
+    let mut cs = line.chars();
+    let lower = cs.next().map_or(String::new(), |c| c.to_lowercase().chain(cs).collect());
+    let who = name(&f.log).unwrap_or_else(|| "Personal".into());
+    Some((format!("{who}: {lower}{STALE_TAIL}"), true))
 }
 
 #[cfg(test)]
@@ -372,5 +420,40 @@ mod tests {
         assert!(crate::board::filter::in_scope(&cards[3], own));
         assert!(!crate::board::filter::in_scope(&cards[0], own));
         assert!(crate::board::filter::in_scope(&cards[5], own));
+    }
+
+    #[test]
+    fn home_freshness() {
+        use crate::spaces::logic::STALE_AFTER_MS;
+        use gocompat::time::GoTime;
+        let now = 10 * STALE_AFTER_MS;
+        let f = |log: &str, ago: i64| LogFreshness {
+            log: log.into(),
+            at: GoTime::unix_milli(now - ago),
+            with: "your PC".into(),
+            shared: true,
+        };
+        let all = vec![f("personal", 3 * 3600_000), f("s1", 2 * STALE_AFTER_MS), f("s2", 3 * STALE_AFTER_MS)];
+        let name = |log: &str| (log == "s2").then(|| "Dent Charter".to_string());
+        // A picked space: its own line, muted while fresh.
+        assert_eq!(
+            home_fresh_line("personal", &all, name, now),
+            Some(("Last synced with your PC 3h ago".into(), false))
+        );
+        assert_eq!(home_fresh_line("s1", &all, name, now).map(|(_, old)| old), Some(true));
+        assert_eq!(home_fresh_line("nope", &all, name, now), None);
+        // All spaces: only the stalest, named, once stale.
+        assert_eq!(stalest(&all, now).map(|f| f.log.as_str()), Some("s2"));
+        let (t, old) = home_fresh_line(ALL_SPACES, &all, name, now).unwrap();
+        assert!(old);
+        assert!(t.starts_with("Dent Charter: last synced with your PC "), "{t}");
+        assert!(t.ends_with(STALE_TAIL));
+        assert_eq!(home_fresh_line(ALL_SPACES, &all[..1], name, now), None);
+        // A log never synced is the stalest of all; Personal by default.
+        let never = LogFreshness { at: GoTime::default(), ..f("personal", 0) };
+        assert_eq!(
+            home_fresh_line(ALL_SPACES, &[never], name, now).unwrap().0,
+            format!("Personal: not synced with another device since Irori started here{STALE_TAIL}")
+        );
     }
 }

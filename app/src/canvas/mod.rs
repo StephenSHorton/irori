@@ -21,9 +21,8 @@
 //!
 //! - [`view_switch`]: the List / Canvas switch for the board's header;
 //!   [`wants_canvas`] says Canvas is picked (`board.view` in prefs).
-//! - [`view`]: the canvas over the cards of the current route's scope (as
-//!   the board's list shows them), filling its parent: give it
-//!   `.grow(1.0).min_h(0.0)`. [`view_of`] takes the cards.
+//! - [`view_of`]: the canvas over the cards the board's filter and search
+//!   show, filling its parent: give it `.grow(1.0).min_h(0.0)`.
 //! - [`overlay`]: the canvas full screen (the corner button or F), drawn
 //!   over the whole window; ui/mod.rs calls it.
 
@@ -32,7 +31,7 @@ mod edges;
 mod icons;
 pub mod node;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use irori_window::cards::{CardDetail, CardSummary};
@@ -112,6 +111,9 @@ pub struct Model {
     flash_gen: u64,
     /// The canvas fills the window (card #410).
     pub full: bool,
+    /// The cards the page's canvas was last given (its filter and
+    /// search), for full screen to show the same map.
+    shown: RefCell<Option<Vec<String>>>,
 }
 
 impl Default for Model {
@@ -137,6 +139,7 @@ impl Default for Model {
             flash: HashSet::new(),
             flash_gen: 0,
             full: false,
+            shown: RefCell::new(None),
         }
     }
 }
@@ -434,6 +437,7 @@ fn signature(g: &Graph, size: [f32; 2]) -> u64 {
 /// The canvas over `cards`. While it is full screen the page keeps an
 /// empty box and [`overlay`] draws it.
 pub fn view_of(s: &State, f: &mut Frame, cards: &[&CardSummary]) -> El {
+    *s.canvas.shown.borrow_mut() = Some(cards.iter().map(|c| c.id.clone()).collect());
     if s.canvas.full {
         return el().key("canvas/box").w_full().h_full().min_h(0.0);
     }
@@ -459,7 +463,15 @@ pub fn overlay(s: &State, f: &mut Frame) {
     if !s.canvas.full {
         return;
     }
-    let cards = scoped(s);
+    // The same cards as the page's canvas (its filter and search); the
+    // route's whole scope when no page drew one.
+    let cards: Vec<&CardSummary> = match s.canvas.shown.borrow().as_ref() {
+        Some(ids) => {
+            let by: HashMap<&str, &CardSummary> = s.data.cards.iter().map(|c| (c.id.as_str(), c)).collect();
+            ids.iter().filter_map(|id| by.get(id.as_str()).copied()).collect()
+        }
+        None => scoped(s),
+    };
     let c = board_canvas(s, f, &cards, true);
     f.layer.push(
         el().key("canvas/full")

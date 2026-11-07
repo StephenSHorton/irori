@@ -283,9 +283,10 @@ pub fn board_view(s: &State, f: &mut Frame, o: Opts) -> El {
         if active == Filter::Done {
             column.push(done::grid(s, f, &scope));
         } else if canvas {
-            // Every card in scope, not only the filtered ones (card #587:
-            // a card Needs you lists stays on the map).
-            column.push(crate::canvas::view_of(s, f, &mine).w_full().grow(1.0).min_h(if fill { 0.0 } else { 480.0 }));
+            // The cards the filter and search show (the query narrows
+            // List, Canvas and Closed alike, card #171), with the ones
+            // Needs you lists kept on the map (card #587).
+            column.push(crate::canvas::view_of(s, f, &all).w_full().grow(1.0).min_h(if fill { 0.0 } else { 480.0 }));
         } else if !shown.is_empty() && o.rows {
             if !pinned.is_empty() {
                 column.push(heading(f, "board-pinned-h", "Pinned", None));
