@@ -346,8 +346,6 @@ pub fn view(s: &State, f: &mut Frame, live: &Live, height: f32) -> El {
             .caret(Color::TRANSPARENT, Color::TRANSPARENT)
             .on_edit(|s: &mut State| &mut s.term.sink)
             .on_input_key(move |s: &mut State, ev: &rune::KeyEvent, tx: &mut Tx| key(s, id, ev, tx))
-            // Element keys come before the window's default button (Return).
-            .on_key(move |s: &mut State, ev: &rune::KeyEvent, tx: &mut Tx| key(s, id, ev, tx))
             .on_input_paste(
                 move |s: &mut State, c: &rune::ClipboardContent, _: &mut Tx| {
                     let t = c.text().to_string();
