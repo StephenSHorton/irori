@@ -537,6 +537,25 @@ export const CallService = {
   Dismiss: (callId: string) => done(commands.callDismiss(callId)),
 }
 
+// Screen share in a huddle (#658): the share itself shows in call:state
+// (CallMineView's share); its frames come as raw ArrayBuffers on a Channel
+// (lib/share.ts parses and plays them). Attach again replaces the earlier
+// Channel.
+export const ShareService = {
+  Sources: () => call(commands.shareSources()),
+  Start: (sourceId: string) => done(commands.shareStart(sourceId)),
+  Stop: () => done(commands.shareStop()),
+  Attach(onFrame: (frame: ArrayBuffer) => void): Promise<void> {
+    const frames = new Channel<ArrayBuffer>()
+    frames.onmessage = onFrame
+    return done(commands.shareAttach(frames))
+  },
+  Detach: () => done(commands.shareDetach()),
+  Keyframe: () => done(commands.shareKeyframe()),
+  // The shareNote line was dismissed.
+  NoteSeen: () => done(commands.shareNoteSeen()),
+}
+
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as
 // raw ArrayBuffers on their own Channel, never as events; everything else
 // is a TermMsg on a second one.

@@ -67,9 +67,7 @@ import { AgentRef, TalkPost } from "@/lib/models"
 import {
   callChannel,
   callMock,
-  MockCallPanel,
   MockHuddleEnded,
-  ShareStage,
   TranscriptPane,
 } from "./call-mock"
 import {
@@ -80,13 +78,17 @@ import {
   useCallPart,
   type StartWhere,
 } from "./huddle"
+import { ShareStage } from "./share"
 import {
+  dismissShareNote,
   joinHuddle,
   leaveHuddle,
   liveIn,
   setDeafened,
   setMuted,
   startHuddle,
+  startShare,
+  stopShare,
 } from "@/lib/call"
 import { composing, MentionBoard, type Mention } from "@/lib/mentions"
 import { useAgentsNow } from "@/lib/agents-now"
@@ -230,6 +232,13 @@ export function ConversationView({
     () => typeof window !== "undefined" && previewFlag("call") === "sheet"
   )
   const onLeave = () => void huddle(leaveHuddle)
+  // Screen share (#658): the share on in this huddle takes the posts' place.
+  const share = mine?.share ?? null
+  const onShare = (id: string) =>
+    void startShare(id).catch((err: unknown) => setHuddleError(errorText(err)))
+  const onStopShare = () =>
+    void stopShare().catch((err: unknown) => setHuddleError(errorText(err)))
+  const onShareNoteSeen = () => void dismissShareNote().catch(() => {})
   const [showMembers, setShowMembers] = useState(
     !narrow && roomy && conv.kind === "channel"
   )
@@ -491,16 +500,32 @@ export function ConversationView({
             </span>
           )}
         </header>
-        {narrow && mine ? (
+        {narrow && mine && share ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ShareStage share={share} onStop={onStopShare} compact />
+            <CallPanel
+              mine={mine}
+              controlsOnly
+              onMute={onMute}
+              onDeafen={onDeafen}
+              onLeave={onLeave}
+              onShare={onShare}
+              onStopShare={onStopShare}
+              onShareNoteSeen={onShareNoteSeen}
+            />
+          </div>
+        ) : narrow && mine ? (
           <CallPanel
             mine={mine}
             wide
             onMute={onMute}
             onDeafen={onDeafen}
             onLeave={onLeave}
+            onShare={onShare}
+            onStopShare={onStopShare}
           />
-        ) : mock === "share" ? (
-          <ShareStage />
+        ) : share ? (
+          <ShareStage share={share} onStop={onStopShare} />
         ) : narrow && showMembers && conv.kind === "channel" ? (
           <Members members={conv.members} live={live} wide />
         ) : (
@@ -591,16 +616,15 @@ export function ConversationView({
         )}
       </div>
       {mine && !narrow ? (
-        mock === "share" ? (
-          <MockCallPanel channel={conv.name} sharing />
-        ) : (
-          <CallPanel
-            mine={mine}
-            onMute={onMute}
-            onDeafen={onDeafen}
-            onLeave={onLeave}
-          />
-        )
+        <CallPanel
+          mine={mine}
+          onMute={onMute}
+          onDeafen={onDeafen}
+          onLeave={onLeave}
+          onShare={onShare}
+          onStopShare={onStopShare}
+          onShareNoteSeen={onShareNoteSeen}
+        />
       ) : mock === "transcript" && !narrow ? (
         <TranscriptPane />
       ) : (
