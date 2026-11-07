@@ -103,8 +103,19 @@ struct Pending {
     task_id: String,
     blocker_id: String,
     rule: String,
+    /// When the hook last asked.
     seen: Instant,
+    /// When its item was raised.
+    raised: Instant,
+    /// Presence has shown its agent on the prompt since. The hook fires
+    /// as the prompt opens, before the session file says so: until then
+    /// (or [`PROMPT_LAG`]) an agent not on a prompt isn't past this one.
+    prompted: bool,
 }
+
+/// How long a hook's item waits for presence to show its prompt before an
+/// agent that isn't on one counts as past it.
+const PROMPT_LAG: Duration = Duration::from_secs(15);
 
 /// The waits this run knows of.
 #[derive(Default)]
@@ -458,6 +469,8 @@ impl Services {
             blocker_id: b.id,
             rule,
             seen: Instant::now(),
+            raised: Instant::now(),
+            prompted: false,
         };
         self.spawn
             .perm
@@ -496,18 +509,26 @@ impl Services {
         let now = Instant::now();
         // Hooks that stopped asking are gone (their session ended, or the
         // prompt was answered at the terminal).
-        let hooked: HashMap<String, String> = {
-            let mut pending = self.spawn.perm.pending.lock().unwrap();
-            pending.retain(|_, p| now.duration_since(p.seen) < HOOK_GONE);
-            pending
-                .values()
-                .map(|p| (p.agent.clone(), p.blocker_id.clone()))
-                .collect()
-        };
         let on_prompt: Vec<&presence::AgentCard> = agents
             .iter()
             .filter(|a| on_permission_prompt(a) && runs_here(&a.key, &a.device_id, me))
             .collect();
+        // By agent: its hook's item, and whether that item is too young to
+        // call the agent past it.
+        let hooked: HashMap<String, (String, bool)> = {
+            let mut pending = self.spawn.perm.pending.lock().unwrap();
+            pending.retain(|_, p| now.duration_since(p.seen) < HOOK_GONE);
+            for p in pending.values_mut() {
+                p.prompted |= on_prompt.iter().any(|a| a.key == p.agent);
+            }
+            pending
+                .values()
+                .map(|p| {
+                    let young = !p.prompted && now.duration_since(p.raised) < PROMPT_LAG;
+                    (p.agent.clone(), (p.blocker_id.clone(), young))
+                })
+                .collect()
+        };
         let since: HashMap<String, Instant> = {
             let mut seen = self.spawn.perm.prompt_seen.lock().unwrap();
             seen.retain(|k, _| on_prompt.iter().any(|a| &a.key == k));
@@ -542,7 +563,10 @@ impl Services {
                     }
                     self.raise_presence_wait(&t, a);
                 }
-                (None, Some(b)) if self.decides_permission_wait(&t, me) => {
+                (None, Some(b))
+                    if !hooked.values().any(|(id, young)| *young && *id == b.id)
+                        && self.decides_permission_wait(&t, me) =>
+                {
                     self.close_permission_wait(&t, b, "The agent is past the prompt.");
                 }
                 _ => {}
