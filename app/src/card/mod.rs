@@ -69,6 +69,8 @@ pub struct Model {
     read_gen: u64,
     /// A comment to scroll to (a notification's `task:<id>/comment:<id>`).
     pub focus_comment: Option<String>,
+    focus_seen: Option<String>,
+    focus_card: String,
     /// An element key to bring into view once it is laid out.
     pub scroll_to: Option<String>,
     /// Gone sessions Irori can revive (roster.Gone).
@@ -98,6 +100,8 @@ pub struct Model {
     /// The working line's changing word.
     pub ponder: i64,
     pub ponder_at: Option<std::time::Instant>,
+    /// A thread drew a working line last frame (its word changes).
+    pub working_line: std::cell::Cell<bool>,
 }
 
 /// What the page shows for the card on screen and forgets when another
@@ -236,8 +240,16 @@ pub fn on_event(s: &mut State, ev: &Event) {
                 }
                 s.card.error = None;
             }
-            if let Some(c) = &s.card.focus_comment {
-                s.card.scroll_to = Some(crate::logic::thread::thread_entry_id(c));
+            // A notification's comment belongs to the card it opened: one
+            // already shown is dropped when another card opens.
+            if s.card.focus_comment.is_some() && s.card.focus_seen == s.card.focus_comment {
+                if s.card.focus_card != id {
+                    s.card.focus_comment = None;
+                }
+            } else if let Some(c) = s.card.focus_comment.clone() {
+                s.card.scroll_to = Some(crate::logic::thread::thread_entry_id(&c));
+                s.card.focus_seen = Some(c);
+                s.card.focus_card = id.clone();
             }
             reload(s);
         }
@@ -255,7 +267,7 @@ pub fn on_event(s: &mut State, ev: &Event) {
 pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
     use std::time::{Duration, Instant};
     let opened = new_card::watch(s);
-    if s.nav.card.is_none() || s.headless {
+    if s.nav.card.is_none() || s.headless || !s.card.working_line.get() {
         return opened;
     }
     let every = Duration::from_millis(crate::logic::thread::PONDER_EVERY as u64);
@@ -276,7 +288,8 @@ pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
 
 /// The headless scene: the first card that needs you, else the newest;
 /// `IRORI_CARD_SCENE` picks a card ("#12" or an id; "blocker", "ready",
-/// "working" or "shared" for the first such), "new" or "share".
+/// "working" or "shared" for the first such), "new" or "share", or
+/// "demo-blocker" (the default card with two made-up open items).
 pub fn scene(s: &mut State) {
     let want = std::env::var("IRORI_CARD_SCENE").unwrap_or_default();
     match want.as_str() {
@@ -312,7 +325,7 @@ pub fn scene(s: &mut State) {
                 _ => c.scope == "board" && !c.board.is_empty(),
             })
             .map(|c| c.id.clone())
-    } else if !want.is_empty() {
+    } else if !want.is_empty() && want != "demo-blocker" {
         let short = want.trim_start_matches('#');
         s.data
             .cards
@@ -331,6 +344,66 @@ pub fn scene(s: &mut State) {
     if let Some(id) = pick {
         s.open_card(&id);
     }
+    if want == "demo-blocker" {
+        demo_blockers(s);
+    }
+}
+
+/// The scene's open items, for data that has none: a question with two
+/// options (one recommended, with its why and link) and one whose agent
+/// is gone.
+fn demo_blockers(s: &mut State) {
+    use irori_window::cards::{AgentRef, CardBlocker, CardOption};
+    let Some(d) = s.card.detail.as_mut() else { return };
+    let oak = AgentRef {
+        key: "demo/oak".into(),
+        name: "oak".into(),
+        status: "idle".into(),
+        live: true,
+        where_: "Macbook Pro".into(),
+        ..AgentRef::default()
+    };
+    let opt = |a: &str, why: &str, rec: bool| CardOption {
+        answer: a.into(),
+        why: why.into(),
+        by: oak.clone(),
+        recommended: rec,
+        ..CardOption::default()
+    };
+    let mut first = CardBlocker {
+        id: "demo-b1".into(),
+        question: "Merge the Android branch into dev now, or wait for #679?".into(),
+        context: "The branch builds and the emulator checks pass. `scripts/android-apk.sh` is the only new script.".into(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        options: vec![
+            opt("Merge it now", "Nothing else waits on it, and #679 builds on it either way.", true),
+            opt("Wait for #679", "", false),
+        ],
+        ..CardBlocker::default()
+    };
+    first.options[0].link = Some(Default::default());
+    if let Some(l) = first.options[0].link.as_mut() {
+        l.kind = "url".into();
+        l.reference = "https://github.com/StephenSHorton/rune/pull/1".into();
+        l.label = "GitHub #1".into();
+    }
+    let gone = CardBlocker {
+        id: "demo-b2".into(),
+        question: "Which folder should the APK go in?".into(),
+        raised_by: oak.clone(),
+        state: "open".into(),
+        gone_agent: Some(AgentRef {
+            status: "gone".into(),
+            live: false,
+            ..oak.clone()
+        }),
+        ..CardBlocker::default()
+    };
+    d.blockers.insert(0, gone);
+    d.blockers.insert(0, first);
+    d.summary.open_blockers += 2;
+    assign_slots(s);
 }
 
 pub fn view(s: &State, f: &mut Frame) -> El {

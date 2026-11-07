@@ -270,8 +270,13 @@ fn send(s: &mut State, card: &str, b: &CardBlocker, option: i64) {
             match r {
                 Ok((res, own)) => {
                     heard(s, &bid, &question, &raiser, &res, Some(own));
-                    crate::text::sent(s, get_mut);
-                    ui_mut(s, &bid).adding = false;
+                    // A pick keeps what was typed; own words leave the box.
+                    if option < 0 {
+                        crate::text::sent(s, get_mut);
+                        ui_mut(s, &bid).adding = false;
+                    } else {
+                        get_mut(s).files.clear();
+                    }
                 }
                 Err(e) => ui_mut(s, &bid).error = Some(e),
             }
@@ -738,7 +743,7 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
     let key = format!("card/b/{}/opt{i}", b.id);
     let bb = b.clone();
     let cid = cid.to_string();
-    let mut head = row().w_full().min_w(0.0).gap(6.0).center_y().flex_wrap().child(
+    let mut head = row().w_full().min_w(0.0).gap(6.0).items_start().child(
         tt::rich_line(
             s,
             f,
@@ -751,7 +756,7 @@ fn option_item(s: &State, f: &mut Frame, cid: &str, b: &CardBlocker, o: &CardOpt
                 ..RichOpts::default()
             },
         )
-        .shrink()
+        .grow(1.0)
         .min_w(0.0),
     );
     if o.recommended {

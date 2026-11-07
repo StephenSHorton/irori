@@ -1,6 +1,6 @@
 //! The card page's pure helpers (card-detail.test.ts and the page's own).
 
-use irori_window::cards::{AgentRef, CardBoard, CardDetail, CardOption, CardSummary, CardThreadItem, Holding};
+use irori_window::cards::{CardBoard, CardDetail, CardOption, CardSummary, CardThreadItem, Holding};
 
 use super::blockers::{by_recommendation, gist};
 use super::side::card_files;
@@ -80,5 +80,4 @@ fn card_files_lists_each_file_once() {
     d.thread = vec![item(&["a", "b"]), item(&["b", "c"])];
     let got: Vec<String> = card_files(&d).into_iter().map(|f| f.sha256).collect();
     assert_eq!(got, ["a", "b", "c"]);
-    let _ = AgentRef::default();
 }

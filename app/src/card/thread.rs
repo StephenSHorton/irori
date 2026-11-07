@@ -221,6 +221,7 @@ pub fn thread_view(s: &State, f: &mut Frame, key: &str, o: &ThreadOpts) -> El {
     if let Some(st) = &status {
         entries = entries.child(match st.tone {
             LineTone::Working => {
+                s.card.working_line.set(true);
                 let doing = if st.doing.is_empty() { ponder_word(s.card.ponder).to_string() } else { st.doing.clone() };
                 let line = format!("{} {} {doing}…", st.who, st.verb);
                 row()

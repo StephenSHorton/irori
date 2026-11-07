@@ -48,12 +48,13 @@ fn btn(label: &str) -> Button {
 
 pub fn view(s: &State, f: &mut Frame) -> El {
     let k = f.k;
+    s.card.working_line.set(false);
     let id = s.nav.card.clone().unwrap_or_default();
     let back = row().key("card/back-row").w_full().child(
         btn("Cards")
             .variant(ButtonVariant::GhostMuted)
             .icon(&icons::ARROW_LEFT)
-            .help("Back to the cards (Esc)")
+            .help("Back to the cards")
             .on_press(|s: &mut State| s.back())
             .build(k),
     );
@@ -111,7 +112,13 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 .scroll(rune::ScrollSpec { stick_bottom: false }),
         )
         .on_key(|s: &mut State, ev: &KeyEvent, _tx: &mut Tx| {
-            if ev.key == Key::Escape && s.dialog.is_none() && s.widgets.confirm.is_none() {
+            if ev.key == Key::Escape
+                && s.dialog.is_none()
+                && s.widgets.confirm.is_none()
+                && !s.card.ui.not_yet_open
+                && s.card.ui.moving.is_none()
+                && s.card.ui.transfer.is_none()
+            {
                 s.back();
                 return true;
             }
@@ -900,9 +907,14 @@ fn close_bar(s: &State, f: &mut Frame, d: &CardDetail, ready: bool) -> El {
             let dk = format!("{id}/close");
             crate::text::drafts::set_draft(s, &dk, "", &[]);
             s.spawn(
-                move |w| w.close_card(&id, state, &note).map(|_| note),
+                move |w| w.close_card(&id, state, &note).map(|_| ()).map_err(|e| (e, note, id)),
                 move |s, r| {
-                    if let Err(e) = r {
+                    if let Err((e, note, id)) = r {
+                        // Refused (an open subtask, say): the note comes back.
+                        if s.card.ui.card == id && s.card.ui.close_note.text.is_empty() {
+                            s.card.ui.close_note = TextEdit::new(&note);
+                            crate::text::drafts::set_draft(s, &format!("{id}/close"), &note, &[]);
+                        }
                         s.error(failed, &e);
                     }
                 },
