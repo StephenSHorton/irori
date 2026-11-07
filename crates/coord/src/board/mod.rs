@@ -90,22 +90,22 @@ pub use fold::blocker_gist;
 pub use fold::{
     FOLLOW_KINDS, Fold, LEFT_FINISHED, LEFT_GONE, LEFT_PARKED, LEFT_REMOVED, MADE_KIND,
     REASON_CONFLICT, REASON_EXPIRED, REASON_HOLDER_GONE, REASON_RELEASED, REASON_STOLEN,
-    SUB_BUFFER, followed,
+    SUB_BUFFER, followed, offer_files_in,
 };
 pub use links::{MAX_LINKS, link_label, parse_link, pr_link};
 pub use mention::{board_form, mention_into, without_mentioned};
 pub use mirror::RELEASE_REQUEST;
 pub use notes::{
-    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_PROPOSED, NOTE_REMOVED,
-    NOTES_PER_WAKE, NewNote, Note, NoteChange, NoteContext, NoteEdit, NoteEvent, NoteMatch,
-    TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE, TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
+    NOTE_ACCEPTED, NOTE_CHANGED, NOTE_KINDS, NOTE_MAX_TEXT, NOTE_REMOVED, NOTES_PER_WAKE, NewNote,
+    Note, NoteContext, NoteEdit, NoteEvent, NoteMatch, TAG_BOARD, TAG_EVERYWHERE, TAG_MACHINE,
+    TAG_PATH, TAG_REPO, TAG_TOPIC, clean_tag,
 };
 pub use owner::{OWNER_ACCEPT, OWNER_DECLINE};
 pub use placed::MAX_PLACE;
 pub use presence::{NOTICE_PRESENCE, PRESENCE_GRACE};
 pub use prstate::{
-    NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN, PR_REVIEW_REQUIRED, PrCheck,
-    PrNews, PrState,
+    DESK_PR_CARD_MARK, NOTICE_PR, PR_CHANGES_REQUESTED, PR_CLOSED, PR_MERGED, PR_OPEN,
+    PR_REVIEW_REQUIRED, PrCheck, PrNews, PrState, desk_pr_card,
 };
 pub use resource::{
     DESK_PREFIX, RESOURCE_NAMED, RESOURCE_PATH, RESOURCE_PORT, Resource, check_repo_key, is_desk,
@@ -594,26 +594,6 @@ impl Coord {
     /// lock (card #561): the outer `None` means the log is busy.
     pub fn try_get_task(&self, id: &str) -> Option<Option<Task>> {
         self.try_read(|f| f.tasks.get(id).map(|t| f.shown(t)))
-    }
-
-    /// [`Coord::notes_for`] that never waits, for a caller under the inbox
-    /// lock (card #561): `None` when the log is busy. With the matches, the
-    /// keys among their writers and accepters that are this log's person
-    /// ([`Coord::is_person`]), so telling them apart needs no second read.
-    pub fn try_notes_for(
-        &self,
-        cx: &NoteContext,
-    ) -> Option<(Vec<NoteMatch>, std::collections::HashSet<String>)> {
-        self.try_read(|f| {
-            let notes = f.notes_for(cx);
-            let people = notes
-                .iter()
-                .flat_map(|m| [&m.note.by, &m.note.accepted_by])
-                .filter(|k| f.is_owner(k))
-                .cloned()
-                .collect();
-            (notes, people)
-        })
     }
 
     /// Holds this log's lock until the guard drops, so a test can show a
@@ -1235,6 +1215,12 @@ impl Coord {
     pub fn comment_attachment(&self, sha: &str) -> Option<FileRef> {
         self.lock().comment_attachment(sha)
     }
+    /// Every comment and blocker carrying sha, with the device whose row
+    /// put it there (card #659): a shared board's caller counts one only
+    /// where that device offered the file in the board's log.
+    pub fn attachment_rows(&self, sha: &str) -> Vec<(FileRef, String)> {
+        self.lock().attachment_rows(sha)
+    }
 
     // ---- links, leases ----
 
@@ -1323,23 +1309,15 @@ impl Coord {
     }
     // ---- notes (card #401) ----
 
-    /// Writes a new note. A person's is accepted at once; an agent's waits
-    /// for a person's accept.
+    /// Writes a new note, live at once whoever writes it (card #616).
     pub fn propose_note(&self, by: &str, n: NewNote) -> Result<Note> {
         self.lock().propose_note(by, n)
     }
-    /// A person accepts a proposed note, or an agent's pending edit or
-    /// removal of one.
-    pub fn accept_note(&self, by: &str, id: &str) -> Result<Note> {
-        self.lock().accept_note(by, id)
-    }
-    /// Edits a note: a person's applies at once, an agent's on a live note
-    /// waits for an accept.
+    /// Edits a note, at once whoever edits it (card #616).
     pub fn edit_note(&self, by: &str, id: &str, e: NoteEdit, why: &str) -> Result<Note> {
         self.lock().edit_note(by, id, e, why)
     }
-    /// Removes a note: a person's removes it, an agent's on a live note
-    /// waits for an accept.
+    /// Removes a note, at once whoever removes it (card #616).
     pub fn remove_note(&self, by: &str, id: &str, why: &str) -> Result<Note> {
         self.lock().remove_note(by, id, why)
     }
@@ -1631,6 +1609,19 @@ impl Coord {
     pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()
+    }
+    /// Who helper part `id`'s "Part done" waits on now (card #557): its
+    /// lead's keys, empty while Irori would start one, None when it isn't
+    /// a part or no lead is coming.
+    pub fn part_lead(&self, id: &str) -> Option<Vec<String>> {
+        let f = self.lock();
+        f.tasks.get(id).and_then(|t| f.part_lead(t))
+    }
+    /// Whether the person's answer on card `id` brings it a fresh lead
+    /// (card #557): a split card nobody is on, where Irori starts leads.
+    pub fn answer_brings_lead(&self, id: &str) -> bool {
+        let f = self.lock();
+        f.tasks.get(id).is_some_and(|t| f.answer_brings_lead(t))
     }
     /// Why "Hand to an agent" can't move card `id` (a shared board's card,
     /// an open ask, subtasks, already on the Board); "" when it can.
@@ -2034,6 +2025,14 @@ impl Coord {
     pub fn refold_if_cut(&self, vec: &store::Vector) -> Result<()> {
         let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
         self.lock().refold_if_cut(vec)
+    }
+
+    /// Rebuilds the fold from the store as a replay, quietly: for rows this
+    /// device wrote straight to the store (card #640's move), which the
+    /// fold otherwise never sees until a restart.
+    pub fn refold(&self) -> Result<()> {
+        let _one = self.catching.lock().unwrap_or_else(|e| e.into_inner());
+        self.lock().refold()
     }
 
     /// Whether a card's short ref moved at or after `since` (search

@@ -42,6 +42,7 @@ import {
   type Session,
 } from "@/lib/voice"
 import { errorText } from "@/lib/talk"
+import { onHuddleMic, sharedCall, subscribeCall } from "@/lib/call"
 
 type Phase = "idle" | "starting" | "listening" | "stopping"
 
@@ -74,6 +75,10 @@ export function MicButton({
   main?: boolean
 }) {
   const voice = useSyncExternalStore(subscribeVoice, sharedVoice)
+  // A huddle has the mic (#654): dictation waits until it ends.
+  // Only whether there is one, so a call's health doesn't render it again.
+  const inCallNow = () => !!sharedCall().mine
+  const inCall = useSyncExternalStore(subscribeCall, inCallNow, inCallNow)
   const [phase, setPhase] = useState<Phase>("idle")
   const [note, setNote] = useState<
     { kind: "download" } | { kind: "error"; code: string; text: string } | null
@@ -131,17 +136,26 @@ export function MicButton({
     [finish]
   )
 
-  const stop = useCallback(() => {
+  const stop = useCallback((): Promise<void> => {
     const s = session.current
-    if (!s) return
+    if (!s) return Promise.resolve()
     setPhase("stopping")
-    void stopVoice(s.id).catch(() => {})
+    const done = stopVoice(s.id).catch(() => {})
     // ended normally follows within a moment; don't wait on it forever.
     const id = s.id
     window.setTimeout(() => {
       if (session.current?.id === id) finish()
     }, 4000)
+    return done
   }, [finish])
+
+  // A huddle takes the mic (#654): dictation stops first, whichever way
+  // the huddle starts (the header, the ring banner, a start post).
+  useEffect(() => onHuddleMic(() => stop()), [stop])
+  // And if this device is in one anyway, dictation doesn't run beside it.
+  useEffect(() => {
+    if (inCall && session.current) void stop()
+  }, [inCall, stop])
 
   // The person typed, or Send cleared the box: stop listening.
   useEffect(() => {
@@ -181,12 +195,14 @@ export function MicButton({
       const id = await startVoice()
       session.current = newSession(id)
       setPhase("listening")
+      // A huddle began while it was starting: it has the mic.
+      if (sharedCall().mine) void stop()
     } catch (err) {
       finish()
       const text = errorText(err)
       setNote({ kind: "error", code: codeOf(text), text })
     }
-  }, [voice.status, target, finish])
+  }, [voice.status, target, finish, stop])
 
   const fetchModel = useCallback(async () => {
     const ok = await downloadModel()
@@ -205,7 +221,11 @@ export function MicButton({
     actions.current = { begin, stop }
     const s = voice.status
     usableRef.current =
-      !disabled && !voice.download && !!s && s.state !== "unsupported"
+      !disabled &&
+      !inCall &&
+      !voice.download &&
+      !!s &&
+      s.state !== "unsupported"
   })
   useEffect(
     () =>
@@ -233,9 +253,11 @@ export function MicButton({
   const dl = voice.download
   const label = live
     ? "Stop voice input"
-    : st.state === "needs-model"
-      ? "Voice input (downloads the speech model first)"
-      : "Voice input: tap to talk, or hold and let go"
+    : inCall
+      ? "Voice input is off during a huddle"
+      : st.state === "needs-model"
+        ? "Voice input (downloads the speech model first)"
+        : "Voice input: tap to talk, or hold and let go"
 
   const keys = shortcutKeys(DictationShortcut)
   const popover = note !== null || !!dl
@@ -264,7 +286,7 @@ export function MicButton({
               aria-label={label}
               aria-keyshortcuts={isMac() ? "Meta+D" : "Control+D"}
               aria-pressed={live}
-              disabled={disabled || busy || !!dl}
+              disabled={disabled || (inCall && !live) || busy || !!dl}
               // Keep the caret where it is in the box.
               onMouseDown={(e) => e.preventDefault()}
               onPointerDown={(e) => {

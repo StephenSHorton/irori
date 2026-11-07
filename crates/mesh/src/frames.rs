@@ -35,6 +35,18 @@ pub const FRAME_DM_SECRET: &str = "dm.secret";
 /// is the asker): a restored device checks the last row it holds against
 /// the peer's before it takes the rows after it.
 pub const FRAME_ROW_AT: &str = "row.at";
+/// One step of a huddle's ringing in a Personal channel (card #663), to
+/// another of the person's devices: `callId`, `op` (`ring`, `join`,
+/// `leave`, `end`), `convId`, `epoch` (the mesh epoch the sender proves
+/// call connections with), `devices` and `atMs`, as the board `call` frame
+/// carries them. Sent only to a device whose hello said `calls`; an older
+/// build ignores a type it doesn't know.
+pub const FRAME_CALL: &str = "call";
+
+/// The call layer this build speaks on the private mesh (card #663): a
+/// hello's `calls`, as on a board hello (`boardmesh::CALLS_PROTOCOL`). 0
+/// (absent) from an Irori before it, whose device is never rung.
+pub const CALLS_PROTOCOL: i64 = 1;
 
 /// At most 500 rows and about 1 MiB per rows frame; `MAX_MESSAGE` is the
 /// channel's cap on anything it receives.
@@ -111,6 +123,22 @@ pub struct Frame {
     pub board_id: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub maker: String,
+
+    /// (hello) The call layer the sender speaks ([`CALLS_PROTOCOL`]).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub calls: i64,
+    // call (epoch too). No key folds onto an older one (Go matches names
+    // case-insensitively): `devices` isn't `deviceId`.
+    #[serde(rename = "callId", skip_serializing_if = "String::is_empty")]
+    pub call_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub op: String,
+    #[serde(rename = "convId", skip_serializing_if = "String::is_empty")]
+    pub conv_id: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub devices: Vec<String>,
+    #[serde(rename = "atMs", skip_serializing_if = "is_zero")]
+    pub at_ms: i64,
 }
 
 /// A log row on the wire. The payload travels as base64 of the stored
@@ -249,6 +277,12 @@ static FRAME_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
         ("from", Schema::Int(64)),
         ("boardId", Schema::String),
         ("maker", Schema::String),
+        ("calls", Schema::Int(64)),
+        ("callId", Schema::String),
+        ("op", Schema::String),
+        ("convId", Schema::String),
+        ("devices", Schema::Slice(Box::new(Schema::String))),
+        ("atMs", Schema::Int(64)),
     ])
 });
 
@@ -335,6 +369,21 @@ pub fn decode_frame(b: &[u8]) -> Result<Frame, String> {
         from: int(&o, "from"),
         board_id: o.get_str("boardId").to_string(),
         maker: o.get_str("maker").to_string(),
+        calls: int(&o, "calls"),
+        call_id: o.get_str("callId").to_string(),
+        op: o.get_str("op").to_string(),
+        conv_id: o.get_str("convId").to_string(),
+        devices: o
+            .get("devices")
+            .map(Out::items)
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|d| match d {
+                Out::String(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        at_ms: int(&o, "atMs"),
     };
     if f.typ.is_empty() {
         return Err("mesh: frame has no type".into());
@@ -402,6 +451,34 @@ mod tests {
         let p = Frame::of_type(FRAME_PING).encode();
         let s = String::from_utf8(p).unwrap();
         assert!(!s.contains("boardId") && !s.contains("maker"), "{s}");
+    }
+
+    #[test]
+    fn a_call_frame_round_trips_and_others_leave_its_fields_out() {
+        let f = Frame {
+            call_id: "0123456789abcdef0123456789abcdef".into(),
+            op: "ring".into(),
+            conv_id: "ch:general".into(),
+            epoch: 2,
+            devices: vec!["dev-a".into(), "dev-b".into()],
+            at_ms: 1_700_000_000_000,
+            ..Frame::of_type(FRAME_CALL)
+        };
+        let s = String::from_utf8(f.encode()).unwrap();
+        assert!(s.starts_with(r#"{"type":"call","epoch":2,"#), "{s}");
+        assert_eq!(decode_frame(&f.encode()).unwrap(), f);
+        let hello = Frame {
+            calls: CALLS_PROTOCOL,
+            ..Frame::of_type(FRAME_HELLO)
+        };
+        assert_eq!(decode_frame(&hello.encode()).unwrap().calls, CALLS_PROTOCOL);
+        let p = String::from_utf8(Frame::of_type(FRAME_PING).encode()).unwrap();
+        for k in ["calls", "callId", "\"op\"", "convId", "devices", "atMs"] {
+            assert!(!p.contains(k), "{p}");
+        }
+        // An older hello reads as 0: never rung.
+        let old = decode_frame(br#"{"type":"hello","v":1,"deviceId":"d"}"#).unwrap();
+        assert_eq!(old.calls, 0);
     }
 
     #[test]

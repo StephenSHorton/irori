@@ -58,10 +58,32 @@ pub trait Backend: Send + Sync + 'static {
         let _ = detail;
         None
     }
+    /// Moves a space nobody else is in into Personal (card #640), for
+    /// `POST /v1/spaces/move-to-personal`: what it did, or why not. `None`,
+    /// a backend without spaces, answers 503.
+    fn move_space_to_personal(
+        &self,
+        space_id: &str,
+        keep_space: bool,
+        allow_missing_files: bool,
+    ) -> Option<Result<serde_json::Value, String>> {
+        let _ = (space_id, keep_space, allow_missing_files);
+        None
+    }
     /// The net layer's state and how many other devices are connected now
     /// (Go `Mesh().Status().State` and `Mesh().Connected()`), for health's
     /// `net`; `None` (no mesh) leaves `net` out.
     fn net_health(&self) -> Option<NetHealth> {
+        None
+    }
+    /// Takes a session's Claude plan rate-limit windows (card #599), for
+    /// `POST /v1/usage/limits`; `Err` is why they were refused, `None` (a
+    /// backend that keeps none) answers 503.
+    fn record_usage_limits(
+        &self,
+        input: &[irori_core::usage::RateLimit],
+    ) -> Option<Result<(), String>> {
+        let _ = input;
         None
     }
 }
@@ -117,6 +139,22 @@ impl Backend for Core {
     fn mesh_devices(&self, detail: bool) -> Option<Vec<mesh::DeviceRow>> {
         Some(Core::mesh_devices(self, detail))
     }
+    fn move_space_to_personal(
+        &self,
+        space_id: &str,
+        keep_space: bool,
+        allow_missing_files: bool,
+    ) -> Option<Result<serde_json::Value, String>> {
+        let o = irori_core::MoveOpts {
+            keep_space,
+            allow_missing_files,
+        };
+        Some(
+            Core::move_space_to_personal(self, space_id, &o)
+                .map_err(|e| e.to_string())
+                .and_then(|m| serde_json::to_value(m).map_err(|e| e.to_string())),
+        )
+    }
     fn boards(&self, detail: bool) -> Option<Vec<crate::boards::BoardRow>> {
         Some(
             self.board_list()
@@ -137,6 +175,12 @@ impl Backend for Core {
                 })
                 .collect(),
         )
+    }
+    fn record_usage_limits(
+        &self,
+        input: &[irori_core::usage::RateLimit],
+    ) -> Option<Result<(), String>> {
+        Some(Core::record_usage_limits(self, input))
     }
     fn net_health(&self) -> Option<NetHealth> {
         let n = self.mesh();

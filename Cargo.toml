@@ -35,6 +35,7 @@ members = [
   "crates/notify",
   "crates/update",
   "crates/voice",
+  "crates/call",
   "crates/term",
 ]
 
@@ -82,6 +83,7 @@ irori-mesh = { path = "crates/mesh" }
 irori-tools = { path = "crates/tools" }
 irori-window = { path = "crates/window" }
 irori-voice = { path = "crates/voice" }
+irori-call = { path = "crates/call" }
 irori-term = { path = "crates/term" }
 # suzuri's terminal core (inline-terminals.md section 3, card #369), at a
 # suzuri term tag; keep it, the portable-pty patch below and frontend's

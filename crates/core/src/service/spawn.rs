@@ -688,7 +688,7 @@ pub const NO_HANDOFF_ASK: &str = "The agent Irori started for this ended without
 pub const BUILD_OUTPUT: &str = "Build output stays in your worktree's target/, so it goes when the card settles. Irori sets CARGO_TARGET_DIR for you when it knows your worktree: don't set or override it, and don't build into a shared or temp folder.";
 
 /// What every spawned agent is told about notes (§13.6, card #454).
-pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, propose it as a note (notes_propose) before you go.";
+pub const PROPOSE_NOTE: &str = "If you learned something about this repo that the next agent needs, write it as a note (notes_propose) before you go.";
 
 /// How many Talk channels a brief quotes, and how many of each one's
 /// newest posts (card #454; spawned-agents.md §4 "Channels").
@@ -975,7 +975,7 @@ pub(crate) fn build_brief(
     }
     if !more.parts.is_empty() {
         b.push_str(&format!(
-            "{short} is split into parts, its last lead went away, and you are its new lead. For each part below that says it is done, merge its branch into the card's branch (`git merge --no-ff`), then accept it with board_status completed on that subtask, or say what is missing on its thread. Put a wait on each part still being worked. Once every part is in, land {short} as above: the parts don't ask the person, only {short} does.\n\n"
+            "{short} is split into parts, its last lead went away, and you are its new lead. For each part below that says it is done, merge its branch into the card's branch (`git merge --no-ff`), then accept it with board_status completed on that subtask, or say what is missing on its thread. Put a wait on each part still being worked. Once every part is in, land {short} as above: the parts don't ask the person, only {short} does. If the last lead already asked the person on {short} and they answered (a Merge it on its \"Can I merge?\"), that answer is yours to act on now, as the last lead would have: resolve that blocker with what you are doing, then do it.\n\n"
         ));
         fence(&mut b, "Parts", "irori", &more.parts.join("\n"));
     }
@@ -1871,7 +1871,7 @@ impl Services {
                     let from = all.len().saturating_sub(BRIEF_CHANNEL_POSTS);
                     all[from..]
                         .iter()
-                        .map(|p| (p.by.clone(), p.text.clone()))
+                        .map(|p| (p.by.clone(), tools::talk::post_line(p)))
                         .collect()
                 };
                 BriefChannel {

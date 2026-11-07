@@ -11,18 +11,23 @@
 //! | `devices:pairing` | [`PairStatus`] | pairing change (M7) |
 //! | `devices:changed` | `{}` | a device renamed, here or synced (#184) |
 //! | `talk:changed` | `{}` | coalesced, 250 ms: a `talk.*` row folded, or a message sent (#389) |
+//! | `talk:replying` | `TalkReplying[]` | coalesced, 250 ms, only when it changed (#645) |
 //! | `notifications:changed` | `{}` | a notification kept or read, here or synced (#377) |
 //! | `settings:launch-at-login` | bool | after every toggle attempt |
 //! | `app:open` | [`Target`] | a card's Open (M6 toast) |
 //! | `update:status` | [`UpdateStatus`] | updater transitions (M8) |
 //! | `voice:event` | `VoiceEvent` | a voice input session's words and end (#240, voice.rs) |
 //! | `voice:download` | `VoiceDownload` | the speech model's one-time download, about every 1% (#240) |
+//! | `meters:changed` | `MetersSample` | this computer's hardware meters, every 2 s, desktop only (#599, meters.rs) |
+//! | `usage:changed` | `UsageLimits` | coalesced, 250 ms: a session reported Claude usage (#599, usage.rs) |
+//! | `call:state` | `CallView` | coalesced, 100 ms: every huddle change, and its health and speaking during one (#654, call.rs) |
 //!
 //! `roster:changed` follows this device's presence only, as Go's
 //! (`Core.Changes` is `presence.Subscribe`).
 
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use gocompat::sub::Queue;
 use irori_core::events::{BOARD_EMIT_EVERY, CAPTURE_EMIT_EVERY, INBOX_EMIT_EVERY, coalesce};
@@ -35,9 +40,12 @@ use crate::Window;
 use crate::roster::RosterChange;
 
 pub use crate::boards::EVENT_BOARDS_CHANGED;
+pub use crate::call::EVENT_CALL_STATE;
+pub use crate::meters::EVENT_METERS_CHANGED;
 pub use crate::notifications::EVENT_NOTIFICATIONS_CHANGED;
 pub use crate::settings::EVENT_LAUNCH_AT_LOGIN;
 pub use crate::update::EVENT_UPDATE_STATUS;
+pub use crate::usage::EVENT_USAGE_CHANGED;
 
 pub const EVENT_ROSTER_CHANGED: &str = "roster:changed";
 pub const EVENT_INBOX_CHANGED: &str = "inbox:changed";
@@ -46,10 +54,16 @@ pub const EVENT_CAPTURE_CHANGED: &str = "capture:changed";
 pub const EVENT_DEVICES_PAIRING: &str = "devices:pairing";
 pub const EVENT_DEVICES_CHANGED: &str = "devices:changed";
 pub const EVENT_TALK_CHANGED: &str = "talk:changed";
+/// Who is replying in Talk changed (card #645); the payload is the list.
+pub const EVENT_TALK_REPLYING: &str = "talk:replying";
 pub const EVENT_APP_OPEN: &str = "app:open";
 /// From the page: it listens for app:open now (card #395: a phone
 /// notification tapped while Irori was closed opens then).
 pub const EVENT_APP_OPEN_READY: &str = "app:open-ready";
+
+/// How often call:state goes at most (#654): a call's health and
+/// speaking change about twice a second.
+const CALL_EMIT_EVERY: Duration = Duration::from_millis(100);
 
 /// The board:changed and boards:changed payload.
 #[derive(Debug, Clone, Default, Serialize, Type)]
@@ -236,6 +250,30 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
         }));
     }
     {
+        // Talk's replying row (card #645): a wake, a turn starting or
+        // ending, a post, or an agent going busy, gone or offline, here or
+        // synced, may change who is replying. Sent only when it did.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[
+            Topic::Inbox,
+            Topic::Talk,
+            Topic::Presence,
+            Topic::Roster,
+            Topic::Devices,
+        ]);
+        out.push(spawn("irori-window-talk-replying", move || {
+            let q = feed.queue().clone();
+            let mut last = w.talk_replying();
+            coalesce(&q, INBOX_EMIT_EVERY, &stop, |_| {
+                let now = w.talk_replying();
+                if now != last {
+                    w.emit(EVENT_TALK_REPLYING, &now);
+                    last = now;
+                }
+            });
+        }));
+    }
+    {
         // The notification history (card #377): the page and the sidebar's
         // unread count read it again.
         let (w, stop) = (w.clone(), stop.clone());
@@ -244,6 +282,24 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             let q = feed.queue().clone();
             coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
                 w.emit(EVENT_NOTIFICATIONS_CHANGED, &Empty {});
+            });
+        }));
+    }
+    {
+        // Huddles (#654): the whole picture again on every change.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Call]);
+        out.push(spawn("irori-window-call", move || {
+            let q = feed.queue().clone();
+            // During a call the Core publishes about twice a second; send
+            // the picture only when it changed.
+            let mut last: Option<crate::call::CallView> = None;
+            coalesce(&q, CALL_EMIT_EVERY, &stop, |_| {
+                let v = w.call_state();
+                if last.as_ref() != Some(&v) {
+                    w.emit(EVENT_CALL_STATE, &v);
+                    last = Some(v);
+                }
             });
         }));
     }
@@ -259,6 +315,20 @@ pub fn start(w: Arc<Window>, stop: Cancel) -> Vec<JoinHandle<()>> {
             });
         }));
     }
+    {
+        // Claude usage left (card #599): a session's mod reported the plan's
+        // rate-limit windows.
+        let (w, stop) = (w.clone(), stop.clone());
+        let feed = w.core.feed(&[Topic::Usage]);
+        out.push(spawn("irori-window-usage", move || {
+            let q = feed.queue().clone();
+            coalesce(&q, BOARD_EMIT_EVERY, &stop, |_| {
+                w.emit(EVENT_USAGE_CHANGED, &w.usage_limits());
+            });
+        }));
+    }
+    // The hardware meters (card #599): desktop only.
+    out.extend(crate::meters::start(w.clone(), stop.clone()));
     out
 }
 

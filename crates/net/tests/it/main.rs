@@ -5,6 +5,7 @@
 
 mod board_gossip;
 mod board_iroh;
+mod call_iroh;
 #[path = "../../../mesh/tests/it/common/mod.rs"]
 mod common;
 mod fromdb;

@@ -1,6 +1,6 @@
-//! Where notes live (card #401, docs/design/notes.md §3, §8): a Mine note
-//! stays in the private log even when it names a shared board; a board
-//! note goes in that board's log only.
+//! Where notes live (card #401, docs/design/notes.md §3, §8): every note is
+//! the person's own, in the private log, even when it names a shared space
+//! (card #616).
 
 use crate::common;
 
@@ -31,43 +31,44 @@ fn nn(text: &str, tags: &[&str]) -> coord::NewNote {
     }
 }
 
+/// Card #616: every note is the person's own. A note about a shared space
+/// stays in the private log, and a note row an older device wrote into a
+/// board log (0.11.0-0.12.3 still can) is kept there but never read.
 #[test]
-fn a_mine_note_never_enters_a_board_log() {
+fn every_note_is_mine_and_board_note_rows_go_unread() {
     let r = Rig::new();
     let c = &r.core;
     let b = c.create_board("MLG", "mlg").unwrap();
     let me = c.user_sender().key;
 
-    // A Mine note about the board, written by the person and accepted at once.
+    // A note about the space, written by the person and accepted at once.
     let mine = c
-        .propose_note(&me, "mine", nn("Home IPs stay out of MLG.", &["board:mlg"]))
+        .propose_note(&me, nn("Home IPs stay out of MLG.", &["board:mlg"]))
         .unwrap();
-    assert_eq!((mine.scope.as_str(), mine.board_id.as_str()), ("mine", ""));
-    assert_eq!(mine.note.state, coord::NOTE_ACCEPTED);
-    // Alone on the board there is no device to wait on (#411, #392): a
-    // board note goes in the board log only.
-    let shared = c
-        .propose_note(&me, "mlg", nn("Ship models to the repo.", &["everywhere"]))
-        .unwrap()
-        .note;
-    assert_eq!(
-        note_rows(&c.board_store(&b).unwrap()),
-        vec![shared.id.clone()]
-    );
-    assert_eq!(note_rows(c.store()), vec![mine.note.id.clone()]);
+    assert_eq!(mine.state, coord::NOTE_ACCEPTED);
+    assert_eq!(note_rows(c.store()), vec![mine.id.clone()]);
+    assert!(note_rows(&c.board_store(&b).unwrap()).is_empty());
 
-    let all = c.notes("", false).unwrap();
-    assert_eq!(all.len(), 2);
-    assert_eq!(c.notes("mine", false).unwrap().len(), 1);
-    assert_eq!(c.notes("mlg", false).unwrap()[0].board_id, b);
-    assert_eq!(c.search_notes("repo", true).len(), 1);
-    // The person removes it from the board; an unknown scope is refused.
-    c.remove_note(&me, &shared.id, "").unwrap();
-    assert!(c.notes("mlg", false).unwrap().is_empty());
-    assert!(
-        c.propose_note(&me, "nope", nn("x", &["everywhere"]))
-            .is_err()
-    );
+    // As an older device would: a note row straight into the board's log.
+    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, c.person().id);
+    let old = c
+        .board_coord(&b)
+        .unwrap()
+        .propose_note(&person, nn("OLD-BOARD-NOTE ships models.", &["everywhere"]))
+        .unwrap();
+    assert_eq!(note_rows(&c.board_store(&b).unwrap()), vec![old.id.clone()]);
+
+    let all = c.notes(false);
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].id, mine.id);
+    assert!(c.search_notes("OLD-BOARD-NOTE", false).is_empty());
+    assert_eq!(c.search_notes("home", true).len(), 1);
+    // It can't be changed through the Core either: there is no such note.
+    assert!(c.remove_note(&me, &old.id, "").is_err());
+    c.remove_note(&me, &format!("note:{}", mine.id), "")
+        .unwrap();
+    assert!(c.notes(false).is_empty());
+    assert_eq!(c.notes(true).len(), 1);
 }
 
 /// The `wake.issued` rows' payloads, oldest first.
@@ -107,7 +108,6 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     let repo_note = c
         .propose_note(
             &me,
-            "mine",
             nn(
                 "Run check.sh before landing on main.",
                 &[&format!("repo:{REPO}")],
@@ -117,7 +117,6 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     let path_note = c
         .propose_note(
             &me,
-            "mine",
             nn(
                 "The wake fence is asserted byte for byte.",
                 &[&format!("path:{REPO}:crates/inbox")],
@@ -127,77 +126,67 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     let elsewhere = c
         .propose_note(
             &me,
-            "mine",
             nn("Other repo only.", &["repo:remote:github.com/acme/other"]),
         )
         .unwrap();
     let topic = c
-        .propose_note(&me, "mine", nn("Search-only note.", &["topic:release"]))
+        .propose_note(&me, nn("Search-only note.", &["topic:release"]))
         .unwrap();
 
-    // An agent's proposal waits for the person, and reaches no agent.
+    // An agent's note is live at once (card #616): no one accepts it.
     let out = tool(
         &b,
         "notes_propose",
-        serde_json::json!({"kind": "gotcha", "text": "PROPOSED-ONLY never wakes.", "tags": ["everywhere"]}),
+        serde_json::json!({"kind": "gotcha", "text": "AGENT-NOTE reaches wakes at once.", "tags": ["everywhere"]}),
     );
     assert!(
-        out.starts_with("Proposed note:")
-            && out.contains("reaches no agent until the person accepts it"),
+        out.starts_with("Wrote note:") && out.contains("it is live"),
         "notes_propose = {out}"
     );
-    let proposed = c.search_notes("PROPOSED-ONLY", false);
-    assert_eq!(proposed.len(), 1);
-    assert_eq!(proposed[0].note.state, coord::NOTE_PROPOSED);
-    let pid = proposed[0].note.reference();
-    // Its author changes it directly; an edit needs why.
+    let agent_note = c.search_notes("AGENT-NOTE", true);
+    assert_eq!(agent_note.len(), 1);
+    assert!(agent_note[0].live() && agent_note[0].accepted_by.is_empty());
+    let aid = agent_note[0].reference();
+    // An edit needs why, and applies at once.
     assert!(
         tool(
             &b,
             "notes_propose",
-            serde_json::json!({"note": pid, "text": "PROPOSED-ONLY, edited."})
+            serde_json::json!({"note": aid, "text": "AGENT-NOTE, edited."})
         )
         .starts_with("Error: ")
     );
     let out = tool(
         &b,
         "notes_propose",
-        serde_json::json!({"note": pid, "text": "PROPOSED-ONLY, edited.", "why": "clearer"}),
+        serde_json::json!({"note": aid, "text": "AGENT-NOTE reaches wakes, edited.", "why": "clearer"}),
     );
-    assert!(out.starts_with("Changed your proposal"), "edit = {out}");
-    // An edit of a live note waits as a pending change.
+    assert_eq!(out, format!("Changed {aid}."));
+    assert_eq!(
+        c.search_notes("AGENT-NOTE", true)[0].text,
+        "AGENT-NOTE reaches wakes, edited."
+    );
+    // So does a removal, of the person's note too.
     let out = tool(
         &b,
         "notes_propose",
-        serde_json::json!({"note": repo_note.note.reference(), "remove": true, "why": "gone"}),
+        serde_json::json!({"note": elsewhere.reference(), "remove": true, "why": "gone", "scope": "mine"}),
     );
-    assert!(out.starts_with("Proposed the removal"), "remove = {out}");
-    assert!(c.search_notes("check.sh", true)[0].note.live());
+    assert_eq!(out, format!("Removed {}.", elsewhere.reference()));
 
-    // A scope that names nothing refuses in the tool's own words.
-    let e = c
-        .propose_note(&me, "xyz", nn("x", &["topic:x"]))
-        .unwrap_err()
-        .to_string();
-    assert!(
-        e.contains("no space \"xyz\": give mine, or the tag or id of a space or one of its boards"),
-        "{e}"
-    );
-
-    // Search reads accepted notes only.
     let out = tool(
         &a,
         "notes_search",
-        serde_json::json!({"q": "proposed-only"}),
+        serde_json::json!({"q": "other repo only"}),
     );
-    assert!(out.starts_with("No accepted note"), "search = {out}");
+    assert!(out.starts_with("No note holds"), "search = {out}");
     let out = tool(
         &a,
         "notes_search",
         serde_json::json!({"q": "topic:release"}),
     );
     assert!(
-        out.contains(&topic.note.reference()) && out.contains("untrusted data"),
+        out.contains(&topic.reference()) && out.contains("untrusted data"),
         "search = {out}"
     );
 
@@ -226,20 +215,30 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
         "no Notes section:\n{p}"
     );
     assert!(
-        p.contains(&path_note.note.reference()) && p.contains("byte for byte"),
+        p.contains(&path_note.reference()) && p.contains("byte for byte"),
         "{p}"
     );
     assert!(
-        p.contains(&repo_note.note.reference()) && p.contains(&format!("matched repo:{REPO}")),
+        p.contains(&repo_note.reference()) && p.contains(&format!("matched repo:{REPO}")),
         "{p}"
     );
     assert!(p.contains("by the person, accepted by the person"), "{p}");
-    for absent in ["PROPOSED-ONLY", "Other repo only", "Search-only"] {
+    // An agent's note names its writer and no accepter.
+    let line = p
+        .lines()
+        .skip_while(|l| !l.contains("AGENT-NOTE reaches wakes, edited."))
+        .nth(1)
+        .unwrap_or_default();
+    assert!(
+        line.contains("by beta (") && !line.contains("accepted"),
+        "{p}"
+    );
+    for absent in ["Other repo only", "Search-only"] {
         assert!(!p.contains(absent), "{absent} reached the wake:\n{p}");
     }
-    // Most specific first: the path note before the repo note.
+    // Most specific first: the path note, the repo note, then everywhere.
     assert!(p.find("byte for byte").unwrap() < p.find("Run check.sh").unwrap());
-    let _ = elsewhere;
+    assert!(p.find("Run check.sh").unwrap() < p.find("AGENT-NOTE").unwrap());
 
     // The wake.issued row lists them, with the card.
     let rows = wake_rows(c.store());
@@ -253,7 +252,11 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
         .collect();
     assert_eq!(
         ids,
-        vec![path_note.note.id.as_str(), repo_note.note.id.as_str()]
+        vec![
+            path_note.id.as_str(),
+            repo_note.id.as_str(),
+            agent_note[0].id.as_str()
+        ]
     );
 
     // The next wake about the card doesn't repeat them.
@@ -280,36 +283,97 @@ fn a_wake_on_a_matching_card_carries_its_accepted_notes() {
     );
 }
 
+/// Card #616: notes_propose takes no shared scope, and refuses tags that
+/// could never match a wake, each with what to give instead.
 #[test]
-fn an_agents_board_note_goes_through_the_gate_and_waits_for_a_person() {
-    // The tool path shares Services::propose_note with the window, so the
-    // write gate (#411) applies to it too; one device here, so it is open.
+fn the_tool_refuses_a_board_scope_and_tags_that_cant_match() {
     let r = Rig::new();
     let c = &r.core;
-    c.create_board("MLG", "mlg").unwrap();
+    let space = c.create_board("MLG", "mlg").unwrap();
     let a = tools::Caller {
         sender: inbox::Sender::new(&r.key_a, "alpha", "claude"),
         path: inbox::path::MOD.into(),
     };
-    let out = c
-        .tools()
-        .call(
-            &a,
-            "notes_propose",
-            &serde_json::to_vec(&serde_json::json!({"scope": "mlg", "kind": "rule", "text": "BOARD-AGENT note.", "tags": ["everywhere"]})).unwrap(),
-        )
-        .unwrap();
+    let tool = |args: serde_json::Value| -> String {
+        c.tools()
+            .call(&a, "notes_propose", &serde_json::to_vec(&args).unwrap())
+            .unwrap()
+    };
+    let note = |tags: serde_json::Value| serde_json::json!({"kind": "gotcha", "text": "A gotcha.", "tags": tags});
+    let machine = c.machine_names()[0].clone();
+
+    // A space's tag as scope: refused plainly, pointing at board:.
+    let mut args = note(serde_json::json!(["everywhere"]));
+    args["scope"] = "mlg".into();
+    let out = tool(args);
     assert!(
-        out.starts_with("Proposed note:")
-            && out.contains("in space mlg")
-            && out.contains("until a person in the space accepts it"),
+        out.starts_with("Error: ")
+            && out.contains("there are no shared notes")
+            && out.contains("board:<tag>"),
         "{out}"
     );
-    let found = c.search_notes("BOARD-AGENT", false);
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].scope, "mlg");
-    assert_eq!(found[0].note.state, coord::NOTE_PROPOSED);
-    assert!(c.search_notes("BOARD-AGENT", true).is_empty());
+    // mine (an older spec's default) still goes.
+    let mut args = note(serde_json::json!(["topic:scope"]));
+    args["scope"] = "Mine".into();
+    assert!(tool(args).starts_with("Wrote note:"));
+
+    // A * in any tag: path tags are literal prefixes.
+    let out = tool(note(serde_json::json!([
+        "path:remote:github.com/a/b:src/*.rs"
+    ])));
+    assert!(
+        out.starts_with("Error: ") && out.contains("never expand"),
+        "{out}"
+    );
+    // A machine no device is called; the refusal lists the ones that are.
+    let out = tool(note(serde_json::json!(["machine:pc"])));
+    assert!(
+        out.starts_with("Error: ")
+            && out.contains("no device is called \"pc\"")
+            && out.contains(&format!("machine:{machine}")),
+        "{out}"
+    );
+    // This device's name, in any case, goes.
+    let out = tool(note(serde_json::json!([format!(
+        "machine:{}",
+        machine.to_uppercase()
+    )])));
+    assert!(out.starts_with("Wrote note:"), "{out}");
+    // An agent's edit that gives tags is checked the same way.
+    let id = c.search_notes("A gotcha", false)[0].reference();
+    let out = tool(serde_json::json!({"note": id, "tags": ["machine:pc"], "why": "narrower"}));
+    assert!(out.contains("no device is called"), "{out}");
+    // Nothing refused was written.
+    assert_eq!(c.notes(false).len(), 2);
+
+    // A source card on a shared space: kept as the note's source text,
+    // since the private log can't check or watch that card.
+    let b = space;
+    let person = format!("{}{}", store::kinds::PERSON_ACTOR_PREFIX, c.person().id);
+    let card = c
+        .board_coord(&b)
+        .unwrap()
+        .create_task(
+            &person,
+            coord::NewTask {
+                title: "On the space".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let mut args = note(serde_json::json!(["board:mlg"]));
+    args["source"] = format!("task:{}", card.id).into();
+    let out = tool(args);
+    assert!(out.starts_with("Wrote note:"), "{out}");
+    let n = c
+        .notes(false)
+        .into_iter()
+        .find(|n| n.tags == ["board:mlg"])
+        .unwrap();
+    assert_eq!(
+        (n.source.as_str(), n.task_id.as_str()),
+        (format!("task:{}", card.id).as_str(), "")
+    );
 }
 
 /// Card #555: the person comments on one subtask; the agent on its sibling
@@ -502,8 +566,9 @@ fn a_wake_on_a_shared_board_carries_the_persons_words() {
     );
 }
 
-/// A card on a new board with a note for every wake on it, a Mine note for
-/// every wake, and a message about the card waiting for alpha. Sent before
+/// A card on a new space, a Mine note for every wake, a Mine note tagged
+/// with the space, an old board note row, and a message about the card
+/// waiting for alpha. Sent before
 /// any test holds a lock: only the wake runs under the inbox lock.
 fn a_message_about_a_board_card(r: &Rig) -> (String, String) {
     let c = &r.core;
@@ -520,9 +585,13 @@ fn a_message_about_a_board_card(r: &Rig) -> (String, String) {
             },
         )
         .unwrap();
-    c.propose_note(&me, "mine", nn("MINE-NOTE every wake.", &["everywhere"]))
+    c.propose_note(&me, nn("MINE-NOTE every wake.", &["everywhere"]))
         .unwrap();
-    c.propose_note(&me, "mlg", nn("BOARD-NOTE every wake.", &["everywhere"]))
+    // A Mine note about the space (card #616), and a note row an older
+    // device wrote into the space's log, which no wake reads.
+    c.propose_note(&me, nn("BOARD-TAG on mlg cards.", &["board:mlg"]))
+        .unwrap();
+    co.propose_note(&person, nn("OLD-BOARD-NOTE every wake.", &["everywhere"]))
         .unwrap();
     send_about(r, &task.id, "about the board card");
     (b, task.id)
@@ -568,10 +637,10 @@ fn finish(r: &Rig, w: &inbox::Wake, turn: &str) {
     ib.turn_ended(&r.key_a, &w.token, turn).unwrap();
 }
 
-/// A wake about a board's card reads that board without waiting (card #561)
-/// and still carries its notes, told apart from Mine's.
+/// A wake about a space's card reads that space without waiting (card
+/// #561) for its tag: Mine notes tagged board:<tag> match it (card #616).
 #[test]
-fn a_wake_on_a_board_card_carries_the_boards_notes() {
+fn a_wake_on_a_board_card_carries_mine_notes_about_its_space() {
     let r = Rig::new();
     a_message_about_a_board_card(&r);
     let w = r
@@ -581,16 +650,15 @@ fn a_wake_on_a_board_card_carries_the_boards_notes() {
         .unwrap()
         .expect("alpha has the message");
     let p = &w.prompt;
-    assert!(p.contains("MINE-NOTE") && p.contains("BOARD-NOTE"), "{p}");
-    assert!(
-        p.contains("by a person in the space, accepted by a person in the space"),
-        "{p}"
-    );
+    assert!(p.contains("MINE-NOTE") && p.contains("BOARD-TAG"), "{p}");
+    assert!(p.contains("matched board:mlg"), "{p}");
+    assert!(!p.contains("OLD-BOARD-NOTE"), "{p}");
+    assert!(p.contains("by the person, accepted by the person"), "{p}");
 }
 
 /// Card #561: a board write holds its coord and waits on the inbox for its
 /// hop, so a wake under the inbox lock must not wait on that coord. It goes
-/// out without the board's notes, which the next wake gives.
+/// out without the space's board: matches, which the next wake gives.
 #[test]
 fn a_wake_never_waits_on_a_busy_board() {
     let r = Rig::new();
@@ -598,7 +666,8 @@ fn a_wake_never_waits_on_a_busy_board() {
     let co = r.core.board_coord(&b).unwrap();
     let w = wake_while_held(&r, co.hold_lock());
     assert!(w.prompt.contains("MINE-NOTE"), "{}", w.prompt);
-    assert!(!w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+    // The card isn't found on a busy space, so its tag doesn't match yet.
+    assert!(!w.prompt.contains("BOARD-TAG"), "{}", w.prompt);
     finish(&r, &w, "t1");
 
     send_about(&r, &task, "again, the board free");
@@ -608,7 +677,8 @@ fn a_wake_never_waits_on_a_busy_board() {
         .next_wake(&r.key_a, inbox::path::MOD)
         .unwrap()
         .expect("alpha has the message");
-    assert!(w.prompt.contains("BOARD-NOTE"), "{}", w.prompt);
+    assert!(w.prompt.contains("BOARD-TAG"), "{}", w.prompt);
+    assert!(!w.prompt.contains("OLD-BOARD-NOTE"), "{}", w.prompt);
 }
 
 /// Card #561: a board's coord holder may wait on the boards list, and a

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::Window;
+use crate::board::UploadFile;
 use crate::ts;
 
 /// One side of a conversation.
@@ -108,8 +109,51 @@ pub struct TalkPost {
     /// The card made from it (always null in Talk 1).
     #[specta(optional)]
     pub card: Option<String>,
+    /// The files sent with it (card #643), as a comment's are.
+    #[specta(type = Vec<ts::FileRef>)]
+    pub attachments: Vec<coord::FileRef>,
+    /// A huddle's start or end (#654); null on any other post.
+    #[specta(optional)]
+    pub call: Option<TalkCall>,
     #[specta(type = ts::Time)]
     pub at: gocompat::time::GoTime,
+}
+
+/// What a huddle's start or end post says about it (#654).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkCall {
+    pub call_id: String,
+    /// `start` or `end`.
+    pub op: String,
+    /// How long it ran, on an end; 0 on a start.
+    pub duration_ms: i64,
+    /// Who took part, by name ("you" for the person), never a key. Empty
+    /// on a start.
+    pub people: Vec<String>,
+}
+
+/// The agents replying in one channel or DM (card #645): woken by a post
+/// there and not answered yet. The row reads "jasmine and kestrel are
+/// replying…".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkReplying {
+    pub conv_id: String,
+    /// The earliest woken first.
+    pub agents: Vec<TalkReplier>,
+}
+
+/// One agent replying.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TalkReplier {
+    pub key: String,
+    /// Its name, never its key.
+    pub name: String,
+    /// When the post that woke it was sent: the row drops it 30 minutes on.
+    #[specta(type = ts::Time)]
+    pub since: gocompat::time::GoTime,
 }
 
 /// The most posts one page returns, and the default.
@@ -123,6 +167,27 @@ fn is_thread_id(conv: &str) -> bool {
 impl Window {
     fn me(&self) -> String {
         self.core.user_sender().key
+    }
+
+    /// Who is replying in each channel and DM (card #645); conversations
+    /// with nobody left out.
+    pub fn talk_replying(&self) -> Vec<TalkReplying> {
+        self.core
+            .talk_replying(&self.me())
+            .into_iter()
+            .map(|r| TalkReplying {
+                conv_id: r.conv_id,
+                agents: r
+                    .agents
+                    .into_iter()
+                    .map(|a| TalkReplier {
+                        key: a.key,
+                        name: a.name,
+                        since: a.since,
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     /// Talk's list: every open channel, every DM (agents' own read-only)
@@ -176,6 +241,22 @@ impl Window {
         let ps = self
             .core
             .talk_posts(&self.me(), conv, before, limit as usize)?;
+        // A huddle's people by name (#654), every key on the page at once.
+        let mut keys: Vec<String> = Vec::new();
+        for k in ps
+            .iter()
+            .filter_map(|p| p.call.as_ref())
+            .flat_map(|c| &c.people)
+        {
+            if !keys.contains(k) {
+                keys.push(k.clone());
+            }
+        }
+        let names: std::collections::HashMap<String, String> = keys
+            .iter()
+            .cloned()
+            .zip(self.core.talk_names(&keys))
+            .collect();
         Ok(ps
             .into_iter()
             .map(|p| TalkPost {
@@ -187,6 +268,17 @@ impl Window {
                 agents_now: p.agents_now,
                 thread_from: p.thread_from,
                 card: p.card,
+                attachments: p.files.iter().map(crate::coord_ref).collect(),
+                call: p.call.map(|c| TalkCall {
+                    call_id: c.call_id,
+                    op: c.op,
+                    duration_ms: c.duration_ms,
+                    people: c
+                        .people
+                        .iter()
+                        .filter_map(|k| names.get(k).cloned())
+                        .collect(),
+                }),
                 at: p.at,
             })
             .collect())
@@ -197,7 +289,11 @@ impl Window {
     /// next turn); a channel's or DM's is a `talk.post` (a DM with an agent
     /// wakes it, an @name in the text wakes that agent). `mentions` are
     /// the keys the composer's picker recorded: one names exactly the agent
-    /// picked, another person's in a space too (card #461).
+    /// picked, another person's in a space too (card #461). `files` go
+    /// with it (card #643), the text then optional: a thread's with its
+    /// comment, under the comment's rules; a channel's or DM's are stored
+    /// here and named on the post, and in a space's channel or a DM with
+    /// another person offered in that log so its members can fetch them.
     pub fn talk_post(
         &self,
         conv: &str,
@@ -205,6 +301,7 @@ impl Window {
         mentions: &[String],
         agents_now: bool,
         thread_from: Option<String>,
+        files: &[UploadFile],
     ) -> Result<String, String> {
         let conv = crate::trim(conv);
         if conv.is_empty() {
@@ -212,9 +309,10 @@ impl Window {
         }
         if is_thread_id(conv) {
             let tell = if agents_now { "wake" } else { "next_turn" };
-            let r = self.comment(conv, text, tell, &[], &[])?;
+            let r = self.comment(conv, text, tell, &[], files)?;
             return Ok(r.comment.id);
         }
+        let refs = self.store_uploads(files)?;
         let p = self.core.talk_post(
             &self.core.user_sender(),
             conv,
@@ -222,6 +320,7 @@ impl Window {
             mentions,
             agents_now,
             thread_from,
+            refs,
         )?;
         Ok(p.post.post_id)
     }
@@ -267,7 +366,7 @@ impl Window {
         let r = self.start_thread_in(text, &[], &[], space, None, conv)?;
         if !private {
             let pointer = r.task.short_ref();
-            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()))?;
+            self.talk_post(conv, &pointer, &[], false, Some(post_id.to_string()), &[])?;
         }
         Ok(r)
     }

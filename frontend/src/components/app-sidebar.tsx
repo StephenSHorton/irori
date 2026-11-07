@@ -33,6 +33,8 @@ import {
 
 import { Face } from "@/components/profile/face"
 import { SettingsMenu } from "@/components/settings/settings-menu"
+import { CallBar, useCallPart } from "@/components/talk/huddle"
+import { leaveHuddle, setMuted } from "@/lib/call"
 import { SpaceSwitcher } from "@/components/space-switcher"
 import { Badge } from "@/components/ui/badge"
 import { agentCounts } from "@/lib/agent-counts"
@@ -81,7 +83,6 @@ export function AppSidebar({
   desks = 0,
   unread = 0,
   section,
-  notesWaiting = 0,
   boardsNeedYou,
   boards,
   cards,
@@ -105,9 +106,6 @@ export function AppSidebar({
   unread?: number
   // Where the window is; null on a card's page.
   section: Section | null
-  // Notes agents proposed (or changes to live ones) waiting on the
-  // person's look (card #413), the amber count by Notes.
-  notesWaiting?: number
   // Cards on boards waiting on the person, the red count by Boards.
   boardsNeedYou: number
   boards: BoardSummary[]
@@ -126,6 +124,8 @@ export function AppSidebar({
   me: { name: string; color: string; avatar: string }
 }) {
   const narrow = useNarrow()
+  // The huddle this device is in (#654); a phone shows it above its tabs.
+  const huddle = useCallPart((s) => s.mine)
   const [foldedPref, setFolded] = useState(readFolded)
   const [width, setWidth] = useState(readWidth)
   // A drag of the right edge in progress; the width transition is off
@@ -409,10 +409,7 @@ export function AppSidebar({
             label="Notes"
             folded={folded}
             current={!openCard && section?.kind === "notes"}
-            count={notesWaiting}
-            countTone="warning"
-            countTitle="Notes agents proposed, waiting on your look"
-            onClick={() => go({ kind: "notes", tab: "" })}
+            onClick={() => go({ kind: "notes" })}
           />
           <NavItem
             icon={LayoutGridIcon}
@@ -550,6 +547,16 @@ export function AppSidebar({
           </section>
         )}
 
+        {/* The huddle you're in (#654), on every page. */}
+        {huddle && !narrow && (
+          <CallBar
+            mine={huddle}
+            folded={folded}
+            onOpen={() => go({ kind: "talk", id: huddle.convId })}
+            onMute={(on) => void setMuted(on).catch(() => {})}
+            onLeave={() => void leaveHuddle().catch(() => {})}
+          />
+        )}
         <div
           className={cn(
             "flex shrink-0 items-center gap-2 border-t border-border py-3",

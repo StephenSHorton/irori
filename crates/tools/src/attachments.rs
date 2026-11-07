@@ -37,8 +37,7 @@ pub(crate) fn to_coord(f: &blob::FileRef) -> coord::FileRef {
     }
 }
 
-/// Go `FileRef.Describe` of an inbox attachment.
-pub(crate) fn describe_inbox(f: &inbox::FileRef) -> String {
+pub(crate) fn from_coord(f: &coord::FileRef) -> blob::FileRef {
     blob::FileRef {
         sha256: f.sha256.clone(),
         name: f.name.clone(),
@@ -46,19 +45,26 @@ pub(crate) fn describe_inbox(f: &inbox::FileRef) -> String {
         mime: f.mime.clone(),
         device: f.device.clone(),
     }
-    .describe()
+}
+
+pub(crate) fn from_inbox(f: &inbox::FileRef) -> blob::FileRef {
+    blob::FileRef {
+        sha256: f.sha256.clone(),
+        name: f.name.clone(),
+        size: f.size,
+        mime: f.mime.clone(),
+        device: f.device.clone(),
+    }
+}
+
+/// Go `FileRef.Describe` of an inbox attachment.
+pub(crate) fn describe_inbox(f: &inbox::FileRef) -> String {
+    from_inbox(f).describe()
 }
 
 /// Go `FileRef.Describe` of a card attachment.
 pub(crate) fn describe_coord(f: &coord::FileRef) -> String {
-    blob::FileRef {
-        sha256: f.sha256.clone(),
-        name: f.name.clone(),
-        size: f.size,
-        mime: f.mime.clone(),
-        device: f.device.clone(),
-    }
-    .describe()
+    from_coord(f).describe()
 }
 
 impl Inner {

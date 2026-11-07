@@ -47,6 +47,7 @@ pub mod agents_trust;
 pub mod attachments;
 pub mod board;
 pub mod boards;
+pub mod call;
 pub mod cards;
 pub mod claude_trust;
 pub mod commands;
@@ -59,6 +60,7 @@ pub mod inbox;
 pub mod invites;
 pub mod later;
 pub mod mentions;
+pub mod meters;
 pub mod new_card;
 pub mod notes;
 pub mod notifications;
@@ -74,6 +76,7 @@ pub mod terms;
 pub mod threads;
 pub mod ts;
 pub mod update;
+pub mod usage;
 pub mod voice;
 pub mod wind_down;
 
@@ -175,6 +178,8 @@ pub struct Window {
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,
+    /// The hardware meters' recent samples (card #599).
+    meters: meters::History,
 }
 
 impl Window {
@@ -194,6 +199,7 @@ impl Window {
             on_reset: OnceLock::new(),
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
+            meters: meters::History::default(),
         }
     }
 

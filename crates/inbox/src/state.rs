@@ -687,6 +687,9 @@ pub(crate) struct Inner {
     pub known: BTreeMap<String, String>,
     pub pol: Policy,
     pub running: BTreeMap<String, TurnRow>,
+    /// Wakes that started a turn of their own (folded from turn.engaged):
+    /// one that never did was appended to another turn (card #645).
+    pub turned: HashSet<String>,
     /// When each agent (by inbox key) last made progress: ticked a step,
     /// set a card's state or committed (card #488). Not folded: it only
     /// resets the hop of messages sent from now on.
@@ -830,6 +833,7 @@ impl Inbox {
             known: BTreeMap::new(),
             pol: Policy::default(),
             running: BTreeMap::new(),
+            turned: HashSet::new(),
             progress: HashMap::new(),
             progress_shas: HashSet::new(),
             pairs: HashMap::new(),
@@ -1116,8 +1120,11 @@ impl Inner {
                 let mut r = decode_turn(&ev.payload).map_err(|e| e.to_string())?;
                 r.at = stamp(r.at);
                 let agent = r.agent.clone();
+                self.turned.insert(r.wake_id.clone());
                 self.running.insert(agent.clone(), r);
                 self.touch(&[&agent]);
+                // Talk's replying row follows turns (card #645).
+                self.note(ChangeKind::Updated, &agent, "");
             }
             kinds::TURN_ENDED => {
                 let r = decode_turn(&ev.payload).map_err(|e| e.to_string())?;
@@ -1129,6 +1136,7 @@ impl Inner {
                     self.running.remove(&r.agent);
                 }
                 self.touch(&[&r.agent]);
+                self.note(ChangeKind::Updated, &r.agent, "");
             }
             kinds::DELIVERY_DECIDED => {
                 let r = decode_decided(&ev.payload).map_err(|e| e.to_string())?;

@@ -1198,7 +1198,7 @@ fn test_talk_survives_a_restart() {
     });
     let p1 = r
         .core
-        .talk_post(&me, &ch.id, "@alpha hello room", &[], true, None)
+        .talk_post(&me, &ch.id, "@alpha hello room", &[], true, None, vec![])
         .unwrap();
     assert_eq!(p1.post.mentions, vec![r.key_a.clone()]);
     assert!(
@@ -1210,12 +1210,12 @@ fn test_talk_survives_a_restart() {
     assert_eq!(ns[0].message.reason, coord::NOTICE_MENTIONED);
     assert!(
         r.core
-            .talk_post(&me, &ch.id, "   ", &[], true, None)
+            .talk_post(&me, &ch.id, "   ", &[], true, None, vec![])
             .is_err()
     );
     assert!(
         r.core
-            .talk_post(&me, "ch_nope", "x", &[], true, None)
+            .talk_post(&me, "ch_nope", "x", &[], true, None, vec![])
             .is_err()
     );
 
@@ -1229,7 +1229,7 @@ fn test_talk_survives_a_restart() {
         .unwrap();
     let p2 = r
         .core
-        .talk_post(&me, &dm, "can you look at #3?", &[], false, None)
+        .talk_post(&me, &dm, "can you look at #3?", &[], false, None, vec![])
         .unwrap();
     let sent = p2.sent.expect("a DM to an agent is a message");
     assert_eq!(sent.message_id, p2.post.post_id);

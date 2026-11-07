@@ -13,7 +13,11 @@
 //   ?update=ready   shows the update card (also downloading, installing)
 //   ?voice=ready    shows the mic on the text boxes (also needs-model, denied);
 //                   pressing it hears a sample sentence (lib/voice.ts)
-//   ?spawn=first    shows the spawned agents' first-run notice on Home
+//   ?call=<state>   huddles (#654) on lib/call.ts's stand-in: start (one
+//                   on in #netcode, ringing here) or live (you're in
+//                   #suzuri's); share and transcript are still the #571
+//                   mock-up (components/talk/call-mock.tsx)
+//   ?spawn=first   shows the spawned agents' first-run notice on Home
 //   ?spawn=limit    Settings › Agents with a usage limit holding the queue
 //   ?newcard        opens the New card dialog (?spawn=off: spawning off)
 //   ?slots          shows two check.sh runs in the sidebar's Check slots
@@ -23,6 +27,10 @@
 //                   forest, sakura, mono (main.tsx, lib/appearance.ts)
 //   ?mode=light     light (also dark, system) without saving it
 //   ?glass=<style>  a glass style without saving it (frost, clear, ...)
+//   ?meters=open    opens the top bar's hardware meters panel (card #599);
+//   ?gpu=none       the meters on a machine with no GPU (lib/meters.ts)
+//   ?usage=none     Claude usage left with no reading yet; ?usage=stale
+//                   one from 40 minutes ago (lib/usage.ts)
 
 import { inWails } from "./irori"
 

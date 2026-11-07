@@ -21,6 +21,9 @@ import {
   takeEvents,
   toolArgs,
   validSpec,
+  MAX_USAGE_WINDOWS,
+  measureMovedLimits,
+  usageBody,
 } from '../hooks/lib'
 import type { Policy, TrackedAppend } from '../types'
 
@@ -275,5 +278,37 @@ describe('sideReminder', () => {
     expect(sideReminder({})).toBe('')
     expect(sideReminder({ sideLine: '  ' })).toBe('')
     expect(sideReminder(undefined)).toBe('')
+  })
+})
+
+describe('Claude usage (card #599)', () => {
+  test('posts only when the rate-limit windows moved', () => {
+    expect(measureMovedLimits(['context', 'rateLimits'])).toBe(true)
+    expect(measureMovedLimits(['context', 'cost'])).toBe(false)
+    expect(measureMovedLimits(undefined)).toBe(false)
+  })
+
+  test('the body keeps well-formed windows as Claude Code gives them', () => {
+    expect(
+      usageBody([
+        { kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-11-06T03:00:00.000Z' },
+        { kind: 'seven_day', percentUsed: 41.2 },
+        { kind: 'spend_limit', percentUsed: 104, resetsAt: '' },
+      ]),
+    ).toEqual({
+      rateLimits: [
+        { kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-11-06T03:00:00.000Z' },
+        { kind: 'seven_day', percentUsed: 41.2 },
+        { kind: 'spend_limit', percentUsed: 104 },
+      ],
+    })
+  })
+
+  test('nothing to send is null, junk rows drop and the count is capped', () => {
+    expect(usageBody([])).toBeNull()
+    expect(usageBody(undefined)).toBeNull()
+    expect(usageBody([null, 'x', { kind: '', percentUsed: 1 }, { kind: 'a', percentUsed: Number.NaN }, { kind: 'b' }])).toBeNull()
+    const many = Array.from({ length: 12 }, (_, i) => ({ kind: `k${i}`, percentUsed: i }))
+    expect(usageBody(many)?.rateLimits.length).toBe(MAX_USAGE_WINDOWS)
   })
 })

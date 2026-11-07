@@ -195,6 +195,16 @@ pub(crate) fn add_files(mut fs: Vec<FileRef>, more: &[FileRef]) -> Vec<FileRef> 
     fs
 }
 
+/// Records `dev` as the writer of each of `b`'s files that has none yet
+/// (card #659): the row that first put a file on the item.
+fn note_file_devs(b: &mut Blocker, dev: &str) {
+    for f in &b.attachments {
+        if !b.file_devs.iter().any(|(s, _)| *s == f.sha256) {
+            b.file_devs.push((f.sha256.clone(), dev.to_string()));
+        }
+    }
+}
+
 fn capped<T>(mut v: Vec<T>, n: usize) -> Vec<T> {
     v.truncate(n);
     v
@@ -685,6 +695,11 @@ impl Fold {
                 let b = &mut t.blockers[i];
                 b.links = capped(add_links(Vec::new(), &br.links), MAX_BLOCKER_LINKS);
                 b.attachments = capped(add_files(Vec::new(), &br.attachments), MAX_ATTACHMENTS);
+                // A file carried over keeps the device that first put it
+                // on the item: a revise re-sends the item's files.
+                b.file_devs
+                    .retain(|(s, _)| b.attachments.iter().any(|f| f.sha256 == *s));
+                note_file_devs(b, &ev.device_id);
                 b.asked = pos;
                 let (id, q) = (b.id.clone(), b.question.clone());
                 // Asking on the card again, it's back on it (card #481).
@@ -719,6 +734,7 @@ impl Fold {
                     add_files(b.attachments.clone(), &br.attachments),
                     MAX_ATTACHMENTS,
                 );
+                note_file_devs(b, &ev.device_id);
                 return Folded::line(format!("added to the blocker: {}", b.question));
             }
             let seq = self.blocker_seq.entry(t.id.clone()).or_default();
@@ -741,6 +757,7 @@ impl Fold {
                 later: br.later.clone(),
                 ..Blocker::default()
             };
+            note_file_devs(&mut nb, &ev.device_id);
             if br.replace {
                 nb.asked = pos.clone();
             }

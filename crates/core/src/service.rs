@@ -61,12 +61,15 @@ mod boards_own;
 pub mod boards_presence;
 pub mod boards_status;
 mod bridge;
+pub(crate) mod calls;
+mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
 pub mod notes;
 mod notifications;
+pub mod space_move;
 pub mod spaces;
 pub mod spawn;
 pub mod spawn_agents;
@@ -82,6 +85,7 @@ pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
 mod talk;
+pub mod talk_replying;
 pub mod trees;
 
 use boards::Boards;
@@ -133,6 +137,12 @@ pub struct Options {
     /// for this data dir. `None` is headless (Go's nil Notifier): no card
     /// is ever shown and no Watch runs, so tests never put one on screen.
     pub notifier: Option<notify::Notifier>,
+    /// The phone's side of a call (card #654): Android's microphone
+    /// service. `None` on desktops and in tests.
+    pub call_platform: Option<Arc<dyn call::Platform>>,
+    /// The mic and speaker a call opens; `None` is the default devices.
+    /// Tests pass fake ones.
+    pub call_audio: Option<call::device::OpenerFn>,
     /// Builds the transport pairing runs on (M7, [`crate::devices`]);
     /// `None` is iroh on the device key, bound when a window opens.
     pub pair_net: Option<crate::devices::PairNetFn>,
@@ -253,12 +263,17 @@ struct Services {
     names: Arc<Namer>,
     /// The last name every agent went by, kept past its going (card #98).
     agent_names: Arc<crate::agentnames::AgentNames>,
+    /// Claude usage left, as the mod last reported it (card #599).
+    usage: crate::usage::Usage,
     /// Card #208: who asks GitHub about PRs, and when each was last asked.
     pr_checker: Option<Arc<dyn crate::prwatch::PrChecker>>,
     pr_watch: crate::prwatch::PrWatch,
     /// Card #415: who lists merge desks' PRs, and each desk's polling.
     desk_lister: Option<Arc<dyn crate::deskwatch::PrLister>>,
     desk_watch: crate::deskwatch::DeskWatch,
+    /// Card #421: merged PRs the desk already settled, and the newest
+    /// `gh pr merge` heard.
+    desk_merges: crate::deskmerge::MergeHeard,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -310,6 +325,8 @@ struct Services {
     dm_spaces: Arc<boards_own::DmSpaces>,
     /// The DM hand-offs' work (card #538).
     dms: dm_spaces::Dms,
+    /// Calls (card #654).
+    calls: calls::Calls,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -902,6 +919,7 @@ impl Core {
         };
         let names = Arc::new(Namer::new(&dir, &me));
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
+        let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
         let answering = Arc::new(crate::answering::Answering::default());
         let mut popts = presence::Options {
@@ -1425,10 +1443,12 @@ impl Core {
             asks,
             names,
             agent_names,
+            usage,
             pr_checker: opts.pr_checker.clone(),
             pr_watch: Default::default(),
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
+            desk_merges: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -1464,6 +1484,7 @@ impl Core {
             boards: board_set,
             dm_spaces,
             dms: dm_spaces::Dms::default(),
+            calls: calls::Calls::new(opts.call_platform.clone(), opts.call_audio.clone()),
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1505,6 +1526,13 @@ impl Core {
                 Arc::new(dm_spaces::DmBridge(w.clone())),
                 Arc::new(move |id: &str| w.upgrade().is_some_and(|s| s.is_dm_space(id))),
             );
+            // And the call hooks (card #654).
+            s.mesh
+                .set_calls(Arc::new(calls::CallBridge(Arc::downgrade(&s))));
+            // A Personal channel's huddle rings on the private mesh (#663).
+            s.mesh
+                .node
+                .set_own_calls(Some(Arc::new(calls::CallBridge(Arc::downgrade(&s)))));
         }
         // A pairing window starts the home server at once (Go Notify).
         if let Some(h) = s.home.clone() {
@@ -2035,6 +2063,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
+                    s.desk_merge_heard();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -2236,6 +2265,25 @@ impl Core {
     pub fn data_dir(&self) -> &Path {
         &self.s.data_dir
     }
+
+    /// Claude usage left (card #599): the plan's rate-limit windows as this
+    /// device's sessions last reported them, without any past its reset.
+    pub fn usage_limits(&self) -> crate::usage::UsageLimits {
+        self.s.usage.get((self.s.now)().unix_milli_value())
+    }
+
+    /// Takes one session's rate-limit windows (`POST /v1/usage/limits`):
+    /// checked, merged into the kept reading and saved. Every reading taken
+    /// is `usage:changed`, so the window's "as of" moves too; one with no
+    /// window left after the checks changes nothing and is no event. `Err`
+    /// is why the reading was refused.
+    pub fn record_usage_limits(&self, input: &[crate::usage::RateLimit]) -> Result<(), String> {
+        let now = (self.s.now)().unix_milli_value();
+        if self.s.usage.record(input, now)? {
+            self.s.hub.publish(CoreEvent::Usage);
+        }
+        Ok(())
+    }
     pub fn version(&self) -> &str {
         &self.s.version
     }
@@ -2418,12 +2466,13 @@ impl Core {
     }
 
     /// Go `GetAttachment`: fetches a file `reader` may read (on a message it
-    /// sent or received, or on any Board comment) and writes it to `to`, or
+    /// sent or received, on any Board comment, or on a Talk post in a
+    /// channel or DM it may read, card #643) and writes it to `to`, or
     /// by default to `<data>/received/<reader>/<name>`. Returns the local
     /// path and the device it came from ("" when it was already here). A
     /// `to` inside the data dir is refused, and an existing file is never
-    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message
-    /// or card the reader may read carries it. Blocks on the mesh's runtime
+    /// overwritten. [`crate::attachments::NO_ATTACHMENT`] when no message,
+    /// card or post the reader may read carries it. Blocks on the mesh's runtime
     /// when another device holds it: call it off that runtime's workers.
     pub fn get_attachment(
         &self,
@@ -2502,7 +2551,9 @@ impl Core {
     /// (card #98).
     pub fn known_agent_names(&self) -> std::collections::BTreeMap<String, String> {
         self.s.note_agent_names();
-        self.s.agent_names.all()
+        let mut names = self.s.agent_names.all();
+        self.s.card_key_names(&mut names);
+        names
     }
 
     /// Gives the Core the desktop app's Revive, which a revive ask answered
@@ -3149,6 +3200,12 @@ impl Core {
         self.s.comment_attachment(sha)
     }
 
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read, the earliest such post's; None when there is none.
+    pub fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        self.s.post_attachment(reader, sha)
+    }
+
     /// The Core's network side: the Node and every open board's mesh.
     pub(crate) fn mesh_net(&self) -> &Arc<crate::meshnode::Mesh> {
         &self.s.mesh
@@ -3229,6 +3286,12 @@ struct Subs {
     asks: Arc<store::Subscription>,
     colors: Arc<store::Subscription>,
     decisions: Arc<store::Subscription>,
+}
+
+/// Whether device `dev` wrote an `attach.offered` for `sha` in `st` (card
+/// #659): what lets a shared board's row lend a file.
+fn offered_in(st: &store::Store, dev: &str, sha: &str) -> bool {
+    !dev.is_empty() && mesh::files::holders_in(st, sha).is_ok_and(|h| h.iter().any(|d| d == dev))
 }
 
 /// Go `ignoredBy`: the rows every fold ignored for the writer rules, per
@@ -3366,7 +3429,13 @@ impl Services {
         if !live.trim().is_empty() {
             return live;
         }
-        self.agent_names.get(key)
+        let known = self.agent_names.get(key);
+        if known.is_empty() && key.starts_with(kinds::AGENT_ACTOR_PREFIX) {
+            let mut names = self.agent_names.all();
+            self.card_key_names(&mut names);
+            return names.remove(key).unwrap_or_default();
+        }
+        known
     }
 
     /// See [`Core::device_labels`].
@@ -3453,7 +3522,7 @@ impl Services {
         self.notifier.0.post(notify::Note {
             id: notify::talk_id(&p.conv_id, &p.post_id),
             title,
-            body: notify::preview(&p.text),
+            body: notify::preview(&tools::talk::post_line(&p)),
             on_click: Some(Arc::new(move || {
                 n.open(notify::Target {
                     tab: notify::TAB_TALK.into(),
@@ -3511,13 +3580,83 @@ impl Services {
     /// A file on a comment or blocker: the private board's first, then
     /// each open shared board's (v0.5 §5.5).
     pub(crate) fn comment_attachment(&self, sha: &str) -> Option<coord::FileRef> {
-        self.coord.comment_attachment(sha).or_else(|| {
-            self.boards
-                .list()
-                .iter()
-                .filter(|b| !self.is_dm_space(&b.id))
-                .find_map(|b| b.coord().comment_attachment(sha))
-        })
+        self.comment_files(sha).into_iter().next().map(|(f, _)| f)
+    }
+
+    /// [`Self::comment_attachment`]'s candidates, each with where it was
+    /// found: None for the private board, which only this person's
+    /// devices write, else the shared board (its earliest row that
+    /// counts). On a shared board a comment or blocker counts only where
+    /// the device whose row put the file there offered it in that board's
+    /// log (card #659): a member's row naming a hash it never held lends
+    /// nothing.
+    fn comment_files(&self, sha: &str) -> Vec<(coord::FileRef, Option<String>)> {
+        let mut out = Vec::new();
+        if let Some(f) = self.coord.comment_attachment(sha) {
+            out.push((f, None));
+        }
+        for b in self
+            .boards
+            .list()
+            .iter()
+            .filter(|b| !self.is_dm_space(&b.id))
+        {
+            if let Some((f, _)) = b.coord().attachment_rows(sha).into_iter().find(|(f, dev)| {
+                offered_in(&b.store, dev, sha) || offered_in(&b.store, &f.device, sha)
+            }) {
+                out.push((f, Some(b.id.clone())));
+            }
+        }
+        out
+    }
+
+    /// A file on a Talk post (card #643) in a channel or DM `reader` may
+    /// read ([`tools::talk::can_read`], [`tools::talk::posts`]'s rule:
+    /// anyone reads a channel this device folds, a DM its parties and the
+    /// person): the earliest such post's. A post in a conversation the
+    /// reader can't read never lends its file, even when the same file is
+    /// on one they can. It asks per image the window shows, so it never
+    /// lists the conversation's posts to decide.
+    pub(crate) fn post_attachment(&self, reader: &str, sha: &str) -> Option<blob::FileRef> {
+        self.post_files(reader, sha)
+            .into_iter()
+            .next()
+            .map(|(f, _)| f)
+    }
+
+    /// [`Self::post_attachment`]'s candidates, earliest first, each with
+    /// where it was found: None for a post in the private log, else the
+    /// space whose log holds it (once per place). A space's post counts
+    /// only where the device that wrote it offered the file in that
+    /// space's log (card #659).
+    fn post_files(&self, reader: &str, sha: &str) -> Vec<(blob::FileRef, Option<String>)> {
+        let found = self.talk.attachments(sha);
+        if found.is_empty() {
+            return Vec::new();
+        }
+        let Some(me) = self.this.get().and_then(Weak::upgrade) else {
+            return Vec::new();
+        };
+        let view = ToolsView(me);
+        let mut out: Vec<(blob::FileRef, Option<String>)> = Vec::new();
+        for pf in found {
+            let space = (!pf.space.is_empty()).then(|| pf.space.clone());
+            if out.iter().any(|(_, s)| *s == space) {
+                continue;
+            }
+            if let Some(id) = &space {
+                let Ok(b) = self.board(id) else { continue };
+                if !offered_in(&b.store, &pf.device, sha)
+                    && !offered_in(&b.store, &pf.file.device, sha)
+                {
+                    continue;
+                }
+            }
+            if tools::talk::can_read(&view, reader, &pf.conv) {
+                out.push((pf.file, space));
+            }
+        }
+        out
     }
 
     /// Go `GetAttachment` ([`Core::get_attachment`]).
@@ -3533,48 +3672,85 @@ impl Services {
         if !blob::valid_id(&sha) {
             return Err("blob: id must be 64 lowercase hex characters".into());
         }
-        let r = match self.inbox.attachment(reader, &sha) {
-            Some(f) => blob::FileRef {
+        // Every place the reader may read it, in order: its messages, the
+        // private board's comments, each shared board's, then Talk posts
+        // (card #643). A shared board's or space's goes through that board
+        // alone (card #659), so each is tried until one brings the file: a
+        // forged row elsewhere never stands in the way of a real one.
+        let to_ref = |f: coord::FileRef| blob::FileRef {
+            sha256: f.sha256,
+            name: f.name,
+            size: f.size,
+            mime: f.mime,
+            device: f.device,
+        };
+        let mut cands: Vec<(blob::FileRef, Option<String>)> = Vec::new();
+        if let Some(f) = self.inbox.attachment(reader, &sha) {
+            let r = blob::FileRef {
                 sha256: f.sha256,
                 name: f.name,
                 size: f.size,
                 mime: f.mime,
                 device: f.device,
-            },
-            // The private board's comments, then each shared board's.
-            None => match self.comment_attachment(&sha) {
-                Some(f) => blob::FileRef {
-                    sha256: f.sha256,
-                    name: f.name,
-                    size: f.size,
-                    mime: f.mime,
-                    device: f.device,
-                },
-                None => return Err(at::NO_ATTACHMENT.into()),
-            },
-        };
-        let name = blob::safe_name(&r.name, &sha);
-        let to = trim_space(to);
-        let dst = at::attachment_dst(&self.data_dir, reader, &name, to, || {
-            self.local_agents()
+            };
+            cands.push((r, None));
+        }
+        cands.extend(
+            self.comment_files(&sha)
                 .into_iter()
-                .rfind(|a| a.key == reader)
-                .map(|a| a.cwd)
-                .unwrap_or_default()
-        })?;
-        let from = crate::meshview::fetch_file_blocking(
-            &self.mesh,
-            &self.pairing.handle,
-            &self.device.id,
-            &self.chain,
-            &self.device_names.chosen(),
-            &r,
-        )
-        .map_err(|e| match e {
-            FileFetchError::Offline(on) => at::offline_text(&on),
-            FileFetchError::TimedOut => at::TIMED_OUT.into(),
-            FileFetchError::Other(s) => s,
-        })?;
+                .map(|(f, b)| (to_ref(f), b)),
+        );
+        cands.extend(self.post_files(reader, &sha));
+        if cands.is_empty() {
+            return Err(at::NO_ATTACHMENT.into());
+        }
+        let to = trim_space(to);
+        let dst_for = |r: &blob::FileRef| {
+            at::attachment_dst(
+                &self.data_dir,
+                reader,
+                &blob::safe_name(&r.name, &sha),
+                to,
+                || {
+                    self.local_agents()
+                        .into_iter()
+                        .rfind(|a| a.key == reader)
+                        .map(|a| a.cwd)
+                        .unwrap_or_default()
+                },
+            )
+        };
+        // A `to` it refuses is refused before anything is fetched.
+        dst_for(&cands[0].0)?;
+        let mut got: Option<(blob::FileRef, String)> = None;
+        let mut last = String::new();
+        for (r, board) in &cands {
+            match crate::meshview::fetch_file_blocking(
+                &self.mesh,
+                &self.pairing.handle,
+                &self.device.id,
+                &self.chain,
+                &self.device_names.chosen(),
+                r,
+                board.as_deref(),
+            ) {
+                Ok(from) => {
+                    got = Some((r.clone(), from));
+                    break;
+                }
+                Err(e) => {
+                    last = match e {
+                        FileFetchError::Offline(on) => at::offline_text(&on),
+                        FileFetchError::TimedOut => at::TIMED_OUT.into(),
+                        FileFetchError::Other(s) => s,
+                    }
+                }
+            }
+        }
+        let Some((r, from)) = got else {
+            return Err(last);
+        };
+        let dst = dst_for(&r)?;
         let shown = |p: &std::path::Path| p.to_string_lossy().into_owned();
         let dst = if to.is_empty() {
             let dst = at::free_name(&dst, &sha);
@@ -3782,8 +3958,9 @@ impl Services {
                     let nt = coord::NewTask {
                         title: new_card_title(&pr),
                         objective: format!(
-                            "PR #{} on {repo} has no author card; this is its thread on the merge desk.",
-                            p.number
+                            "PR #{} on {repo} {}; this is its thread on the merge desk.",
+                            p.number,
+                            coord::DESK_PR_CARD_MARK
                         ),
                         repo_key: repo_key.into(),
                         ..coord::NewTask::default()
@@ -4114,10 +4291,13 @@ impl Services {
                     now,
                     at,
                 );
-                // Every good poll, not only a changed one: a card, a ledger
-                // row or an OK may have changed what a PR maps to.
+                // Every good poll, not only a changed one: a card or a ledger
+                // row may have changed what a PR maps to.
                 if wrote.is_ok() {
-                    self.map_desk(repo_key);
+                    let v = self.map_desk(repo_key);
+                    self.post_desk(repo_key, &v);
+                    // Card #421: a PR that left the list may have merged.
+                    self.settle_gone_prs(repo_key);
                 }
                 wrote
             }
@@ -4128,6 +4308,200 @@ impl Services {
                 Err(e)
             }
         }
+    }
+
+    /// Irori's posts on each mapped PR's author card after a desk poll
+    /// (merge desk slice 6, card #420; [`crate::deskpost`]). What was
+    /// already said is read from the card's own Irori comments. A PR with
+    /// no card of ours yet (not ours, or a "PR #n" card made this pass)
+    /// waits for the next poll.
+    fn post_desk(&self, repo_key: &str, verdicts: &[(i64, crate::deskmap::Verdict)]) {
+        use crate::deskpost::{self, IRORI, Post};
+        let Some(desk) = self.coord.desk(repo_key) else {
+            return;
+        };
+        let (Some(snap), Some(repo)) = (desk.prs.as_ref(), coord::github_repo(repo_key)) else {
+            return;
+        };
+        let (_, home) = self.desk_cards(false);
+        for (n, v) in verdicts {
+            let crate::deskmap::Verdict::Card(m) = v else {
+                continue;
+            };
+            let Some(p) = snap.prs.iter().find(|p| p.number == *n) else {
+                continue;
+            };
+            let co = home
+                .get(&m.task_id)
+                .cloned()
+                .unwrap_or_else(|| self.coord.clone());
+            let said: Vec<String> = co
+                .comments(&m.task_id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|c| c.by == IRORI)
+                .map(|c| c.text)
+                .collect();
+            let said: Vec<&str> = said.iter().map(String::as_str).collect();
+            for post in deskpost::due(p, &said) {
+                if self.desk_watch.fell_back(&m.task_id, &post.tag(p)) {
+                    continue;
+                }
+                let (text, files) = if post == Post::ChecksFailed {
+                    let got = match self.desk_lister.as_ref() {
+                        Some(l) => l.failed_checks(&repo, p.number),
+                        None => Ok(Vec::new()),
+                    };
+                    // The log is what lets the author fix it from the post
+                    // alone: a fetch that fell short waits a poll or two.
+                    let whole = got.as_ref().is_ok_and(|cs| {
+                        !cs.is_empty()
+                            && cs.iter().take(deskpost::MAX_LOGS).all(|c| {
+                                deskpost::actions_job(&c.url).is_none() || !c.log.trim().is_empty()
+                            })
+                    });
+                    if whole {
+                        self.desk_watch.fetched(repo_key, p.number, &p.head_ref_oid);
+                    } else if self
+                        .desk_watch
+                        .fetch_again(repo_key, p.number, &p.head_ref_oid)
+                    {
+                        if let Err(e) = &got {
+                            logf(format_args!("desk: PR #{} checks: {e}", p.number));
+                        }
+                        continue;
+                    }
+                    let checks = got.unwrap_or_default();
+                    let files = self.desk_logs(p, &checks);
+                    (deskpost::failed_text(p, &checks, !files.is_empty()), files)
+                } else {
+                    (deskpost::text(post, p), Vec::new())
+                };
+                if !self.desk_post(&co, &m.task_id, p.number, &text, post.wakes(), files) {
+                    self.desk_watch.fall_back(&m.task_id, &post.tag(p));
+                }
+            }
+        }
+    }
+
+    /// Puts one of Irori's posts on card `id` in `co`, and wakes its
+    /// holders when `wake`. When the card's board refuses Irori's comment,
+    /// its holders get the same text as an inbox notice instead, so the
+    /// author still hears it. False when the comment didn't go up.
+    fn desk_post(
+        &self,
+        co: &Arc<Coord>,
+        id: &str,
+        pr: i64,
+        text: &str,
+        wake: bool,
+        files: Vec<coord::FileRef>,
+    ) -> bool {
+        let from = inbox::system_sender();
+        match co.add_comment_with(crate::deskpost::IRORI, id, text, wake, files.clone()) {
+            Ok((_, n)) => {
+                // Opened and pushed are the thread's record: nobody is told.
+                if wake && let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                }
+                true
+            }
+            Err(e) => {
+                logf(format_args!("desk: PR #{pr} post on {id}: {e}"));
+                let Some(t) = co.get_task(id) else {
+                    return false;
+                };
+                let to: Vec<String> = t
+                    .holders
+                    .iter()
+                    .chain(&t.co_holders)
+                    .filter(|h| !h.starts_with("user:") && *h != crate::deskpost::IRORI)
+                    .cloned()
+                    .collect();
+                if to.is_empty() {
+                    return false;
+                }
+                let n = Notice {
+                    kind: coord::NOTICE_COMMENT.into(),
+                    task_id: id.into(),
+                    reference: format!("task:{id}"),
+                    title: t.title.clone(),
+                    to,
+                    by: crate::deskpost::IRORI.into(),
+                    text: format!(
+                        "Irori, about PR #{pr} on {} ({}); its board didn't take this as a comment:\n{text}",
+                        gocompat::quote::quote(&t.title),
+                        t.short_ref()
+                    ),
+                    wake,
+                    attachments: files,
+                    ..Notice::default()
+                };
+                if let Some(e) = notice::notice_err(&self.route_notice(&from, &n)) {
+                    logf(format_args!("desk: PR #{pr} notice for {id}: {e}"));
+                }
+                false
+            }
+        }
+    }
+
+    /// The failing checks' full logs as files for the post, best effort:
+    /// a log that can't be stored is only left out.
+    fn desk_logs(
+        &self,
+        p: &coord::DeskPr,
+        checks: &[crate::deskpost::FailedCheck],
+    ) -> Vec<coord::FileRef> {
+        /// The most of one log kept: its end, where the failure is.
+        const MAX_LOG: usize = 1 << 20;
+        let head = crate::deskpost::short(&p.head_ref_oid);
+        let mut out = Vec::new();
+        for (i, c) in checks.iter().enumerate() {
+            if c.log.trim().is_empty() {
+                continue;
+            }
+            let log = c.log.as_bytes();
+            let log = &log[log.len().saturating_sub(MAX_LOG)..];
+            let tmp = std::env::temp_dir().join(format!(
+                "irori-desk-{}-{}-{head}-{i}.log",
+                self.device.id, p.number
+            ));
+            let r = std::fs::write(&tmp, log)
+                .map_err(|e| e.to_string())
+                .and_then(|_| {
+                    self.files
+                        .put_file(&tmp.to_string_lossy())
+                        .map_err(|e| e.to_string())
+                });
+            let _ = std::fs::remove_file(&tmp);
+            let mut r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                    continue;
+                }
+            };
+            let name: String = c
+                .name
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .take(60)
+                .collect();
+            r.name = blob::safe_name(&format!("pr-{}-{head}-{name}.log", p.number), &r.sha256);
+            r.device = self.device.id.clone();
+            if let Err(e) = self.mesh.node.offer(&r) {
+                logf(format_args!("desk: PR #{} log {i}: {e}", p.number));
+                continue;
+            }
+            out.push(coord::FileRef {
+                sha256: r.sha256,
+                name: r.name,
+                size: r.size,
+                mime: r.mime,
+                device: r.device,
+            });
+        }
+        out
     }
 
     /// Waits on shared boards' cards (card #574): the wait is in this log

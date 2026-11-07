@@ -305,6 +305,25 @@ export const TalkService = {
     agentsNow: boolean,
     threadFrom: string | null
   ) => call(commands.talkPost(convId, text, mentions, agentsNow, threadFrom)),
+  // A post with files (card #643): the text may be empty then.
+  PostWithFiles: (
+    convId: string,
+    text: string,
+    mentions: string[],
+    agentsNow: boolean,
+    threadFrom: string | null,
+    files: B.UploadFile[]
+  ) =>
+    call(
+      commands.talkPostWithFiles(
+        convId,
+        text,
+        mentions,
+        agentsNow,
+        threadFrom,
+        files
+      )
+    ),
   Read: (convId: string, upTo: string) => done(commands.talkRead(convId, upTo)),
   LinkCard: (postId: string, taskId: string) =>
     done(commands.talkLinkCard(postId, taskId)),
@@ -321,6 +340,8 @@ export const TalkService = {
   Dm: (member: B.TalkMemberRef) => call(commands.talkDm(member)),
   // Everyone the person can DM, and leaving a DM with one of them (#538).
   DmPeople: () => call(commands.talkDmPeople()),
+  // Who is replying in each channel and DM (#645).
+  Replying: () => call(commands.talkReplying()),
   DmLeave: (convId: string) => done(commands.talkDmLeave(convId)),
   Join: (convId: string, member: B.TalkMemberRef) =>
     done(commands.talkJoin(convId, member)),
@@ -330,11 +351,8 @@ export const TalkService = {
 
 // NotesService is the window's notes_* commands (card #411).
 export const NotesService = {
-  List: (scope: string, removed = false) =>
-    call(commands.notesList(scope, removed)),
-  Waiting: () => call(commands.notesWaiting()),
+  List: (removed = false) => call(commands.notesList(removed)),
   New: (note: B.NoteInput) => call(commands.noteNew(note)),
-  Accept: (id: string) => call(commands.noteAccept(id)),
   Edit: (id: string, edit: B.NoteEditInput) =>
     call(commands.noteEdit(id, edit)),
   Remove: (id: string, why: string) => call(commands.noteRemove(id, why)),
@@ -506,6 +524,17 @@ export const VoiceService = {
   OpenSettings: (code: string) => done(commands.voiceOpenSettings(code)),
 }
 
+// Huddles (#654): voice calls in a channel or person DM; every change
+// arrives as call:state.
+export const CallService = {
+  State: () => call(commands.callState()),
+  Start: (convId: string) => call(commands.callStart(convId)),
+  Join: (callId: string) => done(commands.callJoin(callId)),
+  Leave: () => done(commands.callLeave()),
+  Mute: (on: boolean) => done(commands.callMute(on)),
+  Dismiss: (callId: string) => done(commands.callDismiss(callId)),
+}
+
 // Card terminals (card #369; inline-terminals.md section 5). Frames come as
 // raw ArrayBuffers on their own Channel, never as events; everything else
 // is a TermMsg on a second one.
@@ -543,4 +572,15 @@ export const TermService = {
 export const DeskService = {
   List: () => call(commands.deskList()),
   Set: (s: B.DeskSettings) => done(commands.deskSet(s)),
+}
+
+// Hardware meters (card #599): the last two minutes of this computer's
+// readings, oldest first.
+export const MetersService = {
+  History: () => call(commands.metersHistory()),
+}
+
+// Claude usage left (card #599): the newest reading of the plan's windows.
+export const UsageService = {
+  Limits: () => call(commands.usageLimits()),
 }

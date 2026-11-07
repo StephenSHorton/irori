@@ -47,6 +47,11 @@ pub enum Topic {
     Talk,
     /// The notification history changed (card #377).
     Notifications,
+    /// Claude usage left changed (`usage:changed`, card #599).
+    Usage,
+    /// A call changed: ringing, joined, left, mute, speaking, health
+    /// (card #654). `Core::call_snapshot` says what is on now.
+    Call,
 }
 
 /// One change.
@@ -67,6 +72,12 @@ pub enum CoreEvent {
     Talk,
     /// A notification was kept or read (card #377), here or synced.
     Notifications,
+    /// A session's reading of the plan's rate-limit windows was taken
+    /// (card #599): on every one, as its observed time moves even when
+    /// the figures don't.
+    Usage,
+    /// A call changed (card #654).
+    Call,
     /// Events were dropped for this feed: re-read everything it shows.
     Resync,
 }
@@ -83,6 +94,8 @@ impl CoreEvent {
             CoreEvent::Devices => Topic::Devices,
             CoreEvent::Talk => Topic::Talk,
             CoreEvent::Notifications => Topic::Notifications,
+            CoreEvent::Usage => Topic::Usage,
+            CoreEvent::Call => Topic::Call,
             CoreEvent::Resync => return None,
         })
     }
