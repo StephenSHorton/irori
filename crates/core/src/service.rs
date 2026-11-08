@@ -282,6 +282,9 @@ struct Services {
     /// Card #421: merged PRs the desk already settled, and the newest
     /// `gh pr merge` heard.
     desk_merges: crate::deskmerge::MergeHeard,
+    /// A `gh pr merge` was heard: the desks thread polls every desk this
+    /// device polls at its next turn (one thread polls desks, card #970).
+    desks_due: std::sync::atomic::AtomicBool,
     /// Card #427: whether to clear settled cards' builds, when it last
     /// looked, and whether a pass is deleting now.
     clear_builds: Option<Duration>,
@@ -1503,6 +1506,7 @@ impl Core {
             desk_lister: opts.desk_lister.clone(),
             desk_watch: Default::default(),
             desk_merges: Default::default(),
+            desks_due: Default::default(),
             clear_builds: opts.clear_builds,
             builds_looked: Default::default(),
             builds_busy: Default::default(),
@@ -2146,6 +2150,7 @@ impl Core {
             let stop = self.stop.clone();
             self.spawn("desks", move || {
                 loop {
+                    s.desks_heard_merge();
                     s.check_desks();
                     if stop.sleep(crate::deskwatch::DESK_TICK) {
                         return;
@@ -4208,7 +4213,11 @@ impl Services {
                 continue;
             }
             let c = checker.check(&p.pr);
-            self.pr_watch.answered(task_id, &p.pr, c.error.is_empty());
+            // A failure is the poller's to note and say, not this one's.
+            if !c.error.is_empty() {
+                continue;
+            }
+            self.pr_watch.answered(task_id, &p.pr, true);
             if c.state != coord::PR_MERGED && c.state != coord::PR_CLOSED {
                 continue;
             }
@@ -4219,7 +4228,8 @@ impl Services {
             match co.record_pr_state(task_id, c) {
                 Ok((_, ns)) => {
                     for mut n in ns {
-                        n.to.retain(|k| k != caller);
+                        // A board card's recipients are in its board form.
+                        n.to.retain(|k| self.private_key(k) != caller);
                         if n.to.is_empty() {
                             continue;
                         }

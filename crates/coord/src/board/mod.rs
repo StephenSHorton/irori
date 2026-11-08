@@ -1627,8 +1627,8 @@ impl Coord {
         f.tasks.get(id).map(|t| f.stranded(t)).unwrap_or_default()
     }
     /// Card `id`'s stranded waits that only Needs you shows (card #520):
-    /// waits on a gone agent, and outside waits (not a PR's merge) whose
-    /// gone agent raised them, while nobody holds it.
+    /// waits on a gone agent, and outside waits (a PR's too, card #970)
+    /// whose gone agent raised them, while nobody holds it.
     pub fn gone_waits(&self, id: &str) -> Vec<Stranded> {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.gone_waits(t)).unwrap_or_default()

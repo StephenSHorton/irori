@@ -76,8 +76,9 @@ impl Services {
     /// When an agent on any device ran `gh pr merge` since the last look:
     /// asks GitHub about the open PRs this device's agents' cards link now
     /// (card #970: an agent that merged its PR completes its card without
-    /// waiting on the next poll), and polls every desk this device polls,
-    /// whatever its cadence. Every device looks, merge desk or not.
+    /// waiting on the next poll), and has the desks thread poll every desk
+    /// this device polls, whatever its cadence. Every device looks, merge
+    /// desk or not.
     pub(super) fn merge_heard(self: &Arc<Self>) {
         let cmds = self.capture.commit_cmds();
         if !self
@@ -90,7 +91,20 @@ impl Services {
             self.pr_watch.rush();
             self.check_prs(std::time::Instant::now());
         }
-        if self.desk_lister.is_none() {
+        if self.desk_lister.is_some() {
+            self.desks_due
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Polls every desk this device polls now, whatever its cadence, when
+    /// [`Self::merge_heard`] asked for it. Only the desks thread calls it,
+    /// so a desk is never polled twice at once.
+    pub(super) fn desks_heard_merge(self: &Arc<Self>) {
+        if !self
+            .desks_due
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
             return;
         }
         for d in self.polled_desks() {

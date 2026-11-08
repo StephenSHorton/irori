@@ -133,7 +133,6 @@ export function NeedsYou({
 const kinds = {
   check: { label: "Done check", variant: "success" },
   decision: { label: "Decision", variant: "destructive" },
-  // Card #509: an agent waits on the person to merge its PR.
   // Card #520: a wait on an agent that is gone, on a card nobody holds.
   gone: { label: "Gone", variant: "warning" },
   // Card #541: no computer can start its agent. Nothing to decide.

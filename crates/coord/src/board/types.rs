@@ -1025,7 +1025,7 @@ pub struct Card {
     /// Not part of the Go shape: the tools and the window read it.
     pub stranded: Vec<super::stranded::Stranded>,
     /// Of those, the waits only Needs you shows (card #520): on a gone
-    /// agent, or outside waits (not a PR's merge) a gone agent raised.
+    /// agent, or outside waits a gone agent raised (a PR's too, card #970).
     pub gone_waits: Vec<super::stranded::Stranded>,
 }
 

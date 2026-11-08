@@ -2,8 +2,9 @@
 //! an outside wait its gone agent raised, needs the person (Hand to an
 //! agent, or stop the card): it counts in their Needs you until it is
 //! handed on, the card is stopped, or the card gets a holder. A question
-//! already counts as a decision and a wait on a PR as #509's merge, so
-//! gone_waits leaves those out and nothing shows twice.
+//! already counts as a decision, so gone_waits leaves those out and
+//! nothing shows twice; a wait on a PR is a gone wait like any outside
+//! wait (card #970).
 
 use crate::common;
 

@@ -1891,8 +1891,8 @@ fn hand_on_a_wait_on_a_gone_agent() {
 
 /// Card #520: a wait no agent will end is a Needs you row (goneWait) and
 /// counts in the tray: #73 waits on kestrel (gone), #75's outside wait
-/// was raised by piranha (gone). A wait on a PR stays #509's merge row,
-/// once. Handed on, it leaves.
+/// was raised by piranha (gone). A gone raiser's wait on a PR is a gone
+/// wait too, never a merge row (card #970). Handed on, it leaves.
 #[test]
 fn a_wait_on_a_gone_agent_is_the_persons() {
     const PR: &str = "https://github.com/a/irori/pull/41";
