@@ -21,7 +21,7 @@ use crate::names::trim_space;
 use crate::roster::AgentCard;
 
 /// The text of the comment that carries an ask's files.
-pub(crate) const ASK_FILES_NOTE: &str = "Files with the ask.";
+pub const ASK_FILES_NOTE: &str = "Files with the ask.";
 
 pub const TAKE_CLAIM: &str = "claim";
 pub const TAKE_RELEASE: &str = "release";
@@ -552,9 +552,15 @@ impl Fold {
                     }
                     // Irori's assistant names a thread (card #782): what
                     // it was is kept for Undo.
-                    if irori_title && *title != t.title {
-                        t.irori_titled += 1;
-                        t.title_was = t.title.clone();
+                    if *title != t.title {
+                        if irori_title {
+                            t.irori_titled += 1;
+                            t.title_was = t.title.clone();
+                        } else {
+                            // Someone else renamed it: the name isn't
+                            // Irori's any more, so there is nothing to undo.
+                            t.title_was.clear();
+                        }
                     }
                     if *title != t.title {
                         changed.push(format!(
@@ -602,6 +608,12 @@ impl Fold {
                         "turned Agents answer now {}",
                         if on { "on" } else { "off" }
                     ));
+                }
+                // Irori's name that didn't take (the person named it
+                // meanwhile, or it already read so) leaves no line, as on
+                // a device that folded the person's row after it.
+                if irori_title && changed.is_empty() {
+                    return;
                 }
                 let when = at(p.at);
                 t.updated_at = when;

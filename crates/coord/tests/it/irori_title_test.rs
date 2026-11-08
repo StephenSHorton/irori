@@ -205,3 +205,54 @@ fn a_shared_board_takes_no_name_from_irori() {
     sync(&a, &b);
     assert_eq!(b.c.get_task(&t.id).unwrap().title, "lobby join");
 }
+
+#[test]
+fn someone_elses_rename_leaves_nothing_to_undo() {
+    let e = Env::new();
+    let th = thread(&e, "the thing with the lobby");
+    e.c.rename_as_irori(&th.id, "Lobby join", &th.title)
+        .unwrap();
+    // The agent that took the thread renames it: the name isn't Irori's
+    // now, so there is nothing to undo, and Irori doesn't name it again.
+    assert!(e.c.ask_claim(ALICE, &th.id, secs(1)).unwrap().mine);
+    e.write_raw(
+        &format!("agent:{ALICE}"),
+        kinds::TASK_EDITED,
+        &TaskEditedRow {
+            task_id: th.id.clone(),
+            title: Some("Lobby rework".into()),
+            by: ALICE.into(),
+            at: fixed_now(),
+            ..TaskEditedRow::default()
+        },
+    );
+    let got = e.c.get_task(&th.id).unwrap();
+    assert_eq!(got.title, "Lobby rework");
+    assert!(got.title_was.is_empty(), "no Undo over someone else's name");
+    assert_eq!(got.irori_titled, 1);
+    assert!(e.reopen().get_task(&th.id).unwrap().title_was.is_empty());
+}
+
+#[test]
+fn an_irori_name_that_didnt_take_leaves_no_line() {
+    let e = Env::new();
+    let th = thread(&e, "the thing with the lobby");
+    e.c.rename_task(USER, &th.id, "Lobby").unwrap();
+    let before = e.c.activity(&th.id).unwrap().len();
+    // Irori's row written before it heard of the person's name.
+    e.write_raw(
+        "irori",
+        kinds::TASK_EDITED,
+        &TaskEditedRow {
+            task_id: th.id.clone(),
+            title: Some("Lobby join".into()),
+            by: "irori".into(),
+            at: fixed_now(),
+            ..TaskEditedRow::default()
+        },
+    );
+    let got = e.c.get_task(&th.id).unwrap();
+    assert_eq!(got.title, "Lobby");
+    assert_ne!(got.updated_by, "irori");
+    assert_eq!(e.c.activity(&th.id).unwrap().len(), before, "no Irori line");
+}

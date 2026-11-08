@@ -135,7 +135,9 @@ pub fn clean_title(reply: &str) -> Option<String> {
     let line = reply.lines().map(str::trim).find(|l| !l.is_empty())?;
     let mut s = line.trim_start_matches('#').trim();
     for label in ["title:", "new title:"] {
-        if s.len() >= label.len() && s[..label.len()].eq_ignore_ascii_case(label) {
+        if s.get(..label.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(label))
+        {
             s = s[label.len()..].trim();
         }
     }
@@ -173,8 +175,10 @@ pub fn retitle_reply(reply: &str) -> Option<String> {
 /// A line without a "Line 1:" or "Line 2:" label.
 fn strip_label(l: &str) -> &str {
     let t = l.trim();
-    if t.len() > 7 && t[..5].eq_ignore_ascii_case("line ") && t.as_bytes()[6] == b':' {
-        return t[7..].trim();
+    if t.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("line "))
+        && t.as_bytes().get(6) == Some(&b':')
+    {
+        return t.get(7..).unwrap_or(t).trim();
     }
     t
 }
@@ -272,25 +276,58 @@ impl Services {
     /// person's reply that may make Irori look at its name again.
     pub(crate) fn names_hear(&self, ch: &Change) {
         if ch.kind == RESYNC {
-            self.names_seen_all();
+            // Changes were dropped: look at every card not seen yet, as a
+            // change to it would have.
+            for t in self.coord.list_tasks(&TaskFilter::default()) {
+                self.names_new(&t.id);
+            }
             return;
         }
         if ch.task_id.is_empty() {
             return;
         }
-        let job = if ch.kind == TASK_CHANGED {
-            if !lock(&self.naming.seen).insert(ch.task_id.clone()) {
-                return;
-            }
-            Job::Name(ch.task_id.clone())
+        if ch.kind == TASK_CHANGED {
+            self.names_new(&ch.task_id);
         } else if ch.kind == COMMENT_ADDED {
-            Job::Retitle(ch.task_id.clone())
-        } else {
-            return;
-        };
-        if !self.names_wants(&job) {
+            let job = Job::Retitle(ch.task_id.clone());
+            if self.names_wants(&job) {
+                self.names_queue_job(job);
+            }
+        }
+    }
+
+    /// A change to card `id`, maybe a thread new here. It counts as seen
+    /// once that is settled: named now, or never to be (not the person's
+    /// thread, named already, too old, or naming is off). Until then (no
+    /// namer yet, or another device names it for now) a later change looks
+    /// again.
+    fn names_new(&self, id: &str) {
+        if lock(&self.naming.seen).contains(id) {
             return;
         }
+        let settled = match self.coord.get_task(id) {
+            None => true,
+            Some(t) => {
+                let age = (self.now)().unix_nano() - t.created_at.unix_nano();
+                !persons_thread(&t)
+                    || t.title_by_person
+                    || t.irori_titled > 0
+                    || age >= NEW_FOR_SECS * 1_000_000_000
+                    || !self.names_on()
+            }
+        };
+        let job = Job::Name(id.to_string());
+        let wants = !settled && self.names_wants(&job);
+        if settled || wants {
+            lock(&self.naming.seen).insert(id.to_string());
+        }
+        if wants {
+            self.names_queue_job(job);
+        }
+    }
+
+    /// Queues `job` once, while it waits or runs.
+    fn names_queue_job(&self, job: Job) {
         if !lock(&self.naming.busy).insert(job.clone()) {
             return;
         }
@@ -322,13 +359,19 @@ impl Services {
                 t.irori_titled == 0 && age < NEW_FOR_SECS * 1_000_000_000
             }
             Job::Retitle(_) => {
-                if t.irori_titled != 1 || lock(&self.naming.relooked).contains(id) {
+                // Once, and only while the name is still Irori's.
+                if t.irori_titled != 1
+                    || t.title_was.is_empty()
+                    || lock(&self.naming.relooked).contains(id)
+                {
                     return false;
                 }
                 let said = self.coord.comments(id).unwrap_or_default();
                 let mine: Vec<_> = said
                     .iter()
-                    .filter(|c| !c.gone && self.coord.is_person(&c.by))
+                    .filter(|c| {
+                        !c.gone && c.text != coord::ASK_FILES_NOTE && self.coord.is_person(&c.by)
+                    })
                     .collect();
                 // The person's own reply, and enough of them.
                 said.last().is_some_and(|c| self.coord.is_person(&c.by))
@@ -354,7 +397,6 @@ impl Services {
                 (id, name_ask(&t.objective), t.title)
             }
             Job::Retitle(id) => {
-                lock(&self.naming.relooked).insert(id.clone());
                 let Some(t) = self.coord.get_task(id) else {
                     return;
                 };
@@ -364,7 +406,10 @@ impl Services {
                     .unwrap_or_default()
                     .into_iter()
                     .filter(|c| {
-                        !c.gone && !c.text.trim().is_empty() && c.by != crate::deskpost::IRORI
+                        !c.gone
+                            && !c.text.trim().is_empty()
+                            && c.text != coord::ASK_FILES_NOTE
+                            && c.by != crate::deskpost::IRORI
                     })
                     .map(|c| {
                         let who = if self.coord.is_person(&c.by) {
@@ -379,7 +424,15 @@ impl Services {
             }
         };
         let reply = match namer(&ask) {
-            Ok(r) => r,
+            Ok(r) => {
+                // The one look again is spent once it answered; a turn that
+                // failed (signed out, too slow) may be tried on the next
+                // reply.
+                if matches!(job, Job::Retitle(_)) {
+                    lock(&self.naming.relooked).insert(id.clone());
+                }
+                r
+            }
             Err(e) => {
                 logf(format_args!("assistant: naming {id}: {e}"));
                 return;
@@ -405,7 +458,12 @@ impl Services {
     /// The naming loop: one turn at a time, until the Core stops.
     pub(crate) fn names_loop(&self, rx: mpsc::Receiver<Job>) {
         while let Ok(job) = rx.recv() {
-            self.names_run(&job);
+            // One bad turn never ends the naming for the session.
+            let run =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.names_run(&job)));
+            if run.is_err() {
+                logf(format_args!("assistant: naming {job:?} failed"));
+            }
             lock(&self.naming.busy).remove(&job);
         }
     }
@@ -486,6 +544,28 @@ mod tests {
         assert_eq!(retitle_reply("Fly.io region move plan"), None, "no verdict");
         assert_eq!(retitle_reply("MOVED"), None, "no title");
         assert_eq!(retitle_reply(""), None);
+    }
+
+    #[test]
+    fn replies_in_any_script_never_panic() {
+        assert_eq!(
+            clean_title("ログイン失敗の調査").as_deref(),
+            Some("ログイン失敗の調査")
+        );
+        assert_eq!(
+            clean_title("🔥🔥 build fire").as_deref(),
+            Some("🔥🔥 build fire")
+        );
+        assert_eq!(clean_title("Tïtle: é").as_deref(), Some("Tïtle: é"));
+        assert_eq!(
+            retitle_reply("ログイン画面の修正\nMOVED").as_deref(),
+            Some("ログイン画面の修正")
+        );
+        assert_eq!(retitle_reply("🔥🔥🔥 line\nSAME"), None);
+        assert_eq!(
+            retitle_reply("Line é: x\nMOVED").as_deref(),
+            Some("Line é: x")
+        );
     }
 
     #[test]
