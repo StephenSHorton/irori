@@ -200,18 +200,21 @@ function NotificationsPane({ open }: { open: boolean }) {
     <Loading key="pane" loading={false} label="Loading notification settings">
       <div className="grid gap-3">
         <Toggle
+          spot="notifications.show"
           label="Show notifications"
           hint="Held messages, cards blocked on you, and agents asking you to choose."
           checked={n.enabled}
           onChange={(v) => s.setNotify({ enabled: v })}
         />
         <Toggle
+          spot="notifications.sound"
           label="Sound"
           checked={n.sound}
           disabled={off}
           onChange={(v) => s.setNotify({ sound: v })}
         />
         <Toggle
+          spot="notifications.confetti"
           label="Confetti on good news"
           hint={
             reducedMotion
@@ -222,7 +225,11 @@ function NotificationsPane({ open }: { open: boolean }) {
           disabled={off}
           onChange={(v) => s.setNotify({ confetti: v })}
         />
-        <Row label="Volume" disabled={off || !n.sound}>
+        <Row
+          label="Volume"
+          disabled={off || !n.sound}
+          spot="notifications.volume"
+        >
           <Slider
             min={0}
             max={100}
@@ -236,7 +243,7 @@ function NotificationsPane({ open }: { open: boolean }) {
             }
           />
         </Row>
-        <Row label="Corner" disabled={off}>
+        <Row label="Corner" disabled={off} spot="notifications.corner">
           <ChoiceSelect
             label="Corner"
             size="sm"
@@ -352,6 +359,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
           <ToggleShape label="Launch at login" hint={launchHint} />
         ) : (
           <Toggle
+            spot="app.login"
             label="Launch at login"
             hint={launchHint}
             checked={Boolean(s.launchAtLogin)}
@@ -363,7 +371,10 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <VoiceNote open={open} />
       <TranscribeSwitch open={open} />
       <NamesSwitch open={open} />
-      <div className="grid gap-1 border-t border-border pt-3">
+      <div
+        className="grid gap-1 border-t border-border pt-3"
+        data-setting="app.updates"
+      >
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
         {keep.on !== null && (
@@ -426,7 +437,10 @@ function TranscribeSwitch({ open }: { open: boolean }) {
     }
   }
   return (
-    <div className="grid gap-1 border-t border-border pt-3">
+    <div
+      className="grid gap-1 border-t border-border pt-3"
+      data-setting="app.transcribe"
+    >
       <Loading loading={!read} label="Loading huddle transcripts">
         {!read ? (
           <ToggleShape label={transcribeLabel} hint={transcribeHint} />
@@ -484,7 +498,10 @@ function NamesSwitch({ open }: { open: boolean }) {
     }
   }
   return (
-    <div className="grid gap-1 border-t border-border pt-3">
+    <div
+      className="grid gap-1 border-t border-border pt-3"
+      data-setting="app.names"
+    >
       <Loading loading={!read} label="Loading thread names">
         {!read ? (
           <ToggleShape label={namesLabel} hint={namesHint} />
@@ -502,22 +519,27 @@ function NamesSwitch({ open }: { open: boolean }) {
   )
 }
 
+// spot is the row's key for Ask Irori's "take me there" (card #784,
+// lib/goto.ts settingSpots): data-setting, which it highlights.
 function Toggle({
   label,
   hint,
   checked,
   disabled,
   onChange,
+  spot,
 }: {
   label: string
   hint?: string
   checked: boolean
   disabled?: boolean
   onChange: (v: boolean) => void
+  spot?: string
 }) {
   const id = useId()
   return (
     <div
+      data-setting={spot}
       className={`flex items-start justify-between gap-3 ${disabled ? "opacity-50" : ""}`}
     >
       <span className="flex flex-col">
@@ -549,13 +571,16 @@ function Row({
   label,
   disabled,
   children,
+  spot,
 }: {
   label: string
   disabled?: boolean
   children: ReactNode
+  spot?: string
 }) {
   return (
     <div
+      data-setting={spot}
       className={`flex items-center justify-between gap-3 ${disabled ? "[&>span]:opacity-50" : ""}`}
     >
       <span className="text-ink">{label}</span>

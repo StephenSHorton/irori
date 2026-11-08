@@ -45,6 +45,7 @@ export function WindDownButton({
         onClick={() => void off()}
         title={title}
         aria-label={L.everywhere.onAria(at)}
+        data-spot="stop-everywhere"
         aria-pressed
         className={cn(
           "border-warning/50 bg-warning-foreground text-warning hover:bg-warning-foreground/80 hover:text-warning",
@@ -68,6 +69,7 @@ export function WindDownButton({
       onClick={onOpen}
       aria-pressed={false}
       title={L.everywhere.title}
+      data-spot="stop-everywhere"
     >
       {L.everywhere.name}
     </Button>

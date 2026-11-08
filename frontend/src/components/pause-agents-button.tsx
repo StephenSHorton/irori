@@ -40,6 +40,7 @@ export function PauseAgentsButton() {
         title={title}
         aria-label={L.here.onAria(at)}
         aria-pressed
+        data-spot="stop-here"
         className={cn(
           "border-warning/50 bg-warning-foreground text-warning hover:bg-warning-foreground/80 hover:text-warning",
           error && "ring-1 ring-destructive"
@@ -63,6 +64,7 @@ export function PauseAgentsButton() {
       title={L.here.title + (error ? `\n${error}` : "")}
       aria-label={L.here.name}
       aria-pressed={false}
+      data-spot="stop-here"
       className={cn(error && "ring-1 ring-destructive")}
     >
       <PauseIcon aria-hidden className="size-3.5" />

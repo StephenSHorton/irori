@@ -564,7 +564,11 @@ export function CardPage({
   )
   return (
     <MentionBoard.Provider value={detail.onBoard?.id ?? ""}>
-      <article className={cn("grid gap-3", L.article)} aria-label="Card">
+      <article
+        className={cn("grid gap-3", L.article)}
+        aria-label="Card"
+        data-card-page={detail.id}
+      >
         {back}
         <WorkingRow card={now_} />
         {header}
@@ -1170,7 +1174,7 @@ function PageHeader({
   renamable?: boolean
 }) {
   return (
-    <header className="grid gap-2">
+    <header className="grid gap-2" data-card-head="">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <ShortRef card={card} />
         <StatePill card={card} thread={thread} />
