@@ -1485,7 +1485,11 @@ export function sampleUndoWeight(id: string) {
   const c = sampleCard(id)
   const line = [...c.thread].reverse().find((it) => it.undoWeight)
   if (!line?.undoWeight) throw new Error("Irori's weight is already gone")
-  sampleSetWeight(id, line.undoWeight === "no weight" ? "" : line.undoWeight, "")
+  sampleSetWeight(
+    id,
+    line.undoWeight === "no weight" ? "" : line.undoWeight,
+    ""
+  )
   c.thread = c.thread.map((it) =>
     it.undoWeight ? { ...it, undoWeight: undefined } : it
   )

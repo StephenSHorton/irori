@@ -296,7 +296,11 @@ function UndoTitle({ cardId, title }: { cardId: string; title: string }) {
 function UndoWeight({ cardId, was }: { cardId: string; was: string }) {
   return (
     <UndoLink
-      hint={was === "no weight" ? "Take Irori's weight off" : `Put it back to ${was}`}
+      hint={
+        was === "no weight"
+          ? "Take Irori's weight off"
+          : `Put it back to ${was}`
+      }
       undo={() => cards.undoWeight(cardId)}
     />
   )
