@@ -289,15 +289,28 @@ export const BoardService = {
     text: string,
     mentions: B.Mention[],
     boardId: string,
-    agentsNow: boolean | null
-  ) => call(commands.boardStartThread(text, mentions, boardId, agentsNow)),
+    agentsNow: boolean | null,
+    assistant: boolean
+  ) =>
+    call(
+      commands.boardStartThread(text, mentions, boardId, agentsNow, assistant)
+    ),
   StartThreadWithFiles: (
     text: string,
     mentions: B.Mention[],
     files: B.UploadFile[],
-    agentsNow: boolean | null
+    agentsNow: boolean | null,
+    assistant: boolean
   ) =>
-    call(commands.boardStartThreadWithFiles(text, mentions, files, agentsNow)),
+    call(
+      commands.boardStartThreadWithFiles(
+        text,
+        mentions,
+        files,
+        agentsNow,
+        assistant
+      )
+    ),
   ThreadAgentsNow: (id: string, on: boolean) =>
     done(commands.boardThreadAgentsNow(id, on)),
   Threads: (boardId: string) => call(commands.boardThreads(boardId)),

@@ -160,12 +160,12 @@ export const commands = {
 	 */
 	boardCreate: (input: NewCardInput) => __TAURI_INVOKE<TaskResult>("board_create", { input }),
 	/**  The header box's message as a thread (card #116). */
-	boardStartThread: (text: string, mentions: Mention[], boardId: string, agentsNow: boolean | null) => __TAURI_INVOKE<TaskResult>("board_start_thread", { text, mentions, boardId, agentsNow }),
+	boardStartThread: (text: string, mentions: Mention[], boardId: string, agentsNow: boolean | null, assistant: boolean) => __TAURI_INVOKE<TaskResult>("board_start_thread", { text, mentions, boardId, agentsNow, assistant }),
 	/**
 	 *  A thread with files (card #124), as an ask takes them; your own
 	 *  board only.
 	 */
-	boardStartThreadWithFiles: (text: string, mentions: Mention[], files: UploadFile[], agentsNow: boolean | null) => __TAURI_INVOKE<TaskResult>("board_start_thread_with_files", { text, mentions, files, agentsNow }),
+	boardStartThreadWithFiles: (text: string, mentions: Mention[], files: UploadFile[], agentsNow: boolean | null, assistant: boolean) => __TAURI_INVOKE<TaskResult>("board_start_thread_with_files", { text, mentions, files, agentsNow, assistant }),
 	/**
 	 *  The Threads panel: open threads, then the newest resolved; your own
 	 *  board's, or with `board_id` that shared board's (card #134).
