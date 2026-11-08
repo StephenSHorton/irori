@@ -1047,6 +1047,44 @@ impl Services {
                 ..Default::default()
             })
             .collect();
+        // Every active member's ways of being named as an assistant, so
+        // that no other card can squat on one (assistants talk §3).
+        let all_active: Vec<(String, String)> = m
+            .members
+            .iter()
+            .filter(|p| p.state == irori_identity::membership::MEMBER_ACTIVE)
+            .map(|p| {
+                (
+                    p.person_id.clone(),
+                    b.verifier.profile(&p.person_id).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let first_word = |n: &str| n.split_whitespace().next().unwrap_or("").to_lowercase();
+        let alias_of = |owner: &str, name: &str| -> Option<String> {
+            let w = first_word(name);
+            let word = name.split_whitespace().next()?;
+            if w.is_empty() || w == name.trim().to_lowercase() {
+                return None; // one word: the default form is the alias
+            }
+            if all_active
+                .iter()
+                .any(|(id, n)| id != owner && first_word(n) == w)
+            {
+                return None;
+            }
+            Some(format!("{word}'s assistant"))
+        };
+        let mut squatted: Vec<String> = Vec::new();
+        for (id, n) in &all_active {
+            if n.trim().is_empty() {
+                continue;
+            }
+            squatted.push(format!("{}'s assistant", n.trim()).to_lowercase());
+            if let Some(a) = alias_of(id, n) {
+                squatted.push(a.to_lowercase());
+            }
+        }
         let maps = super::boards::lock(&b.maps);
         let mut cards: Vec<_> = maps
             .cards
@@ -1054,16 +1092,54 @@ impl Services {
             .filter(|c| !maps.by_id.contains_key(&c.card_id) && active.contains(&c.person_id))
             .collect();
         cards.sort_by(|a, b| a.card_id.cmp(&b.card_id));
-        out.extend(cards.into_iter().map(|c| coord::roster::AgentCard {
-            key: format!("{AGENT_ACTOR_PREFIX}{}", c.card_id),
-            name: c.name.clone(),
-            status: if c.status.is_empty() {
-                "idle".into()
+        for c in cards {
+            let status = if c.status.is_empty() {
+                "idle".to_string()
             } else {
                 c.status.clone()
-            },
-            ..Default::default()
-        }));
+            };
+            let key = format!("{AGENT_ACTOR_PREFIX}{}", c.card_id);
+            if c.kind == coord::roster::ASSISTANT_KIND {
+                // An assistant counts only when its owner's profile points
+                // at it; any other kind-assistant card is not listed.
+                if b.verifier.profile_assistant_card(&c.person_id) != c.card_id {
+                    continue;
+                }
+                let profile = b.verifier.profile(&c.person_id).unwrap_or_default();
+                let chosen = b.verifier.profile_assistant_name(&c.person_id);
+                let mut names: Vec<String> = Vec::new();
+                if !chosen.trim().is_empty() {
+                    names.push(chosen.trim().to_string());
+                }
+                if !profile.trim().is_empty() {
+                    names.push(format!("{}'s assistant", profile.trim()));
+                    names.extend(alias_of(&c.person_id, &profile));
+                }
+                if names.is_empty() {
+                    names.push(c.name.clone());
+                }
+                names.dedup();
+                for name in names {
+                    out.push(coord::roster::AgentCard {
+                        key: key.clone(),
+                        name,
+                        agent: coord::roster::ASSISTANT_KIND.into(),
+                        status: status.clone(),
+                        ..Default::default()
+                    });
+                }
+                continue;
+            }
+            if squatted.contains(&c.name.trim().to_lowercase()) {
+                continue;
+            }
+            out.push(coord::roster::AgentCard {
+                key,
+                name: c.name.clone(),
+                status,
+                ..Default::default()
+            });
+        }
         out
     }
 }

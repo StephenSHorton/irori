@@ -482,6 +482,7 @@ impl tools::Backend for ToolsView {
                 board: a.board,
                 person: a.person,
                 card: presence_card(a.card),
+                assistant: a.assistant,
             })
             .collect()
     }
