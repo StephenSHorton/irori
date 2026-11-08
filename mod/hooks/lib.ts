@@ -283,6 +283,19 @@ export function sideReminder(board: BoardLists | undefined): string {
 }
 
 /**
+ * The line a terminal session hears once (card #1035): this computer is
+ * shared, so check the room left before a big job. Spawned agents get the
+ * same rule in their brief.
+ */
+export function deviceReminder(): string {
+  return (
+    'Irori: this computer is shared, and what you run can fill it. Before anything big (a full build or test run, a large download, generating data, a program that needs a lot of memory), call the irori device_free tool and compare what it says you can use with a rough estimate of the need. ' +
+    "If it won't fit with room to spare, don't start it and hope: wait and check again, or ask the person. " +
+    'Treat a timeout, out-of-memory or disk-full failure as a reason to check device_free, not to retry in a loop.'
+  )
+}
+
+/**
  * The reminder a person's prompt carries while this session holds cards
  * (GitHub #3): the person works from the Irori app, not this terminal, so
  * what the agent needs from them goes on the card as a blocker even when

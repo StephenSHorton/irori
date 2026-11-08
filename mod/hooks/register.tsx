@@ -32,6 +32,7 @@ import {
   takeEvents,
   titleToSet,
   heldReminder,
+  deviceReminder,
   sideReminder,
   applyPause,
   pausedFromBoard,
@@ -733,6 +734,8 @@ async function withTitle<R extends { sessionTitle?: string }>($: EngineInterface
  * on the card as a blocker, even when the person asked in this terminal. Any
  * failure returns the result unchanged.
  */
+let deviceHeard = false
+
 async function withHeld<R extends { additionalContext?: string[] }>($: EngineInterface, result: R): Promise<R> {
   try {
     const view = await read($, attachAtom)
@@ -741,7 +744,11 @@ async function withHeld<R extends { additionalContext?: string[] }>($: EngineInt
     if (!board.ok) return result
     // Which side this device runs (card #496), then the cards it holds.
     const texts = [sideReminder(board.body as BoardLists), heldReminder(board.body as BoardLists, view.agentKey)].filter(Boolean)
-    if (!texts.length) return result
+    // Once a session (card #1035); set only now that the line is returned.
+    if (!deviceHeard) {
+      deviceHeard = true
+      texts.push(deviceReminder())
+    }
     return { ...result, additionalContext: [...(result?.additionalContext ?? []), ...texts] }
   } catch {
     return result
@@ -768,6 +775,7 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     ended = false
     standby = false
+    deviceHeard = false
     await onSessionStart($, e.cwd)
     return started
   })

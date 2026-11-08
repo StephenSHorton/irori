@@ -13,6 +13,7 @@ import {
   bareToolName,
   describePolicy,
   editPolicy,
+  deviceReminder,
   heldReminder,
   sideReminder,
   nextBackoff,
@@ -278,6 +279,14 @@ describe('sideReminder', () => {
     expect(sideReminder({})).toBe('')
     expect(sideReminder({ sideLine: '  ' })).toBe('')
     expect(sideReminder(undefined)).toBe('')
+  })
+})
+
+describe('deviceReminder', () => {
+  test('names the tool and says a failure means check, not retry', () => {
+    const r = deviceReminder()
+    expect(r).toContain('device_free')
+    expect(r).toContain('not to retry in a loop')
   })
 })
 
