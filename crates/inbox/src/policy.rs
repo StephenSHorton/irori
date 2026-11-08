@@ -163,6 +163,19 @@ impl Inner {
 }
 
 impl Inbox {
+    /// Core pushes the person's "review without asking" setting in, on load
+    /// and on change (merge-desk §12.8). Read by every fence it builds.
+    pub fn set_reviews_unasked(&self, on: bool) {
+        self.reviews_unasked
+            .store(on, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Whether agents may review other people's PRs without asking.
+    pub fn reviews_unasked(&self) -> bool {
+        self.reviews_unasked
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// The current policy.
     pub fn policy(&self) -> Policy {
         self.read(|b| norm_policy(b.pol.clone()))

@@ -148,7 +148,7 @@ export function emptyLine(
   if (t.state === "waiting" && t.agentsNow)
     return "No answer yet. An agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
   if (t.agentsNow) return "No answer yet."
-  return "No answer yet. Agents answer now is off: agents in it read it at their next turn."
+  return "No answer yet. It was sent as Just a note: agents in it read it at their next turn."
 }
 
 // emptyOpened is an agent's own thread before anyone writes in it: its

@@ -594,6 +594,18 @@ impl Window {
         Ok(self.agents_starts())
     }
 
+    /// "Agents review other people's PRs without asking" (merge-desk
+    /// §12.8): on unless the person turned it off.
+    pub fn agents_reviews(&self) -> bool {
+        self.core.reviews_unasked()
+    }
+
+    /// The person changes it: the app only, never a tool.
+    pub fn agents_reviews_set(&self, on: bool) -> Result<bool, String> {
+        self.core.set_reviews_unasked(on)?;
+        Ok(self.agents_reviews())
+    }
+
     /// Pause agents, as the top nav shows it (card #665).
     pub fn agents_pause(&self) -> AgentsPauseView {
         let p = self.core.agents_pause();

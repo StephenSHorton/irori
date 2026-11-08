@@ -213,9 +213,9 @@ pub(crate) fn dm_conv_of(
     if !pair(actor) || row.get("by").and_then(Value::as_str) != Some(actor) {
         return None;
     }
-    // 5. A post or a huddle's line (card #656), or a join of one of them.
+    // 5. A post or a huddle's line or title (cards #656, #1043), or a join of one of them.
     let ok = match kind {
-        kinds::TALK_POST | kinds::CALL_SEGMENT => true,
+        kinds::TALK_POST | kinds::CALL_SEGMENT | kinds::CALL_TITLE => true,
         kinds::TALK_MEMBER => {
             let key = row.pointer("/member/key").and_then(Value::as_str);
             row.get("op").and_then(Value::as_str) == Some(coord::talk::JOIN)
