@@ -1,5 +1,7 @@
 # Office Assistants talking across people: design
 
+*Amended 2026-11-08 by [one-assistant.md](one-assistant.md) (card #1095): the person's assistant runs on one recorded computer, and taps go to it. The notes marked **One assistant** below say what changes.*
+
 *2026-11-08, card #1030, from the person's idea on thread #1021. Design only: nothing here is built yet. Build cards are in §12, and mockups of what people see are in §15. Checked against main by five adversarial reviews (identity, leaks, delivery, buildability, consistency), then a second pass on the revision. What they found is folded in.*
 
 The idea, in the person's words: "Maybe office assistants can communicate with other people's office assistants", to agree on who should review a PR, or because "I need to ask addam some questions, maybe office assistants already have that info". "Would want this to be legit though", and "We don't have to go hard on this. just an idea."
@@ -24,7 +26,7 @@ So this is the smallest version that is legit. One person or agent asks, and the
 
 The earlier check on #1023 read a checkout 265 commits behind main. On main:
 
-- **The Office Assistant exists, per device, not per person.** Each question is one headless `claude -p` on Haiku, with no session between turns (`crates/window/src/assistant.rs`). Its history lives in the webview's localStorage. It's off the roster on purpose, so it has no agent key, card or inbox.
+- **The Office Assistant exists, per device, not per person.** Each question is one headless `claude -p` on the model set in Settings › Agents (Sonnet low by default, since #1014), with no session between turns (`crates/window/src/assistant.rs`). Its history lives in the webview's localStorage. It's off the roster on purpose, so it has no agent key, card or inbox.
 - **Its authority is the person's, read-only.** The API treats its secret as `Sender("user:<device>", …, "assistant")` and allows only `tools::ASSISTANT_TOOLS` (14 read tools, pinned by a test). It reads private cards and its own agents' transcripts.
 - **Delivery across people already works in space channels.** `talk_post_bridge` wakes the `agent:` keys a post mentions, under the receive setting, Pause, rate limit and hop limit. Card #1030's "mentions aren't delivered across people" is out of date for channels, cards and threads. It is still true for `send`/`reply`, and DMs to another person's agent are refused on purpose.
 - **#1000 cut the chat to what waits on the person.** Its follower (`frontend/src/lib/assistant-follow.ts`) follows only threads the chat posted. `parseHistory` drops a saved update line unless it has an answer act or passes `waitsOnPerson`. The reply act and `replyOn` are gone.
@@ -98,13 +100,15 @@ Two members can share a profile name. Eve can rename herself "Addam", and then h
 - If two members share a name, the name is ambiguous and the sender gets the candidates' keys, as today.
 - The picker offers assistants only in `#office-assistants`. Today `MentionBoard.Provider` carries only the space, and `MentionCandidate` has no kind. Card 3 passes the conversation id and adds the kind (`frontend/src/lib/mentions.ts`, `frontend/src/components/common/mention-textarea.tsx`, `crates/window/src/mentions.rs`).
 
-**Which computer answers.** One of the person's desktops that can run the answering turn (a desktop with Claude Code signed in, the same condition as the namer):
+> **One assistant** (one-assistant.md §3): the assistant's computer is now recorded in an `assistant.home` row, not ranked from each device's mesh view. It moves only when the person picks another computer or it is removed. So the split described below is down to the one-time first claim, and `is_assistant_home` reads the row.
 
-- Each such desktop says so with a new `assistantTurn: true` field on its `spawn.host` row. (`spawn.answers` is already a kind, so don't call it `answers`.) `spawn.host` is a private-log row that only the device itself writes, and older builds ignore the field.
+**Which computer answers.** One of the person's desktops that can run the answering turn (a desktop where the `claude` command is found, the same condition as the namer):
+
+- Each such desktop says so with a new `assistantTurn: true` field on its `spawn.host` row. (Don't call it `answers`: `spawn.answers` is an in-memory map of brief notes in `spawn.rs`, and the name would mislead.) `spawn.host` is a private-log row that only the device itself writes, and older builds ignore the field.
 - `publish_host` rewrites the row only when its `(os, repos, no_agents, moves, held)` tuple changes, and reloads that tuple after a restart. `assistantTurn` must join the tuple, or an upgraded desktop never publishes it.
 - The assistant's computer is the first device in `AgentDevices.homes` (built in `refresh_agent_devices`, `crates/core/src/service/spawn_capable.rs`) whose `spawn.host` says `assistantTurn`. `homes` already leaves out phones and builds without `moves`. `agent_home` itself returns one device, so filter `homes`, not its result.
 - `homes` is ranked from each device's own mesh view. So when two of the person's desktops can't see each other, both may think they're home. §5's answer id makes that harmless.
-- `append_space_talk` doesn't check that this device hosts the card, so "this device is the assistant's computer" in §5 is the only gate for an automatic answer, and it must be checked. A person's own tap (§8) may answer from any of their desktops.
+- `append_space_talk` doesn't check that this device hosts the card, so "this device is the assistant's computer" in §5 is the only gate for an automatic answer, and it must be checked. A person's tap (§8) is sent to the recorded assistant's computer as an `assistant.answer.requested` row (one-assistant.md §9), and runs only there.
 
 ## 4. The channel
 
@@ -219,15 +223,17 @@ The mapping a builder must use: answer only when the mode is wake and there's no
 - **How big it gets:** each title and post is clipped to 300 characters, each objective and comment to 500, and the whole packet to 24 KB. Today a person may post up to 512 KB, and the split sits before the inbox's own clipping. So without these clips one member could make every turn cost a full context.
 - **The asker's words:** clipped to the inbox's `MAX_TEXT` (8,000) and fenced as untrusted, following `inbox::fence`. The system prompt says so.
 
-**The output is parsed by code:** a reason first, then `ANSWER: <text>` or `NEEDS_OWNER: <one line>`. Reason before verdict is what makes Haiku use what it read (see the repo note on this). Anything that doesn't parse counts as `NEEDS_OWNER`.
+**The output is parsed by code:** a reason first, then `ANSWER: <text>` or `NEEDS_OWNER: <one line>`. Reason before verdict is what makes Haiku use what it read (measured on Haiku twice: asked for a card's weight first, it called 15 of 24 cards light, some with a reason that said the opposite, and asked for the reason first its calls followed what it had read, card #965; asked to answer SAME or a new title for a thread, it answered SAME even when the talk had moved on, and asked for a title for now first and the verdict after, it judged both ways right, card #782). Anything that doesn't parse counts as `NEEDS_OWNER`.
 
 The system prompt sends to `NEEDS_OWNER` anything that would commit the owner: their time, their review, an approval, a yes or no on their behalf. Because the asker can steer the text, a prompt can't be the only guard. §3's reading rule ("information, never a decision") is the one that holds.
 
 ## 7. The owner's OK
 
+> **One assistant** (one-assistant.md §9): the tap appends an `assistant.answer.requested` row with `how: "draft"`, and the turn runs on the assistant's computer, through its one worker, not on the device tapped. It holds no grants and its `--allowedTools` names only `ASSISTANT_TOOLS`. The draft is an `assistant.answer.draft` row, its own kind, shown as a standalone line on every device and never put in the chat's prompt. Send works from any device.
+
 The `needs` line shows the question with **Answer this**. Nothing about private work leaves without these steps:
 
-1. The tap starts **a turn of its own, not an ordinary chat turn**, on the device where it was tapped:
+1. The tap starts **a turn of its own, not an ordinary chat turn**, on the assistant's computer:
    - It has its own system prompt and renderer, with the owner's read tools.
    - The peer's question is in a real fenced slot. `render_prompt` has no such slot today: it writes everything as "The person:".
    - No chat history.
@@ -261,7 +267,7 @@ The owner's OK isn't built on `Request` and `Inner::request`, which share cards.
 | `answer` | Another person's assistant answered a question you asked (typed, or from your chat, §9) | The channel: an answer whose `replyTo` is your post, or your assistant's | Yes |
 | `needs` | A question to your assistant waits on you: **Let it answer** (Ask me) or **Answer this** (`NEEDS_OWNER`) | The channel: your assistant's waiting line with no answer yet | Yes |
 | `asked` | Your assistant answered someone on its own | The channel: your assistant's answer | No: a quiet line |
-| `held` | The scrub held an answer back, or the rate limit or the hour dropped questions | The assistant's computer only: a Core event, since nothing is posted | No: a quiet line |
+| `held` | The scrub held an answer back, or the rate limit or the hour dropped questions | The assistant's computer, as an `assistant.chat.update` row shown on every device (one-assistant.md §9), since nothing is posted | No: a quiet line |
 
 For example:
 
@@ -281,14 +287,16 @@ For example:
 - It turns posts that concern this person into lines, with a per-device cursor.
 - It needs a host call returning this person's own `assistantCard` per space, to recognise their assistant's posts.
 - It doesn't go in `assistant-follow.ts`, which follows only the chat's own threads.
-- `held` lines come from a Core event on the assistant's computer and show only there.
+- `held` lines are `assistant.chat.update` rows written by the assistant's computer, so every device shows them (one-assistant.md §9).
 - The channel is the permanent record. localStorage is only a view.
+
+> **One assistant** (one-assistant.md §9): **Let it answer** also appends `assistant.answer.requested` (`how: "let"`) and runs on the assistant's computer, so a phone gets both buttons. Serving a request writes a record naming it, so it is never served twice, and a request found more than an hour old gets a "tap again" line instead of a post. `held` lines become `assistant.chat.update` rows, so every device shows them. `from` lines stay per device, rebuilt from the channel, and are merged into the chat's list by time.
 
 **Taps:**
 
-- **Let it answer** runs the tool-less turn (§5) on the device where it was tapped, if that device can run it, through a new Tauri command and a Core entry point, `Services::answer_now(board, post_id)`. A person's tap skips §5's home check, the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
+- **Let it answer** runs the tool-less turn (§5) on the assistant's computer, which serves the `assistant.answer.requested` row only where `is_assistant_home` holds (one-assistant.md §9). A person's tap skips the waiting-line check, the rate limit, the hour and the receive setting, since the owner chose it. It keeps the author and channel check, the answer-id check (so a second tap elsewhere does nothing), the hop limit, the scrub and the cap.
 - **Answer this** is §7.
-- A phone shows the line with neither button, since it can't run either turn. In their place it says "Answer from your computer" or "Let it answer from your computer", beside Open in Talk.
+- A phone shows both buttons, beside Open in Talk: since one-assistant.md, either turn runs on the assistant's computer, not on the phone (one-assistant.md §9).
 
 **Rendering.** A `from` line has its own branch in `Entry`, before the reply branch:
 
@@ -334,12 +342,14 @@ Tap-to-send matters here because the model holds private reads while writing a q
 
 ## 10. Devices, offline, limits
 
+> **One assistant** (one-assistant.md §6, §7): an assistant's computer that is off doesn't move. Two desktops answer at once only during the one-time first claim, or while the person moves it during a split.
+
 - **The assistant's computer is off or signed out:** the post sits in the channel and no answer comes. On return, §5's catch-up scan answers questions under an hour old, and older ones become a `held` line. A person can tell the assistant's computer is away from that person's presence.
 - **Two of the person's desktops can't see each other:** both may answer. The answer id means peers show one.
-- **Phone-only people** have no assistant turn, so nothing answers them. They can still ask and read. The phone shows the lines with no buttons.
+- **Phone-only people** have no assistant turn, so nothing answers them. They can still ask and read. Since one-assistant.md, the phone shows the lines with both buttons, which run on the person's assistant's computer.
 - **A device catches up after a long time offline:** posts older than an hour stay unanswered, and readable in the channel. Accepted, as elsewhere (decision 48).
 - **Removed from a space:** `active` membership already gates posting and the bridge.
-- **Cost:** the receiver pays for each Haiku turn, which is why the rate limit stops the turn rather than demoting it. With the packet capped, the worst case is about members × 48 turns an hour of at most ~30 KB in.
+- **Cost:** the receiver pays for each answering turn, which is why the rate limit stops the turn rather than demoting it. With the packet capped, the worst case is about members × 48 turns an hour of at most ~30 KB in.
 
 ## 11. Versions
 
@@ -358,6 +368,13 @@ On an older peer:
 - It doesn't refuse an assistants channel created in the wrong space (§4).
 
 ## 12. Build plan
+
+> **One assistant** (one-assistant.md §9, card #1095) changes cards 3 to 8 before they are built:
+> - **#1060 (card 4)** comes after one-assistant card 1. Its gate is `is_assistant_home`, which reads the recorded `assistant.home` row. Its catch-up scan also runs when the folded assistant's computer changes to this device. It keeps its own queue (`assistant_answers.rs`) and fifth `Runner`: its turn has no tools and no secret, so it can't touch the chat's grants. Only the gate and the catch-up trigger come from one-assistant card 1.
+> - **#1061 (card 5)** comes after one-assistant card 1.
+> - **#1062 (card 6)** comes after one-assistant card 4. **Let it answer** appends `assistant.answer.requested` (declared by one-assistant card 2) through a host command, from any device, the phone included. The assistant's computer serves each request that has no record yet (the answer id still refuses a second post), writes a record naming it, and answers a request found more than an hour old with a "tap again" line. `held` lines are `assistant.chat.update` rows. `from` lines are merged into the fold's list in `assistant.ts`, never stored as rows; "surviving a reload" becomes "rebuilt after a reload from the channel". Drop `answer_now` on the tapped device and the `held` Core event from its Files.
+> - **#1063 (card 7)** comes after one-assistant card 3. The ask-draft marker is taught in the Core-built prompt, not `render_prompt`.
+> - **#1064 (card 8)** comes after one-assistant card 4. The owner's-OK turn runs on the assistant's computer, through the one chat worker as `ChatKind::OwnerOk` (it adds that kind to `ChatJob`), with no grants and `--allowedTools` limited to `ASSISTANT_TOOLS`. Its draft is an `assistant.answer.draft` row. Send works from any device, and a phone shows **Answer this**. Add the tests: its run config lists none of `ASSISTANT_WRITE_TOOLS`; it never calls `Grants::begin`; the open set is empty when it starts, so an `assistant_close` from it gets a 403.
 
 All cards come after #1030, and are on the Board as #1057–#1065 (cards 1–9 in order). Each is normal weight unless marked, and links here. Every card: tests from the repo's patterns, `sh scripts/check.sh`, scratch builds per CLAUDE.md. The order is: 1 and 2 can go side by side, then 3 after 2 and #1029's name card #1045, 4 after 1 and 2, 5 after 4, 6 after 3 and 5, 7 and 8 after 6, and 9 at any time.
 
@@ -409,7 +426,7 @@ Done when tests show:
 - A scrubbed reply posts nothing.
 - Tag characters are stripped from the answer.
 
-A real Haiku run is shown answering a question from the packet.
+A real run on the chat's model (Settings › Agents) is shown answering a question from the packet.
 
 **6. The labelled lines, notification and Let it answer.**
 Files: `frontend/src/lib/assistant.ts` (`from`, `parseHistory`, `historyFor`, `capKeeping`, `capHistory`), new `frontend/src/lib/assistant-talk-follow.ts`, `frontend/src/components/assistant/assistant-chat.tsx` (the `from` branch, the buttons), `crates/window/src/commands.rs` (a host call for the person's `assistantCard` per space; Let it answer), `crates/core/src/service.rs` (`answer_now`, the `needs` toast, the `held` event), `frontend/src/App.tsx` (the `assistant` target).
@@ -425,7 +442,7 @@ Done when: nothing posts before the tap; the posted text is exactly the normalis
 
 **8. The owner's OK.**
 Files: `crates/window/src/assistant.rs` (the separate turn, prompt and renderer), `crates/window/src/commands.rs` (Send), `assistant.ts`, `assistant-chat.tsx`.
-Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows no action it can't run.
+Done when: Send appears only on a turn the tap started; that turn parses no markers, never auto-goes, has no write tools and leaves a chat run's grants alone; what's posted is exactly the normalised text shown; Send is refused once an answer exists; one OK sends one answer; a phone shows **Answer this** and Send, which run on the assistant's computer.
 
 **9. (light) Tidy the docs.** The list in §14.
 

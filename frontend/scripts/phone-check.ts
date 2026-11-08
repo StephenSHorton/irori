@@ -35,6 +35,9 @@ const width = Number(process.env.PHONE_WIDTH ?? 390)
 const height = Number(process.env.PHONE_HEIGHT ?? 844)
 const dpr = Number(process.env.PHONE_DPR ?? 1)
 const mobile = process.env.PHONE_MOBILE !== "0"
+// PHONE_MODE=light (or dark, system) shoots that palette (the preview's
+// ?mode=, without saving it).
+const mode = process.env.PHONE_MODE ?? ""
 // How long a page gets to load before its shot (ms): a cold preview's
 // first page can still be on the splash at the default.
 const wait = Number(process.env.PHONE_WAIT ?? 1800)
@@ -110,6 +113,11 @@ const PAGES: Array<[name: string, query: string]> = [
   ["huddle-sheet", "?call=sheet#talk/sample-ch-netcode"],
   ["talk-huddle", "?call=start#talk"],
   ["call-transcript", "?call=transcript#talk/sample-ch-suzuri"],
+  // Huddles as places (card #1044): the page of one that's on and of one
+  // that ended, and Talk's Huddles list with one on.
+  ["huddle-live", "?call=start#huddle/preview-call-sample-ch-netcode"],
+  ["huddle-ended", "#huddle/sample-call-2"],
+  ["huddle-list", "?call=live#talk"],
   ["later-home", "?later=only"],
   ["later-open", "?later=only&notyet"],
   ["later-board", "?later=board#board/sample-board-mlg"],
@@ -128,6 +136,13 @@ const PAGES: Array<[name: string, query: string]> = [
   ["assistant-files", "?assistant=files"],
   ["assistant-call", "?call=live#talk"],
 ]
+
+// withMode adds ?mode= ahead of any #hash.
+function withMode(url: string): string {
+  if (!mode) return url
+  const [path, hash] = url.split("#")
+  return `${path}${path.includes("?") ? "&" : "?"}mode=${mode}${hash === undefined ? "" : `#${hash}`}`
+}
 
 function findBrowser(): string {
   const c = [
@@ -282,7 +297,7 @@ async function main() {
           s
         )
       }
-      await cdp.send("Page.navigate", { url: base + query }, s)
+      await cdp.send("Page.navigate", { url: withMode(base + query) }, s)
       await Bun.sleep(wait)
       const { result, exceptionDetails } = await cdp.send(
         "Runtime.evaluate",

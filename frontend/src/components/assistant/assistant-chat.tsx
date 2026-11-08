@@ -197,6 +197,8 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
             entries={s.entries}
             reply={s.reply}
             work={s.work}
+            autoPosting={s.autoPosting}
+            autoFailed={s.autoFailed}
             narrow={narrow}
             onAsk={(t, files) => void ask(t, files)}
             onStop={stopAsking}
@@ -424,6 +426,8 @@ export function AssistantPanel({
   entries,
   reply,
   work = {},
+  autoPosting = null,
+  autoFailed,
   narrow,
   onAsk,
   onStop,
@@ -438,6 +442,10 @@ export function AssistantPanel({
   reply: Reply | null
   // The work of the threads the chat posted (card #785).
   work?: Record<string, WorkThread>
+  // The message whose thread is posting by itself (card #988).
+  autoPosting?: ChatEntry | null
+  // Why a message's thread couldn't post by itself.
+  autoFailed?: ReadonlyMap<ChatEntry, string>
   narrow: boolean
   onAsk: (text: string, files?: AssistantFile[]) => void
   onStop: () => void
@@ -642,6 +650,8 @@ export function AssistantPanel({
                 onGo={onGo}
                 work={e.posted ? work[e.posted.id] : undefined}
                 onPost={() => onPost(i)}
+                posting={e === autoPosting}
+                failed={autoFailed?.get(e)}
               />
             ))}
             {reply && <Answering reply={reply} />}
@@ -778,8 +788,8 @@ function Starters({
     <div className="flex h-full flex-col justify-end gap-3 pb-1">
       <p className="text-[13px] text-muted-foreground">
         It looks through your boards, cards, threads and agents and answers in
-        plain words. Ask it for work and it drafts a thread for you to post; it
-        changes nothing by itself. Try:
+        plain words. Ask it for work and it posts a thread for your agents, or
+        waits if you say to check with you first; it changes nothing else. Try:
       </p>
       <div className="flex flex-col items-start gap-1.5">
         {suggestions.map((q) => (
@@ -805,8 +815,14 @@ function Entry({
   onGo,
   work,
   onPost,
+  posting,
+  failed,
 }: {
   entry: ChatEntry
+  // Its thread is posting by itself.
+  posting: boolean
+  // Why it couldn't post by itself.
+  failed?: string
   onGo: (t: GoTarget, from?: Element) => Promise<string>
   // A posted draft's thread, as last read.
   work?: WorkThread
@@ -853,6 +869,7 @@ function Entry({
         {entry.text}
       </p>
     )
+  // A thread posting by itself shows that, not Post thread (card #988).
   // A draft cut short (Stopped, or a reply that never closed it) shows
   // with no Post thread: it isn't the whole thread.
   const { text, draft, partial, go } = splitReply(entry.text)
@@ -866,6 +883,8 @@ function Entry({
           <DraftThread
             draft={draft}
             posted={entry.posted}
+            posting={posting}
+            failed={failed}
             work={work}
             onPost={partial ? undefined : onPost}
             cut={partial}
@@ -938,18 +957,26 @@ function GoButton({
   )
 }
 
-// DraftThread is a thread the assistant drafted when asked for work: the
-// text the thread will carry and a Post thread button. One tap posts it
-// as the ask box does; once posted it says which thread it became.
+// DraftThread is a thread the assistant wrote when asked for work: the
+// text the thread carries, and how it stands. Most post by themselves
+// (card #988). One that waits (check-first, a failed post, or one restored
+// from history that never posted) has Post thread: one tap posts it as the
+// ask box does. Once posted it says which thread it became.
 function DraftThread({
   draft,
   posted,
+  posting,
+  failed,
   work,
   onPost,
   cut,
 }: {
   draft: string
   posted?: Posted
+  // It is posting by itself.
+  posting?: boolean
+  // Why it couldn't post by itself (Post thread retries).
+  failed?: string
   // What came of it since (card #785): who took it, the cards made.
   work?: WorkThread
   // Without it there is no Post thread (the draft is being written).
@@ -978,7 +1005,7 @@ function DraftThread({
       data-assistant-draft=""
     >
       <p className="text-[11.5px] font-medium tracking-wide text-muted-foreground uppercase">
-        Draft thread
+        {posted ? "Thread" : "Draft thread"}
       </p>
       {/* A long draft scrolls in its box, so Post thread stays in reach. */}
       <div className="max-h-44 overflow-y-auto overscroll-contain text-[13px]">
@@ -1003,6 +1030,14 @@ function DraftThread({
           </p>
           {work && <WorkLine work={work} />}
         </>
+      ) : posting ? (
+        <p className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+          <Loader2Icon
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
+          Posting…
+        </p>
       ) : onPost ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -1019,9 +1054,9 @@ function DraftThread({
             )}
             Post thread
           </Button>
-          {error && (
+          {!busy && (error || failed) && (
             <span className="text-[12px] text-destructive" role="alert">
-              {error}
+              Couldn't post it: {error || failed}
             </span>
           )}
         </div>

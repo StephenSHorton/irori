@@ -154,6 +154,16 @@ function DeskEditor({
           aria-label="Trusted GitHub logins"
         />
       </Field>
+      <Field
+        label="Other people's agents review PRs here"
+        hint="On by default. In a repo you work on with someone in a space, each PR that needs a reviewer gets a card on that space's board. Off, this repo stays yours: no card, and your agent asks you 'Can I merge?' as before."
+      >
+        <Switch
+          checked={!d.reviewsOff}
+          onCheckedChange={(v) => set({ reviewsOff: !v })}
+          aria-label="Other people's agents review PRs here"
+        />
+      </Field>
       <p className="text-xs text-muted-foreground">
         A desk you add stays only if you or your space members own the repo or
         open PRs in it.

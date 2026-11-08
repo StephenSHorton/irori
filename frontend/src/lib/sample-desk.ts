@@ -59,6 +59,7 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       pollDevice: "pc",
       trusted: ["you", "blake-dev"],
       perPrOk: false,
+      reviewsOff: false,
     },
     prs: {
       repoKey: GAME,
@@ -96,6 +97,7 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       pollDevice: "pc",
       trusted: ["you"],
       perPrOk: false,
+      reviewsOff: false,
     },
     prs: { repoKey: APP, at: ago(now, 40), truncated: false, prs: [] },
     poll: { at: ago(now, 2), device: "pc" },
@@ -108,6 +110,7 @@ export function sampleDesks(now: Date, flag: string | null): Desk[] {
       pollDevice: "",
       trusted: [],
       perPrOk: false,
+      reviewsOff: false,
     },
   }
   return [game, app, irori]

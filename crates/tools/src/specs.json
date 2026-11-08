@@ -471,7 +471,7 @@
         },
         "objective": {
           "type": "string",
-          "description": "Optional: what needs doing and why, briefly. Write needs:mac or needs:pc in it when only one machine can do the work: Irori offers the card to a free agent there first."
+          "description": "Optional: what needs doing and why, briefly. Write needs:mac or needs:pc in it when only one machine can do the work: Irori offers the card to a free agent there first. Ask for Mac work with a top-level card: needs: is ignored on a subtask."
         },
         "done_when": {
           "type": "string",
@@ -1771,6 +1771,26 @@
       "additionalProperties": false
     },
     "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
+    "name": "device_free",
+    "description": "Free disk, memory and CPU on this computer, what you can use after margins, and who holds its heavy and check slots. Call before anything big (full build, large download, heavy memory use). If it won't fit, wait or ask the person; take the heavy slot it shows for heavy jobs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Folder whose disk to read; relative to your working folder. Default: your working folder."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "readOnly": true,
     "clients": [
       "claude",
       "grok"
