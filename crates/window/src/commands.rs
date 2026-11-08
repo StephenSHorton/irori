@@ -611,6 +611,13 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person undoes Irori's weighing of a card (card #965).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_weight(w: W<'_>, id: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.undo_weight(&id).map(Typed::new)
+}
+
 /// The person undoes Irori's name for their thread (card #782).
 #[tauri::command]
 #[specta::specta]
@@ -1761,6 +1768,20 @@ pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_names_set(on)).await
 }
 
+/// "Weigh new cards" (#965): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_weighs(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_weighs())).await
+}
+
+/// Turns "Weigh new cards" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_weighs_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_weighs_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2236,6 +2257,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_move,
             board_rename,
             board_undo_title,
+            board_undo_weight,
             board_pin,
             board_set_weight,
             board_pause,
@@ -2380,6 +2402,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_transcribe_set,
             assistant_names,
             assistant_names_set,
+            assistant_weighs,
+            assistant_weighs_set,
             talk_call_transcript,
             share_sources,
             share_start,

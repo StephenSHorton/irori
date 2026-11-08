@@ -222,6 +222,10 @@ kinds! {
     /// person's new thread a short title. `{on, by, at}`, actor `user`,
     /// newest wins, none means on. Set in the app only.
     ASSISTANT_NAMES_SET = "assistant.names.set" => Replicated, Refuses;
+    /// "Weigh new cards" (card #965): Irori's assistant weighs each new
+    /// card. `{on, by, at}`, actor `user`, newest wins, none means on. Set
+    /// in the app only.
+    ASSISTANT_WEIGHS_SET = "assistant.weighs.set" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;

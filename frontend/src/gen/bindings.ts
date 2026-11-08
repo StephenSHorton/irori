@@ -103,6 +103,8 @@ export const commands = {
 	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
 	/**  The person undoes Irori's name for their thread (card #782). */
 	boardUndoTitle: (id: string) => __TAURI_INVOKE<Task>("board_undo_title", { id }),
+	/**  The person undoes Irori's weighing of a card (card #965). */
+	boardUndoWeight: (id: string) => __TAURI_INVOKE<Task>("board_undo_weight", { id }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  The person weighs a card (card #963): light, normal or heavy with an
@@ -361,6 +363,10 @@ export const commands = {
 	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
 	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
+	/**  "Weigh new cards" (#965): on unless turned off. */
+	assistantWeighs: () => __TAURI_INVOKE<boolean>("assistant_weighs"),
+	/**  Turns "Weigh new cards" on or off, on all the person's devices. */
+	assistantWeighsSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_weighs_set", { on }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  What this device can share: displays, then windows. */
@@ -1788,6 +1794,11 @@ export type CardThreadItem = {
 	 *  still Irori's (card #782): the title Undo puts back.
 	 */
 	undoTitle?: string,
+	/**
+	 *  Irori's weighing of the card, while the weight is still Irori's
+	 *  (card #965): what Undo puts back, a weight or "no weight".
+	 */
+	undoWeight?: string,
 };
 
 /**

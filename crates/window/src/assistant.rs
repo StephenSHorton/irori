@@ -396,7 +396,21 @@ impl Job {
             tools: false,
         })
     }
+
+    /// The turn that weighs a card (card #965): a naming turn in its own
+    /// folder, so neither swaps the other's system prompt.
+    pub fn weigher(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(WEIGHS_DIR);
+        job.timeout = WEIGHS_TIMEOUT;
+        Ok(job)
+    }
 }
+
+/// The weighing turns' folder under the assistant's (card #965).
+pub const WEIGHS_DIR: &str = "weighs";
+/// How long a weighing turn may take: a held card starts by then anyway.
+pub const WEIGHS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The naming turns' folder under the assistant's (card #782).
 pub const NAMES_DIR: &str = "names";
@@ -923,6 +937,12 @@ impl crate::Window {
     pub fn name_thread(&self, ask: &NameAsk) -> Result<String, String> {
         self.names
             .run_once(find_claude(), Job::namer(&self.core, ask))
+    }
+
+    /// One turn that weighs a card (card #965); the Core's weigher.
+    pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
+        self.names
+            .run_once(find_claude(), Job::weigher(&self.core, ask))
     }
 }
 

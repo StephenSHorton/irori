@@ -157,6 +157,8 @@ const SINCE_GO_REFUSED: [&str; 28] = [
     kinds::NAMES_THEMES,
     // "Name new threads" (card #782).
     kinds::ASSISTANT_NAMES_SET,
+    // "Weigh new cards" (card #965).
+    kinds::ASSISTANT_WEIGHS_SET,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

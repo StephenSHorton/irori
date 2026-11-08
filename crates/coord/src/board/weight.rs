@@ -18,7 +18,7 @@ use gocompat::quote::quote;
 use store::{Event, kinds};
 
 use super::error::{Result, invalid, not_allowed};
-use super::fold::Fold;
+use super::fold::{Fold, Touch};
 use super::rows::*;
 use super::types::*;
 use super::util::{SWEEPER, caller, check_key};
@@ -129,6 +129,7 @@ impl Fold {
                 reason: reason.to_string(),
                 by: by.to_string(),
                 at,
+                ..TaskWeightRow::default()
             },
         )
     }
@@ -184,11 +185,56 @@ impl Fold {
                 reason,
                 by: by.clone(),
                 at,
+                ..TaskWeightRow::default()
             },
         )?;
         let mut t = t;
         t.weight = self.weight_of(id);
         Ok((t, true))
+    }
+
+    /// Irori's office assistant weighs card `id` (card #965), remembering
+    /// what it replaces for the person's Undo. Never a weight the person
+    /// set, and never twice: a weight it already gave stays.
+    pub(crate) fn weigh_as_irori(&mut self, id: &str, level: &str, reason: &str) -> Result<Task> {
+        let level = trim_space(level).to_lowercase();
+        check_weight(&level)?;
+        if level.is_empty() {
+            return Err(invalid("Irori weighs a card light, normal or heavy"));
+        }
+        let reason = clean_reason(reason)?;
+        if reason.is_empty() {
+            return Err(invalid("give a weight with one line on why"));
+        }
+        let t = self.open_task(id)?.clone();
+        let now = self.weight_of(id);
+        if let Some(w) = &now
+            && (w.by_person() || w.by_assistant())
+        {
+            return Err(not_allowed(format!(
+                "{}'s weight ({}) stays: Irori weighs a card once, and never over the person",
+                t.short_ref(),
+                w.level
+            )));
+        }
+        let (was_level, was_reason) = now.map(|w| (w.level, w.reason)).unwrap_or_default();
+        let at = self.stamp();
+        self.write(
+            SWEEPER,
+            kinds::TASK_WEIGHT,
+            &TaskWeightRow {
+                task_id: id.to_string(),
+                level,
+                reason,
+                by: SWEEPER.to_string(),
+                at,
+                was_level,
+                was_reason,
+            },
+        )?;
+        let mut t = t;
+        t.weight = self.weight_of(id);
+        Ok(t)
     }
 
     /// The card's weight; None is normal.
@@ -227,12 +273,25 @@ impl Fold {
             self.ignore(&ev.device_id);
             return;
         };
+        let line = (set_by == SET_BY_ASSISTANT && !p.level.is_empty()).then(|| {
+            if !p.was_level.is_empty() && p.was_level != p.level {
+                format!(
+                    "changed the weight from {} to {}: {}",
+                    p.was_level, p.level, p.reason
+                )
+            } else {
+                format!("weighed it {}: {}", p.level, p.reason)
+            }
+        });
+        let (by, when) = (p.by.clone(), p.at);
         let w = Weight {
             level: p.level,
             reason: p.reason,
             set_by: set_by.into(),
             by: p.by,
             at: p.at,
+            was_level: p.was_level,
+            was_reason: p.was_reason,
         };
         let slots = self.weights.entry(p.task_id.clone()).or_default();
         let slot = if set_by == SET_BY_PERSON {
@@ -244,6 +303,14 @@ impl Fold {
             return;
         }
         let now = self.weight_of(&p.task_id);
+        // Irori's weighing is a line on the card, with its Undo; it wakes
+        // nobody (card #965).
+        if let (Some(what), Some(t)) = (line, self.tasks.get(&p.task_id))
+            && now.as_ref().is_some_and(Weight::by_assistant)
+        {
+            let ti = Touch::of(t);
+            self.touch(ev, &ti, when, &by, &what, false, Vec::new());
+        }
         if let Some(t) = self.tasks.get_mut(&p.task_id) {
             if t.weight == now {
                 return;

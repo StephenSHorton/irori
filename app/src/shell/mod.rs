@@ -534,6 +534,14 @@ fn start_core(
                 None => Err("Irori is closing".into()),
             },
         )));
+        // And weighs each new card (card #965), the same way.
+        let w = Arc::downgrade(&window);
+        core.set_weigher(Some(Arc::new(
+            move |a: &irori_core::thread_names::NameAsk| match w.upgrade() {
+                Some(w) => w.weigh_card(a),
+                None => Err("Irori is closing".into()),
+            },
+        )));
     }
     // Spawning is on by default for the private board where agents can
     // start (card #448, decision 1 (a)); his own switch wins.

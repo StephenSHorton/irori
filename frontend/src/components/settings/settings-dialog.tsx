@@ -363,6 +363,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <VoiceNote open={open} />
       <TranscribeSwitch open={open} />
       <NamesSwitch open={open} />
+      <WeighsSwitch open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
@@ -451,13 +452,55 @@ const namesHint =
 // NamesSwitch is "Name new threads" (#782): Irori's assistant naming the
 // person's threads, on unless they turn it off, on all their devices.
 function NamesSwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      label={namesLabel}
+      hint={namesHint}
+      loading="Loading thread names"
+      read={AssistantService.Names}
+      write={AssistantService.NamesSet}
+    />
+  )
+}
+
+// WeighsSwitch is "Weigh new cards" (#965): Irori's assistant weighing each
+// new card, on unless they turn it off, on all their devices.
+function WeighsSwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      label="Weigh new cards"
+      hint="Irori reads each new card and sets it light, normal or heavy, with a line on why, before its agent starts. Undo is on the card; a weight you set is never changed."
+      loading="Loading card weights"
+      read={AssistantService.Weighs}
+      write={AssistantService.WeighsSet}
+    />
+  )
+}
+
+function AssistantSwitch({
+  open,
+  label,
+  hint,
+  loading,
+  read: readOn,
+  write,
+}: {
+  open: boolean
+  label: string
+  hint: string
+  loading: string
+  read: () => Promise<boolean>
+  write: (on: boolean) => Promise<void>
+}) {
   const [on, setOn] = useState(true)
   const [read, setRead] = useState(!inWails())
   const [error, setError] = useState("")
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
-    AssistantService.Names()
+    readOn()
       .then((v) => {
         if (!live) return
         setOn(v)
@@ -471,27 +514,27 @@ function NamesSwitch({ open }: { open: boolean }) {
     return () => {
       live = false
     }
-  }, [open])
+  }, [open, readOn])
   const set = async (v: boolean) => {
     setError("")
     setOn(v)
     if (!inWails()) return
     try {
-      await AssistantService.NamesSet(v)
+      await write(v)
     } catch (err) {
       setError(errorText(err))
-      setOn(await AssistantService.Names().catch(() => !v))
+      setOn(await readOn().catch(() => !v))
     }
   }
   return (
     <div className="grid gap-1 border-t border-border pt-3">
-      <Loading loading={!read} label="Loading thread names">
+      <Loading loading={!read} label={loading}>
         {!read ? (
-          <ToggleShape label={namesLabel} hint={namesHint} />
+          <ToggleShape label={label} hint={hint} />
         ) : (
           <Toggle
-            label={namesLabel}
-            hint={namesHint}
+            label={label}
+            hint={hint}
             checked={on}
             onChange={(v) => void set(v)}
           />

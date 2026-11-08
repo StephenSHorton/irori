@@ -283,6 +283,26 @@ function PonderWord() {
 // UndoTitle is the Undo on Irori's name for the person's thread (card
 // #782): one click gives the title it had back, as the person's own.
 function UndoTitle({ cardId, title }: { cardId: string; title: string }) {
+  return (
+    <UndoLink
+      hint={`Give it back its name: “${title}”`}
+      undo={() => cards.undoTitle(cardId)}
+    />
+  )
+}
+
+// UndoWeight is the Undo on Irori's weighing of a card (card #965): what
+// it replaced comes back as the person's own.
+function UndoWeight({ cardId, was }: { cardId: string; was: string }) {
+  return (
+    <UndoLink
+      hint={was === "no weight" ? "Take Irori's weight off" : `Put it back to ${was}`}
+      undo={() => cards.undoWeight(cardId)}
+    />
+  )
+}
+
+function UndoLink({ hint, undo }: { hint: string; undo: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   return (
@@ -291,13 +311,13 @@ function UndoTitle({ cardId, title }: { cardId: string; title: string }) {
       <button
         type="button"
         className="cursor-pointer rounded-sm font-medium text-ink-2 underline decoration-muted-foreground/40 underline-offset-2 outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
-        title={`Give it back its name: “${title}”`}
+        title={hint}
         disabled={busy}
         onClick={async () => {
           setBusy(true)
           setError(null)
           try {
-            await cards.undoTitle(cardId)
+            await undo()
           } catch (e) {
             setError(errorText(e))
           } finally {
@@ -407,6 +427,9 @@ function ThreadRow({
             {item.device && <DeviceTag device={item.device} />}
             {cardId && item.undoTitle && (
               <UndoTitle cardId={cardId} title={item.undoTitle} />
+            )}
+            {cardId && item.undoWeight && (
+              <UndoWeight cardId={cardId} was={item.undoWeight} />
             )}
           </span>
         </span>

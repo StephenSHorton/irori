@@ -899,6 +899,11 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub undo_title: String,
+    /// Irori's weighing of the card, while the weight is still Irori's
+    /// (card #965): what Undo puts back, a weight or "no weight".
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_weight: String,
 }
 
 /// What Modify can do with the person's comment (card #105).
@@ -3083,6 +3088,26 @@ fn build_thread(
             it.kind == THREAD_EVENT && it.who.status == IRORI && it.text.starts_with(&renamed)
         }) {
             it.undo_title = t.title_was.clone();
+        }
+    }
+    // Undo on Irori's weighing, while the weight is still its own (card
+    // #965).
+    if let Some(w) = t.weight.as_ref().filter(|w| w.by_assistant()) {
+        let name = &p.ref_(IRORI).name;
+        let (weighed, changed) = (
+            format!("{name} weighed it "),
+            format!("{name} changed the weight from "),
+        );
+        if let Some((_, it)) = all.iter_mut().rev().find(|(_, it)| {
+            it.kind == THREAD_EVENT
+                && it.who.status == IRORI
+                && (it.text.starts_with(&weighed) || it.text.starts_with(&changed))
+        }) {
+            it.undo_weight = if w.was_level.is_empty() {
+                "no weight".to_string()
+            } else {
+                w.was_level.clone()
+            };
         }
     }
     let mut agent_later = false;
