@@ -24,7 +24,7 @@ import {
   type WorkThread,
 } from "./assistant-follow"
 import { cards, threads } from "./cards"
-import { AssistantService } from "./host"
+import { AssistantService, Events } from "./host"
 import { inWails } from "./irori"
 import { previewFlag } from "./preview"
 
@@ -42,6 +42,9 @@ export type { Act, WorkThread }
 // knows. act is what the line lets the person do: answer the card's
 // question, or reply on the thread. A person's message with to was a
 // reply sent on that thread (its #ref) from the chat, not a question.
+//
+// Card #786: away is the id of a return: the short summary of what
+// happened while the person was gone, which they can dismiss.
 export type ChatEntry = {
   role: "person" | "assistant"
   text: string
@@ -50,6 +53,7 @@ export type ChatEntry = {
   update?: string
   act?: Act
   to?: string
+  away?: string
 }
 
 export type Posted = { id: string; short: string; tag?: string }
@@ -129,7 +133,7 @@ export function historyFor(entries: readonly ChatEntry[]): AssistantTurn[] {
   }
   for (const e of entries) {
     if (e.note) continue
-    if (e.update) {
+    if (e.update || e.away) {
       ups.push(e.text)
       continue
     }
@@ -161,7 +165,7 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, posted, update, act, to } = x as Record<
+    const { role, text, note, posted, update, act, to, away } = x as Record<
       string,
       unknown
     >
@@ -188,6 +192,7 @@ export function parseHistory(raw: string | null): ChatEntry[] {
       if (a) e.act = a
     }
     if (role === "person" && typeof to === "string" && to) e.to = to
+    if (role === "assistant" && typeof away === "string" && away) e.away = away
     out.push(e)
   }
   return capHistory(out)
@@ -257,6 +262,86 @@ function saveHistory(entries: readonly ChatEntry[]) {
   }
 }
 
+// ---- while you were away (card #786) --------------------------------------------
+
+export type AwaySummary = { id: string; lines: string[] }
+
+// awayEntry is a return's summary as the chat's message.
+export function awayEntry(s: AwaySummary): ChatEntry {
+  return { role: "assistant", text: s.lines.join("\n"), away: s.id }
+}
+
+const sampleAway = awayEntry({
+  id: "sample-return",
+  lines: [
+    "#12 and #15 are done.",
+    "PR 7 merged.",
+    "2 cards are waiting on you.",
+  ],
+})
+
+// Which returns this device has already shown: their ids, oldest first.
+const awaySeenKey = "irori.assistant.away"
+const AwaySeenCap = 20
+let awaySeen: string[] | null = null
+
+function loadAwaySeen(): string[] {
+  if (awaySeen) return awaySeen
+  let raw: unknown = null
+  try {
+    raw = JSON.parse(localStorage.getItem(awaySeenKey) ?? "[]")
+  } catch {
+    // Blocked storage: this session still dedupes.
+  }
+  awaySeen = Array.isArray(raw) ? raw.filter((x) => typeof x === "string") : []
+  return awaySeen
+}
+
+function markAwaySeen(id: string) {
+  const list = [...loadAwaySeen(), id].slice(-AwaySeenCap)
+  awaySeen = list
+  try {
+    localStorage.setItem(awaySeenKey, JSON.stringify(list))
+  } catch {
+    // It may show again after a reload; nothing worse.
+  }
+}
+
+// receiveAway adds a return's summary to the chat, once, with the unread
+// flag when the panel is closed. A reload or a second window that pulled
+// the same id does nothing.
+export function receiveAway(s: AwaySummary) {
+  if (!s.lines.length || loadAwaySeen().includes(s.id)) return
+  const was = assistantState()
+  if (was.entries.some((e) => e.away === s.id)) return
+  markAwaySeen(s.id)
+  const entries = capChat([...was.entries, awayEntry(s)])
+  set(was.open ? { entries } : { entries, unread: true })
+}
+
+// dismissAway takes a return's summary out of the chat (its Undo).
+export function dismissAway(id: string) {
+  const s = assistantState()
+  const entries = s.entries.filter((e) => e.away !== id)
+  if (entries.length !== s.entries.length) set({ entries })
+}
+
+// startAway watches for summaries for the window's life: it pulls one on
+// start (a reload or the window opening) and when the Core says one is
+// ready. Off outside the app.
+export function startAway(): () => void {
+  if (!inWails()) return () => {}
+  const take = () => {
+    AssistantService.AwayTake()
+      .then((s) => {
+        if (s) receiveAway(s)
+      })
+      .catch(() => {})
+  }
+  take()
+  return Events.On("assistant:away", take)
+}
+
 // ---- the shared state ----------------------------------------------------------
 
 export type AssistantState = {
@@ -309,6 +394,14 @@ function initial(): AssistantState {
               status: "Reading the Board",
             }
           : null,
+      unread: false,
+    }
+  if (flag === "away")
+    return {
+      ...base,
+      open: true,
+      entries: [sampleAway],
+      reply: null,
       unread: false,
     }
   if (flag === "new")

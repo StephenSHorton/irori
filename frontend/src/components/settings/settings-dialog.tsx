@@ -95,7 +95,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, thread names, tidying the board, linking duplicates, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, tidying the board, linking duplicates, while you were away, updates and the version.",
   },
 ]
 
@@ -365,6 +365,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <NamesSwitch open={open} />
       <TidySwitch open={open} />
       <DupesSwitch open={open} />
+      <AwaySwitch open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
@@ -539,6 +540,25 @@ function DupesSwitch({ open }: { open: boolean }) {
       loading="Loading link duplicate cards"
       read={AssistantService.Dupes}
       write={AssistantService.DupesSet}
+    />
+  )
+}
+
+const awayLabel = "While you were away"
+const awayHint =
+  "When you come back to the window after a while, Irori writes a few plain lines in the chat on what happened. Nothing happened, no lines. Desktop only."
+
+// AwaySwitch is "While you were away" (#786): on unless they turn it off,
+// on all their devices.
+function AwaySwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      label={awayLabel}
+      hint={awayHint}
+      loading="Loading while you were away"
+      read={AssistantService.Away}
+      write={AssistantService.AwaySet}
     />
   )
 }

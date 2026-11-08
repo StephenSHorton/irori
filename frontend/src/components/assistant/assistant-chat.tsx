@@ -45,8 +45,10 @@ import {
   postDraft,
   replyOn,
   replyText,
+  dismissAway,
   setAssistantOpen,
   splitDraft,
+  startAway,
   startFollowing,
   stopAsking,
   subscribeAssistant,
@@ -130,6 +132,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
   // The chat follows the threads it posted for the window's life (card
   // #785), panel open or not: its lines light the button's dot.
   useEffect(() => startFollowing(), [])
+  useEffect(() => startAway(), [])
 
   // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
   useEffect(() => {
@@ -657,6 +660,7 @@ function Entry({
         </Bubble>
       </Message>
     )
+  if (entry.away) return <AwayLine id={entry.away} text={entry.text} />
   if (entry.update) return <Update entry={entry} threadRef={threadRef} />
   if (entry.note)
     return (
@@ -855,6 +859,27 @@ function Update({ entry, threadRef }: { entry: ChatEntry; threadRef: string }) {
       {entry.act && (
         <ActRow act={entry.act} threadRef={threadRef} settle={settle} />
       )}
+    </div>
+  )
+}
+
+// AwayLine is the short summary of what happened while the person was
+// away (card #786). Dismiss is its Undo: it only takes the line away.
+function AwayLine({ id, text }: { id: string; text: string }) {
+  return (
+    <div
+      className="grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere]"
+      data-assistant-away=""
+    >
+      <span className="text-[11.5px] text-muted-foreground">
+        While you were away
+      </span>
+      <RichText bold text={replyText(text)} />
+      <div>
+        <Button variant="ghost" size="sm" onClick={() => dismissAway(id)}>
+          Dismiss
+        </Button>
+      </div>
     </div>
   )
 }

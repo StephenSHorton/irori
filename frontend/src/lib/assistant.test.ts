@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  assistantState,
+  awayEntry,
   capHistory,
   capKeeping,
   failedLine,
@@ -17,6 +19,9 @@ import {
   splitDraft,
   DraftClose,
   DraftOpen,
+  dismissAway,
+  receiveAway,
+  setAssistantOpen,
   type AssistantEvent,
   type ChatEntry,
   type Reply,
@@ -346,5 +351,42 @@ describe("the cap keeps what the chat still follows (card #785)", () => {
     const kept = capKeeping(all, new Set(["t1"]), 4)
     expect(kept).toEqual([posted, lines[2], lines[3], lines[4]])
     expect(capKeeping(all, new Set(), 4)).toEqual(lines.slice(1))
+  })
+})
+
+describe("while you were away in the chat (card #786)", () => {
+  const away = (id: string) => ({ id, lines: ["#12 is done.", "PR 7 merged."] })
+
+  test("a summary is one entry, with its lines, kept by reload", () => {
+    const e = awayEntry(away("a"))
+    expect(e.text).toBe("#12 is done.\nPR 7 merged.")
+    expect(parseHistory(serializeHistory([e]))).toEqual([e])
+  })
+  test("it goes to the assistant as the chat's own words", () => {
+    const h = historyFor([awayEntry(away("b"))])
+    expect(h[0].text).toContain("#12 is done.")
+    expect(h[0].role).toBe("assistant")
+  })
+  test("received once, unread while the panel is closed, and dismissible", () => {
+    setAssistantOpen(false)
+    const n = assistantState().entries.length
+    receiveAway(away("once"))
+    const s = assistantState()
+    expect(s.entries.length).toBe(n + 1)
+    expect(s.entries.at(-1)?.away).toBe("once")
+    expect(s.unread).toBe(true)
+    // The same return again, as a reload or a second window would pull it.
+    receiveAway(away("once"))
+    expect(assistantState().entries.length).toBe(n + 1)
+    dismissAway("once")
+    expect(assistantState().entries.some((e) => e.away === "once")).toBe(false)
+    // Dismissed stays dismissed.
+    receiveAway(away("once"))
+    expect(assistantState().entries.some((e) => e.away === "once")).toBe(false)
+  })
+  test("no lines means nothing to show", () => {
+    const n = assistantState().entries.length
+    receiveAway({ id: "empty", lines: [] })
+    expect(assistantState().entries.length).toBe(n)
   })
 })

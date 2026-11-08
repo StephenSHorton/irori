@@ -365,6 +365,12 @@ export const commands = {
 	assistantTidy: () => __TAURI_INVOKE<boolean>("assistant_tidy"),
 	/**  Turns "Tidy the board" on or off, on all the person's devices. */
 	assistantTidySet: (on: boolean) => __TAURI_INVOKE<null>("assistant_tidy_set", { on }),
+	/**  "While you were away" (#786): on unless turned off. */
+	assistantAway: () => __TAURI_INVOKE<boolean>("assistant_away"),
+	/**  Turns "While you were away" on or off, on all the person's devices. */
+	assistantAwaySet: (on: boolean) => __TAURI_INVOKE<null>("assistant_away_set", { on }),
+	/**  The summary for the person's return, once (#786). */
+	assistantAwayTake: () => __TAURI_INVOKE<AwaySummary | null>("assistant_away_take"),
 	/**  "Link duplicate cards" (#786): on unless turned off. */
 	assistantDupes: () => __TAURI_INVOKE<boolean>("assistant_dupes"),
 	/**  Turns "Link duplicate cards" on or off, on all the person's devices. */
@@ -871,6 +877,12 @@ export type AttachmentInfo = {
 	url: string,
 	/**  Open would open it (by its name; Open checks the bytes too). */
 	openable: boolean,
+};
+
+/**  What the person missed, for one return to the window (card #786). */
+export type AwaySummary = {
+	id: string,
+	lines: string[],
 };
 
 /**  coord.BlockedBy. */

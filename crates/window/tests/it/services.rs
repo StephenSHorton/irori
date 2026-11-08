@@ -1901,3 +1901,16 @@ fn a_duplicate_link_is_a_thread_line_on_both_cards() {
         assert!(d.thread.iter().any(|it| it.text.contains("(undone)")));
     }
 }
+
+/// Card #786 (c): the "While you were away" switch, and a summary taken
+/// once: nothing to take here since no return happened.
+#[test]
+fn the_away_switch_defaults_on_and_takes_nothing_with_no_return() {
+    let r = Rig::new();
+    assert!(r.w.assistant_away(), "on unless turned off");
+    r.w.assistant_away_set(false).unwrap();
+    assert!(!r.w.assistant_away());
+    r.w.assistant_away_set(true).unwrap();
+    assert!(r.w.assistant_away());
+    assert!(r.w.assistant_away_take().is_none());
+}

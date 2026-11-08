@@ -711,4 +711,9 @@ export const AssistantService = {
   TidySet: (on: boolean) => done(commands.assistantTidySet(on)),
   Dupes: () => call(commands.assistantDupes()),
   DupesSet: (on: boolean) => done(commands.assistantDupesSet(on)),
+  // "While you were away" (card #786): the switch, and a return's summary,
+  // taken once.
+  Away: () => call(commands.assistantAway()),
+  AwaySet: (on: boolean) => done(commands.assistantAwaySet(on)),
+  AwayTake: () => call(commands.assistantAwayTake()),
 }
