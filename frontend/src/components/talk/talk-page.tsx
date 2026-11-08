@@ -31,7 +31,6 @@ import { Face } from "@/components/cards/faces"
 import { useCard, type ThreadSummary } from "@/lib/cards"
 import { CardPage } from "@/components/cards/card-detail"
 import { AgentCards } from "@/components/cards/agent-hover"
-import { previewFlag } from "@/lib/preview"
 import {
   dmGone,
   dmPerson,
@@ -1101,14 +1100,11 @@ function ThreadPane({
   const { detail, error } = useCard(t.id)
   const { gone } = useGone()
   const ctx = useContext(AgentCards)
-  // Layout B, chat first (card #780): only the thread scrolls.
-  const slim = previewFlag("layout") === "slim"
   return (
     <section
       aria-label={plainLine(t.title)}
       className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col mac:overscroll-none",
-        slim ? "overflow-hidden" : "overflow-y-auto",
+        "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto mac:overscroll-none",
         narrow ? "px-1 py-2" : "p-4"
       )}
     >
@@ -1120,7 +1116,7 @@ function ThreadPane({
         onBack={onBack}
         onOpen={ctx?.onOpen}
         thread={t}
-        pane={{ narrow, slim }}
+        pane={{ narrow }}
         why={why}
         onResolved={onResolved}
       />

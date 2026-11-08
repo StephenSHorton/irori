@@ -20,7 +20,6 @@ import {
   type ThreadSummary,
 } from "@/lib/cards"
 import { errorText } from "@/lib/talk"
-import { cn } from "@/lib/utils"
 import { AskLine } from "./bits"
 import { StartPastLimit } from "./start-past-limit"
 
@@ -84,14 +83,11 @@ export function ThreadBar({
               {badge.label}
             </Badge>
           )}
-          {ask && !resolved ? (
+          {/* A resolved one's badge says it all. */}
+          {resolved ? null : ask ? (
             <AskLine ask={ask} className="min-w-0 flex-1" />
           ) : (
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground"
-              )}
-            >
+            <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground">
               {stateLine(t, why)}
             </span>
           )}

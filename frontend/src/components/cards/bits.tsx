@@ -92,7 +92,25 @@ export function ProgressBar({
 // StatePill is the card's first badge: waiting on the person's input, its
 // blockers, waiting on an agent to act on the person's answers, else in
 // progress.
-export function StatePill({ card }: { card: CardSummary }) {
+export function StatePill({
+  card,
+  thread,
+}: {
+  card: CardSummary
+  // thread: the card is a Talk thread (card #780): it says so, open or
+  // resolved; its bar says where it stands.
+  thread?: boolean
+}) {
+  if (thread)
+    return (
+      <Badge
+        variant="info"
+        className="rounded-full"
+        title="A thread: your conversation with the room, in Talk"
+      >
+        Thread
+      </Badge>
+    )
   // Parked (card #570): not for now, so it reads calm.
   if (laterOf(card))
     return (

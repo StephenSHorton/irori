@@ -3,9 +3,7 @@ import { laterOf } from "@/lib/later"
 import { useContext, useState, type FormEvent, type ReactNode } from "react"
 import {
   ArrowLeftIcon,
-  ChevronRightIcon,
   ExternalLinkIcon,
-  PaperclipIcon,
   PauseIcon,
   PinIcon,
   PinOffIcon,
@@ -164,6 +162,33 @@ function gist(s: string): string {
   return l.length > GistChars ? `${l.slice(0, GistChars - 1)}…` : l
 }
 
+// askedTitle heads what the card is for: a thread's or an open ask's
+// question, an agent's own thread's (card #631), or a card's objective.
+export function askedTitle(
+  d: Pick<CardDetail, "ask">,
+  thread?: Pick<ThreadSummary, "openedBy">
+): string {
+  if (thread) return thread.openedBy ? "Asked" : "You asked"
+  return openAsk(d) ? "You asked" : "Objective"
+}
+
+// threadAgents are the agents on a card's thread: its holders, and on a
+// Talk thread (card #780) the agent that opened it, those told and those
+// that answered, once each.
+export function threadAgents(
+  d: Pick<CardDetail, "working">,
+  thread?: Pick<ThreadSummary, "openedBy" | "told" | "answeredBy">
+): AgentRef[] {
+  if (!thread) return d.working
+  const all = [
+    ...d.working,
+    ...(thread.openedBy ? [thread.openedBy] : []),
+    ...thread.told,
+    ...thread.answeredBy,
+  ]
+  return all.filter((a, i) => all.findIndex((b) => b.key === a.key) === i)
+}
+
 // CardPage is one card on its own page, in the window's full width: a
 // header (short ref, title, state, scope, Back), a main column with the
 // objective, its blockers and the thread, and a side column with progress,
@@ -200,9 +225,8 @@ export function CardPage({
   // takes the ask's Close line, with Resolve and Agents answer now.
   thread?: ThreadSummary
   // pane shows the page in Talk's pane (card #780): Back goes to Talk's
-  // list on a narrow window only; slim is the chat-first layout, the side
-  // column folded into a strip over the thread.
-  pane?: { narrow: boolean; slim: boolean }
+  // list, on a narrow window only.
+  pane?: { narrow: boolean }
   // Why nobody is free to take a waiting thread (card #172).
   why?: string
   onResolved?: () => void
@@ -327,13 +351,7 @@ export function CardPage({
   const blockers = detail.blockers.filter((b) => b !== ready)
   const hasObjective = !!(detail.goal || detail.doneWhen || showNote)
   const hasBlockers = blockers.length > 0 || legacy || !!answered
-  const asked = thread
-    ? thread.openedBy
-      ? "Asked"
-      : "You asked"
-    : openAsk(detail)
-      ? "You asked"
-      : "Objective"
+  const asked = askedTitle(detail, thread)
   const about = (
     <AboutCard
       detail={detail}
@@ -350,14 +368,7 @@ export function CardPage({
   // A thread's own lines in its thread (card #780): no answer yet says
   // why, the reply box is a reply, and a resolved one takes none.
   const threadOn = {
-    agents: thread
-      ? [
-          ...detail.working,
-          ...(thread.openedBy ? [thread.openedBy] : []),
-          ...thread.told,
-          ...thread.answeredBy,
-        ]
-      : detail.working,
+    agents: threadAgents(detail, thread),
     over: thread ? thread.state === "resolved" : over(detail),
     working: workers,
     jobs,
@@ -396,6 +407,7 @@ export function CardPage({
       spinning={spinning}
       onOpen={onOpen}
       small={!!pane}
+      thread={!!thread}
       extra={
         <>
           <BoardActions
@@ -528,38 +540,10 @@ export function CardPage({
           on={threadOn}
           empty={thread ? emptyLine(thread) : undefined}
           composer={composer}
-          scroll={pane?.slim}
         />
       </StartAgentOn.Provider>
     </BlockersHere.Provider>
   )
-  // Layout B (card #780): chat first. The side column folds into a strip
-  // over the thread, and only the thread's messages scroll, its reply box
-  // in view.
-  if (pane?.slim)
-    return (
-      <MentionBoard.Provider value={detail.onBoard?.id ?? ""}>
-        <article
-          className="@container flex min-h-0 min-w-0 flex-1 flex-col gap-3"
-          aria-label="Card"
-        >
-          {back}
-          {header}
-          {statusBar}
-          <AboutStrip detail={now_} files={files.length}>
-            {about}
-          </AboutStrip>
-          {mainCard && (
-            <div className="max-h-[22svh] shrink-0 overflow-y-auto p-px">
-              {mainCard}
-            </div>
-          )}
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            {threadSection}
-          </div>
-        </article>
-      </MentionBoard.Provider>
-    )
   return (
     <MentionBoard.Provider value={detail.onBoard?.id ?? ""}>
       <article className={cn("grid gap-3", L.article)} aria-label="Card">
@@ -613,8 +597,8 @@ const PaneLayout = {
   thread: "@min-[820px]:col-start-1 @min-[820px]:row-start-2",
 }
 
-// AboutCard is the page's side column (card #780 shares it with the slim
-// layout's strip): Progress, Who's on it, Review, PRs, Links and Files.
+// AboutCard is the page's side column: Progress, Who's on it, Review,
+// PRs, Links and Files.
 function AboutCard({
   detail,
   live,
@@ -730,74 +714,6 @@ function AboutCard({
         </Section>
       )}
     </Card>
-  )
-}
-
-// AboutStrip is the slim layout's side column (card #780): one line with
-// where it stands, who's on it and how many files, that opens the column
-// itself under it.
-function AboutStrip({
-  detail,
-  files,
-  children,
-}: {
-  detail: CardDetail
-  files: number
-  children: ReactNode
-}) {
-  const p = percent(detail.progress)
-  const people = detail.working.filter((w) => w.status !== "person")
-  return (
-    <details
-      className="group shrink-0 glass-panel"
-      // ?strip=open in the preview shows it unfolded (card #780).
-      open={previewFlag("strip") === "open" || undefined}
-    >
-      <summary className="flex min-w-0 cursor-pointer list-none items-center gap-3 px-4 py-2 text-[12.5px] text-muted-foreground [&::-webkit-details-marker]:hidden">
-        <ChevronRightIcon
-          className="size-3.5 shrink-0 transition-transform group-open:rotate-90"
-          aria-hidden
-        />
-        <span className="min-w-0 truncate">
-          {detail.ask && openAsk(detail) ? (
-            <AskLine ask={detail.ask} />
-          ) : p !== null ? (
-            `${detail.progress.done}/${detail.progress.total} steps`
-          ) : (
-            "Progress"
-          )}
-        </span>
-        {detail.progress.total > 0 && detail.ask && openAsk(detail) && (
-          <span className="shrink-0 tabular-nums">
-            {detail.progress.done}/{detail.progress.total} steps
-          </span>
-        )}
-        {people.length > 0 && (
-          <span className="flex shrink-0 items-center gap-1">
-            {people.slice(0, 3).map((w) => (
-              <Face key={w.key} who={w} inline className="size-3.5" />
-            ))}
-            <span className="hidden @min-[480px]:inline">
-              {people.length === 1
-                ? displayName(people[0])
-                : `${people.length} on it`}
-            </span>
-          </span>
-        )}
-        {files > 0 && (
-          <span className="flex shrink-0 items-center gap-1">
-            <PaperclipIcon className="size-3.5" aria-hidden />
-            {files}
-          </span>
-        )}
-        <span className="ml-auto shrink-0 text-[11.5px] group-open:hidden">
-          Details
-        </span>
-      </summary>
-      <div className="max-h-[28svh] overflow-y-auto border-t border-border/60">
-        {children}
-      </div>
-    </details>
   )
 }
 
@@ -1171,6 +1087,7 @@ function PageHeader({
   onOpen,
   extra,
   small,
+  thread,
 }: {
   card: CardSummary
   spinning?: boolean
@@ -1178,12 +1095,14 @@ function PageHeader({
   extra?: ReactNode
   // small is its title in Talk's pane (card #780), under the list's size.
   small?: boolean
+  // thread: the card is a Talk thread (card #780).
+  thread?: boolean
 }) {
   return (
     <header className="grid gap-2">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         <ShortRef card={card} />
-        <StatePill card={card} />
+        <StatePill card={card} thread={thread} />
         {spinning && <Spinner />}
         <ScopeBadge card={card} />
         <SideBadge card={card} />
