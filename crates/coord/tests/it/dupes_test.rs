@@ -226,6 +226,7 @@ fn different_repos_are_not_duplicates() {
     refused(&a, &b);
     refused(&a, &c);
     assert!(may_link_duplicate(&a, &mk("remote:github.com/a/x")));
+    assert!(may_link_duplicate(&c, &mk("")), "two cards with no repo");
 }
 
 #[test]

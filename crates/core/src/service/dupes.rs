@@ -131,11 +131,11 @@ pub fn dupes_reply(reply: &str, n: usize) -> Option<usize> {
         .trim_matches(|c: char| !c.is_alphanumeric())
         .to_uppercase();
     let rest = line.strip_prefix(DUPLICATE)?;
-    if !rest.starts_with(|c: char| c.is_whitespace() || c == '#') {
+    if !rest.starts_with(|c: char| c.is_whitespace() || c == '#' || c == ':') {
         return None;
     }
     let num: usize = rest
-        .trim_start_matches(|c: char| c.is_whitespace() || c == '#')
+        .trim_start_matches(|c: char| c.is_whitespace() || c == '#' || c == ':')
         .parse()
         .ok()?;
     (1..=n).contains(&num).then(|| num - 1)
@@ -304,6 +304,7 @@ mod tests {
         );
         assert_eq!(dupes_reply("x\nLine 2: DUPLICATE #1.", 3), Some(0));
         assert_eq!(dupes_reply("**DUPLICATE 3**", 3), Some(2));
+        assert_eq!(dupes_reply("DUPLICATE: 2", 3), Some(1));
         assert_eq!(dupes_reply("x\nNONE", 3), None);
         assert_eq!(dupes_reply("DUPLICATE 4", 3), None, "no such item");
         assert_eq!(dupes_reply("DUPLICATE 0", 3), None);
