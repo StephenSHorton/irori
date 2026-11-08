@@ -19,6 +19,7 @@ export type AskRepo = B.AskRepo
 export type AssistantEvent = B.AssistantEvent
 export type AssistantTurn = B.AssistantTurn
 export type AttachmentInfo = B.AttachmentInfo
+export type AwaySummary = B.AwaySummary
 export type BlockedBy = B.BlockedBy
 export type Blocker = B.Blocker
 export type BlockerKind = B.BlockerKind
@@ -268,6 +269,11 @@ export function AssistantTurn(p: Partial<B.AssistantTurn> = {}): B.AssistantTurn
 /** AttachmentInfo with Go's zero values for every field left out. */
 export function AttachmentInfo(p: Partial<B.AttachmentInfo> = {}): B.AttachmentInfo {
   return { "sha256": "", "name": "", "size": 0, "mime": "", "device": "", "here": false, "url": "", "openable": false, ...p } as B.AttachmentInfo
+}
+
+/** AwaySummary with Go's zero values for every field left out. */
+export function AwaySummary(p: Partial<B.AwaySummary> = {}): B.AwaySummary {
+  return { "id": "", "lines": [], ...p } as B.AwaySummary
 }
 
 /** BlockedBy with Go's zero values for every field left out. */
