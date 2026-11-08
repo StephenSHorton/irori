@@ -1032,7 +1032,12 @@ impl Services {
             .members
             .iter()
             .filter(|p| p.state == irori_identity::membership::MEMBER_ACTIVE)
-            .map(|p| (p.person_id.clone(), b.verifier.profile(&p.person_id).unwrap_or_default()))
+            .map(|p| {
+                (
+                    p.person_id.clone(),
+                    b.verifier.profile(&p.person_id).unwrap_or_default(),
+                )
+            })
             .collect();
         let first_word = |n: &str| n.split_whitespace().next().unwrap_or("").to_lowercase();
         let alias_of = |owner: &str, name: &str| -> Option<String> {

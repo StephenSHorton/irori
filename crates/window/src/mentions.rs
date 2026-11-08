@@ -219,7 +219,11 @@ impl Window {
                 MentionCandidate {
                     who: p.ref_(&a.key),
                     board: a.board_id,
-                    kind: if a.assistant { "assistant".into() } else { String::new() },
+                    kind: if a.assistant {
+                        "assistant".into()
+                    } else {
+                        String::new()
+                    },
                     ..MentionCandidate::default()
                 },
             ));

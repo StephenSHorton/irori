@@ -20,6 +20,9 @@ export type MentionCandidate = {
   cwd: string
   repo: string
   board?: string
+  // "assistant" for an Office Assistant the backend verified; the picker
+  // offers one only in #office-assistants.
+  kind?: string
   // A "the agent on #N" row (card #452, spawned-agents §4): the agent
   // holding card ref (#N, or tag#N on a shared board) now. Picking it
   // mentions that agent, so the row reads by the card, not the name.
@@ -69,6 +72,7 @@ export function agentOnRows(
         cwd: known?.cwd ?? "",
         repo: known?.repo ?? "",
         board: known?.board,
+        kind: known?.kind,
         card: `${c.tag ?? ""}#${c.short}`,
       },
     })
@@ -88,10 +92,24 @@ export function rowName(c: MentionCandidate): string {
 // and their agents, and only there (card #177).
 export const MentionBoard = createContext("")
 
+// MentionAssistants is true inside a space's #office-assistants channel,
+// where the picker offers assistants; everywhere else it leaves them out.
+export const MentionAssistants = createContext(false)
+
 // boardRows keeps the candidates a box on board `board` may mention: your
 // own agents everywhere, another person and their agents on their board.
-export function boardRows(cands: MentionCandidate[], board: string) {
-  return cands.filter((c) => !c.board || c.board === board)
+export function boardRows(
+  cands: MentionCandidate[],
+  board: string,
+  assistants = false
+) {
+  return cands.filter(
+    (c) =>
+      (!c.board || c.board === board) &&
+      // An Office Assistant is offered only in #office-assistants (assistants
+      // talk §3): the channel says so through MentionAssistants.
+      (c.kind !== "assistant" || assistants)
+  )
 }
 
 // MaxMentions mirrors coord's MAX_MENTIONS.

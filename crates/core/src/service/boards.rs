@@ -2755,6 +2755,13 @@ impl super::Core {
         r
     }
 
+    /// What an agent's @name may name on board `board_id` (card #186, and
+    /// assistants talk card 3): the other members and their agents, an
+    /// Office Assistant under each of its names.
+    pub fn board_mentionables(&self, board_id: &str) -> Vec<coord::roster::AgentCard> {
+        self.s.board_mentionables(board_id)
+    }
+
     /// Every agent card on the boards this device holds, keyed as the
     /// boards write them (agent:<cardId>), with the person it belongs to
     /// (card #146): the window names another member's agents from it, so a

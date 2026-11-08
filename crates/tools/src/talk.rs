@@ -275,7 +275,8 @@ impl Book {
         }
         if let Some(id) = board_card(key) {
             let last = || self.known(&format!("{}{id}", store::kinds::AGENT_ACTOR_PREFIX));
-            if let (Some(chosen), Some((_, owner, _))) = (self.assistants.get(id), self.board.get(id))
+            if let (Some(chosen), Some((_, owner, _))) =
+                (self.assistants.get(id), self.board.get(id))
             {
                 return coord::assistant_name::label(owner, chosen);
             }
