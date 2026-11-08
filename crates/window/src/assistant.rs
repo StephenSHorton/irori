@@ -341,7 +341,8 @@ pub struct Job {
     pub prompt: String,
     pub model: String,
     /// The `CLAUDE_CONFIG_DIR` to give the child; `None` keeps this
-    /// process's (the person's sign-in).
+    /// process's (the person's sign-in), an empty path unsets it (Claude
+    /// Code's default dir and sign-in).
     pub claude_config_dir: Option<PathBuf>,
     pub timeout: Duration,
 }
@@ -350,9 +351,12 @@ impl Job {
     /// The window assistant's job for `prompt`, against this Core.
     pub fn assistant(core: &irori_core::Core, prompt: String) -> Result<Job, String> {
         let exe = std::env::current_exe().map_err(|e| format!("no exe path: {e}"))?;
+        // Absolute, as the child's cwd is the run dir and its arguments
+        // name files in it (a relative IRORI_HOME would not line up).
+        let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
         Ok(Job {
-            dir: core.assistant_dir(),
-            data_dir: core.data_dir().to_path_buf(),
+            dir: abs(core.assistant_dir()),
+            data_dir: abs(core.data_dir().to_path_buf()),
             secret: core.assistant_secret().to_string(),
             exe,
             system: SYSTEM.into(),
@@ -365,15 +369,21 @@ impl Job {
 }
 
 /// Debug builds only: `IRORI_ASSISTANT_CLAUDE_CONFIG_DIR`, so a scratch
-/// build with an empty `CLAUDE_CONFIG_DIR` can still sign in. A release
-/// build ignores it, like `IRORI_DEV_PORT_OFFSET`.
+/// build with an empty `CLAUDE_CONFIG_DIR` can still sign in. `default`
+/// unsets it for the child: on a Mac the sign-in's Keychain item is named
+/// after the config dir, so naming `~/.claude` outright finds no sign-in
+/// (measured, #783). A release build ignores it, like
+/// `IRORI_DEV_PORT_OFFSET`.
 fn dev_claude_config_dir() -> Option<PathBuf> {
     if !cfg!(debug_assertions) {
         return None;
     }
-    std::env::var_os("IRORI_ASSISTANT_CLAUDE_CONFIG_DIR")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+    let v = std::env::var_os("IRORI_ASSISTANT_CLAUDE_CONFIG_DIR").filter(|v| !v.is_empty())?;
+    Some(if v == "default" {
+        PathBuf::new()
+    } else {
+        PathBuf::from(v)
+    })
 }
 
 /// The MCP config's file name in the run dir.
@@ -436,7 +446,13 @@ pub fn args(dir: &Path, model: &str) -> Vec<String> {
 /// Writes `data` to `path` readable by this user only (it may hold a
 /// secret), replacing it whole.
 fn write_private(path: &Path, data: &str) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    // Unique per write: two runs may prepare the same dir at once.
+    static WRITES: AtomicU32 = AtomicU32::new(0);
+    let tmp = path.with_extension(format!(
+        "tmp{}-{}",
+        std::process::id(),
+        WRITES.fetch_add(1, Ordering::Relaxed)
+    ));
     {
         let mut o = std::fs::OpenOptions::new();
         o.write(true).create(true).truncate(true);
@@ -484,8 +500,14 @@ pub fn command(bin: &Path, job: &Job) -> Command {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(d) = &job.claude_config_dir {
-        cmd.env("CLAUDE_CONFIG_DIR", d);
+    match &job.claude_config_dir {
+        Some(d) if d.as_os_str().is_empty() => {
+            cmd.env_remove("CLAUDE_CONFIG_DIR");
+        }
+        Some(d) => {
+            cmd.env("CLAUDE_CONFIG_DIR", d);
+        }
+        None => {}
     }
     hide_console(&mut cmd);
     cmd
@@ -524,12 +546,30 @@ impl Run {
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
         {
-            let _ = c.kill();
+            kill_tree(c);
         }
     }
     fn ending(&self) -> Ending {
         *self.ending.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// Kills `c` and what it started. On Windows an npm install's `claude.cmd`
+/// runs as `cmd.exe`, which starts `node.exe` (and that `irori mcp`):
+/// killing `cmd.exe` alone leaves them running, holding stdout open, so
+/// the run would never end. `taskkill /T` ends the whole tree first.
+fn kill_tree(c: &mut Child) {
+    #[cfg(windows)]
+    {
+        let mut k = Command::new("taskkill");
+        k.args(["/T", "/F", "/PID", &c.id().to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        hide_console(&mut k);
+        let _ = k.status();
+    }
+    let _ = c.kill();
 }
 
 /// Runs headless turns, at most [`MAX_RUNS`] at once, each stoppable by
@@ -614,7 +654,21 @@ impl Runner {
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
-        *run.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+        // A stop or shutdown that came while it was starting found no child
+        // to kill: end it here. Under the child's lock, so one coming now
+        // finds the child.
+        {
+            let mut slot = run.child.lock().unwrap_or_else(|e| e.into_inner());
+            let closed = *self.closed.lock().unwrap_or_else(|e| e.into_inner());
+            if closed || run.ending() != Ending::Running {
+                kill_tree(&mut child);
+                let _ = child.wait();
+                drop(slot);
+                forget();
+                return fail(STOPPED);
+            }
+            *slot = Some(child);
+        }
 
         // stdin on its own thread: a long prompt can fill the pipe before
         // the child reads it.

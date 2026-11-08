@@ -37,6 +37,7 @@ import {
 import {
   ask,
   assistantState,
+  autoAsk,
   liftOver,
   newChat,
   postDraft,
@@ -115,6 +116,11 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
       },
     [ctx, narrow, close]
   )
+
+  // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
+  useEffect(() => {
+    autoAsk((p) => cards?.onOpenThread(p.id))
+  }, [cards])
 
   const right = `calc(var(--safe-right) + ${narrow ? 12 : Gap}px)`
   const bottom = (px: number) =>
@@ -218,9 +224,24 @@ function useLift(
         l.button === button && l.panel === panel ? l : { button, panel }
       )
       // Toasts stack above the button, or above the panel when it leaves
-      // them room; over it otherwise (they come and go).
-      const el = open ? panelRef.current : buttonRef.current
-      const top = el?.getBoundingClientRect().top ?? vh
+      // them room; over it otherwise (they come and go). From the lift
+      // just measured, not the element's box: the button slides there
+      // over 200 ms, and its box would be where it was.
+      const safe =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--safe-bottom"
+          )
+        ) || 0
+      const sits = (px: number) => Math.max(safe + Gap, px)
+      const height = open
+        ? (panelRef.current?.getBoundingClientRect().height ?? 0)
+        : Size
+      const top = open
+        ? narrow
+          ? 0
+          : vh - sits(panel + 12) - height
+        : vh - sits(button + 12) - Size
       const clear = vh - top + 8
       document.documentElement.style.setProperty(
         "--assistant-clear",
@@ -542,13 +563,20 @@ function Entry({
         {entry.text}
       </p>
     )
-  const { text, draft } = splitDraft(entry.text)
+  // A draft cut short (Stopped, or a reply that never closed it) shows
+  // with no Post thread: it isn't the whole thread.
+  const { text, draft, partial } = splitDraft(entry.text)
   return (
     <Message>
       <MessageContent className="gap-2 text-[13.5px] leading-relaxed">
         {text && <RichText bold text={replyText(text)} />}
         {draft && (
-          <DraftThread draft={draft} posted={entry.posted} onPost={onPost} />
+          <DraftThread
+            draft={draft}
+            posted={entry.posted}
+            onPost={partial ? undefined : onPost}
+            cut={partial}
+          />
         )}
       </MessageContent>
     </Message>
@@ -562,10 +590,14 @@ function DraftThread({
   draft,
   posted,
   onPost,
+  cut,
 }: {
   draft: string
   posted?: Posted
+  // Without it there is no Post thread (the draft is being written).
   onPost?: () => Promise<void>
+  // The draft was cut short.
+  cut?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -631,6 +663,10 @@ function DraftThread({
             </span>
           )}
         </div>
+      ) : cut ? (
+        <p className="text-[12.5px] text-muted-foreground">
+          The draft was cut short. Ask again for the whole thread.
+        </p>
       ) : null}
     </div>
   )

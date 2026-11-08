@@ -371,25 +371,65 @@ export function splitDraft(raw: string): Split {
 // postDraft posts the draft of the chat's message at index as a thread,
 // as the ask box does (lib/cards' threads.start: the room's thread, its
 // #refs telling the agents on those cards). It notes the thread on the
-// message and returns it. Posted already: that thread again.
-export async function postDraft(index: number): Promise<Posted> {
+// message and returns it. Posted already: that thread again; being
+// posted (a second tap after the panel closed and opened): that post.
+const posting = new Map<ChatEntry, Promise<Posted>>()
+
+export function postDraft(index: number): Promise<Posted> {
   const entry = assistantState().entries[index]
   if (!entry || entry.role !== "assistant" || entry.note)
-    throw new Error("That message is no longer in the chat.")
-  if (entry.posted) return entry.posted
+    return Promise.reject(new Error("That message is no longer in the chat."))
+  if (entry.posted) return Promise.resolve(entry.posted)
+  const going = posting.get(entry)
+  if (going) return going
   const { draft, partial } = splitDraft(entry.text)
-  if (!draft || partial) throw new Error("That message has no thread to post.")
-  const res = await threads.start(draft)
-  const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
-  // The chat may have moved on while it posted: find the message again.
-  const now = assistantState().entries
-  const i = now[index] === entry ? index : now.indexOf(entry)
-  if (i >= 0) {
-    const entries = [...now]
-    entries[i] = { ...entry, posted }
-    set({ entries })
-  }
-  return posted
+  if (!draft || partial)
+    return Promise.reject(new Error("That message has no thread to post."))
+  const p = threads
+    .start(draft)
+    .then((res) => {
+      const posted: Posted = { id: res.task.id, short: res.task.short ?? "" }
+      // The chat may have moved on while it posted: find the message again.
+      const now = assistantState().entries
+      const i = now[index] === entry ? index : now.indexOf(entry)
+      if (i >= 0) {
+        const entries = [...now]
+        entries[i] = { ...entry, posted }
+        set({ entries })
+      }
+      return posted
+    })
+    .finally(() => posting.delete(entry))
+  posting.set(entry, p)
+  return p
+}
+
+// ---- the window check's question -------------------------------------------------
+
+// A window check (scripts/window-shot.sh, ?dev) can't type: its
+// ?assistant-ask=<question> opens the chat on a new conversation and asks
+// it, through the real assistant in the app, and with assistant-post then
+// posts the drafted thread as a tap on Post thread would, handing it to
+// onPosted. Once a page load; nothing without the flag.
+let autoAsked = false
+export function autoAsk(onPosted: (p: Posted) => void) {
+  const q = previewFlag("assistant-ask")
+  if (autoAsked || !q) return
+  autoAsked = true
+  const post = previewFlag("assistant-post") !== null
+  newChat()
+  setAssistantOpen(true)
+  void ask(q)
+  if (!post) return
+  const off = subscribeAssistant(() => {
+    const s = assistantState()
+    if (s.reply) return
+    off()
+    const i = s.entries.length - 1
+    const last = s.entries[i]
+    if (last?.role !== "assistant" || !splitDraft(last.text).draft) return
+    postDraft(i).then(onPosted, () => {})
+  })
 }
 
 // ---- reply text ----------------------------------------------------------------

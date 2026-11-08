@@ -690,7 +690,10 @@ fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
     // applies inner_size to its WKWebView (Android ignores it), which drew
     // the desktop layout cut off on an iPhone (#269).
     #[cfg(desktop)]
-    let b = b.inner_size(1100.0, 720.0).center().visible(!startup);
+    let b = {
+        let (w, h) = shot::window_size().unwrap_or((1100.0, 720.0));
+        b.inner_size(w, h).center().visible(!startup)
+    };
     #[cfg(mobile)]
     let _ = startup;
     // macOS draws the title in the title bar, where it is hard to read and

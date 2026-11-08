@@ -119,6 +119,7 @@ import {
   toggleTermPanel,
 } from "@/lib/term-panel"
 import {
+  dialogs,
   backShortcut,
   forwardShortcut,
   listenAppShortcuts,
@@ -444,11 +445,9 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return
       if (
-        document.querySelector(
-          // Ask Irori's panel is non-modal (card #783): it takes its own
-          // Esc, and Esc elsewhere still goes Back.
-          '[role="dialog"]:not([data-assistant-panel]),[role="alertdialog"],[role="menu"],[role="listbox"]'
-        )
+        // Ask Irori's panel is non-modal (card #783): it takes its own
+        // Esc, and Esc elsewhere still goes Back.
+        document.querySelector(dialogs)
       )
         return
       const t = e.target instanceof HTMLElement ? e.target : null
