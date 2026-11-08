@@ -222,8 +222,13 @@ pub fn away_lines(reply: &str) -> Option<Vec<String>> {
             // A heading's marks, but not a card reference like #12.
             l.strip_prefix("# ").unwrap_or(l).trim()
         })
-        .map(|l| match l.split_once(|c: char| c == '.' || c == ')') {
-            Some((n, rest)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => {
+        .map(|l| match l.split_once(['.', ')']) {
+            // A numbered list's mark, but not "12.5% done".
+            Some((n, rest))
+                if !n.is_empty()
+                    && n.chars().all(|c| c.is_ascii_digit())
+                    && rest.starts_with(' ') =>
+            {
                 rest.trim()
             }
             _ => l,
