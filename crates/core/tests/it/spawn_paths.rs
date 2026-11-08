@@ -889,3 +889,101 @@ fn an_agent_pauses_and_unpauses_agent_starts() {
     assert!(said.contains("Pause agents is off"), "{said}");
     assert!(!s.r.core.agents_pause().on);
 }
+
+/// The person's wind-down to the agent bound in `s` (card #787).
+fn wind_down_first(s: &Setup) -> inbox::Delivery {
+    s.r.core
+        .inbox()
+        .send_with(
+            &s.r.core.user_sender(),
+            &inbox::Address::new(inbox::addr::AGENT, &s.first()),
+            "Wind down",
+            inbox::SendOptions {
+                mode: inbox::mode::WAKE.into(),
+                reason: inbox::REASON_WIND_DOWN.into(),
+                ..inbox::SendOptions::default()
+            },
+        )
+        .unwrap()
+        .1
+}
+
+/// It posts its hand-off and leaves its card, as a wind-down asks, before
+/// it replies.
+fn hand_off_and_leave(s: &Setup) {
+    let co = s.r.core.coord();
+    let k = s.first();
+    co.add_comment(&k, &s.t.id, "Where: pushed. Next: the save.", false)
+        .unwrap();
+    co.leave(&k, &s.t.id, &k).unwrap();
+    s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+}
+
+/// Card #787: an agent that left its card while winding down is ended once
+/// it replied "wound down", not before (its row would stay winding).
+#[test]
+fn an_agent_winding_down_is_ended_once_it_answered() {
+    let s = bound();
+    s.r.core.set_agents_paused(true).unwrap();
+    let d = wind_down_first(&s);
+    hand_off_and_leave(&s);
+    std::thread::sleep(Duration::from_millis(2000));
+    assert!(!ended(&s, 1), "ended before it answered the wind-down");
+    s.r.core
+        .inbox()
+        .reply(
+            &inbox::Sender::new(&s.first(), "alpha", "claude"),
+            &d.id,
+            "wound down; left the card",
+        )
+        .unwrap();
+    s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+    wait_for(60, "the agent ended once it answered", || ended(&s, 1));
+    let got = s.r.core.inbox().get(&d.id).unwrap();
+    assert_eq!(got.state, inbox::st::ANSWERED);
+}
+
+/// Card #787: one that never answers is ended after the hand-off wait, and
+/// its wind-down closes then, so Wind down's row reads no answer.
+#[test]
+fn an_agent_ended_without_answering_closes_its_wind_down() {
+    let s = bound();
+    s.r.core.set_agents_paused(true).unwrap();
+    let d = wind_down_first(&s);
+    hand_off_and_leave(&s);
+    // The sweep notes its leaving on its own time: the clock moves past the
+    // wait again until it is ended, so a late sweep can't restart the wait.
+    wait_for(60, "the agent ended after the wait", || {
+        if ended(&s, 1) {
+            return true;
+        }
+        skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        false
+    });
+    wait_for(10, "its wind-down closed", || {
+        s.r.core
+            .inbox()
+            .get(&d.id)
+            .is_some_and(|x| x.state == inbox::st::SKIPPED)
+    });
+}
+
+/// Card #787: while Stop everywhere is on, an agent's agents_pause off is
+/// refused, so its device starts nothing until the person turns it off.
+#[test]
+fn an_agent_cant_lift_stop_everywhere() {
+    let s = bound();
+    let me = s.r.core.device_id().to_string();
+    s.r.core.wind_down_pause(std::slice::from_ref(&me)).unwrap();
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({ "on": false }));
+    assert!(said.contains("Stop everywhere is on"), "{said}");
+    assert!(s.r.core.agents_pause().on, "still paused");
+    assert!(s.r.core.agents_paused_on(&me));
+    // The person's Off lifts it.
+    s.r.core.wind_down_lift().unwrap();
+    assert!(!s.r.core.agents_paused_on(&me));
+    let said = tool_as_a(&s, "agents_pause", serde_json::json!({}));
+    assert!(said.contains("Pause agents is off"), "{said}");
+}
