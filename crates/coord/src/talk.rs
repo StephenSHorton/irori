@@ -1222,6 +1222,24 @@ impl Talk {
         text: &str,
         by: &str,
     ) -> Result<Post> {
+        self.write_segment_marked(conv, call_id, seg, start_ms, end_ms, text, by, false)
+    }
+
+    /// [`Talk::write_segment`] with the `agents` mark (card #1047): `true`
+    /// when the speaker's notice said agents hear the huddle, so a person
+    /// DM's agents may read the line (call-agents.md section 10).
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_segment_marked(
+        &self,
+        conv: &str,
+        call_id: &str,
+        seg: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: &str,
+        by: &str,
+        agents: bool,
+    ) -> Result<Post> {
         let by = need_by(by)?.to_string();
         let (conv, call_id) = (conv.trim().to_string(), call_id.trim().to_string());
         if call_id.is_empty() {
@@ -1247,7 +1265,7 @@ impl Talk {
                 start_ms,
                 end_ms: end_ms.max(start_ms),
                 text,
-                agents: false,
+                agents,
                 by: by.clone(),
                 at: (self.now)(),
             },

@@ -1787,6 +1787,14 @@ pub async fn call_transcribe(w: W<'_>) -> R<bool> {
     blocking(&w, |w| Ok(w.call_transcribe())).await
 }
 
+/// Whether a huddle in this conversation reaches agents live: false in a
+/// space some device of which is too old, for the start notice.
+#[tauri::command]
+#[specta::specta]
+pub async fn call_agents_ready(w: W<'_>, conv_id: String) -> R<bool> {
+    blocking(&w, move |w| Ok(w.call_agents_ready(&conv_id))).await
+}
+
 /// Turns "Transcribe what I say in calls" on or off, on all the person's
 /// devices.
 #[tauri::command]
@@ -2425,6 +2433,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_dismiss,
             call_transcribe,
             call_transcribe_set,
+            call_agents_ready,
             assistant_names,
             assistant_names_set,
             assistant_rewrite,

@@ -825,6 +825,14 @@ impl Names<'_> {
         if self.owner(key) {
             return format!("the person ({k})");
         }
+        // Another person (a huddle's speaker) is never a gone agent: they
+        // print by name, or as "another person" when this device has none.
+        if coord::talk::is_other_person_key(key) {
+            return match self.known.get(key).filter(|n| !n.trim().is_empty()) {
+                Some(name) => format::one_line(name, 80),
+                None => "another person".into(),
+            };
+        }
         if let Some(c) = self.cards.get(key) {
             let name = format::one_line(&c.name, 80);
             if !name.is_empty() {

@@ -148,8 +148,11 @@ pub struct TalkTranscript {
     pub conv_id: String,
     /// The channel's name, or the DM's other person.
     pub conv_name: String,
-    /// `channel` or `dm`.
+    /// `channel`, `personal` (a Personal channel) or `dm`.
     pub conv_kind: String,
+    /// Some line was said under the notice that lets agents read it (card
+    /// #1047): a person DM's agents read only those lines.
+    pub agents: bool,
     /// When it started, Unix ms; null when its start post isn't here.
     pub started_at_ms: Option<i64>,
     pub ended: bool,
@@ -352,7 +355,11 @@ impl Window {
         }
         let lines = talk.call_posts(id);
         let (conv_kind, mut keys) = if coord::talk::is_channel(&conv_id) {
-            ("channel", Vec::new())
+            // A Personal channel lives in no space (card #1047).
+            let personal = talk
+                .channel(&conv_id)
+                .is_some_and(|c| c.space_id.is_empty());
+            (if personal { "personal" } else { "channel" }, Vec::new())
         } else {
             ("dm", talk.pair_other(&conv_id).into_iter().collect())
         };
@@ -372,7 +379,7 @@ impl Window {
                 .cloned()
                 .unwrap_or_else(|| tools::talk::UNKNOWN_PERSON.into())
         };
-        let conv_name = if conv_kind == "channel" {
+        let conv_name = if conv_kind != "dm" {
             talk.channel(&conv_id).map(|c| c.name).unwrap_or_default()
         } else {
             talk.pair_other(&conv_id)
@@ -401,6 +408,7 @@ impl Window {
             conv_id,
             conv_name,
             conv_kind: conv_kind.into(),
+            agents: lines.iter().any(|p| p.agents),
             started_at_ms: start,
             ended: end.is_some(),
             duration_ms: end.unwrap_or(0),
