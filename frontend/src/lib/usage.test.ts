@@ -129,10 +129,10 @@ describe("Claude usage left (card #599)", () => {
     expect(usageColor(50)).toBe("var(--primary)")
     // Toward amber.
     expect(usageColor(40)).toBe(
-      "color-mix(in oklch, var(--primary), var(--warning) 33%)"
+      "color-mix(in oklab, var(--primary), var(--warning) 33%)"
     )
     expect(usageColor(35)).toBe(
-      "color-mix(in oklch, var(--primary), var(--warning) 50%)"
+      "color-mix(in oklab, var(--primary), var(--warning) 50%)"
     )
     expect(usageColor(20)).toBe("var(--warning)")
     // Toward red.
@@ -151,7 +151,7 @@ describe("Claude usage left (card #599)", () => {
       if (c === "var(--primary)") return 0
       if (c === "var(--warning)") return 100
       if (c === "var(--destructive)") return 200
-      const m = /var\(--(\w+)\), var\(--\w+\) (\d+)%/.exec(c)!
+      const m = /in \w+, var\(--(\w+)\), var\(--\w+\) (\d+)%/.exec(c)!
       return (m[1] === "primary" ? 0 : 100) + Number(m[2])
     }
     for (let l = 100; l > 0; l--)

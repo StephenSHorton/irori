@@ -122,20 +122,23 @@ export function staleLine(observedAtMs: number, now: number): string | null {
 // Usage color (card #772): a bar is the theme color while plenty is left,
 // turns toward amber as it runs low, then toward red near none. The stops
 // are % left: at or above CALM it is all primary, at AMBER all warning, at 0
-// all destructive; between two stops the color is mixed in oklch from the
-// theme's own tokens, so it holds in every theme, light and dark.
+// all destructive; between two stops the color is mixed from the theme's own
+// tokens, so it holds in every theme, light and dark. Primary to amber mixes
+// in oklab: a straight line, where oklch would swing round the hue wheel
+// (blue to amber goes by cyan in one theme and purple in another). Amber to
+// red is close in hue, so it mixes in oklch and keeps its strength.
 export const USAGE_CALM = 50
 export const USAGE_AMBER = 20
 // USAGE_LOW: at or under this % left the header strip's reading is tinted.
 export const USAGE_LOW = 25
 
-// mix is CSS for `a` with `pct`% of `b` mixed in (in oklch), or just the
-// end token when pct is 0 or 100.
-function mix(a: string, b: string, pct: number): string {
+// mix is CSS for `a` with `pct`% of `b` mixed in `space`, or just the end
+// token when pct is 0 or 100.
+function mix(space: string, a: string, b: string, pct: number): string {
   const p = Math.round(pct)
   if (p <= 0) return `var(${a})`
   if (p >= 100) return `var(${b})`
-  return `color-mix(in oklch, var(${a}), var(${b}) ${p}%)`
+  return `color-mix(in ${space}, var(${a}), var(${b}) ${p}%)`
 }
 
 // usageColor is a CSS color for a reading with `left`% left.
@@ -144,11 +147,13 @@ export function usageColor(left: number): string {
   if (l >= USAGE_CALM) return "var(--primary)"
   if (l >= USAGE_AMBER)
     return mix(
+      "oklab",
       "--primary",
       "--warning",
       ((USAGE_CALM - l) / (USAGE_CALM - USAGE_AMBER)) * 100
     )
   return mix(
+    "oklch",
     "--warning",
     "--destructive",
     ((USAGE_AMBER - l) / USAGE_AMBER) * 100
