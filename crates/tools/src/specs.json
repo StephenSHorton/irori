@@ -1763,6 +1763,26 @@
     ]
   },
   {
+    "name": "device_free",
+    "description": "Free disk, memory and CPU on this computer, what you can use after margins, and who holds its heavy and check slots. Call before anything big (full build, large download, heavy memory use). If it won't fit, wait or ask the person; take the heavy slot it shows for heavy jobs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Folder whose disk to read; relative to your working folder. Default: your working folder."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "clients": [
+      "claude",
+      "grok"
+    ]
+  },
+  {
     "name": "leases",
     "description": "List current (unexpired) leases with holder and expiry, so you can avoid files or resources someone else is using.",
     "inputSchema": {

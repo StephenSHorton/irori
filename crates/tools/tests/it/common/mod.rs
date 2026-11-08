@@ -144,6 +144,12 @@ pub struct TestBackend {
     /// Personal's boards past its default (card #698), which the private
     /// coord's board_tag reads too; empty: only the default.
     pub personal: Arc<Mutex<Vec<tools::PersonalBoard>>>,
+    /// What device_free reads (device-free plan §5 D), and the paths asked.
+    pub free: Mutex<Option<tools::DeviceFree>>,
+    pub free_asked: Mutex<Vec<String>>,
+    /// Set: this device's id, in place of [`DEVICE_ID`] (the store's own
+    /// device is `dev1`, so run holders of it need this).
+    pub device: Mutex<String>,
 }
 
 impl TestBackend {
@@ -166,7 +172,12 @@ pub const DEVICE_ID: &str = "3dc30c94c6a74af3c59d39f4ca02d6f1";
 
 impl Backend for TestBackend {
     fn device_id(&self) -> String {
-        DEVICE_ID.into()
+        let d = self.device.lock().unwrap();
+        if d.is_empty() { DEVICE_ID.into() } else { d.clone() }
+    }
+    fn device_free(&self, path: &str) -> Option<tools::DeviceFree> {
+        self.free_asked.lock().unwrap().push(path.to_string());
+        self.free.lock().unwrap().clone()
     }
     fn agents(&self) -> Vec<presence::AgentCard> {
         self.roster.cards()
@@ -419,6 +430,9 @@ pub fn new_harness_setup(
         spawn_why: Mutex::default(),
         spawn_asked: Mutex::default(),
         book: OnceLock::new(),
+        free: Mutex::default(),
+        free_asked: Mutex::default(),
+        device: Mutex::default(),
     });
     setup(&b, &clk);
     let set = Set::new(b.clone(), Some(now));
