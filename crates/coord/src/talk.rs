@@ -294,6 +294,15 @@ pub struct PostRow {
     pub agents_now: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
+    /// The post this one answers (assistants-talk.md §5): an assistant's
+    /// answer or waiting line names the question. An older reader ignores
+    /// it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line (§5); none on any
+    /// other post.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// The files sent with it (card #643), as a comment's: the bytes stay
     /// on the attaching device until another one fetches them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -530,6 +539,12 @@ pub struct Post {
     pub agents: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_from: Option<String>,
+    /// The post it answers (assistants-talk.md §5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// `ask` or `owner` on an assistant's waiting line (§5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// The card made from it (`talk.card`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card: Option<String>,
@@ -1239,6 +1254,8 @@ impl Talk {
                 mentions,
                 agents_now: p.agents_now,
                 thread_from,
+                reply_to: None,
+                waiting: None,
                 attach: files,
                 call,
                 transcript,
@@ -1994,6 +2011,8 @@ fn fold(s: &mut State, ev: &Event) -> bool {
                 agents_now: r.agents_now,
                 agents: false,
                 thread_from: r.thread_from,
+                reply_to: r.reply_to.filter(|x| !x.is_empty()),
+                waiting: r.waiting.filter(|w| matches!(w.as_str(), "ask" | "owner")),
                 files: r
                     .attach
                     .into_iter()

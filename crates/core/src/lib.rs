@@ -67,6 +67,7 @@ pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
+pub use crate::service::assistant_answers;
 pub use crate::service::assistant_home;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,

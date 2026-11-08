@@ -3287,6 +3287,10 @@ export type TalkPost = {
 	mentions: string[],
 	agentsNow: boolean,
 	threadFrom?: string | null,
+	/**  The post it answers (an assistant's answer or waiting line). */
+	replyTo?: string | null,
+	/**  `ask` or `owner` on an assistant's waiting line. */
+	waiting?: string | null,
 	/**  The card made from it (always null in Talk 1). */
 	card?: string | null,
 	/**  The files sent with it (card #643), as a comment's are. */
