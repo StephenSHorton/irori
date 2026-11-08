@@ -354,6 +354,11 @@ impl Services {
         }
     }
 
+    /// Lines buffered for `call`.
+    pub(crate) fn huddle_fed(&self, call: &str) -> usize {
+        lock(&self.feed.calls).get(call).map_or(0, |h| h.lines.len())
+    }
+
     /// Forgets `call`'s buffer (the huddle isn't served any more).
     pub(crate) fn huddle_feed_forget(&self, call: &str) {
         lock(&self.feed.calls).remove(call);

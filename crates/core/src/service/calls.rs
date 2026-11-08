@@ -2360,6 +2360,13 @@ impl Core {
         self.s.call_over(call_id)
     }
 
+    /// How many lines the assistant feed holds for huddle `call_id` (for
+    /// tests: a line seen twice counts once).
+    #[doc(hidden)]
+    pub fn huddle_fed(&self, call_id: &str) -> usize {
+        self.s.huddle_fed(call_id)
+    }
+
     /// Each person's assistant in huddle `call_id`, as the roster shows it
     /// (card #1049): connected, reconnecting or not connected.
     pub fn call_assistants(&self, call_id: &str) -> Vec<super::huddle_host::AssistantState> {
