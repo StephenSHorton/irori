@@ -173,7 +173,11 @@ impl Services {
         // A card given to the person starts only on their own yes. An
         // agent's own thread starts one only once the person writes in it
         // (card #631): that agent is theirs.
-        if person || co.given_to_me(t) || t.ask.as_ref().is_some_and(|a| !a.opener.is_empty()) {
+        let own_thread = t
+            .ask
+            .as_ref()
+            .is_some_and(|a| !a.opener.is_empty() && !a.fresh);
+        if person || co.given_to_me(t) || own_thread {
             return false;
         }
         let asked = self
@@ -318,6 +322,10 @@ impl Services {
         } else {
             return Ok(false);
         };
+        logf(format_args!(
+            "spawn {} gen {generation}: not started: {why}",
+            t.short_ref()
+        ));
         co.end_spawn(SWEEPER, &t.id, generation, SPAWN_FAILED, &why.to_string())
             .map_err(|e| e.to_string())?;
         Ok(true)
@@ -369,6 +377,7 @@ impl Services {
             Some(
                 Why::NoShow { .. }
                 | Why::NextPass
+                | Why::Weighing
                 | Why::AtCap { .. }
                 | Why::Elsewhere { .. }
                 | Why::NoDevice { .. }
@@ -416,6 +425,100 @@ impl Services {
             ) => {
                 format!(" {w}.")
             }
+            _ => String::new(),
+        };
+        Ok(format!(
+            "Asked for an agent on {r}: {} of the person's {} in use.{next}",
+            used + 1,
+            s.max
+        ))
+    }
+
+    /// What `agent_start` refuses before anything is made, for a thread
+    /// agent `caller` is about to open for a fresh agent (card #1027): not
+    /// the person's own agent, the switch off, or the limit full.
+    pub(crate) fn thread_agent_check(&self, caller: &str) -> Result<(), String> {
+        if !self.own_agent(caller) {
+            return Err("only the person's own agents start agents here".into());
+        }
+        let s = self.agent_starts();
+        if !s.on {
+            return Err(Why::AgentStartsOff.to_string());
+        }
+        let used = self.agent_starts_used("");
+        if used >= s.max {
+            return Err(Why::AgentStartsFull { used, max: s.max }.to_string());
+        }
+        Ok(())
+    }
+
+    /// Agent `caller` gives thread `id` it opened to a fresh agent (card
+    /// #1027), through `agent_start`'s gate: the person's switch and limit,
+    /// the device cap, trust and pause. `Err` says why not, and `caller`
+    /// holds the thread again; `Ok` says what happens next. `watch` keeps
+    /// `caller` hearing the person's replies.
+    pub(crate) fn thread_new_agent(
+        &self,
+        caller: &str,
+        id: &str,
+        watch: bool,
+    ) -> Result<String, String> {
+        self.thread_agent_check(caller)?;
+        let (_, co) = self.route(id).map_err(|e| e.to_string())?;
+        let t = co
+            .thread_to_new_agent(caller, id, watch)
+            .map_err(|e| e.to_string())?;
+        let r = t.short_ref();
+        let back = |why: String| {
+            if let Err(e) = co.thread_back_to_opener(caller, id) {
+                logf(format_args!("spawn {r}: thread back to {caller}: {e}"));
+            }
+            Err(why)
+        };
+        let s = self.agent_starts();
+        let why = self.why_no_agent(id, true);
+        match &why {
+            None
+            | Some(
+                Why::Starting { .. }
+                | Why::NoShow { .. }
+                | Why::NextPass
+                | Why::AtCap { .. }
+                | Why::Elsewhere { .. }
+                | Why::NoDevice { .. }
+                | Why::NoComputer(_)
+                | Why::AgentStartsFull { .. },
+            ) => {}
+            Some(w) => return back(w.to_string()),
+        }
+        // One lock over the count and the ask, as agent_start's.
+        let mut asks = self
+            .spawn
+            .agent_asks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let used = self.used_with(&asks, "");
+        if used >= s.max {
+            drop(asks);
+            return back(Why::AgentStartsFull { used, max: s.max }.to_string());
+        }
+        asks.insert(id.to_string(), self.ask_for(&t));
+        drop(asks);
+        if let Err(e) = self.request_agent_start(id) {
+            self.settle_ask(id);
+            return back(e);
+        }
+        self.asks_kick.kick();
+        logf(format_args!(
+            "spawn {r}: {caller} asked for an agent on its thread"
+        ));
+        let next = match &why {
+            Some(
+                w @ (Why::AtCap { .. }
+                | Why::NoDevice { .. }
+                | Why::NoComputer(_)
+                | Why::Elsewhere { .. }),
+            ) => format!(" {w}."),
             _ => String::new(),
         };
         Ok(format!(

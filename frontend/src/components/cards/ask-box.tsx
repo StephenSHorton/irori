@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
+import { LoaderCircleIcon, WandSparklesIcon } from "lucide-react"
 
 import {
   AttachButton,
@@ -14,6 +15,15 @@ import { useAgentsNow } from "@/lib/agents-now"
 import { threads } from "@/lib/cards"
 import { useDraft, useMentionsDraft } from "@/lib/drafts"
 import { composing, MentionBoard } from "@/lib/mentions"
+import {
+  rewriteDismissed,
+  rewriteEdited,
+  rewriteReset,
+  rewriteUsed,
+  startRewrite,
+  useAutoRewrite,
+  useRewrite,
+} from "@/lib/rewrite"
 import { errorText } from "@/lib/talk"
 
 // AskBox is the box over the grid that starts a thread (cards #116, #134):
@@ -36,10 +46,14 @@ import { errorText } from "@/lib/talk"
 export function AskBox({
   onThread,
   board: onPage = "",
+  note = "",
 }: {
   // onThread gets the new thread, for the Threads panel to open.
   onThread: (id: string) => void
   board?: string
+  // note is a standing line under the box (the Dashboard's: "Goes to
+  // Personal", card #1001).
+  note?: string
 }) {
   const draft = onPage ? `ask/board/${onPage}` : "ask/room"
   const [text, setText] = useDraft(draft)
@@ -58,6 +72,47 @@ export function AskBox({
   const [line, setLine] = useState<{ text: string; error?: boolean } | null>(
     null
   )
+
+  // Rewrite (card #981): on the button only, and the wording waits under
+  // the box until the person takes it.
+  const rewrite = useRewrite(draft)
+  const useSuggestion = () => {
+    const s = rewrite.suggestion
+    if (!s || busy || s.from !== text) return
+    rewriteUsed(draft, { text, mentions })
+    setText(s.text)
+    setLine(null)
+  }
+  const undoRewrite = () => {
+    if (!rewrite.undo || busy) return
+    setText(rewrite.undo.text)
+    setMentions(rewrite.undo.mentions)
+    rewriteReset(draft)
+    setLine(null)
+  }
+
+  // A window check's ?rewrite-auto (lib/rewrite.ts): types the text, then
+  // presses Rewrite, Use this and Undo, a pause apart for the shots.
+  const auto = useAutoRewrite()
+  useEffect(() => {
+    if (!auto.claim()) return
+    setText(auto.text)
+    setMentions(auto.mentions)
+    void startRewrite(draft, auto.text, auto.mentions)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, [])
+  useEffect(() => {
+    if (!auto.text || !rewrite.suggestion) return
+    const t = setTimeout(useSuggestion, auto.pause)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- by the state
+  }, [rewrite.suggestion])
+  useEffect(() => {
+    if (!auto.text || !rewrite.undo) return
+    const t = setTimeout(undoRewrite, auto.pause)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- by the state
+  }, [rewrite.undo])
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -91,7 +146,7 @@ export function AskBox({
         : " An idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on."
       setLine({
         text: !now
-          ? "Sent. Agents answer now was off: no agent was woken or handed it."
+          ? "Sent as Just a note: no agent was woken or handed it."
           : handed && n <= 1
             ? "Sent. An agent with Offer it cards on has it."
             : n === 0
@@ -100,6 +155,7 @@ export function AskBox({
       })
       setText("")
       setMentions([])
+      rewriteReset(draft)
       agentsNow.reset()
       attach.clear()
       onThread(res.task.id)
@@ -115,11 +171,11 @@ export function AskBox({
   return (
     <MentionBoard.Provider value={onBoard}>
       <form
-        className="grid gap-1"
+        className="@container grid gap-1"
         onSubmit={(e) => void submit(e)}
         {...attach.drop}
       >
-        <div className="flex items-start gap-2 p-1.5 glass-panel">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 p-1.5 glass-panel">
           <MentionTextarea
             autoSize
             voice="main"
@@ -127,6 +183,7 @@ export function AskBox({
             value={text}
             mentions={mentions}
             onChange={(v, ms) => {
+              if (v !== text) rewriteEdited(draft)
               setText(v)
               setMentions(ms)
               setLine(null)
@@ -140,17 +197,17 @@ export function AskBox({
                 e.currentTarget.form?.requestSubmit()
               }
             }}
-            placeholder="Ask about anything…"
+            placeholder="Start a thread…"
             aria-label="Start a thread"
-            className="max-h-40 min-h-9 flex-1 border-transparent bg-transparent shadow-none focus-visible:border-transparent"
+            className="max-h-40 min-h-9 basis-full border-transparent bg-transparent shadow-none focus-visible:border-transparent"
             // readOnly, not disabled: disabling the focused box would blur it,
             // and the next message would need a click back in.
             readOnly={busy}
             aria-busy={busy}
           />
-          {/* The controls ride the box's first line (h-9, its min height)
-            whatever their own heights, and stay up top as it grows. */}
-          <div className="flex h-9 shrink-0 items-center gap-2">
+          {/* The writing has the whole width; the mic and the controls take
+            the row under it (card #981). */}
+          <div className="flex min-h-9 min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
             <AgentsNowToggle
               on={agentsNow.on}
               onChange={agentsNow.set}
@@ -158,6 +215,26 @@ export function AskBox({
             />
             {attach.input}
             <AttachButton attach={attach} disabled={busy || !!onBoard} />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              title="Reword this for clarity. Nothing changes until you choose."
+              aria-label="Rewrite"
+              aria-busy={rewrite.running}
+              disabled={busy || rewrite.running || !text.trim()}
+              onClick={() => void startRewrite(draft, text, mentions)}
+            >
+              {rewrite.running ? (
+                <LoaderCircleIcon className="animate-spin" aria-hidden />
+              ) : (
+                <WandSparklesIcon aria-hidden />
+              )}
+              <span className="@max-md:hidden">
+                {rewrite.running ? "Rewriting…" : "Rewrite"}
+              </span>
+            </Button>
             <Button
               type="submit"
               size="sm"
@@ -173,6 +250,63 @@ export function AskBox({
           disabled={busy}
           label="Files with the thread"
         />
+        {rewrite.suggestion && (
+          <div
+            className="grid gap-1.5 rounded-md border bg-muted/40 p-2"
+            aria-label="Suggested rewrite"
+            role="group"
+          >
+            <p className="max-h-40 overflow-y-auto text-sm break-words whitespace-pre-wrap">
+              {rewrite.suggestion.text}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy}
+                onClick={useSuggestion}
+              >
+                Use this
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => rewriteDismissed(draft)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
+        {rewrite.undo && (
+          <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+            <span>Reworded.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="link"
+              className="h-auto p-0 text-xs"
+              disabled={busy}
+              onClick={undoRewrite}
+            >
+              Undo
+            </Button>
+          </div>
+        )}
+        {rewrite.note && (
+          <p
+            className={
+              rewrite.note.error
+                ? "px-1 text-xs text-destructive"
+                : "px-1 text-xs text-muted-foreground"
+            }
+            role={rewrite.note.error ? "alert" : "status"}
+          >
+            {rewrite.note.text}
+          </p>
+        )}
         {line && (
           <p
             className={
@@ -184,6 +318,9 @@ export function AskBox({
           >
             {line.text}
           </p>
+        )}
+        {note && !line && (
+          <p className="px-1 text-xs text-muted-foreground">{note}</p>
         )}
       </form>
     </MentionBoard.Provider>

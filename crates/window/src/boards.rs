@@ -69,6 +69,24 @@ pub struct SpaceBoard {
     pub board_id: String,
     pub name: String,
     pub tag: String,
+    /// The board's description (card #690): optional free text, often
+    /// the end result it is for. Absent with none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub description: String,
+    /// Closed: read-only and out of the pickers and tiles (card #690).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub closed: bool,
+    /// When it was closed (RFC 3339), while it is.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub closed_at: String,
+    /// Whether this person may close or reopen it: its maker or a space
+    /// owner (anyone in Personal), never a first board.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[specta(optional)]
+    pub may_close: bool,
 }
 
 /// One current member in a board's summary (card #268).
@@ -159,6 +177,10 @@ impl From<irori_core::SpaceBoard> for SpaceBoard {
             board_id: b.board_id,
             name: b.name,
             tag: b.tag,
+            description: b.description,
+            closed: b.closed,
+            closed_at: b.closed_at,
+            may_close: b.may_close,
         }
     }
 }
@@ -308,8 +330,70 @@ impl Window {
         name: &str,
         tag: &str,
     ) -> Result<BoardSummary, String> {
+        self.boards_add_to_space_with(space_id, name, tag, "")
+    }
+
+    /// [`Self::boards_add_to_space`] with the new board's description
+    /// (card #690), on its one create row; empty for none.
+    pub fn boards_add_to_space_with(
+        &self,
+        space_id: &str,
+        name: &str,
+        tag: &str,
+        description: &str,
+    ) -> Result<BoardSummary, String> {
         self.core
-            .create_space_board(space_id, name, &crate::trim(tag).to_lowercase())
+            .create_space_board_with(
+                space_id,
+                name,
+                &crate::trim(tag).to_lowercase(),
+                description,
+            )
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Sets a board's description in space `space_id`, its first board's
+    /// too (card #690); empty clears it. Any member may. Refused on a
+    /// closed board and until every member device stores the row.
+    pub fn boards_set_description_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        description: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .set_space_board_description(space_id, board_id, description)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Closes a board of space `space_id` (card #690): its maker or a
+    /// space owner, never the first board. `open_cards` says what happens
+    /// to its open cards: "keep" (refused while any is open), "move" (to
+    /// board `move_to`, the space's id for its first) or "cancel".
+    pub fn boards_close_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+        open_cards: &str,
+        move_to: &str,
+    ) -> Result<BoardSummary, String> {
+        let open = open_cards_of(open_cards, move_to)?;
+        self.core
+            .close_space_board(space_id, board_id, open)
+            .map_err(text)?;
+        self.boards_find(space_id)
+    }
+
+    /// Reopens a closed board of space `space_id` (card #690).
+    pub fn boards_reopen_in_space(
+        &self,
+        space_id: &str,
+        board_id: &str,
+    ) -> Result<BoardSummary, String> {
+        self.core
+            .reopen_space_board(space_id, board_id)
             .map_err(text)?;
         self.boards_find(space_id)
     }
@@ -352,9 +436,56 @@ impl Window {
 
     /// Adds board `name` (tag `tag`) to Personal, and returns its boards.
     pub fn boards_add_to_personal(&self, name: &str, tag: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.boards_add_to_personal_with(name, tag, "")
+    }
+
+    /// [`Self::boards_add_to_personal`] with a description (card #690).
+    pub fn boards_add_to_personal_with(
+        &self,
+        name: &str,
+        tag: &str,
+        description: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
         self.core
-            .create_personal_board(name, &crate::trim(tag).to_lowercase())
+            .create_personal_board_with(name, &crate::trim(tag).to_lowercase(), description)
             .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Sets the description of one of Personal's boards, its default too
+    /// (card #690), and returns its boards.
+    pub fn boards_set_description_in_personal(
+        &self,
+        board_id: &str,
+        description: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        self.core
+            .set_personal_board_description(board_id, description)
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Closes one of Personal's boards, never its default (card #690), and
+    /// returns its boards. `open_cards` and `move_to` as for
+    /// [`Self::boards_close_in_space`], [`irori_core::PERSONAL_BOARD`]
+    /// naming the default board.
+    pub fn boards_close_in_personal(
+        &self,
+        board_id: &str,
+        open_cards: &str,
+        move_to: &str,
+    ) -> Result<Vec<SpaceBoard>, String> {
+        let open = open_cards_of(open_cards, move_to)?;
+        self.core
+            .close_personal_board(board_id, open)
+            .map_err(text)?;
+        self.boards_personal()
+    }
+
+    /// Reopens one of Personal's closed boards (card #690), and returns
+    /// its boards.
+    pub fn boards_reopen_in_personal(&self, board_id: &str) -> Result<Vec<SpaceBoard>, String> {
+        self.core.reopen_personal_board(board_id).map_err(text)?;
         self.boards_personal()
     }
 
@@ -867,4 +998,24 @@ fn conflict_line(
         by = f.to_uppercase() + &by[1..];
     }
     format!("{by} {what}{of} didn't take: {}", c.reason)
+}
+
+/// What closing a board does with its open cards, as the window sends it
+/// (card #690): "keep", "move" (to board `move_to`) or "cancel".
+fn open_cards_of(open_cards: &str, move_to: &str) -> Result<irori_core::OpenCards, String> {
+    match crate::trim(open_cards) {
+        "" | "keep" => Ok(irori_core::OpenCards::Keep),
+        "cancel" => Ok(irori_core::OpenCards::Cancel),
+        "move" if !crate::trim(move_to).is_empty() => Ok(irori_core::OpenCards::MoveTo(
+            crate::trim(move_to).to_string(),
+        )),
+        "move" => Err(format!(
+            "{}: pick a board to move the open cards to",
+            coord::ErrorKind::Invalid.text()
+        )),
+        other => Err(format!(
+            "{}: open cards are kept, moved or canceled, not {other:?}",
+            coord::ErrorKind::Invalid.text()
+        )),
+    }
 }

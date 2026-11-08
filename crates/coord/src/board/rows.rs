@@ -29,6 +29,9 @@ crate::go_struct! {
         /// A thread started from a message in this Talk channel (card
         /// #454): its `ch_` id.
         pub channel: String = "channel" "omit",
+        /// A thread the Office Assistant posted for the person (card #991):
+        /// it keeps the title it was posted with. No mark: the person's.
+        pub assistant: bool = "assistant" "omit",
     }
 }
 
@@ -57,6 +60,9 @@ crate::go_struct! {
         /// device it was typed on, or its parent's; empty for any side
         /// (and every older card). Private log only.
         pub side: String = "side" "omit",
+        /// The person named it by hand on the card it comes from (card
+        /// #779); the fold keeps it only on a person's row.
+        pub title_by_person: bool = "titleByPerson" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
@@ -442,6 +448,26 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// task.weight (card #963): a card's weight, or `level: ""` to clear
+    /// it. Who set it is never taken from the row: the fold works it out
+    /// from the writer.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct TaskWeightRow {
+        pub task_id: String = "taskId",
+        pub level: String = "level",
+        pub reason: String = "reason" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+        /// On Irori's own row (card #965): the weight it replaced, for the
+        /// person's Undo. In the row, as rows can fold out of order.
+        pub was_level: String = "wasLevel" "omit",
+        pub was_reason: String = "wasReason" "omit",
+        /// "up" or "down" when the card's agent moved it (card #966).
+        pub moved: String = "moved" "omit",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TaskArchivedRow {
         pub task_id: String = "taskId",
@@ -516,6 +542,12 @@ crate::go_struct! {
         pub seen: BTreeMap<String, i64> = "seen" "omit",
         pub was: String = "was" "omit",
         pub handed: bool = "handed" "omit",
+        /// An agent's own thread its opener gave to a fresh agent (card
+        /// #1027): it waits for that agent instead of resting.
+        pub fresh: bool = "fresh" "omit",
+        /// The opener gave the thread away: it no longer hears the
+        /// person's replies. Sticks once written.
+        pub gave: bool = "gave" "omit",
         pub at: GoTime = "at",
     }
 }
@@ -707,6 +739,10 @@ crate::go_struct! {
         pub worktree: String = "worktree" "omit",
         pub model: String = "model" "omit",
         pub effort: String = "effort" "omit",
+        /// The weight this attempt runs at, and whether the advisor was on
+        /// where it was asked for (card #966).
+        pub weight: String = "weight" "omit",
+        pub advisor: bool = "advisor" "omit",
         pub permission_mode: String = "permissionMode",
         pub name: String = "name" "omit",
         pub reason: String = "reason" "omit",

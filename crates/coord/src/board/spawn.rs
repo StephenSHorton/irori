@@ -114,6 +114,10 @@ pub struct Spawn {
     pub worktree: String,
     pub model: String,
     pub effort: String,
+    /// The weight it runs at (card #966); empty on older rows.
+    pub weight: String,
+    /// Whether the advisor was on where it was asked for (card #966).
+    pub advisor: bool,
     pub permission_mode: String,
     pub name: String,
     pub reason: String,
@@ -172,6 +176,9 @@ pub struct SpawnAsk {
     pub worktree: String,
     pub model: String,
     pub effort: String,
+    /// The weight it runs at, and whether the advisor is on (card #966).
+    pub weight: String,
+    pub advisor: bool,
     pub permission_mode: String,
     pub name: String,
     /// The person's words for the agent's brief, for the device that
@@ -297,6 +304,21 @@ impl Fold {
             self.ignore(&ev.device_id);
             return;
         }
+        if p.op == SPAWN_REQUESTED
+            && p.step.is_empty()
+            && p.subtask.is_empty()
+            && !p.weight.is_empty()
+        {
+            self.runs.entry(p.task_id.clone()).or_default().insert(
+                p.generation,
+                super::runs::Run {
+                    weight: p.weight.clone(),
+                    model: p.model.clone(),
+                    effort: p.effort.clone(),
+                    advisor: p.advisor,
+                },
+            );
+        }
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             return;
         };
@@ -311,6 +333,8 @@ impl Fold {
             worktree: p.worktree,
             model: p.model,
             effort: p.effort,
+            weight: p.weight,
+            advisor: p.advisor,
             permission_mode: p.permission_mode,
             name: p.name,
             reason: p.reason,
@@ -493,6 +517,8 @@ impl Fold {
                 worktree: a.worktree,
                 model: a.model,
                 effort: a.effort,
+                weight: a.weight,
+                advisor: a.advisor,
                 permission_mode: a.permission_mode,
                 name: a.name,
                 reason: String::new(),
@@ -800,7 +826,9 @@ impl Fold {
             // An agent's own thread starts one only on its person's post
             // (card #631), so its opener's mark doesn't carry.
             None => {
-                t.ask.as_ref().is_none_or(|a| a.opener.is_empty())
+                t.ask
+                    .as_ref()
+                    .is_none_or(|a| a.opener.is_empty() || a.fresh)
                     && self.spawned.get(&t.created_by).is_some_and(|m| m.counted)
             }
         }
@@ -1262,6 +1290,8 @@ impl Fold {
             .tasks
             .values()
             .filter(|t| self.mine_to_serve(t) && self.given_starts(t))
+            // A closed board's stray card starts nothing (card #690).
+            .filter(|t| !self.board_closed(&t.board))
             .filter(|t| t.given.as_ref().is_some_and(|g| g.asker == self.dev))
             .filter(|t| self.runs_here(t))
             .filter(|t| t.spawn_crashes < self.crash_limit())
@@ -1347,9 +1377,14 @@ impl Fold {
     /// person posted on can tell them. A request past its grace isn't
     /// starting: the device it named went away.
     pub(crate) fn waits_for_agent(&self, t: &Task) -> bool {
+        self.spawning_on() && self.would_wait_for_agent(t)
+    }
+
+    /// [`Self::waits_for_agent`] without this device's own spawning switch:
+    /// another computer goes by its own (card #995).
+    pub(crate) fn would_wait_for_agent(&self, t: &Task) -> bool {
         let now = self.stamp();
-        if !self.spawning_on()
-            || !self.persons_card(t)
+        if !self.persons_card(t)
             || t.spawn_request()
                 .is_some_and(|s| s.pending() && !s.stale(&now))
             || t.spawn_crashes >= self.crash_limit()
@@ -1445,6 +1480,9 @@ impl Fold {
             // Only on a device that runs the card's side (card #495),
             // unless the person asked for an agent on it here.
             .filter(|t| self.runs_here(t) || self.spawn_now.contains(&t.id))
+            // A card on a closed board starts no agent (card #690): an
+            // older device can still put one there.
+            .filter(|t| !self.board_closed(&t.board))
             .filter(|t| t.spawn_crashes < self.crash_limit())
             .filter(|t| !self.ask_resting(t))
             .filter(|t| !self.waits_for_lead(t))
@@ -1470,7 +1508,7 @@ impl Fold {
         if self.spawn_now.contains(&t.id)
             || (t.parent.is_empty() && self.is_owner(&t.created_by) && !self.in_chain(t))
             // An agent's thread its person wrote in is theirs (card #631).
-            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty())
+            || (t.ask.as_ref().is_some_and(|a| a.thread && !a.opener.is_empty() && !a.fresh)
                 && !self.agent_thread_rests(t))
         {
             0

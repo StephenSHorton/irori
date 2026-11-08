@@ -342,6 +342,10 @@ impl Fold {
         }
         let t = self.open_task(id)?.clone();
         self.check_parent(id, "")?;
+        // A closed board takes no card, adopted ones included (card #690).
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         let may_spawn = self.may_spawn_by(&t, &by);
         let mut placed: Vec<String> = Vec::new();
         let mut made = Vec::with_capacity(subs.len());
@@ -354,6 +358,8 @@ impl Fold {
                 title: s.title.clone(),
                 objective: s.objective.clone(),
                 done_criteria: s.done_criteria.clone(),
+                weight: s.weight.clone(),
+                weight_reason: s.weight_reason.clone(),
                 ..NewTask::default()
             };
             for raw in &s.steps {
@@ -400,6 +406,9 @@ impl Fold {
         for (i, nt) in made.iter().enumerate() {
             let mut ct =
                 clean_new(&by, nt).map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
+            // Every subtask's weight is checked before the first is made.
+            self.check_new_weight(&by, &ct.weight, &ct.weight_reason)
+                .map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
             ct.parent = id.into();
             ct.spawn = marks[i];
             // A part runs on its parent's side (card #494).
@@ -760,6 +769,10 @@ impl Fold {
         t.pinned = r.pinned;
         t.pin_rank = if r.pinned { r.rank } else { 0.0 };
         t.paused = self.is_paused(&t.id);
+        t.weight = self.weight_of(&t.id);
+        if let Some(s) = self.weights.get(&t.id) {
+            s.sync_marks(t);
+        }
     }
 
     pub(crate) fn pin(

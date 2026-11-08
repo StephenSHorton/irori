@@ -35,6 +35,40 @@ pub struct RunningAgent {
     pub started_at: i64,
 }
 
+/// Token counts for one session (card #1020), a transcript's, so only this
+/// device's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTokens {
+    /// Every kind added up.
+    #[specta(type = f64)]
+    pub total: u64,
+    #[specta(type = f64)]
+    pub input: u64,
+    #[specta(type = f64)]
+    pub output: u64,
+    #[specta(type = f64)]
+    pub cache_read: u64,
+    #[specta(type = f64)]
+    pub cache_write: u64,
+}
+
+/// What is known of one agent's model, effort and tokens, for its hover card
+/// (card #1020). A field that isn't known is empty or left out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUsage {
+    /// The model Irori asked for ("sonnet"), else the one its transcript
+    /// last answered with ("claude-opus-5-5"); `""` when unknown.
+    pub model: String,
+    /// The effort Irori asked for; `""` for an agent it didn't start.
+    pub effort: String,
+    /// Read from its transcript: only for an agent on this device.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub tokens: Option<AgentTokens>,
+}
+
 /// What Settings › Agents shows for one board.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +89,19 @@ pub struct AgentsSettings {
     pub efforts: Vec<String>,
     pub default_model: String,
     pub default_effort: String,
+    /// What a light card's agent starts with (card #963): the board's
+    /// pick, or what the light row works out by itself (Sonnet at no more
+    /// than medium effort).
+    pub light_model: String,
+    pub light_effort: String,
+    /// A heavy card's: the board's pick, or Opus at no less than high.
+    pub heavy_model: String,
+    pub heavy_effort: String,
+    /// The office assistant's chat model and effort (card #1014), and the
+    /// models it offers (the efforts are `efforts`).
+    pub assistant_model: String,
+    pub assistant_effort: String,
+    pub assistant_models: Vec<String>,
     /// The idle limit in minutes (card #456, sa-6): how long a spawned
     /// agent waits on an unanswered question before it hands off and goes.
     pub idle_mins: u32,
@@ -101,6 +148,29 @@ pub struct AgentsPauseView {
     pub by: String,
 }
 
+/// One names theme in Settings › Agents (card #702), with its switch.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NamesThemeChoice {
+    pub id: String,
+    pub label: String,
+    /// New names may come from it: every theme is on until the person
+    /// turns it off.
+    pub on: bool,
+    /// How many words it has.
+    pub words: u32,
+    /// A few of them, for the hint.
+    pub sample: Vec<String>,
+}
+
+/// The themes new agents' names come from (card #702): the person's, on all
+/// their devices, set here and never by a tool.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NamesThemesView {
+    pub themes: Vec<NamesThemeChoice>,
+}
+
 /// The idle limits offered, in minutes; 30 is the default.
 pub const IDLE_CHOICES: [u32; 5] = [10, 30, 60, 120, 240];
 
@@ -116,6 +186,23 @@ pub struct AgentsChange {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    /// A light or heavy card's model and effort (card #963); `""`, or the
+    /// value the row works out by itself, stores nothing, so the row keeps
+    /// following the board's normal pick and the defaults.
+    #[serde(default)]
+    pub light_model: Option<String>,
+    #[serde(default)]
+    pub light_effort: Option<String>,
+    #[serde(default)]
+    pub heavy_model: Option<String>,
+    #[serde(default)]
+    pub heavy_effort: Option<String>,
+    /// The office assistant's model and effort (card #1014); the default
+    /// stores nothing.
+    #[serde(default)]
+    pub assistant_model: Option<String>,
+    #[serde(default)]
+    pub assistant_effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
     #[serde(default)]
@@ -124,7 +211,23 @@ pub struct AgentsChange {
     pub start_tries: Option<u32>,
 }
 
+/// One row of Settings › Agents' history (card #966): attempts the person
+/// answered on one weight, model and effort.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunHistoryRow {
+    pub weight: String,
+    pub model: String,
+    pub effort: String,
+    pub runs: u32,
+    pub first_try: u32,
+    pub sent_back: u32,
+    pub advised: u32,
+}
+
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
+    let (light_model, light_effort) = s.pick(coord::WEIGHT_LIGHT);
+    let (heavy_model, heavy_effort) = s.pick(coord::WEIGHT_HEAVY);
     AgentsSettings {
         board_id: s.board_id.clone(),
         on: s.on,
@@ -135,6 +238,16 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         efforts: spawn::EFFORTS.iter().map(|e| (*e).into()).collect(),
         default_model: spawn::DEFAULT_MODEL.into(),
         default_effort: spawn::DEFAULT_EFFORT.into(),
+        light_model: light_model.into(),
+        light_effort: light_effort.into(),
+        heavy_model: heavy_model.into(),
+        heavy_effort: heavy_effort.into(),
+        assistant_model: s.assistant_model().into(),
+        assistant_effort: s.assistant_effort().into(),
+        assistant_models: spawn::ASSISTANT_MODELS
+            .iter()
+            .map(|m| (*m).into())
+            .collect(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
@@ -163,6 +276,33 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
     if let Some(e) = c.effort {
         s.effort = e;
     }
+    // After the normal pick, which the light and heavy rows follow.
+    let rows: [(Option<String>, &str, bool); 4] = [
+        (c.light_model, coord::WEIGHT_LIGHT, true),
+        (c.light_effort, coord::WEIGHT_LIGHT, false),
+        (c.heavy_model, coord::WEIGHT_HEAVY, true),
+        (c.heavy_effort, coord::WEIGHT_HEAVY, false),
+    ];
+    for (v, level, model) in rows {
+        let Some(v) = v else { continue };
+        // What the row works out with nothing stored: picking it stores
+        // nothing, so a later change to the normal pick or a default
+        // reaches it (as the idle limit's default is stored as 0).
+        let mut empty = s.clone();
+        *weight_field(&mut empty, level, model) = String::new();
+        let (m, e) = empty.pick(level);
+        let by_itself = if model { m } else { e };
+        let v = if v == by_itself { String::new() } else { v };
+        *weight_field(&mut s, level, model) = v;
+    }
+    // Stored as "" at the default, so a later default change reaches it.
+    let unless = |v: String, def: &str| if v == def { String::new() } else { v };
+    if let Some(m) = c.assistant_model {
+        s.assistant_model = unless(m, spawn::ASSISTANT_MODEL);
+    }
+    if let Some(e) = c.assistant_effort {
+        s.assistant_effort = unless(e, spawn::ASSISTANT_EFFORT);
+    }
     if let Some(m) = c.idle_mins {
         // The default is stored as 0, so a later default change reaches it.
         let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
@@ -181,6 +321,16 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         s.start_tries = stored(n, i64::from(irori_core::spawn_stop::SPAWN_TRIES));
     }
     s
+}
+
+/// The light or heavy row's model or effort field.
+fn weight_field<'a>(s: &'a mut SpawnSetting, level: &str, model: bool) -> &'a mut String {
+    match (level == coord::WEIGHT_HEAVY, model) {
+        (false, true) => &mut s.light_model,
+        (false, false) => &mut s.light_effort,
+        (true, true) => &mut s.heavy_model,
+        (true, false) => &mut s.heavy_effort,
+    }
 }
 
 /// One device's cap in Settings › Agents (card #450, sa-6).
@@ -238,6 +388,25 @@ fn valid_idle(c: &AgentsChange) -> Result<(), String> {
 
 impl Window {
     /// Settings › Agents for a board (`""`: the private board).
+    /// How this person's cards ended, by weight, model and effort (card
+    /// #966): their private board's.
+    pub fn agents_history(&self) -> Vec<RunHistoryRow> {
+        self.core
+            .coord()
+            .run_tally()
+            .into_iter()
+            .map(|r| RunHistoryRow {
+                weight: r.weight,
+                model: r.model,
+                effort: r.effort,
+                runs: r.runs,
+                first_try: r.first_try,
+                sent_back: r.sent_back,
+                advised: r.advised,
+            })
+            .collect()
+    }
+
     pub fn agents_settings(&self, board_id: &str) -> AgentsSettings {
         view(
             &self.core.spawn_setting(board_id),
@@ -294,6 +463,44 @@ impl Window {
             cwd,
             command: Some(argv),
         })
+    }
+
+    /// An agent's model, effort and tokens (card #1020). The model and effort
+    /// are the spawn record's, which every device has for an agent Irori
+    /// started; the tokens come from the transcript, so only for an agent on
+    /// this device. What isn't known is left empty.
+    pub fn agent_usage(&self, key: &str) -> AgentUsage {
+        let co = self.core.coord();
+        let req = co.spawned(key).and_then(|sp| {
+            co.get_task(&sp.task_id).and_then(|t| {
+                t.spawns
+                    .iter()
+                    .find(|s| s.key == key)
+                    .or_else(|| t.spawn_request())
+                    .cloned()
+            })
+        });
+        let mut out = AgentUsage {
+            model: req.as_ref().map(|r| r.model.clone()).unwrap_or_default(),
+            effort: req.as_ref().map(|r| r.effort.clone()).unwrap_or_default(),
+            tokens: None,
+        };
+        let (dev, session) = key.split_once('/').unwrap_or(("", key));
+        if dev == self.core.device_id()
+            && let Some(u) = COSTS.usage(&self.core.claude_dir(), session)
+        {
+            if out.model.is_empty() {
+                out.model = u.model;
+            }
+            out.tokens = Some(AgentTokens {
+                total: u.tokens.total(),
+                input: u.tokens.input,
+                output: u.tokens.output,
+                cache_read: u.tokens.cache_read,
+                cache_write: u.tokens.cache_write,
+            });
+        }
+        out
     }
 
     /// Every agent Irori started that is still running, and every card an
@@ -397,9 +604,34 @@ impl Window {
         }
     }
 
-    /// The person turns Pause agents on or off for this device.
+    /// The themes new agents' names come from (card #702), each with its
+    /// switch.
+    pub fn names_themes(&self) -> NamesThemesView {
+        let off = self.core.names_themes_off();
+        NamesThemesView {
+            themes: coord::names::THEMES
+                .iter()
+                .map(|t| NamesThemeChoice {
+                    id: t.id.into(),
+                    label: t.label.into(),
+                    on: !off.iter().any(|o| o == t.id),
+                    words: t.words.len() as u32,
+                    sample: t.sample.iter().map(|w| (*w).into()).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    /// The person turns a theme on or off: the app only, never a tool.
+    pub fn names_theme_set(&self, id: &str, on: bool) -> Result<NamesThemesView, String> {
+        self.core.set_names_theme(crate::trim(id), on)?;
+        Ok(self.names_themes())
+    }
+
+    /// The person turns Pause agents on or off for this device: a graceful
+    /// stop, its agents wound down (card #787).
     pub fn agents_pause_set(&self, on: bool) -> Result<AgentsPauseView, String> {
-        self.core.set_agents_paused(on)?;
+        self.pause_here(on)?;
         let v = self.agents_pause();
         self.emit(EVENT_AGENTS_PAUSED, &v);
         Ok(v)
@@ -570,5 +802,56 @@ mod tests {
             ("sonnet", "medium", false)
         );
         assert_eq!(v.models[0], "sonnet");
+        assert!(!v.models.iter().any(|m| m == "haiku"));
+        assert_eq!(
+            (
+                v.light_model.as_str(),
+                v.light_effort.as_str(),
+                v.heavy_model.as_str(),
+                v.heavy_effort.as_str()
+            ),
+            ("sonnet", "medium", "opus", "high")
+        );
+    }
+
+    #[test]
+    fn a_weight_row_at_what_it_works_out_by_itself_stores_nothing() {
+        let c = |m: &str, e: &str| AgentsChange {
+            heavy_model: Some(m.into()),
+            heavy_effort: Some(e.into()),
+            ..AgentsChange::default()
+        };
+        let s = apply(SpawnSetting::default(), c("opus", "max"));
+        assert_eq!(
+            (s.heavy_model.as_str(), s.heavy_effort.as_str()),
+            ("", "max")
+        );
+        let s = apply(s, c("opus", "high"));
+        assert_eq!((s.heavy_model.as_str(), s.heavy_effort.as_str()), ("", ""));
+        // The normal effort set in the same change is what heavy follows:
+        // with normal at xhigh, heavy works out xhigh, so xhigh stores "".
+        let s = apply(
+            s,
+            AgentsChange {
+                effort: Some("xhigh".into()),
+                heavy_effort: Some("xhigh".into()),
+                light_model: Some("opus".into()),
+                light_effort: Some("".into()),
+                ..AgentsChange::default()
+            },
+        );
+        assert_eq!(
+            (
+                s.heavy_effort.as_str(),
+                s.light_model.as_str(),
+                s.light_effort.as_str()
+            ),
+            ("", "opus", "")
+        );
+        let v = view(&s, true);
+        assert_eq!(
+            (v.heavy_effort.as_str(), v.light_effort.as_str()),
+            ("xhigh", "medium")
+        );
     }
 }
