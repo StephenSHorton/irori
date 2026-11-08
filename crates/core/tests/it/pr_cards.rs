@@ -315,6 +315,17 @@ fn a_pr_card_is_made_in_the_shared_space_and_hears_github() {
     assert_eq!(private_links(b, 99).len(), 1, "his own PR still gets one");
 
     // An unchanged PR writes nothing: no new gh view, no new row.
+    // (The desks loop polls on its own at the start, beside these test
+    // polls; let any such write land first.)
+    let mut last = usize::MAX;
+    wait_for(WAIT, "the rows to settle", || {
+        poll(a);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let n = pr_state_rows(a, &s.board);
+        let same = n == last;
+        last = n;
+        same
+    });
     let (views, rows) = (s.gh_a.views(), pr_state_rows(a, &s.board));
     poll(a);
     poll(a);

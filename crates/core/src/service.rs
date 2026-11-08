@@ -4365,6 +4365,7 @@ impl Services {
                 Verdict::NewCard(_)
                     if !p.author.is_empty()
                         && !desk.settings.reviews_off
+                        && crate::prcard::needs_card(p, &[])
                         && others.iter().any(|l| l.eq_ignore_ascii_case(&p.author)) =>
                 {
                     None

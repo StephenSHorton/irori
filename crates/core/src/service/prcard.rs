@@ -299,7 +299,14 @@ impl Services {
         let said: Vec<&str> = said.iter().map(String::as_str).collect();
         let own = self.own_github_login();
         for post in prcard::relay(p.number, &p.url, a, &members, &own, p.created_at, &said) {
-            self.desk_post(&co, &m.task_id, p.number, &post.text, true, Vec::new());
+            // A post the board refused went out as a notice once: not again.
+            let tag: String = post.text.chars().take(80).collect();
+            if self.desk_watch.fell_back(&m.task_id, &tag) {
+                continue;
+            }
+            if !self.desk_post(&co, &m.task_id, p.number, &post.text, true, Vec::new()) {
+                self.desk_watch.fall_back(&m.task_id, &tag);
+            }
         }
     }
 

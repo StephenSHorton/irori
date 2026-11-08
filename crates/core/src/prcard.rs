@@ -326,13 +326,20 @@ pub fn relay(
         }
     }
     let mut out = Vec::new();
+    // Older than the newest already told is skipped for good: the cap below
+    // must not turn a backlog into five more at every poll.
+    let told = |c: &PrComment| {
+        said.iter()
+            .any(|t| t.starts_with(&comment_prefix(n, &c.id)))
+    };
+    let newest_told = trusted
+        .iter()
+        .filter(|c| told(c))
+        .map(|c| c.at.unix_milli_value())
+        .max();
     let new: Vec<&&PrComment> = trusted
         .iter()
-        .filter(|c| {
-            !said
-                .iter()
-                .any(|t| t.starts_with(&comment_prefix(n, &c.id)))
-        })
+        .filter(|c| !told(c) && newest_told.is_none_or(|t| c.at.unix_milli_value() > t))
         .collect();
     let skip = new.len().saturating_sub(MAX_RELAYED);
     for c in new.into_iter().skip(skip) {
@@ -632,6 +639,27 @@ mod tests {
         assert_eq!(posts.len(), MAX_RELAYED);
         assert!(posts.last().unwrap().text.contains("note 11"));
         assert!(posts[0].text.contains("note 7"));
+    }
+
+    #[test]
+    fn a_backlog_is_not_fed_five_at_a_poll() {
+        let comments = (0..12)
+            .map(|i| PrComment {
+                id: format!("IC_{i:02}"),
+                login: "bob".into(),
+                association: "MEMBER".into(),
+                body: format!("note {i}"),
+                at: GoTime::unix_milli(1_000 + i),
+                review: String::new(),
+            })
+            .collect();
+        let a = Activity {
+            comments,
+            ..Activity::default()
+        };
+        let first = relay(1, "u", &a, &[], "alice", GoTime::default(), &[]);
+        let said: Vec<&str> = first.iter().map(|p| p.text.as_str()).collect();
+        assert!(relay(1, "u", &a, &[], "alice", GoTime::default(), &said).is_empty());
     }
 
     #[test]
