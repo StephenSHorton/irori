@@ -16,6 +16,7 @@ import { createPortal } from "react-dom"
 import {
   ArrowUpIcon,
   CheckIcon,
+  CornerDownRightIcon,
   Loader2Icon,
   MessageCircleIcon,
   SquareIcon,
@@ -35,23 +36,29 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  answerAsk,
   ask,
   assistantState,
   autoAsk,
   liftOver,
   newChat,
   postDraft,
+  replyOn,
   replyText,
   setAssistantOpen,
   splitDraft,
+  startFollowing,
   stopAsking,
   subscribeAssistant,
   suggestions,
+  type Act,
   type Box,
   type ChatEntry,
   type Posted,
   type Reply,
+  type WorkThread,
 } from "@/lib/assistant"
+import { BlockerState, useCard } from "@/lib/cards"
 import { composing } from "@/lib/mentions"
 import { errorText } from "@/lib/talk"
 import { cn } from "@/lib/utils"
@@ -117,6 +124,10 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
     [ctx, narrow, close]
   )
 
+  // The chat follows the threads it posted for the window's life (card
+  // #785), panel open or not: its lines light the button's dot.
+  useEffect(() => startFollowing(), [])
+
   // A window check's ?assistant-ask (lib/assistant.ts autoAsk).
   useEffect(() => {
     autoAsk((p) => cards?.onOpenThread(p.id))
@@ -133,6 +144,7 @@ export function AssistantChat({ narrow, at }: { narrow: boolean; at: string }) {
           ref={panelRef}
           entries={s.entries}
           reply={s.reply}
+          work={s.work}
           narrow={narrow}
           onAsk={(t) => void ask(t)}
           onStop={stopAsking}
@@ -329,6 +341,7 @@ export function AssistantPanel({
   ref,
   entries,
   reply,
+  work = {},
   narrow,
   onAsk,
   onStop,
@@ -340,6 +353,8 @@ export function AssistantPanel({
   ref?: Ref<HTMLDivElement>
   entries: ChatEntry[]
   reply: Reply | null
+  // The work of the threads the chat posted (card #785).
+  work?: Record<string, WorkThread>
   narrow: boolean
   onAsk: (text: string) => void
   onStop: () => void
@@ -358,8 +373,19 @@ export function AssistantPanel({
   // The newest message stays in view as the reply comes in.
   const last = entries.length
   const growing = reply ? reply.text.length + reply.status.length : -1
-  // A draft just posted shows its "Posted as #N" line.
-  const posted = entries.filter((e) => e.posted).length
+  // A draft just posted shows its "Posted as #N" line, and the cards
+  // made from it as they come.
+  const posted =
+    entries.filter((e) => e.posted).length +
+    Object.values(work).reduce((n, w) => n + w.cards.length, 0)
+  // Each posted thread's #ref, for a reply sent on it.
+  const refs = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of entries)
+      if (e.posted)
+        m.set(e.posted.id, `${e.posted.tag ?? ""}#${e.posted.short}`)
+    return m
+  }, [entries])
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
   }, [last, growing, posted])
@@ -460,7 +486,13 @@ export function AssistantPanel({
         ) : (
           <div ref={list} className="flex flex-col gap-4">
             {entries.map((e, i) => (
-              <Entry key={i} entry={e} onPost={() => onPost(i)} />
+              <Entry
+                key={i}
+                entry={e}
+                work={e.posted ? work[e.posted.id] : undefined}
+                threadRef={e.update ? (refs.get(e.update) ?? "") : ""}
+                onPost={() => onPost(i)}
+              />
             ))}
             {reply && <Answering reply={reply} />}
           </div>
@@ -567,9 +599,15 @@ function Starters({ onPick }: { onPick: (q: string) => void }) {
 
 function Entry({
   entry,
+  work,
+  threadRef,
   onPost,
 }: {
   entry: ChatEntry
+  // A posted draft's thread, as last read.
+  work?: WorkThread
+  // An update's thread, as the chat cites it.
+  threadRef: string
   onPost: () => Promise<void>
 }) {
   if (entry.role === "person")
@@ -577,11 +615,17 @@ function Entry({
       <Message align="end">
         <Bubble align="end" className="max-w-[85%]">
           <BubbleContent className="py-1.5 whitespace-pre-wrap">
+            {entry.to && (
+              <span className="mb-0.5 block text-[11.5px] opacity-75">
+                Reply on {entry.to}
+              </span>
+            )}
             {entry.text}
           </BubbleContent>
         </Bubble>
       </Message>
     )
+  if (entry.update) return <Update entry={entry} threadRef={threadRef} />
   if (entry.note)
     return (
       <p className="text-[12.5px] text-muted-foreground" data-note="">
@@ -599,6 +643,7 @@ function Entry({
           <DraftThread
             draft={draft}
             posted={entry.posted}
+            work={work}
             onPost={partial ? undefined : onPost}
             cut={partial}
           />
@@ -614,11 +659,14 @@ function Entry({
 function DraftThread({
   draft,
   posted,
+  work,
   onPost,
   cut,
 }: {
   draft: string
   posted?: Posted
+  // What came of it since (card #785): who took it, the cards made.
+  work?: WorkThread
   // Without it there is no Post thread (the draft is being written).
   onPost?: () => Promise<void>
   // The draft was cut short.
@@ -652,21 +700,24 @@ function DraftThread({
         <RichText text={draft} />
       </div>
       {posted ? (
-        <p className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted-foreground">
-          <CheckIcon className="size-3.5 text-success" aria-hidden />
-          Posted{posted.short ? ` as #${posted.short}` : ""}.
-          {cards && (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto p-0 text-[12.5px]"
-              onClick={() => (cards.onOpenThread ?? cards.onOpen)(posted.id)}
-            >
-              Open it
-            </Button>
-          )}
-        </p>
+        <>
+          <p className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted-foreground">
+            <CheckIcon className="size-3.5 text-success" aria-hidden />
+            Posted{posted.short ? ` as #${posted.short}` : ""}.
+            {cards && (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-[12.5px]"
+                onClick={() => (cards.onOpenThread ?? cards.onOpen)(posted.id)}
+              >
+                Open it
+              </Button>
+            )}
+          </p>
+          {work && <WorkLine work={work} />}
+        </>
       ) : onPost ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -722,4 +773,262 @@ function Answering({ reply }: { reply: Reply }) {
       </MessageContent>
     </Message>
   )
+}
+
+// WorkLine is what came of a posted thread so far (card #785), under its
+// "Posted" line: who took it, then the cards made from it as live chips
+// (each shows its state and steps, and opens the card).
+function WorkLine({ work }: { work: WorkThread }) {
+  if (!work.cards.length)
+    return (
+      <p className="text-[12.5px] text-muted-foreground" data-assistant-work="">
+        {work.closed
+          ? "Resolved."
+          : work.taker
+            ? `${work.taker} is on it.`
+            : "Waiting for an agent to take it."}
+      </p>
+    )
+  return (
+    <div
+      className="grid gap-1 text-[12.5px] text-muted-foreground"
+      data-assistant-work=""
+    >
+      <span>Its {work.cards.length === 1 ? "card" : "cards"}:</span>
+      <RichText text={work.cards.map((c) => c.ref).join(" ")} />
+    </div>
+  )
+}
+
+// Update is a line the chat says about a thread it posted (card #785):
+// the line, its cards as chips, and what it lets the person do.
+function Update({ entry, threadRef }: { entry: ChatEntry; threadRef: string }) {
+  return (
+    <div
+      className="grid min-w-0 gap-1.5 border-l-2 border-primary/40 pl-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere]"
+      data-assistant-update=""
+    >
+      <RichText bold text={replyText(entry.text)} />
+      {entry.act && <ActRow act={entry.act} threadRef={threadRef} />}
+    </div>
+  )
+}
+
+function ActRow({ act, threadRef }: { act: Act; threadRef: string }) {
+  if (act.kind === "answer")
+    return <AnswerAsk card={act.card} blocker={act.blocker} />
+  return <ReplyOnThread thread={act.thread} threadRef={threadRef} to={act.to} />
+}
+
+// AnswerAsk is a card's open item answered from the chat, as its card
+// page does: its options as buttons (the recommended one first, filled),
+// and own words. Once answered it says so; the card has the rest.
+function AnswerAsk({ card, blocker }: { card: string; blocker: string }) {
+  const { detail } = useCard(card)
+  const b = detail?.blockers.find((x) => x.id === blocker)
+  const [busy, setBusy] = useState(-2)
+  const [error, setError] = useState("")
+  const [words, setWords] = useState<string | null>(null)
+  if (!b) return null
+  if (b.resolved || b.state === BlockerState.Resolved)
+    return <Muted>Settled.</Muted>
+  if (b.state === BlockerState.Closed) return <Muted>Closed.</Muted>
+  if (b.state === BlockerState.Answered)
+    return <Muted>Answered. Its agent has it now.</Muted>
+  const send = async (i: number, text = "") => {
+    if (busy !== -2) return
+    setBusy(i)
+    setError("")
+    try {
+      await answerAsk(card, blocker, i, text)
+      setWords(null)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(-2)
+    }
+  }
+  const options = b.optionsAside ? [] : b.options
+  return (
+    <div className="grid gap-1.5" data-assistant-answer="">
+      {options.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {options.map((o, i) => (
+            <Button
+              key={i}
+              type="button"
+              size="sm"
+              variant={o.recommended ? "default" : "outline"}
+              className="h-auto max-w-full py-1 text-left whitespace-normal"
+              disabled={busy !== -2}
+              title={o.why || undefined}
+              onClick={() => void send(i)}
+            >
+              {busy === i && (
+                <Loader2Icon
+                  className="animate-spin motion-reduce:animate-none"
+                  aria-hidden
+                />
+              )}
+              {o.answer}
+            </Button>
+          ))}
+        </div>
+      )}
+      <WordsBox
+        open={words !== null}
+        text={words ?? ""}
+        label={
+          b.doneCheck
+            ? "Say what's missing"
+            : options.length
+              ? "Answer in your own words"
+              : "Answer"
+        }
+        busy={busy === -1}
+        onOpen={() => setWords("")}
+        onText={setWords}
+        onCancel={() => setWords(null)}
+        onSend={(t) => void send(-1, t)}
+      />
+      {error && (
+        <span className="text-[12px] text-destructive" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ReplyOnThread sends the person's reply on a thread the chat posted:
+// its agents hear it, as from the thread's own box.
+function ReplyOnThread({
+  thread,
+  threadRef,
+  to,
+}: {
+  thread: string
+  threadRef: string
+  to: string
+}) {
+  const [words, setWords] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const send = async (t: string) => {
+    if (busy) return
+    setBusy(true)
+    setError("")
+    try {
+      await replyOn(thread, threadRef, t)
+      setWords(null)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="grid gap-1.5" data-assistant-reply="">
+      <WordsBox
+        open={words !== null}
+        text={words ?? ""}
+        label={to ? `Reply to ${to}` : "Reply"}
+        busy={busy}
+        onOpen={() => setWords("")}
+        onText={setWords}
+        onCancel={() => setWords(null)}
+        onSend={(t) => void send(t)}
+      />
+      {error && (
+        <span className="text-[12px] text-destructive" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// WordsBox is a link that opens into a small box for the person's own
+// words: Enter sends, Escape closes it (not the chat).
+function WordsBox({
+  open,
+  text,
+  label,
+  busy,
+  onOpen,
+  onText,
+  onCancel,
+  onSend,
+}: {
+  open: boolean
+  text: string
+  label: string
+  busy: boolean
+  onOpen: () => void
+  onText: (t: string) => void
+  onCancel: () => void
+  onSend: (t: string) => void
+}) {
+  if (!open)
+    return (
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto justify-self-start p-0 text-[12.5px]"
+        onClick={onOpen}
+      >
+        <CornerDownRightIcon aria-hidden />
+        {label}
+      </Button>
+    )
+  const send = () => {
+    if (!busy && text.trim()) onSend(text)
+  }
+  return (
+    <div className="flex items-end gap-1.5 rounded-lg border border-border bg-background/60 p-1 focus-within:border-ring">
+      <Textarea
+        autoFocus
+        autoSize
+        rows={1}
+        value={text}
+        aria-label={label}
+        placeholder={`${label}…`}
+        onChange={(e) => onText(e.target.value)}
+        onKeyDown={(e) => {
+          if (composing(e)) return
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault()
+            send()
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            e.stopPropagation()
+            onCancel()
+          }
+        }}
+        className="max-h-24 min-h-7 flex-1 border-transparent bg-transparent px-1.5 py-1 text-[13px] shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+      />
+      <Button
+        type="button"
+        size="icon"
+        className="size-7 shrink-0 rounded-md"
+        aria-label="Send"
+        disabled={busy || !text.trim()}
+        onClick={send}
+      >
+        {busy ? (
+          <Loader2Icon
+            className="animate-spin motion-reduce:animate-none"
+            aria-hidden
+          />
+        ) : (
+          <ArrowUpIcon />
+        )}
+      </Button>
+    </div>
+  )
+}
+
+function Muted({ children }: { children: string }) {
+  return <p className="text-[12.5px] text-muted-foreground">{children}</p>
 }
