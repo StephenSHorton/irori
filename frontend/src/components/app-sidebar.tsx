@@ -657,7 +657,6 @@ function SpaceGroup({
   folded: boolean
   children: ReactNode
 }) {
-  const plain = previewFlag("sidebargroup") === "plain"
   return (
     <div role="group" aria-label="This space" className="shrink-0">
       {!folded && (
@@ -665,14 +664,7 @@ function SpaceGroup({
           Space
         </h2>
       )}
-      <div
-        className={cn(
-          "grid grid-cols-[minmax(0,1fr)] gap-0.5",
-          !folded && !plain && "rounded-lg border border-border p-1"
-        )}
-      >
-        {children}
-      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-0.5">{children}</div>
     </div>
   )
 }
@@ -692,7 +684,7 @@ function Group({
   children,
 }: {
   label: string
-  // No heading on screen; the label is still its name for a screen reader.
+  // A divider line for a heading; the label is still its name for a screen reader.
   bare?: boolean
   folded: boolean
   children: ReactNode
@@ -704,7 +696,7 @@ function Group({
       className={cn(
         // One column that may shrink below its rows' text (#309).
         "grid grid-cols-[minmax(0,1fr)] gap-0.5",
-        folded ? "mt-2 border-t border-border pt-2" : "mt-4"
+        folded || bare ? "mt-2 border-t border-border pt-2" : "mt-4"
       )}
     >
       {!folded && !bare && (
