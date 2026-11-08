@@ -48,6 +48,8 @@ export function pageName(s: Section): string {
       return "Notifications"
     case "storage":
       return "Storage"
+    case "settings":
+      return "Settings"
   }
 }
 
@@ -64,6 +66,8 @@ export function openOn(s: Section): string {
       return s.repo ? `the desk of repo ${s.repo}` : "all merge desks"
     case "storage":
       return s.tab ? `the ${s.tab} tab` : "the overview"
+    case "settings":
+      return s.tab ? `the ${s.tab} section` : "the list of settings"
     case "talk":
       return s.id ? "a conversation" : "the list of conversations"
     default:
