@@ -44,7 +44,10 @@ impl Window {
 
     /// The device colours a person can pick (`devices_colors`).
     pub fn device_palette(&self) -> Vec<String> {
-        coord::devcolor::PALETTE.iter().map(|s| s.to_string()).collect()
+        coord::devcolor::PALETTE
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 
     /// Agents' own faces by name key, open-bot-avatar JSON (card #407,

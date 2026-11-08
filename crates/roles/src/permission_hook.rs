@@ -63,9 +63,13 @@ pub fn body(input: &[u8], id: &str) -> Option<serde_json::Value> {
     }))
 }
 
+/// The Core's answer is still pending: ask again.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Pending;
+
 /// The hook's stdout from the Core's answer: `Ok(None)` to say nothing,
-/// `Err(())` to ask again.
-pub fn answer(status: u16, body: &[u8]) -> Result<Option<String>, ()> {
+/// `Err(Pending)` to ask again.
+pub fn answer(status: u16, body: &[u8]) -> Result<Option<String>, Pending> {
     if status != 200 {
         return Ok(None);
     }
@@ -73,7 +77,7 @@ pub fn answer(status: u16, body: &[u8]) -> Result<Option<String>, ()> {
         return Ok(None);
     };
     match v.get("decision").and_then(|d| d.as_str()) {
-        Some("pending") => Err(()),
+        Some("pending") => Err(Pending),
         Some("allow") | Some("deny") => Ok(v.get("output").map(|o| o.to_string())),
         _ => Ok(None),
     }
@@ -122,7 +126,7 @@ fn run(input: &[u8]) -> Result<Option<String>, String> {
                     }
                     match answer(status, &b) {
                         Ok(out) => return Ok(out),
-                        Err(()) => continue,
+                        Err(Pending) => continue,
                     }
                 }
                 Err(e) => {
@@ -161,7 +165,7 @@ mod tests {
 
     #[test]
     fn answer_reads_the_cores_decision() {
-        assert_eq!(answer(200, br#"{"decision":"pending"}"#), Err(()));
+        assert_eq!(answer(200, br#"{"decision":"pending"}"#), Err(Pending));
         assert_eq!(answer(200, br#"{"decision":"none"}"#), Ok(None));
         assert_eq!(answer(503, b"{}"), Ok(None));
         assert_eq!(answer(200, b"junk"), Ok(None));

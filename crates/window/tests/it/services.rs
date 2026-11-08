@@ -1616,12 +1616,10 @@ fn a_huddles_transcript_through_the_window() {
 
 /// Card #702: Settings › Agents' theme switches through the window: every
 /// theme on at first, each with its count, a switch round-trips, an unknown
-/// theme is refused, and the view is bindings.ts's.
+/// theme is refused (its view matched bindings.ts until #674).
 #[test]
 fn the_names_themes_through_the_window() {
-    let src = std::fs::read_to_string(manifest_dir().join("../../frontend/src/gen/bindings.ts"))
-        .unwrap()
-        .replace("\r\n", "\n");
+    let src = String::new(); // no TS bindings since the frontend went (#674)
     let r = Rig::new();
     let w = &r.w;
     let v = w.names_themes();
