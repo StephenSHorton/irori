@@ -428,6 +428,43 @@ describe("workingLine", () => {
     ).toBeNull()
   })
 
+  test("an answer on a blocker, an event here, ends it", () => {
+    const answer = CardThreadItem({
+      id: "e2",
+      kind: "event",
+      who: oak,
+      text: "replied on a blocker",
+      blockerId: "b1",
+      at: at(5).toISOString(),
+    })
+    expect(
+      workingLine(
+        [oak],
+        [comment, answer],
+        roster({ "mac/oak": ["busy", 1] }),
+        at(6)
+      )
+    ).toBeNull()
+  })
+
+  test("a message from the person doesn't replace their latest comment", () => {
+    const message = CardThreadItem({
+      id: "m1",
+      kind: "message",
+      who: you,
+      text: "also this",
+      at: at(5).toISOString(),
+    })
+    expect(
+      workingLine(
+        [oak],
+        [comment, message],
+        roster({ "mac/oak": ["busy", 1] }),
+        at(6)
+      )?.text
+    ).toBe("oak is replying…")
+  })
+
   test("another agent's reply doesn't end it", () => {
     const reply = CardThreadItem({
       id: "r1",

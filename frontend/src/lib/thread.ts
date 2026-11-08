@@ -357,8 +357,9 @@ export function workingLine(
   // The person's latest comment, and what came after it.
   let p = -1
   for (let i = items.length - 1; i >= 0; i--) {
+    // Not a message: only a comment says who has read it (heardBy).
     if (
-      items[i].kind !== ThreadKind.Event &&
+      items[i].kind === ThreadKind.Comment &&
       items[i].who.status === "person"
     ) {
       p = i
@@ -372,7 +373,8 @@ export function workingLine(
 
   // By the live roster, not the card's working list: that is empty on a
   // card with an open blocker, where an answer is most awaited. A step
-  // tick isn't an answer, so only what it wrote ends this.
+  // tick isn't an answer, so only what it wrote ends this. A comment on a
+  // blocker the card keeps reaches this list as an event naming the blocker.
   const replying =
     at && now.getTime() - at.getTime() <= ReplyingCap
       ? on.filter(
@@ -380,7 +382,9 @@ export function workingLine(
             heard.includes(a.key) &&
             status(a) === "busy" &&
             !after.some(
-              (it) => it.who.key === a.key && it.kind !== ThreadKind.Event
+              (it) =>
+                it.who.key === a.key &&
+                (it.kind !== ThreadKind.Event || !!it.blockerId)
             )
         )
       : []
