@@ -960,6 +960,15 @@ impl Job {
         Ok(job)
     }
 
+    /// The turn that answers another person's question (assistants talk,
+    /// card 4): a naming turn in its own folder, with no tools.
+    pub fn answerer(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
+        let mut job = Job::namer(core, ask)?;
+        job.dir = job.dir.with_file_name(ANSWERS_DIR);
+        job.timeout = ANSWERS_TIMEOUT;
+        Ok(job)
+    }
+
     /// The turn that rewords a draft (card #981): a naming turn in its own
     /// folder, so its system prompt is never swapped under another's.
     pub fn rewriter(core: &irori_core::Core, ask: &NameAsk) -> Result<Job, String> {
@@ -996,6 +1005,11 @@ impl Job {
         })
     }
 }
+
+/// The answering turns' folder under the assistant's (assistants talk).
+pub const ANSWERS_DIR: &str = "answers";
+/// How long an answering turn may take.
+pub const ANSWERS_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The rewriting turns' folder under the assistant's (card #981).
 pub const REWRITES_DIR: &str = "rewrites";
@@ -2146,6 +2160,7 @@ impl crate::Window {
         self.names.shutdown();
         self.weighs.shutdown();
         self.rewrites.shutdown();
+        self.answers.shutdown();
         self.huddles.shutdown();
     }
 
@@ -2167,6 +2182,13 @@ impl crate::Window {
     pub fn weigh_card(&self, ask: &NameAsk) -> Result<String, String> {
         self.weighs
             .run_once(find_claude(), Job::weigher(&self.core, ask))
+    }
+
+    /// One turn that answers another person's question to the person's
+    /// assistant, on its own runner; the Core's answerer.
+    pub fn answer_question(&self, ask: &NameAsk) -> Result<String, String> {
+        self.answers
+            .run_once(find_claude(), Job::answerer(&self.core, ask))
     }
 
     /// Rewords the person's draft (card #981), on its own runner, and

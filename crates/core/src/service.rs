@@ -55,6 +55,7 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+pub mod assistant_answers;
 mod assistant_name;
 pub mod boards;
 mod boards_members;
@@ -363,6 +364,8 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// Office Assistants answering other people (assistants-talk card 4).
+    asst: assistant_answers::Answering,
     /// The assistant's held session per huddle (card #1046).
     held: huddle_session::HeldSessions,
     /// The themes new agents' names come from (card #702), shared with
@@ -1679,6 +1682,7 @@ impl Core {
             call_settings,
             naming,
             weighing,
+            asst: Default::default(),
             held: Default::default(),
             name_themes,
             invites,
@@ -2419,6 +2423,19 @@ impl Core {
             self.spawn("assistant-names-run", move || s3.names_loop(rx));
         }
         {
+            // The assistant answers other people's questions (assistants
+            // talk, card 4): one worker takes the checked questions.
+            let (tx, rx) = std::sync::mpsc::channel();
+            s.answers_queue(Some(tx));
+            let s2 = s.clone();
+            let reg = self.on_stop(&s2, |s| s.answers_queue(None));
+            let s3 = s.clone();
+            self.spawn("assistant-answers", move || {
+                let _reg = reg;
+                s3.answers_loop(rx);
+            });
+        }
+        {
             // Irori's assistant weighs new cards (card #965), as above.
             let q = s.coord.subscribe();
             let reg = self.on_stop(&q, |q| q.close());
@@ -2892,6 +2909,31 @@ impl Core {
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
+    }
+
+    /// Installs the turn that answers other people's questions to the
+    /// person's Office Assistant (assistants talk, card 4); a desktop with
+    /// Claude Code has one. Installing it answers the questions that came
+    /// before it.
+    pub fn set_answerer(&self, n: Option<assistant_answers::Answerer>) {
+        self.s.set_answerer(n);
+    }
+
+    /// What the assistant held back and didn't post, oldest first.
+    pub fn assistant_held(&self) -> Vec<assistant_answers::Held> {
+        self.s.assistant_held()
+    }
+
+    /// Writes a raw `talk.post` row to space `space` as `by`, folded and
+    /// shown at once. The assistant's answers go in this way: `PostRow`
+    /// carries the hop and `replyTo` that `talk_post` has no place for.
+    pub fn space_talk_post(
+        &self,
+        space: &str,
+        by: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), String> {
+        self.s.space_talk_post(space, by, payload)
     }
 
     /// Gives the Core the desktop app's held huddle sessions (card #1046):
