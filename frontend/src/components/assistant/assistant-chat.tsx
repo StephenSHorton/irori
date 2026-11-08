@@ -34,6 +34,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent } from "@/components/ui/message"
 import { Textarea } from "@/components/ui/textarea"
+import { MicButton } from "@/components/common/mic-button"
 import {
   Tooltip,
   TooltipContent,
@@ -443,6 +444,13 @@ export function AssistantPanel({
 }) {
   const [text, setText] = useState(draft)
   const input = useRef<HTMLTextAreaElement>(null)
+  // Where dictation left the caret, applied once the new text is in.
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const at = pendingCaret.current
+    pendingCaret.current = null
+    if (at !== null) input.current?.setSelectionRange(at, at)
+  }, [text])
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     input.current?.focus({ preventScroll: true })
@@ -616,6 +624,19 @@ export function AssistantPanel({
             aria-label="Ask the Office Assistant"
             className="max-h-28 min-h-8 flex-1 border-transparent bg-transparent px-2 py-1.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
           />
+          {/* Centred on the 32 px send button the row bottom-aligns to. */}
+          <div className="flex h-8 shrink-0 items-center">
+            <MicButton
+              target={input}
+              value={text}
+              onText={(t, at) => {
+                // Same as typing: the module draft and the text both take it.
+                draft = t
+                pendingCaret.current = at
+                setText(t)
+              }}
+            />
+          </div>
           {busy ? (
             <Button
               type="button"

@@ -117,9 +117,13 @@ with no jargon, ids or hashes. **Bold** is fine; no headings, tables or code blo
 (tag#123 for a space's board) so the person can click them. If nothing matches, say so plainly and \
 suggest what to try.
 
-You only read: you cannot change cards or start agents yourself. When the person clearly asks for work \
-to be done (to build, fix, change or look into something), look up any cards it touches, say in one short \
-sentence what you are posting, then end your reply with the thread, between these two lines exactly:
+You only read: you cannot change cards or start agents yourself. Write a thread only for a clear new \
+piece of work the person asks for (to build, fix, change or look into something). Never write one for a \
+question, a follow-up, or a tweak to work already in a thread they posted: when this conversation's posted \
+thread already covers it, point at that thread with a go line, or say to comment on it instead. When you \
+are not sure whether it is new work, ask one short question instead. For new work, look up any cards it \
+touches, say in one short sentence what you are posting, then end your reply with the thread, between \
+these two lines exactly:
 
 <<thread>>
 The thread, written as the person would post it to their agents: what they want and why, in a few \
@@ -1062,6 +1066,15 @@ mod tests {
         assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
         assert!(!SYSTEM.contains("nothing is posted until"));
         assert!(!SYSTEM.contains("ask box"));
+    }
+
+    // Draft only for new work; reuse a posted thread (card #1016).
+    #[test]
+    fn system_prompt_drafts_only_new_work() {
+        assert!(SYSTEM.contains("Draft a thread only for a clear new piece of work"));
+        assert!(SYSTEM.contains("Never draft for a question, a follow-up, or a tweak"));
+        assert!(SYSTEM.contains("comment on it instead of drafting"));
+        assert!(SYSTEM.contains("ask one short question instead of drafting"));
     }
 
     // The chat finds a go line by its start (card #784), and the settings
