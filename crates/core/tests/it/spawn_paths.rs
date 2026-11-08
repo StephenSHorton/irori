@@ -951,12 +951,17 @@ fn an_agent_ended_without_answering_closes_its_wind_down() {
     s.r.core.set_agents_paused(true).unwrap();
     let d = wind_down_first(&s);
     hand_off_and_leave(&s);
-    s.skew.fetch_add(
-        irori_core::spawn::HANDOFF_WAIT.as_secs() as i64 + 10,
-        Ordering::SeqCst,
-    );
-    s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
-    wait_for(60, "the agent ended after the wait", || ended(&s, 1));
+    // The sweep notes its leaving on its own time: the clock moves past the
+    // wait again until it is ended, so a late sweep can't restart the wait.
+    wait_for(60, "the agent ended after the wait", || {
+        if ended(&s, 1) {
+            return true;
+        }
+        skew_by(&s, irori_core::spawn::HANDOFF_WAIT);
+        s.r.core.set_spawn_cap(s.r.core.spawn_cap()).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        false
+    });
     wait_for(10, "its wind-down closed", || {
         s.r.core
             .inbox()
