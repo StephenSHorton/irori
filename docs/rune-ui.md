@@ -37,7 +37,7 @@ vite, Tauri CLI or webview. `scripts/check.sh` passes on it.
   |---|---|
   | Tray | Rune's `Tray` on Windows and Linux; `tray-icon` on macOS (`app/src/tray_mac.rs`). The full menu (status, held, pause, wind down, launch at login, update). |
   | Single instance | A second launch sends `show` to a loopback port the running window writes to `<data>/desk-show.port` (`app/src/instance.rs`). |
-  | Clipboard | Rune's `Tx::copy` and paste (text, images). |
+  | Clipboard | Rune's `Tx::copy`, `Tx::copy_checked` where a failed copy must show, and paste (text, images). |
   | Opener, file picker | `open`/`explorer`/`xdg-open`; Rune's `native-file-dialog` (rfd). |
   | Updater, launch at login | `crates/update`, with main's shell glue restored without Tauri (`app/src/status/`, `app/src/login/`). |
   | Windows icon, version resource, manifest | `app/build.rs` (`embed-resource`). |
@@ -182,18 +182,20 @@ a real huddle with peers and a mic, screen share pictures (H.264 decoded with mo
 answering a real permission prompt, Launch at login and the updater's restart, and macOS
 Cmd-Q / Windows logoff shutdown in a real window.
 
-Small differences from the React app, each from a Rune gap:
-- The @ and # pickers open at the start of the box, not at the caret (no caret rect to
-  anchor to), and the paperclip picks one file at a time.
-- No animated "flowing" edges on the canvas (no stroke-dash animation).
-- `k.ty.mono` falls back to the UI font unless a mono family is registered; terminals use
-  `Family::SystemMono`.
-- kit `Dialog` titles and descriptions don't wrap (long text goes in the body), kit `Select`
-  menus have a fixed minimum width, `Badge` has three variants, there is no slider, colour
-  picker, avatar, skeleton or indeterminate progress widget (each is hand-built).
+Rune's gaps were fixed in the fork, branch `card-674-gaps` of github.com/StephenSHorton/rune
+(pinned in `app/Cargo.toml`): caret-anchored popups, multi-file picks, dialogs that wrap and
+scroll, kit Slider, Avatar, Skeleton, Progress, ColorPicker and swatches, dashed and flowing
+strokes, the mono fallback, WebP and GIF, tray check items on Windows and Linux, and
+`Tx::copy_checked`.
+
+Small differences from the React app that remain:
+- Card chips (`widgets/bits.rs` `badge()`) are hand-built: kit `Badge` has no font or
+  corner-radius setter to match them.
+- A tap off a pinned agent card closes it and does nothing else, and the first tap of a run
+  landing on a face reaches its tile: Rune has no press that dismisses and passes through.
 - Glass (frosted) styles are dropped; popovers are solid everywhere, as main is off the Mac.
-- The tray's check items are "✓ " labels on Windows and Linux (Rune's tray has no check item).
-- WebP avatars decode through the `image` crate (Rune's decoder has none).
+- The Mac tray stays on `tray-icon` (`app/src/tray_mac.rs`): the fork has no Mac tray.
+- The terminal grid keeps `Family::SystemMono`: it caches one cell advance and needs a fixed face.
 
 The phone layout is the separate Android prototype (card #680, `app/src/phone`).
 
