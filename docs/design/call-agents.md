@@ -391,24 +391,24 @@ Finals only is a hard floor: a word isn't known until its phrase ends, and unbro
 
 Dependencies, not preference: the place first, then who can read, then the names and the assistant's engine, then the feed, the canvas on top of it, and the after-call step last.
 
-| Card | Comes after |
-|---|---|
-| 1 Huddle rows and "over" | — |
-| 2 Huddle page and list | 1 |
-| 3 Access, names in reads, the notice | 1, and the person's DM answer (§10) |
-| 4 The assistant's name | — |
-| 5 Held run and the packet | — |
-| 6 Matcher and layer rules | 4 |
-| 7a Host and `call.assist` | 1, 5 |
-| 7b Feed, L1 and L2 | 6, 7a |
-| 8 Canvas rows and writes | 7b |
-| 9 Canvas UI and the roster | 2, 8 |
-| 10 Note-taker: L3 and L4 | 8, and the person's note-taker answer (§6) |
-| 11 After-call: divide into cards | 9, 10 |
-| 12 Ordinary agents' tools | 3, 8 |
-| 13 Real-device check | 11, 12 |
+| Card | Board | Comes after |
+|---|---|---|
+| 1 Huddle rows and "over" | #1043 | — |
+| 2 Huddle page and list | #1044 | 1 |
+| 3 Access, names in reads, the notice | #1047 | 1, and the person's DM answer (§10) |
+| 4 The assistant's name | #1045 | — |
+| 5 Held run and the packet | #1046 | — |
+| 6 Matcher and layer rules | #1048 | 4 |
+| 7a Host and `call.assist` | #1049 | 1, 5 |
+| 7b Feed, L1 and L2 | #1050 | 6, 7a |
+| 8 Canvas rows and writes | #1051 | 7b |
+| 9 Canvas UI and the roster | #1052 | 2, 8 |
+| 10 Note-taker: L3 and L4 | #1053 | 8, and the person's note-taker answer (§6) |
+| 11 After-call: divide into cards | #1054 | 9, 10 |
+| 12 Ordinary agents' tools | #1055 | 3, 8 |
+| 13 Real-device check | #1056 | 11, 12 |
 
-1, 4 and 5 can start together. Looks in a person DM stay off until card 3 writes the `agents` mark. Cards are proposed, not started. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
+The board cards are proposed and wait on #1029; each also waits on the cards it comes after. 1, 4 and 5 can start together. Looks in a person DM stay off until card 3 writes the `agents` mark. Cards are proposed, not started. All are normal weight unless marked. Every card's done-when includes `sh scripts/check.sh` passing.
 
 **1. Huddle rows and "over".**
 Files: `crates/store/src/kinds.rs` and `crates/store/tests/it/golden.rs` (`call.title`), `crates/coord/src/talk.rs` (`call.title` fold, `CallInfo` title and people, the crash roster from segment signers, "has an end mark"), `crates/core/src/service/calls.rs` (`over(call)` and its own `heard` record, §3; the crash end mark is card 10's), `crates/net/src/call.rs` and the `call.segment` fold (the `agents` field, stored and folded, written `false` until card 3), `crates/core/src/service/spaces.rs` (`SPACE_TALK_KINDS`, `dm_refusal`, the tolerance check widened to `call.`, `space_talk_row`'s per-kind actor rules), `crates/core/src/service/dm_spaces.rs` (`dm_conv_of`), `crates/window/src/talk.rs` (title and over in the view).
