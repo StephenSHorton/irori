@@ -19,8 +19,6 @@ import {
   opensInFull,
   threadEntryId,
   LiveRoster,
-  PonderEvery,
-  ponderWord,
   StoppedGrace,
   threadLabel,
   ThreadKind,
@@ -31,11 +29,10 @@ import {
   BlockersHere,
   blockerItemId,
 } from "@/lib/thread"
-import { useReducedMotion } from "@/lib/motion"
 import { cn } from "@/lib/utils"
-import { Spinner } from "./bits"
 import { Face } from "./faces"
 import { RichLine, RichText } from "@/components/common/rich-text"
+import { ReplyingRow } from "@/components/talk/replying-row"
 
 // Thread is a card's thread, oldest first: comments, messages about the
 // card ("A -> B") and one muted line per thing that happened, each with
@@ -77,14 +74,10 @@ export function Thread({
   // that bounds the height: only the entries shrink.
   scroll?: boolean
   // on: the agents on this thread (a card's holders, an ask's takers) and
-  // whether it is over, for the live "working…" line (card #299).
-  // working, when given, is who the card's rule says works on it now
-  // (card #317): the line names them, so it agrees with the page.
+  // whether it is over, for the live "replying…" line (cards #299, #980).
   on?: {
     agents: readonly AgentRef[]
     over?: boolean
-    working?: readonly AgentRef[]
-    jobs?: readonly AgentRef[]
   }
   // starting: Irori is starting the card's agent (card #739): a comment
   // nobody heard yet is about to be.
@@ -105,15 +98,7 @@ export function Thread({
     return () => window.clearTimeout(id)
   }, [watching, live])
   const status = on
-    ? workingLine(
-        on.agents,
-        items,
-        live,
-        new Date(),
-        on.over,
-        on.working,
-        on.jobs
-      )
+    ? workingLine(on.agents, items, live, new Date(), on.over)
     : null
   // A comment a notification opened the card at: shown even when it is
   // older than the first page, scrolled into view once (card #177).
@@ -205,26 +190,21 @@ export function Thread({
           ) : (
             empty
           ))}
-      {status &&
-        (status.tone === "working" ? (
-          // Where the next comment will appear (card #317): who is on it,
-          // with a word that changes while no running tool says more.
-          <p
-            role="status"
-            aria-label={status.text}
-            className="flex items-center gap-2 py-0.5 text-[12.5px] text-ink-2"
-          >
-            <Spinner className="size-3.5" />
-            <span className="min-w-0 truncate">
-              <span className="font-medium">{status.who}</span> {status.verb}{" "}
-              {status.doing || <PonderWord />}…
-            </span>
-          </p>
-        ) : (
+      {status?.tone === "replying" ? (
+        <ReplyingRow
+          line={{
+            who: status.who ?? "",
+            verb: status.verb ?? "is",
+            text: status.text,
+          }}
+        />
+      ) : (
+        status && (
           <p role="status" className="text-[11.5px] text-warning">
             {status.text}
           </p>
-        ))}
+        )
+      )}
     </>
   )
   if (scroll) {
@@ -264,20 +244,6 @@ export function Thread({
       {composer}
     </div>
   )
-}
-
-// PonderWord is the working line's changing word (card #317): a new one
-// every PonderEvery while it shows; Reduce Motion keeps the first, still.
-// Its own component, so only the word re-renders on each change.
-function PonderWord() {
-  const still = useReducedMotion()
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (still) return
-    const id = window.setInterval(() => setTick((n) => n + 1), PonderEvery)
-    return () => window.clearInterval(id)
-  }, [still])
-  return <span aria-hidden>{ponderWord(still ? 0 : tick)}</span>
 }
 
 // UndoTitle is the Undo on Irori's name for the person's thread (card

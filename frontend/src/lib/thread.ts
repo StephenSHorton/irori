@@ -6,7 +6,6 @@ import {
   BlockerState,
   displayName,
   namesLine,
-  RunningJobStatus,
   type AgentRef,
   type CardBlocker,
   type CardThreadItem,
@@ -14,7 +13,7 @@ import {
 
 import { createContext } from "react"
 
-import { agentStatus } from "./agent-status"
+import { ReplyingCap } from "./conversations"
 import { parseTime } from "./irori"
 
 // FocusComment is the comment a notification opened the card at (card
@@ -294,63 +293,29 @@ export const LiveRoster = createContext<ReadonlyMap<string, LiveAgent>>(
 // delivers the person's comment it is idle for a moment.
 export const StoppedGrace = 3000
 
-// WorkingLine is the live line's text and tone. A working line also gives
-// its parts (card #317): who ("oak", "oak and elm"), the verb and what it
-// is doing ("" for no running tool), so the view can swap in a changing
-// word (ponderWord) while no tool says more.
+// WorkingLine is the live line's text and tone. A replying line also gives
+// its parts: who ("oak", "oak and elm") and the verb.
 export type WorkingLine = {
   text: string
-  tone: "working" | "stopped"
+  tone: "replying" | "stopped"
   who?: string
   verb?: "is" | "are"
-  doing?: string
 }
 
-// PonderWords are the working line's changing words while an agent works
-// and no running tool says what on (card #317, like Claude Code's status
-// word). The first is the still word Reduce Motion keeps.
-export const PonderWords = [
-  "working",
-  "pondering",
-  "thinking",
-  "mulling it over",
-  "tinkering",
-  "puzzling it out",
-  "figuring",
-  "noodling",
-] as const
-
-// PonderEvery is how often the word changes, in ms.
-export const PonderEvery = 3000
-
-// ponderWord is the word for the tick'th change: the words in turn, from
-// the first. Reduce Motion shows ponderWord(0), still.
-export function ponderWord(tick: number): string {
-  const n = PonderWords.length
-  return PonderWords[((Math.floor(tick) % n) + n) % n]
-}
-
-// workingLine is the live line under a thread (card #299, GitHub #5):
-// "oak is working…" while an agent on it (a holder, or the one an ask was
-// handed to) is in a turn, by the live roster; "oak stopped without
-// replying" once an agent read the person's latest comment, had a turn
-// after it and went idle with nothing on the thread since. None when the
-// card is over or nobody is on it.
+// workingLine is the live line under a thread (cards #299, #980), which
+// means "responding to you": "oak is replying…" once an agent on it has
+// read the person's latest comment, is in a turn and has written nothing
+// since, for at most ReplyingCap (Talk's replying row, card #645); "oak
+// stopped without replying" once it read the comment, had a turn after it
+// and went idle with nothing on the thread since. Nothing before it has
+// read the comment (the pending note under it covers that), when the card
+// is over or when nobody is on it.
 export function workingLine(
   agents: readonly AgentRef[],
   items: readonly CardThreadItem[],
   live: ReadonlyMap<string, LiveAgent>,
   now: Date,
-  over = false,
-  // working: who the card's own rule says is working on it now (the card
-  // page passes workingNow, card #317), so its line agrees with the page's
-  // working row and Home's Agent progress. Left out, any agent on the
-  // thread busy in the live roster counts (an ask's taker, card #299).
-  working?: readonly AgentRef[],
-  // jobs: who the card's rule says is running a background job between
-  // turns (runningJobNow, card #431), given with working. Left out, any
-  // agent on the thread "shell" in the live roster counts.
-  jobs?: readonly AgentRef[]
+  over = false
 ): WorkingLine | null {
   if (over) return null
   const seen = new Set<string>()
@@ -362,67 +327,52 @@ export function workingLine(
   })
   const status = (a: AgentRef) => live.get(a.key)?.status ?? a.status
   const names = (rs: readonly AgentRef[]) => namesLine(rs.map(displayName))
-  const busy = working ?? on.filter((a) => status(a) === "busy")
-  if (busy.length) {
-    // One agent: what it is doing right now, when a tool is running.
-    const doing =
-      busy.length === 1 ? toolPhrase(live.get(busy[0].key)?.lastTool ?? "") : ""
-    const who = names(busy)
-    const verb = busy.length > 1 ? "are" : "is"
-    return {
-      text: `${who} ${verb} ${doing || "working"}…`,
-      tone: "working",
-      who,
-      verb,
-      doing,
-    }
-  }
 
-  // Card #431: no turn running, but a holder's background job is (Claude
-  // Code's "shell"): it isn't stopped, and it isn't idle.
-  const running =
-    jobs ?? (working ? [] : on.filter((a) => status(a) === RunningJobStatus))
-  if (running.length) {
-    const who = names(running)
-    const verb = running.length > 1 ? "are" : "is"
-    // Card #489: the same words as the hover card, with how long one job
-    // has run ("running a job · 12 min").
-    const since =
-      running.length === 1 ? live.get(running[0].key)?.statusSince : undefined
-    const doing = agentStatus(
-      { status: RunningJobStatus },
-      since,
-      now.getTime()
-    ).text
-    return {
-      text: `${who} ${verb} ${doing}…`,
-      tone: "working",
-      who,
-      verb,
-      doing,
-    }
-  }
-
-  // The person's latest comment, and whether anyone answered it since.
+  // The person's latest comment, and what came after it.
   let p = -1
   for (let i = items.length - 1; i >= 0; i--) {
+    // Not a message: only a comment says who has read it (heardBy).
     if (
-      items[i].kind !== ThreadKind.Event &&
+      items[i].kind === ThreadKind.Comment &&
       items[i].who.status === "person"
     ) {
       p = i
       break
     }
   }
-  if (p < 0) return null
-  const comment = items[p]
-  const at = parseTime(comment.at)
-  if (!at) return null
-  const heard = comment.heardBy ?? []
+  const comment = p < 0 ? undefined : items[p]
+  const at = comment ? parseTime(comment.at) : null
+  const heard = comment?.heardBy ?? []
   const after = items.slice(p + 1)
+
+  // By the live roster, not the card's working list: that is empty on a
+  // card with an open blocker, where an answer is most awaited. A step
+  // tick isn't an answer, so only what it wrote ends this. A comment on a
+  // blocker the card keeps reaches this list as an event naming the blocker.
+  const replying =
+    at && now.getTime() - at.getTime() <= ReplyingCap
+      ? on.filter(
+          (a) =>
+            heard.includes(a.key) &&
+            status(a) === "busy" &&
+            !after.some(
+              (it) =>
+                it.who.key === a.key &&
+                (it.kind !== ThreadKind.Event || !!it.blockerId)
+            )
+        )
+      : []
+  if (replying.length) {
+    const who = names(replying)
+    const verb = replying.length > 1 ? "are" : "is"
+    return { text: `${who} ${verb} replying…`, tone: "replying", who, verb }
+  }
+
+  if (!at) return null
   const stopped = on.filter((a) => {
     // It read the comment (an agent still waiting to hear it hasn't
-    // stopped on it) and is idle now.
+    // stopped on it) and is idle now. Anything it did on the thread since,
+    // a step tick too, means it didn't just stop.
     if (!heard.includes(a.key) || status(a) !== "idle") return false
     if (after.some((it) => it.who.key === a.key)) return false
     const since = parseTime(live.get(a.key)?.updatedAt)
@@ -432,43 +382,4 @@ export function workingLine(
   })
   if (!stopped.length) return null
   return { text: `${names(stopped)} stopped without replying`, tone: "stopped" }
-}
-
-// toolPhrase says what a running tool is doing, for the working line
-// ("running a command"); "" for none.
-export function toolPhrase(tool: string): string {
-  if (!tool) return ""
-  const fixed: Record<string, string> = {
-    Bash: "running a command",
-    BashOutput: "running a command",
-    PowerShell: "running a command",
-    Read: "reading files",
-    Edit: "editing files",
-    MultiEdit: "editing files",
-    Write: "editing files",
-    NotebookEdit: "editing files",
-    Grep: "searching files",
-    Glob: "searching files",
-    WebSearch: "searching the web",
-    WebFetch: "reading a web page",
-    Agent: "running a subagent",
-    Task: "running a subagent",
-    TodoWrite: "planning",
-    advisor: "asking for advice",
-  }
-  if (fixed[tool]) return fixed[tool]
-  const m = /^mcp__([^_]+(?:[-_][^_]+)*?)__(.+)$/.exec(tool)
-  if (m) {
-    const [, server, name] = m
-    if (server === "irori") {
-      if (name.startsWith("board")) return "on the Board"
-      if (name === "send" || name === "reply") return "writing a message"
-      if (name === "search") return "searching Irori"
-      return "using Irori"
-    }
-    if (server.includes("chrome") || server.includes("browser"))
-      return "using the browser"
-    return `using ${server.replace(/[-_]/g, " ")}`
-  }
-  return `using ${tool}`
 }
