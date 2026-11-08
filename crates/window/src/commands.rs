@@ -2542,6 +2542,7 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_attach,
             assistant_ask,
             assistant_stop,
+            assistant_chat_list,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2609,6 +2610,20 @@ pub async fn assistant_ask(
 pub async fn assistant_stop(w: W<'_>, id: u32) -> R<()> {
     w.assistant_stop(id);
     Ok(())
+}
+
+/// A page of the assistant's one conversation, newest first (card #1102,
+/// docs/design/one-assistant.md §4): up to `limit` entries (0 is 50) older
+/// than the one whose cursor is `before` ("" starts at the newest). The
+/// same on every one of the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_chat_list(
+    w: W<'_>,
+    before: String,
+    limit: u32,
+) -> R<crate::assistant_chat::AssistantChatPage> {
+    blocking(&w, move |w| w.assistant_chat_list(&before, limit as usize)).await
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------
