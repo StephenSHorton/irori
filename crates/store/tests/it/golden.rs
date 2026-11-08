@@ -153,6 +153,8 @@ const SINCE_GO_REFUSED: [&str; 27] = [
     kinds::TRANSCRIBE_SET,
     // Which themes new agents' names come from (card #702).
     kinds::NAMES_THEMES,
+    // "Name new threads" (card #782).
+    kinds::ASSISTANT_NAMES_SET,
 ];
 
 /// Device-local kinds added after the Go port: the last hello this device

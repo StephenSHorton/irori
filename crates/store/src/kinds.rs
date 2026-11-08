@@ -212,6 +212,10 @@ kinds! {
     /// by, at}`, actor `user`, newest wins, none means every theme on. Set
     /// in the app only.
     NAMES_THEMES = "names.themes" => Replicated, Refuses;
+    /// "Name new threads" (card #782): Irori's assistant gives the
+    /// person's new thread a short title. `{on, by, at}`, actor `user`,
+    /// newest wins, none means on. Set in the app only.
+    ASSISTANT_NAMES_SET = "assistant.names.set" => Replicated, Refuses;
     // capture
     CAPTURE_TURN = "capture.turn" => Replicated, Refuses;
     CAPTURE_EDIT = "capture.edit" => Replicated, Refuses;
