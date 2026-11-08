@@ -2788,7 +2788,7 @@ impl Fold {
         if !t
             .ask
             .as_ref()
-            .is_some_and(|a| a.thread && a.opener.is_empty())
+            .is_some_and(|a| a.thread && a.opener.is_empty() && !a.assistant)
         {
             return Err(not_allowed(format!(
                 "Irori names only the person's threads, and {} isn't one",

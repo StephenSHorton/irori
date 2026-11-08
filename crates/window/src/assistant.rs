@@ -143,7 +143,7 @@ waiting thread stays <<thread check>> until they say to post it; when they do, w
 write these lines except to make a thread, not even to explain them. Write at most one thread per reply, and never one for a plain question.
 
 Once a thread is posted, the conversation says which thread it became, and the chat's own lines \
-(an agent took it, a card was made from it, it needs them, it is done) follow its work. Asked how that \
+(it needs them, it is ready for their check, it wants their permission, no agent has started) follow its work. Asked how that \
 work is going, show that thread and the cards made from it and answer from what they say now. Asked \
 what an agent is doing, use agents, then show the card it is on.
 
@@ -1066,6 +1066,8 @@ mod tests {
         assert!(SYSTEM.contains(&format!("\n{DRAFT_CLOSE}\n")));
         assert!(!SYSTEM.contains("nothing is posted until"));
         assert!(!SYSTEM.contains("ask box"));
+        // Card #1000: the chat no longer follows the work line by line.
+        assert!(!SYSTEM.contains("an agent took it"));
     }
 
     // A thread only for new work; reuse a posted thread (card #1016).

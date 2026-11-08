@@ -269,7 +269,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
       },
       {
         role: "assistant",
-        text: "**otter** took your thread mlg#5.",
+        text: "No agent has started on mlg#5 yet.",
         update: "task:1",
       },
       { role: "person", text: "Use Steam.", to: "mlg#5" },
@@ -278,7 +278,7 @@ describe("Ask Irori's drafted thread (card #783)", () => {
     expect(h[0].text).toEndWith("(This draft was posted as thread mlg#5.)")
     expect(h[1]).toEqual({
       role: "assistant",
-      text: "(The chat's own lines on the work it follows:)\n- **otter** took your thread mlg#5.",
+      text: "(The chat's own lines on the work it follows:)\n- No agent has started on mlg#5 yet.",
     })
     expect(h[2]).toEqual({
       role: "person",
@@ -293,25 +293,74 @@ describe("Ask Irori's drafted thread (card #783)", () => {
         update: "task:1",
         act: { kind: "answer", card: "task:2", blocker: "b1" },
       },
-      {
-        role: "assistant",
-        text: "otter replied on #20: Which page?",
-        update: "task:1",
-        act: { kind: "reply", thread: "task:1", to: "otter" },
-      },
       { role: "person", text: "Home.", to: "#20" },
     ]
     expect(parseHistory(serializeHistory(entries))).toEqual(entries)
     const bad = parseHistory(
       JSON.stringify([
-        { role: "assistant", text: "x", update: "t", act: { kind: "answer" } },
+        {
+          role: "assistant",
+          text: "#21 is waiting for your permission: Run it?",
+          update: "t",
+          act: { kind: "answer" },
+        },
         { role: "person", text: "y", update: "t", to: 3 },
       ])
     )
     expect(bad).toEqual([
-      { role: "assistant", text: "x", update: "t" },
+      {
+        role: "assistant",
+        text: "#21 is waiting for your permission: Run it?",
+        update: "t",
+      },
       { role: "person", text: "y" },
     ])
+  })
+  test("a saved chat loses the work-following lines (card #1000)", () => {
+    const line = (text: string, act?: unknown) => ({
+      role: "assistant",
+      text,
+      update: "task:1",
+      ...(act ? { act } : {}),
+    })
+    const answer = { kind: "answer", card: "task:2", blocker: "b1" }
+    const kept = [
+      { role: "person", text: "Is it moving?" },
+      { role: "person", text: "Home.", to: "#20" },
+      { role: "assistant", text: "It is." },
+      // A line the chat added itself, not about followed work (#987).
+      { role: "assistant", text: "Closed #9.", note: true },
+      line("#21 needs you: Merge?", answer),
+      line("#21 is ready: otter says it's done.", answer),
+      line("mlg#21 is waiting for your permission: Run it?"),
+      line("No agent has started on #20 yet. None can start."),
+    ]
+    const gone = [
+      line("**otter** took your thread #20."),
+      line("otter replied on #20: Which page?", {
+        kind: "reply",
+        thread: "task:1",
+        to: "otter",
+      }),
+      // A reply quoting a kept line is still a reply.
+      line("otter replied on #20: #21 is waiting for your permission: x", {
+        kind: "reply",
+        thread: "task:1",
+        to: "otter",
+      }),
+      line("Your thread #20 became #21."),
+      line("Your thread #20 is now a card."),
+      line("Your thread #20 changed #21."),
+      line("otter started on #21."),
+      line("#21 is done."),
+      line("#21 failed."),
+      line("#21 was canceled."),
+      line("#20 was answered."),
+      line("#20 was resolved."),
+    ]
+    expect(parseHistory(JSON.stringify([...gone, ...kept]))).toEqual(
+      kept as ChatEntry[]
+    )
   })
   test("a posted draft's thread is kept across reloads, a bad one dropped", () => {
     const saved = serializeHistory([

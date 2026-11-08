@@ -6,6 +6,7 @@ import {
   workingNow,
   type AgentRef,
   type CardSummary,
+  type ThreadSummary,
 } from "./cards"
 import { readFileSync } from "node:fs"
 
@@ -277,6 +278,33 @@ describe("needsOf", () => {
     held.message.from = { key: "user:dev", name: "you", kind: "user" }
     const got = needsOf(cs, [held, held]).map((n) => `${n.kind}:${n.id}`)
     expect(got).toEqual(["check:b", "held:h", "decision:a"])
+  })
+  test("a thread waiting on you shows from any space; a resolved or read one does not (card #1001)", () => {
+    const t = (over: Record<string, unknown>) =>
+      ({
+        id: "t",
+        title: "T",
+        state: "waiting",
+        unread: true,
+        updatedAt: "2026-11-02T10:00:00Z",
+        ...over,
+      }) as unknown as ThreadSummary
+    const got = needsOf(
+      [],
+      [],
+      [
+        t({ id: "mine" }),
+        t({ id: "in-space", spaceId: "b-a" }),
+        t({ id: "noagent", unread: false, noAgent: "no computer" }),
+        t({ id: "read", unread: false }),
+        t({ id: "done", state: "resolved" }),
+      ]
+    ).map((n) => `${n.kind}:${n.id}`)
+    expect(got.sort()).toEqual([
+      "thread:in-space",
+      "thread:mine",
+      "thread:noagent",
+    ])
   })
   test("holds between agents and Pause all's are one line, last and uncounted (card #488)", () => {
     const cs = [
