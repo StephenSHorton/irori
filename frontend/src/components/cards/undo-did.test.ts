@@ -28,4 +28,16 @@ describe("Undo on what Irori did (card #786)", () => {
       "can't be undone"
     )
   })
+
+  test("a duplicate link names the other card and has Undo", async () => {
+    const d = await cards.detail("sample-ask-2")
+    const line = d.thread.find((it) => it.undoDid)
+    expect(line?.who.status).toBe("irori")
+    expect(line?.text).toContain("#41")
+    expect(line?.text).toContain("same work")
+    await cards.undoDid("sample-ask-2", "sample-did-2")
+    const after = await cards.detail("sample-ask-2")
+    expect(after.thread.some((it) => it.undoDid)).toBe(false)
+    expect(after.thread.some((it) => it.text.includes("(undone)"))).toBe(true)
+  })
 })

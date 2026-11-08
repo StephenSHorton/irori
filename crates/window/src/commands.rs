@@ -1803,6 +1803,20 @@ pub async fn assistant_tidy_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_tidy_set(on)).await
 }
 
+/// "Link duplicate cards" (#786): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_dupes(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_dupes())).await
+}
+
+/// Turns "Link duplicate cards" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_dupes_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_dupes_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2424,6 +2438,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             assistant_names_set,
             assistant_tidy,
             assistant_tidy_set,
+            assistant_dupes,
+            assistant_dupes_set,
             board_undo_did,
             board_lease_notices,
             board_release_lease,

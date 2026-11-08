@@ -27,6 +27,7 @@ mod desk_default_test;
 mod desk_old_rows_test;
 mod desk_test;
 mod done_check_test;
+mod dupes_test;
 mod golden;
 mod gone_live_test;
 mod gone_reoffer_test;

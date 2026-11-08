@@ -365,6 +365,10 @@ export const commands = {
 	assistantTidy: () => __TAURI_INVOKE<boolean>("assistant_tidy"),
 	/**  Turns "Tidy the board" on or off, on all the person's devices. */
 	assistantTidySet: (on: boolean) => __TAURI_INVOKE<null>("assistant_tidy_set", { on }),
+	/**  "Link duplicate cards" (#786): on unless turned off. */
+	assistantDupes: () => __TAURI_INVOKE<boolean>("assistant_dupes"),
+	/**  Turns "Link duplicate cards" on or off, on all the person's devices. */
+	assistantDupesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_dupes_set", { on }),
 	/**  The person's Undo on what Irori did on a card (card #786). */
 	boardUndoDid: (id: string, did: string) => __TAURI_INVOKE<Task>("board_undo_did", { id, did }),
 	/**  Leases Irori told the person about (card #786). */

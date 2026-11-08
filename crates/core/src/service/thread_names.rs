@@ -93,6 +93,8 @@ pub(crate) enum Job {
     /// this one queue and one loop, since the runner returns BUSY rather
     /// than queueing past its limit.
     Tidy(String),
+    /// Card #786: does this new card duplicate an open one?
+    Dupes(String),
 }
 
 /// The naming's state, shared by its two loops.
@@ -121,7 +123,7 @@ impl Naming {
     }
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(super) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -177,7 +179,7 @@ pub fn retitle_reply(reply: &str) -> Option<String> {
 }
 
 /// A line without a "Line 1:" or "Line 2:" label.
-fn strip_label(l: &str) -> &str {
+pub(super) fn strip_label(l: &str) -> &str {
     let t = l.trim();
     if t.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("line "))
         && t.as_bytes().get(6) == Some(&b':')
@@ -188,7 +190,7 @@ fn strip_label(l: &str) -> &str {
 }
 
 /// Cuts `s` to at most `max` characters.
-fn cut(s: &str, max: usize) -> String {
+pub(super) fn cut(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }
@@ -259,8 +261,12 @@ impl Services {
         *lock(&self.naming.namer) = n;
     }
 
-    fn has_namer(&self) -> bool {
+    pub(super) fn has_namer(&self) -> bool {
         lock(&self.naming.namer).is_some()
+    }
+
+    pub(super) fn namer(&self) -> Option<Namer> {
+        lock(&self.naming.namer).clone()
     }
 
     /// Every card now is seen: none of them is new.
@@ -350,7 +356,7 @@ impl Services {
         }
         let id = match job {
             Job::Name(id) | Job::Retitle(id) => id,
-            Job::Tidy(_) => return false,
+            Job::Tidy(_) | Job::Dupes(_) => return false,
         };
         let Some(t) = self.coord.get_task(id) else {
             return false;
@@ -359,7 +365,7 @@ impl Services {
             return false;
         }
         match job {
-            Job::Tidy(_) => false,
+            Job::Tidy(_) | Job::Dupes(_) => false,
             Job::Name(_) => {
                 let age = (self.now)().unix_nano() - t.created_at.unix_nano();
                 t.irori_titled == 0 && age < NEW_FOR_SECS * 1_000_000_000
@@ -396,7 +402,7 @@ impl Services {
             return;
         };
         let (id, ask, was) = match job {
-            Job::Tidy(id) => {
+            Job::Tidy(id) | Job::Dupes(id) => {
                 logf(format_args!("assistant: {id}: not a naming job"));
                 return;
             }
@@ -449,7 +455,7 @@ impl Services {
             }
         };
         let title = match job {
-            Job::Tidy(_) => None,
+            Job::Tidy(_) | Job::Dupes(_) => None,
             Job::Name(_) => clean_title(&reply),
             Job::Retitle(_) => retitle_reply(&reply),
         };
@@ -472,6 +478,7 @@ impl Services {
             // One bad turn never ends the naming for the session.
             let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &job {
                 Job::Tidy(id) => self.tidy_run(id),
+                Job::Dupes(id) => self.dupes_run(id),
                 _ => self.names_run(&job),
             }));
             if run.is_err() {

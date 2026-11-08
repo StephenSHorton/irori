@@ -95,7 +95,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, thread names, tidying the board, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, tidying the board, linking duplicates, updates and the version.",
   },
 ]
 
@@ -364,6 +364,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <TranscribeSwitch open={open} />
       <NamesSwitch open={open} />
       <TidySwitch open={open} />
+      <DupesSwitch open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
@@ -507,17 +508,64 @@ const tidyLabel = "Tidy the board"
 const tidyHint =
   "When an agent goes away, Irori says so on the card with an Undo. If a card's PRs are all merged it asks whether it's done instead of starting a new agent, and it tells you about a lease stuck on an offline device. It never releases a lease itself."
 
+const dupesLabel = "Link duplicate cards"
+const dupesHint =
+  "When a new card or thread looks like the same work as an open one, Irori links the two with a line on each and an Undo. It never closes, holds or changes either card."
+
 // TidySwitch is "Tidy the board" (#786): on unless they turn it off, on all
 // their devices. Off, the sweep still hands cards back and releases leases
 // as it always has.
 function TidySwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      label={tidyLabel}
+      hint={tidyHint}
+      loading="Loading tidy the board"
+      read={AssistantService.Tidy}
+      write={AssistantService.TidySet}
+    />
+  )
+}
+
+// DupesSwitch is "Link duplicate cards" (#786): on unless they turn it
+// off, on all their devices.
+function DupesSwitch({ open }: { open: boolean }) {
+  return (
+    <AssistantSwitch
+      open={open}
+      label={dupesLabel}
+      hint={dupesHint}
+      loading="Loading link duplicate cards"
+      read={AssistantService.Dupes}
+      write={AssistantService.DupesSet}
+    />
+  )
+}
+
+// AssistantSwitch is one of the office assistant's on/off rows.
+function AssistantSwitch({
+  open,
+  label,
+  hint,
+  loading,
+  read: readSwitch,
+  write,
+}: {
+  open: boolean
+  label: string
+  hint: string
+  loading: string
+  read: () => Promise<boolean>
+  write: (on: boolean) => Promise<void>
+}) {
   const [on, setOn] = useState(true)
   const [read, setRead] = useState(!inWails())
   const [error, setError] = useState("")
   useEffect(() => {
     if (!open || !inWails()) return
     let live = true
-    AssistantService.Tidy()
+    readSwitch()
       .then((v) => {
         if (!live) return
         setOn(v)
@@ -531,27 +579,27 @@ function TidySwitch({ open }: { open: boolean }) {
     return () => {
       live = false
     }
-  }, [open])
+  }, [open, readSwitch])
   const set = async (v: boolean) => {
     setError("")
     setOn(v)
     if (!inWails()) return
     try {
-      await AssistantService.TidySet(v)
+      await write(v)
     } catch (err) {
       setError(errorText(err))
-      setOn(await AssistantService.Tidy().catch(() => !v))
+      setOn(await readSwitch().catch(() => !v))
     }
   }
   return (
     <div className="grid gap-1 border-t border-border pt-3">
-      <Loading loading={!read} label="Loading tidy the board">
+      <Loading loading={!read} label={loading}>
         {!read ? (
-          <ToggleShape label={tidyLabel} hint={tidyHint} />
+          <ToggleShape label={label} hint={hint} />
         ) : (
           <Toggle
-            label={tidyLabel}
-            hint={tidyHint}
+            label={label}
+            hint={hint}
             checked={on}
             onChange={(v) => void set(v)}
           />

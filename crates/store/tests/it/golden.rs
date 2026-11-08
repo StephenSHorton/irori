@@ -124,7 +124,7 @@ const SINCE_GO: [&str; 29] = [
 /// history, card #377; spawned agents, card #446; the sides a device
 /// runs, card #494; spawning across the person's devices, card #455; a
 /// hidden DM space's marker, card #538; the names themes, card #702).
-const SINCE_GO_REFUSED: [&str; 30] = [
+const SINCE_GO_REFUSED: [&str; 31] = [
     kinds::AGENT_OFFER,
     kinds::SPAWN_HOST,
     kinds::SPAWN_END_REQUESTED,
@@ -159,6 +159,7 @@ const SINCE_GO_REFUSED: [&str; 30] = [
     kinds::ASSISTANT_NAMES_SET,
     // "Tidy the board" and what Irori did (card #786).
     kinds::ASSISTANT_TIDY_SET,
+    kinds::ASSISTANT_DUPES_SET,
     kinds::ASSISTANT_DID,
 ];
 

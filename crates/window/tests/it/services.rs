@@ -1850,3 +1850,54 @@ fn irori_did_lines_on_the_thread_and_the_switch() {
     assert!(d.thread.iter().all(|it| it.undo_did.is_empty()));
     assert!(d.thread.iter().any(|it| it.text.contains("(undone)")));
 }
+
+/// Card #786 job (b): the switch reads and turns off, and a link is a
+/// line on each card with Undo.
+#[test]
+fn a_duplicate_link_is_a_thread_line_on_both_cards() {
+    let r = Rig::new();
+    assert!(r.w.assistant_dupes(), "on unless turned off");
+    r.w.assistant_dupes_set(false).unwrap();
+    assert!(!r.w.assistant_dupes());
+    r.w.assistant_dupes_set(true).unwrap();
+
+    let co = r.w.core.coord();
+    let me = r.w.core.user_sender().key;
+    let make = |t: &str| {
+        co.create_task(
+            &me,
+            coord::NewTask {
+                title: t.into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap()
+    };
+    let (a, b) = (make("Login crash"), make("Safari login crash"));
+    assert!(co.link_duplicate(&a.id, &b.id).unwrap());
+    for (id, other) in [(&a.id, &b), (&b.id, &a)] {
+        let d = r.w.card(id).unwrap();
+        let line = d
+            .thread
+            .iter()
+            .find(|it| !it.undo_did.is_empty())
+            .expect("a line with Undo");
+        assert_eq!(line.who.status, "irori");
+        assert!(line.text.contains(&other.short_ref()), "{}", line.text);
+    }
+    let did =
+        r.w.card(&a.id)
+            .unwrap()
+            .thread
+            .iter()
+            .find(|it| !it.undo_did.is_empty())
+            .unwrap()
+            .undo_did
+            .clone();
+    r.w.undo_did(&a.id, &did).unwrap();
+    for id in [&a.id, &b.id] {
+        let d = r.w.card(id).unwrap();
+        assert!(d.thread.iter().all(|it| it.undo_did.is_empty()));
+        assert!(d.thread.iter().any(|it| it.text.contains("(undone)")));
+    }
+}

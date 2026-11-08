@@ -225,6 +225,9 @@ kinds! {
     /// "Tidy the board" (card #786): `{on, by, at}`, actor `user`, newest
     /// wins, none means on. Set in the app only.
     ASSISTANT_TIDY_SET = "assistant.tidy.set" => Replicated, Refuses;
+    /// "Link duplicate cards" (card #786): `{on, by, at}`, actor `user`,
+    /// newest wins, none means on. Set in the app only.
+    ASSISTANT_DUPES_SET = "assistant.dupes.set" => Replicated, Refuses;
     /// What Irori did on the person's own board (card #786): a record the
     /// card's thread shows, with an Undo. `{id, taskId?, job, key, text,
     /// blockerId?, resource?, holder?, by, at, undo?}`. A deterministic id

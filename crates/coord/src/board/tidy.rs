@@ -36,6 +36,10 @@ pub const JOB_MERGED: &str = "merged";
 /// A lease held by another of the person's devices that is offline.
 pub const JOB_LEASE: &str = "lease";
 
+/// Irori linked two open cards that look like the same work. One record
+/// on each card, `key` naming the other.
+pub const JOB_DUPLICATE: &str = "duplicate";
+
 /// The reason on the `TASK_CHANGED` a PR's new state makes, so a listener
 /// can tell it from any other change to the card.
 pub const REASON_PR_STATE: &str = "pr_state";
@@ -120,6 +124,8 @@ pub fn did_undoable(t: &Task, d: &Did) -> bool {
                 })
         }
         JOB_MERGED => t.blockers.iter().any(|b| b.id == d.blocker_id && b.open()),
+        // Only a note on two cards: it holds nothing, so it can always go.
+        JOB_DUPLICATE => true,
         _ => false,
     }
 }
@@ -475,10 +481,63 @@ impl Fold {
             JOB_MERGED => {
                 self.take_back_merged(by, &t, &d.blocker_id)?;
             }
+            JOB_DUPLICATE => self.undo_twin(by, id, &d)?,
             _ => return Err(bad_state("this can't be undone")),
         }
         self.write_undo(by, id, &d)?;
         Ok(Some(self.tasks[id].clone()))
+    }
+
+    /// The other card's half of a duplicate link goes with this one. A
+    /// card deleted since has none left to undo.
+    fn undo_twin(&mut self, by: &str, id: &str, d: &Did) -> Result<()> {
+        let twin = did_id(JOB_DUPLICATE, &d.key, id);
+        let found = self
+            .tasks
+            .get(&d.key)
+            .and_then(|t| t.did.iter().find(|x| x.id == twin && !x.undone))
+            .cloned();
+        match found {
+            Some(other) => self.write_undo(by, &d.key, &other),
+            None => Ok(()),
+        }
+    }
+
+    /// Links cards `a` and `b` as looking like the same work: one line on
+    /// each, naming the other. Advisory: it writes only the two records,
+    /// so neither card is closed, held or delayed. False when the pair
+    /// can't be linked (any more), or was linked or undone before.
+    pub(crate) fn link_duplicate(&mut self, a: &str, b: &str) -> Result<bool> {
+        if self.on_board {
+            return Ok(false);
+        }
+        let (Some(ta), Some(tb)) = (self.tasks.get(a).cloned(), self.tasks.get(b).cloned()) else {
+            return Ok(false);
+        };
+        if !may_link_duplicate(&ta, &tb) {
+            return Ok(false);
+        }
+        self.write_link(&ta, &tb)?;
+        self.write_link(&tb, &ta)?;
+        Ok(true)
+    }
+
+    fn write_link(&mut self, t: &Task, other: &Task) -> Result<()> {
+        let at = self.stamp();
+        self.write_did(DidRow {
+            id: did_id(JOB_DUPLICATE, &t.id, &other.id),
+            task_id: t.id.clone(),
+            job: JOB_DUPLICATE.into(),
+            key: other.id.clone(),
+            text: format!(
+                "Irori linked this with {} {}: they look like the same work",
+                other.short_ref(),
+                super::util::cut(&other.title, LINK_TITLE_MAX)
+            ),
+            by: SWEEPER.into(),
+            at,
+            ..DidRow::default()
+        })
     }
 
     /// Closes Irori's merged question and leaves the card as open as it
@@ -526,6 +585,63 @@ impl Fold {
             },
         )
     }
+}
+
+/// The most of the other card's title a link's line shows.
+const LINK_TITLE_MAX: usize = 60;
+
+/// Whether card t can take part in a duplicate link at all: open, the
+/// person's own board's, and not a thread an agent opened or one about a
+/// shared board.
+pub fn may_duplicate(t: &Task) -> bool {
+    !t.shared
+        && !t.withdrawn
+        && !is_terminal(&t.state)
+        && !is_terminal(effective_state(t))
+        && !t
+            .ask
+            .as_ref()
+            .is_some_and(|a| !a.opener.is_empty() || !a.board.is_empty())
+}
+
+/// Whether a and b are already tied by the Board: one is the other's
+/// parent, subtask or sibling, they were made from one thread or one from
+/// the other, or one comes after the other. Cards like that look alike
+/// and aren't duplicates.
+fn already_related(a: &Task, b: &Task) -> bool {
+    let tied = |x: &Task, y: &Task| {
+        x.parent == y.id
+            || x.subtasks.contains(&y.id)
+            || x.from == y.id
+            || x.made.contains(&y.id)
+            || x.after_cards().contains(&y.id)
+    };
+    tied(a, b)
+        || tied(b, a)
+        || (!a.parent.is_empty() && a.parent == b.parent)
+        || (!a.from.is_empty() && a.from == b.from)
+}
+
+/// Whether a and b hold a duplicate record naming each other, in force or
+/// undone: an undone one is what stops Irori linking them again.
+fn linked_before(a: &Task, b: &Task) -> bool {
+    let names = |x: &Task, y: &Task| {
+        x.did
+            .iter()
+            .any(|d| d.job == JOB_DUPLICATE && d.key == y.id)
+    };
+    names(a, b) || names(b, a)
+}
+
+/// Whether Irori may link a and b as duplicates: two different open cards
+/// of the person's own in the same repo, not already tied, never linked.
+pub fn may_link_duplicate(a: &Task, b: &Task) -> bool {
+    a.id != b.id
+        && may_duplicate(a)
+        && may_duplicate(b)
+        && ledger::same_repo_key(&a.repo_key, &b.repo_key)
+        && !already_related(a, b)
+        && !linked_before(a, b)
 }
 
 /// A lease notice's key: one acquisition by one holder of one resource.

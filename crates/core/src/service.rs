@@ -66,6 +66,7 @@ pub(crate) mod calls;
 pub(crate) mod calls_share;
 mod deskmerge;
 mod dm_spaces;
+pub mod dupes;
 pub mod freshness;
 mod liveness;
 mod mirror;
@@ -350,6 +351,8 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori tidying the person's board (card #786).
     tidying: tidy::Tidying,
+    /// Irori linking duplicate cards (card #786).
+    duping: dupes::Duping,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -1237,6 +1240,7 @@ impl Core {
         let call_settings = call_settings::CallSettings::load(&st);
         let naming = thread_names::Naming::load(&st);
         let tidying = tidy::Tidying::load(&st);
+        let duping = dupes::Duping::load(&st);
         let co = Arc::new(
             Coord::new(
                 st.clone(),
@@ -1593,6 +1597,7 @@ impl Core {
             call_settings,
             naming,
             tidying,
+            duping,
             name_themes,
             invites,
         });
@@ -2016,12 +2021,16 @@ impl Core {
                         s.follow_names_themes();
                         s.follow_names_on();
                         s.follow_tidy_on();
+                        s.follow_dupes_on();
                     } else if ev.kind == kinds::ASSISTANT_NAMES_SET {
                         // Another device's "Name new threads" (card #782).
                         s.follow_names_on();
                     } else if ev.kind == kinds::ASSISTANT_TIDY_SET {
                         // Another device's "Tidy the board" (card #786).
                         s.follow_tidy_on();
+                    } else if ev.kind == kinds::ASSISTANT_DUPES_SET {
+                        // Another device's "Link duplicate cards" (card #786).
+                        s.follow_dupes_on();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
@@ -2313,6 +2322,7 @@ impl Core {
             let q = s.coord.subscribe();
             let reg = self.on_stop(&q, |q| q.close());
             s.names_seen_all();
+            s.dupes_seen_all();
             let (tx, rx) = std::sync::mpsc::channel();
             s.names_queue(Some(tx));
             let s2 = s.clone();
@@ -2321,6 +2331,7 @@ impl Core {
                 while let Some(ch) = q.recv() {
                     s2.names_hear(&ch);
                     s2.tidy_hear(&ch);
+                    s2.dupes_hear(&ch);
                 }
                 s2.names_queue(None);
             });
@@ -2774,6 +2785,17 @@ impl Core {
     /// The person turns "Tidy the board" on or off, from the app only.
     pub fn set_tidy_on(&self, on: bool) -> Result<(), String> {
         self.s.set_tidy_on(on)
+    }
+
+    /// "Link duplicate cards" (card #786): on unless the person turned it
+    /// off.
+    pub fn dupes_on(&self) -> bool {
+        self.s.dupes_on()
+    }
+
+    /// The person turns "Link duplicate cards" on or off, from the app only.
+    pub fn set_dupes_on(&self, on: bool) -> Result<(), String> {
+        self.s.set_dupes_on(on)
     }
 
     /// The `irori` whose `permission-hook` role each spawned agent's

@@ -123,8 +123,8 @@ pub use threads::{
     names_person,
 };
 pub use tidy::{
-    Did, JOB_HANDED, JOB_HANDED_ASK, JOB_LEASE, JOB_MERGED, LEASE_OFFLINE_AFTER, REASON_PR_STATE,
-    did_id, did_undoable,
+    Did, JOB_DUPLICATE, JOB_HANDED, JOB_HANDED_ASK, JOB_LEASE, JOB_MERGED, LEASE_OFFLINE_AFTER,
+    REASON_PR_STATE, did_id, did_undoable, may_duplicate, may_link_duplicate,
 };
 pub use types::*;
 /// Talk's post and channel ids are made as comments' are (card #389).
@@ -1325,6 +1325,11 @@ impl Coord {
     /// it asked now.
     pub fn flag_merged(&self, id: &str) -> Result<bool> {
         self.lock().flag_merged(id)
+    }
+    /// Links open cards `a` and `b` as looking like the same work, a line
+    /// on each. False when they can't be linked or were before.
+    pub fn link_duplicate(&self, a: &str, b: &str) -> Result<bool> {
+        self.lock().link_duplicate(a, b)
     }
     /// The person's Undo on Irori's record `did` on card `id` (`""` for
     /// a lease notice).

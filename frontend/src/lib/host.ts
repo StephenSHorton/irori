@@ -709,4 +709,6 @@ export const AssistantService = {
   // "Tidy the board" (card #786): on unless the person turned it off.
   Tidy: () => call(commands.assistantTidy()),
   TidySet: (on: boolean) => done(commands.assistantTidySet(on)),
+  Dupes: () => call(commands.assistantDupes()),
+  DupesSet: (on: boolean) => done(commands.assistantDupesSet(on)),
 }

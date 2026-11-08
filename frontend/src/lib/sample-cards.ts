@@ -1030,6 +1030,14 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "sample-heron took it",
         }),
         CardThreadItem({
+          id: "did:sample-ask-2-link",
+          kind: "event",
+          at: at(5),
+          who: AgentRef({ key: "irori", name: "Irori", status: "irori" }),
+          text: "Irori linked this with #41 Release notes for tonight: they look like the same work",
+          undoDid: "sample-did-2",
+        }),
+        CardThreadItem({
           id: "sample-ask-2-c1",
           kind: "comment",
           at: at(4),

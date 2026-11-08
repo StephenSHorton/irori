@@ -292,6 +292,17 @@ impl Window {
         self.core.set_tidy_on(on)
     }
 
+    /// "Link duplicate cards" (card #786): on unless the person turned it
+    /// off.
+    pub fn assistant_dupes(&self) -> bool {
+        self.core.dupes_on()
+    }
+
+    /// Turns "Link duplicate cards" on or off on all the person's devices.
+    pub fn assistant_dupes_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_dupes_on(on)
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self
