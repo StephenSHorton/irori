@@ -1175,3 +1175,23 @@ fn talk_space_errors_dont_offer_personal_boards() {
     );
     has_not(&out, &["Personal's boards"]);
 }
+
+/// Card #964: on a shared board the weight hint goes on the card too,
+/// written as the agent's card (its writer there), so the board counts it.
+#[test]
+fn a_shared_boards_card_takes_the_weight() {
+    let r = rig();
+    let out = r.h.okj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Tune the loader", "board": "mlg",
+               "weight": {"level": "light", "why": "a known pattern"}}),
+    );
+    has(&out, &["Created mlg#1 (task:"]);
+    let t = &r.fake.co.list_tasks(&coord::TaskFilter::default())[0];
+    let w = t.weight.clone().expect("weighed on the board");
+    assert_eq!(
+        (w.level.as_str(), w.reason.as_str(), w.set_by.as_str()),
+        ("light", "a known pattern", coord::SET_BY_AGENT)
+    );
+}

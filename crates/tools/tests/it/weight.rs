@@ -68,3 +68,77 @@ fn an_agent_weighs_a_card_and_the_persons_weight_is_theirs() {
         );
     }
 }
+
+/// Card #964: board_create and board_split take a weight hint with one
+/// line on why; the result and the board show it, leaving it out is
+/// normal, and a bad one makes no card.
+#[test]
+fn board_create_and_board_split_take_a_weight() {
+    let h = new_harness();
+    h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Plan it", "weight": {"level": "heavy"}}),
+        &["give a weight with one line on why"],
+    );
+    h.failsj(
+        &call_a(),
+        "board_create",
+        json!({"title": "Plan it", "weight": {"level": "huge", "why": "x"}}),
+        &["unknown weight"],
+    );
+    let out = h.okj(
+        &call_a(),
+        "board_create",
+        json!({
+            "title": "Plan the importer",
+            "weight": {"level": "heavy", "why": "design and the split"},
+            "steps": [{"text": "build"}, {"text": "docs"}, {"text": "wire"}],
+        }),
+    );
+    has(
+        &out,
+        &["Created #1", "heavy, set by", ": design and the split"],
+    );
+    let out = h.okj(&call_a(), "board_create", json!({"title": "Plain"}));
+    has_not(&out, &["set by"]);
+
+    let out = h.okj(
+        &call_a(),
+        "board_split",
+        json!({"task_id": "#1", "subtasks": [
+            {"title": "Build it", "steps": ["s1"], "weight": {"level": "normal", "why": "follows the plan"}},
+            {"title": "Docs", "steps": ["s2"], "weight": {"level": "light", "why": "a line per field"}},
+            {"title": "Wire it", "steps": ["s3"]},
+        ]}),
+    );
+    has(
+        &out,
+        &[
+            "\"Build it\"; normal, set by",
+            ": follows the plan",
+            "\"Docs\"; light, set by",
+        ],
+    );
+    let card = h.okj(
+        &call_a(),
+        "board_step",
+        json!({"task_id": "#4", "step_id": "s1", "doing": true}),
+    );
+    has(&card, &["light, set by", ": a line per field"]);
+    // A subtask's weight without a reason refuses the whole split.
+    h.okj(
+        &call_a(),
+        "board_steps",
+        json!({"task_id": "#2", "steps": [{"text": "x"}]}),
+    );
+    h.failsj(
+        &call_a(),
+        "board_split",
+        json!({"task_id": "#2", "subtasks": [
+            {"title": "A", "steps": ["s1"]},
+            {"title": "B", "weight": {"level": "heavy"}},
+        ]}),
+        &["subtask 2", "give a weight with one line on why"],
+    );
+}
