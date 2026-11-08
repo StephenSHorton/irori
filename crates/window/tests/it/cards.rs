@@ -1858,14 +1858,6 @@ fn a_not_done_on_a_gone_agents_check_goes_to_the_next_agent() {
 #[test]
 fn hand_on_a_wait_on_a_gone_agent() {
     let r = Rig::new();
-    // Hand on starts an agent, which needs the board's Agents switch on
-    // (card #1066 refuses when it is off).
-    r.w.core
-        .set_spawn_setting(irori_core::spawn::SpawnSetting {
-            on: true,
-            ..Default::default()
-        })
-        .unwrap();
     let co = r.w.core.coord();
     let kestrel = format!("{}/kestrel-session", r.w.core.device_id());
     let t = held_task(&r);
@@ -1934,14 +1926,6 @@ fn hand_on_a_wait_on_a_gone_agent() {
 fn a_wait_on_a_gone_agent_is_the_persons() {
     const PR: &str = "https://github.com/a/irori/pull/41";
     let r = Rig::new();
-    // Hand on starts an agent, which needs the board's Agents switch on
-    // (card #1066 refuses when it is off).
-    r.w.core
-        .set_spawn_setting(irori_core::spawn::SpawnSetting {
-            on: true,
-            ..Default::default()
-        })
-        .unwrap();
     let co = r.w.core.coord();
     let kestrel = format!("{}/kestrel-session", r.w.core.device_id());
     let piranha = format!("{}/piranha-session", r.w.core.device_id());
