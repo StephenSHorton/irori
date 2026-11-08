@@ -148,6 +148,9 @@ pub struct HttpCore {
     base: String,
     addr: String,
     token: String,
+    /// The window assistant's secret (card #783), sent as
+    /// `X-Irori-Assistant` on every request that names no member.
+    assistant: String,
 }
 
 impl HttpCore {
@@ -164,7 +167,15 @@ impl HttpCore {
             base,
             addr,
             token: token.into(),
+            assistant: String::new(),
         }
+    }
+
+    /// Calls as the window assistant (card #783): every request carries
+    /// `X-Irori-Assistant: <secret>` instead of a member secret.
+    pub fn with_assistant(mut self, secret: &str) -> HttpCore {
+        self.assistant = secret.into();
+        self
     }
 
     /// GET /v1/health with no token: whether an Irori answers with `ok`,
@@ -223,6 +234,8 @@ impl HttpCore {
         }
         if !member.is_empty() {
             req += &format!("X-Irori-Member: {member}\r\n");
+        } else if !self.assistant.is_empty() {
+            req += &format!("X-Irori-Assistant: {}\r\n", self.assistant);
         }
         if let Some(b) = body {
             req += &format!(

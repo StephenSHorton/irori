@@ -85,7 +85,7 @@ function Strip({ fit }: { fit: Fit }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         ref={trigger}
-        aria-label="Hardware meters and Claude usage left"
+        aria-label="Hardware meters and Claude usage"
         className={cn(
           "mr-1 hidden h-8 shrink-0 items-center gap-3 rounded-[min(var(--radius-md),12px)] px-2 text-xs text-muted-foreground tabular-nums outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-1 focus-visible:ring-ring aria-expanded:bg-accent aria-expanded:text-accent-foreground md:flex",
           fit.strip
@@ -143,7 +143,12 @@ function Strip({ fit }: { fit: Fit }) {
             )}
           >
             <span>Claude</span>
-            <span className="text-foreground/80">{claude.text}</span>
+            <span
+              className="text-foreground/80"
+              style={claude.color ? { color: claude.color } : undefined}
+            >
+              {claude.text}
+            </span>
           </span>
         )}
       </PopoverTrigger>

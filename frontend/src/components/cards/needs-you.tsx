@@ -23,6 +23,7 @@ import {
 } from "@/lib/cards"
 import { inWails, plainLine, relativeTime } from "@/lib/irori"
 import { AgentsService } from "@/lib/host"
+import { sampleTrustAndStart } from "@/lib/trust-sample"
 import {
   GIVEN_QUESTION,
   goneTitle,
@@ -552,8 +553,12 @@ function TrustRow({
             disabled={act.busy || !!act.done}
             onClick={() =>
               void act.run(
-                () => AgentsService.TrustAndStart(c.id),
-                "Trusted. Starting its agent…"
+                () =>
+                  host
+                    ? AgentsService.TrustAndStart(c.id)
+                    : sampleTrustAndStart(folder),
+                // What happens next (card #717): started, or why not.
+                (r) => r?.said || "Trusted."
               )
             }
           >

@@ -241,6 +241,10 @@ pub struct BoardList {
     pub deleted: Vec<(String, RowPos)>,
     /// Every (tag, board) the log has named, deleted boards' too.
     pub tags: Vec<(String, String)>,
+    /// The closed boards (card #690): read-only, so this device puts no
+    /// card on one and reopens none of theirs. Checked only when writing:
+    /// a card another device put on one still folds.
+    pub closed: Vec<String>,
 }
 /// See [`Options::board_view`].
 ///
@@ -692,6 +696,12 @@ impl Coord {
         let f = self.lock();
         f.tasks.get(id).map(|t| f.shown(t))
     }
+    /// The open cards on board `board` (`""` or the first board's id: the
+    /// first), parents before their subtasks (card #690): what closing
+    /// the board keeps, moves or cancels.
+    pub fn open_on_board(&self, board: &str) -> Vec<Task> {
+        self.lock().open_on_board(board)
+    }
     /// Makes `by` the holder; ErrHeld if another live holder has it.
     pub fn claim_task(&self, by: &str, id: &str) -> Result<Task> {
         self.lock().claim_task(by, id)
@@ -975,6 +985,11 @@ impl Coord {
 
     pub fn edit_task(&self, by: &str, id: &str, e: TaskEdit) -> Result<Task> {
         self.lock().edit_task(by, id, e)
+    }
+    /// The person renames a card or thread by hand (card #779); an agent's
+    /// later rename doesn't land.
+    pub fn rename_task(&self, by: &str, id: &str, title: &str) -> Result<Task> {
+        self.lock().rename_task(by, id, title)
     }
     /// [`Self::set_steps`] with a notice for each agent newly given a step
     /// (card #86).
@@ -1703,6 +1718,10 @@ impl Coord {
     /// has been written since ([`Self::spawn_now`]).
     pub fn spawn_asked_now(&self, id: &str) -> bool {
         self.lock().spawn_now.contains(id)
+    }
+    /// Every card [`Self::spawn_asked_now`] holds for (card #717).
+    pub fn spawn_asked(&self) -> std::collections::HashSet<String> {
+        self.lock().spawn_now.iter().cloned().collect()
     }
     /// Ends request `generation` of card `id` (its own part) as failed or
     /// canceled with `reason`.

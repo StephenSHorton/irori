@@ -99,6 +99,8 @@ export const commands = {
 	boardClose: (id: string, state: string, note: string) => __TAURI_INVOKE<Task>("board_close", { id, state, note }),
 	boardDelete: (id: string) => __TAURI_INVOKE<null>("board_delete", { id }),
 	boardMove: (id: string, board: string) => __TAURI_INVOKE<Task>("board_move", { id, board }),
+	/**  The person renames a card or thread by hand (card #779). */
+	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
@@ -164,6 +166,8 @@ export const commands = {
 	boardThreadsAll: () => __TAURI_INVOKE<ThreadSummary[]>("board_threads_all"),
 	/**  What a #ref in text names (card #144), or null. */
 	boardCardRef: (r: string) => __TAURI_INVOKE<RefTarget | null>("board_card_ref", { r }),
+	/**  The person has a thread open: what is in it now is read (card #719). */
+	boardReadThread: (id: string) => __TAURI_INVOKE<null>("board_read_thread", { id }),
 	/**  Resolve on a thread: the person is done with it. */
 	boardResolveThread: (id: string) => __TAURI_INVOKE<null>("board_resolve_thread", { id }),
 	/**  A resolved thread is live again (card #169). */
@@ -186,13 +190,21 @@ export const commands = {
 	boardsCreate: (name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_create", { name, tag }),
 	boardsRename: (boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename", { boardId, name }),
 	boardsLeave: (boardId: string) => __TAURI_INVOKE<null>("boards_leave", { boardId }),
-	boardsAddToSpace: (spaceId: string, name: string, tag: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag }),
+	boardsAddToSpace: (spaceId: string, name: string, tag: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_add_to_space", { spaceId, name, tag, description }),
 	boardsRenameInSpace: (spaceId: string, boardId: string, name: string) => __TAURI_INVOKE<BoardSummary>("boards_rename_in_space", { spaceId, boardId, name }),
 	boardsPersonal: () => __TAURI_INVOKE<SpaceBoard[]>("boards_personal"),
-	boardsAddToPersonal: (name: string, tag: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag }),
+	boardsAddToPersonal: (name: string, tag: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_add_to_personal", { name, tag, description }),
 	boardsRenameInPersonal: (boardId: string, name: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_rename_in_personal", { boardId, name }),
 	boardsDeleteInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_delete_in_space", { spaceId, boardId }),
 	boardsDeleteInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_delete_in_personal", { boardId }),
+	boardsSetDescriptionInSpace: (spaceId: string, boardId: string, description: string) => __TAURI_INVOKE<BoardSummary>("boards_set_description_in_space", { spaceId, boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInSpace: (spaceId: string, boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<BoardSummary>("boards_close_in_space", { spaceId, boardId, openCards, moveTo }),
+	boardsReopenInSpace: (spaceId: string, boardId: string) => __TAURI_INVOKE<BoardSummary>("boards_reopen_in_space", { spaceId, boardId }),
+	boardsSetDescriptionInPersonal: (boardId: string, description: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_set_description_in_personal", { boardId, description }),
+	/**  `open_cards`: "keep", "move" (to `move_to`) or "cancel" (card #690). */
+	boardsCloseInPersonal: (boardId: string, openCards: string, moveTo: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_close_in_personal", { boardId, openCards, moveTo }),
+	boardsReopenInPersonal: (boardId: string) => __TAURI_INVOKE<SpaceBoard[]>("boards_reopen_in_personal", { boardId }),
 	boardsForgetNow: (boardId: string) => __TAURI_INVOKE<null>("boards_forget_now", { boardId }),
 	boardsRemoveMember: (boardId: string, personId: string) => __TAURI_INVOKE<BoardSettings>("boards_remove_member", { boardId, personId }),
 	boardsSetRole: (boardId: string, personId: string, role: string) => __TAURI_INVOKE<BoardSettings>("boards_set_role", { boardId, personId, role }),
@@ -207,6 +219,14 @@ export const commands = {
 	boardsSetThreads: (boardId: string, mode: string) => __TAURI_INVOKE<BoardSettings>("boards_set_threads", { boardId, mode }),
 	boardsSetReviewer: (boardId: string, agent: string, repo: string) => __TAURI_INVOKE<BoardSettings>("boards_set_reviewer", { boardId, agent, repo }),
 	notesList: (removed: boolean) => __TAURI_INVOKE<NoteView[]>("notes_list", { removed }),
+	storageReport: () => __TAURI_INVOKE<StorageReport>("storage_report"),
+	storageLog: () => __TAURI_INVOKE<LogPart[]>("storage_log"),
+	storageItems: (kind: string) => __TAURI_INVOKE<StorageItem[]>("storage_items", { kind }),
+	storageClean: (kind: string, ids: string[]) => __TAURI_INVOKE<StorageCleaned>("storage_clean", { kind, ids }),
+	storageCleared: () => __TAURI_INVOKE<ClearedCard[]>("storage_cleared"),
+	storageUnclear: (ids: string[]) => __TAURI_INVOKE<number>("storage_unclear", { ids }),
+	threadsClearCount: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear_count", { olderThanSecs }),
+	threadsClear: (olderThanSecs: number) => __TAURI_INVOKE<number>("threads_clear", { olderThanSecs }),
 	noteNew: (note: NoteInput) => __TAURI_INVOKE<NoteView>("note_new", { note }),
 	noteEdit: (id: string, edit: NoteEditInput) => __TAURI_INVOKE<NoteView>("note_edit", { id, edit }),
 	noteRemove: (id: string, why: string) => __TAURI_INVOKE<NoteView>("note_remove", { id, why }),
@@ -408,12 +428,24 @@ export const commands = {
 	termFolders: (card: string) => __TAURI_INVOKE<Folder[]>("term_folders", { card }),
 	termList: (card: string) => __TAURI_INVOKE<TermInfo[]>("term_list", { card }),
 	/**
+	 *  The person's own terminals on this device, for the bottom panel off a
+	 *  card's page (card #734). It never starts one.
+	 */
+	termDeviceList: () => __TAURI_INVOKE<TermInfo[]>("term_device_list"),
+	/**
 	 *  A board's spawned-agent switch, model and effort (`""`: the private
 	 *  board).
 	 */
 	agentsSettings: (boardId: string) => __TAURI_INVOKE<AgentsSettings>("agents_settings", { boardId }),
 	/**  The person changes them: the app only, never a tool. */
 	agentsSet: (change: AgentsChange) => __TAURI_INVOKE<AgentsSettings>("agents_set", { change }),
+	/**
+	 *  The themes new agents' names come from (card #702), each with its
+	 *  switch.
+	 */
+	namesThemes: () => __TAURI_INVOKE<NamesThemesView>("names_themes"),
+	/**  The person turns a theme on or off: the app only, never a tool. */
+	namesThemeSet: (id: string, on: boolean) => __TAURI_INVOKE<NamesThemesView>("names_theme_set", { id, on }),
 	/**  "My agents may start agents on my cards" and its maximum (card #575). */
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
@@ -468,6 +500,17 @@ export const commands = {
 	 *  left out.
 	 */
 	usageLimits: () => __TAURI_INVOKE<UsageLimits>("usage_limits"),
+	/**
+	 *  Asks the corner chat's assistant `text` after `history`. Returns the
+	 *  run's id at once; its events come on `on`, ending with one `done` or
+	 *  `error` (a failure to start included).
+	 */
+	assistantAsk: (history: AssistantTurn[], text: string, on: Channel<AssistantEvent>) => __TAURI_INVOKE<number>("assistant_ask", { history, text, on }),
+	/**
+	 *  Stops assistant run `id`: its channel gets error "Stopped." or nothing
+	 *  more. An unknown or finished id is fine.
+	 */
+	assistantStop: (id: number) => __TAURI_INVOKE<null>("assistant_stop", { id }),
 };
 
 /* Types */
@@ -746,6 +789,24 @@ export type Ask = {
 export type AskRepo = {
 	repoKey: string,
 	label: string,
+};
+
+/**
+ *  What a run says, in order: `delta`s of reply text, `tool` status lines
+ *  (each replaces the last; not part of the reply), then exactly one
+ *  `done` (text empty) or `error` (one plain sentence for the person).
+ */
+export type AssistantEvent = {
+	/**  `"delta"`, `"tool"`, `"done"` or `"error"`. */
+	kind: string,
+	text: string,
+};
+
+/**  One turn of the chat so far. */
+export type AssistantTurn = {
+	/**  `"person"` or `"assistant"`. */
+	role: string,
+	text: string,
 };
 
 /**  One comment file as the window shows it. */
@@ -1755,6 +1816,17 @@ export type CheckSlot = {
 	until: string,
 };
 
+/**  A card or thread the person cleared from the lists (#138). */
+export type ClearedCard = {
+	id: string,
+	short: string,
+	title: string,
+	/**  Its space's name, "" for Personal. */
+	board: string,
+	thread: boolean,
+	updatedAt: string,
+};
+
 /**  coord.Comment. */
 export type Comment = {
 	id: string,
@@ -2004,6 +2076,11 @@ export type GoneSession = {
 	goneAt: string,
 	reason: string,
 	transcript: boolean,
+	/**
+	 *  Whether Claude Code will start `claude --bg --resume` in `cwd`: the
+	 *  spawn's rule ([`crate::spawn::trusted_in`]), so a git repo needs its
+	 *  own entry even under a trusted parent (card #731).
+	 */
 	trusted: boolean,
 };
 
@@ -2148,6 +2225,14 @@ export type LogFreshness = {
 	shared: boolean,
 };
 
+/**  A share of Irori's log by what its rows are. */
+export type LogPart = {
+	/**  conversations, messages, cards, talk, notes, code, agents or other. */
+	part: string,
+	rows: number,
+	bytes: number,
+};
+
 /**
  *  One agent a comment, ask or message names (coord.Mention, card #77).
  *  Also what the window sends: `gone` is ignored there, the window decides.
@@ -2248,6 +2333,29 @@ export type MetersSample = {
 
 /**  inbox.Mode (the wake policy). */
 export type Mode = "everyone" | "allowlist" | "open";
+
+/**  One names theme in Settings › Agents (card #702), with its switch. */
+export type NamesThemeChoice = {
+	id: string,
+	label: string,
+	/**
+	 *  New names may come from it: every theme is on until the person
+	 *  turns it off.
+	 */
+	on: boolean,
+	/**  How many words it has. */
+	words: number,
+	/**  A few of them, for the hint. */
+	sample: string[],
+};
+
+/**
+ *  The themes new agents' names come from (card #702): the person's, on all
+ *  their devices, set here and never by a tool.
+ */
+export type NamesThemesView = {
+	themes: NamesThemeChoice[],
+};
 
 /**  What the New card form sends. */
 export type NewCardInput = {
@@ -2577,7 +2685,12 @@ export type Scope =
 /**  A card, by its task id. */
 { kind: "card"; id: string } | 
 /**  An agent session, by its key (S3). */
-{ kind: "agent"; id: string };
+{ kind: "agent"; id: string } | 
+/**
+ *  The person's own terminal on this device, tied to no card: the
+ *  bottom panel's shell on pages other than a card's (card #734).
+ */
+{ kind: "device" };
 
 /**  Send's answer: the message, and what each mention came to. */
 export type SendResult = {
@@ -2641,6 +2754,20 @@ export type SpaceBoard = {
 	boardId: string,
 	name: string,
 	tag: string,
+	/**
+	 *  The board's description (card #690): optional free text, often
+	 *  the end result it is for. Absent with none.
+	 */
+	description?: string,
+	/**  Closed: read-only and out of the pickers and tiles (card #690). */
+	closed?: boolean,
+	/**  When it was closed (RFC 3339), while it is. */
+	closedAt?: string,
+	/**
+	 *  Whether this person may close or reopen it: its maker or a space
+	 *  owner (anyone in Personal), never a first board.
+	 */
+	mayClose?: boolean,
 };
 
 /**
@@ -2667,6 +2794,70 @@ export type Step = {
 	doing?: boolean,
 	/**  The agent doing the step (card #86). */
 	owner?: string,
+};
+
+/**  What a clean did. */
+export type StorageCleaned = {
+	removed: number,
+	freed: number,
+	kept: StorageKept[],
+};
+
+/**  One item of a kind: a file, a folder, a space, a tree. */
+export type StorageItem = {
+	/**
+	 *  What a clean names it by: an attachment's hash, a file name, a tree's
+	 *  folder, a card id.
+	 */
+	id: string,
+	/**  What the person reads. */
+	name: string,
+	bytes: number,
+	/**  Last changed (a file), or when it was attached. */
+	at: string,
+	/**  A second line: the cards it belongs to, who sent it, ... */
+	detail: string,
+	/**  The cards on this device it belongs to (ids), to open. */
+	cards: string[],
+	/**  Whether a clean takes it. */
+	cleanable: boolean,
+	/**  Why it stays, when it does. */
+	keep: string,
+	/**
+	 *  An attachment this device attached itself: other devices may have
+	 *  no copy, so deleting it here may lose it.
+	 */
+	onlyHere: boolean,
+};
+
+/**  One item a clean left. */
+export type StorageKept = {
+	id: string,
+	why: string,
+};
+
+/**  One kind of thing Irori keeps, as the page's overview lists it. */
+export type StorageKind = {
+	/**  [`LOG`], [`FILES`], ... */
+	id: string,
+	/**  Bytes on disk (0 until measured, see `measured`). */
+	bytes: number,
+	/**  How many items it holds (files, rows, trees). */
+	items: number,
+	/**
+	 *  Whether `bytes` is known: build output and Claude's folder are
+	 *  measured when the page asks for their items.
+	 */
+	measured: boolean,
+	/**  Where it is on disk. */
+	path: string,
+};
+
+/**  What Irori keeps on this device. */
+export type StorageReport = {
+	/**  Irori's data folder. */
+	dir: string,
+	kinds: StorageKind[],
 };
 
 /**  One subtask as Share would write it under its parent (card #180). */
@@ -2894,6 +3085,8 @@ export type Task = {
 	sideWait?: string,
 	withdrawn?: boolean,
 	title: string,
+	/**  The person named it by hand (card #779). */
+	titleByPerson?: boolean,
 	objective: string,
 	doneCriteria?: string,
 	repoKey?: string,
@@ -3044,6 +3237,12 @@ export type ThreadSummary = {
 	 *  started for it.
 	 */
 	openedBy?: AgentRef | null,
+	/**
+	 *  An agent wrote in it after the person last opened or replied in it
+	 *  (card #719): Talk's count counts it and its list marks it. An
+	 *  agent's own thread is unread until the person first opens it.
+	 */
+	unread: boolean,
 };
 
 /**  Who an action's notice went to. */
@@ -3079,6 +3278,13 @@ export type TrustStarted = {
 	folder: string,
 	/**  It was already trusted (another window got there first). */
 	already: boolean,
+	/**
+	 *  What happens next, in the words the row shows (card #717): its
+	 *  agent starting, or why none does now (an agent already holds the
+	 *  card, the device is at its cap, paused or on a usage limit, or
+	 *  another device starts it). Never a "Starting…" that doesn't.
+	 */
+	said: string,
 };
 
 /**

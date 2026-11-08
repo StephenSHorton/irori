@@ -848,3 +848,66 @@ fn an_agent_answering_with_another_folder_is_refused() {
     t.later();
     assert!(t.fake.started.lock().unwrap().is_empty());
 }
+
+/// Card #717: a live agent takes a card Irori stopped at, asking for a
+/// folder. No agent needs to start for it now, so the question closes by
+/// itself, saying who took it, and the card leaves Needs you.
+#[test]
+fn an_agent_taking_the_card_closes_the_no_copy_question() {
+    let t = rig();
+    let c = t.card("Port the parser", LOWER);
+    t.start();
+    let b = t.wait_blocked(&c.id);
+    let co = t.r.core.coord();
+    co.claim_task(&t.r.key_a, &c.id).unwrap();
+    t.later();
+    wait_for(60, "the question closed", || {
+        t.no_copy_blockers(&c.id).is_empty()
+    });
+    let done = t
+        .get(&c.id)
+        .blockers
+        .into_iter()
+        .find(|x| x.id == b.id)
+        .and_then(|x| x.resolved)
+        .unwrap();
+    let name = t.r.core.agent_name(&t.r.key_a);
+    assert_eq!(
+        done.answer,
+        format!(
+            "{} took the card, so no agent needs to start for it.",
+            if name.is_empty() { "An agent" } else { &name }
+        )
+    );
+    assert_ne!(t.get(&c.id).state, coord::BLOCKED);
+    assert!(t.fake.started.lock().unwrap().is_empty());
+}
+
+/// Card #717: the same for "couldn't start: try again?".
+#[test]
+fn an_agent_taking_the_card_closes_the_start_failed_question() {
+    let t = rig();
+    let dir = tempfile::tempdir().unwrap();
+    t.seen(LOWER, dir.path());
+    let c = t.card("Port the parser", LOWER);
+    t.fake.fail.store(true, Ordering::SeqCst);
+    t.start();
+    wait_for(60, "the first try", || *t.fake.tries.lock().unwrap() >= 1);
+    let open = |t: &T| {
+        t.get(&c.id)
+            .blockers
+            .iter()
+            .any(|b| b.open() && b.question == START_FAILED)
+    };
+    for _ in 0..4 {
+        if open(&t) {
+            break;
+        }
+        t.later();
+    }
+    wait_for(60, "the start-failed blocker", || open(&t));
+    t.r.core.coord().claim_task(&t.r.key_a, &c.id).unwrap();
+    t.later();
+    wait_for(60, "the question closed", || !open(&t));
+    assert_ne!(t.get(&c.id).state, coord::BLOCKED);
+}

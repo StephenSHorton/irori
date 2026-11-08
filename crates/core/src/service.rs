@@ -69,6 +69,7 @@ mod dm_spaces;
 pub mod freshness;
 mod liveness;
 mod mirror;
+pub mod name_themes;
 pub mod notes;
 mod notifications;
 pub mod space_move;
@@ -84,6 +85,7 @@ pub mod spawn_remote;
 pub mod spawn_stop;
 pub mod spawn_waiting;
 pub mod spawn_why;
+pub mod storage;
 pub mod sync_out;
 pub use mirror::BoardReviewer;
 pub mod invites;
@@ -312,6 +314,10 @@ struct Services {
     scrubber: Arc<scrub::Scrubber>,
     secrets: Mutex<Vec<String>>,
     token: String,
+    /// The window assistant's per-run secret (card #783): the API reads a
+    /// call carrying it as the person, through the read-only tools only.
+    /// Only in memory and in the assistant's own 0600 MCP config.
+    assistant: String,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -335,6 +341,9 @@ struct Services {
     calls: calls::Calls,
     /// "Transcribe what I say in calls" (card #656).
     call_settings: call_settings::CallSettings,
+    /// The themes new agents' names come from (card #702), shared with
+    /// `names`.
+    name_themes: Arc<name_themes::NameThemes>,
     /// The open board invite (card #44).
     invites: invites::Invites,
 }
@@ -516,6 +525,8 @@ impl tools::Backend for ToolsView {
                 board_id: b.board_id,
                 name: b.name,
                 tag: b.tag,
+                description: b.description,
+                closed: b.closed,
             })
             .collect()
     }
@@ -754,6 +765,31 @@ impl capture::Blobs for Blobs {
 }
 
 /// sys::fswatch as presence's file events (Go passes `fswatch.Watch`).
+/// The window assistant's run dir under data dir `dir` (card #783).
+pub fn assistant_dir(dir: &Path) -> PathBuf {
+    dir.join(ASSISTANT_DIR)
+}
+
+/// The folders presence leaves off the roster for the assistant: its run
+/// dir as named and, off Windows, as resolved (Claude Code records the
+/// real path: `/var` is `/private/var` on the Mac).
+fn assistant_skip(dir: &Path) -> Vec<String> {
+    let d = assistant_dir(dir);
+    let mut v = vec![d.to_string_lossy().into_owned()];
+    if !cfg!(windows)
+        && let Ok(real) = std::fs::canonicalize(dir)
+    {
+        let r = real.join(ASSISTANT_DIR).to_string_lossy().into_owned();
+        if r != v[0] {
+            v.push(r);
+        }
+    }
+    v
+}
+
+/// The window assistant's run dir's name in the data dir (card #783).
+pub const ASSISTANT_DIR: &str = "assistant";
+
 fn fs_watch(root: &Path, recursive: bool) -> Result<presence::FsSource, presence::WatchError> {
     let cancel = Cancel::new();
     let w = sys::fswatch::watch(&cancel, &root.to_string_lossy(), recursive, Duration::ZERO)
@@ -954,6 +990,11 @@ impl Core {
             Arc::new(move |d: &str| r.key(d))
         };
         let names = Arc::new(Namer::new(&dir, &me));
+        let name_themes = Arc::new(name_themes::NameThemes::load(&st));
+        {
+            let t = name_themes.clone();
+            names.set_themes_off(move || t.off());
+        }
         let agent_names = Arc::new(crate::agentnames::AgentNames::new(&dir));
         let usage = crate::usage::Usage::new(&dir);
         // Idle sessions whose wakes go unread show as not answering (#110).
@@ -968,6 +1009,9 @@ impl Core {
                 Arc::new(move |c: &presence::AgentCard| a.status(c))
             }),
             watch: Some(Arc::new(fs_watch)),
+            // Card #783: the window assistant's headless `claude -p` writes
+            // a session file too; it is no agent.
+            skip_cwd: assistant_skip(&dir),
             ..Default::default()
         };
         if let Some(edit) = &opts.presence {
@@ -1246,7 +1290,9 @@ impl Core {
                         let st = Arc::downgrade(&st);
                         Arc::new(move || {
                             let st = st.upgrade()?;
-                            spaces::board_list_in(&st, spaces::PERSONAL_BOARD, &|_| true)
+                            spaces::with_personal_rules(|r| {
+                                spaces::board_list_in(&st, spaces::PERSONAL_BOARD, r)
+                            })
                         })
                     }),
                     ..Default::default()
@@ -1463,6 +1509,7 @@ impl Core {
         }
 
         let token = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
+        let assistant = lockfile::new_token().map_err(|e| fail(&st, other("", e)))?;
         let s = Arc::new(Services {
             data_dir: dir,
             version: opts.version.clone(),
@@ -1505,6 +1552,7 @@ impl Core {
             scrubber,
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
+            assistant: assistant.clone(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -1527,6 +1575,7 @@ impl Core {
                 opts.call_transcriber.clone(),
             ),
             call_settings,
+            name_themes,
             invites,
         });
         let _ = svc_cell.set(Arc::downgrade(&s));
@@ -1583,6 +1632,7 @@ impl Core {
                 .set_notify(Some(Arc::new(move || h.kick())));
         }
         s.add_secret(&token);
+        s.add_secret(&assistant);
         laps.lap("services");
 
         let tools = tools::Set::new(Arc::new(ToolsView(s.clone())), Some(s.now.clone()));
@@ -1945,9 +1995,13 @@ impl Core {
                         let _ = s.talk.load();
                         s.hub.publish(CoreEvent::Talk);
                         s.follow_call_settings();
+                        s.follow_names_themes();
                     } else if ev.kind == kinds::TRANSCRIBE_SET {
                         // Another device's switch (card #656).
                         s.follow_call_settings();
+                    } else if ev.kind == kinds::NAMES_THEMES {
+                        // Another device's switches (card #702).
+                        s.follow_names_themes();
                     } else if coord::talk::KINDS.contains(&ev.kind.as_str()) {
                         // A write here was folded when it was written; the
                         // window still hears it (card #389).
@@ -2264,7 +2318,10 @@ impl Core {
                 let _ = h.join();
             }
         }
+        // Killed shells remove their bootstrap folders from the temp dir as
+        // they exit: wait for them, a stuck one at most CLOSE_WAIT (#960).
         self.terms.close_all();
+        self.terms.settle(CLOSE_WAIT);
         self.s.boards.close_all();
         self.s.hub.close();
         self.s.pairing.shutdown();
@@ -2298,6 +2355,19 @@ impl Core {
     /// The API's bearer token. A secret: never log it.
     pub fn token(&self) -> &str {
         &self.s.token
+    }
+
+    /// The window assistant's secret for this run (card #783): sent as
+    /// `X-Irori-Assistant`, it reads as the person through
+    /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
+    pub fn assistant_secret(&self) -> &str {
+        &self.s.assistant
+    }
+
+    /// Where the window assistant runs (card #783): its `claude -p` cwd,
+    /// which presence leaves off the roster.
+    pub fn assistant_dir(&self) -> PathBuf {
+        assistant_dir(&self.s.data_dir)
     }
 
     /// Gives capture's scrubber one more exact value to redact, kept for the
@@ -2810,6 +2880,18 @@ impl Core {
     /// The person sets it, from the app only: no tool reaches this.
     pub fn set_call_transcribe(&self, on: bool) -> Result<(), String> {
         self.s.set_call_transcribe(on)
+    }
+
+    /// The themes new agents' names don't come from (card #702): every
+    /// theme is on until the person turns it off.
+    pub fn names_themes_off(&self) -> Vec<String> {
+        self.s.names_themes_off()
+    }
+
+    /// The person turns a `coord::names::THEMES` theme on or off, from the
+    /// app only: no tool reaches this.
+    pub fn set_names_theme(&self, id: &str, on: bool) -> Result<(), String> {
+        self.s.set_names_theme(id, on)
     }
 
     pub fn start_agent(&self, id: &str, note: &str) -> Result<(), String> {

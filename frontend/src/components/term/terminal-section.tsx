@@ -3,8 +3,13 @@
 // but New terminal (Stephen, #369 b5), and a card can hold several. The
 // shells belong to the Core, so leaving the page leaves them running and
 // coming back shows them again.
+//
+// The bottom terminal panel (card #734) shows the same section: a card's
+// shells on its page, else the person's own shells on this device (the
+// device scope), the first opened as the panel opens, in the folder the
+// last one was in.
 
-import { useEffect, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { PlusIcon, SquareTerminalIcon, XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -17,10 +22,13 @@ import {
   cardFolders,
   cardTerms,
   closeTerm,
+  firstDeviceTerm,
   openCardTerm,
+  openDeviceTerm,
   pickFolder,
   rememberFolder,
 } from "@/lib/term"
+import { lastFolder, rememberLastFolder } from "@/lib/term-panel"
 
 import { TermOpened, type TermOpenedDetail } from "@/lib/agents"
 
@@ -30,11 +38,18 @@ import { Terminal } from "./terminal"
 const StartCols = 100
 const StartRows = 24
 
-export function TerminalSection({ cardId }: { cardId: string }) {
-  return <CardTerminals key={cardId} cardId={cardId} />
+// fill: the section takes its container's height (the bottom panel).
+export function TerminalSection({
+  cardId,
+  fill = false,
+}: {
+  cardId: string
+  fill?: boolean
+}) {
+  return <CardTerminals key={cardId} cardId={cardId} fill={fill} />
 }
 
-function CardTerminals({ cardId }: { cardId: string }) {
+function CardTerminals({ cardId, fill }: { cardId: string; fill: boolean }) {
   const [terms, setTerms] = useState<TermInfo[] | null>(null)
   const [shown, setShown] = useState<number | null>(null)
   // The New terminal row: the folders offered, and the one chosen.
@@ -109,53 +124,23 @@ function CardTerminals({ cardId }: { cardId: string }) {
       })
   }
 
-  const current = terms?.find((t) => t.id === shown) ?? null
-
   return (
-    <div className="grid gap-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
-        {terms?.map((t, i) => (
-          <div
-            key={t.id}
-            className={cn(
-              "flex items-center rounded-md border text-[12px]",
-              t.id === shown
-                ? "border-border bg-muted text-ink-2"
-                : "border-transparent text-muted-foreground"
-            )}
-          >
-            <button
-              type="button"
-              className="flex max-w-56 items-center gap-1.5 truncate px-2 py-1"
-              onClick={() => setShown(t.id)}
-              title={t.title ? `${t.title}\n${t.cwd}` : t.cwd}
-            >
-              <SquareTerminalIcon className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">{tabName(t, i)}</span>
-            </button>
-            <button
-              type="button"
-              className="px-1 py-1 text-muted-foreground hover:text-foreground"
-              onClick={() => close(t.id)}
-              title="End this shell"
-              aria-label="End this shell"
-            >
-              <XIcon className="size-3" aria-hidden />
-            </button>
-          </div>
-        ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-muted-foreground"
-          disabled={busy || folders === null}
-          onClick={newTerm}
-        >
-          <PlusIcon aria-hidden />
-          New terminal
-        </Button>
-      </div>
-
+    <Shells
+      terms={terms}
+      shown={shown}
+      onShow={setShown}
+      onClose={close}
+      onNew={newTerm}
+      newDisabled={busy || folders === null}
+      onRestart={(t) => {
+        close(t.id)
+        start(t.cwd)
+      }}
+      fill={fill}
+      empty={!picking}
+      error={error}
+      emptyText="No shell for this card on this device."
+    >
       {picking && folders !== null && (
         <div className="flex flex-wrap items-center gap-2">
           {folders.length > 1 ? (
@@ -194,22 +179,175 @@ function CardTerminals({ cardId }: { cardId: string }) {
           </Button>
         </div>
       )}
+    </Shells>
+  )
+}
+
+// DeviceTerminals is the person's own shells on this device, tied to no
+// card: the terminal panel's off a card's page (card #734). Mounting it is
+// the person asking for a shell (they opened the panel), so with none
+// running it starts one, in the folder the last one was in. New terminal
+// opens another there; closing the last one starts nothing.
+export function DeviceTerminals({ fill = false }: { fill?: boolean }) {
+  const [terms, setTerms] = useState<TermInfo[] | null>(null)
+  const [shown, setShown] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    firstDeviceTerm(StartCols, StartRows, lastFolder())
+      .then((ts) => {
+        if (!live) return
+        setTerms(ts)
+        setShown(ts.length ? ts[ts.length - 1].id : null)
+      })
+      .catch((e: Error) => live && setError(e.message))
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const start = (cwd: string | null) => {
+    setBusy(true)
+    setError(null)
+    openDeviceTerm(StartCols, StartRows, cwd)
+      .then((t) => {
+        setTerms((ts) => [...(ts ?? []), t])
+        setShown(t.id)
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false))
+  }
+
+  const close = (id: number) => {
+    closeTerm(id)
+      .catch(() => {})
+      .finally(() => {
+        setTerms((ts) => {
+          const left = (ts ?? []).filter((t) => t.id !== id)
+          if (shown === id)
+            setShown(left.length ? left[left.length - 1].id : null)
+          return left
+        })
+      })
+  }
+
+  return (
+    <Shells
+      terms={terms}
+      shown={shown}
+      onShow={setShown}
+      onClose={close}
+      onNew={() => start(lastFolder())}
+      newDisabled={busy || terms === null}
+      // Where the shell was last, not where it started.
+      onRestart={(t) => {
+        close(t.id)
+        start(lastFolder() ?? t.cwd)
+      }}
+      onCwd={rememberLastFolder}
+      fill={fill}
+      empty
+      error={error}
+      emptyText="No shell open on this device."
+    />
+  )
+}
+
+// Shells is the tab row, New terminal, and the shown shell.
+function Shells({
+  terms,
+  shown,
+  onShow,
+  onClose,
+  onNew,
+  newDisabled,
+  onRestart,
+  onCwd,
+  fill,
+  empty,
+  error,
+  emptyText,
+  children,
+}: {
+  terms: TermInfo[] | null
+  shown: number | null
+  onShow: (id: number) => void
+  onClose: (id: number) => void
+  onNew: () => void
+  newDisabled: boolean
+  onRestart: (t: TermInfo) => void
+  onCwd?: (cwd: string) => void
+  fill: boolean
+  // empty: say so when there are no shells (not while picking a folder).
+  empty: boolean
+  error: string | null
+  emptyText: string
+  children?: ReactNode
+}) {
+  const current = terms?.find((t) => t.id === shown) ?? null
+  return (
+    <div
+      className={cn("gap-2", fill ? "flex h-full min-h-0 flex-col" : "grid")}
+    >
+      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-1">
+        {terms?.map((t, i) => (
+          <div
+            key={t.id}
+            className={cn(
+              "flex items-center rounded-md border text-[12px]",
+              t.id === shown
+                ? "border-border bg-muted text-ink-2"
+                : "border-transparent text-muted-foreground"
+            )}
+          >
+            <button
+              type="button"
+              className="flex max-w-56 items-center gap-1.5 truncate px-2 py-1"
+              onClick={() => onShow(t.id)}
+              title={t.title ? `${t.title}\n${t.cwd}` : t.cwd}
+            >
+              <SquareTerminalIcon className="size-3.5 shrink-0" aria-hidden />
+              <span className="truncate">{tabName(t, i)}</span>
+            </button>
+            <button
+              type="button"
+              className="px-1 py-1 text-muted-foreground hover:text-foreground"
+              onClick={() => onClose(t.id)}
+              title="End this shell"
+              aria-label="End this shell"
+            >
+              <XIcon className="size-3" aria-hidden />
+            </button>
+          </div>
+        ))}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-muted-foreground"
+          disabled={newDisabled}
+          onClick={onNew}
+        >
+          <PlusIcon aria-hidden />
+          New terminal
+        </Button>
+      </div>
+
+      {children}
 
       {current && (
         <Terminal
           key={current.id}
           id={current.id}
           cwd={current.cwd}
-          onRestart={() => {
-            close(current.id)
-            start(current.cwd)
-          }}
+          fill={fill}
+          onCwd={onCwd}
+          onRestart={() => onRestart(current)}
         />
       )}
-      {terms !== null && terms.length === 0 && !picking && (
-        <p className="text-[12.5px] text-muted-foreground">
-          No shell for this card on this device.
-        </p>
+      {terms !== null && terms.length === 0 && empty && (
+        <p className="text-[12.5px] text-muted-foreground">{emptyText}</p>
       )}
       {error && <p className="text-[12.5px] text-destructive">{error}</p>}
     </div>

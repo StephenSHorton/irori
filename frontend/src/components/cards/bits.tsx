@@ -7,6 +7,7 @@ import { useBoards } from "@/lib/boards"
 import { cn } from "@/lib/utils"
 import {
   askLine,
+  askSpawn,
   AskState,
   cards as cardsApi,
   displayName,
@@ -28,6 +29,7 @@ import { waitLine } from "@/lib/wait-name"
 import { LiveRoster } from "@/lib/thread"
 import { prChip } from "@/lib/needs"
 import { cardOwner, type OwnerCard } from "@/lib/owners"
+import type { SpawnState } from "@/lib/spawn-line"
 
 // Tone is a card's status colour, shared by its state chip and its progress
 // bar so the two always agree.
@@ -92,7 +94,25 @@ export function ProgressBar({
 // StatePill is the card's first badge: waiting on the person's input, its
 // blockers, waiting on an agent to act on the person's answers, else in
 // progress.
-export function StatePill({ card }: { card: CardSummary }) {
+export function StatePill({
+  card,
+  thread,
+}: {
+  card: CardSummary
+  // thread: the card is a Talk thread (card #780): it says so, open or
+  // resolved; its bar says where it stands.
+  thread?: boolean
+}) {
+  if (thread)
+    return (
+      <Badge
+        variant="info"
+        className="rounded-full"
+        title="A thread: your conversation with the room, in Talk"
+      >
+        Thread
+      </Badge>
+    )
   // Parked (card #570): not for now, so it reads calm.
   if (laterOf(card))
     return (
@@ -328,17 +348,25 @@ export function HolderLine({
 // AskLine stands in for the holder line on an open ask: "3 agents heard
 // it", "Waiting for the MacBook to hand it out", "Nobody took this yet",
 // who Irori handed it to, or who took it.
+//
+// spawn is its card's spawn state (card #739): while nobody took it and
+// Irori starts it an agent, the line says so, quietly, in place of
+// "Nobody took this yet".
 export function AskLine({
   ask,
+  spawn,
   className,
 }: {
   ask: CardAsk
+  spawn?: SpawnState | null
   className?: string
 }) {
-  const warn =
-    ask.state === AskState.Unclaimed ||
-    ask.state === AskState.Waiting ||
-    (ask.state === AskState.Open && ask.told === 0)
+  const sp = askSpawn(ask, spawn)
+  const warn = sp
+    ? sp.tone === "warn"
+    : ask.state === AskState.Unclaimed ||
+      ask.state === AskState.Waiting ||
+      (ask.state === AskState.Open && ask.told === 0)
   return (
     <span
       className={cn(
@@ -356,7 +384,9 @@ export function AskLine({
           aria-hidden
         />
       )}
-      <span className="truncate">{askLine(ask)}</span>
+      <span className="truncate" title={sp ? sp.text : undefined}>
+        {askLine(ask, spawn)}
+      </span>
       {ask.taker?.device && (
         <span className="shrink-0 text-[11px] text-muted-foreground">
           on {plainLine(ask.taker.device)}

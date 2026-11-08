@@ -318,6 +318,10 @@ impl Services {
         } else {
             return Ok(false);
         };
+        logf(format_args!(
+            "spawn {} gen {generation}: not started: {why}",
+            t.short_ref()
+        ));
         co.end_spawn(SWEEPER, &t.id, generation, SPAWN_FAILED, &why.to_string())
             .map_err(|e| e.to_string())?;
         Ok(true)

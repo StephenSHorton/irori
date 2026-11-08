@@ -572,6 +572,9 @@ pub struct Task {
     #[specta(optional)]
     pub withdrawn: bool,
     pub title: String,
+    /// The person named it by hand (card #779).
+    #[specta(optional)]
+    pub title_by_person: bool,
     pub objective: String,
     #[specta(optional)]
     pub done_criteria: String,

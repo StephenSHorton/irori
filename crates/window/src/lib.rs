@@ -44,6 +44,7 @@
 
 pub mod agents;
 pub mod agents_trust;
+pub mod assistant;
 pub mod attachments;
 pub mod board;
 pub mod boards;
@@ -71,6 +72,7 @@ pub mod settings;
 pub mod spawn;
 pub mod spawn_cost;
 pub mod stop;
+pub mod storage;
 pub mod talk;
 pub mod terms;
 pub mod threads;
@@ -181,6 +183,8 @@ pub struct Window {
     voice: voice::VoiceSlot,
     /// The hardware meters' recent samples (card #599).
     meters: meters::History,
+    /// The corner chat's headless runs (card #783).
+    assistant: assistant::Runner,
 }
 
 impl Window {
@@ -201,6 +205,7 @@ impl Window {
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
             meters: meters::History::default(),
+            assistant: assistant::Runner::new(),
         }
     }
 
