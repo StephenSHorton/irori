@@ -41,7 +41,7 @@ export function AppHeader({
 }) {
   return (
     <header className="sticky top-0 z-20 border-x-0! border-t-0! pt-[var(--safe-top)] pr-[var(--safe-right)] pl-[var(--safe-left)] glass-panel">
-      <div className="@container/header mx-auto flex h-14 max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
+      <div className="@container/header mx-auto flex h-[calc(3.5rem_-_min(var(--safe-top),0.75rem))] max-w-[1920px] items-center gap-2 px-2 sm:gap-3 sm:px-6 md:px-4">
         {onMenu && (
           <Button
             variant="ghost"
