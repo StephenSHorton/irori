@@ -457,8 +457,8 @@ export function TalkPage({
         Start a thread
       </h2>
       <p className="text-[12.5px] text-muted-foreground">
-        Ask the room about anything. An agent on the cards you name answers, or
-        an idle one does. It stays in Threads until you resolve it.
+        Start a thread about anything. An agent on the cards you name answers,
+        or an idle one does. It stays in Threads until you resolve it.
       </p>
       <AskBox
         board={board}
