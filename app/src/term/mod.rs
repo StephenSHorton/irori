@@ -652,9 +652,7 @@ fn picker(s: &State, f: &mut Frame) -> El {
         rune_kit::TextInput::new(&s.term.choice)
             .placeholder("No checkout of this card's repo here: a folder path")
             .label("Folder")
-            .text_style(
-                rune::tok::TextStyle::new(12.5, 400.0).family(rune::tok::Family::SystemMono),
-            )
+            .text_style(rune::tok::TextStyle::new(12.5, 400.0).mono())
             .width(Some(448.0))
             .on_edit(|s: &mut State| &mut s.term.choice)
             .on_submit(|s: &mut State, _: &mut Tx| {
