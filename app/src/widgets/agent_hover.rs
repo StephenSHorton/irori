@@ -5,10 +5,12 @@
 //! cards", and Stop with an optional why.
 //!
 //! [`trigger`] wraps a face: hovering it (or pressing it, the touch path)
-//! opens the card, which [`card`] draws in the overlay layer. Leaving the
-//! face and the card closes it after a short grace ([`super::poll`]).
+//! opens the card, which [`card`] draws in the overlay layer. Rune times
+//! it as main's PreviewCard does: it opens once the pointer rests on the
+//! face for [`OPEN_DELAY`], and closes once the pointer has been off the
+//! face and the card for [`CLOSE_DELAY`] (`El::hover_delays`).
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use irori_window::cards::{AgentRef, CardSummary};
 use rune::{El, Tx, col, el, row, text};
@@ -26,33 +28,51 @@ use crate::ui::{Frame, State};
 /// How many cards each list shows before "and N more".
 const MAX_ROWS: usize = 6;
 
-/// How long the card stays after the pointer leaves the face and card.
+/// How long the pointer rests on a face before its card opens
+/// (agent-hover.tsx `delay`).
+pub const OPEN_DELAY: Duration = Duration::from_millis(250);
+/// How long the card stays after the pointer leaves the face and card
+/// (`closeDelay`).
 pub const CLOSE_DELAY: Duration = Duration::from_millis(150);
 
-/// The open hover card: the face it hangs from, and its agent.
+/// The open hover card: the face it hangs from, its agent, and whether
+/// the pointer is on the face or the card (it closes when on neither).
 #[derive(Clone, Debug)]
 pub struct Hover {
     pub anchor: String,
     pub who: AgentRef,
+    pub over_face: bool,
+    pub over_card: bool,
 }
 
 fn enter(s: &mut State, anchor: &str, who: &AgentRef) {
-    let same = s.widgets.hover.as_ref().is_some_and(|h| h.anchor == anchor);
-    if !same {
-        s.widgets.stop_draft = rune::TextEdit::new("");
-        s.widgets.stop_line = None;
+    if let Some(h) = s.widgets.hover.as_mut().filter(|h| h.anchor == anchor) {
+        h.over_face = true;
+        return;
     }
+    s.widgets.stop_draft = rune::TextEdit::new("");
+    s.widgets.stop_line = None;
     s.widgets.hover = Some(Hover {
         anchor: anchor.to_string(),
         who: who.clone(),
+        over_face: true,
+        over_card: false,
     });
-    s.widgets.hover_close_at = None;
 }
 
-fn leave(s: &mut State, tx: &mut Tx) {
-    if s.widgets.hover.is_some() {
-        s.widgets.hover_close_at = Some(Instant::now() + CLOSE_DELAY);
-        tx.wake_after(CLOSE_DELAY);
+/// The pointer has been off `anchor`'s face (or, with `None`, the card)
+/// for the close delay.
+fn leave(s: &mut State, anchor: Option<&str>) {
+    let Some(h) = s.widgets.hover.as_mut() else {
+        return;
+    };
+    match anchor {
+        Some(a) if a != h.anchor => return,
+        Some(_) => h.over_face = false,
+        None => h.over_card = false,
+    }
+    if !h.over_face && !h.over_card {
+        s.widgets.hover = None;
     }
 }
 
@@ -64,15 +84,16 @@ pub fn trigger(_s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) 
     }
     let (a1, w1) = (key.to_string(), who.clone());
     let (a2, w2) = (key.to_string(), who.clone());
-    face.on_hover_change(move |s: &mut State, inside, tx: &mut Tx| {
-        if inside {
-            enter(s, &a1, &w1);
-        } else {
-            leave(s, tx);
-        }
-    })
-    .on_press(move |s: &mut State| enter(s, &a2, &w2))
-    .cursor(rune::Cursor::Pointer)
+    face.hover_delays(OPEN_DELAY, CLOSE_DELAY)
+        .on_hover_change(move |s: &mut State, inside, _: &mut Tx| {
+            if inside {
+                enter(s, &a1, &w1);
+            } else {
+                leave(s, Some(&a1));
+            }
+        })
+        .on_press(move |s: &mut State| enter(s, &a2, &w2))
+        .cursor(rune::Cursor::Pointer)
 }
 
 /// The hover card, in the overlay layer, while one is open.
@@ -91,11 +112,14 @@ pub fn card(s: &State, f: &mut Frame) {
             .children(body),
         k.radius.md,
     )
-    .on_hover_change(|s: &mut State, inside, tx: &mut Tx| {
+    .hover_delays(Duration::ZERO, CLOSE_DELAY)
+    .on_hover_change(|s: &mut State, inside, _: &mut Tx| {
         if inside {
-            s.widgets.hover_close_at = None;
+            if let Some(h) = s.widgets.hover.as_mut() {
+                h.over_card = true;
+            }
         } else {
-            leave(s, tx);
+            leave(s, None);
         }
     });
     f.layer.push(rune_kit::popover::anchored(

@@ -93,9 +93,8 @@ pub use agent_strip::agent_strip;
 pub struct Model {
     /// The headless gallery (`--scene widgets`) shows instead of the page.
     pub gallery: bool,
-    /// The open hover card, and when it closes (the pointer left).
+    /// The open hover card.
     pub hover: Option<agent_hover::Hover>,
-    pub hover_close_at: Option<Instant>,
     /// The hover card's Stop: its why, in flight, its answer.
     pub stop_draft: TextEdit,
     pub stop_busy: bool,
@@ -184,20 +183,10 @@ pub fn overlay(s: &State, f: &mut Frame) {
     spawned_actions::logs_dialog(s, f);
 }
 
-/// Closes the hover card once its grace is up; re-reads the check slots
-/// every [`check_slots::POLL`]. True when something visible changed.
+/// Re-reads the check slots every [`check_slots::POLL`]. True when
+/// something visible changed (nothing here does: the read lands later).
 pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
     let now = Instant::now();
-    let mut changed = false;
-    if let Some(at) = s.widgets.hover_close_at {
-        if at <= now {
-            s.widgets.hover = None;
-            s.widgets.hover_close_at = None;
-            changed = true;
-        } else {
-            tx.wake_after(at - now);
-        }
-    }
     if !s.headless && s.w.is_some() {
         match s.widgets.slots_at {
             Some(t) if now.duration_since(t) < check_slots::POLL => {
@@ -209,7 +198,7 @@ pub fn poll(s: &mut State, tx: &mut rune::Tx) -> bool {
             }
         }
     }
-    changed
+    false
 }
 
 /// The gallery page (the `widgets` scene), when it is on.
