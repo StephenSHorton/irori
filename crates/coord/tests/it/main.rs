@@ -53,6 +53,7 @@ mod parts_test;
 mod placed_test;
 mod presence_test;
 mod prstate_test;
+mod rename_test;
 mod repo_case_test;
 mod resource_test;
 mod review_test;

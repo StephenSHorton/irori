@@ -53,6 +53,7 @@ import {
   useDoneCards,
   useIdleReport,
   useAllThreads,
+  wasStarted,
   withLive,
 } from "@/lib/cards"
 import { useBoards, usePersonalBoards } from "@/lib/boards"
@@ -78,6 +79,7 @@ import {
 } from "@/components/boards/space-boards"
 import { NewBoardDialog, PickSpace } from "@/components/boards/parts"
 import { NotesPage } from "@/components/notes/notes-page"
+import { StoragePage } from "@/components/storage/storage-page"
 import { ProfilePage } from "@/components/profile/profile-page"
 import { useMe } from "@/lib/profile"
 import {
@@ -109,6 +111,20 @@ import {
   paletteOpenKey,
 } from "@/components/command-palette"
 import { isMac, useCommands } from "@/lib/commands"
+import { TerminalPanel } from "@/components/term/terminal-panel"
+import { termsHere } from "@/lib/term"
+import {
+  TerminalShortcut,
+  isTerminalToggle,
+  toggleTermPanel,
+} from "@/lib/term-panel"
+import {
+  backShortcut,
+  forwardShortcut,
+  listenAppShortcuts,
+  NewCardShortcut,
+  SectionShortcuts,
+} from "@/lib/app-shortcuts"
 import { spawnedKeys } from "@/lib/roster-groups"
 import { PhoneCallBar, Ringing } from "@/components/talk/huddle"
 import { startCallState } from "@/lib/call"
@@ -237,6 +253,9 @@ export function App() {
     if (thread) return { kind: "talk", id: thread }
     if (previewFlag("talk") !== null) return { kind: "talk", id: "" }
     if (previewFlag("notes") !== null) return { kind: "notes" }
+    // ?storage starts on Storage, ?storage=<kind> on one kind's page.
+    const storageTab = previewFlag("storage")
+    if (storageTab !== null) return { kind: "storage", tab: storageTab }
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
@@ -562,7 +581,7 @@ export function App() {
   // as a card's page instead.
   const openThread = useCallback(
     (id: string) => {
-      if (!allThreads.some((t) => t.id === id)) {
+      if (!allThreads.some((t) => t.id === id) && !wasStarted(id)) {
         openCard(id)
         return
       }
@@ -588,6 +607,24 @@ export function App() {
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
   }, [])
+  // The terminal panel (card #734): Ctrl+` on both platforms, as in VS
+  // Code, from anywhere, a focused terminal included. Capture, so it comes
+  // before the terminal's own keys take it; a phone has no panel.
+  useEffect(() => {
+    if (!termsHere()) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.repeat || !isTerminalToggle(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      toggleTermPanel()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [])
+  // The desktop shortcuts (card #733): Back and Forward, Cmd+1..5, Cmd+B,
+  // Cmd+, Cmd+N and Cmd+F run the commands below and the sidebar's,
+  // Settings' and the search box's.
+  useEffect(() => listenAppShortcuts(), [])
   // A jump from the palette closes the Held list and a message left open
   // under it (#218).
   useEffect(() => {
@@ -669,8 +706,29 @@ export function App() {
             .find((x) => x.boardId === section.board)
   const onList = !open && (section.kind === "home" || section.kind === "board")
   useCommands([
+    // Back and Forward (card #733): the window's history, as the mouse's
+    // side buttons and the browser's own keys move it.
+    {
+      id: "nav.back",
+      title: "Back",
+      group: "Go to",
+      order: 5,
+      shortcut: backShortcut(),
+      keywords: ["previous", "history"],
+      run: () => window.history.back(),
+    },
+    {
+      id: "nav.forward",
+      title: "Forward",
+      group: "Go to",
+      order: 5,
+      shortcut: forwardShortcut(),
+      keywords: ["next", "history"],
+      run: () => window.history.forward(),
+    },
     {
       id: "nav.home",
+      shortcut: SectionShortcuts[0],
       title: "Home",
       group: "Go to",
       order: 1,
@@ -679,6 +737,7 @@ export function App() {
     },
     {
       id: "nav.talk",
+      shortcut: SectionShortcuts[1],
       title: "Talk",
       group: "Go to",
       order: 2,
@@ -687,6 +746,7 @@ export function App() {
     },
     {
       id: "nav.notes",
+      shortcut: SectionShortcuts[2],
       title: "Notes",
       group: "Go to",
       order: 2,
@@ -695,6 +755,7 @@ export function App() {
     },
     {
       id: "nav.boards",
+      shortcut: SectionShortcuts[3],
       title: "Boards",
       group: "Go to",
       order: 2,
@@ -702,7 +763,26 @@ export function App() {
       run: () => goTo(boardsFor(space)),
     },
     {
+      id: "nav.storage",
+      title: "Storage",
+      group: "Go to",
+      order: 3,
+      keywords: [
+        "disk",
+        "space",
+        "archive",
+        "maintenance",
+        "clean",
+        "clear",
+        "delete",
+        "attachments",
+        "build output",
+      ],
+      run: () => goTo({ kind: "storage", tab: "" }),
+    },
+    {
       id: "nav.notifications",
+      shortcut: SectionShortcuts[4],
       title: "Notifications",
       group: "Go to",
       order: 3,
@@ -719,6 +799,7 @@ export function App() {
     },
     {
       id: "card.new",
+      shortcut: NewCardShortcut,
       title:
         section.kind === "board" && !open
           ? section.board
@@ -757,6 +838,15 @@ export function App() {
       keywords: ["close", "leave"],
       when: () => !!open,
       run: back,
+    },
+    {
+      id: "term.toggle",
+      title: "Toggle terminal",
+      order: 4,
+      shortcut: TerminalShortcut,
+      keywords: ["shell", "console", "panel", "command line", "show", "hide"],
+      when: termsHere,
+      run: toggleTermPanel,
     },
     // The header's Wind down (card #220), from the palette (card #228); like
     // the header's button, not on the sample roster.
@@ -861,7 +951,9 @@ export function App() {
                                 ? "Merge desks"
                                 : section.kind === "notifications"
                                   ? "Notifications"
-                                  : "Home"
+                                  : section.kind === "storage"
+                                    ? "Storage"
+                                    : "Home"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -919,6 +1011,9 @@ export function App() {
                       now={now}
                       onBack={back}
                       onOpen={openCard}
+                      // A thread opened from the Board has its bar too
+                      // (card #780): one view of it, here and in Talk.
+                      thread={allThreads.find((t) => t.id === open)}
                     />
                   </FocusComment.Provider>
                 </Scroll>
@@ -974,6 +1069,15 @@ export function App() {
               ) : section.kind === "boards" ? (
                 <Scroll>
                   <PickSpace boards={boards} onPick={pickSpace} />
+                </Scroll>
+              ) : section.kind === "storage" ? (
+                <Scroll>
+                  <StoragePage
+                    tab={section.tab}
+                    onTab={(tab) => go({ kind: "storage", tab })}
+                    onOpen={openCard}
+                    now={now}
+                  />
                 </Scroll>
               ) : section.kind === "notifications" ? (
                 <Scroll>
@@ -1099,6 +1203,14 @@ export function App() {
                 />
               )}
             </main>
+            <TerminalPanel
+              cardId={open || null}
+              cardLabel={
+                open && cardLabel(`task:${open}`) !== "a card"
+                  ? cardLabel(`task:${open}`)
+                  : undefined
+              }
+            />
             {narrow && (
               <PhoneCallBar
                 here={!open && section.kind === "talk" ? section.id : ""}

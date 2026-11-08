@@ -437,6 +437,19 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person renames a card or thread by hand (card #779), from its
+    /// page: the agents' task.edited row, and an agent's later rename no
+    /// longer lands.
+    pub fn rename_card(&self, id: &str, title: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.rename_task(&keys[0], id, title)
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).

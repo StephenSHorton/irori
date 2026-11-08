@@ -564,6 +564,7 @@ impl Services {
             .get(&t.id)
             .cloned()
             .unwrap_or_default();
+        let name_logged = name.clone();
         let ask = SpawnAsk {
             task_id: t.id.clone(),
             device: dev.to_string(),
@@ -582,6 +583,8 @@ impl Services {
             .request_spawn(SWEEPER, ask)
             .map_err(|e| e.to_string())?;
         if let Some(g) = out {
+            let on = format!("device {dev}");
+            super::spawn::log_asked(t, t.spawn_request(), g, &name_logged, &on, &(self.now)());
             self.settle_ask(&t.id);
             self.note_tried(&t.id, dev);
             self.spawn
@@ -681,6 +684,12 @@ impl Services {
             // sees the hold on this device's host row and asks elsewhere.
             if let Some(until) = self.usage_held() {
                 let why = super::spawn_limits::usage_reason(&until);
+                logf(format_args!(
+                    "spawn {} gen {}: held by a usage limit until {}",
+                    t.short_ref(),
+                    s.generation,
+                    until.format_rfc3339()
+                ));
                 if let Err(e) =
                     self.coord
                         .end_spawn(SWEEPER, &t.id, s.generation, coord::SPAWN_FAILED, &why)

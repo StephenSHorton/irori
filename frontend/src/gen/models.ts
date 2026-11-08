@@ -67,6 +67,7 @@ export type CardWhere = B.CardWhere
 export type Change = B.Change
 export type ChangeKind = B.ChangeKind
 export type CheckSlot = B.CheckSlot
+export type ClearedCard = B.ClearedCard
 export type Comment = B.Comment
 export type CommentResult = B.CommentResult
 export type Delivery = B.Delivery
@@ -97,6 +98,7 @@ export type LaterBack = B.LaterBack
 export type Link = B.Link
 export type LinkKind = B.LinkKind
 export type LogFreshness = B.LogFreshness
+export type LogPart = B.LogPart
 export type Mention = B.Mention
 export type MentionCandidate = B.MentionCandidate
 export type MentionOutcome = B.MentionOutcome
@@ -108,6 +110,8 @@ export type MetersMem = B.MetersMem
 export type MetersNet = B.MetersNet
 export type MetersSample = B.MetersSample
 export type Mode = B.Mode
+export type NamesThemeChoice = B.NamesThemeChoice
+export type NamesThemesView = B.NamesThemesView
 export type NewCardInput = B.NewCardInput
 export type NoteEditInput = B.NoteEditInput
 export type NoteEventView = B.NoteEventView
@@ -143,6 +147,11 @@ export type SpaceBoard = B.SpaceBoard
 export type StartedAgent = B.StartedAgent
 export type State = B.State
 export type Step = B.Step
+export type StorageCleaned = B.StorageCleaned
+export type StorageItem = B.StorageItem
+export type StorageKept = B.StorageKept
+export type StorageKind = B.StorageKind
+export type StorageReport = B.StorageReport
 export type SubtaskPreview = B.SubtaskPreview
 export type SummaryMember = B.SummaryMember
 export type TalkCall = B.TalkCall
@@ -482,6 +491,11 @@ export function CheckSlot(p: Partial<B.CheckSlot> = {}): B.CheckSlot {
   return { "resource": "", "run": "", "until": "", ...p } as B.CheckSlot
 }
 
+/** ClearedCard with Go's zero values for every field left out. */
+export function ClearedCard(p: Partial<B.ClearedCard> = {}): B.ClearedCard {
+  return { "id": "", "short": "", "title": "", "board": "", "thread": false, "updatedAt": "", ...p } as B.ClearedCard
+}
+
 /** Comment with Go's zero values for every field left out. */
 export function Comment(p: Partial<B.Comment> = {}): B.Comment {
   return { "id": "", "taskId": "", "by": "", "text": "", "wake": false, "at": "", "device": "", ...p } as B.Comment
@@ -602,6 +616,11 @@ export function LogFreshness(p: Partial<B.LogFreshness> = {}): B.LogFreshness {
   return { "log": "", "shared": false, ...p } as B.LogFreshness
 }
 
+/** LogPart with Go's zero values for every field left out. */
+export function LogPart(p: Partial<B.LogPart> = {}): B.LogPart {
+  return { "part": "", "rows": 0, "bytes": 0, ...p } as B.LogPart
+}
+
 /** Mention with Go's zero values for every field left out. */
 export function Mention(p: Partial<B.Mention> = {}): B.Mention {
   return { "key": "", "name": "", ...p } as B.Mention
@@ -650,6 +669,16 @@ export function MetersNet(p: Partial<B.MetersNet> = {}): B.MetersNet {
 /** MetersSample with Go's zero values for every field left out. */
 export function MetersSample(p: Partial<B.MetersSample> = {}): B.MetersSample {
   return { "atMs": 0, "cpu": MetersCpu(), "mem": MetersMem(), "disks": [], "net": MetersNet(), "gpus": [], ...p } as B.MetersSample
+}
+
+/** NamesThemeChoice with Go's zero values for every field left out. */
+export function NamesThemeChoice(p: Partial<B.NamesThemeChoice> = {}): B.NamesThemeChoice {
+  return { "id": "", "label": "", "on": false, "words": 0, "sample": [], ...p } as B.NamesThemeChoice
+}
+
+/** NamesThemesView with Go's zero values for every field left out. */
+export function NamesThemesView(p: Partial<B.NamesThemesView> = {}): B.NamesThemesView {
+  return { "themes": [], ...p } as B.NamesThemesView
 }
 
 /** NewCardInput with Go's zero values for every field left out. */
@@ -812,6 +841,31 @@ export function Step(p: Partial<B.Step> = {}): B.Step {
   return { "id": "", "text": "", "done": false, ...p } as B.Step
 }
 
+/** StorageCleaned with Go's zero values for every field left out. */
+export function StorageCleaned(p: Partial<B.StorageCleaned> = {}): B.StorageCleaned {
+  return { "removed": 0, "freed": 0, "kept": [], ...p } as B.StorageCleaned
+}
+
+/** StorageItem with Go's zero values for every field left out. */
+export function StorageItem(p: Partial<B.StorageItem> = {}): B.StorageItem {
+  return { "id": "", "name": "", "bytes": 0, "at": "", "detail": "", "cards": [], "cleanable": false, "keep": "", "onlyHere": false, ...p } as B.StorageItem
+}
+
+/** StorageKept with Go's zero values for every field left out. */
+export function StorageKept(p: Partial<B.StorageKept> = {}): B.StorageKept {
+  return { "id": "", "why": "", ...p } as B.StorageKept
+}
+
+/** StorageKind with Go's zero values for every field left out. */
+export function StorageKind(p: Partial<B.StorageKind> = {}): B.StorageKind {
+  return { "id": "", "bytes": 0, "items": 0, "measured": false, "path": "", ...p } as B.StorageKind
+}
+
+/** StorageReport with Go's zero values for every field left out. */
+export function StorageReport(p: Partial<B.StorageReport> = {}): B.StorageReport {
+  return { "dir": "", "kinds": [], ...p } as B.StorageReport
+}
+
 /** SubtaskPreview with Go's zero values for every field left out. */
 export function SubtaskPreview(p: Partial<B.SubtaskPreview> = {}): B.SubtaskPreview {
   return { "taskId": "", "ref": "", "title": "", "goal": "", "doneWhen": "", "steps": [], "links": [], "repo": "", ...p } as B.SubtaskPreview
@@ -899,7 +953,7 @@ export function ThreadCard(p: Partial<B.ThreadCard> = {}): B.ThreadCard {
 
 /** ThreadSummary with Go's zero values for every field left out. */
 export function ThreadSummary(p: Partial<B.ThreadSummary> = {}): B.ThreadSummary {
-  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, ...p } as B.ThreadSummary
+  return { "id": "", "short": "", "tag": "", "title": "", "text": "", "state": "", "told": [], "answeredBy": [], "replies": 0, "cards": [], "at": "", "updatedAt": "", "private": false, "agentsNow": false, "unread": false, ...p } as B.ThreadSummary
 }
 
 /** Told with Go's zero values for every field left out. */
@@ -919,7 +973,7 @@ export function TrustNeed(p: Partial<B.TrustNeed> = {}): B.TrustNeed {
 
 /** TrustStarted with Go's zero values for every field left out. */
 export function TrustStarted(p: Partial<B.TrustStarted> = {}): B.TrustStarted {
-  return { "folder": "", "already": false, ...p } as B.TrustStarted
+  return { "folder": "", "already": false, "said": "", ...p } as B.TrustStarted
 }
 
 /** UnofferedCard with Go's zero values for every field left out. */

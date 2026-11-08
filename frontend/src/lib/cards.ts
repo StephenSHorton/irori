@@ -39,7 +39,7 @@ import {
   type AgentRef,
   type CardActivity,
   type CardBlocker,
-  type CardDetail,
+  CardDetail,
   type CardHolder,
   type CardOption,
   type CardPR,
@@ -55,7 +55,7 @@ import {
   type Link,
   type Mention,
   type NewCardInput,
-  type Step,
+  Step,
   ThreadCard,
 } from "./models"
 import {
@@ -68,10 +68,17 @@ import {
 } from "./irori"
 import { safeHref } from "./rich"
 import { EventInboxChanged, useLatest } from "./talk"
-import { NoteItem, sampleAgents, sampleCards, sampleYou } from "./sample-cards"
+import {
+  NoteItem,
+  sampleAgents,
+  sampleCards,
+  sampleHolder,
+  sampleYou,
+} from "./sample-cards"
 import { sampleAgents as sampleAgentSettings } from "./agents"
 import { nameOr, unknownAgent } from "./names"
 import { pending, type Pending } from "./pending"
+import { spawnLine, type SpawnLine, type SpawnState } from "./spawn-line"
 
 export type {
   AgentRef,
@@ -244,9 +251,34 @@ export function openAsk(c: { ask?: CardAsk | null }): boolean {
   return !!c.ask && c.ask.state !== AskState.Closed
 }
 
+// askSpawn is what Irori is doing to get an ask nobody took an agent
+// (card #739), from its card's spawn state: starting one, its place in a
+// queue, or why it can't. null once an agent took it or it closed, or
+// while Irori isn't getting it one. Without it a reopened thread whose
+// agent had gone read "Nobody took this yet" while its new agent started.
+export function askSpawn(
+  a: CardAsk,
+  spawn?: SpawnState | null
+): SpawnLine | null {
+  if (
+    !spawn ||
+    a.state === AskState.Taken ||
+    a.state === AskState.Handed ||
+    a.state === AskState.Closed
+  )
+    return null
+  return spawnLine(spawn)
+}
+
 // askLine is an open ask's line in place of the holder line: how many
-// it told, who it waits on, or who took it.
-export function askLine(a: CardAsk): string {
+// it told, who it waits on, or who took it; while nobody took it and
+// Irori gets it an agent, that (card #739).
+// A reason it can't start is a long sentence: the line says it short, and
+// the card page's queue row (and a tile's title) carries it in full.
+export function askLine(a: CardAsk, spawn?: SpawnState | null): string {
+  const sp = askSpawn(a, spawn)
+  if (sp?.tone === "warn") return "Can't start an agent"
+  if (sp) return sp.text.charAt(0).toUpperCase() + sp.text.slice(1)
   switch (a.state) {
     case AskState.Taken:
       return `${a.taker ? displayName(a.taker) : "An agent"} took it`
@@ -289,24 +321,31 @@ function sampleState(): CardDetail[] {
 // keeps the real ones.
 const sampleThreadIds = new Set<string>()
 const sampleThreadState = new Map<string, string>()
+// How many replies the person has read in each sample thread (card #719).
+const sampleThreadRead = new Map<string, number>()
 // sampleThreadBoard is the shared board a sample thread was started on.
 const sampleThreadBoard = new Map<string, string>()
 // sampleThreadAgentsNow is a sample thread's "Agents answer now" (card
 // #391) once it differs from on.
 const sampleThreadAgentsNow = new Map<string, boolean>()
 
-// sampleThread is one of the sample's threads.
+// sampleThread is one of the sample's threads: an ask card (ask.thread
+// in the app), so a thread opens in the ask card view (card #780).
+// extra makes one real-looking: an agent on it, its steps.
 function sampleThread(
   id: string,
   short: string,
   text: string,
   at: string,
   thread: CardThreadItem[],
-  state: string
+  state: string,
+  extra: Partial<CardDetail> = {}
 ): CardDetail {
   sampleThreadIds.add(id)
   sampleThreadState.set(id, state)
-  return {
+  const working = extra.working ?? []
+  const taker = working[0] ?? null
+  return CardDetail({
     id,
     short,
     shortWas: "",
@@ -314,34 +353,74 @@ function sampleThread(
     goal: text,
     doneWhen: "",
     note: "",
-    state: TaskState.Submitted,
+    state: state === "resolved" ? TaskState.Completed : TaskState.Submitted,
     repoKey: "",
-    scope: "",
-    scopeLabel: "",
+    scope: "mine",
+    scopeLabel: "My devices",
     steps: [],
     blockers: [],
     prs: [],
     links: [],
     comments: [],
-    working: [],
     watching: [],
     progress: { done: 0, total: 0 },
     openBlockers: 0,
     waiting: 0,
     blockerQuestion: "",
     recent: [],
-    thread,
     threadEarlier: 0,
     historyTrimmed: false,
     updatedAt: at,
-    ask: null,
-  } as unknown as CardDetail
+    talking: [],
+    ...extra,
+    working,
+    holder: sampleHolder(working),
+    thread,
+    ask: CardAsk({
+      state:
+        state === "resolved"
+          ? AskState.Closed
+          : taker
+            ? AskState.Taken
+            : state === "handed"
+              ? AskState.Handed
+              : AskState.Open,
+      told: 3,
+      owner: "Macbook Pro (this one)",
+      wake: true,
+      taker,
+      outcome: null,
+      outcomeRef: "",
+    }),
+  })
+}
+
+// sampleThreadAsk closes or reopens a sample thread's ask with it, as
+// Resolve and Reopen do in coord (card #780): the card view follows.
+function sampleThreadAsk(id: string, closed: boolean) {
+  sample = sampleState().map((c) =>
+    c.id !== id || !c.ask
+      ? c
+      : {
+          ...c,
+          state: closed ? TaskState.Completed : TaskState.Submitted,
+          ask: CardAsk({
+            ...c.ask,
+            state: closed
+              ? AskState.Closed
+              : c.ask.taker
+                ? AskState.Taken
+                : AskState.Open,
+          }),
+        }
+  )
 }
 
 // sampleThreadSeed is the preview's threads: one sample-heron answered,
 // one its named agent heard, one handed to an idle agent, one resolved.
 function sampleThreadSeed(now: Date): CardDetail[] {
   const ago = (s: number) => new Date(now.getTime() - s * 1000).toISOString()
+  sampleThreadRead.set("sample-thread-6", 1)
   return [
     sampleThread(
       "sample-thread-1",
@@ -349,6 +428,20 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       "Is #3 still moving? And did anyone finish the release notes (#8)?",
       ago(120),
       [
+        CardThreadItem({
+          id: "sample-thread-1-asked",
+          kind: "event",
+          at: ago(120),
+          who: sampleYou,
+          text: "You asked the room",
+        }),
+        CardThreadItem({
+          id: "sample-thread-1-took",
+          kind: "event",
+          at: ago(100),
+          who: sampleAgents.heron,
+          text: "sample-heron took it",
+        }),
         CardThreadItem({
           id: "sample-thread-1-a",
           kind: "comment",
@@ -364,6 +457,47 @@ function sampleThreadSeed(now: Date): CardDetail[] {
           at: ago(30),
           who: sampleAgents.heron,
           text: "The build log is at builds/release/mac-universal/2026-11-01T18-37-38Z/irori-desktop-aarch64-apple-darwin-signed-notarized-stapled.log and the failing key was RELEASE_NOTES_EXPORT_PIPELINE_STAGE_THREE_MISSING_ARTIFACT_MANIFEST.",
+          attachments: [
+            {
+              sha256: "7".repeat(64),
+              name: "release-notes-draft.png",
+              size: 41870,
+              mime: "image/png",
+              device: sampleYou.deviceId ?? "",
+            },
+          ],
+        }),
+      ],
+      "answered",
+      // An agent on it, with its steps (card #780): the ask view's
+      // Progress and Who's on it have something to show.
+      {
+        working: [sampleAgents.heron],
+        steps: [
+          Step({ id: "s1", text: "Check #3's blocker", done: true }),
+          Step({
+            id: "s2",
+            text: "Finish the release notes (#8)",
+            doing: true,
+          }),
+          Step({ id: "s3", text: "Post the build log" }),
+        ],
+        progress: { done: 1, total: 3 },
+      }
+    ),
+    // Answered and opened since (card #719): not in Talk's count, no dot.
+    sampleThread(
+      "sample-thread-6",
+      "28",
+      "Which port does the preview use?",
+      ago(300),
+      [
+        CardThreadItem({
+          id: "sample-thread-6-a",
+          kind: "comment",
+          at: ago(240),
+          who: sampleAgents.otter,
+          text: "The first free one from 9246 up; it writes it to frontend/.preview-url.",
         }),
       ],
       "answered"
@@ -394,6 +528,43 @@ function sampleThreadSeed(now: Date): CardDetail[] {
       [],
       "waiting"
     ),
+    // Card #739: answered by an agent that has gone since, resolved,
+    // reopened, and written on. Nobody live heard the follow-up; Irori
+    // starts a new agent for it, and the thread says so while it starts.
+    {
+      ...sampleThread(
+        "sample-thread-6",
+        "28",
+        "Can we add shortcuts to the app, like Cmd+[ to go back?",
+        ago(600),
+        [
+          CardThreadItem({
+            id: "sample-thread-6-a",
+            kind: "comment",
+            at: ago(540),
+            who: { ...sampleAgents.heron, status: "gone", live: false },
+            text: "Yes: #733 adds Back/Forward, Cmd+1–5 and Cmd+B, and #734 a terminal panel on Ctrl+`.",
+          }),
+          CardThreadItem({
+            id: "sample-thread-6-b",
+            kind: "comment",
+            at: ago(15),
+            who: sampleYou,
+            text: "we're doing equivalent windows shortcuts right?",
+            unheard: true,
+          }),
+        ],
+        "waiting"
+      ),
+      ask: CardAsk({
+        state: "unclaimed",
+        told: 0,
+        owner: "",
+        wake: true,
+        outcomeRef: "",
+      }),
+      starting: "Macbook Pro (this one)",
+    } as CardDetail,
     sampleThread(
       "sample-thread-4",
       "26",
@@ -417,13 +588,27 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
     const last = replies[replies.length - 1]
     const agents = replies.filter((it) => it.who.key !== sampleYou.key)
     const state = sampleThreadState.get(c.id) ?? "waiting"
+    // Unread (card #719): an agent replied after what the person read and
+    // after their own newest reply.
+    const seen = Math.max(
+      sampleThreadRead.get(c.id) ?? 0,
+      replies.findLastIndex((it) => it.who.key === sampleYou.key) + 1
+    )
+    const unread =
+      state !== "resolved" &&
+      replies.slice(seen).some((it) => it.who.key !== sampleYou.key)
     return ThreadSummary({
       id: c.id,
       short: c.short,
       title: c.title,
       text: c.goal,
+      // A follow-up nobody live heard waits on an agent (card #739).
       state:
-        state === "resolved" ? "resolved" : agents.length ? "answered" : state,
+        state === "resolved"
+          ? "resolved"
+          : agents.length && c.id !== "sample-thread-6"
+            ? "answered"
+            : state,
       told: c.id === "sample-thread-1" ? [sampleAgents.heron] : [],
       answeredBy: agents
         .map((it) => it.who)
@@ -449,8 +634,11 @@ function sampleThreads(boardId: string | null = ""): ThreadSummary[] {
       updatedAt: last?.at ?? c.updatedAt,
       agentsNow: sampleThreadAgentsNow.get(c.id) ?? true,
       spaceId: sampleThreadBoard.get(c.id),
+      unread,
       starting:
-        c.id === "sample-thread-5" ? "Macbook Pro (this one)" : undefined,
+        c.id === "sample-thread-5" || c.id === "sample-thread-6"
+          ? "Macbook Pro (this one)"
+          : undefined,
     })
   })
   const t = (s: ThreadSummary) => Date.parse(s.updatedAt) || 0
@@ -545,9 +733,22 @@ export const threads = {
     sampleChanged()
   },
 
+  // read marks what is in an open thread now as read (card #719): Talk's
+  // count drops it until an agent replies again.
+  async read(id: string): Promise<void> {
+    if (inWails()) return BoardService.ReadThread(id)
+    const n = sampleState()
+      .find((c) => c.id === id)
+      ?.thread.filter((it) => it.kind === "comment").length
+    if (n === undefined || sampleThreadRead.get(id) === n) return
+    sampleThreadRead.set(id, n)
+    sampleChanged()
+  },
+
   async resolve(id: string): Promise<void> {
     if (inWails()) return BoardService.ResolveThread(id)
     sampleThreadState.set(id, "resolved")
+    sampleThreadAsk(id, true)
     sampleChanged()
   },
 
@@ -556,6 +757,7 @@ export const threads = {
   async reopen(id: string): Promise<void> {
     if (inWails()) return BoardService.ReopenThread(id)
     sampleThreadState.set(id, "answered")
+    sampleThreadAsk(id, false)
     sampleChanged()
   },
 }
@@ -730,6 +932,12 @@ function rememberStarted(boardId: string, row: ThreadSummary) {
   for (const fn of startedListeners) fn()
 }
 
+// wasStarted says StartThread made id in this window (card #780): it is a
+// thread even before a list read has it.
+export function wasStarted(id: string): boolean {
+  return startedThreads.some((s) => s.row.id === id)
+}
+
 function onStarted(fn: () => void): () => void {
   startedListeners.add(fn)
   return () => startedListeners.delete(fn)
@@ -754,17 +962,18 @@ export function startedRow(res: TaskResult): ThreadSummary {
 
 // withStarted is rows, a read of boardId's threads begun at seq asOf, with
 // the threads started since on top, newest first.
+// A null boardId is every board's (ThreadsAll, card #780).
 export function withStarted(
   rows: ThreadSummary[],
   asOf: number,
-  boardId: string,
+  boardId: string | null,
   started: StartedThread[]
 ): ThreadSummary[] {
   const fresh = started
     .filter(
       (s) =>
         s.seq > asOf &&
-        s.boardId === boardId &&
+        (boardId === null || s.boardId === boardId) &&
         !rows.some((r) => r.id === s.row.id)
     )
     .map((s) => s.row)
@@ -804,10 +1013,32 @@ export function useAllThreads(): {
   loading: boolean
   error: string | null
 } {
-  const load = useCallback(() => threads.listAll(), [])
-  const { value, loading, error, reload } = useLatest<ThreadSummary[]>(load, [])
+  const load = useCallback(async () => {
+    const asOf = startedSeq
+    return { rows: await threads.listAll(), asOf }
+  }, [])
+  const { value, loading, error, reload } = useLatest(
+    load,
+    { rows: [] as ThreadSummary[], asOf: startedSeq },
+    "threads-all"
+  )
   useFresh(reload, error, true)
-  return { threads: value, loading, error }
+  // A thread just started on any board is in it at once (card #780): a
+  // board's Threads panel and its ask box open it in Talk, which finds it
+  // here, before the next read has it.
+  const started = useSyncExternalStore(onStarted, () => startedThreads)
+  const list = useMemo(
+    () => withStarted(value.rows, value.asOf, null, started),
+    [value, started]
+  )
+  // A thread's read marker is a Talk read cursor (card #719): reading one
+  // here or on another of the person's devices fires talk:changed
+  // (conversations.ts's EventTalkChanged), not board:changed.
+  useEffect(() => {
+    if (!inWails()) return
+    return Events.On("talk:changed", () => void reload())
+  }, [reload])
+  return { threads: list, loading, error }
 }
 
 function sampleChanged() {
@@ -942,12 +1173,8 @@ export function setSampleBoards(fn: (id: string) => SampleBoard | undefined) {
 }
 
 // samplePersonalOf finds one of Personal's sample boards, the same way.
-let samplePersonalOf: (
-  id: string
-) => { boardId: string; tag: string } | undefined = () => undefined
-export function setSamplePersonal(
-  fn: (id: string) => { boardId: string; tag: string } | undefined
-) {
+let samplePersonalOf: (id: string) => SampleList | undefined = () => undefined
+export function setSamplePersonal(fn: (id: string) => SampleList | undefined) {
   samplePersonalOf = fn
 }
 
@@ -966,6 +1193,7 @@ function sampleCreate(input: NewCardInput): TaskResult {
     : input.spaceBoard
       ? samplePersonalOf(input.spaceBoard)
       : undefined
+  refuseClosed(list)
   const tag = list?.tag ?? board?.tag ?? ""
   const top = Math.max(
     0,
@@ -1202,15 +1430,58 @@ function sampleDelete(id: string) {
 
 // sampleMoveBoard is BoardService.Move on the sample: the card shows the
 // new board and its tag at once, and the sample keeps no numbers per board.
-function sampleMoveBoard(id: string, board: string) {
+export function sampleMoveBoard(id: string, board: string) {
   const c = sampleCard(id)
   const space = c.board ? sampleBoardOf(c.board) : undefined
   const list = space
     ? space.boards?.find((x) => x.boardId === board)
     : samplePersonalOf(board)
+  refuseClosed(list)
   c.tag = list?.tag || space?.tag || ""
   c.spaceBoard = board
   sampleChanged()
+}
+
+// sampleRename is BoardService.Rename on the sample (card #779): cards
+// and threads alike, as the host's checks.
+export function sampleRename(id: string, title: string) {
+  const t = title.trim()
+  if (!t) throw new Error("coord: a card needs a title")
+  if ([...t].length > 200)
+    throw new Error("coord: title longer than 200 characters")
+  const c = sampleCard(id)
+  if (c.title === t) return
+  c.title = t
+  sampleChanged()
+}
+
+// sampleCancel is BoardService.Close as canceled on the sample, with its
+// note (card #690: a closed board's open cards).
+export function sampleCancel(id: string, note: string) {
+  sampleClose(id, TaskState.Canceled, note)
+}
+
+// refuseClosed is coord's read-only closed board on the sample (card
+// #690): nothing new goes onto one.
+function refuseClosed(list: SampleList | undefined) {
+  if (list?.closed)
+    throw new Error(
+      `coord: not allowed: board "${list.tag || list.name}" is closed: reopen it first, or pick another board`
+    )
+}
+
+// sampleOpenOn is the open cards on one board of a space (or of Personal
+// when space is ""), for the sample's Close board (card #690). Only a
+// board that isn't the first can close, so a card with no inner board
+// never counts.
+export function sampleOpenOn(space: string, boardId: string): CardDetail[] {
+  return sampleState().filter(
+    (c) =>
+      (c.board ?? "") === space &&
+      c.spaceBoard === boardId &&
+      !over(c) &&
+      !sampleThreadIds.has(c.id)
+  )
 }
 
 // sampleBoardGone is a board delete on the sample (card #563): its cards go
@@ -1239,7 +1510,15 @@ type SampleBoard = {
   name: string
   tag: string
   people: string[]
-  boards?: { boardId: string; name: string; tag: string }[]
+  boards?: SampleList[]
+}
+
+// SampleList is one board inside a sample space or Personal.
+type SampleList = {
+  boardId: string
+  name?: string
+  tag: string
+  closed?: boolean
 }
 
 // strictPass is internal/scrub.Strict for the sample: absolute paths and
@@ -2056,6 +2335,17 @@ export const cards = {
     sampleDelete(id)
   },
 
+  // rename is the person renaming a card or thread by hand (card #779):
+  // the board, the Threads list and its page show it at the next read,
+  // and an agent's later rename doesn't land.
+  async rename(id: string, title: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.Rename(id, title)
+      return
+    }
+    sampleRename(id, title)
+  },
+
   // move puts a card on another board in its space (card #563), with its
   // subtasks. It takes the next number there; its old ref still finds it.
   async move(id: string, board: string): Promise<void> {
@@ -2166,8 +2456,8 @@ function subscribe(fn: () => void): () => void {
     sampleListeners.add(fn)
     return () => sampleListeners.delete(fn)
   }
-  const offBoard = Events.On(EventBoardChanged, fn)
-  const offDevices = Events.On(EventDevicesChanged, fn)
+  const offBoard = Events.OnShown(EventBoardChanged, fn)
+  const offDevices = Events.OnShown(EventDevicesChanged, fn)
   return () => {
     offBoard()
     offDevices()
@@ -2191,7 +2481,7 @@ function useFresh(
 
   useEffect(() => {
     if (!inbox || !inWails()) return
-    return Events.On(EventInboxChanged, () => void reload())
+    return Events.OnShown(EventInboxChanged, () => void reload())
   }, [inbox, reload])
 
   useEffect(() => {
@@ -2663,7 +2953,9 @@ export function createCardStore(
 // inbox change, and focus.
 function cardEvents(again: () => void): () => void {
   const offCards = subscribe(again)
-  const offInbox = inWails() ? Events.On(EventInboxChanged, again) : () => {}
+  const offInbox = inWails()
+    ? Events.OnShown(EventInboxChanged, again)
+    : () => {}
   const onFocus = () => {
     if (inWails()) again()
   }

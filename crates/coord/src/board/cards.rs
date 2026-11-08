@@ -2688,6 +2688,9 @@ impl Fold {
                 t.short_ref()
             )));
         }
+        if let Some(v) = &title {
+            self.check_person_title(&by, &t, v)?;
+        }
         let same = title.as_ref().is_none_or(|v| *v == t.title)
             && obj.as_ref().is_none_or(|v| *v == t.objective)
             && done.as_ref().is_none_or(|v| *v == t.done_criteria)
@@ -2732,6 +2735,70 @@ impl Fold {
         }
         Ok(now.clone())
     }
+
+    /// The person named `t` by hand (card #779): an agent that would rename
+    /// it is refused, saying why, before anything is written (the fold
+    /// would drop the title without a word).
+    pub(crate) fn check_person_title(&self, by: &str, t: &Task, title: &str) -> Result<()> {
+        if t.title_by_person && !self.is_person(by) && !title.is_empty() && title != t.title {
+            return Err(not_allowed(format!(
+                "the person named {} “{}” themselves: leave its title out, or give it as it is (an agent doesn't rename it); they can rename it on its page",
+                t.short_ref(),
+                t.title
+            )));
+        }
+        Ok(())
+    }
+
+    /// The person renames a card or thread by hand (card #779), on its
+    /// page: any state, an open ask or thread too. It is the same
+    /// task.edited row an agent's board_edit writes, and from then on an
+    /// agent's rename doesn't land (see the fold).
+    pub(crate) fn rename_task(&mut self, by: &str, id: &str, title: &str) -> Result<Task> {
+        let by = caller(by)?;
+        if !self.is_person(&by) {
+            return Err(not_allowed(
+                "only the person renames a card here; an agent uses board_edit",
+            ));
+        }
+        let title = trim_space(title).to_string();
+        if title.is_empty() {
+            return Err(invalid("a card needs a title"));
+        }
+        if runes(&title) > super::MAX_TITLE {
+            return Err(invalid(format!(
+                "title longer than {} characters",
+                super::MAX_TITLE
+            )));
+        }
+        let t = self.any_task(id)?.clone();
+        if t.title == title {
+            return Ok(t);
+        }
+        let at = self.stamp();
+        self.write(
+            &by,
+            self.ask_kind(kinds::TASK_EDITED),
+            &TaskEditedRow {
+                task_id: id.into(),
+                title: Some(title.clone()),
+                by: by.clone(),
+                at,
+                ..TaskEditedRow::default()
+            },
+        )?;
+        let now = &self.tasks[id];
+        if now.title != title {
+            return Err(super::error::Error::raw(
+                super::error::ErrorKind::BadState,
+                format!(
+                    "coord: rename {}: the change didn't apply, so it keeps its name",
+                    now.short_ref()
+                ),
+            ));
+        }
+        Ok(now.clone())
+    }
 }
 
 impl Fold {
@@ -2761,6 +2828,9 @@ impl Fold {
         }
         if !board.is_empty() && self.board_tag(&board).is_none() {
             return Err(not_found(format!("board {}", quote(&board))));
+        }
+        if self.board_closed(&board) {
+            return Err(self.closed_refusal(&board));
         }
         // Only the ones not there yet: this also brings together a family
         // that came apart, and a card already there keeps its number.

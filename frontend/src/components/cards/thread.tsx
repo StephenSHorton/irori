@@ -56,6 +56,7 @@ export function Thread({
   composer,
   scroll,
   on,
+  starting,
 }: {
   cardId?: string
   items: CardThreadItem[]
@@ -85,6 +86,9 @@ export function Thread({
     working?: readonly AgentRef[]
     jobs?: readonly AgentRef[]
   }
+  // starting: Irori is starting the card's agent (card #739): a comment
+  // nobody heard yet is about to be.
+  starting?: boolean
 }) {
   const [showAll, setShowAll] = useState(false)
   const live = useContext(LiveRoster)
@@ -189,6 +193,7 @@ export function Thread({
                 now={now}
                 inBlocker={inBlocker}
                 startable={it.id === startId}
+                starting={starting}
               />
             </div>
           ))
@@ -281,11 +286,13 @@ function ThreadRow({
   now,
   inBlocker,
   startable,
+  starting,
 }: {
   cardId?: string
   item: CardThreadItem
   now: Date
   inBlocker?: boolean
+  starting?: boolean
   // "Start an agent with this" (card #452): the person's latest comment
   // on a card with nobody on it.
   startable?: boolean
@@ -370,7 +377,7 @@ function ThreadRow({
         </span>
       </div>
     )
-  const l = threadLabel(item, inBlocker)
+  const l = threadLabel(item, inBlocker, starting)
   const body = plainBlock(item.text)
   const open = async () => {
     if (!cardId || busy) return

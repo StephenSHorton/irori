@@ -342,6 +342,10 @@ impl Fold {
         }
         let t = self.open_task(id)?.clone();
         self.check_parent(id, "")?;
+        // A closed board takes no card, adopted ones included (card #690).
+        if self.board_closed(&t.board) {
+            return Err(self.closed_refusal(&t.board));
+        }
         let may_spawn = self.may_spawn_by(&t, &by);
         let mut placed: Vec<String> = Vec::new();
         let mut made = Vec::with_capacity(subs.len());

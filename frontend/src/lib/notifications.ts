@@ -242,7 +242,7 @@ export function useNotifications(): {
       EventNotificationsChanged,
       EventBoardChanged,
       EventInboxChanged,
-    ].map((e) => Events.On(e, () => void reload()))
+    ].map((e) => Events.OnShown(e, () => void reload()))
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
@@ -273,7 +273,7 @@ export function useUnreadNotifications(): number {
         sampleListeners.delete(reload)
       }
     }
-    const off = Events.On(EventNotificationsChanged, () => void reload())
+    const off = Events.OnShown(EventNotificationsChanged, () => void reload())
     const onFocus = () => void reload()
     window.addEventListener("focus", onFocus)
     return () => {
