@@ -4,9 +4,9 @@
 //! [`State::tray`] and its menu changes on the UI thread (macOS's
 //! tray-icon must stay on the main thread).
 //!
-//! - Windows and Linux: Rune's `rune::tray::Tray`. It has no check items,
-//!   so the two checkboxes are a "✓ " in front of the label (a Rune gap).
-//!   A left click opens the window, a right click the menu.
+//! - Windows and Linux: Rune's `rune::tray::Tray`, whose check items get
+//!   the platform's own check mark. A left click opens the window, a right
+//!   click the menu.
 //! - macOS: tray-icon (crate::tray_mac), with real check items; a click
 //!   opens the menu, as every menu-bar item does.
 
@@ -261,8 +261,9 @@ fn apply(s: &mut State, lines: &[Line]) {
     }
 }
 
-/// Rune's tray items for the lines: a check is a "✓ " label.
-#[cfg(not(target_os = "macos"))]
+/// Rune's tray items for the lines. A check item's pick still arrives as
+/// its id; [`Tray::clicked`] flips the state and the menu is rebuilt.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub fn items(lines: &[Line]) -> Vec<rune::tray::TrayItem> {
     use rune::tray::TrayItem;
     lines
@@ -271,23 +272,10 @@ pub fn items(lines: &[Line]) -> Vec<rune::tray::TrayItem> {
             Line::Item { id, label, enabled } => {
                 TrayItem::action(*id, label.clone()).enabled(*enabled)
             }
-            Line::Check { id, label, checked } => {
-                TrayItem::action(*id, check_label(label, *checked))
-            }
+            Line::Check { id, label, checked } => TrayItem::check(*id, label.clone(), *checked),
             Line::Separator => TrayItem::Separator,
         })
         .collect()
-}
-
-/// A check item's label where the tray has no check items.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-pub fn check_label(label: &str, checked: bool) -> String {
-    // Figure space keeps the unchecked labels lined up with the checked.
-    if checked {
-        format!("✓ {label}")
-    } else {
-        format!("\u{2007}  {label}")
-    }
 }
 
 #[cfg(test)]
@@ -295,8 +283,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checks_without_check_items() {
-        assert_eq!(check_label("Launch at login", true), "✓ Launch at login");
-        assert!(check_label("Launch at login", false).ends_with("  Launch at login"));
+    fn checks_are_check_items() {
+        let lines = [
+            Line::Check {
+                id: id::LOGIN,
+                label: "Launch at login".into(),
+                checked: true,
+            },
+            Line::Separator,
+            Line::Check {
+                id: id::PAUSE,
+                label: "Pause".into(),
+                checked: false,
+            },
+        ];
+        use rune::tray::TrayItem;
+        assert_eq!(
+            items(&lines),
+            vec![
+                TrayItem::check(id::LOGIN, "Launch at login", true),
+                TrayItem::Separator,
+                TrayItem::check(id::PAUSE, "Pause", false),
+            ]
+        );
     }
 }

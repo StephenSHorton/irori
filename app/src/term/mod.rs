@@ -734,7 +734,7 @@ fn terminal(s: &State, f: &mut Frame, l: &Live) -> El {
                         )
                         .child(
                             text(clip.clone())
-                                .font(small(f).family(rune::tok::Family::SystemMono))
+                                .font(small(f).mono())
                                 .color(k.c.text_muted)
                                 .truncate()
                                 .shrink(),

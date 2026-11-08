@@ -1461,9 +1461,11 @@ fn pairing(s: &State, f: &Frame, p: &PairStatus) -> El {
                     Button::new("Copy")
                         .variant(ButtonVariant::Outline)
                         .control_size(ControlSize::Small)
-                        .on_press_tx(move |s: &mut State, tx: &mut Tx| {
-                            tx.copy(code.clone());
-                            s.settings.devices.copied = true;
+                        .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
+                            // The warning only once the clipboard holds it.
+                            tx.copy_checked(code.clone(), |s: &mut State, r, _: &mut Tx| {
+                                s.settings.devices.copied = r.is_ok();
+                            });
                         })
                         .build(k),
                 )

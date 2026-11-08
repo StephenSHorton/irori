@@ -208,9 +208,7 @@ pub fn on_link(s: &mut State, id: &str, tx: &mut Tx) {
             s.error("Couldn't open the link", &e.to_string());
         }
     } else if let Some(t) = id.strip_prefix("copy:") {
-        tx.copy(t.to_string());
-        COPIED.with(|c| *c.borrow_mut() = Some((id.to_string(), std::time::Instant::now())));
-        tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
+        copy_now(tx, id, t);
     } else if let Some(card) = id.strip_prefix("card:") {
         s.open_card(card);
     }
@@ -246,11 +244,12 @@ fn pieces(s: &State, f: &Frame, run: &mut Run, ps: &[Inline], o: &RichOpts, font
                 );
                 if o.interactive {
                     let id = format!("copy:{t}");
-                    let done = copied(&id);
-                    let (glyph, ink) = if done {
-                        (&crate::ui::icons::CHECK, k.c.success.fg)
-                    } else {
-                        (&icons::COPY, k.c.text_faint)
+                    let state = copied(&id);
+                    let done = state == Some(true);
+                    let (glyph, ink) = match state {
+                        Some(true) => (&crate::ui::icons::CHECK, k.c.success.fg),
+                        Some(false) => (&icons::COPY, k.c.danger.fg),
+                        None => (&icons::COPY, k.c.text_faint),
                     };
                     run.icons.push((
                         at,
@@ -259,10 +258,10 @@ fn pieces(s: &State, f: &Frame, run: &mut Run, ps: &[Inline], o: &RichOpts, font
                             .gap(3.0)
                             .color(ink),
                     ));
-                    let tip = if done {
-                        "Copied".to_string()
-                    } else {
-                        format!("Copy: {t}")
+                    let tip = match state {
+                        Some(true) => "Copied".to_string(),
+                        Some(false) => "Couldn't copy".to_string(),
+                        None => format!("Copy: {t}"),
                     };
                     run.links.push(
                         Link::new(r, id)
@@ -480,51 +479,67 @@ pub fn code(f: &Frame, key: &str, t: &str) -> El {
 }
 
 thread_local! {
-    /// The Copy button pressed last and when: it shows a check for a
+    /// The Copy button whose copy finished last, when, and whether the
+    /// clipboard took it: it shows a check, or "Couldn't copy", for a
     /// moment (rich-text.tsx CopyButton's `done`).
-    static COPIED: std::cell::RefCell<Option<(String, std::time::Instant)>> = const { std::cell::RefCell::new(None) };
+    static COPIED: std::cell::RefCell<Option<(String, std::time::Instant, bool)>> = const { std::cell::RefCell::new(None) };
 }
 
 /// How long a Copy shows its check.
 const COPIED_FOR: std::time::Duration = std::time::Duration::from_millis(1500);
 
-/// Whether the Copy with this id was pressed a moment ago.
-fn copied(id: &str) -> bool {
+/// How the Copy with this id did a moment ago: `Some(true)` copied,
+/// `Some(false)` the clipboard refused it, `None` nothing lately.
+fn copied(id: &str) -> Option<bool> {
     COPIED.with(|c| {
         c.borrow()
             .as_ref()
-            .is_some_and(|(k, at)| k == id && at.elapsed() < COPIED_FOR)
+            .filter(|(k, at, _)| k == id && at.elapsed() < COPIED_FOR)
+            .map(|(_, _, ok)| *ok)
     })
+}
+
+/// Copies `t` for the Copy `id`, which shows how it went once the
+/// clipboard answers.
+fn copy_now(tx: &mut Tx, id: &str, t: &str) {
+    let id = id.to_string();
+    tx.copy_checked(t.to_string(), move |_s: &mut State, r, tx: &mut Tx| {
+        if let Err(e) = &r {
+            irori_core::log(&format!("irori: copy: {e}"));
+        }
+        COPIED.with(|c| *c.borrow_mut() = Some((id, std::time::Instant::now(), r.is_ok())));
+        // Back to the copy glyph once the moment is over.
+        tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
+    });
 }
 
 /// A one-click Copy for `t`: copies it and shows a check for a moment.
 pub fn copy_button(f: &Frame, key: &str, t: &str, label: &str) -> El {
     let v = t.to_string();
     let id = key.to_string();
-    let done = copied(&id);
-    IconButton::new(if done {
+    let state = copied(&id);
+    IconButton::new(if state == Some(true) {
         &crate::ui::icons::CHECK
     } else {
         &icons::COPY
     })
-    .variant(IconButtonVariant::GhostMuted)
+    .variant(match state {
+        Some(true) => IconButtonVariant::Success,
+        Some(false) => IconButtonVariant::Danger,
+        None => IconButtonVariant::GhostMuted,
+    })
     .control_size(ControlSize::Mini)
-    .label(if done {
+    .label(if state == Some(true) {
         "Copied".to_string()
     } else {
         format!("{label} {t}")
     })
-    .help(if done {
-        "Copied".to_string()
-    } else {
-        format!("{label}: {t}")
+    .help(match state {
+        Some(true) => "Copied".to_string(),
+        Some(false) => "Couldn't copy".to_string(),
+        None => format!("{label}: {t}"),
     })
-    .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
-        tx.copy(v.clone());
-        COPIED.with(|c| *c.borrow_mut() = Some((id.clone(), std::time::Instant::now())));
-        // Back to the copy glyph once the moment is over.
-        tx.wake_after(COPIED_FOR + std::time::Duration::from_millis(20));
-    })
+    .on_press_tx(move |_s: &mut State, tx: &mut Tx| copy_now(tx, &id, &v))
     .build(f.k)
     .key(key.to_string())
 }

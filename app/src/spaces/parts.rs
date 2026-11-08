@@ -574,9 +574,10 @@ fn send_link(s: &State, f: &Frame, inv: &InviteStatus) -> El {
                 .child(
                     Button::new(if s.spaces.copied { "Copied" } else { "Copy" })
                         .variant(ButtonVariant::Outline)
-                        .on_press_tx(move |s: &mut State, tx: &mut Tx| {
-                            tx.copy(link.clone());
-                            s.spaces.copied = true;
+                        .on_press_tx(move |_s: &mut State, tx: &mut Tx| {
+                            tx.copy_checked(link.clone(), |s: &mut State, r, _: &mut Tx| {
+                                s.spaces.copied = r.is_ok();
+                            });
                         })
                         .build(k),
                 ),
