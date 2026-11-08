@@ -51,6 +51,19 @@ impl Prefs {
         self.save();
     }
 
+    /// Sets `key` for this run without writing the file: [`Self::flush`]
+    /// after, when a stream of changes settles.
+    pub fn set_live<T: Serialize>(&mut self, key: &str, v: T) {
+        if let Ok(v) = serde_json::to_value(v) {
+            self.map.insert(key.to_string(), v);
+        }
+    }
+
+    /// Writes the file now.
+    pub fn flush(&self) {
+        self.save();
+    }
+
     pub fn remove(&mut self, key: &str) {
         if self.map.remove(key).is_some() {
             self.save();
@@ -71,6 +84,17 @@ impl Prefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_live_waits_for_flush() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut p = Prefs::load(dir.path());
+        p.set_live("a", 1);
+        assert_eq!(p.get::<i32>("a"), Some(1));
+        assert_eq!(Prefs::load(dir.path()).get::<i32>("a"), None);
+        p.flush();
+        assert_eq!(Prefs::load(dir.path()).get::<i32>("a"), Some(1));
+    }
 
     #[test]
     fn set_saves_and_load_reads_back() {

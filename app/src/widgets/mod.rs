@@ -97,6 +97,8 @@ pub struct Model {
     pub hover: Option<agent_hover::Hover>,
     /// The agent face the pointer is on (its hover card's key), if any.
     pub on_face: Option<String>,
+    /// The last pointer over the window was a finger (see agent_hover).
+    pub touch: bool,
     /// The hover card's Stop: its why, in flight, its answer.
     pub stop_draft: TextEdit,
     pub stop_busy: bool,

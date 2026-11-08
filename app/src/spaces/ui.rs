@@ -143,7 +143,7 @@ pub fn face(k: &Kit, name: &str, size: f32) -> El {
         ink: k.c.text_accent,
     };
     let fill = k.alpha(k.c.text_accent, 0.22);
-    crate::profile::avatar::kit_face(k, name, size, fill, letters, None, None)
+    crate::profile::avatar::kit_face(name, size, fill, letters, None, None).build(k)
 }
 
 /// A tile's few most recently active cards, with their holders' faces.

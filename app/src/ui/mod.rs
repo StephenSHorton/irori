@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use irori_window::Window;
-use rune::{AppHandle, Cx, El, PointerButton, col, el, row, text};
+use rune::{AppHandle, Cx, El, PointerButton, Tx, col, el, row, text};
 use rune_kit::{Kit, Toast, ToastRegion};
 
 pub use nav::{Dialog, Route};
@@ -365,6 +365,16 @@ pub fn view(s: &State, cx: &mut Cx<State>) -> El {
             .child(sidebar::view(s, &mut f))
             .child(main)
     };
+    // Which pointer is in use, for what a finger does differently; a
+    // commit only when it changes.
+    let body = body.on_pointer_move_local(|s: &mut State, p, tx: &mut Tx| {
+        let touch = p.kind == rune::PointerKind::Touch;
+        if s.widgets.touch == touch {
+            tx.live_only();
+        } else {
+            s.widgets.touch = touch;
+        }
+    });
     if let Some(d) = &s.dialog {
         match d {
             Dialog::NewCard { .. } => crate::card::new_card_dialog(s, &mut f),

@@ -353,9 +353,10 @@ pub fn person_face(
         weight: 600.0,
         ink,
     };
-    crate::profile::avatar::kit_face(k, name, side, fill, letters, pic, None)
+    crate::profile::avatar::kit_face(name, side, fill, letters, pic, None)
+        .help(name)
+        .build(k)
         .key(key.to_string())
-        .help(name.to_string())
 }
 
 /// The person's own face: their avatar from the window (decoded in the

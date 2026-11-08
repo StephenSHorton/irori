@@ -111,12 +111,14 @@ pub(super) fn avatar(k: &Kit, key: String, name: &str, health: Option<Health>, s
         ink: k.c.bg_base,
     };
     let status = health.map(|h| health_color(k, h));
-    crate::profile::avatar::kit_face(k, name, side, hue(name), letters, None, status).key(key)
+    crate::profile::avatar::kit_face(name, side, hue(name), letters, None, status)
+        .build(k)
+        .key(key)
 }
 
 /// A call's square icon button: on `fill` with `ink` on the icon (red for
-/// the destructive ones, the call's green), or with no fill a ghost one,
-/// muted when `ink` is the muted icon colour.
+/// the destructive ones, the call's green), or with no fill a ghost one:
+/// `ink` the muted or base icon colour, else red.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn round_button(
     k: &Kit,
@@ -135,11 +137,13 @@ pub(super) fn round_button(
             ControlSize::Regular
         })
         .help(label.to_string());
+    // main's small call buttons draw their icon smaller than the kit's 16.
+    let b = if large { b } else { b.glyph_size(14.0) };
     let b = match fill {
         Some(c) => b.tint(c, ink),
         None if ink == k.c.icon_muted => b.variant(IconButtonVariant::GhostMuted),
         None if ink == k.c.icon_base => b.variant(IconButtonVariant::Ghost),
-        None => b.tint(Color::TRANSPARENT, ink),
+        None => b.variant(IconButtonVariant::GhostDanger),
     };
     b.on_press(on).build(k).key(key)
 }

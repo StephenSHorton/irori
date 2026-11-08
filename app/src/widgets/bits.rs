@@ -7,6 +7,8 @@
 use irori_window::cards::{AgentRef, CardAsk, CardSummary};
 use rune::{Color, El, Tx, el, icon, row, text};
 
+use rune_kit::Progress;
+
 use crate::logic::agent_status::{ms, now_ms};
 use crate::logic::cards::{self as lc, Tone, ask, card_tone, percent};
 use crate::logic::names::display_name;
@@ -83,18 +85,15 @@ pub fn progress_bar(f: &Frame, key: &str, c: &CardSummary) -> Option<El> {
     let k = f.k;
     let fill = tone_solid(f, card_tone(c));
     Some(
-        el().key(key.to_string())
-            .role("progressbar")
+        Progress::new(Some(p as f32 / 100.0))
+            .height(4.0)
+            .radius(0.0)
+            .track(k.c.layer_03)
+            .color(fill)
             .label(format!("{} of {} steps", c.progress.done, c.progress.total))
-            .w_full()
-            .h(4.0)
-            .fill(k.c.layer_03)
-            .child(
-                el().key(format!("{key}/fill"))
-                    .w_frac(p as f32 / 100.0)
-                    .h_full()
-                    .fill(fill),
-            ),
+            .label_hidden()
+            .build(k)
+            .key(key.to_string()),
     )
 }
 

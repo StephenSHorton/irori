@@ -518,32 +518,31 @@ pub fn copy_button(f: &Frame, key: &str, t: &str, label: &str) -> El {
     let v = t.to_string();
     let id = key.to_string();
     let state = copied(&id);
-    let mut b = IconButton::new(if state == Some(true) {
+    IconButton::new(if state == Some(true) {
         &crate::ui::icons::CHECK
     } else {
         &icons::COPY
     })
-    .variant(IconButtonVariant::GhostMuted);
     // Still a ghost; only the glyph turns (text-success / text-destructive).
-    match state {
-        Some(true) => b = b.tint(Color::TRANSPARENT, f.k.c.success.fg),
-        Some(false) => b = b.tint(Color::TRANSPARENT, f.k.c.danger.fg),
-        None => {}
-    }
-    b.control_size(ControlSize::Mini)
-        .label(if state == Some(true) {
-            "Copied".to_string()
-        } else {
-            format!("{label} {t}")
-        })
-        .help(match state {
-            Some(true) => "Copied".to_string(),
-            Some(false) => "Couldn't copy".to_string(),
-            None => format!("{label}: {t}"),
-        })
-        .on_press_tx(move |_s: &mut State, tx: &mut Tx| copy_now(tx, &id, &v))
-        .build(f.k)
-        .key(key.to_string())
+    .variant(match state {
+        Some(true) => IconButtonVariant::GhostSuccess,
+        Some(false) => IconButtonVariant::GhostDanger,
+        None => IconButtonVariant::GhostMuted,
+    })
+    .control_size(ControlSize::Mini)
+    .label(if state == Some(true) {
+        "Copied".to_string()
+    } else {
+        format!("{label} {t}")
+    })
+    .help(match state {
+        Some(true) => "Copied".to_string(),
+        Some(false) => "Couldn't copy".to_string(),
+        None => format!("{label}: {t}"),
+    })
+    .on_press_tx(move |_s: &mut State, tx: &mut Tx| copy_now(tx, &id, &v))
+    .build(f.k)
+    .key(key.to_string())
 }
 
 /// A link an agent put on a blocker or an option (`kind` "url", "path" or

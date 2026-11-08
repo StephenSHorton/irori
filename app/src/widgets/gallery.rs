@@ -83,6 +83,7 @@ pub fn prepare(s: &mut State) {
             who,
             over_face: true,
             over_card: false,
+            pinned: false,
         });
     }
     let pick = s

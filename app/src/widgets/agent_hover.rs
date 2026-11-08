@@ -9,9 +9,14 @@
 //! (`El::hover_delays`): it opens once the pointer rests on the face for
 //! [`OPEN_DELAY`], and closes once the pointer has been off the face and
 //! the card for [`CLOSE_DELAY`]. A click on the face does nothing to the
-//! card (it reaches the tile under it), as on main's desktop. Main's touch
-//! path (a tap opens it) needs the press's pointer kind, which Rune
-//! doesn't give.
+//! card (it reaches the tile under it), as on main's desktop.
+//!
+//! A touch screen has no hover (main's `pointer: coarse`, card #227): a tap
+//! opens the card, and it stays until the next tap. Rune has no press a
+//! handler can decline, so the face only takes presses while the last
+//! pointer was a finger ([`State`]'s `widgets.touch`, kept by the window
+//! root): a mouse click still reaches the tile, and the very first touch
+//! of a run, if it lands on a face, still does too.
 
 use std::time::Duration;
 
@@ -46,6 +51,15 @@ pub struct Hover {
     pub who: AgentRef,
     pub over_face: bool,
     pub over_card: bool,
+    /// Opened by a tap: stays until the next tap, whatever hover says.
+    pub pinned: bool,
+}
+
+impl Hover {
+    /// Whether the pointer has left a card that follows hover.
+    fn gone(&self) -> bool {
+        !self.pinned && !self.over_face && !self.over_card
+    }
 }
 
 fn enter(s: &mut State, anchor: &str, who: &AgentRef) {
@@ -60,6 +74,7 @@ fn enter(s: &mut State, anchor: &str, who: &AgentRef) {
         who: who.clone(),
         over_face: true,
         over_card: false,
+        pinned: false,
     });
 }
 
@@ -74,8 +89,26 @@ fn leave(s: &mut State, anchor: Option<&str>) {
         Some(_) => h.over_face = false,
         None => h.over_card = false,
     }
-    if !h.over_face && !h.over_card {
+    if h.gone() {
         s.widgets.hover = None;
+    }
+}
+
+/// A finger tapped `anchor`'s face: its card opens and stays, or a second
+/// tap closes it.
+fn tapped(s: &mut State, anchor: &str, who: &AgentRef) {
+    let open = s
+        .widgets
+        .hover
+        .as_ref()
+        .is_some_and(|h| h.anchor == anchor && h.pinned);
+    if open {
+        s.widgets.hover = None;
+        return;
+    }
+    enter(s, anchor, who);
+    if let Some(h) = s.widgets.hover.as_mut() {
+        h.pinned = true;
     }
 }
 
@@ -86,11 +119,13 @@ fn leave(s: &mut State, anchor: Option<&str>) {
 /// its leaving after [`CLOSE_DELAY`] (so moving from the card back onto
 /// the face keeps the card open, and leaving always closes it), and a
 /// child covering it reports a rest of [`OPEN_DELAY`], which opens it.
-pub fn trigger(_s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) -> El {
+pub fn trigger(s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) -> El {
     if who.status == "person" {
         return face;
     }
     let (a1, a2, w2) = (key.to_string(), key.to_string(), who.clone());
+    let (a3, w3) = (key.to_string(), who.clone());
+    let touch = s.widgets.touch;
     let opener = el()
         .key(format!("{key}-hover-open"))
         .absolute(0.0, 0.0)
@@ -105,6 +140,15 @@ pub fn trigger(_s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) 
                 enter(s, &a2, &w2);
             }
         });
+    let face = if touch {
+        face.on_press_tx(move |s: &mut State, tx: &mut Tx| {
+            if tx.pointer_kind() == rune::PointerKind::Touch {
+                tapped(s, &a3, &w3);
+            }
+        })
+    } else {
+        face
+    };
     face.child(opener)
         .hover_delays(Duration::ZERO, CLOSE_DELAY)
         .on_hover_change(move |s: &mut State, inside, _: &mut Tx| {
@@ -148,6 +192,13 @@ pub fn card(s: &State, f: &mut Frame) {
             leave(s, None);
         }
     });
+    if h.pinned {
+        // A tap anywhere off the card closes one a tap opened.
+        f.layer
+            .push(rune_kit::scrim("widgets-hover-dismiss", |s: &mut State| {
+                s.widgets.hover = None;
+            }));
+    }
     f.layer.push(rune_kit::popover::anchored(
         k,
         surface.key("widgets-hover"),
@@ -487,4 +538,27 @@ fn stop_agent(s: &State, f: &Frame, who: &AgentRef) -> El {
         );
     }
     c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hover(over_face: bool, over_card: bool, pinned: bool) -> Hover {
+        Hover {
+            anchor: "a".into(),
+            who: AgentRef::default(),
+            over_face,
+            over_card,
+            pinned,
+        }
+    }
+
+    #[test]
+    fn a_hover_card_leaves_with_the_pointer_a_tapped_one_stays() {
+        assert!(hover(false, false, false).gone());
+        assert!(!hover(true, false, false).gone());
+        assert!(!hover(false, true, false).gone());
+        assert!(!hover(false, false, true).gone());
+    }
 }

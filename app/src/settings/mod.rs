@@ -151,6 +151,7 @@ pub fn now_ms() -> i64 {
 /// Shows a pane and reads what it shows.
 pub fn show(s: &mut State, id: &str) {
     s.settings.open_select = None;
+    appearance::hidden(s);
     s.dialog = Some(Dialog::Settings(id.to_string()));
     s.settings.last = pane(id).id.to_string();
     load(s);
@@ -424,6 +425,7 @@ fn close_dialog(s: &mut State) {
     if s.settings.open_select.take().is_some() {
         return;
     }
+    appearance::hidden(s);
     s.settings.tick_gen.fetch_add(1, Ordering::SeqCst);
     s.close_dialog();
 }

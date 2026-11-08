@@ -746,7 +746,9 @@ fn pick_theme(s: &mut State, id: &str) {
 
 /// Sets one of your colours ("accent" or "tint") and switches to Custom.
 /// Each change in the picker sets it, as main's colour input does.
-fn pick_colour(s: &mut State, which: &str, hex: &str) {
+/// Sets a custom colour. Each step of a drag or keystroke shows at once
+/// (`save` false); it is written and sent to the cards when it settles.
+fn pick_colour(s: &mut State, which: &str, hex: &str, save: bool) {
     let hex = hex.trim().to_ascii_lowercase();
     let hex = if hex.starts_with('#') {
         hex
@@ -768,12 +770,37 @@ fn pick_colour(s: &mut State, which: &str, hex: &str) {
     } else {
         c.tint = hex;
     }
-    s.prefs.set(CUSTOM, &c);
-    s.prefs.set(THEME, "custom");
+    s.prefs.set_live(CUSTOM, &c);
+    s.prefs.set_live(THEME, "custom");
     // The picker stays open (as main's native one does while you pick) and
     // keeps its field, so a hue drag turns the colour it started from.
     s.settings.appearance.error.clear();
-    changed(s);
+    if save {
+        s.prefs.flush();
+        changed(s);
+    }
+}
+
+/// The picker's colour as `#rrggbb`, without its alpha.
+fn hex6(c: rune::Color) -> String {
+    let mut h = c.hex();
+    h.truncate(7);
+    h
+}
+
+/// Saves a colour typed but not yet committed, for when a picker goes
+/// away with its field still focused (no blur is left to commit it).
+pub fn hidden(s: &mut State) {
+    let a = &mut s.settings.appearance;
+    let typed = [
+        ("accent", a.accent.take_pending()),
+        ("tint", a.tint.take_pending()),
+    ];
+    for (which, c) in typed {
+        if let Some(c) = c {
+            pick_colour(s, which, &hex6(c), true);
+        }
+    }
 }
 
 /// The swatches a colour field offers besides typing one.
@@ -866,14 +893,14 @@ pub fn view(s: &State, f: &mut Frame) -> El {
                 ColorSwatch::new(shown)
                     .size(32.0)
                     .label(format!("{label}: pick a colour"))
+                    .opener(open)
                     .on_press(move |s: &mut State| {
+                        hidden(s);
                         let p = &mut s.settings.appearance.picking;
                         *p = if *p == Some(which) { None } else { Some(which) };
                     })
                     .build(k)
-                    .key(format!("settings-colour-{which}-swatch"))
-                    .role("button")
-                    .expanded(open),
+                    .key(format!("settings-colour-{which}-swatch")),
             )
             .child(text(label.to_string()).font(k.ty.ui).color(k.c.text_base))
     };
@@ -928,9 +955,10 @@ pub fn view(s: &State, f: &mut Frame) -> El {
         .columns(7)
         .hue(true)
         .on_change(move |s: &mut State, c: rune::Color, _: &mut Tx| {
-            let mut h = c.hex();
-            h.truncate(7);
-            pick_colour(s, which, &h);
+            pick_colour(s, which, &hex6(c), false);
+        })
+        .on_commit(move |s: &mut State, c: rune::Color, _: &mut Tx| {
+            pick_colour(s, which, &hex6(c), true);
         })
         .build(k);
         your = your.child(picker);

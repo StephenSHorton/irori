@@ -6,8 +6,8 @@
 use base64::Engine;
 use std::sync::{Arc, LazyLock};
 
-use rune::{Color, El, ImageCache, Pixels, el, text};
-use rune_kit::{Avatar, Kit};
+use rune::{Color, El, ImageCache, Pixels};
+use rune_kit::Avatar;
 
 use crate::ui::Frame;
 
@@ -156,21 +156,10 @@ pub fn decode(avatar: &str) -> Option<Pixels> {
     }
     let b64 = avatar.split_once(',')?.1;
     let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    // Rune would also draw SVG, which it knows by content: only the three
-    // kinds an avatar may be reach it.
-    if !is_raster(&bytes) {
-        return None;
-    }
-    let img = IMAGES.load(bytes);
+    // load_raster refuses SVG by content, which `load` would draw.
+    let img = IMAGES.load_raster(bytes);
     img.wait().ok()?;
     Some(img.pixels().clone())
-}
-
-/// True for PNG, JPEG or WebP bytes, by their magic numbers.
-fn is_raster(b: &[u8]) -> bool {
-    b.starts_with(b"\x89PNG\r\n\x1a\n")
-        || b.starts_with(&[0xFF, 0xD8, 0xFF])
-        || (b.len() >= 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP")
 }
 
 /// A person's face (kit Avatar): their picture, else their initial on
@@ -194,9 +183,10 @@ pub fn face(
         weight: 600.0,
         ink,
     };
-    kit_face(k, name, size, fill, letters, pic, None)
+    kit_face(name, size, fill, letters, pic, None)
+        .help(name)
+        .build(k)
         .key(key)
-        .help(name.to_string())
 }
 
 /// The letters a face shows without a picture, at main's size for it.
@@ -210,42 +200,29 @@ pub struct Letters {
 /// A kit Avatar `side` points across, named `name`, drawn as main's
 /// faces are: with a picture, only the picture (no colour or letters
 /// behind it, so a transparent one shows the page, as face.tsx); without
-/// one, `letters` on `fill`. The kit's own letters are 0.4 of the side
-/// with no size setter (8 pt on a 20 pt face, where main's are 10), so
-/// they are drawn here over its empty ones. `status` is its corner dot.
+/// one, `letters` on `fill`. `status` is its corner dot.
 pub fn kit_face(
-    k: &Kit,
     name: &str,
     side: f32,
     fill: Color,
     letters: Letters,
     pic: Option<&Pixels>,
     status: Option<Color>,
-) -> El {
-    let mut a = Avatar::new(name).size(side).initials("");
-    a = match pic {
-        Some(p) => a.fill(Color::TRANSPARENT).image(p),
-        None => a.fill(fill),
-    };
-    if let Some(c) = status {
-        a = a.status(c);
+) -> Avatar {
+    let mut a = Avatar::new(name)
+        .size(side)
+        .fill(fill)
+        .initials(letters.text)
+        .letter_size(letters.size)
+        .letter_weight(letters.weight)
+        .ink(letters.ink);
+    if let Some(p) = pic {
+        a = a.image(p);
     }
-    let e = a.build(k);
-    if pic.is_some() {
-        return e;
+    match status {
+        Some(c) => a.status(c),
+        None => a,
     }
-    e.child(
-        el().key("letters")
-            .absolute(0.0, 0.0)
-            .size(side, side)
-            .center()
-            .a11y_hidden()
-            .child(
-                text(letters.text)
-                    .font(rune::tok::TextStyle::new(letters.size, letters.weight))
-                    .color(letters.ink),
-            ),
-    )
 }
 
 #[cfg(test)]
