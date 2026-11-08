@@ -8,12 +8,16 @@
 //! <status line>                    disabled
 //! [N held messages…]               only while some are held
 //! sep
-//! [x] Pause wakes on <device>      once the pause setter is wired
-//! [Wind down all agents…]          once the window opener is wired (card #220)
+//! [x] Stop everywhere…             once the window opener is wired (card #220);
+//!                                  a switch (cards #773, #787), "Stopped
+//!                                  everywhere (start)" while on
 //! [x] Launch at login
 //! sep
 //! Quit Irori
 //! ```
+//!
+//! The old "Pause wakes on <device>" checkbox is gone (card #787): Stop
+//! everywhere is the one switch the person sees.
 
 /// Menu item ids, shared by the builder and the click handler.
 pub mod id {
@@ -21,7 +25,6 @@ pub mod id {
     pub const OPEN: &str = "open";
     pub const STATUS: &str = "status";
     pub const HELD: &str = "held";
-    pub const PAUSE: &str = "pause";
     pub const WIND_DOWN: &str = "wind_down";
     pub const LOGIN: &str = "login";
     pub const QUIT: &str = "quit";
@@ -32,7 +35,6 @@ pub mod id {
 pub struct Counts {
     pub unread: usize,
     pub held: usize,
-    pub paused: bool,
 }
 
 /// Everything one rebuild reads.
@@ -44,17 +46,16 @@ pub struct Model {
     pub counts: Counts,
     /// Cards waiting on a decision, across devices.
     pub decide: usize,
-    /// This device's name, for the pause checkbox.
-    pub device: String,
-    /// Whether the pause checkbox has a setter (Go `SetPause`); without
-    /// one it is hidden.
-    pub can_pause: bool,
     /// Whether the held line opens the Held list (Go `SetHeldOpener`);
     /// without an opener it is disabled.
     pub can_open_held: bool,
-    /// Whether "Wind down all agents…" opens the window's dialog (card
-    /// #220); without an opener it is hidden.
+    /// Whether "Stop everywhere…" opens the window's dialog (card #220);
+    /// without an opener it is hidden.
     pub can_wind_down: bool,
+    /// Stop everywhere's switch (cards #773, #787; Wind down in the code):
+    /// on holds agent starts on every machine; the line is ticked and a
+    /// click starts everywhere.
+    pub wind_down_on: bool,
     /// The version of an update that is downloaded and ready.
     pub update_ready: Option<String>,
     /// The live launch-at-login state.
@@ -107,15 +108,6 @@ pub fn held_line(n: usize) -> String {
     }
 }
 
-/// Go `pauseLabel`.
-pub fn pause_label(device: &str) -> String {
-    if device.is_empty() {
-        "Pause wakes on this device".to_string()
-    } else {
-        format!("Pause wakes on {device}")
-    }
-}
-
 /// Go `RosterService.trayStatus`'s line for `agents` local agents of
 /// which `busy` have status "busy".
 pub fn agents_line(agents: usize, busy: usize) -> String {
@@ -126,9 +118,16 @@ pub fn agents_line(agents: usize, busy: usize) -> String {
     }
 }
 
-/// The tray's Wind down all (card #220): opens the window's dialog, where
-/// the person confirms.
-pub const WIND_DOWN_LABEL: &str = "Wind down all agents…";
+// The words for the switches (cards #773, #787), together; the window's
+// copy is frontend/src/lib/stop-labels.ts. This machine's Stop here isn't
+// in the tray yet.
+
+/// The tray's Stop everywhere (card #220; Wind down in the code): opens
+/// the window's dialog, where the person confirms.
+pub const WIND_DOWN_LABEL: &str = "Stop everywhere…";
+/// The same line while Stop everywhere is on (card #787): a click starts
+/// everywhere again.
+pub const WIND_DOWN_ON_LABEL: &str = "Stopped everywhere (start)";
 
 /// Go `rebuild`: the whole menu.
 pub fn lines(m: &Model) -> Vec<Line> {
@@ -164,18 +163,16 @@ pub fn lines(m: &Model) -> Vec<Line> {
         });
     }
     out.push(Line::Separator);
-    if m.can_pause {
-        out.push(Line::Check {
-            id: id::PAUSE,
-            label: pause_label(&m.device),
-            checked: m.counts.paused,
-        });
-    }
     if m.can_wind_down {
-        out.push(Line::Item {
+        let label = if m.wind_down_on {
+            WIND_DOWN_ON_LABEL
+        } else {
+            WIND_DOWN_LABEL
+        };
+        out.push(Line::Check {
             id: id::WIND_DOWN,
-            label: WIND_DOWN_LABEL.into(),
-            enabled: true,
+            label: label.into(),
+            checked: m.wind_down_on,
         });
     }
     out.push(Line::Check {
@@ -199,11 +196,7 @@ mod tests {
     // Go TestTrayLines.
     #[test]
     fn tray_lines_like_go() {
-        let c = |unread, held| Counts {
-            unread,
-            held,
-            paused: false,
-        };
+        let c = |unread, held| Counts { unread, held };
         assert_eq!(status_line("2 agents", c(0, 0), 0), "2 agents");
         assert_eq!(status_line("2 agents", c(1, 0), 0), "2 agents · 1 unread");
         assert_eq!(
@@ -216,8 +209,6 @@ mod tests {
         );
         assert_eq!(held_line(1), "1 held message…");
         assert_eq!(held_line(3), "3 held messages…");
-        assert_eq!(pause_label("Stephen's PC"), "Pause wakes on Stephen's PC");
-        assert_eq!(pause_label(""), "Pause wakes on this device");
     }
 
     #[test]
@@ -258,16 +249,11 @@ mod tests {
         let full = lines(&Model {
             version: "0.6.0".into(),
             status: "2 agents (1 busy)".into(),
-            counts: Counts {
-                unread: 4,
-                held: 2,
-                paused: true,
-            },
+            counts: Counts { unread: 4, held: 2 },
             decide: 1,
-            device: "PC".into(),
-            can_pause: true,
             can_open_held: false,
             can_wind_down: true,
+            wind_down_on: false,
             update_ready: Some("0.6.1".into()),
             login: true,
         });
@@ -297,14 +283,9 @@ mod tests {
                 },
                 Line::Separator,
                 Line::Check {
-                    id: id::PAUSE,
-                    label: "Pause wakes on PC".into(),
-                    checked: true
-                },
-                Line::Item {
                     id: id::WIND_DOWN,
-                    label: "Wind down all agents…".into(),
-                    enabled: true
+                    label: WIND_DOWN_LABEL.into(),
+                    checked: false
                 },
                 Line::Check {
                     id: id::LOGIN,
@@ -318,6 +299,44 @@ mod tests {
                     enabled: true
                 },
             ]
+        );
+    }
+
+    // Card #787: while Stop everywhere is on its line is ticked and starts.
+    #[test]
+    fn wind_down_line_is_a_switch() {
+        let line = |on| {
+            lines(&Model {
+                can_wind_down: true,
+                wind_down_on: on,
+                ..Model::default()
+            })
+            .into_iter()
+            .find(|l| {
+                matches!(
+                    l,
+                    Line::Check {
+                        id: id::WIND_DOWN,
+                        ..
+                    }
+                )
+            })
+        };
+        assert_eq!(
+            line(false),
+            Some(Line::Check {
+                id: id::WIND_DOWN,
+                label: WIND_DOWN_LABEL.into(),
+                checked: false
+            })
+        );
+        assert_eq!(
+            line(true),
+            Some(Line::Check {
+                id: id::WIND_DOWN,
+                label: WIND_DOWN_ON_LABEL.into(),
+                checked: true
+            })
         );
     }
 }

@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import type {
+  CardWeight,
   AgentsChange,
   AgentStartsView,
   AgentsLimits,
@@ -41,10 +42,14 @@ export function sampleAgents(): AgentsSettings {
     chosen: previewFlag("spawn") !== "first",
     model: "sonnet",
     effort: "medium",
-    models: ["sonnet", "opus", "haiku"],
+    models: ["sonnet", "opus"],
     efforts: ["low", "medium", "high", "xhigh", "max"],
     defaultModel: "sonnet",
     defaultEffort: "medium",
+    lightModel: "sonnet",
+    lightEffort: "medium",
+    heavyModel: "opus",
+    heavyEffort: "high",
     idleMins: 30,
     idleChoices: [10, 30, 60, 120, 240],
     crashLimit: 2,
@@ -82,6 +87,38 @@ export const modelLabel = (v: string, def: string) =>
   choiceLabel(v, modelNames, def)
 export const effortLabel = (v: string, def: string) =>
   choiceLabel(v, effortNames, def)
+
+// A card's weight (card #963): light, normal or heavy, each mapped to a
+// model and effort per board in Settings › Agents. No weight runs as normal.
+export const WEIGHT_LEVELS = ["light", "normal", "heavy"] as const
+
+// shortModel is a model and effort in brief, as a card's label wants it:
+// "Opus high", "Sonnet extra high".
+export function shortModel(model: string, effort: string): string {
+  const m = modelNames[model] ?? model
+  const e = (effortNames[effort] ?? effort).toLowerCase()
+  return [m, e].filter(Boolean).join(" ")
+}
+
+// weightLabel is a card's weight as it shows: "heavy · Opus high: planning
+// the split", the reason only when there is one.
+export function weightLabel(w: CardWeight): string {
+  const run = shortModel(w.model, w.effort)
+  const head = run ? `${w.level} · ${run}` : w.level
+  const why = w.reason?.trim()
+  return why ? `${head}: ${why}` : head
+}
+
+// weightBy says who set a weight, for its tooltip: the person's own is
+// theirs, and agents can't change it.
+export function weightBy(w: CardWeight): string {
+  if (w.setBy === "assistant") return "Irori's assistant set it"
+  if (w.setBy === "person")
+    return w.byName && w.byName !== "you"
+      ? `${w.byName} set it; agents can't change it`
+      : "You set it; agents can't change it"
+  return `${w.byName || "An agent"} set it`
+}
 
 // idleLabel names an idle limit in minutes, marking the default.
 export function idleLabel(m: number, def = 30): string {
@@ -266,6 +303,10 @@ export function useAgents(open: boolean, boardId = "") {
         on: c.on ?? null,
         model: c.model ?? null,
         effort: c.effort ?? null,
+        lightModel: c.lightModel ?? null,
+        lightEffort: c.lightEffort ?? null,
+        heavyModel: c.heavyModel ?? null,
+        heavyEffort: c.heavyEffort ?? null,
         idleMins: c.idleMins ?? null,
         crashLimit: c.crashLimit ?? null,
         startTries: c.startTries ?? null,
@@ -278,6 +319,10 @@ export function useAgents(open: boolean, boardId = "") {
           chosen: x.chosen || c.on != null,
           model: c.model ?? x.model,
           effort: c.effort ?? x.effort,
+          lightModel: c.lightModel ?? x.lightModel,
+          lightEffort: c.lightEffort ?? x.lightEffort,
+          heavyModel: c.heavyModel ?? x.heavyModel,
+          heavyEffort: c.heavyEffort ?? x.heavyEffort,
           idleMins: c.idleMins ?? x.idleMins,
           crashLimit: c.crashLimit ?? x.crashLimit,
           startTries: c.startTries ?? x.startTries,

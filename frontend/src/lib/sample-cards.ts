@@ -1031,6 +1031,16 @@ export function sampleCards(now: Date): CardDetail[] {
     card({
       id: "sample-card-1",
       title: "Ship example-app v0.6.0",
+      // Weighed light by the person (card #963): agents can't change it.
+      weight: {
+        level: "light",
+        reason: "",
+        setBy: "person",
+        byName: "you",
+        model: "sonnet",
+        effort: "medium",
+        at: at(40),
+      },
       repoKey: "remote:github.com/sample-org/example-app",
       side: "Work",
       goal: "Tagged release with final notes and an installer on the release page.",
@@ -1770,6 +1780,17 @@ export function sampleCards(now: Date): CardDetail[] {
         at: at(6),
       }),
       title: "Pair my devices",
+      // Weighed heavy by the agent on it (card #963): its label and the
+      // model and effort its agent starts with.
+      weight: {
+        level: "heavy",
+        reason: "planning the pairing protocol",
+        setBy: "agent",
+        byName: "sample-otter",
+        model: "opus",
+        effort: "high",
+        at: at(20),
+      },
       // Pinned (board.md "Pinned cards"): in the Pinned group, first.
       pinned: true,
       pinRank: 1,

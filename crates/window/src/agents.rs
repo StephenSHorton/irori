@@ -55,6 +55,14 @@ pub struct AgentsSettings {
     pub efforts: Vec<String>,
     pub default_model: String,
     pub default_effort: String,
+    /// What a light card's agent starts with (card #963): the board's
+    /// pick, or what the light row works out by itself (Sonnet at no more
+    /// than medium effort).
+    pub light_model: String,
+    pub light_effort: String,
+    /// A heavy card's: the board's pick, or Opus at no less than high.
+    pub heavy_model: String,
+    pub heavy_effort: String,
     /// The idle limit in minutes (card #456, sa-6): how long a spawned
     /// agent waits on an unanswered question before it hands off and goes.
     pub idle_mins: u32,
@@ -139,6 +147,17 @@ pub struct AgentsChange {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    /// A light or heavy card's model and effort (card #963); `""`, or the
+    /// value the row works out by itself, stores nothing, so the row keeps
+    /// following the board's normal pick and the defaults.
+    #[serde(default)]
+    pub light_model: Option<String>,
+    #[serde(default)]
+    pub light_effort: Option<String>,
+    #[serde(default)]
+    pub heavy_model: Option<String>,
+    #[serde(default)]
+    pub heavy_effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
     #[serde(default)]
@@ -148,6 +167,8 @@ pub struct AgentsChange {
 }
 
 pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
+    let (light_model, light_effort) = s.pick(coord::WEIGHT_LIGHT);
+    let (heavy_model, heavy_effort) = s.pick(coord::WEIGHT_HEAVY);
     AgentsSettings {
         board_id: s.board_id.clone(),
         on: s.on,
@@ -158,6 +179,10 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         efforts: spawn::EFFORTS.iter().map(|e| (*e).into()).collect(),
         default_model: spawn::DEFAULT_MODEL.into(),
         default_effort: spawn::DEFAULT_EFFORT.into(),
+        light_model: light_model.into(),
+        light_effort: light_effort.into(),
+        heavy_model: heavy_model.into(),
+        heavy_effort: heavy_effort.into(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
@@ -186,6 +211,25 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
     if let Some(e) = c.effort {
         s.effort = e;
     }
+    // After the normal pick, which the light and heavy rows follow.
+    let rows: [(Option<String>, &str, bool); 4] = [
+        (c.light_model, coord::WEIGHT_LIGHT, true),
+        (c.light_effort, coord::WEIGHT_LIGHT, false),
+        (c.heavy_model, coord::WEIGHT_HEAVY, true),
+        (c.heavy_effort, coord::WEIGHT_HEAVY, false),
+    ];
+    for (v, level, model) in rows {
+        let Some(v) = v else { continue };
+        // What the row works out with nothing stored: picking it stores
+        // nothing, so a later change to the normal pick or a default
+        // reaches it (as the idle limit's default is stored as 0).
+        let mut empty = s.clone();
+        *weight_field(&mut empty, level, model) = String::new();
+        let (m, e) = empty.pick(level);
+        let by_itself = if model { m } else { e };
+        let v = if v == by_itself { String::new() } else { v };
+        *weight_field(&mut s, level, model) = v;
+    }
     if let Some(m) = c.idle_mins {
         // The default is stored as 0, so a later default change reaches it.
         let def = (spawn::IDLE_LIMIT.as_secs() / 60) as u32;
@@ -204,6 +248,16 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         s.start_tries = stored(n, i64::from(irori_core::spawn_stop::SPAWN_TRIES));
     }
     s
+}
+
+/// The light or heavy row's model or effort field.
+fn weight_field<'a>(s: &'a mut SpawnSetting, level: &str, model: bool) -> &'a mut String {
+    match (level == coord::WEIGHT_HEAVY, model) {
+        (false, true) => &mut s.light_model,
+        (false, false) => &mut s.light_effort,
+        (true, true) => &mut s.heavy_model,
+        (true, false) => &mut s.heavy_effort,
+    }
 }
 
 /// One device's cap in Settings › Agents (card #450, sa-6).
@@ -444,9 +498,10 @@ impl Window {
         Ok(self.names_themes())
     }
 
-    /// The person turns Pause agents on or off for this device.
+    /// The person turns Pause agents on or off for this device: a graceful
+    /// stop, its agents wound down (card #787).
     pub fn agents_pause_set(&self, on: bool) -> Result<AgentsPauseView, String> {
-        self.core.set_agents_paused(on)?;
+        self.pause_here(on)?;
         let v = self.agents_pause();
         self.emit(EVENT_AGENTS_PAUSED, &v);
         Ok(v)
@@ -617,5 +672,56 @@ mod tests {
             ("sonnet", "medium", false)
         );
         assert_eq!(v.models[0], "sonnet");
+        assert!(!v.models.iter().any(|m| m == "haiku"));
+        assert_eq!(
+            (
+                v.light_model.as_str(),
+                v.light_effort.as_str(),
+                v.heavy_model.as_str(),
+                v.heavy_effort.as_str()
+            ),
+            ("sonnet", "medium", "opus", "high")
+        );
+    }
+
+    #[test]
+    fn a_weight_row_at_what_it_works_out_by_itself_stores_nothing() {
+        let c = |m: &str, e: &str| AgentsChange {
+            heavy_model: Some(m.into()),
+            heavy_effort: Some(e.into()),
+            ..AgentsChange::default()
+        };
+        let s = apply(SpawnSetting::default(), c("opus", "max"));
+        assert_eq!(
+            (s.heavy_model.as_str(), s.heavy_effort.as_str()),
+            ("", "max")
+        );
+        let s = apply(s, c("opus", "high"));
+        assert_eq!((s.heavy_model.as_str(), s.heavy_effort.as_str()), ("", ""));
+        // The normal effort set in the same change is what heavy follows:
+        // with normal at xhigh, heavy works out xhigh, so xhigh stores "".
+        let s = apply(
+            s,
+            AgentsChange {
+                effort: Some("xhigh".into()),
+                heavy_effort: Some("xhigh".into()),
+                light_model: Some("opus".into()),
+                light_effort: Some("".into()),
+                ..AgentsChange::default()
+            },
+        );
+        assert_eq!(
+            (
+                s.heavy_effort.as_str(),
+                s.light_model.as_str(),
+                s.light_effort.as_str()
+            ),
+            ("", "opus", "")
+        );
+        let v = view(&s, true);
+        assert_eq!(
+            (v.heavy_effort.as_str(), v.light_effort.as_str()),
+            ("xhigh", "medium")
+        );
     }
 }

@@ -19,6 +19,7 @@ use crate::agents::{
     AgentStartsView, AgentsChange, AgentsLimits, AgentsPauseView, AgentsSettings, NamesThemesView,
     RunningAgent,
 };
+use crate::assistant::{AssistantEvent, AssistantTurn};
 use crate::attachments::AttachmentInfo;
 use crate::board::{AnswerResult, AskRepo, CommentResult, TaskResult, UploadFile};
 use crate::boards::{BoardSettings, BoardSummary, SharePreview, SpaceBoard};
@@ -610,6 +611,19 @@ pub async fn board_move(w: W<'_>, id: String, board: String) -> R<Typed<coord::T
     w.move_card(&id, &board).map(Typed::new)
 }
 
+/// The person weighs a card (card #963): light, normal or heavy with an
+/// optional line on why, or "" to clear it.
+#[tauri::command]
+#[specta::specta]
+pub async fn board_set_weight(
+    w: W<'_>,
+    id: String,
+    level: String,
+    reason: String,
+) -> R<Typed<coord::Task, ts::Task>> {
+    w.set_weight(&id, &level, &reason).map(Typed::new)
+}
+
 /// The person renames a card or thread by hand (card #779).
 #[tauri::command]
 #[specta::specta]
@@ -657,20 +671,24 @@ pub async fn agent_stop(w: W<'_>, key: String, text: String) -> R<()> {
     w.agent_stop(&key, &text)
 }
 
-/// Wind down all (card #220): asks every agent (`scope` "this" device or
-/// "all" devices) to save its place, hand back its cards and stop; with
-/// `pause_after`, Pause all turns on once every agent has answered.
+/// Wind down on (cards #220, #787): holds agent starts on every one of the
+/// person's devices and asks every agent to save its place, hand back its
+/// cards and stop.
 #[tauri::command]
 #[specta::specta]
-pub async fn wind_down_all(
-    w: W<'_>,
-    scope: String,
-    pause_after: bool,
-) -> R<crate::wind_down::WindDownStatus> {
-    w.wind_down_all(&scope, pause_after)
+pub async fn wind_down_all(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_all()
 }
 
-/// The current Wind down all run, read fresh (empty id: none).
+/// Wind down off (card #787): wind-downs not reached yet close, the pauses
+/// Wind down set lift, and work resumes.
+#[tauri::command]
+#[specta::specta]
+pub async fn wind_down_off(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
+    w.wind_down_off()
+}
+
+/// The Wind down switch, and this device's run read fresh (empty id: none).
 #[tauri::command]
 #[specta::specta]
 pub async fn wind_down_status(w: W<'_>) -> R<crate::wind_down::WindDownStatus> {
@@ -2197,11 +2215,13 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             board_move,
             board_rename,
             board_pin,
+            board_set_weight,
             board_pause,
             board_not_yet,
             board_start_now,
             agent_stop,
             wind_down_all,
+            wind_down_off,
             wind_down_status,
             wind_down_stop,
             inbox_reply_stop,
@@ -2393,6 +2413,8 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             desk_set,
             meters_history,
             usage_limits,
+            assistant_ask,
+            assistant_stop,
         ])
         .typ::<RosterChange>()
         .typ::<CaptureChange>()
@@ -2411,6 +2433,37 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .dangerously_cast_bigints_to_number()
         .disable_serde_phases()
+}
+
+// ---- The assistant (card #783) ----------------------------------------------
+
+/// Asks the corner chat's assistant `text` after `history`. Returns the
+/// run's id at once; its events come on `on`, ending with one `done` or
+/// `error` (a failure to start included).
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_ask(
+    w: W<'_>,
+    history: Vec<AssistantTurn>,
+    text: String,
+    on: tauri::ipc::Channel<AssistantEvent>,
+) -> R<u32> {
+    if text.trim().is_empty() {
+        return Err("ask something first".into());
+    }
+    blocking(&w, move |w| {
+        Ok(w.assistant_ask(&history, &text, Box::new(move |e| on.send(e).is_ok())))
+    })
+    .await
+}
+
+/// Stops assistant run `id`: its channel gets error "Stopped." or nothing
+/// more. An unknown or finished id is fine.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_stop(w: W<'_>, id: u32) -> R<()> {
+    w.assistant_stop(id);
+    Ok(())
 }
 
 // ---- Terminals (card #369; docs/design/inline-terminals.md section 5) ----------

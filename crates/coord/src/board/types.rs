@@ -469,6 +469,39 @@ pub struct Rollup {
     pub blocked_question: String,
 }
 
+/// A card's weight (card #963).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Weight {
+    /// [`WEIGHT_LIGHT`], [`WEIGHT_NORMAL`] or [`WEIGHT_HEAVY`].
+    pub level: String,
+    /// One line on why.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+    /// Who set it, from the row's writer: [`SET_BY_PERSON`],
+    /// [`SET_BY_ASSISTANT`] (Irori's office assistant) or [`SET_BY_AGENT`].
+    pub set_by: String,
+    /// Their key.
+    pub by: String,
+    pub at: GoTime,
+}
+
+pub const WEIGHT_LIGHT: &str = "light";
+pub const WEIGHT_NORMAL: &str = "normal";
+pub const WEIGHT_HEAVY: &str = "heavy";
+/// The weights, lightest first.
+pub const WEIGHTS: [&str; 3] = [WEIGHT_LIGHT, WEIGHT_NORMAL, WEIGHT_HEAVY];
+pub const SET_BY_PERSON: &str = "person";
+pub const SET_BY_ASSISTANT: &str = "assistant";
+pub const SET_BY_AGENT: &str = "agent";
+
+impl Weight {
+    /// Whether a person set it: then only a person changes it.
+    pub fn by_person(&self) -> bool {
+        self.set_by == SET_BY_PERSON
+    }
+}
+
 /// The folded view of one task.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -628,6 +661,11 @@ pub struct Task {
     /// until Resume. Copied on at read time, like the pin.
     #[serde(skip_serializing_if = "omit")]
     pub paused: bool,
+    /// How heavy the card's work is (card #963): Irori starts its agent on
+    /// the model and effort the board maps this weight to. None is normal.
+    /// Copied on at read time, like the pin.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<Weight>,
 }
 
 impl Task {

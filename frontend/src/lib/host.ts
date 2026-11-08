@@ -171,11 +171,12 @@ export const InboxService = {
   SetPaused: (paused: boolean) => done(commands.inboxSetPaused(paused)),
 }
 
-// Wind down all (card #220): every agent saves its place, hands back its
-// cards and stops; Pause all turns on after, if asked.
+// Wind down (cards #220, #787): a switch. All turns it on: agent starts
+// held on every device, and every agent saves its place, hands back its
+// cards and stops. Off turns it off at any time, mid-run too.
 export const WindDownService = {
-  All: (scope: string, pauseAfter: boolean) =>
-    call(commands.windDownAll(scope, pauseAfter)),
+  All: () => call(commands.windDownAll()),
+  Off: () => call(commands.windDownOff()),
   Status: () => call(commands.windDownStatus()),
   Stop: (key: string) => done(commands.windDownStop(key)),
 }
@@ -265,6 +266,9 @@ export const BoardService = {
   // The person renames a card or thread by hand (card #779).
   Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
+  // A card's weight (card #963): light, normal or heavy, or "" to clear.
+  SetWeight: (id: string, level: string, reason: string) =>
+    call(commands.boardSetWeight(id, level, reason)),
   // Pause / Resume (card #207): who was told.
   Pause: (id: string, paused: boolean, note: string) =>
     call(commands.boardPause(id, paused, note)),
@@ -675,4 +679,20 @@ export const MetersService = {
 // Claude usage left (card #599): the newest reading of the plan's windows.
 export const UsageService = {
   Limits: () => call(commands.usageLimits()),
+}
+
+// Ask Irori (card #783): the read-only helper's answer comes as
+// AssistantEvents on a Channel (delta, tool, then done or error); Ask
+// returns the run's id at once, and Stop(id) ends it.
+export const AssistantService = {
+  Ask(
+    history: B.AssistantTurn[],
+    text: string,
+    onEvent: (ev: B.AssistantEvent) => void
+  ): Promise<number> {
+    const on = new Channel<B.AssistantEvent>()
+    on.onmessage = onEvent
+    return call(commands.assistantAsk(history, text, on))
+  },
+  Stop: (id: number) => done(commands.assistantStop(id)),
 }

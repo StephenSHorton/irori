@@ -120,10 +120,15 @@ export function inField(el: Focus | null): boolean {
   return !!el.closest(".rsz-view")
 }
 
-// A dialog (Settings, New card, the palette), a menu or an open list has
-// the keys while it is open, as for Esc on a card's page.
-const dialogs =
-  '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
+// openDialogs matches a modal dialog that is open (Settings, New card,
+// the palette). Ask Irori's panel (card #783) is a dialog too, but
+// non-modal: the window's keys still work beside it.
+export const openDialogs =
+  '[role="dialog"]:not([data-assistant-panel]),[role="alertdialog"]'
+
+// A dialog, a menu or an open list has the keys while it is open, as for
+// Esc on a card's page.
+export const dialogs = `${openDialogs},[role="menu"],[role="listbox"]`
 
 // listenAppShortcuts adds the window's listeners and returns what takes
 // them out. Bubble phase, so a field, a menu or a dialog that handles a

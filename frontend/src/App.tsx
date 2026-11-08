@@ -14,6 +14,7 @@ import { CardPage } from "@/components/cards/card-detail"
 import { HeldDialog, type HeldTab } from "@/components/cards/held-dialog"
 import { NewCardDialog } from "@/components/cards/new-card-dialog"
 import { PhoneTabs, phoneTab } from "@/components/phone-tabs"
+import { AssistantChat } from "@/components/assistant/assistant-chat"
 import { useNarrow } from "@/lib/media"
 import { cn } from "@/lib/utils"
 import { WindDownDialog } from "@/components/wind-down-dialog"
@@ -69,6 +70,9 @@ import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
+import { WakesPausedLine } from "@/components/home/wakes-paused-line"
+import { useWindDown } from "@/lib/wind-down"
+import { stopLabels } from "@/lib/stop-labels"
 import { UpdateBanner } from "@/updater"
 import { useBoardView } from "@/components/canvas/switch"
 import { BoardHeaderBar, BoardPage } from "@/components/boards/board-page"
@@ -119,6 +123,7 @@ import {
   toggleTermPanel,
 } from "@/lib/term-panel"
 import {
+  dialogs,
   backShortcut,
   forwardShortcut,
   listenAppShortcuts,
@@ -315,6 +320,9 @@ export function App() {
   const [newCard, setNewCard] = useState(() => previewFlag("newcard") !== null)
   // Wind down all (card #220): the header's button and the tray's item.
   const [windDown, setWindDown] = useState(false)
+  // Stop everywhere's switch (cards #773, #787; Wind down in the code): one copy
+  // for the header, the dialog, Home's line and the palette.
+  const windDownSwitch = useWindDown()
   // New or join a space (card #689): the space picker's item and the
   // palette's open it; ?boards in the preview starts with it open.
   const [newBoard, setNewBoard] = useState(() => previewFlag("boards") !== null)
@@ -444,12 +452,13 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return
       if (
-        document.querySelector(
-          '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]'
-        )
+        // Ask Irori's panel is non-modal (card #783): it takes its own
+        // Esc, and Esc elsewhere still goes Back.
+        document.querySelector(dialogs)
       )
         return
       const t = e.target instanceof HTMLElement ? e.target : null
+      if (t?.closest("[data-assistant-panel]")) return
       // A terminal's Esc is the program's (vim, less, PSReadLine): it
       // stays in the terminal (card #369).
       if (t?.closest(".rsz-view")) return
@@ -846,16 +855,25 @@ export function App() {
       when: termsHere,
       run: toggleTermPanel,
     },
-    // The header's Wind down (card #220), from the palette (card #228); like
-    // the header's button, not on the sample roster.
-    {
-      id: "agents.wind-down",
-      title: "Wind down all agents",
-      order: 3,
-      keywords: ["stop", "pause", "save", "end", "shut down", "quit"],
-      when: () => roster.source !== "sample",
-      run: () => setWindDown(true),
-    },
+    // The header's Stop everywhere (cards #220, #773; Wind down in the
+    // code), from the palette (card #228); like the header's button, not on
+    // the sample roster. While it is on, it starts everywhere (card #787).
+    windDownSwitch.status.on
+      ? {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.paletteOff,
+          order: 3,
+          keywords: ["resume", "unpause", "wind down", "off"],
+          run: () => void windDownSwitch.off(),
+        }
+      : {
+          id: "agents.wind-down",
+          title: stopLabels.everywhere.palette,
+          order: 3,
+          keywords: ["pause", "wind down", "save", "end", "shut down", "quit"],
+          when: () => roster.source !== "sample",
+          run: () => setWindDown(true),
+        },
   ])
 
   const agentCards = useMemo(
@@ -972,6 +990,7 @@ export function App() {
                 }
                 onNewCard={() => setNewCard(true)}
                 onWindDown={() => setWindDown(true)}
+                windDown={windDownSwitch}
                 section={open ? null : section}
               />
             )}
@@ -1156,7 +1175,14 @@ export function App() {
                   header={
                     <>
                       <SpawnNotice />
-                      <WindDownLine onOpen={() => setWindDown(true)} />
+                      <WindDownLine
+                        status={windDownSwitch.status}
+                        onOpen={() => setWindDown(true)}
+                      />
+                      <WakesPausedLine
+                        paused={!!inbox.policy?.paused}
+                        onResumed={() => void inbox.reload()}
+                      />
                       <AskBox
                         onThread={startedThread}
                         board={threadsSpace(space)}
@@ -1226,12 +1252,8 @@ export function App() {
           </div>
           {windDown && (
             <WindDownDialog
-              agents={{
-                here: roster.agents.filter(
-                  (a) => a.deviceId === roster.device?.id
-                ).length,
-                all: roster.agents.length,
-              }}
+              agents={roster.agents.length}
+              windDown={windDownSwitch}
               onClose={() => setWindDown(false)}
             />
           )}
@@ -1290,6 +1312,8 @@ export function App() {
               onClose={() => setMessage("")}
             />
           )}
+          {/* Ask Irori (card #783): on every page, portalled to <body>. */}
+          <AssistantChat narrow={narrow} at={where} />
         </div>
       </LiveRoster.Provider>
     </AgentCards.Provider>
@@ -1338,10 +1362,11 @@ function IdleLine({ text }: { text: string }) {
 export default App
 
 // Scroll is a page that isn't the Board (a card, Boards, a shared board):
-// it scrolls by itself under the header (card #170).
+// it scrolls by itself under the header (card #170). Its end clears Ask
+// Irori's button in the corner (pb-20, card #783).
 function Scroll({ children }: { children: ReactNode }) {
   return (
-    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-10 mac:overscroll-none">
+    <div className="-mx-1 grid min-h-0 flex-1 content-start gap-3.5 overflow-y-auto px-1 pb-20 mac:overscroll-none">
       {children}
     </div>
   )

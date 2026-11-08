@@ -74,7 +74,7 @@ fn board_name(b: Board) -> &'static str {
 
 /// Kinds added after the Go port (shared boards stage 2, waits on card
 /// #87), which Go's table can't list: board logs accept them.
-const SINCE_GO: [&str; 28] = [
+const SINCE_GO: [&str; 29] = [
     kinds::BOARD_ASK_REQUESTED,
     kinds::BOARD_ASK_STATE,
     kinds::BOARD_ASK_MOVED,
@@ -110,6 +110,8 @@ const SINCE_GO: [&str; 28] = [
     kinds::TASK_SPAWNED,
     // A huddle's transcript lines (card #656).
     kinds::CALL_SEGMENT,
+    // A card's weight (card #963).
+    kinds::TASK_WEIGHT,
     // A board's description, and closing it (card #690).
     kinds::SPACE_BOARD_DESCRIBED,
     kinds::SPACE_BOARD_CLOSED,

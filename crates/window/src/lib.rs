@@ -44,6 +44,7 @@
 
 pub mod agents;
 pub mod agents_trust;
+pub mod assistant;
 pub mod attachments;
 pub mod board;
 pub mod boards;
@@ -175,12 +176,15 @@ pub struct Window {
     emitter: OnceLock<EmitFn>,
     open_file: OnceLock<OpenFn>,
     on_reset: OnceLock<Box<dyn Fn() + Send + Sync>>,
-    /// The current Wind down all run (card #220).
+    /// The current Wind down run and the switch's listeners (cards #220,
+    /// #787).
     wind_down: wind_down::RunSlot,
     /// The voice input session (card #240).
     voice: voice::VoiceSlot,
     /// The hardware meters' recent samples (card #599).
     meters: meters::History,
+    /// The corner chat's headless runs (card #783).
+    assistant: assistant::Runner,
 }
 
 impl Window {
@@ -201,6 +205,7 @@ impl Window {
             wind_down: Mutex::default(),
             voice: voice::VoiceSlot::default(),
             meters: meters::History::default(),
+            assistant: assistant::Runner::new(),
         }
     }
 
