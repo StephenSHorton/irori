@@ -123,8 +123,8 @@ fn decode_pics(s: &mut State) {
                 .collect::<Vec<_>>()
         },
         |s, got| {
-            for (a, (w, h, px)) in got {
-                s.profile.pics.insert(a, avatar::pixels(w, h, px));
+            for (a, px) in got {
+                s.profile.pics.insert(a, px);
             }
         },
     );

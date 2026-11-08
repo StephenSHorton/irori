@@ -131,12 +131,12 @@ fn refresh_person(s: &mut State) {
     s.spawn(
         |w| {
             let url = w.person_avatar();
-            let rgba = avatar::decode(&url);
-            (url, rgba, w.person_color())
+            let pixels = avatar::decode(&url);
+            (url, pixels, w.person_color())
         },
-        |s, (url, rgba, color)| {
+        |s, (url, pixels, color)| {
             if s.widgets.avatar.url != url || s.widgets.avatar.pixels.is_none() {
-                s.widgets.avatar = avatar::Avatar::from_rgba(url, rgba);
+                s.widgets.avatar = avatar::Avatar { url, pixels };
             }
             s.widgets.person_color = color;
         },

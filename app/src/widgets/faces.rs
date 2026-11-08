@@ -320,12 +320,13 @@ pub enum PersonSize {
 }
 
 impl PersonSize {
-    fn px(self) -> (f32, f32) {
+    /// The face's side in points.
+    fn px(self) -> f32 {
         match self {
-            PersonSize::Sm => (20.0, 10.0),
-            PersonSize::Md => (28.0, 12.0),
-            PersonSize::Lg => (48.0, 18.0),
-            PersonSize::Xl => (64.0, 24.0),
+            PersonSize::Sm => 20.0,
+            PersonSize::Md => 28.0,
+            PersonSize::Lg => 48.0,
+            PersonSize::Xl => 64.0,
         }
     }
 }
@@ -341,28 +342,19 @@ pub fn person_face(
     size: PersonSize,
 ) -> El {
     let k = f.k;
-    let (side, font) = size.px();
-    let base = el()
-        .key(key.to_string())
-        .size(side, side)
-        .radius(side / 2.0)
-        .clip_rounded(side / 2.0)
-        .role("img")
-        .label(name.to_string())
-        .help(name.to_string());
-    if let Some(p) = pic {
-        return base.pixels_fit(p, rune::SurfaceFit::Fill);
-    }
-    let (bg, fg) = match device_color(color) {
+    let (fill, ink) = match device_color(color) {
         Some(c) => (c, k.c.bg_base),
         None => (k.c.layer_03, k.c.text_muted),
     };
-    base.fill(bg).center().child(
-        text(avatar::initials(name))
-            .font(rune::tok::TextStyle::new(font, 600.0))
-            .color(fg)
-            .a11y_hidden(),
-    )
+    let mut a = rune_kit::Avatar::new(name)
+        .initials(avatar::initials(name))
+        .size(size.px())
+        .fill(fill)
+        .ink(ink);
+    if let Some(p) = pic {
+        a = a.image(p);
+    }
+    a.build(k).key(key.to_string()).help(name.to_string())
 }
 
 /// The person's own face: their avatar from the window (decoded in the
