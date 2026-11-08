@@ -190,10 +190,8 @@ export function parseHistory(raw: string | null): ChatEntry[] {
   const out: ChatEntry[] = []
   for (const x of v) {
     if (!x || typeof x !== "object") continue
-    const { role, text, note, changed, posted, update, act, to, looked } = x as Record<
-      string,
-      unknown
-    >
+    const { role, text, note, changed, posted, update, act, to, looked } =
+      x as Record<string, unknown>
     if ((role !== "person" && role !== "assistant") || typeof text !== "string")
       continue
     if (!text.trim()) continue
