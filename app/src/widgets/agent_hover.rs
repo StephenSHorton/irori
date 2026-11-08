@@ -92,7 +92,16 @@ pub fn trigger(_s: &State, _f: &mut Frame, key: &str, who: &AgentRef, face: El) 
                 leave(s, Some(&a1));
             }
         })
-        .on_press(move |s: &mut State| enter(s, &a2, &w2))
+        // The touch path: a press opens it, and a press on the same face
+        // closes it (a press cancels Rune's hover wait, so a pointer that
+        // leaves right after may report nothing to close it by).
+        .on_press(move |s: &mut State| {
+            if s.widgets.hover.as_ref().is_some_and(|h| h.anchor == a2) {
+                s.widgets.hover = None;
+            } else {
+                enter(s, &a2, &w2);
+            }
+        })
         .cursor(rune::Cursor::Pointer)
 }
 
