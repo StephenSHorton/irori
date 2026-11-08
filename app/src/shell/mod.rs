@@ -712,7 +712,13 @@ fn main_window(app: &AppHandle, startup: bool) -> tauri::Result<()> {
     #[cfg(desktop)]
     let b = {
         let (w, h) = shot::window_size().unwrap_or((1100.0, 720.0));
-        b.inner_size(w, h).center().visible(!startup)
+        // Tauri's handler takes a file dropped from the OS for its own
+        // events and the page's drop never fires; the boxes that take
+        // files read the page's (#999).
+        b.inner_size(w, h)
+            .center()
+            .visible(!startup)
+            .disable_drag_drop_handler()
     };
     #[cfg(mobile)]
     let _ = startup;
