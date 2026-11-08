@@ -7,6 +7,7 @@ mod board;
 mod boards2;
 mod capture;
 mod common;
+mod device_free;
 mod finished_test;
 mod golden;
 mod later;

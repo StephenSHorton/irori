@@ -43,6 +43,19 @@ describe("Talk's list (card #390)", () => {
     expect(got.channels.map((c) => c.convId)).toEqual(["c1", "c2"])
     expect(got.dms.map((c) => c.convId)).toEqual(["d2", "d1"])
   })
+  test("a pinned channel (a space's #office-assistants) comes first", () => {
+    const got = listed([
+      conv({ convId: "c1", kind: "channel", name: "irori" }),
+      conv({
+        convId: "ch_oa_1",
+        kind: "channel",
+        name: "office-assistants",
+        pinned: true,
+      }),
+      conv({ convId: "c0", kind: "channel", name: "a-first" }),
+    ])
+    expect(got.channels.map((c) => c.convId)).toEqual(["ch_oa_1", "c0", "c1"])
+  })
   const you = { kind: "person", key: "person:me", name: "you" }
   const agent = (key: string) => ({ kind: "agent", key, name: key })
   const live = new Map([

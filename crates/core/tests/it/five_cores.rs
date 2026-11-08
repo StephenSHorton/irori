@@ -3574,3 +3574,55 @@ fn a_boards_description_close_and_reopen_reach_bob_and_back() {
     });
     close(alice.drain(..).chain(bob.drain(..)));
 }
+
+/// Assistants talk 1 (design §4): a shared space gets #office-assistants by
+/// itself on every Core, one channel of one id. A hidden DM space between
+/// the same two people gets none, and neither does Personal.
+#[test]
+fn every_space_gets_one_office_assistants_channel_of_the_same_id() {
+    let mut alice = person("alice", 1);
+    let mut bob = person("bob", 1);
+    let (a1, b1) = (&alice[0], &bob[0]);
+    let space = invited(a1, b1);
+    wait_for(WAIT, "alice hears bob read spaces", || {
+        hears(a1, &space, b1)
+    });
+    let id = coord::talk::assistants_channel_id(&space);
+    for d in [a1, b1] {
+        wait_for(WAIT, "the assistants channel folds", || {
+            d.core.talk().channel(&id).is_some()
+        });
+    }
+    for d in [a1, b1] {
+        let all = d.core.talk().channels();
+        let oa: Vec<_> = all.iter().filter(|c| c.id.starts_with("ch_oa_")).collect();
+        assert_eq!(oa.len(), 1, "{oa:?}");
+        assert_eq!(
+            (oa[0].id.as_str(), oa[0].space_id.as_str()),
+            (id.as_str(), space.as_str())
+        );
+        assert_eq!(oa[0].name, "office-assistants");
+        assert!(talk_lists(d, &id), "listed without joining");
+    }
+
+    // A DM between them rides a hidden space: no channel there.
+    let dm = dm_with(a1, b1);
+    dm_post(a1, &dm, "hi bob");
+    wait_for(WAIT, "bob reads alice's DM", || dm_holds(b1, &dm, "hi bob"));
+    let hidden = a1.core.dm_spaces_with(&b1.core.person().id);
+    assert_eq!(hidden.len(), 1, "{hidden:?}");
+    a1.core.kick_board(&hidden[0]);
+    b1.core.kick_board(&hidden[0]);
+    // Give the sweeps a few passes at the hidden space.
+    std::thread::sleep(Duration::from_secs(3));
+    for d in [a1, b1] {
+        let all = d.core.talk().channels();
+        assert!(
+            all.iter()
+                .all(|c| c.space_id != hidden[0] && !c.space_id.is_empty()),
+            "{all:?}"
+        );
+        assert_eq!(all.iter().filter(|c| c.id.starts_with("ch_oa_")).count(), 1);
+    }
+    close(alice.drain(..).chain(bob.drain(..)));
+}
