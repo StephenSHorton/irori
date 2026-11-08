@@ -144,6 +144,9 @@ fn level_of(line: &str) -> Option<String> {
     })
 }
 
+/// What a model puts around a reason.
+const MARKS: [char; 5] = ['"', '`', '*', '“', '”'];
+
 /// A turn's answer: the level (its last line that is only a weight) and
 /// the reason on the line before it, or None when it isn't one (the card
 /// then runs as it would have).
@@ -156,17 +159,14 @@ pub fn weigh_reply(reply: &str) -> Option<(String, String)> {
     let i = lines.iter().rposition(|l| level_of(l).is_some())?;
     let level = level_of(lines[i])?;
     let why = *lines.get(i.checked_sub(1)?)?;
-    let why = why.trim_start_matches(|c| matches!(c, '"' | '`' | '*' | '“' | '”'));
+    let why = why.trim_start_matches(MARKS);
     let lower = why.to_ascii_lowercase();
     let why = ["line 1:", "reason:"]
         .iter()
         .find(|p| lower.starts_with(**p))
         .and_then(|p| why.get(p.len()..))
         .unwrap_or(why);
-    let why = why
-        .trim()
-        .trim_matches(|c| matches!(c, '"' | '`' | '*' | '“' | '”'))
-        .trim();
+    let why = why.trim().trim_matches(MARKS).trim();
     if why.is_empty() {
         return None;
     }
