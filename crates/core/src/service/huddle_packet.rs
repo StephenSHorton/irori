@@ -291,7 +291,13 @@ impl Services {
             .talk
             .channel(conv)
             .ok_or_else(|| format!("no channel {conv}"))?;
-        if ch.space_id.is_empty() {
+        // Known only from an edit row so far: its space isn't known yet, and
+        // reading it as Personal would put the private log in a space's
+        // packet.
+        if ch.id.is_empty() {
+            return Err(format!("no channel {conv} yet"));
+        }
+        if ch.space_id == coord::talk::PERSONAL_SPACE {
             Ok(Scope::Personal)
         } else {
             Ok(Scope::Space(ch.space_id))

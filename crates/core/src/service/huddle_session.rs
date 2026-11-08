@@ -26,7 +26,7 @@
 //!   look's failure: no retry, and a session the runner killed reads as
 //!   gone next time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use super::Services;
@@ -176,8 +176,14 @@ pub(crate) struct HeldSessions {
     runner: Mutex<Option<Arc<dyn HuddleRunner>>>,
     /// Huddles with an open session, by callId.
     open: Mutex<HashMap<String, Opened>>,
-    /// One turn at a time per huddle: its lock, by callId.
+    /// One turn at a time per huddle: its lock, by callId. Kept for good
+    /// (one small lock per huddle seen): a lock taken out of the map while
+    /// a turn waits on it would let a second turn run beside the first.
     turns: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Huddles whose session was closed on purpose (the person left): a
+    /// look still queued then doesn't start a new one. Only an open clears
+    /// it.
+    closed: Mutex<HashSet<String>>,
 }
 
 /// An open session.
@@ -267,6 +273,7 @@ impl Services {
         let runner = self.huddle_runner()?;
         let turn = self.huddle_turn_lock(&seed.call_id);
         let _one = lock(&turn);
+        lock(&self.held.closed).remove(&seed.call_id);
         if lock(&self.held.open).contains_key(&seed.call_id) {
             return Ok(());
         }
@@ -283,6 +290,9 @@ impl Services {
         let call = seed.call_id.as_str();
         let turn = self.huddle_turn_lock(call);
         let _one = lock(&turn);
+        if lock(&self.held.closed).contains(call) {
+            return Err("the assistant has left this huddle".into());
+        }
         let mut fresh = false;
         if !lock(&self.held.open).contains_key(call) {
             self.huddle_start(&runner, seed)
@@ -333,17 +343,18 @@ impl Services {
         Ok(look)
     }
 
-    /// Ends `call`'s session (its person left, card 7a).
+    /// Ends `call`'s session (its person left, card 7a). A look still
+    /// waiting then finds it closed and starts nothing, until the next
+    /// [`Services::huddle_open`].
     pub(crate) fn huddle_close(&self, call: &str) {
         let runner = lock(&self.held.runner).clone();
         let turn = self.huddle_turn_lock(call);
         let _one = lock(&turn);
+        lock(&self.held.closed).insert(call.to_string());
         lock(&self.held.open).remove(call);
         if let Some(r) = runner {
             r.close(call);
         }
-        drop(_one);
-        lock(&self.held.turns).remove(call);
     }
 
     /// Whether `call` has an open session.

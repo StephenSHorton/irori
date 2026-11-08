@@ -1148,14 +1148,17 @@ pub fn held_result(line: &str) -> Option<Result<irori_core::Look, String>> {
 /// One held `claude -p` process.
 struct Held {
     child: Mutex<Option<Child>>,
-    stdin: Mutex<Option<std::process::ChildStdin>>,
+    /// Messages for the writer thread, which owns stdin: a write that
+    /// blocks (a full pipe, a child that never reads) holds no lock and
+    /// stays under the look's watchdog. Taken to close stdin.
+    writer: Mutex<Option<std::sync::mpsc::Sender<String>>>,
     /// Its stdout lines, from the reader thread; disconnected at EOF.
     lines: Mutex<std::sync::mpsc::Receiver<String>>,
     /// One turn at a time: a second look waits, so it never reads the
     /// first's result.
     turn: Mutex<()>,
     /// Killed or found dead: every later turn is gone.
-    dead: std::sync::atomic::AtomicBool,
+    dead: Arc<std::sync::atomic::AtomicBool>,
     errs: Arc<Mutex<Vec<u8>>>,
     /// The thread reading stderr into `errs`, joined once it has ended.
     err_reader: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -1223,20 +1226,14 @@ impl Held {
         // Nothing of an earlier turn is read as this one's.
         while lines.try_recv().is_ok() {}
         let start = std::time::Instant::now();
+        let deadline = start + self.timeout;
         {
-            let mut w = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(w) = w.as_mut() else {
+            let w = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+            let sent = w.as_ref().map(|w| w.send(user_message(text)));
+            if !matches!(sent, Some(Ok(()))) {
                 return Err(Gone("the session is closing".into()));
-            };
-            if let Err(e) = w
-                .write_all(user_message(text).as_bytes())
-                .and_then(|_| w.flush())
-            {
-                self.kill();
-                return Err(Gone(format!("the session had stopped: {e}")));
             }
         }
-        let deadline = start + self.timeout;
         loop {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             match lines.recv_timeout(left) {
@@ -1268,9 +1265,10 @@ impl Held {
     }
 
     /// Ends it: closes stdin so Claude Code exits on its own, kills it if it
-    /// hasn't within [`CLOSE_GRACE`], then removes its folder.
+    /// hasn't within [`CLOSE_GRACE`], then removes its folder (and the
+    /// huddle's, once no session is left in it).
     fn end(&self, grace: Duration) {
-        drop(self.stdin.lock().unwrap_or_else(|e| e.into_inner()).take());
+        drop(self.writer.lock().unwrap_or_else(|e| e.into_inner()).take());
         let until = std::time::Instant::now() + grace;
         while !self.exited() && std::time::Instant::now() < until {
             std::thread::sleep(Duration::from_millis(50));
@@ -1285,6 +1283,9 @@ impl Held {
             let _ = c.wait();
         }
         let _ = std::fs::remove_dir_all(&self.dir);
+        if let Some(up) = self.dir.parent() {
+            let _ = std::fs::remove_dir(up);
+        }
     }
 }
 
@@ -1296,6 +1297,9 @@ impl Held {
 pub struct HeldPool {
     held: Mutex<HashMap<String, Arc<Held>>>,
     closed: std::sync::atomic::AtomicBool,
+    /// Numbers each session's own folder, so a closing session's cleanup
+    /// never removes the folder of the one that replaced it.
+    seq: std::sync::atomic::AtomicU64,
 }
 
 impl HeldPool {
@@ -1319,7 +1323,12 @@ impl HeldPool {
         }
         self.close_now(call);
         let bin = bin.map_err(|_| Failed(NO_CLAUDE.into()))?;
-        let job = job.map_err(|e| Failed(failure(&e)))?;
+        let mut job = job.map_err(|e| Failed(failure(&e)))?;
+        // Never tools, so never an MCP config or a secret on disk.
+        job.tools = false;
+        job.dir = job
+            .dir
+            .join(format!("s{}", self.seq.fetch_add(1, Ordering::SeqCst)));
         if self.count() >= MAX_HELD {
             return Err(Failed(
                 "The assistant is already in as many huddles as it can be.".into(),
@@ -1336,6 +1345,20 @@ impl HeldPool {
             }
         };
         let stdin = child.stdin.take();
+        let dead: Arc<std::sync::atomic::AtomicBool> = Arc::default();
+        let (wtx, wrx) = std::sync::mpsc::channel::<String>();
+        if let Some(mut w) = stdin {
+            let dead = dead.clone();
+            std::thread::spawn(move || {
+                for msg in wrx {
+                    if w.write_all(msg.as_bytes()).and_then(|_| w.flush()).is_err() {
+                        dead.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                }
+                // Dropping `w` closes stdin: Claude Code ends at EOF.
+            });
+        }
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -1366,10 +1389,10 @@ impl HeldPool {
         });
         let held = Arc::new(Held {
             child: Mutex::new(Some(child)),
-            stdin: Mutex::new(stdin),
+            writer: Mutex::new(Some(wtx)),
             lines: Mutex::new(rx),
             turn: Mutex::new(()),
-            dead: Default::default(),
+            dead,
             errs,
             err_reader: Mutex::new(err_reader),
             timeout: job.timeout,
@@ -1382,15 +1405,24 @@ impl HeldPool {
                 held.end(Duration::ZERO);
                 return Err(Failed(STOPPED.into()));
             }
-            all.insert(call.to_string(), held.clone());
+            // One that slipped in since the close above is ended too.
+            if let Some(old) = all.insert(call.to_string(), held.clone()) {
+                std::thread::spawn(move || old.end(CLOSE_GRACE));
+            }
         }
         match held.turn(first) {
             Ok(look) => Ok(look),
             Err(e) => {
                 // A session that can't take its priming turn is no use. One
                 // that ended at once (signed out, a bad flag) says why on
-                // stderr.
-                self.take(call);
+                // stderr. Only this session leaves the pool: a newer one of
+                // the same huddle stays.
+                {
+                    let mut all = self.held.lock().unwrap_or_else(|e| e.into_inner());
+                    if all.get(call).is_some_and(|h| Arc::ptr_eq(h, &held)) {
+                        all.remove(call);
+                    }
+                }
                 let why = match e {
                     irori_core::LookError::Gone(why) => {
                         held.kill();
@@ -2214,12 +2246,13 @@ mod tests {
             messages(d.path()),
             ["PACKET", "lines 2", "lines 3", "lines 4"]
         );
-        // Its folder has the system prompt and no MCP config.
+        // Its own folder has the system prompt and no MCP config.
+        let own = job.dir.join("s0");
         assert_eq!(
-            std::fs::read_to_string(job.dir.join(SYSTEM_FILE)).unwrap(),
+            std::fs::read_to_string(own.join(SYSTEM_FILE)).unwrap(),
             "You are Juno."
         );
-        assert!(!job.dir.join(MCP_FILE).exists());
+        assert!(!own.join(MCP_FILE).exists());
         assert_eq!(pool.count(), 1);
         pool.shutdown();
         assert_eq!(pool.count(), 0);
@@ -2346,5 +2379,58 @@ mod tests {
         pool.close("c0ffee");
         assert_eq!(pool.count(), MAX_HELD - 1);
         pool.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_quick_reopen_keeps_its_folder_while_the_old_session_ends() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_held(d.path(), 6000);
+        let pool = HeldPool::new();
+        let job = held_job(d.path(), Duration::from_secs(20));
+        pool.open(Ok(bin.clone()), Ok(job.clone()), "c0ffee", "P1")
+            .unwrap();
+        // Closed in the background, reopened at once (a restart past the
+        // context limit, or a rejoin).
+        pool.close("c0ffee");
+        pool.open(Ok(bin), Ok(job.clone()), "c0ffee", "P2").unwrap();
+        // The old one's cleanup is done well within its grace.
+        std::thread::sleep(CLOSE_GRACE + Duration::from_secs(1));
+        assert!(!job.dir.join("s0").exists(), "the old folder goes");
+        assert!(
+            job.dir.join("s1").join(SYSTEM_FILE).exists(),
+            "the new one stays"
+        );
+        assert!(pool.look("c0ffee", "lines").is_ok());
+        pool.shutdown();
+        assert!(!job.dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_the_process_never_reads_stays_under_the_watchdog() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        // It never reads stdin: a big message fills the pipe.
+        let bin = d.path().join("claude");
+        std::fs::write(&bin, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let pool = HeldPool::new();
+        let t = std::time::Instant::now();
+        let big = "x".repeat(1 << 20);
+        let e = pool
+            .open(
+                Ok(bin),
+                Ok(held_job(d.path(), Duration::from_secs(2))),
+                "c0ffee",
+                &big,
+            )
+            .unwrap_err();
+        assert_eq!(e, irori_core::LookError::Failed(TOO_LONG.into()));
+        assert!(t.elapsed() < Duration::from_secs(15), "{:?}", t.elapsed());
+        assert_eq!(pool.count(), 0);
+        let t = std::time::Instant::now();
+        pool.shutdown();
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
     }
 }

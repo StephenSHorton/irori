@@ -258,3 +258,41 @@ fn a_seed_with_no_title_takes_the_huddles_own() {
     assert!(first.contains("Title: Release planning"), "{first}");
     r.core.close().unwrap();
 }
+
+#[test]
+fn a_look_queued_behind_a_close_starts_nothing_until_the_next_open() {
+    let (r, fake, seed) = rig();
+    r.core.huddle_open(&seed).unwrap();
+    r.core.huddle_close(CALL);
+    let e = r.core.huddle_look(&seed, "late lines").unwrap_err();
+    assert!(e.contains("left this huddle"), "{e}");
+    assert_eq!(fake.kinds(), ["open", "close"]);
+    // Joining again opens it again.
+    r.core.huddle_open(&seed).unwrap();
+    r.core.huddle_look(&seed, "lines").unwrap();
+    assert_eq!(fake.kinds(), ["open", "close", "open", "look"]);
+    r.core.close().unwrap();
+}
+
+#[test]
+fn a_channel_known_only_from_an_edit_has_no_packet() {
+    let (r, _fake, mut seed) = rig();
+    let me = r.core.user_sender().key;
+    // An edit can arrive before its channel's created row: the fold keeps
+    // a stand-in with no space, which must never read as Personal.
+    r.core
+        .store()
+        .append(
+            &me,
+            store::kinds::TALK_CHANNEL_EDITED,
+            &serde_json::json!({ "channelId": "ch_ghost", "name": "ghost" }),
+        )
+        .unwrap();
+    crate::common::wait_for(60, "the edit folds", || {
+        r.core.talk().channel("ch_ghost").is_some()
+    });
+    seed.conv_id = "ch_ghost".into();
+    let e = r.core.huddle_packet_text(&seed).unwrap_err();
+    assert!(e.contains("no channel ch_ghost yet"), "{e}");
+    r.core.close().unwrap();
+}

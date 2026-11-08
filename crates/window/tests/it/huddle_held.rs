@@ -134,8 +134,8 @@ fn a_held_session_primes_looks_and_starts_again_from_the_seed() {
         "{argv}"
     );
     let dir = r.core.assistant_dir().join(HUDDLES_DIR).join(CALL);
-    assert!(dir.join("system.md").exists());
-    assert!(!dir.join("mcp.json").exists());
+    assert!(dir.join("s0").join("system.md").exists());
+    assert!(!dir.join("s0").join("mcp.json").exists());
 
     // Killed between looks: the next look starts again from the seed.
     let pid = std::fs::read_to_string(f.path().join("pid")).unwrap();
