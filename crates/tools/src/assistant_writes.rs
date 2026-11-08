@@ -17,7 +17,7 @@
 use std::sync::Mutex;
 
 use crate::args::Ty;
-use crate::{CLIENT_ASSISTANT, Caller, Inner, decode, err_text, map_err, one_line, trim};
+use crate::{CLIENT_ASSISTANT, Caller, Inner, decode, err_text, map_err, trim};
 
 /// Closes a card, or resolves a thread, as the person.
 pub const TOOL_CLOSE: &str = "assistant_close";
@@ -436,14 +436,10 @@ const TICK_ARGS: &[(&str, Ty)] = &[("task_id", Ty::Str), ("step_id", Ty::Str)];
 
 const ONLY_THE_CHAT: &str = "only the window's assistant has this tool.";
 
-/// The card's name as the chat's line says it: its title may be anyone's
-/// words, so it stays one short line.
+/// The card as the chat's line says it: the chat shows its ref with its
+/// title, so the line needs no title of its own.
 fn named(t: &coord::Task) -> String {
-    format!(
-        "{} \u{201c}{}\u{201d}",
-        t.short_ref(),
-        one_line(&t.title, 60)
-    )
+    t.short_ref()
 }
 
 /// assistant_close: what the window's Resolve does for a thread, and its
