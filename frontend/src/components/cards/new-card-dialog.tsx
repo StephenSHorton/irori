@@ -33,7 +33,7 @@ import { boardTarget } from "@/lib/new-card"
 import { plainLine } from "@/lib/irori"
 import { errorText } from "@/lib/talk"
 import { effortLabel, modelLabel, useAgents } from "@/lib/agents"
-import { openSettings } from "@/components/settings/settings-menu"
+import { openSettings } from "@/lib/nav"
 import { ZapIcon } from "lucide-react"
 
 // NewCardDialog is New card (card #116): the person makes a card straight
@@ -177,6 +177,13 @@ export function NewCardDialog({
     }
   }
 
+  // Settings is a page: closed first, so this dialog isn't left over it and
+  // a space's card doesn't quietly become a Personal one (card #1007).
+  const settingsAgents = () => {
+    onClose()
+    openSettings("agents")
+  }
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -303,7 +310,7 @@ export function NewCardDialog({
                 variant="link"
                 size="xs"
                 className="h-auto px-0 align-baseline"
-                onClick={() => openSettings("agents")}
+                onClick={settingsAgents}
               >
                 Turn them on in Settings › Agents
               </Button>
@@ -327,7 +334,7 @@ export function NewCardDialog({
                   variant="link"
                   size="xs"
                   className="h-auto px-0 align-baseline"
-                  onClick={() => openSettings("agents")}
+                  onClick={settingsAgents}
                 >
                   Change in Settings › Agents
                 </Button>

@@ -92,6 +92,9 @@ export function PermissionsSection({
         <h3 id={`${id}-h`} className="text-sm font-medium text-ink">
           What a new agent may do
         </h3>
+        <p className="text-[12.5px] text-muted-foreground">
+          For your Personal cards, on this computer; each computer has its own.
+        </p>
         <ChoiceSelect
           label="Permissions"
           showLabel
@@ -102,8 +105,9 @@ export function PermissionsSection({
           className="text-[13px]"
         />
         <p className="text-[12.5px] text-muted-foreground">
-          In a shared space, or when a card quotes someone else, an agent never
-          runs without asking: it gets the checks, git and Irori rules instead.
+          In a shared space, or when a card quotes someone else, Anything
+          without asking isn&apos;t used: the agent gets the git and Irori rules
+          instead.
           {choice !== BYPASS && (
             <>
               {" "}
@@ -168,8 +172,12 @@ export function PermissionsSection({
         {keys.size > 0 && (
           <div className="grid gap-1.5">
             <h4 className="text-[12.5px] font-medium text-ink">
-              When its work is done
+              Pushing to main
             </h4>
+            <p className="text-[12.5px] text-muted-foreground">
+              Applies unless Permissions is Anything without asking, which sets
+              no limits.
+            </p>
             <ul className="grid gap-1.5">
               {[...keys].map((k) => (
                 <li
@@ -183,7 +191,7 @@ export function PermissionsSection({
                     {label(k)}
                   </span>
                   <ChoiceSelect
-                    label={`When an agent in ${label(k)} is done`}
+                    label={`Pushing to main in ${label(k)}`}
                     size="sm"
                     value={p.merge[k] ?? MERGE_PR}
                     choices={mergeChoices}

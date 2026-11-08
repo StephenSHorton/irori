@@ -7,7 +7,7 @@
 // once, when the reply comes in while the chat is open. The history keeps
 // the reply whole; the chat splits the line out as it shows it.
 
-import type { SettingsSection } from "@/components/settings/settings-dialog"
+import type { SettingsSection } from "@/lib/nav"
 
 export const GoOpen = "<<go "
 export const GoClose = ">>"
@@ -87,16 +87,27 @@ export const settingSpots: SettingSpot[] = [
   {
     key: "agents.each-card",
     section: "agents",
-    label: "Start an agent for each card",
+    label: "Personal",
   },
   { key: "agents.spaces", section: "agents", label: "Spaces" },
+  {
+    key: "agents.given",
+    section: "agents",
+    label: "Cards someone gives you",
+  },
   {
     key: "agents.model",
     section: "agents",
     label: "What a new agent starts with",
   },
   { key: "agents.names", section: "agents", label: "Agent names" },
-  { key: "agents.limits", section: "agents", label: "Limits" },
+  { key: "agents.limits", section: "agents", label: "How many at once" },
+  {
+    key: "agents.stops",
+    section: "agents",
+    label: "When Irori stops and asks",
+  },
+  { key: "agents.weighs", section: "agents", label: "Weigh new cards" },
   { key: "agents.running", section: "agents", label: "Running agents" },
   {
     key: "agents.permissions",
@@ -112,10 +123,9 @@ export const settingSpots: SettingSpot[] = [
   {
     key: "app.transcribe",
     section: "app",
-    label: "Transcribe what I say in calls",
+    label: "Transcribe what I say in huddles",
   },
   { key: "app.names", section: "app", label: "Name new threads" },
-  { key: "app.weighs", section: "app", label: "Weigh new cards" },
   { key: "app.updates", section: "app", label: "Updates" },
 ]
 

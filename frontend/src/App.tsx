@@ -66,7 +66,7 @@ import { nameLookup, SystemKey, useGone, useHeld, useInbox } from "@/lib/talk"
 import { startWindowLog } from "@/lib/window-log"
 import { deskShown, useDesks } from "@/lib/desk"
 import { DeskPage } from "@/components/desk/desk-page"
-import { openSettings } from "@/components/settings/settings-menu"
+import { SettingsPage } from "@/components/settings/settings-page"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
@@ -261,6 +261,11 @@ export function App() {
     // ?storage starts on Storage, ?storage=<kind> on one kind's page.
     const storageTab = previewFlag("storage")
     if (storageTab !== null) return { kind: "storage", tab: storageTab }
+    // ?settings[=<section>] and ?devices start on Settings (card #1007).
+    if (previewFlag("devices") !== null)
+      return { kind: "settings", tab: "devices" }
+    if (previewFlag("settings") !== null)
+      return sectionFromHash(`#settings/${previewFlag("settings")}`)
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
@@ -632,12 +637,14 @@ export function App() {
   // Cmd+, Cmd+N and Cmd+F run the commands below and the sidebar's,
   // Settings' and the search box's.
   useEffect(() => listenAppShortcuts(), [])
-  // A jump from the palette closes the Held list and a message left open
-  // under it (#218).
+  // A jump from the palette closes the Held list, a message left open
+  // under it (#218) and New card (card #1007: Settings is a page now, and
+  // would change underneath it).
   useEffect(() => {
     const close = () => {
       setHeldOpen(false)
       setMessage("")
+      setNewCard(false)
     }
     window.addEventListener(PaletteJump, close)
     return () => window.removeEventListener(PaletteJump, close)
@@ -969,7 +976,9 @@ export function App() {
                                   ? "Notifications"
                                   : section.kind === "storage"
                                     ? "Storage"
-                                    : "Home"
+                                    : section.kind === "settings"
+                                      ? "Settings"
+                                      : "Home"
                 }
                 bar={
                   !open && section.kind === "board" ? (
@@ -1034,6 +1043,8 @@ export function App() {
                     />
                   </FocusComment.Provider>
                 </Scroll>
+              ) : section.kind === "settings" ? (
+                <SettingsPage tab={section.tab} />
               ) : section.kind === "talk" ? (
                 <TalkPage
                   threads={allThreads}
@@ -1079,7 +1090,7 @@ export function App() {
                   open={section.repo}
                   onOpen={(repo) => go({ kind: "desk", repo })}
                   onOpenCard={openCard}
-                  onSettings={() => openSettings("desks")}
+                  onSettings={() => go({ kind: "settings", tab: "desks" })}
                   nameOf={name}
                   now={now}
                 />

@@ -9,6 +9,20 @@
 
 import { AllSpaces, Personal } from "./spaces"
 
+// SettingsSection is a section of Settings, in the order its list shows
+// them (the words and icons are components/settings/settings-page.tsx's).
+export const settingsSectionIds = [
+  "agents",
+  "desks",
+  "notifications",
+  "appearance",
+  "people",
+  "devices",
+  "app",
+] as const
+
+export type SettingsSection = (typeof settingsSectionIds)[number]
+
 export type Section =
   | { kind: "home" }
   | { kind: "talk"; id: string }
@@ -27,6 +41,10 @@ export type Section =
   // Storage (card #728): what Irori keeps and its size. tab is "" for the
   // overview, else one kind's page ("#storage/files").
   | { kind: "storage"; tab: string }
+  // Settings (card #1007): "#settings", or "#settings/<section>" for one
+  // section. tab "" is the page itself: the first section on a wide
+  // window, the list of sections on a phone.
+  | { kind: "settings"; tab: SettingsSection | "" }
 
 export const Home: Section = { kind: "home" }
 
@@ -57,6 +75,14 @@ export function sectionFromHash(hash: string): Section {
     }
   const m = hash.match(/^#board\/(.+)$/)
   if (m) return { kind: "board", id: decodeURIComponent(m[1]) }
+  if (hash === "#settings") return { kind: "settings", tab: "" }
+  const set = hash.match(/^#settings\/(.+)$/)
+  if (set) {
+    const want = decodeURIComponent(set[1])
+    // A section that's gone (a saved link) still opens Settings.
+    const tab = settingsSectionIds.find((s) => s === want) ?? ""
+    return { kind: "settings", tab }
+  }
   return Home
 }
 
@@ -75,6 +101,7 @@ export function sectionHash(s: Section): string {
     return s.board
       ? `#board/${encodeURIComponent(s.id)}/${encodeURIComponent(s.board)}`
       : `#board/${encodeURIComponent(s.id)}`
+  if (s.kind === "settings") return s.tab ? `#settings/${s.tab}` : "#settings"
   return ""
 }
 
@@ -84,6 +111,13 @@ export function go(s: Section): void {
   const url = window.location.pathname + window.location.search + sectionHash(s)
   window.history.pushState({ section: s }, "", url)
   window.dispatchEvent(new PopStateEvent("popstate", { state: { section: s } }))
+}
+
+// openSettings goes to Settings, at one section if named. Going where the
+// window already is adds no history entry.
+export function openSettings(tab: SettingsSection | "" = ""): void {
+  const s: Section = { kind: "settings", tab }
+  if (window.location.hash !== sectionHash(s)) go(s)
 }
 
 // replace moves the window to section s in place of where it is: no
@@ -100,6 +134,7 @@ export function sameSection(a: Section, b: Section): boolean {
     return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
+  if (a.kind === "settings") return b.kind === "settings" && a.tab === b.tab
   if (a.kind === "storage") return b.kind === "storage" && a.tab === b.tab
   return true
 }

@@ -231,7 +231,7 @@ export function AppSidebar({
       run: () => fold(!folded),
     },
   ])
-  const { device, version, agents } = roster
+  const { device, agents } = roster
   // Yours (terminal agents) and On cards (the ones Irori started), card
   // #456. Card #512: no "free" count (a thread gets its own agent); a
   // blocked agent counts as blocked, not working or on cards.
@@ -607,7 +607,10 @@ export function AppSidebar({
               </span>
             )}
           </button>
-          <SettingsMenu version={version} />
+          <SettingsMenu
+            current={here({ kind: "settings", tab: "" })}
+            onGo={() => onDrawer?.(false)}
+          />
         </div>
       </aside>
     </>

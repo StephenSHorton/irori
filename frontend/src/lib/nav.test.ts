@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import { boardsFor, sameSection, sectionFromHash, sectionHash } from "./nav"
+import {
+  boardsFor,
+  sameSection,
+  sectionFromHash,
+  sectionHash,
+  settingsSectionIds,
+} from "./nav"
 
 describe("Talk lives in the address (card #390)", () => {
   test("#talk is the list, #talk/<id> a conversation open", () => {
@@ -99,5 +105,44 @@ describe("Storage lives in the address (card #728)", () => {
         { kind: "storage", tab: "files" }
       )
     ).toBe(false)
+  })
+})
+
+describe("Settings lives in the address (card #1007)", () => {
+  test("#settings is the page, #settings/<section> one section", () => {
+    expect(sectionFromHash("#settings")).toEqual({ kind: "settings", tab: "" })
+    expect(sectionFromHash("#settings/agents")).toEqual({
+      kind: "settings",
+      tab: "agents",
+    })
+  })
+  test("every section round-trips", () => {
+    for (const tab of ["", ...settingsSectionIds] as const) {
+      const s = { kind: "settings", tab } as const
+      expect(sectionFromHash(sectionHash(s))).toEqual(s)
+    }
+  })
+  test("a section that's gone still opens Settings", () => {
+    expect(sectionFromHash("#settings/maintenance")).toEqual({
+      kind: "settings",
+      tab: "",
+    })
+  })
+  test("another section is another place, so it adds history", () => {
+    expect(
+      sameSection(
+        { kind: "settings", tab: "agents" },
+        { kind: "settings", tab: "agents" }
+      )
+    ).toBe(true)
+    expect(
+      sameSection(
+        { kind: "settings", tab: "agents" },
+        { kind: "settings", tab: "app" }
+      )
+    ).toBe(false)
+  })
+  test("Agents comes first", () => {
+    expect(settingsSectionIds[0]).toBe("agents")
   })
 })
