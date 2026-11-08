@@ -402,7 +402,7 @@ export function AppSidebar({
             />
           </SpaceGroup>
 
-          <Group label="All spaces" folded={folded}>
+          <Group label="All spaces" bare folded={folded}>
             <NavItem
               icon={BellIcon}
               label="Notifications"
@@ -687,10 +687,13 @@ function RosterLabel({ children }: { children: ReactNode }) {
 
 function Group({
   label,
+  bare = false,
   folded,
   children,
 }: {
   label: string
+  // No heading on screen; the label is still its name for a screen reader.
+  bare?: boolean
   folded: boolean
   children: ReactNode
 }) {
@@ -704,7 +707,7 @@ function Group({
         folded ? "mt-2 border-t border-border pt-2" : "mt-4"
       )}
     >
-      {!folded && (
+      {!folded && !bare && (
         <h2 className="px-2.5 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
           {label}
         </h2>
