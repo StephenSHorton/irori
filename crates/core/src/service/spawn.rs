@@ -3390,8 +3390,7 @@ mod tests {
             assert!(b.text.contains(TALK_NOTE), "{what}: {}", b.text);
             assert!(b.text.contains("talk_thread"), "{what}");
             assert!(
-                b.text
-                    .contains("ToolSearch select:mcp__irori__talk_thread"),
+                b.text.contains("ToolSearch select:mcp__irori__talk_thread"),
                 "{what}"
             );
         }
