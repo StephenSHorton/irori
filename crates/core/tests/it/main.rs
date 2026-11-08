@@ -44,6 +44,7 @@ mod pair;
 mod personal_boards;
 mod prefetch;
 mod prwatch;
+mod reviews_setting;
 mod search;
 mod space_boards;
 mod space_to_personal;

@@ -420,6 +420,9 @@ export const AgentsService = {
   Starts: () => call(commands.agentsStarts()),
   SetStarts: (on: boolean, max: number) =>
     call(commands.agentsStartsSet(on, max)),
+  // "Agents review other people's PRs without asking" (merge-desk §12.8).
+  Reviews: () => call(commands.agentsReviews()),
+  SetReviews: (on: boolean) => call(commands.agentsReviewsSet(on)),
   // The themes new agents' names come from (card #702), each with a switch.
   NamesThemes: () => call(commands.namesThemes()),
   NamesThemeSet: (id: string, on: boolean) =>

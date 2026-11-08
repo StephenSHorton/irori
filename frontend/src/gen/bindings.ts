@@ -472,6 +472,13 @@ export const commands = {
 	agentsStarts: () => __TAURI_INVOKE<AgentStartsView>("agents_starts"),
 	/**  The person changes it: the app only, never a tool. */
 	agentsStartsSet: (on: boolean, max: number) => __TAURI_INVOKE<AgentStartsView>("agents_starts_set", { on, max }),
+	/**
+	 *  "Agents review other people's PRs without asking" (merge-desk §12.8):
+	 *  on unless the person turned it off.
+	 */
+	agentsReviews: () => __TAURI_INVOKE<boolean>("agents_reviews"),
+	/**  The person changes it: the app only, never a tool. */
+	agentsReviewsSet: (on: boolean) => __TAURI_INVOKE<boolean>("agents_reviews_set", { on }),
 	/**  Pause agents (card #665): whether this device starts no agents now. */
 	agentsPause: () => __TAURI_INVOKE<AgentsPauseView>("agents_pause"),
 	/**
