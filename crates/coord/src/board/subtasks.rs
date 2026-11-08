@@ -358,6 +358,8 @@ impl Fold {
                 title: s.title.clone(),
                 objective: s.objective.clone(),
                 done_criteria: s.done_criteria.clone(),
+                weight: s.weight.clone(),
+                weight_reason: s.weight_reason.clone(),
                 ..NewTask::default()
             };
             for raw in &s.steps {
@@ -404,6 +406,9 @@ impl Fold {
         for (i, nt) in made.iter().enumerate() {
             let mut ct =
                 clean_new(&by, nt).map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
+            // Every subtask's weight is checked before the first is made.
+            self.check_new_weight(&by, &ct.weight, &ct.weight_reason)
+                .map_err(|e: Error| e.prefixed(format!("subtask {}", i + 1)))?;
             ct.parent = id.into();
             ct.spawn = marks[i];
             // A part runs on its parent's side (card #494).
