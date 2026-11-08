@@ -4,7 +4,7 @@ Card #1018, from the person on #1017. Agents are not the problem; what they run 
 
 Out of scope, by the person's word: holding agent starts, and a max-agents setting. (`spawn.cap` and the spawn queue already exist and don't change.)
 
-Every claim below was checked against the code on 2026-11-08 by reviewers told to break it. Nothing has been built or run.
+Every claim below was checked against the code on 2026-11-08 by reviewers told to break it. Nothing has been built or run. Line numbers are approximate: go by the names.
 
 ## 1. What ships
 
@@ -65,11 +65,11 @@ These are judgment calls and can move. "Available" memory is total minus used as
 
 ## 4. The brief's words
 
-Beside `BUILD_OUTPUT` in `crates/core/src/service/spawn.rs`, pushed where it is pushed (`:912` and `:1123`):
+Beside `BUILD_OUTPUT` in `crates/core/src/service/spawn.rs`, pushed at both `b.push_str(BUILD_OUTPUT)` sites:
 
 > This computer is shared, and what you run can fill it. Before anything big (a full build or test run, a large download, generating data, a program that needs a lot of memory), call device_free and compare what it says you can use with a rough estimate of the need. If it won't fit with room to spare, don't start it and hope: wait and check again, or ask the person on your card or thread. For a heavy job, take this device's heavy slot first, as device_free shows; if they're taken, it says who holds them, so message them or check again later. Treat a timeout, out-of-memory or disk-full failure as a reason to check device_free, not to retry in a loop.
 
-It goes to agents in every repo, so it names no repo's scripts. Tests limit the wording: `spawn.rs:3613` fails if the brief holds the substring `side` anywhere (consider, inside, beside), and `ask_spawn.rs:172` fails on `board_status` or `Left off`.
+It goes to agents in every repo, so it names no repo's scripts. Tests limit the wording: a test in `spawn.rs` (`assert!(!b.text.contains("side"))`) fails if the brief holds the substring `side` anywhere (consider, inside, beside), and `ask_spawn.rs:172` fails on `board_status` or `Left off`.
 
 ## 5. Doing cards
 
@@ -96,9 +96,9 @@ Done when: the same test passes on the PC and `sh scripts/check.sh` passes there
 
 ### C. Heavy slots through `lease` and `release`
 
-- `crates/tools/src/lib.rs`: a defaulted `Backend::device_id()`, implemented in `ToolsView` (`crates/core/src/service.rs:402`). `pub const HEAVY_SLOTS: usize = 2` and a function that names this device's family.
-- `crates/tools/src/board.rs` `lease` (`:2699`): route as §2 says, before `mirror_acquire`. On `Held`, name the holders and slots, using `c.leases()` filtered by `<base>/slot-` as `crates/api/src/slots.rs:109-117` does.
-- `release` (`:2796`): call `release` first; on not-found call `release_slot(base)`; on `Ok(false)` say "you hold no slot of X", never "Released".
+- `crates/tools/src/lib.rs`: a defaulted `Backend::device_id()`, implemented in `impl tools::Backend for ToolsView` (`crates/core/src/service.rs`). `pub const HEAVY_SLOTS: usize = 2` and a function that names this device's family.
+- `lease` in `crates/tools/src/board.rs`: route as §2 says, before `mirror_acquire`. On `Held`, name the holders and slots, using `c.leases()` filtered by `<base>/slot-` as `crates/api/src/slots.rs:109-117` does.
+- `release` in the same file: call `release` first; on not-found call `release_slot(base)`; on `Ok(false)` say "you hold no slot of X", never "Released".
 - `specs.json`: `lease` and `release` descriptions say how heavy slots work.
 - `frontend/src/lib/wait-name.ts` (`:36`, `:55`) and its test: a `heavy/` branch beside `check/`, reading "a free heavy slot".
 - Goldens: `IRORI_BLESS=1` as `docs/architecture.md` says, then rerun without it.
@@ -108,8 +108,8 @@ Done when: tests in `crates/tools/tests/it/` show the base name takes a slot und
 ### D. The `device_free` tool (after A and C)
 
 - `specs.json`: one entry, `path` optional and described, `additionalProperties: false`, clients `claude` and `grok`, `readOnly: true`; description at most 500 bytes (`ported.rs:542-578`), carrying the rule in short.
-- `crates/tools/src/lib.rs`: handler in the table (`:388`, the array length goes up by one); a defaulted `Backend::device_free(path) -> Option<DeviceFree>` with a tools-side struct, so `crates/tools` gets no `irori-sys` dependency and its tests don't sleep. `ToolsView` implements it from `sys::meters::quick` and `Services.data_dir`.
-- `capturetools.rs:34`: `cwd_of` becomes `pub(crate)`. Leave the tool out of `CALLER_READS` (`lib.rs:376`), so a caller with no session still gets the data-dir default.
+- `crates/tools/src/lib.rs`: handler in the `handlers()` table (its array length goes up by one); a defaulted `Backend::device_free(path) -> Option<DeviceFree>` with a tools-side struct, so `crates/tools` gets no `irori-sys` dependency and its tests don't sleep. `ToolsView` implements it from `sys::meters::quick` and `Services.data_dir`.
+- `capturetools.rs:34`: `cwd_of` becomes `pub(crate)`. Leave the tool out of `CALLER_READS` (`lib.rs`), so a caller with no session still gets the data-dir default.
 - Handler: read the numbers outside any lock. Answer in plain lines, for example:
 
   ```
@@ -124,7 +124,7 @@ Done when: tests in `crates/tools/tests/it/` show the base name takes a slot und
   ```
 
   What can't be read says "not available here". When both slots are held, name the one with the soonest expiry and how to wait on it.
-- Tests that have to change: `crates/tools/tests/it/ported.rs` has two lists, `want` and `read_only`, and the tool goes in both; `crates/mcp/tests/wire.rs:222` hard-codes 59 and bless doesn't change it, so raise it by hand; bless the goldens (`tools/specs.json`, `api/go.json`, `mcp/wire.json`).
+- Tests that have to change: `crates/tools/tests/it/ported.rs` has two lists, `want` and `read_only`, and the tool goes in both; `crates/mcp/tests/wire.rs` hard-codes the tool count (`registered().len()`) and bless doesn't change it, so raise it by hand; bless the goldens (`tools/specs.json`, `api/go.json`, `mcp/wire.json`).
 - `docs/mod.md`: add it to the tool list.
 
 Done when: tool tests with a fake `Backend` cover all numbers, "not available" and holders of each kind; in a scratch app (never the live one: CLAUDE.md) a session calls `device_free` and the disk figure matches `df`; `sh scripts/check.sh` passes.
@@ -141,6 +141,6 @@ Done when: both brief tests pass, the mod's tests pass, and a scratch app's spaw
 ## 6. Left out, and why
 
 - **Adding up declared job sizes in coord**: see §2. Two agents can still both read the same free disk and both start; the slots make that rarer and the tool says so. If it bites, a job's size can go on the lease.
-- **`wait` on a lease, or waking an agent when its lease blocker closes**: the retry is enough to start. The wake is a small change at `comments.rs:1744-1748`, but `board_test.rs:1603` pins today's behaviour, so it is a decision of its own.
+- **`wait` on a lease, or waking an agent when its lease blocker closes**: the retry is enough to start. The wake is a small change where the sweep closes lease waits in `crates/coord/src/board/comments.rs`, but `board_test.rs:1603` pins today's behaviour, so it is a decision of its own.
 - **Numbers from other devices**: see §2.
 - **Holding agent starts**: the person ruled it out.
