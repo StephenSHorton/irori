@@ -3152,10 +3152,11 @@ impl Core {
     /// wait on gone agents back on the Board, and Irori starts an agent for
     /// it (or hands it to the next free one). Says which. App only.
     ///
-    /// With the board's Agents switch off the card still goes back on the
-    /// Board and nothing is asked to start: start_agent's switch refusal
-    /// (card #1066) isn't for this button, whose card has already moved by
-    /// then (card #1096).
+    /// With this computer's Agents switch off the card still goes back on
+    /// the Board: start_agent's switch refusal (card #1066) isn't for this
+    /// button, whose card has already moved by then (card #1096). A card
+    /// another computer hands out is still asked for there, since that
+    /// computer goes by its own switch (cards #492, #995).
     pub fn hand_on(&self, id: &str) -> Result<String, String> {
         let person = format!("user:{}", self.s.device.id);
         let (t, _) = self
@@ -3163,22 +3164,19 @@ impl Core {
             .coord
             .hand_on(&person, id)
             .map_err(|e| e.to_string())?;
+        let here = self.s.coord.hands_out_here(id);
         let spawning = self.s.coord.spawning();
         if spawning {
             self.s.start_agent(id, "")?;
+        } else if !here {
+            self.s.request_start(id, "")?;
         }
         if let Some(why) = self.s.no_agent_all().remove(id) {
             return Ok(format!("{} is back on the Board. {why}", t.short_ref()));
         }
-        if !spawning {
-            return Ok(format!(
-                "{} is back on the Board: Agents is switched off for this board, so it goes to the next free agent.",
-                t.short_ref()
-            ));
-        }
         // The device that made the card runs its hand-out (card #485: the
         // PC's cards go out from the PC).
-        if !self.s.coord.hands_out_here(id) {
+        if !here {
             let dev = irori_identity::owner::device_of(&t.created_by).to_string();
             let mut name = self.device_label(&dev);
             if self.s.cant_run_devices().contains(&dev) {
@@ -3191,10 +3189,17 @@ impl Core {
                 t.short_ref()
             ));
         }
-        Ok(format!(
-            "{} is back on the Board: Irori starts an agent for it.",
-            t.short_ref()
-        ))
+        Ok(if spawning {
+            format!(
+                "{} is back on the Board: Irori starts an agent for it.",
+                t.short_ref()
+            )
+        } else {
+            format!(
+                "{} is back on the Board. Agents is switched off for this board here (Settings › Agents), so it waits for a free agent.",
+                t.short_ref()
+            )
+        })
     }
 
     /// The person's words for card `id`'s next spawned agent (a "Not
