@@ -90,6 +90,26 @@ fn a_hand_back_writes_its_record_and_replays() {
 }
 
 #[test]
+fn a_hand_back_line_says_the_agents_name_not_its_key() {
+    let e = tidy_env();
+    e.ros.set_name(BOB, "crostini");
+    let t = card(&e);
+    bob_goes(&e);
+    let d = only(&got(&e, &t.id), JOB_HANDED);
+    assert_eq!(d.text, "Irori handed this back: crostini went away");
+    assert_eq!(d.holder, BOB, "the record still says which agent");
+}
+
+#[test]
+fn a_hand_back_line_never_shows_a_key_for_an_unnamed_agent() {
+    let e = tidy_env();
+    let t = card(&e);
+    bob_goes(&e);
+    let d = only(&got(&e, &t.id), JOB_HANDED);
+    assert_eq!(d.text, "Irori handed this back: its agent went away");
+}
+
+#[test]
 fn off_means_no_record_but_the_sweep_still_hands_back() {
     let e = Env::new();
     let t = card(&e);

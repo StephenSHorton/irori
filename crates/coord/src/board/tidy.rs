@@ -204,6 +204,15 @@ impl Fold {
         self.write(SWEEPER, kinds::ASSISTANT_DID, &row)
     }
 
+    /// How a hand-back line names the agent that left, for the person:
+    /// its name, never its key. An agent the roster has forgotten may
+    /// still be named by the card's spawn records.
+    fn gone_agent(&self, id: &str, who: &str) -> String {
+        self.roster_name(who)
+            .or_else(|| crate::notifications::spawned_name(&self.tasks[id], who))
+            .unwrap_or_else(|| "its agent".to_string())
+    }
+
     /// Writes "Irori handed this back" for the card the sweep just took
     /// a gone holder off. Only the device doing the hand-back calls it.
     /// A refused record never stops the hand-back.
@@ -218,7 +227,7 @@ impl Fold {
         if self.has_did(&self.tasks[id], &did) {
             return;
         }
-        let name = self.named(who);
+        let name = self.gone_agent(id, who);
         let _ = self.write_did(DidRow {
             id: did,
             task_id: id.into(),
@@ -243,7 +252,7 @@ impl Fold {
         if self.has_did(&self.tasks[id], &did) {
             return;
         }
-        let name = self.named(who);
+        let name = self.gone_agent(id, who);
         let _ = self.write_did(DidRow {
             id: did,
             task_id: id.into(),

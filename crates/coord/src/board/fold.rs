@@ -31,17 +31,17 @@ impl Fold {
         if key.is_empty() || key == SWEEPER || self.is_owner(key) {
             return key.to_string();
         }
-        let name = self
-            .roster
-            .as_ref()
-            .map(|r| r.name_of(key))
-            .unwrap_or_default();
-        let name = name.trim();
-        if name.is_empty() || name == key {
-            key.to_string()
-        } else {
-            format!("{name} ({key})")
+        match self.roster_name(key) {
+            Some(name) => format!("{name} ({key})"),
+            None => key.to_string(),
         }
+    }
+
+    /// Agent `key`'s name on the roster, when it has one that isn't the
+    /// key: for a line only the person reads.
+    pub(crate) fn roster_name(&self, key: &str) -> Option<String> {
+        let name = self.roster.as_ref()?.name_of(key);
+        crate::notifications::agent_name_of(key, &name)
     }
 }
 
