@@ -67,6 +67,7 @@ pub mod usage;
 
 pub use crate::members::Member;
 pub use crate::meshnode::BoardParts;
+pub use crate::service::assistant_chat;
 pub use crate::service::boards::{
     BOARDS_DIR, BoardAgent, BoardIdentity, BoardInfo, BoardMember, BoardSummary,
     Error as BoardError, SPACES_DIR, SharePreview, SharedCopy, SubtaskPreview, SummaryMember,
@@ -76,7 +77,6 @@ pub use crate::service::calls::{
     CAN_SHARE, CallPeer, CallShare, CallShareNote, CallSnapshot, Caption, LiveCall, MyCall, Ringing,
 };
 pub use crate::service::calls_share::{ShareNow, ShareSink, ShareSource};
-pub use crate::service::assistant_chat;
 pub use crate::service::card_weights;
 pub use crate::service::freshness::{LogFreshness, PERSONAL as PERSONAL_LOG};
 pub use crate::service::huddle_packet;

@@ -726,6 +726,11 @@ export const AssistantService = {
     return call(commands.assistantAsk(history, text, screen, on))
   },
   Stop: (id: number) => done(commands.assistantStop(id)),
+  // The one conversation, the same on every device (card #1102): a page,
+  // newest first, older than the entry whose cursor is before ("" is the
+  // newest); limit 0 is 50. "assistant:changed" says to read it again.
+  ChatList: (before: string, limit: number) =>
+    call(commands.assistantChatList(before, limit)),
   // Rewrite in the Start a thread box (card #981): the checked wording.
   Rewrite: (text: string, mentions: string[]) =>
     call(commands.assistantRewrite(text, mentions)),

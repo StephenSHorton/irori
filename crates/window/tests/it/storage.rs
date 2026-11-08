@@ -61,6 +61,7 @@ fn the_report_lists_each_kind_with_its_size() {
     assert_eq!(storage::log_part("talk.post"), "talk");
     assert_eq!(storage::log_part("task.comment"), "cards");
     assert_eq!(storage::log_part("message.sent"), "messages");
+    assert_eq!(storage::log_part("assistant.chat.said"), "assistant");
 }
 
 /// Installers, old logs, briefs of settled cards, backups and saved-out

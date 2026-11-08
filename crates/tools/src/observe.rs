@@ -365,9 +365,17 @@ fn write_event(b: &mut String, ev: &store::Event, now: &GoTime) {
 
 const LEFT_OUT: &[u8] = br#"{"text":"[left out]"}"#;
 
+/// The assistant's conversation (docs/design/one-assistant.md §4, card
+/// #1102): no tool shows its text, so the person's agents never read the
+/// chat.
+const ASSISTANT_PREFIXES: [&str; 2] = ["assistant.chat.", "assistant.answer."];
+/// Its text fields, whatever their type (`changed` is a list).
+const ASSISTANT_FIELDS: &[&str] = &["text", "screen", "changed", "error", "looked"];
+
 /// A row as an agent may see it (the events tool, and the loopback API
 /// without the window's credential, v0.4 §6.8): message text and reasons
-/// are left out, and so is a turn's prompt when it is an Irori fence.
+/// are left out, and so is a turn's prompt when it is an Irori fence, and
+/// every text field of the assistant's conversation.
 pub fn redact(kind: &str, raw: &[u8]) -> Vec<u8> {
     let fields: &[&str] = match kind {
         inbox::kinds::MESSAGE_SENT => &["text", "reason"],
@@ -397,6 +405,7 @@ pub fn redact(kind: &str, raw: &[u8]) -> Vec<u8> {
             }
             &["prompt"]
         }
+        k if ASSISTANT_PREFIXES.iter().any(|p| k.starts_with(p)) => ASSISTANT_FIELDS,
         _ => return raw.to_vec(),
     };
     let mut v = match gocompat::json::unmarshal_any(raw) {

@@ -189,6 +189,7 @@ export const partLabels: Record<string, string> = {
   notes: "Notes",
   code: "Commits and merges",
   agents: "Agents starting and stopping",
+  assistant: "Your assistant's chat",
   other: "Everything else",
 }
 

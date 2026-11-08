@@ -363,9 +363,7 @@ struct State {
 impl State {
     /// Whether New chat hides a row at `at`.
     fn hidden(&self, at: &Order, imported: bool) -> bool {
-        self.cleared
-            .as_ref()
-            .is_some_and(|c| imported || at < c)
+        self.cleared.as_ref().is_some_and(|c| imported || at < c)
     }
 }
 
@@ -386,7 +384,7 @@ pub struct ChatTurn {
 /// One entry of the shown conversation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatEntry {
-    Turn(ChatTurn),
+    Turn(Box<ChatTurn>),
     Update(Update),
     Draft(AnswerDraft),
 }
@@ -483,9 +481,7 @@ impl Fold {
         let mut st = self.lock();
         match ev.kind.as_str() {
             ASKED => match decode::<Asked>(ev) {
-                Some(r) if !r.turn.is_empty() => {
-                    first_wins(&mut st.asked, r.turn.clone(), at, r)
-                }
+                Some(r) if !r.turn.is_empty() => first_wins(&mut st.asked, r.turn.clone(), at, r),
                 _ => false,
             },
             SAID => match decode::<Said>(ev) {
@@ -541,13 +537,13 @@ impl Fold {
                 .or_else(|| st.posted.get(turn).map(|p| p.row.clone()));
             out.push((
                 Place::new(a.row.imported, &a.at),
-                ChatEntry::Turn(ChatTurn {
+                ChatEntry::Turn(Box::new(ChatTurn {
                     asked: a.row.clone(),
                     asked_on: a.at.device.clone(),
                     said,
                     posted,
                     stopped: st.stops.contains_key(turn),
-                }),
+                })),
             ));
         }
         for u in st.updates.values() {
@@ -576,7 +572,11 @@ impl Fold {
         } else {
             Some(Place::parse(before).ok_or_else(|| format!("no chat position {before}"))?)
         };
-        let limit = if limit == 0 { PAGE } else { limit.min(MAX_PAGE) };
+        let limit = if limit == 0 {
+            PAGE
+        } else {
+            limit.min(MAX_PAGE)
+        };
         let mut older = self
             .shown()
             .into_iter()
@@ -832,7 +832,13 @@ mod tests {
         ];
         assert_eq!(
             same_in_any_order(&rows),
-            ["imported q>imported a", "early>a1", "u:line", "later>", "d:draft"]
+            [
+                "imported q>imported a",
+                "early>a1",
+                "u:line",
+                "later>",
+                "d:draft"
+            ]
         );
     }
 
@@ -987,7 +993,14 @@ mod tests {
         assert!(!f.apply(&bad));
         assert!(shown(&f).is_empty());
         // Not one of the conversation's kinds.
-        assert!(!f.apply(&ev("assistant.names.set", "user", 16, "mac", 7, Cleared::default())));
+        assert!(!f.apply(&ev(
+            "assistant.names.set",
+            "user",
+            16,
+            "mac",
+            7,
+            Cleared::default()
+        )));
     }
 
     #[test]
@@ -1082,7 +1095,11 @@ mod tests {
     fn rows_without_their_id_are_refused() {
         assert!(ChatRow::Asked(Asked::default()).check().is_err());
         assert!(ChatRow::Update(Update::default()).check().is_err());
-        assert!(ChatRow::AnswerDraft(AnswerDraft::default()).check().is_err());
+        assert!(
+            ChatRow::AnswerDraft(AnswerDraft::default())
+                .check()
+                .is_err()
+        );
         assert!(ChatRow::Cleared(Cleared::default()).check().is_ok());
     }
 
