@@ -214,6 +214,24 @@ fn no_namer_on_this_device_means_no_summary() {
 }
 
 #[test]
+fn a_duplicate_link_is_one_fact_without_the_other_cards_title() {
+    let (r, c) = clocked();
+    let f = install(&r.core);
+    r.core.away_focus();
+    let a = card(&r, "Fix the crash on the settings page", false);
+    let b = card(&r, "Settings page crashes when it opens", false);
+    r.core.away_blur();
+    c.advance(10);
+    assert!(r.core.coord().link_duplicate(&a.id, &b.id).unwrap());
+    gone_and_back(&r, &c, AWAY_AFTER_SECS + 60);
+    settle();
+    let p = f.last_prompt();
+    assert_eq!(p.matches("were linked").count(), 1, "{p}");
+    assert!(!p.contains("Settings page crashes"), "{p}");
+    assert!(!p.contains("Fix the crash"), "{p}");
+}
+
+#[test]
 fn a_shared_card_is_not_mentioned() {
     let (r, c) = clocked();
     let f = install(&r.core);
