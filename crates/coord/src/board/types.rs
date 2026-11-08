@@ -498,6 +498,10 @@ pub struct Task {
     #[serde(skip_serializing_if = "omit")]
     pub withdrawn: bool,
     pub title: String,
+    /// The person named it by hand (card #779): an agent's rename no longer
+    /// lands, so the name stays theirs until they change it again.
+    #[serde(skip_serializing_if = "omit")]
+    pub title_by_person: bool,
     pub objective: String,
     #[serde(skip_serializing_if = "omit")]
     pub done_criteria: String,
@@ -795,6 +799,9 @@ pub struct NewTask {
     /// `block_reason` (or the title when that is empty). Not with
     /// `blocked_by`.
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779), on the card it comes
+    /// from: a share keeps their name theirs. Only a person's row counts.
+    pub title_by_person: bool,
 }
 
 /// Narrows `list_tasks`; zero values mean any.

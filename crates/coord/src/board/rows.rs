@@ -57,6 +57,9 @@ crate::go_struct! {
         /// device it was typed on, or its parent's; empty for any side
         /// (and every older card). Private log only.
         pub side: String = "side" "omit",
+        /// The person named it by hand on the card it comes from (card
+        /// #779); the fold keeps it only on a person's row.
+        pub title_by_person: bool = "titleByPerson" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }

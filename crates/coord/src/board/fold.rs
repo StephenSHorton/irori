@@ -1307,9 +1307,11 @@ impl Fold {
                 links.push(l.clone());
             }
         }
+        let title_by_person = p.title_by_person && self.person_row(ev, &p.by);
         let mut task = Task {
             id: p.task_id.clone(),
             title: p.title.clone(),
+            title_by_person,
             objective: p.objective.clone(),
             done_criteria: p.done_criteria.clone(),
             // Cards from before #480 may carry any case; read them back in

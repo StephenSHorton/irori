@@ -53,6 +53,8 @@ pub(crate) struct CleanTask {
     pub after: Vec<String>,
     /// Held as Not yet from the start (card #570).
     pub later: Option<super::later::Back>,
+    /// The person named it by hand (card #779).
+    pub title_by_person: bool,
 }
 
 /// CreateTask's checks.
@@ -124,6 +126,7 @@ pub(crate) fn clean_new(by: &str, nt: &NewTask) -> Result<CleanTask> {
         steps: new_steps(&steps),
         after: nt.after.clone(),
         later: nt.later.clone(),
+        title_by_person: nt.title_by_person,
         parent: String::new(),
         spawn: false,
         from: String::new(),
@@ -236,6 +239,7 @@ impl Fold {
                 from: ct.from.clone(),
                 board: ct.board.clone(),
                 side: ct.side.clone(),
+                title_by_person: ct.title_by_person,
                 by: by.into(),
                 at,
                 ask: None,

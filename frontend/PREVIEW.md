@@ -55,7 +55,7 @@ unchanged.
 | `/` | the open cards; agents are busy on sample-card-2 and sample-card-4 (spinners) |
 | `/?open=board:task:sample-card-4` | a card's page: busy agent, spinning step, links, a file |
 | `/?talk` | Talk (card #390): the Threads list beside the new-thread box; `#talk` in the address does the same |
-| `/?thread=sample-thread-1` | Talk with a thread open: sample-heron's answer, the reply box, Resolve (cards #116, #390); its #26 (a resolved thread) and #5 (a done card) are links (card #144) |
+| `/?thread=sample-thread-1` | Talk with a thread open in its ask card view (card #780): the Thread badge, the thread's bar (Answered, who took it, Agents answer now, Resolve, the card made from it), You asked, the thread with sample-heron's answers and a file, the reply box, and beside it Progress, Who's on it and Files (one column under 820 px of pane, Back to Talk on a phone); its #26 (a resolved thread) and #5 (a done card) are links (card #144). `/?open=board:task:sample-thread-1` the same page from the Board |
 | `/#talk/sample-ch-suzuri` | a Talk channel (card #390): posts by day, a mention, a picture inline under sample-heron's post (card #643), the pointer a thread started from a message leaves, members with live status; hover a message for Start a thread and Make a card. The composer takes files (card #643): the clip, a drop or a paste; with files Send works on no text; `?voice=ready` shows its mic |
 | `/#talk` at phone width (under 768 px) | the phone (card #395, mockup talk-5): Home, Talk and Boards as a bottom tab bar (Boards is the picked space's, card #689), Talk's count on its tab; a conversation opens full-screen with Back, its members behind the channel's name; long-press (or right-click) a message for Reply in thread and Make a card |
 | `/?replying#talk/sample-ch-suzuri` | agents replying (card #645): "sample-heron and sample-otter are replying…" under the channel's posts; `/?replying#talk/sample-dm-heron` "sample-heron is replying…" in a DM |
@@ -123,6 +123,7 @@ unchanged.
 | `/?filter=owner:sample-person-0#board/sample-board-mlg` | MLG on Blake's cards only |
 | `/#card/sample-board-3` | Blake's card that his agent kite works: the owner chip in the header, kite in Who's on it |
 | `/?share=sample-card-10#card/sample-card-10` | Share to board's preview, with a path in the goal taken out |
+| `/?rename=sample-card-10#card/sample-card-10` | the card page's title with its rename field open (card #779); `?rename=<thread>&thread=<thread>` does the same on a thread's page |
 | `/?settings` | Settings (card #132): Notifications; `?settings=devices`, `=people`, `=app` open those sections |
 | `/?update=ready` | the update card (`downloading`, `installing` too) |
 | `/?android&update=available` | the phone's update bar (card #270): Update downloads, checks SHA256SUMS and opens Android's install screen; `update=ready` says Install, `update=error` Try again |
