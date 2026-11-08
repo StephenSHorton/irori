@@ -1,7 +1,7 @@
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
-// AgentsNowToggle is "Agents answer now" (card #391) on a composer or a
+// AgentsNowToggle is "Answer when ready" / "Just a note" (cards #391, #1042) on a composer or a
 // thread: on, the agents it names are woken and at once it goes to an idle
 // agent with Offer it cards on, or Irori starts one (card #512); off, nobody is woken or handed it, and the
 // agents in it read it at their next turn.
@@ -26,8 +26,8 @@ export function AgentsNowToggle({
       )}
       title={
         on
-          ? "Agents answer now: the agents it names are woken, and at once an idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on"
-          : "Agents answer later: nobody is woken or handed it; agents in it read it at their next turn and may reply"
+          ? "Answer when ready: the agents it names are woken, and at once an idle agent with Offer it cards on picks it up, or Irori starts one when spawning is on"
+          : "Just a note: nobody is woken or handed it; agents in it read it at their next turn and may reply"
       }
     >
       <Switch
@@ -37,7 +37,7 @@ export function AgentsNowToggle({
         disabled={disabled}
         className="data-checked:bg-info"
       />
-      Agents answer now
+      {on ? "Answer when ready" : "Just a note"}
     </label>
   )
 }

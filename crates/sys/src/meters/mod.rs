@@ -21,7 +21,7 @@
 //! [`quick`] is the cheap one-shot: free disk for a folder, available memory
 //! and CPU busy, with no [`Sampler`], no window thread and no shared state.
 //! Disk reads on every unix (`statfs` on macOS, `statvfs` elsewhere); memory
-//! and CPU only where there is a sampler (Windows fills them in later). A
+//! and CPU only where there is a sampler (Windows reads them too). A
 //! source that fails is `None`, never "all free".
 //!
 //! Other systems (Android, iOS, Linux) have no sampler: [`SUPPORTED`] is
@@ -208,8 +208,13 @@ pub fn space(path: &std::path::Path) -> Option<Space> {
     }
 }
 
-/// Filled in by card B.
-#[cfg(not(unix))]
+/// Free and total space of the volume holding `path`.
+#[cfg(windows)]
+pub fn space(path: &std::path::Path) -> Option<Space> {
+    imp::space(path)
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn space(_path: &std::path::Path) -> Option<Space> {
     None
 }
@@ -291,7 +296,7 @@ mod tests {
         assert_eq!(existing_ancestor(dir.path()), dir.path());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn quick_reads_this_machine() {
         let dir = tempfile::tempdir().unwrap();

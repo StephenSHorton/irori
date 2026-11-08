@@ -97,6 +97,11 @@ pub struct AgentsSettings {
     /// A heavy card's: the board's pick, or Opus at no less than high.
     pub heavy_model: String,
     pub heavy_effort: String,
+    /// The office assistant's chat model and effort (card #1014), and the
+    /// models it offers (the efforts are `efforts`).
+    pub assistant_model: String,
+    pub assistant_effort: String,
+    pub assistant_models: Vec<String>,
     /// The idle limit in minutes (card #456, sa-6): how long a spawned
     /// agent waits on an unanswered question before it hands off and goes.
     pub idle_mins: u32,
@@ -192,6 +197,12 @@ pub struct AgentsChange {
     pub heavy_model: Option<String>,
     #[serde(default)]
     pub heavy_effort: Option<String>,
+    /// The office assistant's model and effort (card #1014); the default
+    /// stores nothing.
+    #[serde(default)]
+    pub assistant_model: Option<String>,
+    #[serde(default)]
+    pub assistant_effort: Option<String>,
     #[serde(default)]
     pub idle_mins: Option<u32>,
     #[serde(default)]
@@ -231,6 +242,12 @@ pub(crate) fn view(s: &SpawnSetting, chosen: bool) -> AgentsSettings {
         light_effort: light_effort.into(),
         heavy_model: heavy_model.into(),
         heavy_effort: heavy_effort.into(),
+        assistant_model: s.assistant_model().into(),
+        assistant_effort: s.assistant_effort().into(),
+        assistant_models: spawn::ASSISTANT_MODELS
+            .iter()
+            .map(|m| (*m).into())
+            .collect(),
         idle_mins: (s.idle_limit().as_secs() / 60) as u32,
         idle_choices: IDLE_CHOICES.to_vec(),
         crash_limit: or_default(s.crash_limit, i64::from(coord::MAX_SPAWN_CRASHES)),
@@ -277,6 +294,14 @@ pub(crate) fn apply(mut s: SpawnSetting, c: AgentsChange) -> SpawnSetting {
         let by_itself = if model { m } else { e };
         let v = if v == by_itself { String::new() } else { v };
         *weight_field(&mut s, level, model) = v;
+    }
+    // Stored as "" at the default, so a later default change reaches it.
+    let unless = |v: String, def: &str| if v == def { String::new() } else { v };
+    if let Some(m) = c.assistant_model {
+        s.assistant_model = unless(m, spawn::ASSISTANT_MODEL);
+    }
+    if let Some(e) = c.assistant_effort {
+        s.assistant_effort = unless(e, spawn::ASSISTANT_EFFORT);
     }
     if let Some(m) = c.idle_mins {
         // The default is stored as 0, so a later default change reaches it.

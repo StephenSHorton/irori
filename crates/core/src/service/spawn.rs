@@ -328,6 +328,13 @@ pub struct SpawnSetting {
     pub heavy_model: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub heavy_effort: String,
+    /// The office assistant's chat model and effort (card #1014), the
+    /// private board's row; `""` is [`ASSISTANT_MODEL`] and
+    /// [`ASSISTANT_EFFORT`]. Not the spawned agents' pick.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub assistant_model: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub assistant_effort: String,
     /// How many of a card's agents may crash in a row before Irori stops
     /// and asks the person (§2, card #576). 0 is
     /// [`coord::MAX_SPAWN_CRASHES`].
@@ -443,6 +450,13 @@ pub const LIGHT_EFFORT: &str = "medium";
 pub const HEAVY_MODEL: &str = "opus";
 /// The least effort a heavy card gets when the board names none.
 pub const HEAVY_EFFORT: &str = "high";
+/// The office assistant's chat model when none is picked (card #1014).
+pub const ASSISTANT_MODEL: &str = "sonnet";
+/// Its effort when none is picked.
+pub const ASSISTANT_EFFORT: &str = "low";
+/// The models the assistant's chat offers: a lookup chat may run on Haiku,
+/// unlike a card's agent.
+pub const ASSISTANT_MODELS: &[&str] = &["sonnet", "opus", "haiku"];
 /// The efforts it offers (Claude Code's `--effort` levels).
 pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
@@ -463,6 +477,16 @@ impl SpawnSetting {
         } else {
             &self.effort
         }
+    }
+
+    /// The model the office assistant's chat runs on (card #1014).
+    pub fn assistant_model(&self) -> &str {
+        pick_or(&self.assistant_model, ASSISTANT_MODEL)
+    }
+
+    /// The effort the office assistant's chat runs at.
+    pub fn assistant_effort(&self) -> &str {
+        pick_or(&self.assistant_effort, ASSISTANT_EFFORT)
     }
 
     /// The model and effort a card of weight `level` starts with (card
@@ -522,7 +546,19 @@ impl SpawnSetting {
                 ));
             }
         }
-        for e in [&self.effort, &self.light_effort, &self.heavy_effort] {
+        let a = &self.assistant_model;
+        if !a.is_empty() && !ASSISTANT_MODELS.contains(&a.as_str()) {
+            return Err(format!(
+                "unknown assistant model {a:?}: pick one of {}",
+                ASSISTANT_MODELS.join(", ")
+            ));
+        }
+        for e in [
+            &self.effort,
+            &self.light_effort,
+            &self.heavy_effort,
+            &self.assistant_effort,
+        ] {
             if !e.is_empty() && !EFFORTS.contains(&e.as_str()) {
                 return Err(format!(
                     "unknown effort {e:?}: pick one of {}",
