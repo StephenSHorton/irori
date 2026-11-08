@@ -808,9 +808,11 @@ function WorkLine({ work }: { work: WorkThread }) {
       <p className="text-[12.5px] text-muted-foreground" data-assistant-work="">
         {work.closed
           ? "Resolved."
-          : work.taker
-            ? `${work.taker} is on it.`
-            : "Waiting for an agent to take it."}
+          : work.answered
+            ? "Answered. A card made from it shows here."
+            : work.taker
+              ? `${work.taker} is on it.`
+              : "Waiting for an agent to take it."}
       </p>
     )
   return (

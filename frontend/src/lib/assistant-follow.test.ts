@@ -239,6 +239,7 @@ describe("the follower (card #785)", () => {
       },
       say: (id, lines, w) => said.push({ id, keys: keys(lines), gone: !w }),
       delayMs: 0,
+      quietMs: 10_000,
     })
     return {
       f,
@@ -339,8 +340,12 @@ describe("review fixes (card #785)", () => {
     expect(fs[0].text).toBe("Your thread #20 changed #21.")
     expect(finished(t)).toBe(true)
   })
-  test("quiet: answered, cards over, nothing on the person", () => {
-    expect(quiet(thread({ answered: true }))).toBe(true)
+  test("quiet: answered, its cards over, nothing on the person", () => {
+    expect(
+      quiet(thread({ answered: true, cards: [card({ state: "completed" })] }))
+    ).toBe(true)
+    // Answered with no card yet: its agent may make one next.
+    expect(quiet(thread({ answered: true }))).toBe(false)
     expect(quiet(thread())).toBe(false)
     expect(
       quiet(thread({ answered: true, cards: [card({ state: "working" })] }))
@@ -431,5 +436,41 @@ describe("review fixes (card #785)", () => {
     expect(t.cards.map((c) => c.id)).toEqual(["c1"])
     expect(finished(t)).toBe(false)
     expect(keys(facts(t))).not.toContain("closed")
+  })
+})
+
+describe("the follower reads quiet work less often (card #785)", () => {
+  test("a quiet thread waits on card changes; a poke reads now", async () => {
+    let reads = 0
+    let wake: () => void = () => {}
+    const quietWork = thread({
+      answered: true,
+      cards: [card({ state: "completed" })],
+    })
+    const f = createFollower({
+      ids: () => ["t1"],
+      read: async () => {
+        reads++
+        return new Map([["t1", quietWork]])
+      },
+      listen: (fn) => {
+        wake = fn
+        return () => {}
+      },
+      load: () => ({ t1: { said: [] } }),
+      save: () => {},
+      say: () => {},
+      delayMs: 0,
+      quietMs: 10_000,
+    })
+    await new Promise((r) => setTimeout(r, 5))
+    expect(reads).toBe(1)
+    wake()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(reads).toBe(1)
+    f.poke()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(reads).toBe(2)
+    f.stop()
   })
 })

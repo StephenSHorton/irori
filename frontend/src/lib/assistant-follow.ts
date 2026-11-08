@@ -153,7 +153,7 @@ export function facts(t: WorkThread): Fact[] {
   else if (t.cantStart && !t.closed)
     out.push({
       key: "cant",
-      text: `No agent could start for ${t.ref} yet: ${clip(t.cantStart)}`,
+      text: `No agent has started on ${t.ref} yet. ${clip(t.cantStart)}`,
     })
   for (const r of t.replies)
     out.push({
@@ -207,13 +207,16 @@ export function finished(t: WorkThread): boolean {
   return t.closed && t.cards.every((c) => c.changed || over(c.state))
 }
 
-// quiet says nothing is moving: the thread is answered or closed, every
-// card made from it is over and nothing waits on the person. A later
-// reply is still said, but read less often (see createFollower).
+// quiet says nothing is moving: the thread was answered, every card made
+// from it is over (there was at least one) and nothing waits on the
+// person. A later reply is still said, but read less often (see
+// createFollower). An answered thread with no card yet isn't quiet: its
+// agent often makes the card next.
 export function quiet(t: WorkThread): boolean {
   return (
     t.asks.length === 0 &&
     (t.closed || !!t.answered) &&
+    t.cards.length > 0 &&
     t.cards.every((c) => c.changed || over(c.state))
   )
 }
