@@ -24,8 +24,8 @@ import { cards, type AskRepo } from "@/lib/cards"
 import { shortRepo } from "@/lib/irori"
 
 const mergeChoices = [
-  { value: MERGE_PR, label: "Opens a PR" },
-  { value: MERGE_MAIN, label: "Pushes to main" },
+  { value: MERGE_PR, label: "PRs only" },
+  { value: MERGE_MAIN, label: "May push to main" },
 ]
 
 export function PermissionsSection({

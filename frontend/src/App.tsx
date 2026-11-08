@@ -264,8 +264,11 @@ export function App() {
     // ?settings[=<section>] and ?devices start on Settings (card #1007).
     if (previewFlag("devices") !== null)
       return { kind: "settings", tab: "devices" }
-    if (previewFlag("settings") !== null)
-      return sectionFromHash(`#settings/${previewFlag("settings")}`)
+    const settingsTab = previewFlag("settings")
+    if (settingsTab !== null)
+      return sectionFromHash(
+        settingsTab ? `#settings/${settingsTab}` : "#settings"
+      )
     return sectionFromHash(window.location.hash)
   })
   // A board page's own tab (All, Needs a decision, Closed).
