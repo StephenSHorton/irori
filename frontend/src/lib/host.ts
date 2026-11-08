@@ -267,6 +267,12 @@ export const BoardService = {
   Rename: (id: string, title: string) => call(commands.boardRename(id, title)),
   // Undo on Irori's name for the person's thread (card #782).
   UndoTitle: (id: string) => call(commands.boardUndoTitle(id)),
+  // Undo on what Irori did on a card (card #786).
+  UndoDid: (id: string, did: string) => call(commands.boardUndoDid(id, did)),
+  // Leases held by an offline device of the person's (card #786).
+  LeaseNotices: () => call(commands.boardLeaseNotices()),
+  ReleaseLease: (did: string) => done(commands.boardReleaseLease(did)),
+  UndoLeaseNotice: (did: string) => done(commands.boardUndoLeaseNotice(did)),
   Pin: (id: string, pinned: boolean) => done(commands.boardPin(id, pinned)),
   // A card's weight (card #963): light, normal or heavy, or "" to clear.
   SetWeight: (id: string, level: string, reason: string) =>
@@ -700,4 +706,7 @@ export const AssistantService = {
   // "Name new threads" (card #782): on unless the person turned it off.
   Names: () => call(commands.assistantNames()),
   NamesSet: (on: boolean) => done(commands.assistantNamesSet(on)),
+  // "Tidy the board" (card #786): on unless the person turned it off.
+  Tidy: () => call(commands.assistantTidy()),
+  TidySet: (on: boolean) => done(commands.assistantTidySet(on)),
 }

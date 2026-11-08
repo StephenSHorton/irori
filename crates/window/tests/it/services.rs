@@ -1801,3 +1801,52 @@ fn undo_irori_naming_a_thread() {
     r.w.assistant_names_set(false).unwrap();
     assert!(!r.w.assistant_names());
 }
+
+/// Card #786: Irori's record is a thread line with Undo, keyed on the
+/// record; the switch reads and turns off.
+#[test]
+fn irori_did_lines_on_the_thread_and_the_switch() {
+    let r = Rig::new();
+    assert!(r.w.assistant_tidy(), "on unless turned off");
+    r.w.assistant_tidy_set(false).unwrap();
+    assert!(!r.w.assistant_tidy());
+    r.w.assistant_tidy_set(true).unwrap();
+
+    let co = r.w.core.coord();
+    let me = r.w.core.user_sender().key;
+    let t = co
+        .create_task(
+            &me,
+            coord::NewTask {
+                title: "ship".into(),
+                ..coord::NewTask::default()
+            },
+        )
+        .unwrap();
+    co.add_link(&me, &t.id, "https://github.com/a/b/pull/7")
+        .unwrap();
+    co.record_pr_state(
+        &t.id,
+        coord::PrCheck {
+            pr: "https://github.com/a/b/pull/7".into(),
+            state: coord::PR_MERGED.into(),
+            ..coord::PrCheck::default()
+        },
+    )
+    .unwrap();
+    // The Core's listener may get there first; either way, one question.
+    let _ = co.flag_merged(&t.id).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    let line = d
+        .thread
+        .iter()
+        .find(|it| !it.undo_did.is_empty())
+        .expect("a line with Undo");
+    assert_eq!(line.who.status, "irori");
+    assert!(line.text.contains("Irori asked if this is done"));
+    let did = line.undo_did.clone();
+    r.w.undo_did(&t.id, &did).unwrap();
+    let d = r.w.card(&t.id).unwrap();
+    assert!(d.thread.iter().all(|it| it.undo_did.is_empty()));
+    assert!(d.thread.iter().any(|it| it.text.contains("(undone)")));
+}

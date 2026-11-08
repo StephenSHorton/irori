@@ -899,6 +899,23 @@ pub struct CardThreadItem {
     #[serde(skip_serializing_if = "String::is_empty")]
     #[specta(optional)]
     pub undo_title: String,
+    /// The record id (card #786) of Irori's line the person can Undo; empty
+    /// when it has no Undo or can't be undone any more.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub undo_did: String,
+}
+
+/// A lease on another of the person's devices that Irori told them about
+/// (card #786).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaseNotice {
+    pub id: String,
+    pub resource: String,
+    pub text: String,
+    #[specta(type = ts::Time)]
+    pub at: GoTime,
 }
 
 /// What Modify can do with the person's comment (card #105).
@@ -3073,6 +3090,33 @@ fn build_thread(
             .entry(it.blocker_id.clone())
             .or_default()
             .push(it);
+    }
+    // What Irori did on this card (card #786), from its records.
+    for d in &t.did {
+        let mut text = d.text.clone();
+        if d.undone {
+            text.push_str(" (undone)");
+        }
+        all.push((
+            ThreadPos {
+                hlc: d.hlc,
+                dev: String::new(),
+                seq: 0,
+            },
+            CardThreadItem {
+                id: format!("did:{}", d.id),
+                kind: THREAD_EVENT.into(),
+                at: d.at,
+                who: p.ref_(&d.by),
+                text,
+                undo_did: if coord::did_undoable(t, d) {
+                    d.id.clone()
+                } else {
+                    String::new()
+                },
+                ..CardThreadItem::default()
+            },
+        ));
     }
     all.sort_by(|a, b| a.0.cmp(&b.0));
     // Undo on Irori's newest rename, while the name is still its own

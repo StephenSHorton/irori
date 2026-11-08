@@ -469,6 +469,58 @@ impl Window {
             .map_err(|e| e.to_string())
     }
 
+    /// The person's Undo on Irori's record `did` on card `id` (card #786):
+    /// a hand-back is held as Not yet, a merged flag is taken back.
+    pub fn undo_did(&self, id: &str, did: &str) -> Result<Task, String> {
+        let id = trim(id);
+        let (co, keys) = self
+            .core
+            .task_coord(id, &[self.user_key()])
+            .map_err(|e| e.to_string())?;
+        co.undo_did(&keys[0], id, did).map_err(|e| e.to_string())?;
+        co.get_task(id)
+            .ok_or_else(|| crate::cards::not_found_task(id))
+    }
+
+    /// The leases Irori told the person about (card #786) that are still
+    /// as they were, on the private board.
+    pub fn lease_notices(&self) -> Vec<crate::cards::LeaseNotice> {
+        self.core
+            .coord()
+            .lease_notices()
+            .into_iter()
+            .map(|d| crate::cards::LeaseNotice {
+                id: d.id,
+                resource: d.resource,
+                text: d.text,
+                at: d.at,
+            })
+            .collect()
+    }
+
+    /// The person releases a lease Irori told them about: `steal_lease`,
+    /// owner-only, so an offline device's lease is freed only by them.
+    pub fn release_lease(&self, did: &str) -> Result<(), String> {
+        let co = self.core.coord();
+        let res = co
+            .lease_notices()
+            .into_iter()
+            .find(|d| d.id == did)
+            .map(|d| d.resource)
+            .ok_or_else(|| "that notice is gone".to_string())?;
+        co.steal_lease(&self.user_key(), &res)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The person takes back a lease notice without releasing it.
+    pub fn undo_lease_notice(&self, did: &str) -> Result<(), String> {
+        self.core
+            .coord()
+            .undo_did(&self.user_key(), "", did)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     /// The person deletes a card (card #57): it leaves the Board on every
     /// device, and the signed log keeps it. A card on a shared board isn't
     /// deleted: other people already have it, so it is withdrawn (§5.3).

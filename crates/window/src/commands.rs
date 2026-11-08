@@ -618,6 +618,34 @@ pub async fn board_undo_title(w: W<'_>, id: String) -> R<Typed<coord::Task, ts::
     w.undo_title(&id).map(Typed::new)
 }
 
+/// The person's Undo on what Irori did on a card (card #786).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_did(w: W<'_>, id: String, did: String) -> R<Typed<coord::Task, ts::Task>> {
+    w.undo_did(&id, &did).map(Typed::new)
+}
+
+/// Leases Irori told the person about (card #786).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_lease_notices(w: W<'_>) -> R<Vec<crate::cards::LeaseNotice>> {
+    Ok(w.lease_notices())
+}
+
+/// The person releases a lease Irori told them about (card #786).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_release_lease(w: W<'_>, did: String) -> R<()> {
+    w.release_lease(&did)
+}
+
+/// The person takes back a lease notice (card #786).
+#[tauri::command]
+#[specta::specta]
+pub async fn board_undo_lease_notice(w: W<'_>, did: String) -> R<()> {
+    w.undo_lease_notice(&did)
+}
+
 /// The person weighs a card (card #963): light, normal or heavy with an
 /// optional line on why, or "" to clear it.
 #[tauri::command]
@@ -1761,6 +1789,20 @@ pub async fn assistant_names_set(w: W<'_>, on: bool) -> R<()> {
     blocking(&w, move |w| w.assistant_names_set(on)).await
 }
 
+/// "Tidy the board" (#786): on unless turned off.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_tidy(w: W<'_>) -> R<bool> {
+    blocking(&w, |w| Ok(w.assistant_tidy())).await
+}
+
+/// Turns "Tidy the board" on or off, on all the person's devices.
+#[tauri::command]
+#[specta::specta]
+pub async fn assistant_tidy_set(w: W<'_>, on: bool) -> R<()> {
+    blocking(&w, move |w| w.assistant_tidy_set(on)).await
+}
+
 /// "Transcribe what I say in calls" (#656): on unless turned off.
 #[tauri::command]
 #[specta::specta]
@@ -2380,6 +2422,12 @@ pub(crate) fn builder() -> tauri_specta::Builder<tauri::Wry> {
             call_transcribe_set,
             assistant_names,
             assistant_names_set,
+            assistant_tidy,
+            assistant_tidy_set,
+            board_undo_did,
+            board_lease_notices,
+            board_release_lease,
+            board_undo_lease_notice,
             talk_call_transcript,
             share_sources,
             share_start,

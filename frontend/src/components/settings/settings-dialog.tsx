@@ -95,7 +95,7 @@ export const settingsSections: {
     id: "app",
     label: "App",
     icon: InfoIcon,
-    hint: "Starting Irori, voice input, huddle transcripts, thread names, updates and the version.",
+    hint: "Starting Irori, voice input, huddle transcripts, thread names, tidying the board, updates and the version.",
   },
 ]
 
@@ -363,6 +363,7 @@ function AppPane({ open, version }: { open: boolean; version?: string }) {
       <VoiceNote open={open} />
       <TranscribeSwitch open={open} />
       <NamesSwitch open={open} />
+      <TidySwitch open={open} />
       <div className="grid gap-1 border-t border-border pt-3">
         <span className="font-medium text-ink">Updates</span>
         <UpdateStatusLine />
@@ -492,6 +493,65 @@ function NamesSwitch({ open }: { open: boolean }) {
           <Toggle
             label={namesLabel}
             hint={namesHint}
+            checked={on}
+            onChange={(v) => void set(v)}
+          />
+        )}
+      </Loading>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+const tidyLabel = "Tidy the board"
+const tidyHint =
+  "When an agent goes away, Irori says so on the card with an Undo. If a card's PRs are all merged it asks whether it's done instead of starting a new agent, and it tells you about a lease stuck on an offline device. It never releases a lease itself."
+
+// TidySwitch is "Tidy the board" (#786): on unless they turn it off, on all
+// their devices. Off, the sweep still hands cards back and releases leases
+// as it always has.
+function TidySwitch({ open }: { open: boolean }) {
+  const [on, setOn] = useState(true)
+  const [read, setRead] = useState(!inWails())
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open || !inWails()) return
+    let live = true
+    AssistantService.Tidy()
+      .then((v) => {
+        if (!live) return
+        setOn(v)
+        setRead(true)
+      })
+      .catch((err: unknown) => {
+        if (!live) return
+        setError(errorText(err))
+        setRead(true)
+      })
+    return () => {
+      live = false
+    }
+  }, [open])
+  const set = async (v: boolean) => {
+    setError("")
+    setOn(v)
+    if (!inWails()) return
+    try {
+      await AssistantService.TidySet(v)
+    } catch (err) {
+      setError(errorText(err))
+      setOn(await AssistantService.Tidy().catch(() => !v))
+    }
+  }
+  return (
+    <div className="grid gap-1 border-t border-border pt-3">
+      <Loading loading={!read} label="Loading tidy the board">
+        {!read ? (
+          <ToggleShape label={tidyLabel} hint={tidyHint} />
+        ) : (
+          <Toggle
+            label={tidyLabel}
+            hint={tidyHint}
             checked={on}
             onChange={(v) => void set(v)}
           />

@@ -1454,6 +1454,19 @@ export function sampleRename(id: string, title: string) {
   sampleChanged()
 }
 
+// sampleUndoDid is BoardService.UndoDid on the sample (card #786): the
+// line loses its Undo, and says it was undone.
+export function sampleUndoDid(id: string, did: string) {
+  const c = sampleCard(id)
+  const line = c.thread.find((it) => it.undoDid === did)
+  if (!line) throw new Error("this can't be undone any more")
+  c.thread = c.thread.map((it) =>
+    it.undoDid === did
+      ? { ...it, undoDid: undefined, text: `${it.text} (undone)` }
+      : it
+  )
+}
+
 // sampleUndoTitle is BoardService.UndoTitle on the sample (card #782):
 // the title Irori's rename replaced comes back as the person's own, and
 // the line loses its Undo.
@@ -2367,6 +2380,15 @@ export const cards = {
       return
     }
     sampleRename(id, title)
+  },
+
+  // undoDid is the person's Undo on what Irori did on a card (card #786).
+  async undoDid(id: string, did: string): Promise<void> {
+    if (inWails()) {
+      await BoardService.UndoDid(id, did)
+      return
+    }
+    sampleUndoDid(id, did)
   },
 
   // undoTitle is the person's Undo on Irori's name for their thread (card

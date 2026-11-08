@@ -951,6 +951,14 @@ export function sampleCards(now: Date): CardDetail[] {
           text: "Irori renamed it from “Why does the Mac build take twice as long as the PC's?” to “Mac build twice as slow as the PC”",
           undoTitle: "Why does the Mac build take twice as long as the PC's?",
         }),
+        CardThreadItem({
+          id: "did:sample-ask-1-handed",
+          kind: "event",
+          at: at(1),
+          who: AgentRef({ key: "irori", name: "Irori", status: "irori" }),
+          text: "Irori handed this back: Fennel went away",
+          undoDid: "sample-did-1",
+        }),
       ],
       ask: CardAsk({
         state: "open",

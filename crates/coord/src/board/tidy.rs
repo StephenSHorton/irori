@@ -65,10 +65,13 @@ pub struct Did {
     pub at: GoTime,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// The record row's place in the log, for the thread's order.
+    #[serde(skip)]
+    pub hlc: u64,
 }
 
 impl Did {
-    fn from_row(p: &DidRow) -> Did {
+    fn from_row(p: &DidRow, hlc: u64) -> Did {
         Did {
             id: p.id.clone(),
             job: p.job.clone(),
@@ -80,6 +83,7 @@ impl Did {
             by: p.by.clone(),
             at: p.at,
             undone: p.undo,
+            hlc,
         }
     }
 }
@@ -90,20 +94,49 @@ pub fn did_id(job: &str, card: &str, key: &str) -> String {
     format!("{job}:{card}:{key}")
 }
 
+/// Whether the person can still Undo record `d` on card t: a hand-back
+/// while nobody holds the card and it can be held back, a merged flag
+/// while its question is open.
+pub fn did_undoable(t: &Task, d: &Did) -> bool {
+    if d.undone {
+        return false;
+    }
+    match d.job.as_str() {
+        JOB_HANDED => {
+            t.holders.is_empty()
+                && t.co_holders.is_empty()
+                && !is_terminal(&t.state)
+                && t.open_ask().is_none()
+                && t.parked().is_none()
+                && t.state != INPUT_REQUIRED
+                && !t.blockers.iter().any(|b| {
+                    b.open()
+                        && b.later.is_empty()
+                        && !b
+                            .on
+                            .as_ref()
+                            .is_some_and(|on| super::offers::on_work(&on.kind))
+                })
+        }
+        JOB_MERGED => t.blockers.iter().any(|b| b.id == d.blocker_id && b.open()),
+        _ => false,
+    }
+}
+
 /// Puts row p's record into `list`, or marks it undone. An undo that
 /// arrives before its record is kept and filled in when the record comes.
-fn merge_did(list: &mut Vec<Did>, p: &DidRow) {
+fn merge_did(list: &mut Vec<Did>, p: &DidRow, hlc: u64) {
     match list.iter_mut().find(|d| d.id == p.id) {
         Some(d) => {
             if p.undo {
                 d.undone = true;
             } else if d.text.is_empty() {
                 let undone = d.undone;
-                *d = Did::from_row(p);
+                *d = Did::from_row(p, hlc);
                 d.undone = undone;
             }
         }
-        None => list.push(Did::from_row(p)),
+        None => list.push(Did::from_row(p, hlc)),
     }
 }
 
@@ -116,7 +149,7 @@ impl Fold {
             return;
         }
         if p.task_id.is_empty() {
-            merge_did(&mut self.loose_did, &p);
+            merge_did(&mut self.loose_did, &p, ev.hlc.0);
             self.note(Change {
                 kind: LEASE_CHANGED.into(),
                 resource: p.resource,
@@ -126,10 +159,10 @@ impl Fold {
         }
         let Some(t) = self.tasks.get_mut(&p.task_id) else {
             // Ahead of its card: it joins it when the card folds.
-            merge_did(self.did_early.entry(p.task_id.clone()).or_default(), &p);
+            merge_did(self.did_early.entry(p.task_id.clone()).or_default(), &p, ev.hlc.0);
             return;
         };
-        merge_did(&mut t.did, &p);
+        merge_did(&mut t.did, &p, ev.hlc.0);
         self.note(Change {
             kind: TASK_CHANGED.into(),
             task_id: p.task_id,
@@ -376,34 +409,8 @@ impl Fold {
             .collect()
     }
 
-    /// Whether the person can still Undo record `d` on card t: a hand-back
-    /// while nobody holds the card and it can be held back, a merged flag
-    /// while its question is open.
     pub(crate) fn did_can_undo(&self, t: &Task, d: &Did) -> bool {
-        if d.undone {
-            return false;
-        }
-        match d.job.as_str() {
-            JOB_HANDED => {
-                t.holders.is_empty()
-                    && t.co_holders.is_empty()
-                    && !is_terminal(&t.state)
-                    && t.open_ask().is_none()
-                    && t.parked().is_none()
-                    && t.state != INPUT_REQUIRED
-                    && !t
-                        .blockers
-                        .iter()
-                        .any(|b| b.open() && b.later.is_empty() && !self.waits_on_work_b(b))
-            }
-            JOB_MERGED => t.blockers.iter().any(|b| b.id == d.blocker_id && b.open()),
-            _ => false,
-        }
-    }
-
-    fn waits_on_work_b(&self, b: &Blocker) -> bool {
-        b.on.as_ref()
-            .is_some_and(|on| super::offers::on_work(&on.kind))
+        did_undoable(t, d)
     }
 
     /// The person's Undo on record `did`: a hand-back is held back from

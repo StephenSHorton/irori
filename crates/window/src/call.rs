@@ -282,6 +282,16 @@ impl Window {
         self.core.set_names_on(on)
     }
 
+    /// "Tidy the board" (card #786): on unless the person turned it off.
+    pub fn assistant_tidy(&self) -> bool {
+        self.core.tidy_on()
+    }
+
+    /// Turns "Tidy the board" on or off on all the person's devices.
+    pub fn assistant_tidy_set(&self, on: bool) -> Result<(), String> {
+        self.core.set_tidy_on(on)
+    }
+
     /// What this device can share: displays, then windows.
     pub fn share_sources(&self) -> Result<Vec<ShareSourceView>, String> {
         Ok(self

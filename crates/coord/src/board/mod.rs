@@ -124,7 +124,7 @@ pub use threads::{
 };
 pub use tidy::{
     Did, JOB_HANDED, JOB_HANDED_ASK, JOB_LEASE, JOB_MERGED, LEASE_OFFLINE_AFTER, REASON_PR_STATE,
-    did_id,
+    did_id, did_undoable,
 };
 pub use types::*;
 /// Talk's post and channel ids are made as comments' are (card #389).

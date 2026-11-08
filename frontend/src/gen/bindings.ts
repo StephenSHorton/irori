@@ -361,6 +361,18 @@ export const commands = {
 	assistantNames: () => __TAURI_INVOKE<boolean>("assistant_names"),
 	/**  Turns "Name new threads" on or off, on all the person's devices. */
 	assistantNamesSet: (on: boolean) => __TAURI_INVOKE<null>("assistant_names_set", { on }),
+	/**  "Tidy the board" (#786): on unless turned off. */
+	assistantTidy: () => __TAURI_INVOKE<boolean>("assistant_tidy"),
+	/**  Turns "Tidy the board" on or off, on all the person's devices. */
+	assistantTidySet: (on: boolean) => __TAURI_INVOKE<null>("assistant_tidy_set", { on }),
+	/**  The person's Undo on what Irori did on a card (card #786). */
+	boardUndoDid: (id: string, did: string) => __TAURI_INVOKE<Task>("board_undo_did", { id, did }),
+	/**  Leases Irori told the person about (card #786). */
+	boardLeaseNotices: () => __TAURI_INVOKE<LeaseNotice[]>("board_lease_notices"),
+	/**  The person releases a lease Irori told them about (card #786). */
+	boardReleaseLease: (did: string) => __TAURI_INVOKE<null>("board_release_lease", { did }),
+	/**  The person takes back a lease notice (card #786). */
+	boardUndoLeaseNotice: (did: string) => __TAURI_INVOKE<null>("board_undo_lease_notice", { did }),
 	/**  A huddle's transcript (#656): every line, named. */
 	talkCallTranscript: (callId: string) => __TAURI_INVOKE<TalkTranscript>("talk_call_transcript", { callId }),
 	/**  What this device can share: displays, then windows. */
@@ -1788,6 +1800,11 @@ export type CardThreadItem = {
 	 *  still Irori's (card #782): the title Undo puts back.
 	 */
 	undoTitle?: string,
+	/**
+	 *  The record id (card #786) of Irori's line the person can Undo; empty
+	 *  when it has no Undo or can't be undone any more.
+	 */
+	undoDid?: string,
 };
 
 /**
@@ -2261,6 +2278,17 @@ export type LaterBack =
 "version" | 
 /**  The person's word. */
 "word";
+
+/**
+ *  A lease on another of the person's devices that Irori told them about
+ *  (card #786).
+ */
+export type LeaseNotice = {
+	id: string,
+	resource: string,
+	text: string,
+	at: string,
+};
 
 /**  coord.Link. */
 export type Link = {

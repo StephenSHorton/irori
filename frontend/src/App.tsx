@@ -70,6 +70,7 @@ import { openSettings } from "@/components/settings/settings-menu"
 import { SpawnNotice } from "@/components/home/spawn-notice"
 import { HomeFreshness } from "@/components/common/freshness-line"
 import { WindDownLine } from "@/components/home/wind-down-line"
+import { LeaseNoticesLine } from "@/components/home/lease-notices-line"
 import { WakesPausedLine } from "@/components/home/wakes-paused-line"
 import { useWindDown } from "@/lib/wind-down"
 import { stopLabels } from "@/lib/stop-labels"
@@ -1175,6 +1176,7 @@ export function App() {
                   header={
                     <>
                       <SpawnNotice />
+                      <LeaseNoticesLine />
                       <WindDownLine
                         status={windDownSwitch.status}
                         onOpen={() => setWindDown(true)}

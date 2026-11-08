@@ -1,0 +1,27 @@
+import { describe, expect, test } from "bun:test"
+
+import { cards } from "@/lib/cards"
+
+describe("Undo on what Irori did (card #786)", () => {
+  // The sample reads ?empty from the address; bun has no window.
+  const g = globalThis as unknown as { window?: unknown }
+  g.window ??= { location: { search: "" } }
+
+  test("the line is Irori's, keyed on the record, with Undo", async () => {
+    const d = await cards.detail("sample-ask-1")
+    const line = d.thread.find((it) => it.undoDid)
+    expect(line?.who.status).toBe("irori")
+    expect(line?.undoDid).toBe("sample-did-1")
+    expect(line?.text).toContain("handed this back")
+  })
+
+  test("one click undoes it, and the Undo goes", async () => {
+    await cards.undoDid("sample-ask-1", "sample-did-1")
+    const d = await cards.detail("sample-ask-1")
+    expect(d.thread.some((it) => it.undoDid)).toBe(false)
+    expect(d.thread.some((it) => it.text.includes("(undone)"))).toBe(true)
+    expect(cards.undoDid("sample-ask-1", "sample-did-1")).rejects.toThrow(
+      "can't be undone"
+    )
+  })
+})
