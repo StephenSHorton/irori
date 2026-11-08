@@ -55,6 +55,7 @@ use crate::notice;
 use crate::timers::{self, Kick, Ticker};
 use crate::{CLOSE_WAIT, COORD_SWEEP_INTERVAL, logf};
 
+mod assistant_name;
 pub mod boards;
 mod boards_members;
 mod boards_own;
@@ -69,6 +70,8 @@ pub mod card_weights;
 mod deskmerge;
 mod dm_spaces;
 pub mod freshness;
+pub mod huddle_packet;
+pub mod huddle_session;
 mod liveness;
 mod mirror;
 pub mod name_themes;
@@ -310,6 +313,7 @@ struct Services {
     faces: coord::avatar::Faces,
     /// The person's own avatar on shared spaces (card #393).
     person_avatar: coord::person_avatar::PersonAvatar,
+    assistant_name: coord::assistant_name::AssistantName,
     /// The person's names for their devices (card #184).
     device_names: Arc<coord::devname::Names>,
     /// Talk's channels, DMs and read cursors (card #389).
@@ -357,6 +361,8 @@ struct Services {
     naming: thread_names::Naming,
     /// Irori's assistant weighing new cards (card #965).
     weighing: card_weights::Weighing,
+    /// The assistant's held session per huddle (card #1046).
+    held: huddle_session::HeldSessions,
     /// The themes new agents' names come from (card #702), shared with
     /// `names`.
     name_themes: Arc<name_themes::NameThemes>,
@@ -953,6 +959,14 @@ struct PersonColor<'a> {
     color: &'a str,
 }
 
+/// The `assistant.name` payload (card #1045).
+#[derive(Serialize)]
+struct AssistantNameRow<'a> {
+    name: &'a str,
+    by: &'a str,
+    at: i64,
+}
+
 /// The `person.avatar` payload (card #393).
 #[derive(Serialize)]
 struct PersonAvatarRow<'a> {
@@ -1435,8 +1449,16 @@ impl Core {
         let person_color = coord::devcolor::PersonPick::new();
         let faces = coord::avatar::Faces::new();
         let person_avatar = coord::person_avatar::PersonAvatar::new();
+        let assistant_name = coord::assistant_name::AssistantName::new();
         let colors_sub = Arc::new(st.subscribe());
-        load_colors(&st, &colors, &person_color, &faces, &person_avatar);
+        load_colors(
+            &st,
+            &colors,
+            &person_color,
+            &faces,
+            &person_avatar,
+            &assistant_name,
+        );
         let talk = Arc::new(coord::talk::Talk::new(Some(st.clone()), {
             let now = now.clone();
             Some(Arc::new(move || now().utc()))
@@ -1619,6 +1641,7 @@ impl Core {
             person_color,
             faces,
             person_avatar,
+            assistant_name,
             device_names,
             talk,
             notifications,
@@ -1653,6 +1676,7 @@ impl Core {
             call_settings,
             naming,
             weighing,
+            held: Default::default(),
             name_themes,
             invites,
         });
@@ -2057,6 +2081,7 @@ impl Core {
                             &s.person_color,
                             &s.faces,
                             &s.person_avatar,
+                            &s.assistant_name,
                         );
                         load_device_names(&s.store, &s.device_names);
                         s.follow_person_name();
@@ -2130,10 +2155,14 @@ impl Core {
                         }
                     } else if ev.kind == coord::devcolor::PERSON_KIND
                         || ev.kind == coord::person_avatar::KIND
+                        || ev.kind == coord::assistant_name::KIND
                     {
                         // The pick reaches every shared board on the
                         // person's member.profile (cards #385, #393).
-                        if s.person_color.apply(&ev) || s.person_avatar.apply(&ev) {
+                        if s.person_color.apply(&ev)
+                            || s.person_avatar.apply(&ev)
+                            || s.assistant_name.apply(&ev)
+                        {
                             s.follow_person_name();
                             s.hub.publish(CoreEvent::Devices);
                         }
@@ -2860,6 +2889,49 @@ impl Core {
     /// Installs the turn that weighs a new card (card #965).
     pub fn set_weigher(&self, n: Option<thread_names::Namer>) {
         self.s.set_weigher(n);
+    }
+
+    /// Gives the Core the desktop app's held huddle sessions (card #1046):
+    /// one `claude -p` per huddle, kept up between looks. A headless Core,
+    /// or the phone, has none and runs no looks.
+    pub fn set_huddle_runner(&self, r: Option<Arc<dyn huddle_session::HuddleRunner>>) {
+        self.s.set_huddle_runner(r);
+    }
+
+    /// The packet huddle `seed` starts a session with (tests; card #1046).
+    #[doc(hidden)]
+    pub fn huddle_packet_text(&self, seed: &huddle_session::HuddleSeed) -> Result<String, String> {
+        self.s.huddle_packet_text(seed)
+    }
+
+    /// Opens `seed`'s huddle's held session with its priming turn (tests;
+    /// card 7a calls it when the person joins).
+    #[doc(hidden)]
+    pub fn huddle_open(&self, seed: &huddle_session::HuddleSeed) -> Result<(), String> {
+        self.s.huddle_open(seed)
+    }
+
+    /// One look of `seed`'s huddle's assistant (tests; card 7b's feed
+    /// calls it).
+    #[doc(hidden)]
+    pub fn huddle_look(
+        &self,
+        seed: &huddle_session::HuddleSeed,
+        message: &str,
+    ) -> Result<huddle_session::Look, String> {
+        self.s.huddle_look(seed, message)
+    }
+
+    /// Ends `call`'s held session (tests; card 7a).
+    #[doc(hidden)]
+    pub fn huddle_close(&self, call: &str) {
+        self.s.huddle_close(call)
+    }
+
+    /// Whether `call` has an open held session (tests).
+    #[doc(hidden)]
+    pub fn huddle_is_open(&self, call: &str) -> bool {
+        self.s.huddle_is_open(call)
     }
 
     /// "Weigh new cards" (card #965): on unless the person turned it off.
@@ -3797,6 +3869,7 @@ fn load_colors(
     person: &coord::devcolor::PersonPick,
     faces: &coord::avatar::Faces,
     avatar: &coord::person_avatar::PersonAvatar,
+    assistant: &coord::assistant_name::AssistantName,
 ) {
     let mut f = Filter {
         kinds: vec![
@@ -3804,6 +3877,7 @@ fn load_colors(
             coord::devcolor::PERSON_KIND.into(),
             coord::avatar::KIND.into(),
             coord::person_avatar::KIND.into(),
+            coord::assistant_name::KIND.into(),
         ],
         limit: store::MAX_LIST_LIMIT,
         ..Filter::default()
@@ -3815,6 +3889,7 @@ fn load_colors(
             person.apply(ev);
             faces.apply(ev);
             avatar.apply(ev);
+            assistant.apply(ev);
         }
         if (evs.len() as i64) < f.limit {
             return;

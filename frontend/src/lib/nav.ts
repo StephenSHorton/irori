@@ -2,7 +2,8 @@
 // threads, and channels and DMs once Talk 1 lands), Notes (card #413), or
 // a space's page. It lives in the address, like an open
 // card ("#card/<id>"), so back and forward move between them: "#talk",
-// "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
+// "#talk/<id>" (a conversation open), "#huddle/<callId>" (a huddle's page,
+// card #1044), "#notes", "#profile" (card #393: your name, colour and
 // picture, and your spaces), "#boards" (opens the picked space's page), "#board/<id>", and no hash for Home. A card's page opens over whichever
 // of them it was opened from.
 
@@ -25,6 +26,8 @@ export type SettingsSection = (typeof settingsSectionIds)[number]
 export type Section =
   | { kind: "home" }
   | { kind: "talk"; id: string }
+  // A huddle's page (card #1044): "#huddle/<callId>". It sits under Talk.
+  | { kind: "huddle"; id: string }
   | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
@@ -55,6 +58,8 @@ export function sectionFromHash(hash: string): Section {
   if (hash === "#talk") return { kind: "talk", id: "" }
   const t = hash.match(/^#talk\/(.+)$/)
   if (t) return { kind: "talk", id: decodeURIComponent(t[1]) }
+  const h = hash.match(/^#huddle\/(.+)$/)
+  if (h) return { kind: "huddle", id: decodeURIComponent(h[1]) }
   // "#notes/<board tag>" was a board's tab before notes were Mine only
   // (card #616): it opens Notes.
   if (hash === "#notes" || hash.startsWith("#notes/")) return { kind: "notes" }
@@ -90,6 +95,7 @@ export function sectionHash(s: Section): string {
   if (s.kind === "profile") return "#profile"
   if (s.kind === "talk")
     return s.id ? `#talk/${encodeURIComponent(s.id)}` : "#talk"
+  if (s.kind === "huddle") return `#huddle/${encodeURIComponent(s.id)}`
   if (s.kind === "notes") return "#notes"
   if (s.kind === "desk")
     return s.repo ? `#desk/${encodeURIComponent(s.repo)}` : "#desk"
@@ -148,6 +154,7 @@ export function sameSection(a: Section, b: Section): boolean {
   if (a.kind === "board")
     return b.kind === "board" && a.id === b.id && a.board === b.board
   if (a.kind === "talk") return b.kind === "talk" && a.id === b.id
+  if (a.kind === "huddle") return b.kind === "huddle" && a.id === b.id
   if (a.kind === "desk") return b.kind === "desk" && a.repo === b.repo
   if (a.kind === "settings") return b.kind === "settings" && a.tab === b.tab
   if (a.kind === "storage") return b.kind === "storage" && a.tab === b.tab

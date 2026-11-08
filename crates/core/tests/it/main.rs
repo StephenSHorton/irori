@@ -33,6 +33,8 @@ mod expiry;
 mod five_cores;
 mod helpertree;
 mod huddle;
+mod huddle_packet;
+mod huddle_session;
 mod huddle_title;
 mod invites;
 mod lockfile;
