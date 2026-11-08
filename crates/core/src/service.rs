@@ -323,6 +323,8 @@ struct Services {
     /// call carrying it as the person, through the read-only tools only.
     /// Only in memory and in the assistant's own 0600 MCP config.
     assistant: String,
+    /// What the person's message lets the assistant change (card #987).
+    assistant_grants: tools::Grants,
     reviver: Arc<Mutex<Option<ReviveFn>>>,
     /// Spawned agents (card #446): the window's spawner, the boards'
     /// switches and the devices' caps.
@@ -1568,6 +1570,7 @@ impl Core {
             secrets: Mutex::new(Vec::new()),
             token: token.clone(),
             assistant: assistant.clone(),
+            assistant_grants: Default::default(),
             reviver,
             spawn: spawn_state,
             hub: Hub::new(),
@@ -2440,6 +2443,12 @@ impl Core {
     /// `tools::ASSISTANT_TOOLS` only. A secret: never log it.
     pub fn assistant_secret(&self) -> &str {
         &self.s.assistant
+    }
+
+    /// What the person's message lets the window assistant change, for
+    /// the run going now (card #987).
+    pub fn assistant_grants(&self) -> &tools::Grants {
+        &self.s.assistant_grants
     }
 
     /// Where the window assistant runs (card #783): its `claude -p` cwd,

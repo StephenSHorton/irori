@@ -163,8 +163,10 @@ fn tool(h: &Handler, name: &str) -> Resp {
             None => return forbidden(h),
         },
     };
-    // Card #783: the window assistant only reads, whatever it asks for.
-    if c.assistant && !tools::ASSISTANT_TOOLS.contains(&name) {
+    // Card #783: the window assistant only reads, whatever it asks for,
+    // but for the writes the person's own message allowed (card #987).
+    let write = c.assistant && tools::ASSISTANT_WRITE_TOOLS.contains(&name);
+    if c.assistant && !write && !tools::ASSISTANT_TOOLS.contains(&name) {
         return http::error(403, "the assistant only reads");
     }
     let Some(ts) = h.s.tools() else {
@@ -178,18 +180,44 @@ fn tool(h: &Handler, name: &str) -> Resp {
         Some(a) if !a.is_empty() && a != b"null" => a,
         _ => b"{}".to_vec(),
     };
+    if write && !assistant_write_allowed(h, name, &args) {
+        return http::error(
+            403,
+            "the person's message didn't ask for that: say it plainly, naming the card (close #12, tick s2 on #12)",
+        );
+    }
     let caller = ToolCaller {
         sender: c.sender,
         path: c.path,
     };
     match ts.call(&caller, name, &args) {
-        Ok(text) => http::json(200, &ToolResult { text }),
+        Ok(text) => {
+            if write
+                && !text.starts_with("Error")
+                && let Some(g) = h.s.b.assistant_grants()
+            {
+                g.changed(text.lines().next().unwrap_or_default());
+            }
+            http::json(200, &ToolResult { text })
+        }
         Err(ToolError::UnknownTool) => http::error(
             404,
             &format!("no tool called {}", gocompat::quote::quote(name)),
         ),
         Err(ToolError::Other(e)) => http::error(400, &e),
     }
+}
+
+/// Spends the grant the person's message gave for this write (card #987).
+fn assistant_write_allowed(h: &Handler, name: &str, args: &[u8]) -> bool {
+    let Some(g) = h.s.b.assistant_grants() else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(args) else {
+        return false;
+    };
+    let arg = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default();
+    g.take(name, arg("task_id"), arg("step_id"))
 }
 
 fn set_policy(h: &Handler, ib: &inbox::Inbox) -> Resp {

@@ -707,6 +707,12 @@ function Entry({
       </Message>
     )
   if (entry.update) return <Update entry={entry} threadRef={threadRef} />
+  if (entry.changed)
+    return (
+      <div className="text-[12.5px] font-medium" data-changed="">
+        <RichText text={entry.text} />
+      </div>
+    )
   if (entry.note)
     return (
       <p className="text-[12.5px] text-muted-foreground" data-note="">

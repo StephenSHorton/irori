@@ -227,12 +227,15 @@ fn for_grok(specs: Vec<Spec>, log: &dyn Fn(&str)) -> Vec<Spec> {
 }
 
 /// The specs the window assistant gets (card #783): valid ones in
-/// [`tools::ASSISTANT_TOOLS`] only, and never join.
+/// [`tools::ASSISTANT_TOOLS`] and [`tools::ASSISTANT_WRITE_TOOLS`] only,
+/// and never join.
 fn for_assistant(specs: Vec<Spec>, log: &dyn Fn(&str)) -> Vec<Spec> {
     let mut out = vec![];
     let mut seen = HashSet::new();
     for s in specs {
-        if !tools::ASSISTANT_TOOLS.contains(&s.name.as_str()) {
+        if !tools::ASSISTANT_TOOLS.contains(&s.name.as_str())
+            && !tools::ASSISTANT_WRITE_TOOLS.contains(&s.name.as_str())
+        {
             continue;
         }
         if let Err(e) = check_spec(&s) {
