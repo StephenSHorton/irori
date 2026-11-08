@@ -39,12 +39,12 @@ describe("Talk lives in the address (card #390)", () => {
 })
 
 describe("Boards shows only the picked space's (card #689)", () => {
-  test("#boards is Boards with no space picked, and round-trips", () => {
+  test("#boards names no space, and round-trips", () => {
     expect(sectionFromHash("#boards")).toEqual({ kind: "boards" })
     expect(sectionHash({ kind: "boards" })).toBe("#boards")
   })
   test("the Boards tab goes to the picked space's page", () => {
-    expect(boardsFor("")).toEqual({ kind: "boards" })
+    expect(boardsFor("")).toEqual({ kind: "board", id: "personal" })
     expect(boardsFor("personal")).toEqual({ kind: "board", id: "personal" })
     expect(boardsFor("b1")).toEqual({ kind: "board", id: "b1" })
   })

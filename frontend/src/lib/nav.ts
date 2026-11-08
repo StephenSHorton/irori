@@ -3,11 +3,10 @@
 // a space's page. It lives in the address, like an open
 // card ("#card/<id>"), so back and forward move between them: "#talk",
 // "#talk/<id>" (a conversation open), "#notes", "#profile" (card #393: your name, colour and
-// picture, and your spaces), "#boards" (Boards with All spaces picked,
-// card #689: pick a space), "#board/<id>", and no hash for Home. A card's page opens over whichever
+// picture, and your spaces), "#boards" (opens the picked space's page), "#board/<id>", and no hash for Home. A card's page opens over whichever
 // of them it was opened from.
 
-import { AllSpaces, Personal } from "./spaces"
+import { Personal } from "./spaces"
 
 // SettingsSection is a section of Settings, in the order its list shows
 // them (the words and icons are components/settings/settings-page.tsx's).
@@ -29,8 +28,8 @@ export type Section =
   | { kind: "notes" }
   // A merge desk (card #417): "#desk", or "#desk/<repoKey>" for one repo.
   | { kind: "desk"; repo: string }
-  // Boards with no space picked (card #689): it asks for one, since boards
-  // are never shown across spaces.
+  // "#boards": no space named (card #689). App sends it on to the picked
+  // space's page (card #1001: there is no pick-a-space page any more).
   | { kind: "boards" }
   // A space's page (card #558): its boards. With board, that one board's
   // list ("#board/<space>/<board>"). Personal's page is "#board/personal".
@@ -140,15 +139,14 @@ export function sameSection(a: Section, b: Section): boolean {
 }
 
 // boardsFor is where the Boards tab goes with space picked (card #689): a
-// shared space's page, Personal's, or with All spaces the page that asks
-// for a space.
+// shared space's page, or Personal's.
 export function boardsFor(space: string): Section {
-  if (space === AllSpaces) return { kind: "boards" }
-  return { kind: "board", id: space === Personal ? Personal : space }
+  return { kind: "board", id: space || Personal }
 }
 
 // onBoards says whether s is under the Boards tab: a space's page or one
-// of its boards, Personal's, or the pick-a-space page.
+// of its boards, Personal's, or "#boards", which App sends on to the picked
+// space's page.
 export function onBoards(s: Section): boolean {
   return s.kind === "boards" || s.kind === "board"
 }

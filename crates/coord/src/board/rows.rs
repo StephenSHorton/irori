@@ -29,6 +29,9 @@ crate::go_struct! {
         /// A thread started from a message in this Talk channel (card
         /// #454): its `ch_` id.
         pub channel: String = "channel" "omit",
+        /// A thread the Office Assistant posted for the person (card #991):
+        /// it keeps the title it was posted with. No mark: the person's.
+        pub assistant: bool = "assistant" "omit",
     }
 }
 

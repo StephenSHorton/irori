@@ -46,10 +46,14 @@ import { errorText } from "@/lib/talk"
 export function AskBox({
   onThread,
   board: onPage = "",
+  note = "",
 }: {
   // onThread gets the new thread, for the Threads panel to open.
   onThread: (id: string) => void
   board?: string
+  // note is a standing line under the box (the Dashboard's: "Goes to
+  // Personal", card #1001).
+  note?: string
 }) {
   const draft = onPage ? `ask/board/${onPage}` : "ask/room"
   const [text, setText] = useDraft(draft)
@@ -314,6 +318,9 @@ export function AskBox({
           >
             {line.text}
           </p>
+        )}
+        {note && !line && (
+          <p className="px-1 text-xs text-muted-foreground">{note}</p>
         )}
       </form>
     </MentionBoard.Provider>

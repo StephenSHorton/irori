@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 
 import { Home, type Section } from "./nav"
 import {
-  leftHomeFilter,
   startLeave,
   stepLeave,
   type LeaveState,
@@ -43,6 +42,7 @@ const view = (over: Partial<SpaceView>): SpaceView => ({
 
 const talk = (id: string): Section => ({ kind: "talk", id })
 const Landing = talk("")
+const Notes: Section = { kind: "notes" }
 
 // switched is the decision on the render a pick from -> to shows up.
 const switched = (from: string, over: Partial<SpaceView>) =>
@@ -66,15 +66,17 @@ describe("a pick that changes", () => {
     expect(
       switched(Personal, { space: "b-a", open: "c", card: {}, section: notes })
     ).toEqual(notes)
-    expect(
-      switched(Personal, { space: "b-a", open: "c", card: {}, section: Home })
-    ).toEqual(Home)
   })
 
   test("a closed card (from its detail) closes the same way", () => {
     expect(
-      switched("b-a", { space: "b-b", open: "c", card: { board: "b-a" } })
-    ).toEqual(Home)
+      switched("b-a", {
+        space: "b-b",
+        open: "c",
+        card: { board: "b-a" },
+        section: Notes,
+      })
+    ).toEqual(Notes)
   })
 
   test("a card over a thread of the space left lands on Talk in one hop", () => {
@@ -201,11 +203,11 @@ describe("a switch before the lists are in", () => {
     expect(
       steps(
         startLeave(Personal),
-        { open: "c", card: null },
-        { open: "c", card: {} },
+        { open: "c", card: null, section: Notes },
+        { open: "c", card: {}, section: Notes },
         { open: "", card: null }
       )
-    ).toEqual([null, Home, null])
+    ).toEqual([null, Notes, null])
   })
 
   test("a card that can't be read stays", () => {
@@ -271,16 +273,11 @@ describe("a switch before the lists are in", () => {
   })
 })
 
-describe("leftHomeFilter", () => {
-  test("a board filter outside the new pick is reset", () => {
-    expect(leftHomeFilter("board:b-a", "b-b")).toBe(true)
-    expect(leftHomeFilter("board:b-a", Personal)).toBe(true)
-  })
-
-  test("everything else is kept", () => {
-    expect(leftHomeFilter("board:b-a", "b-a")).toBe(false)
-    expect(leftHomeFilter("board:b-a", AllSpaces)).toBe(false)
-    expect(leftHomeFilter("private", "b-a")).toBe(false)
-    expect(leftHomeFilter("all", "b-a")).toBe(false)
+describe("the Dashboard shows every space (card #1001)", () => {
+  test("a card opened over the Dashboard stays when the pick changes", () => {
+    for (const card of [{}, { board: "b-b" }])
+      expect(
+        switched(Personal, { space: "b-a", section: Home, open: "c", card })
+      ).toBeNull()
   })
 })

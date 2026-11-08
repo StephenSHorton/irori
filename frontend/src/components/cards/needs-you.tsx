@@ -59,6 +59,8 @@ export function NeedsYou({
   name,
   onOpenCard,
   onHeld,
+  onOpenThread,
+  spaceName,
 }: {
   needs: Need[]
   now: Date
@@ -67,6 +69,10 @@ export function NeedsYou({
   onOpenCard: (id: string) => void
   // onHeld opens the Held list (the quiet line's See them).
   onHeld: () => void
+  // onOpenThread opens a waiting thread in Talk (card #1001); spaceName is
+  // the name of the space a thread is in, "Personal" for "".
+  onOpenThread?: (id: string) => void
+  spaceName?: (spaceId: string) => string
 }) {
   // The quiet line (card #488) is held messages that don't ask the person
   // one by one: it isn't counted, and alone it isn't "something waits".
@@ -105,6 +111,13 @@ export function NeedsYou({
                 <TrustRow need={n} now={now} onOpen={onOpenCard} />
               ) : n.kind === "loop" || n.kind === "stuck" ? (
                 <StuckNeed need={n} now={now} onOpen={onOpenCard} />
+              ) : n.kind === "thread" ? (
+                <ThreadNeed
+                  need={n}
+                  now={now}
+                  space={spaceName?.(n.thread.spaceId ?? "") ?? ""}
+                  onOpen={() => onOpenThread?.(n.id)}
+                />
               ) : n.kind === "held" ? (
                 <HeldNeed
                   d={n.delivery}
@@ -147,6 +160,8 @@ const kinds = {
   given: { label: "Given to you", variant: "info" },
   message: { label: "Message", variant: "info" },
   held: { label: "Held", variant: "warning" },
+  // Card #1001: a thread waiting on the person, from any space.
+  thread: { label: "Thread", variant: "info" },
   // Card #481: waits nothing will end.
   loop: { label: "Stuck", variant: "warning" },
   stuck: { label: "Stuck", variant: "warning" },
@@ -574,6 +589,44 @@ function NoAgentNeed({
       <span className="flex flex-wrap gap-1.5">
         <Button size="sm" variant="outline" onClick={() => onOpen(c.id)}>
           Open card
+        </Button>
+      </span>
+    </Row>
+  )
+}
+
+function ThreadNeed({
+  need,
+  now,
+  space,
+  onOpen,
+}: {
+  need: Extract<Need, { kind: "thread" }>
+  now: Date
+  space: string
+  onOpen: () => void
+}) {
+  const t = need.thread
+  return (
+    <Row
+      kind="thread"
+      where={space}
+      at={need.at}
+      now={now}
+      title={plainLine(t.title)}
+    >
+      {t.noAgent ? (
+        <p className="text-sm break-words">{t.noAgent}</p>
+      ) : (
+        t.lastText && (
+          <p className="line-clamp-2 text-sm break-words">
+            {plainLine(t.lastText)}
+          </p>
+        )
+      )}
+      <span className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="outline" onClick={onOpen}>
+          Open thread
         </Button>
       </span>
     </Row>
