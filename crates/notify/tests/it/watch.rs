@@ -1005,6 +1005,10 @@ fn watch_unclaimed_ask() {
 
 /// dev1 is full and dev2 has room, or `full` says otherwise (card #995).
 fn room_rig(full: &[&str], hold: Duration) -> (Rig, Arc<RwLock<AgentDevices>>) {
+    room_rig_spawning(full, hold, true)
+}
+
+fn room_rig_spawning(full: &[&str], hold: Duration, on: bool) -> (Rig, Arc<RwLock<AgentDevices>>) {
     let devs = Arc::new(RwLock::new(AgentDevices {
         homes: vec!["dev1".into(), "dev2".into()],
         moves: HashSet::from(["dev1".to_string(), "dev2".to_string()]),
@@ -1015,7 +1019,7 @@ fn room_rig(full: &[&str], hold: Duration) -> (Rig, Arc<RwLock<AgentDevices>>) {
     let r = rig_with(
         None,
         coord::Options {
-            spawning: Some(Arc::new(|| true)),
+            spawning: Some(Arc::new(move || on)),
             agent_devices: Some(Arc::new(move || d.read().unwrap().clone())),
             ask_room_hold: hold,
             ..Default::default()
@@ -1029,6 +1033,8 @@ fn post_thread(r: &Rig) -> Task {
         USER,
         NewAsk {
             text: "anyone?".into(),
+            thread: true,
+            wake: true,
             ..NewAsk::default()
         },
         &[],
@@ -1156,6 +1162,36 @@ fn watch_unclaimed_ask_quiet_between_bound_and_taken() {
     assert!(r.co.full_target(&r.co.get_task(&id).unwrap()).is_none());
     // Past the recheck, so a card would have come if nothing held it.
     r.fake.no_post(Duration::from_millis(1300));
+}
+
+/// Card #995: this device's own spawning switch says nothing about the
+/// computer taking the thread.
+#[test]
+fn watch_unclaimed_ask_quiet_with_spawning_off_here() {
+    let (r, _devs) = room_rig_spawning(&["dev1"], Duration::from_secs(60), false);
+    post_thread(&r);
+    r.fake.no_post(QUIET);
+}
+
+/// Card #995: it moved, the new computer filled up, and a third has room:
+/// the next move waits for the settle, and so does the card.
+#[test]
+fn watch_unclaimed_ask_held_through_the_settle() {
+    let (r, devs) = room_rig(&["dev1"], Duration::from_millis(800));
+    let id = post_thread(&r).id;
+    {
+        let mut d = devs.write().unwrap();
+        d.homes.push("dev3".into());
+        d.full.insert("dev2".into());
+    }
+    let moved = coord::rows::AskMovedRow {
+        task_id: id.clone(),
+        owner: "dev2".into(),
+        moves: 1,
+        at: now(),
+    };
+    from_dev2(&r, 1, store::kinds::ASK_MOVED, &moved);
+    r.fake.no_post(Duration::from_millis(2000));
 }
 
 /// Card #995: every computer full: the card comes as it always did.
