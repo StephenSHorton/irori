@@ -1635,6 +1635,9 @@ impl Fold {
             ..Comment::default()
         };
         cm.unheard = p.unheard && person;
+        if p.to.is_empty() {
+            cm.declines = p.declines.clone();
+        }
         if self.verdict_counts(&p) {
             cm.verdict = p.verdict.clone();
         }
@@ -2016,6 +2019,14 @@ impl Fold {
     /// the clock skew), so a member who went away can't hold a resource
     /// past it.
     pub(crate) fn live(&self, l: &LeaseRec, now: &GoTime) -> bool {
+        // A claim on a PR that merged or closed is over (merge desk §12.3).
+        if self.pr_claim_over(&l.lease.resource) {
+            return false;
+        }
+        // A claim on a PR that merged or closed is over (merge desk §12.3).
+        if self.pr_claim_over(&l.lease.resource) {
+            return false;
+        }
         if self.lease_local(l) {
             return gotime::after(&l.lease.until, now);
         }

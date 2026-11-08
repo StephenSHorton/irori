@@ -244,6 +244,9 @@ crate::go_struct! {
         pub mentions: Vec<Mention> = "mentions" "omit",
         /// A review verdict on a private card (#88): approved or changes.
         pub verdict: String = "verdict" "omit",
+        /// A reviewer's "not me" on a PR card (merge desk §12.3): the PR's
+        /// URL. A comment with it and no `to`; old devices show a comment.
+        pub declines: String = "declines" "omit",
     }
 }
 
