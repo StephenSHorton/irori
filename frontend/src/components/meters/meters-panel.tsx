@@ -19,7 +19,7 @@ import {
 } from "@/lib/meters"
 import {
   hasUsage,
-  percentLeft,
+  percentUsed,
   resetLine,
   sortWindows,
   staleLine,
@@ -171,14 +171,15 @@ function Row({
   )
 }
 
-// UsageSection is how much of each plan window is left: a bar, when it
+// UsageSection is how much of each plan window is used (card #772): a bar
+// that fills as it is used, when it
 // starts over, and when the reading was taken if that was a while ago.
 function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
   const stale = staleLine(usage.observedAtMs, now)
   return (
     <section className="px-3 pt-3 pb-3">
       <div className="flex items-baseline justify-between gap-2 text-xs">
-        <h3 className="font-medium text-muted-foreground">Claude usage left</h3>
+        <h3 className="font-medium text-muted-foreground">Claude usage</h3>
         {stale && hasUsage(usage) && (
           <span className="text-muted-foreground tabular-nums">{stale}</span>
         )}
@@ -190,7 +191,7 @@ function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
       ) : (
         <div className="mt-2 flex flex-col gap-2.5">
           {sortWindows(usage.windows).map((w) => {
-            const left = percentLeft(w, now)
+            const used = percentUsed(w, now)
             const reset = resetLine(w.resetsAtMs, now)
             return (
               <div key={w.kind} className="flex flex-col gap-1">
@@ -198,7 +199,7 @@ function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
                   <span className="font-medium text-ink">
                     {windowLabel(w.kind)}
                   </span>
-                  <span className="text-ink tabular-nums">{left}% left</span>
+                  <span className="text-ink tabular-nums">{used}% used</span>
                 </div>
                 <div
                   aria-hidden
@@ -207,8 +208,8 @@ function UsageSection({ usage, now }: { usage: UsageLimits; now: number }) {
                   <div
                     className="h-full rounded-full"
                     style={{
-                      width: `${left}%`,
-                      backgroundColor: usageColor(left),
+                      width: `${used}%`,
+                      backgroundColor: usageColor(used),
                     }}
                   />
                 </div>
