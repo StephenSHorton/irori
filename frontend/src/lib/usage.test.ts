@@ -5,6 +5,7 @@ import {
   hasUsage,
   NO_USAGE,
   percentLeft,
+  percentUsed,
   resetLine,
   sampleUsage,
   sortWindows,
@@ -70,8 +71,8 @@ describe("Claude usage left (card #599)", () => {
   })
   test("the strip's line", () => {
     expect(stripLine(sampleUsage(now), now)).toEqual({
-      text: "62% · 39% left",
-      title: "5-hour 62% left, weekly 39% left",
+      text: "38% · 61% used",
+      title: "5-hour 38% used, weekly 61% used",
       color: null,
     })
     // A gateway's spend limit only: the strip still says something.
@@ -80,8 +81,8 @@ describe("Claude usage left (card #599)", () => {
       windows: [{ kind: "spend_limit", percentUsed: 60, resetsAtMs: null }],
     }
     expect(stripLine(spend, now)).toEqual({
-      text: "40% left",
-      title: "Spend limit 40% left",
+      text: "60% used",
+      title: "Spend limit 60% used",
       color: null,
     })
     // Weekly only.
@@ -90,8 +91,8 @@ describe("Claude usage left (card #599)", () => {
       windows: [{ kind: "seven_day", percentUsed: 10, resetsAtMs: null }],
     }
     expect(stripLine(wk, now)).toEqual({
-      text: "90% left",
-      title: "Weekly 90% left",
+      text: "10% used",
+      title: "Weekly 10% used",
       color: null,
     })
     expect(stripLine(NO_USAGE, now)).toBeNull()
@@ -122,31 +123,38 @@ describe("Claude usage left (card #599)", () => {
     expect(hasUsage(u)).toBe(true)
   })
 
-  test("the bar's color blends as usage runs out (card #772)", () => {
+  test("percent used, none once a window has reset (card #772)", () => {
+    const w = { kind: "five_hour", percentUsed: 38, resetsAtMs: now + HOUR }
+    expect(percentUsed(w, now)).toBe(38)
+    expect(percentUsed({ ...w, resetsAtMs: now - MIN }, now)).toBe(0)
+    // A spend limit past 100 shows full, never more.
+    expect(percentUsed({ ...w, percentUsed: 130 }, now)).toBe(100)
+  })
+  test("the bar's color blends as it fills (card #772)", () => {
     // Plenty left: the theme's color.
-    expect(usageColor(100)).toBe("var(--primary)")
-    expect(usageColor(80)).toBe("var(--primary)")
+    expect(usageColor(0)).toBe("var(--primary)")
+    expect(usageColor(20)).toBe("var(--primary)")
     expect(usageColor(50)).toBe("var(--primary)")
     // Toward amber.
-    expect(usageColor(40)).toBe(
+    expect(usageColor(60)).toBe(
       "color-mix(in oklab, var(--primary), var(--warning) 33%)"
     )
-    expect(usageColor(35)).toBe(
+    expect(usageColor(65)).toBe(
       "color-mix(in oklab, var(--primary), var(--warning) 50%)"
     )
-    expect(usageColor(20)).toBe("var(--warning)")
+    expect(usageColor(80)).toBe("var(--warning)")
     // Toward red.
-    expect(usageColor(10)).toBe(
+    expect(usageColor(90)).toBe(
       "color-mix(in oklch, var(--warning), var(--destructive) 50%)"
     )
-    expect(usageColor(5)).toBe(
+    expect(usageColor(95)).toBe(
       "color-mix(in oklch, var(--warning), var(--destructive) 75%)"
     )
-    expect(usageColor(0)).toBe("var(--destructive)")
+    expect(usageColor(100)).toBe("var(--destructive)")
     // Out of range is clamped.
-    expect(usageColor(-5)).toBe("var(--destructive)")
-    expect(usageColor(150)).toBe("var(--primary)")
-    // Every step down is no calmer than the one before: the mix only grows.
+    expect(usageColor(130)).toBe("var(--destructive)")
+    expect(usageColor(-5)).toBe("var(--primary)")
+    // Every step up is no calmer than the one before: the mix only grows.
     const rank = (c: string) => {
       if (c === "var(--primary)") return 0
       if (c === "var(--warning)") return 100
@@ -154,26 +162,26 @@ describe("Claude usage left (card #599)", () => {
       const m = /in \w+, var\(--(\w+)\), var\(--\w+\) (\d+)%/.exec(c)!
       return (m[1] === "primary" ? 0 : 100) + Number(m[2])
     }
-    for (let l = 100; l > 0; l--)
-      expect(rank(usageColor(l - 1))).toBeGreaterThanOrEqual(
-        rank(usageColor(l))
+    for (let u = 0; u < 100; u++)
+      expect(rank(usageColor(u + 1))).toBeGreaterThanOrEqual(
+        rank(usageColor(u))
       )
   })
-  test("the strip's reading is tinted once low (card #772)", () => {
-    expect(usageTextColor(80)).toBeNull()
-    expect(usageTextColor(26)).toBeNull()
-    expect(usageTextColor(25)).toBe(usageColor(25))
-    expect(usageTextColor(5)).toBe(usageColor(5))
-    // Tinted by the lowest window shown.
-    const low = {
+  test("the strip's reading is tinted once nearly full (card #772)", () => {
+    expect(usageTextColor(20)).toBeNull()
+    expect(usageTextColor(74)).toBeNull()
+    expect(usageTextColor(75)).toBe(usageColor(75))
+    expect(usageTextColor(95)).toBe(usageColor(95))
+    // Tinted by the fullest window shown.
+    const full = {
       observedAtMs: now,
       windows: [
         { kind: "five_hour", percentUsed: 95, resetsAtMs: now + HOUR },
         { kind: "seven_day", percentUsed: 40, resetsAtMs: null },
       ],
     }
-    expect(stripLine(low, now)?.color).toBe(usageColor(5))
-    // A window that has reset counts as full.
+    expect(stripLine(full, now)?.color).toBe(usageColor(95))
+    // A window that has reset counts as unused.
     const reset = {
       observedAtMs: now,
       windows: [
@@ -182,10 +190,10 @@ describe("Claude usage left (card #599)", () => {
       ],
     }
     expect(stripLine(reset, now)?.color).toBeNull()
-    // The preview's ?usage=<n> reading has n% left in both windows.
-    expect(stripLine(sampleUsage(now, "20"), now)).toEqual({
-      text: "20% · 20% left",
-      title: "5-hour 20% left, weekly 20% left",
+    // The preview's ?usage=<n> reading has n% used in both windows.
+    expect(stripLine(sampleUsage(now, "80"), now)).toEqual({
+      text: "80% · 80% used",
+      title: "5-hour 80% used, weekly 80% used",
       color: "var(--warning)",
     })
   })
