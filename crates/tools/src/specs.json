@@ -1603,7 +1603,12 @@
         "left_off"
       ],
       "additionalProperties": false
-    }
+    },
+    "readOnly": false,
+    "clients": [
+      "claude",
+      "grok"
+    ]
   },
   {
     "name": "board_edit",
