@@ -189,7 +189,8 @@ pub enum Loaded {
 /// UI thread, so it needs no wake.
 static IMAGES: LazyLock<ImageCache> = LazyLock::new(|| ImageCache::new(Arc::new(|| {})));
 
-/// Decodes PNG, JPEG (GIF and WebP don't decode natively: an error).
+/// Decodes PNG, JPEG, WebP and GIF (an animated one shows its first
+/// frame); anything else is an error.
 pub fn decode(bytes: Vec<u8>) -> Result<Image, String> {
     let img = IMAGES.load(bytes);
     img.wait().map_err(|e| e.0.clone())?;
@@ -615,7 +616,8 @@ pub fn mime_of(name: &str) -> String {
 }
 
 /// A file as it goes: refused when too big to cross (uploads.ts
-/// `checkUploads`); a PNG or JPEG decoded for its preview.
+/// `checkUploads`); a picture (PNG, JPEG, GIF or WebP) decoded for its
+/// preview.
 pub fn pending(name: &str, bytes: Vec<u8>, id: u64) -> Result<Pending, String> {
     if bytes.len() > MAX_UPLOAD {
         let n = if name.is_empty() {
@@ -629,7 +631,7 @@ pub fn pending(name: &str, bytes: Vec<u8>, id: u64) -> Result<Pending, String> {
         ));
     }
     let mime = mime_of(name);
-    let preview = if mime == "image/png" || mime == "image/jpeg" {
+    let preview = if INLINE_IMAGES.contains(&mime.as_str()) {
         decode(bytes.clone()).ok()
     } else {
         None
@@ -840,5 +842,31 @@ mod tests {
             pending("", vec![1], 2).ok().unwrap().upload().name,
             "pasted.png"
         );
+    }
+    /// A 1x1 GIF and a 2x2 lossless WebP (cwebp): Rune decodes both, so a
+    /// picked or attached one gets a thumbnail like a PNG.
+    const GIF: [u8; 43] = [
+        0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff,
+        0xff, 0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00,
+        0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
+    ];
+    const WEBP: [u8; 36] = [
+        0x52, 0x49, 0x46, 0x46, 0x1c, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38,
+        0x4c, 0x0f, 0x00, 0x00, 0x00, 0x2f, 0x01, 0x40, 0x00, 0x00, 0x07, 0x10, 0xe5, 0x8f, 0xfe,
+        0x07, 0x22, 0xa2, 0xff, 0x01, 0x00,
+    ];
+
+    #[test]
+    fn gif_and_webp_decode_for_their_previews() {
+        assert_eq!(decode(GIF.to_vec()).unwrap().size(), Some([1, 1]));
+        assert_eq!(decode(WEBP.to_vec()).unwrap().size(), Some([2, 2]));
+        assert!(pending("a.gif", GIF.to_vec(), 1).unwrap().preview.is_some());
+        assert!(
+            pending("a.webp", WEBP.to_vec(), 2)
+                .unwrap()
+                .preview
+                .is_some()
+        );
+        assert!(pending("a.txt", GIF.to_vec(), 3).unwrap().preview.is_none());
     }
 }

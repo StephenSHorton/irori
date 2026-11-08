@@ -669,9 +669,10 @@ pub fn composer(
                 title: "Add files".into(),
                 ..FileDialogOptions::default()
             };
-            tx.open_file(opts, move |s: &mut State, r, _tx| match r {
-                Ok(Some(path)) => add_paths(s, get_mut, vec![path]),
-                Ok(None) => {}
+            // Several files in one pick, as the React input's `multiple`;
+            // add_paths keeps MAX_UPLOAD_FILES and says what it refused.
+            tx.open_files(opts, move |s: &mut State, r, _tx| match r {
+                Ok(paths) => add_paths(s, get_mut, paths),
                 Err(e) => get_mut(s).refused = Some(format!("Couldn't open the file picker: {e}")),
             });
         });
@@ -754,7 +755,7 @@ pub fn composer(
     out
 }
 
-/// The @ or # list, anchored to the box.
+/// The @ or # list, hung from the caret in the box.
 #[allow(clippy::too_many_arguments)]
 fn picker(
     s: &State,
@@ -825,24 +826,10 @@ fn picker(
     let card = o.card.clone();
     let at = p.at.clone();
     // The list hangs from the caret line, so it stays by what is typed in
-    // a long line (React's caretRect anchor); from the box's edge until
-    // the caret has been drawn.
-    // Cx::caret matches one key of the focused field's path; the box's
-    // key has a slash, so each of its parts must be on that path.
-    let caret = box_key
-        .split('/')
-        .map(|seg| f.cx.caret(seg))
-        .reduce(|a, b| a.filter(|_| b.is_some()));
-    let anchor = match caret.flatten() {
-        Some([x, y, _, h]) => {
-            let a = format!("{key}-caret");
-            f.layer
-                .push(el().key(a.clone()).absolute(x, y).size(1.0, h.max(1.0)));
-            a
-        }
-        None => box_key.to_string(),
-    };
-    let mut list = PopupList::new(format!("{key}-picker"), anchor)
+    // a long line (React's caretRect anchor); Rune follows the caret of the
+    // focused field inside the box, and sits by the box while it has none.
+    let mut list = PopupList::new(format!("{key}-picker"), box_key.to_string())
+        .at_caret(box_key.to_string())
         .side(if o.popup_below {
             Side::Bottom
         } else {
@@ -865,6 +852,10 @@ fn picker(
                 pick(s, get, get_mut, &board, &card, i);
             }
         });
+    // At the cap a new agent can't be added (React's muted heading).
+    if p.capped && !p.for_cards {
+        list = list.header(format!("At most {} mentions", mentions::MAX_MENTIONS));
+    }
     if p.shown() >= 0 {
         list = list.active(Some(p.shown() as usize));
     }
