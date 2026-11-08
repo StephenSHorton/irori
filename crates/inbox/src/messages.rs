@@ -722,9 +722,7 @@ impl Inbox {
 
     /// The person's wind-downs still open, every device's (card #787).
     pub fn open_wind_downs(&self) -> Vec<Delivery> {
-        self.read(|b| {
-            b.newest_first(|d| st::open(&d.d.state) && b.wind_down(d), usize::MAX)
-        })
+        self.read(|b| b.newest_first(|d| st::open(&d.d.state) && b.wind_down(d), usize::MAX))
     }
 
     /// The recipient's own view: open deliveries (or all recent), never

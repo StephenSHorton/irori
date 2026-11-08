@@ -111,9 +111,9 @@ pub fn row_state(delivery_state: &str, note: &str) -> &'static str {
 /// sent.
 pub fn finished(rows: &[WindDownRow]) -> bool {
     rows.iter().any(|r| !r.delivery_id.is_empty())
-        && rows.iter().all(|r| {
-            r.state == row::DONE || r.state == row::NO_ANSWER || r.state == row::CANCELED
-        })
+        && rows
+            .iter()
+            .all(|r| r.state == row::DONE || r.state == row::NO_ANSWER || r.state == row::CANCELED)
 }
 
 impl Window {
@@ -203,10 +203,7 @@ impl Window {
             }
             run.st.rows.push(r);
         }
-        self.wind_down
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .run = Some(run);
+        self.wind_down.lock().unwrap_or_else(|e| e.into_inner()).run = Some(run);
     }
 
     /// Closes the wind-downs not reached yet whose agent's device starts
@@ -388,10 +385,7 @@ impl Window {
     pub(crate) fn wind_down_tick(&self) {
         let (running, told) = {
             let slot = self.wind_down.lock().unwrap_or_else(|e| e.into_inner());
-            (
-                slot.run.as_ref().is_some_and(|r| !r.st.finished),
-                slot.told,
-            )
+            (slot.run.as_ref().is_some_and(|r| !r.st.finished), slot.told)
         };
         let mut st = WindDownStatus::default();
         self.wind_down_switch(&mut st);
@@ -462,8 +456,14 @@ mod tests {
         assert_eq!(row_state("deferred", ""), row::WINDING);
         assert_eq!(row_state("answered", ""), row::DONE);
         assert_eq!(row_state("skipped", ""), row::NO_ANSWER);
-        assert_eq!(row_state("skipped", inbox::NOTE_RECIPIENT_GONE), row::NO_ANSWER);
-        assert_eq!(row_state("skipped", inbox::NOTE_WIND_DOWN_OFF), row::CANCELED);
+        assert_eq!(
+            row_state("skipped", inbox::NOTE_RECIPIENT_GONE),
+            row::NO_ANSWER
+        );
+        assert_eq!(
+            row_state("skipped", inbox::NOTE_WIND_DOWN_OFF),
+            row::CANCELED
+        );
     }
 
     #[test]

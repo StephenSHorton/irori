@@ -1609,11 +1609,10 @@ fn wind_down_holds_another_device_and_off_lifts_only_what_it_set() {
     t2.spawner_b();
     t2.spawner_a();
     t2.a_sees_b_host(true);
-    let paused = t2
-        .a
-        .core
-        .wind_down_pause(&[a_id.clone(), b_id.clone()])
-        .unwrap();
+    let paused =
+        t2.a.core
+            .wind_down_pause(&[a_id.clone(), b_id.clone()])
+            .unwrap();
     assert_eq!(paused.len(), 2, "{paused:?}");
     wait_for(WAIT, "the Mac sees its own pause", || {
         t2.b.core.set_spawn_cap(t2.b.core.spawn_cap()).unwrap();
@@ -1640,10 +1639,16 @@ fn wind_down_holds_another_device_and_off_lifts_only_what_it_set() {
         t2.a.core.set_spawn_cap(t2.a.core.spawn_cap()).unwrap();
         t2.a.core.agents_pause_on(&b_id).on
     });
-    let paused = t2.a.core.wind_down_pause(&[a_id.clone(), b_id.clone()]).unwrap();
+    let paused =
+        t2.a.core
+            .wind_down_pause(&[a_id.clone(), b_id.clone()])
+            .unwrap();
     assert_eq!(paused, vec![a_id.clone()], "the Mac was paused already");
     t2.a.core.wind_down_lift().unwrap();
     assert!(!t2.a.core.agents_pause().on);
-    assert!(t2.a.core.agents_pause_on(&b_id).on, "the person's pause stays");
+    assert!(
+        t2.a.core.agents_pause_on(&b_id).on,
+        "the person's pause stays"
+    );
     t2.close();
 }

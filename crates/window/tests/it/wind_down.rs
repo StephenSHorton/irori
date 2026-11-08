@@ -134,7 +134,11 @@ fn a_finished_run_keeps_the_switch_on() {
         let name = if x.key == r.key_a { "alpha" } else { "beta" };
         r.w.core
             .inbox()
-            .reply(&inbox::Sender::new(&x.key, name, "claude"), &x.delivery_id, "wound down")
+            .reply(
+                &inbox::Sender::new(&x.key, name, "claude"),
+                &x.delivery_id,
+                "wound down",
+            )
             .unwrap();
     }
     let st = r.w.wind_down_status();
@@ -152,8 +156,12 @@ fn a_row_whose_agent_ended_without_answering_reads_no_answer() {
     let st = r.w.wind_down_all().unwrap();
     for x in &st.rows {
         if x.key == r.key_a {
-            ib.reply(&inbox::Sender::new(&x.key, "alpha", "claude"), &x.delivery_id, "wound down")
-                .unwrap();
+            ib.reply(
+                &inbox::Sender::new(&x.key, "alpha", "claude"),
+                &x.delivery_id,
+                "wound down",
+            )
+            .unwrap();
         } else {
             // As the sweep and Irori's end close it.
             ib.skip(&x.key, &x.delivery_id, inbox::NOTE_RECIPIENT_GONE)
@@ -204,13 +212,12 @@ fn unpause_all_keeps_a_paused_devices_wind_downs() {
     let r = Rig::new();
     let ib = r.w.core.inbox();
     r.w.agents_pause_set(true).unwrap();
-    let ids: Vec<String> = r
-        .w
-        .wind_down_status()
-        .rows
-        .iter()
-        .map(|x| x.delivery_id.clone())
-        .collect();
+    let ids: Vec<String> =
+        r.w.wind_down_status()
+            .rows
+            .iter()
+            .map(|x| x.delivery_id.clone())
+            .collect();
     let st = r.w.wind_down_all().unwrap();
     let again: Vec<String> = st.rows.iter().map(|x| x.delivery_id.clone()).collect();
     assert_eq!(again, ids, "no second wind-down to an agent winding down");

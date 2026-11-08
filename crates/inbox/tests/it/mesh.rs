@@ -692,12 +692,15 @@ fn the_host_closes_a_wind_down_another_device_turned_off() {
         h.ib.get("dlv_w1").is_some() && h.ib.get("dlv_o1").is_some()
     });
     for did in ["dlv_w1", "dlv_o1"] {
-        f.row("user", kinds::DELIVERY_DECIDED, json!({"deliveryId": did, "choice": "cancel", "by": "user:dev2", "atDevice": "dev2"}));
+        f.row(
+            "user",
+            kinds::DELIVERY_DECIDED,
+            json!({"deliveryId": did, "choice": "cancel", "by": "user:dev2", "atDevice": "dev2"}),
+        );
     }
     eventually("the wind-down closes", || {
-        h.ib.get("dlv_w1").is_some_and(|d| {
-            d.state == st::SKIPPED && d.note == inbox::NOTE_WIND_DOWN_OFF
-        })
+        h.ib.get("dlv_w1")
+            .is_some_and(|d| d.state == st::SKIPPED && d.note == inbox::NOTE_WIND_DOWN_OFF)
     });
     std::thread::sleep(Duration::from_millis(50));
     h.want_state("dlv_o1", st::QUEUED);
