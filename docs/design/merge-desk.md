@@ -326,6 +326,18 @@ The result is fixed text plus the PR's URL, the card's ref and the holder's key.
 - **Merge or close.** The fold counts a `pr/` lease as not live once the PR card's `pr.state` reads MERGED or CLOSED, on every device, with no row needed. The claimer's device writes the release when it folds that row.
 - A new push doesn't end a claim.
 
+**As built (B3, card #1078).** Where the build differs from the text above:
+
+- The claim is `Board::claim_pr` (coord `pr_claim.rs`): it reads the live lease first, then `acquire`s under the agent's board key with a 30-minute lifetime. `pr_claim_resource(url)` lowercases a PR URL to `pr/<owner>/<name>/<n>`. `Board::pr_card_for(url)` finds the card from its creation row, the lowest id among duplicates and an open one before a cancelled one, so a claim on a withdrawn duplicate lands on the standing card and the "this PR's card is now <ref>" answer is never needed.
+- `ReviewClaim` is a `TaskRouter` method (`review_claim`), implemented in `service/review_claim.rs`. It returns fields (`ClaimAnswer`), and the tool (`tools/src/review_claim.rs`) words them in fixed text plus the PR's URL, the card's ref and the holder's name (letters, digits, space and `-_.` only, 40 at most). A refusal is fixed text too.
+- GitHub's author comes from a new `PrChecker::author` (the device's `gh pr view <url> --json author`). Where gh cannot answer, the claim is refused (fail closed). The author's person is refused by the card's creator, by the card's author login against the claimer's own login and against the claimer's `member.profile` login.
+- `confirm` says "signed off" only for a blocker on the PR card that the claimer's agent raised, for the claimer's own person, naming the PR's URL, resolved (not closed) by a `person:` row of that person.
+- The fold rule for a merged or closed PR is `Fold::live`: a `pr/` lease whose PR card's `pr.state` reads MERGED or CLOSED is not live, on every device. It is pruned like an expired lease, so no release row is written for it; the text's "the claimer's device writes the release" is not needed.
+- Renewal and the verdict release are `Board::claim_duties`, run by `sweep_boards_with` on each shared board. Renewal asks only whether the holder's agent is in the local roster. The verdict release matches reviews by the claimer's GitHub login (`own_github_login`, else the `member.profile` login), case-insensitively, newer than `acquired_at`.
+- `lease` and `release` refuse a `pr/` resource in the tool. The mirror path needs no refusal: a named lease has no repo, so it never mirrors.
+- The header sentences are `REVIEW_HEADER_ON` and `REVIEW_HEADER_OFF` in `inbox/src/fence.rs`. `fence`, `batch` and `fence_prompt` take `reviews_unasked`; `Inner` shares the `Inbox`'s flag so `rebuild` reads the setting as it is now. They go in a batch with a board attribute or a notice with reason `review` or `mentioned`. The `inbox` tool renders no header (it does not build a fence), so it carries no such sentence. The fixed MCP sentence is in `INSTRUCTIONS`.
+- A decline is `Board::decline_review`: a `task.comment` with `declines`, no `to`, and no wake; the tool then releases the claim if the caller held it.
+
 ### 12.4 The talk: PR comments
 
 Stephen: "hoping that the PR's themselves were where that took place." So:
