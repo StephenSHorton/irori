@@ -163,7 +163,8 @@ started again. While it is on, Stop here is hidden.
 - agents: Settings, Agents
 - agents.each-card: Start an agent for each card
 - agents.spaces: each shared space's switch for running your agents there
-- agents.model: what a new agent starts with: its model and effort
+- agents.model: what a new agent starts with: the model and effort for Light, Normal and Heavy cards \
+(a card's weight picks the row)
 - agents.names: agent name themes
 - agents.limits: limits: how many agents at once, idle limit, crashes and failed starts in a row, \
 whether agents may start agents

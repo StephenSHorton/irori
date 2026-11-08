@@ -445,6 +445,36 @@ pub struct CardSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(optional)]
     pub order: Option<crate::later::CardOrder>,
+    /// How heavy its work is (card #963), with the model and effort its
+    /// agent starts with; none is normal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[specta(optional)]
+    pub weight: Option<CardWeight>,
+}
+
+/// A card's weight as the card shows it (card #963): "heavy · Opus high:
+/// planning the split".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CardWeight {
+    /// light, normal or heavy.
+    pub level: String,
+    /// One line on why; empty when the person gave none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[specta(optional)]
+    pub reason: String,
+    /// Who set it: person, assistant (Irori's office assistant) or agent.
+    /// The person's is theirs: agents and the assistant don't change it.
+    pub set_by: String,
+    /// Who, by name: "you" for this person, "Irori" for the assistant, or
+    /// the agent's (or another member's) name.
+    pub by_name: String,
+    /// The model and effort the card's agent starts with, from its board's
+    /// Settings › Agents mapping.
+    pub model: String,
+    pub effort: String,
+    #[specta(type = ts::Time)]
+    pub at: GoTime,
 }
 
 /// A card's first wait whose agent is gone, on a card nobody holds (card
@@ -1050,10 +1080,17 @@ pub(crate) struct People {
     queue: irori_core::spawn_limits::SpawnQueue,
     /// Cards that wait for an agent here (queued or held).
     waiting: std::collections::HashSet<String>,
+    /// Each board's spawned-agent settings, by the id spawns read them by
+    /// (`""`: the private board), for a weight's model and effort (card
+    /// #963): read once per listing, the first time a card needs one.
+    spawn: std::cell::RefCell<HashMap<String, irori_core::spawn::SpawnSetting>>,
+    spawn_of: Option<SpawnOfFn>,
     /// Cards the person asked an agent for since their last failed
     /// request (card #717).
     asked_now: std::collections::HashSet<String>,
 }
+
+type SpawnOfFn = Box<dyn Fn(&str) -> irori_core::spawn::SpawnSetting>;
 
 /// The other people's colours on this screen (card #385): every person
 /// seen on a shared board, as a member or by their agents, with their own
@@ -1151,6 +1188,8 @@ impl Window {
         // under it (coord.is_person would lock again).
         let core = self.core.clone();
         p.owner = Some(Box::new(move |k: &str| core.is_owner(k)));
+        let core = self.core.clone();
+        p.spawn_of = Some(Box::new(move |b: &str| core.spawn_setting(b)));
         for l in c.coord().leases() {
             if !l.conflict.is_empty() {
                 p.conflicts.insert(l.holder.clone(), l.resource.clone());
@@ -1182,7 +1221,10 @@ impl Window {
             p.queue = c.spawn_queue();
             p.asked_now = co.spawn_asked();
             p.waiting.extend(p.queue.on_boards.iter().cloned());
-            if c.spawn_setting("").on {
+            let private = c.spawn_setting("");
+            let on = private.on;
+            p.spawn.get_mut().insert(String::new(), private);
+            if on {
                 if p.queue.held_until.is_some() {
                     let private: Vec<String> = co
                         .cards_to_spawn()
@@ -1651,6 +1693,40 @@ pub(crate) fn card_place(t: &Task, s: &irori_core::BoardSummary) -> (String, Str
     (tag.clone(), board.clone())
 }
 
+/// Card `t`'s weight as the card shows it (card #963), its model and
+/// effort read from board `board` (`""`: the private board).
+pub(crate) fn card_weight(t: &Task, board: &str, p: &People) -> Option<CardWeight> {
+    let w = t.weight.as_ref().filter(|w| !w.level.is_empty())?;
+    let by_name = match w.set_by.as_str() {
+        coord::SET_BY_PERSON if w.by == p.user || p.is_owner(&w.by) => "you".to_string(),
+        coord::SET_BY_ASSISTANT => "Irori".to_string(),
+        _ => p.name_of(&w.by),
+    };
+    let mut cache = p.spawn.borrow_mut();
+    let set = cache
+        .entry(board.to_string())
+        .or_insert_with(|| match &p.spawn_of {
+            Some(f) => f(board),
+            None => irori_core::spawn::SpawnSetting::default(),
+        });
+    let (model, effort) = set.pick(&w.level);
+    Some(CardWeight {
+        level: w.level.clone(),
+        reason: w.reason.clone(),
+        set_by: w.set_by.clone(),
+        by_name,
+        model: model.into(),
+        effort: effort.into(),
+        at: w.at,
+    })
+}
+
+/// Fills summary `s`'s weight from card `t`, by the board `s` is on: call
+/// it once `s.board` is set.
+pub(crate) fn weigh(s: &mut CardSummary, t: &Task, p: &People) {
+    s.weight = card_weight(t, &s.board, p);
+}
+
 /// The spawn queue's words for card t (card #450): a usage-limit hold
 /// first, then its place.
 fn queue_line(s: &mut CardSummary, t: &Task, p: &People) {
@@ -1732,6 +1808,9 @@ pub(crate) fn card_summary(t: &Task, p: &People) -> CardSummary {
         ..CardSummary::default()
     };
     queue_line(&mut s, t, p);
+    // The private board's mapping; a shared board's card is weighed again
+    // once its board is known (see [`weigh`]).
+    s.weight = card_weight(t, "", p);
     if let Some(r) = &t.rollup {
         s.progress = CardProgress {
             done: r.done,
@@ -2361,6 +2440,7 @@ impl Window {
                     s.board = b.board_id.clone();
                     (s.tag, s.space_board) = card_place(&t, b);
                     self.board_owner(&b.board_id, &t, &mut s);
+                    weigh(&mut s, &pt, &p);
                     s
                 }
             };
@@ -2453,6 +2533,7 @@ impl Window {
                 cs.board = s.board_id.clone();
                 (cs.tag, cs.space_board) = card_place(&t, &s);
                 self.board_owner(&s.board_id, &t, &mut cs);
+                weigh(&mut cs, &pt, p);
                 let mut last = t.updated_at;
                 if let Some(acts) = co.activity(&t.id)
                     && let Some(a) = acts.first()
@@ -2527,6 +2608,7 @@ impl Window {
             ..CardDetail::default()
         };
         self.board_detail(&t, &mut d);
+        weigh(&mut d.summary, &t, &p);
         d.summary.given_no = raw
             .as_ref()
             .is_some_and(|r| co.mine_to_serve(r) && r.given_said.as_ref().is_some_and(|y| !y.yes));

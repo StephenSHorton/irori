@@ -103,6 +103,11 @@ export const commands = {
 	boardRename: (id: string, title: string) => __TAURI_INVOKE<Task>("board_rename", { id, title }),
 	boardPin: (id: string, pinned: boolean) => __TAURI_INVOKE<null>("board_pin", { id, pinned }),
 	/**
+	 *  The person weighs a card (card #963): light, normal or heavy with an
+	 *  optional line on why, or "" to clear it.
+	 */
+	boardSetWeight: (id: string, level: string, reason: string) => __TAURI_INVOKE<Task>("board_set_weight", { id, level, reason }),
+	/**
 	 *  Pause on a card (card #207): its holders are stopped and their tools
 	 *  refused until Resume (`paused: false`). Returns who was told.
 	 */
@@ -662,6 +667,15 @@ export type AgentsChange = {
 	on?: boolean | null,
 	model?: string | null,
 	effort?: string | null,
+	/**
+	 *  A light or heavy card's model and effort (card #963); `""`, or the
+	 *  value the row works out by itself, stores nothing, so the row keeps
+	 *  following the board's normal pick and the defaults.
+	 */
+	lightModel?: string | null,
+	lightEffort?: string | null,
+	heavyModel?: string | null,
+	heavyEffort?: string | null,
 	idleMins?: number | null,
 	crashLimit?: number | null,
 	startTries?: number | null,
@@ -725,6 +739,16 @@ export type AgentsSettings = {
 	efforts: string[],
 	defaultModel: string,
 	defaultEffort: string,
+	/**
+	 *  What a light card's agent starts with (card #963): the board's
+	 *  pick, or what the light row works out by itself (Sonnet at no more
+	 *  than medium effort).
+	 */
+	lightModel: string,
+	lightEffort: string,
+	/**  A heavy card's: the board's pick, or Opus at no less than high. */
+	heavyModel: string,
+	heavyEffort: string,
 	/**
 	 *  The idle limit in minutes (card #456, sa-6): how long a spawned
 	 *  agent waits on an unanswered question before it hands off and goes.
@@ -1705,6 +1729,11 @@ export type CardSummary = {
 	later?: CardLater | null,
 	/**  The run of cards it is in, each after the one before (card #570). */
 	order?: CardOrder | null,
+	/**
+	 *  How heavy its work is (card #963), with the model and effort its
+	 *  agent starts with; none is normal.
+	 */
+	weight?: CardWeight | null,
 };
 
 /**  One entry of a card's thread. */
@@ -1783,6 +1812,34 @@ export type CardWaitOn = {
 	title?: string,
 	/**  A wait on an agent that is gone (card #485). */
 	gone?: boolean,
+};
+
+/**
+ *  A card's weight as the card shows it (card #963): "heavy · Opus high:
+ *  planning the split".
+ */
+export type CardWeight = {
+	/**  light, normal or heavy. */
+	level: string,
+	/**  One line on why; empty when the person gave none. */
+	reason?: string,
+	/**
+	 *  Who set it: person, assistant (Irori's office assistant) or agent.
+	 *  The person's is theirs: agents and the assistant don't change it.
+	 */
+	setBy: string,
+	/**
+	 *  Who, by name: "you" for this person, "Irori" for the assistant, or
+	 *  the agent's (or another member's) name.
+	 */
+	byName: string,
+	/**
+	 *  The model and effort the card's agent starts with, from its board's
+	 *  Settings › Agents mapping.
+	 */
+	model: string,
+	effort: string,
+	at: string,
 };
 
 /**  Where a card's work is (card #137), as its holder's device last saw it. */
@@ -3117,6 +3174,8 @@ export type Task = {
 	rollup?: Rollup,
 	pinned?: boolean,
 	pinRank?: number,
+	/**  Card #963: light, normal or heavy; none is normal. */
+	weight?: Weight,
 };
 
 /**  A task action's answer. */
@@ -3408,6 +3467,16 @@ export type WaitPr = {
 	 *  another member's agents, never the person's or their own agents'.
 	 */
 	approval?: boolean,
+};
+
+/**  coord.Weight (card #963). */
+export type Weight = {
+	level: string,
+	reason?: string,
+	/**  person, assistant or agent. */
+	setBy: string,
+	by: string,
+	at: string,
 };
 
 /**  One agent in a run. */

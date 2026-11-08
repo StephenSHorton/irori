@@ -445,6 +445,20 @@ crate::go_struct! {
 }
 
 crate::go_struct! {
+    /// task.weight (card #963): a card's weight, or `level: ""` to clear
+    /// it. Who set it is never taken from the row: the fold works it out
+    /// from the writer.
+    #[derive(Debug, Clone, Default, PartialEq)]
+    pub struct TaskWeightRow {
+        pub task_id: String = "taskId",
+        pub level: String = "level",
+        pub reason: String = "reason" "omit",
+        pub by: String = "by",
+        pub at: GoTime = "at",
+    }
+}
+
+crate::go_struct! {
     #[derive(Debug, Clone, Default, PartialEq)]
     pub struct TaskArchivedRow {
         pub task_id: String = "taskId",
