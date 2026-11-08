@@ -2268,8 +2268,8 @@ function subscribe(fn: () => void): () => void {
     sampleListeners.add(fn)
     return () => sampleListeners.delete(fn)
   }
-  const offBoard = Events.On(EventBoardChanged, fn)
-  const offDevices = Events.On(EventDevicesChanged, fn)
+  const offBoard = Events.OnShown(EventBoardChanged, fn)
+  const offDevices = Events.OnShown(EventDevicesChanged, fn)
   return () => {
     offBoard()
     offDevices()
@@ -2293,7 +2293,7 @@ function useFresh(
 
   useEffect(() => {
     if (!inbox || !inWails()) return
-    return Events.On(EventInboxChanged, () => void reload())
+    return Events.OnShown(EventInboxChanged, () => void reload())
   }, [inbox, reload])
 
   useEffect(() => {
@@ -2765,7 +2765,9 @@ export function createCardStore(
 // inbox change, and focus.
 function cardEvents(again: () => void): () => void {
   const offCards = subscribe(again)
-  const offInbox = inWails() ? Events.On(EventInboxChanged, again) : () => {}
+  const offInbox = inWails()
+    ? Events.OnShown(EventInboxChanged, again)
+    : () => {}
   const onFocus = () => {
     if (inWails()) again()
   }
