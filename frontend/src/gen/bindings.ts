@@ -2072,6 +2072,11 @@ export type DeskSettings = {
 	pollDevice?: string,
 	trusted?: string[],
 	perPrOk?: boolean,
+	/**
+	 *  Other people's agents don't review this repo's PRs (card #1077):
+	 *  off, it behaves like a solo repo. On (false here) when unset.
+	 */
+	reviewsOff?: boolean,
 	by?: string,
 	at?: string,
 };

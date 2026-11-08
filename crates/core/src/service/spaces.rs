@@ -1370,6 +1370,8 @@ pub(crate) enum ReadsLevel {
     Spaces,
     /// The hello's `tolerant` (card #652).
     Tolerant,
+    /// The hello's `reviews` (card #1077): PR cards.
+    Reviews,
 }
 
 impl ReadsLevel {
@@ -1377,6 +1379,7 @@ impl ReadsLevel {
         match self {
             ReadsLevel::Spaces => r.spaces,
             ReadsLevel::Tolerant => r.tolerant,
+            ReadsLevel::Reviews => r.reviews,
         }
     }
 }

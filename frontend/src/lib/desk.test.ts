@@ -19,6 +19,7 @@ const desk: RepoDesk = {
   pollDevice: "pc",
   trusted: ["StephenSHorton"],
   perPrOk: false,
+  reviewsOff: false,
 }
 
 let n = 100
@@ -146,6 +147,7 @@ describe("the window's DeskView (card #417)", () => {
         pollDevice: "pc",
         trusted: [],
         perPrOk: false,
+        reviewsOff: false,
         by: "user:pc",
         at: Z,
       },

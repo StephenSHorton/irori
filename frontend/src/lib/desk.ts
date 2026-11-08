@@ -53,6 +53,9 @@ export type RepoDesk = {
   // Kept only so a save writes the row back as it was (card #625: no
   // per-PR OKs any more).
   perPrOk: boolean
+  // Other people's agents don't review this repo's PRs: off, the repo
+  // behaves like a solo one (card #1077). Absent is on.
+  reviewsOff: boolean
   by?: string
   at?: string
 }
@@ -243,6 +246,7 @@ export function newDesk(repoKey: string, pollDevice: string): RepoDesk {
     pollDevice,
     trusted: [],
     perPrOk: false,
+    reviewsOff: false,
   }
 }
 
@@ -267,6 +271,7 @@ export function fromHost(v: DeskView): Desk {
       pollDevice: st.pollDevice ?? "",
       trusted: st.trusted ?? [],
       perPrOk: st.perPrOk ?? false,
+      reviewsOff: st.reviewsOff ?? false,
       by: st.by,
       at: time(st.at),
     },
@@ -307,6 +312,7 @@ function toHost(d: RepoDesk) {
     pollDevice: d.pollDevice,
     trusted: d.trusted,
     perPrOk: d.perPrOk,
+    reviewsOff: d.reviewsOff,
     by: "",
     at: "0001-01-01T00:00:00Z",
   }

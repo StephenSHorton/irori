@@ -53,6 +53,11 @@ crate::go_struct! {
         pub trusted: Vec<String> = "trusted" "omit",
         /// Kept so rows round-trip; nothing reads it (§10 question 12).
         pub per_pr_ok: bool = "perPrOk" "omit",
+        /// Other people's agents don't review this repo's PRs (merge desk
+        /// §12.2, card #1077): off, the repo behaves like a solo one, with
+        /// no PR card and today's private "PR #n" card. On when unset
+        /// (decision 52); older devices ignore it.
+        pub reviews_off: bool = "reviewsOff" "omit",
         pub by: String = "by",
         pub at: GoTime = "at",
     }
