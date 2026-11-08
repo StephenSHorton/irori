@@ -1707,7 +1707,9 @@ function Section({
   return (
     <section
       className={cn(
-        "grid gap-2.5 px-5 py-3.5",
+        // minmax(0,1fr): a wide row (a file chip) shrinks inside the card
+        // instead of widening the column past its edge.
+        "grid grid-cols-[minmax(0,1fr)] gap-2.5 px-5 py-3.5",
         !last && "border-b border-border"
       )}
     >
