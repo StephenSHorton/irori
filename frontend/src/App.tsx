@@ -954,6 +954,8 @@ export function App() {
   // A thread's space by name, for its Needs you row.
   const spaceName = (id: string) =>
     id ? boards.find((b) => b.boardId === id)?.name || "A space" : "Personal"
+  // (section "boards", "#boards", renders nothing: it is on its way to the
+  // picked space's page.)
   const fullScreen = narrow && !open && section.kind === "talk" && !!section.id
 
   return (
@@ -1123,9 +1125,8 @@ export function App() {
                   nameOf={name}
                   now={now}
                 />
-              ) : section.kind ===
-                "boards" ? // "#boards": on its way to the picked space's page.
-              null : section.kind === "storage" ? (
+              ) : section.kind === "boards" ? null : section.kind ===
+                "storage" ? (
                 <Scroll>
                   <StoragePage
                     tab={section.tab}
