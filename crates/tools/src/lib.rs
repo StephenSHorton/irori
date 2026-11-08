@@ -326,6 +326,21 @@ pub trait Backend: Send + Sync {
     fn agent_start(&self, _caller: &str, _task_id: &str) -> Result<String, String> {
         Err("agents can't start agents here".into())
     }
+    /// What `agent_start` would refuse before anything is made, for a
+    /// thread `caller` is about to open for a fresh agent (card #1027).
+    fn thread_agent_check(&self, _caller: &str) -> Result<(), String> {
+        Err("agents can't start agents here".into())
+    }
+    /// Gives thread `task_id` that `caller` opened to a fresh agent, gated
+    /// as `agent_start` is (card #1027): what happens next, or why not.
+    fn thread_new_agent(
+        &self,
+        _caller: &str,
+        _task_id: &str,
+        _watch: bool,
+    ) -> Result<String, String> {
+        Err("agents can't start agents here".into())
+    }
     /// Ends agent `key` for agent `caller`, with its hand-off: the card it
     /// was on, or why not.
     fn agent_end(&self, _caller: &str, _key: &str) -> Result<String, String> {
