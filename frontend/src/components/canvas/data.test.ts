@@ -399,7 +399,7 @@ describe("canvas layout on ELK (card #776)", () => {
 
   test("the sample board: no line runs through a card", async () => {
     const w = globalThis as { window?: unknown }
-    const had = "window" in w
+    const had = w.window !== undefined
     if (!had) w.window = { location: { search: "" } }
     let sample: CardSummary[]
     try {

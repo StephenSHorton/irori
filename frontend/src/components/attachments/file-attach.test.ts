@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 
-import { clipboardFiles, filesWithheld } from "./file-attach"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+
+import {
+  clipboardFiles,
+  filesWithheld,
+  PendingFiles,
+  withoutSent,
+  type FileAttach,
+} from "./file-attach"
 
 // A paste or drop as the webview hands it over: a file list and items.
 function transfer(files: File[], items: { kind: string; file?: File }[]) {
@@ -58,5 +67,34 @@ describe("filesWithheld (card #321)", () => {
     expect(filesWithheld(paste(["Files"], [shot]))).toBe(false)
     expect(filesWithheld(paste(["text/plain"], []))).toBe(false)
     expect(filesWithheld(null)).toBe(false)
+  })
+})
+
+describe("withoutSent (card #999)", () => {
+  test("a file that arrived during the upload stays", () => {
+    const a = new File(["a"], "a.png")
+    const late = new File(["p"], "late.png")
+    expect(withoutSent([a, late], [a])).toEqual([late])
+  })
+})
+
+describe("PendingFiles (card #999)", () => {
+  const doc = new File(["# hi"], "notes.md", { type: "text/markdown" })
+  const render = (files: File[], refused: string | null) =>
+    renderToStaticMarkup(
+      createElement(PendingFiles, {
+        attach: { files, refused, remove: () => {} } as unknown as FileAttach,
+      })
+    )
+
+  test("says why a file was refused beside the files still listed", () => {
+    const html = render([doc], "Add files once the reply is done.")
+    expect(html).toContain("notes.md")
+    expect(html).toContain("Add files once the reply is done.")
+  })
+
+  test("says why with no files listed, and nothing with neither", () => {
+    expect(render([], "No.")).toContain("No.")
+    expect(render([], null)).toBe("")
   })
 })

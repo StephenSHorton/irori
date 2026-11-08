@@ -17,14 +17,17 @@ import {
   parseHistory,
   replyText,
   sampleAnswer,
+  sampleFiles,
   serializeHistory,
   settled,
   stopAsking,
   splitDraft,
+  unreadableNote,
   DraftClose,
   DraftOpen,
   DraftOpenCheck,
   type AssistantEvent,
+  type AssistantFile,
   type ChatEntry,
   type Reply,
 } from "./assistant"
@@ -609,5 +612,116 @@ describe("what the chat changed (card #987)", () => {
     const back = parseHistory(serializeHistory(settled(r)))
     expect(back[1].changed).toBe(true)
     expect(historyFor(back).map((t) => t.text)).toEqual(["Done."])
+  })
+})
+
+describe("the chat's files (card #999)", () => {
+  const ref = (c: string, name: string, can_read?: boolean): AssistantFile => ({
+    sha256: c.repeat(64),
+    name,
+    size: 12,
+    mime: "image/png",
+    device: "d1",
+    ...(can_read === undefined ? {} : { can_read }),
+  })
+  test("files come back from saved history, as references", () => {
+    const es: ChatEntry[] = [
+      { role: "person", text: "look", files: [ref("a", "a.png", true)] },
+      { role: "assistant", text: "A cat." },
+    ]
+    expect(parseHistory(serializeHistory(es))).toEqual(es)
+  })
+  test("a message of files alone stays; one of neither doesn't", () => {
+    const es: ChatEntry[] = [
+      { role: "person", text: "", files: [ref("a", "a.png")] },
+    ]
+    expect(parseHistory(serializeHistory(es))).toEqual(es)
+    expect(
+      parseHistory(JSON.stringify([{ role: "person", text: "", files: [] }]))
+    ).toEqual([])
+  })
+  test("a malformed file is dropped, its message stays", () => {
+    const good = ref("b", "b.png")
+    const bad = [
+      null,
+      "x",
+      { ...good, sha256: "../../etc/passwd" },
+      { ...good, sha256: "B".repeat(64) },
+      { ...good, name: "" },
+      { ...good, name: 3 },
+      { ...good, size: "12" },
+      { ...good, size: -1 },
+      { ...good, device: undefined },
+    ]
+    expect(
+      parseHistory(
+        JSON.stringify([
+          { role: "person", text: "hi", files: [...bad, good, good] },
+          { role: "person", text: "still here", files: "nope" },
+          { role: "person", text: "", files: bad },
+        ])
+      )
+    ).toEqual([
+      { role: "person", text: "hi", files: [good] },
+      { role: "person", text: "still here" },
+    ])
+  })
+  test("only the person's messages carry files", () => {
+    expect(
+      parseHistory(
+        JSON.stringify([
+          { role: "assistant", text: "x", files: [ref("c", "c.png")] },
+          { role: "assistant", text: "", files: [ref("c", "c.png")] },
+        ])
+      )
+    ).toEqual([{ role: "assistant", text: "x" }])
+  })
+  test("a wrong kind of mime or can_read is left out, the file kept", () => {
+    expect(
+      parseHistory(
+        JSON.stringify([
+          {
+            role: "person",
+            text: "x",
+            files: [{ ...ref("d", "d.png"), mime: 3, can_read: "no" }],
+          },
+        ])
+      )[0].files
+    ).toEqual([
+      { sha256: "d".repeat(64), name: "d.png", size: 12, device: "d1" },
+    ])
+  })
+  test("historyFor passes files, and a turn of files alone", () => {
+    const files = [ref("a", "a.png")]
+    expect(
+      historyFor([
+        { role: "person", text: "", files },
+        { role: "assistant", text: "Can't read it.", note: true },
+        { role: "person", text: "and?" },
+      ])
+    ).toEqual([
+      { role: "person", text: "", files },
+      { role: "person", text: "and?" },
+    ])
+  })
+  test("the note names what can't be read, and only that", () => {
+    expect(
+      unreadableNote([
+        ref("a", "a.png", true),
+        ref("b", "report.docx", false),
+        ref("c", "old.zip", false),
+        ref("d", "older.png"),
+      ])
+    ).toBe(
+      "Can't read report.docx, old.zip: the assistant reads pictures, PDFs and text files."
+    )
+    expect(unreadableNote([ref("a", "a.png", true)])).toBe("")
+  })
+  test("the preview's stand-in never claims to have read a file", () => {
+    const { text } = sampleFiles("", [ref("a", "a.png", true)])
+    expect(text).toContain("nothing read a.png")
+    expect(sampleFiles("", [ref("b", "b.docx", false)]).text).not.toContain(
+      "b.docx"
+    )
   })
 })

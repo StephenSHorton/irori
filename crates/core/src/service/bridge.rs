@@ -161,6 +161,18 @@ impl Services {
         else {
             return;
         };
+        // A review ask is for a PR the card links: a row naming any other
+        // is dropped (§12.12 B1b). The sender links the PR just before it
+        // asks, so the link can come in the same sync and not be folded
+        // yet: fold what the log holds before dropping it.
+        let t = if ev.kind == kinds::REVIEW_REQUESTED && !links_pr(&t, &f.pr) {
+            match co.catch_up().ok().and_then(|()| co.get_task(&f.task_id)) {
+                Some(t) if links_pr(&t, &f.pr) => t,
+                _ => return,
+            }
+        } else {
+            t
+        };
         let who = self.board_person_name(b, &person);
         // A comment (a blocker reply too) naming this person: a desktop
         // notification on each of their devices that opens the card at the
@@ -794,6 +806,14 @@ fn mention_plan(ev: &Event, f: &RowFields, t: &Task, to: Vec<String>) -> Option<
     })
 }
 
+/// Whether the card links the PR (by its exact URL): a review ask for any
+/// other is refused on receipt.
+fn links_pr(t: &Task, pr: &str) -> bool {
+    t.links
+        .iter()
+        .any(|l| coord::pr_link(l).is_some() && l.reference.trim() == pr.trim())
+}
+
 /// A card row's plan: a comment, an assignment, a blocker change, a review
 /// request or a release request.
 fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<Plan> {
@@ -802,7 +822,8 @@ fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<
     let kind = match ev.kind.as_str() {
         kinds::TASK_COMMENT if release => row_kind::LEASE,
         kinds::TASK_COMMENT => row_kind::COMMENT,
-        kinds::TASK_ASSIGNED | kinds::REVIEW_REQUESTED => row_kind::ASSIGN,
+        kinds::TASK_ASSIGNED => row_kind::ASSIGN,
+        kinds::REVIEW_REQUESTED => row_kind::REVIEW,
         kinds::TASK_STATUS if f.blocker.is_none() => return None,
         _ => row_kind::BLOCKER,
     };
@@ -850,7 +871,7 @@ fn row_plan(co: &Coord, me: &str, ev: &Event, f: RowFields, t: &Task) -> Option<
             kinds::TASK_COMMENT => f.text,
             kinds::TASK_ASSIGNED => format!("{name} assigned you {title}."),
             kinds::REVIEW_REQUESTED => format!(
-                "{name} asks you to review {} for {title} ({short}). Review it with your own gh; Irori never posts reviews or merges.",
+                "{name} asks you to review {0} for {title} ({short}). Read it with `gh pr view {0} --comments`, review it with your own gh and answer on the PR by its URL ({0}); Irori never posts reviews or merges.",
                 f.pr
             ),
             kinds::BLOCKER_OPTION => {
@@ -1044,5 +1065,25 @@ impl Services {
             ..Default::default()
         }));
         out
+    }
+}
+
+#[cfg(test)]
+mod links_pr_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_linked_pr_passes() {
+        let pr = "https://github.com/o/r/pull/7";
+        let mut t = Task::default();
+        t.links.push(coord::Link {
+            kind: "url".into(),
+            reference: pr.into(),
+            ..coord::Link::default()
+        });
+        assert!(links_pr(&t, pr));
+        assert!(!links_pr(&t, "https://github.com/o/r/pull/8"));
+        assert!(!links_pr(&t, ""));
+        assert!(!links_pr(&Task::default(), pr));
     }
 }
