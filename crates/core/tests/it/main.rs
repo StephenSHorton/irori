@@ -32,6 +32,7 @@ mod expiry;
 mod five_cores;
 mod helpertree;
 mod huddle;
+mod huddle_title;
 mod invites;
 mod lockfile;
 mod migrate;

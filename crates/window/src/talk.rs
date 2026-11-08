@@ -135,6 +135,8 @@ pub struct TalkCall {
     /// On an end: the huddle has a transcript (#656), which
     /// talk_call_transcript reads.
     pub transcript: bool,
+    /// The huddle's title (card #1043); empty when it has none.
+    pub title: String,
 }
 
 /// A huddle's transcript (#656), as the person reads it.
@@ -153,6 +155,13 @@ pub struct TalkTranscript {
     pub ended: bool,
     /// How long it ran, once ended; 0 before.
     pub duration_ms: i64,
+    /// The huddle's title (card #1043); empty when it has none.
+    pub title: String,
+    /// Whether an assistant proposed the title, not a person.
+    pub title_by_assistant: bool,
+    /// The huddle is over as this device can tell (card #1043): an end
+    /// mark, or a crash that left the call quiet. False when unsure.
+    pub over: bool,
     /// What was said, oldest first.
     pub lines: Vec<TalkTranscriptLine>,
 }
@@ -294,6 +303,7 @@ impl Window {
             .cloned()
             .zip(self.core.talk_names(&keys))
             .collect();
+        let talk = self.core.talk();
         Ok(ps
             .into_iter()
             .map(|p| TalkPost {
@@ -307,6 +317,7 @@ impl Window {
                 card: p.card,
                 attachments: p.files.iter().map(crate::coord_ref).collect(),
                 call: p.call.map(|c| TalkCall {
+                    title: talk.call_title(&c.call_id).unwrap_or_default(),
                     call_id: c.call_id,
                     op: c.op,
                     duration_ms: c.duration_ms,
@@ -380,6 +391,10 @@ impl Window {
             .as_ref()
             .and_then(|c| c.start_at)
             .map(|at| at.unix_milli_value());
+        let (title, title_by_assistant) = info
+            .as_ref()
+            .map(|c| (c.title.clone(), c.title_by_assistant))
+            .unwrap_or_default();
         let end = info.and_then(|c| c.end).map(|m| m.duration_ms);
         Ok(TalkTranscript {
             call_id: id.to_string(),
@@ -389,6 +404,9 @@ impl Window {
             started_at_ms: start,
             ended: end.is_some(),
             duration_ms: end.unwrap_or(0),
+            title,
+            title_by_assistant,
+            over: self.core.call_over(id),
             lines: lines
                 .into_iter()
                 .map(|p| {

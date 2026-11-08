@@ -117,6 +117,7 @@ test("clean keeps what it knows and defaults the rest", () => {
 // Card #1067: "system" follows the computer's flip with no pane open.
 test("followSystem re-applies a system choice when the computer flips", () => {
   const g = globalThis as unknown as Record<string, unknown>
+  const had = { window: "window" in g, document: "document" in g }
   const saved = { window: g.window, document: g.document }
   let dark = false
   const subs = new Set<() => void>()
@@ -156,7 +157,9 @@ test("followSystem re-applies a system choice when the computer flips", () => {
     stop()
     expect(subs.size).toBe(0)
   } finally {
-    g.window = saved.window
-    g.document = saved.document
+    for (const k of ["window", "document"] as const) {
+      if (had[k]) g[k] = saved[k]
+      else delete g[k]
+    }
   }
 })
