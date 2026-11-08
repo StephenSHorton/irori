@@ -494,6 +494,31 @@ impl Job {
         job.timeout = REWRITES_TIMEOUT;
         Ok(job)
     }
+
+    /// A huddle's held session (card #1046): no tools, the chat's model
+    /// and effort, `system` appended, in its own folder under the
+    /// assistant's (so presence leaves it off the roster, and two huddles
+    /// never swap each other's system prompt). `timeout` is per look.
+    pub fn huddle(core: &irori_core::Core, call: &str, system: &str) -> Result<Job, String> {
+        if !valid_call(call) {
+            return Err(format!("not a huddle id: {call:?}"));
+        }
+        let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        let setting = core.spawn_setting("");
+        Ok(Job {
+            dir: abs(core.assistant_dir().join(HUDDLES_DIR).join(call)),
+            data_dir: abs(core.data_dir().to_path_buf()),
+            secret: String::new(),
+            exe: PathBuf::new(),
+            system: system.into(),
+            prompt: String::new(),
+            model: setting.assistant_model().into(),
+            effort: Some(setting.assistant_effort().into()),
+            claude_config_dir: dev_claude_config_dir(),
+            timeout: LOOK_TIMEOUT,
+            tools: false,
+        })
+    }
 }
 
 /// The rewriting turns' folder under the assistant's (card #981).
@@ -677,8 +702,13 @@ pub fn prepare(job: &Job) -> Result<(), String> {
 
 /// The command for `job` with `claude` at `bin`.
 pub fn command(bin: &Path, job: &Job) -> Command {
+    command_with(bin, job, job_args(job))
+}
+
+/// The command for `job` with `claude` at `bin` and these arguments.
+fn command_with(bin: &Path, job: &Job, args: Vec<String>) -> Command {
     let mut cmd = Command::new(bin);
-    cmd.args(job_args(job))
+    cmd.args(args)
         .current_dir(&job.dir)
         .env_remove("CLAUDE_CODE_PLUGIN_DIRS")
         .env_remove("CLAUDECODE")
@@ -1017,6 +1047,498 @@ impl Runner {
     }
 }
 
+// ---- held sessions (card #1046) ---------------------------------------------
+
+/// The held huddle sessions' folder under the assistant's.
+pub const HUDDLES_DIR: &str = "huddles";
+/// How long one look on a held session may take before it is killed
+/// (docs/design/call-agents.md §7: a 60 s watchdog per look).
+pub const LOOK_TIMEOUT: Duration = Duration::from_secs(60);
+/// The most held sessions at once: one per huddle the person is in, so a
+/// few is plenty, and a runaway can't start dozens of processes.
+pub const MAX_HELD: usize = 4;
+/// How long a closing session gets to end on its own after its stdin
+/// closes, before it is killed.
+const CLOSE_GRACE: Duration = Duration::from_secs(3);
+
+/// A huddle id fit for a folder name: a callId is 32 hex.
+fn valid_call(call: &str) -> bool {
+    !call.is_empty()
+        && call.len() <= 64
+        && call
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// A held session's arguments: a no-tools job's, reading one user message
+/// per stdin line (`--input-format stream-json`), without partial
+/// messages: the `result` line carries the whole reply (measured on
+/// Claude Code 2.1.319, #1046). No MCP config and no secret, ever.
+pub fn held_args(job: &Job) -> Vec<String> {
+    let no_tools = Job {
+        tools: false,
+        ..job.clone()
+    };
+    let mut out = job_args(&no_tools);
+    out.retain(|a| a != "--include-partial-messages");
+    let at = out.iter().position(|a| a == "-p").map_or(0, |i| i + 1);
+    out.splice(
+        at..at,
+        ["--input-format".to_string(), "stream-json".to_string()],
+    );
+    out
+}
+
+/// One user message on a held session's stdin: one line of JSON.
+pub fn user_message(text: &str) -> String {
+    let mut line = serde_json::json!({
+        "type": "user",
+        "message": { "role": "user", "content": text },
+    })
+    .to_string();
+    line.push('\n');
+    line
+}
+
+/// What a held session's stdout line says, when it is a turn's `result`:
+/// its reply, cost and context, or why it failed. Other lines (`system`,
+/// `assistant`, `rate_limit_event`) are None. `ms` is left 0: the caller
+/// times the turn as the person waits for it.
+pub fn held_result(line: &str) -> Option<Result<irori_core::Look, String>> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    if v.get("type")?.as_str()? != "result" {
+        return None;
+    }
+    let is_error = v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false);
+    let subtype = v.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
+    let text = v.get("result").and_then(|s| s.as_str()).unwrap_or("");
+    if is_error || subtype != "success" {
+        let reason = if text.trim().is_empty() {
+            subtype
+        } else {
+            text
+        };
+        return Some(Err(failure(reason)));
+    }
+    let n = |u: &serde_json::Value, k: &str| u.get(k).and_then(|x| x.as_u64()).unwrap_or(0);
+    let null = serde_json::Value::Null;
+    let u = v.get("usage").unwrap_or(&null);
+    let context = n(u, "input_tokens")
+        + n(u, "cache_creation_input_tokens")
+        + n(u, "cache_read_input_tokens")
+        + n(u, "output_tokens");
+    // Per turn; `total_cost_usd` adds up over the session.
+    let cost_usd = v
+        .get("model_usage_since_last_result")
+        .and_then(|m| m.as_object())
+        .map(|m| {
+            m.values()
+                .filter_map(|x| x.get("costUSD").and_then(|c| c.as_f64()))
+                .sum()
+        })
+        .unwrap_or(0.0);
+    Some(Ok(irori_core::Look {
+        text: text.to_string(),
+        context,
+        cost_usd,
+        ms: 0,
+    }))
+}
+
+/// One held `claude -p` process.
+struct Held {
+    child: Mutex<Option<Child>>,
+    stdin: Mutex<Option<std::process::ChildStdin>>,
+    /// Its stdout lines, from the reader thread; disconnected at EOF.
+    lines: Mutex<std::sync::mpsc::Receiver<String>>,
+    /// One turn at a time: a second look waits, so it never reads the
+    /// first's result.
+    turn: Mutex<()>,
+    /// Killed or found dead: every later turn is gone.
+    dead: std::sync::atomic::AtomicBool,
+    errs: Arc<Mutex<Vec<u8>>>,
+    /// The thread reading stderr into `errs`, joined once it has ended.
+    err_reader: Mutex<Option<std::thread::JoinHandle<()>>>,
+    timeout: Duration,
+    dir: PathBuf,
+}
+
+impl Held {
+    fn kill(&self) {
+        self.dead.store(true, Ordering::SeqCst);
+        if let Some(c) = self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            kill_tree(c);
+        }
+    }
+
+    /// Whether the process has ended.
+    fn exited(&self) -> bool {
+        self.dead.load(Ordering::SeqCst)
+            || self
+                .child
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_mut()
+                .is_none_or(|c| !matches!(c.try_wait(), Ok(None)))
+    }
+
+    /// Waits for the ended process and returns what stderr said, all of
+    /// it: for a failure.
+    fn reap(&self) -> String {
+        if let Some(c) = self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            let _ = c.wait();
+        }
+        if let Some(h) = self
+            .err_reader
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            let _ = h.join();
+        }
+        let e = self.errs.lock().unwrap_or_else(|e| e.into_inner());
+        String::from_utf8_lossy(&e).trim().to_string()
+    }
+
+    /// One turn: writes `text`, reads to its `result`.
+    fn turn(&self, text: &str) -> Result<irori_core::Look, irori_core::LookError> {
+        use irori_core::LookError::{Failed, Gone};
+        use std::sync::mpsc::RecvTimeoutError;
+        let _one = self.turn.lock().unwrap_or_else(|e| e.into_inner());
+        if self.exited() {
+            self.dead.store(true, Ordering::SeqCst);
+            return Err(Gone("the session had stopped".into()));
+        }
+        let lines = self.lines.lock().unwrap_or_else(|e| e.into_inner());
+        // Nothing of an earlier turn is read as this one's.
+        while lines.try_recv().is_ok() {}
+        let start = std::time::Instant::now();
+        {
+            let mut w = self.stdin.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(w) = w.as_mut() else {
+                return Err(Gone("the session is closing".into()));
+            };
+            if let Err(e) = w
+                .write_all(user_message(text).as_bytes())
+                .and_then(|_| w.flush())
+            {
+                self.kill();
+                return Err(Gone(format!("the session had stopped: {e}")));
+            }
+        }
+        let deadline = start + self.timeout;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match lines.recv_timeout(left) {
+                Ok(line) => match held_result(&line) {
+                    Some(Ok(mut look)) => {
+                        look.ms = start.elapsed().as_millis() as u64;
+                        return Ok(look);
+                    }
+                    Some(Err(why)) => return Err(Failed(why)),
+                    None => continue,
+                },
+                Err(RecvTimeoutError::Timeout) => {
+                    self.kill();
+                    return Err(Failed(TOO_LONG.into()));
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    // It ended mid-turn: say why, and the next look finds
+                    // it gone and starts again.
+                    self.dead.store(true, Ordering::SeqCst);
+                    let e = self.reap();
+                    return Err(Failed(failure(if e.is_empty() {
+                        "it stopped"
+                    } else {
+                        &e
+                    })));
+                }
+            }
+        }
+    }
+
+    /// Ends it: closes stdin so Claude Code exits on its own, kills it if it
+    /// hasn't within [`CLOSE_GRACE`], then removes its folder.
+    fn end(&self, grace: Duration) {
+        drop(self.stdin.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let until = std::time::Instant::now() + grace;
+        while !self.exited() && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        self.kill();
+        if let Some(c) = self
+            .child
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            let _ = c.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// The held huddle sessions (card #1046): one long-lived `claude -p
+/// --input-format stream-json` per huddle, its own pool apart from the
+/// chat's [`MAX_RUNS`]. Each turn writes one message and reads to its
+/// `result`; the process stays up after it, unlike a [`Runner`] run.
+#[derive(Default)]
+pub struct HeldPool {
+    held: Mutex<HashMap<String, Arc<Held>>>,
+    closed: std::sync::atomic::AtomicBool,
+}
+
+impl HeldPool {
+    pub fn new() -> HeldPool {
+        HeldPool::default()
+    }
+
+    /// Starts huddle `call`'s session from `job` with `claude` at `bin`,
+    /// and runs `first` as its first turn (§7's priming turn). An open
+    /// session of `call` is ended first.
+    pub fn open(
+        &self,
+        bin: Result<PathBuf, String>,
+        job: Result<Job, String>,
+        call: &str,
+        first: &str,
+    ) -> Result<irori_core::Look, irori_core::LookError> {
+        use irori_core::LookError::Failed;
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(Failed(STOPPED.into()));
+        }
+        self.close_now(call);
+        let bin = bin.map_err(|_| Failed(NO_CLAUDE.into()))?;
+        let job = job.map_err(|e| Failed(failure(&e)))?;
+        if self.count() >= MAX_HELD {
+            return Err(Failed(
+                "The assistant is already in as many huddles as it can be.".into(),
+            ));
+        }
+        prepare(&job).map_err(|e| Failed(failure(&e)))?;
+        let mut child = match command_with(&bin, &job, held_args(&job)).spawn() {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Failed(NO_CLAUDE.into()));
+            }
+            Err(e) => {
+                return Err(Failed(failure(&format!("couldn't start Claude Code: {e}"))));
+            }
+        };
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        if let Some(out) = stdout {
+            std::thread::spawn(move || {
+                for line in BufReader::new(out).lines() {
+                    let Ok(line) = line else { break };
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        let errs: Arc<Mutex<Vec<u8>>> = Arc::default();
+        let err_reader = stderr.map(|mut r| {
+            let errs = errs.clone();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                while let Ok(n) = r.read(&mut buf) {
+                    if n == 0 {
+                        break;
+                    }
+                    let mut e = errs.lock().unwrap_or_else(|e| e.into_inner());
+                    let room = STDERR_CAP.saturating_sub(e.len());
+                    e.extend_from_slice(&buf[..n.min(room)]);
+                }
+            })
+        });
+        let held = Arc::new(Held {
+            child: Mutex::new(Some(child)),
+            stdin: Mutex::new(stdin),
+            lines: Mutex::new(rx),
+            turn: Mutex::new(()),
+            dead: Default::default(),
+            errs,
+            err_reader: Mutex::new(err_reader),
+            timeout: job.timeout,
+            dir: job.dir.clone(),
+        });
+        {
+            let mut all = self.held.lock().unwrap_or_else(|e| e.into_inner());
+            if self.closed.load(Ordering::SeqCst) {
+                drop(all);
+                held.end(Duration::ZERO);
+                return Err(Failed(STOPPED.into()));
+            }
+            all.insert(call.to_string(), held.clone());
+        }
+        match held.turn(first) {
+            Ok(look) => Ok(look),
+            Err(e) => {
+                // A session that can't take its priming turn is no use. One
+                // that ended at once (signed out, a bad flag) says why on
+                // stderr.
+                self.take(call);
+                let why = match e {
+                    irori_core::LookError::Gone(why) => {
+                        held.kill();
+                        let err = held.reap();
+                        if err.is_empty() {
+                            failure(&why)
+                        } else {
+                            failure(&err)
+                        }
+                    }
+                    irori_core::LookError::Failed(why) => why,
+                };
+                held.end(Duration::ZERO);
+                Err(Failed(why))
+            }
+        }
+    }
+
+    /// One look on huddle `call`'s session: `message`, to its result.
+    pub fn look(
+        &self,
+        call: &str,
+        message: &str,
+    ) -> Result<irori_core::Look, irori_core::LookError> {
+        let held = self
+            .held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(call)
+            .cloned();
+        let Some(held) = held else {
+            return Err(irori_core::LookError::Gone(
+                "this huddle has no session".into(),
+            ));
+        };
+        held.turn(message)
+    }
+
+    /// Ends huddle `call`'s session, in the background.
+    pub fn close(&self, call: &str) {
+        if let Some(h) = self.take(call) {
+            std::thread::spawn(move || h.end(CLOSE_GRACE));
+        }
+    }
+
+    /// Ends huddle `call`'s session and waits for it.
+    fn close_now(&self, call: &str) {
+        if let Some(h) = self.take(call) {
+            h.end(CLOSE_GRACE);
+        }
+    }
+
+    fn take(&self, call: &str) -> Option<Arc<Held>> {
+        self.held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(call)
+    }
+
+    /// Ends every session and starts none after (the app is quitting).
+    pub fn shutdown(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        let all: Vec<Arc<Held>> = self
+            .held
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain()
+            .map(|(_, h)| h)
+            .collect();
+        for h in all {
+            h.end(Duration::ZERO);
+        }
+    }
+
+    /// How many sessions are held.
+    pub fn count(&self) -> usize {
+        self.held.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+}
+
+/// Makes `claude`'s path for a held session (the found one; a fake in
+/// tests).
+pub type BinFn = Box<dyn Fn() -> Result<PathBuf, String> + Send + Sync>;
+/// Makes a held session's job for `(call, system)`.
+pub type HeldJobFn = Box<dyn Fn(&str, &str) -> Result<Job, String> + Send + Sync>;
+
+/// The Core's [`irori_core::HuddleRunner`] on this computer: a
+/// [`HeldPool`] with how to find `claude` and make each session's job.
+pub struct HeldRunner {
+    pool: HeldPool,
+    bin: BinFn,
+    job: HeldJobFn,
+}
+
+impl HeldRunner {
+    /// A runner whose sessions run `bin()` with the jobs `job` makes.
+    pub fn with(bin: BinFn, job: HeldJobFn) -> HeldRunner {
+        HeldRunner {
+            pool: HeldPool::new(),
+            bin,
+            job,
+        }
+    }
+
+    /// This device's: the `claude` found on it, each job read from `core`
+    /// as it opens (so a model change applies to the next session).
+    pub fn for_core(core: &Arc<irori_core::Core>) -> HeldRunner {
+        let core = Arc::downgrade(core);
+        HeldRunner::with(
+            Box::new(find_claude),
+            Box::new(move |call: &str, system: &str| match core.upgrade() {
+                Some(c) => Job::huddle(&c, call, system),
+                None => Err("Irori is closing".into()),
+            }),
+        )
+    }
+
+    /// Ends every session (the app is quitting).
+    pub fn shutdown(&self) {
+        self.pool.shutdown();
+    }
+
+    /// How many sessions are held.
+    pub fn count(&self) -> usize {
+        self.pool.count()
+    }
+}
+
+impl irori_core::HuddleRunner for HeldRunner {
+    fn open(
+        &self,
+        call: &str,
+        system: &str,
+        first: &str,
+    ) -> Result<irori_core::Look, irori_core::LookError> {
+        self.pool
+            .open((self.bin)(), (self.job)(call, system), call, first)
+    }
+
+    fn look(&self, call: &str, message: &str) -> Result<irori_core::Look, irori_core::LookError> {
+        self.pool.look(call, message)
+    }
+
+    fn close(&self, call: &str) {
+        self.pool.close(call);
+    }
+}
+
 impl crate::Window {
     /// Asks the assistant `text` after `history` (card #783); events come
     /// to `sink`.
@@ -1055,6 +1577,13 @@ impl crate::Window {
         self.names.shutdown();
         self.weighs.shutdown();
         self.rewrites.shutdown();
+        self.huddles.shutdown();
+    }
+
+    /// The held huddle sessions (card #1046), for the Core
+    /// (`Core::set_huddle_runner`).
+    pub fn huddle_runner(&self) -> Arc<HeldRunner> {
+        self.huddles.clone()
     }
 
     /// One turn that names a thread (card #782), on its own runner so it
@@ -1510,5 +2039,312 @@ mod tests {
         assert_eq!(got, Err(SIGNED_OUT.to_string()));
         let none = Runner::new().run_once(Err("no".into()), Ok(names_job(d.path())));
         assert_eq!(none, Err(NO_CLAUDE.to_string()));
+    }
+
+    // ---- held sessions (card #1046) ----
+
+    fn held_job(dir: &Path, timeout: Duration) -> Job {
+        Job {
+            dir: dir.join("assistant").join(HUDDLES_DIR).join("c0ffee"),
+            data_dir: dir.to_path_buf(),
+            secret: String::new(),
+            exe: PathBuf::new(),
+            system: "You are Juno.".into(),
+            prompt: String::new(),
+            model: "sonnet".into(),
+            effort: Some("low".into()),
+            claude_config_dir: None,
+            timeout,
+            tools: false,
+        }
+    }
+
+    #[test]
+    fn a_held_session_reads_stream_json_with_no_tools_and_no_secret() {
+        let mut job = held_job(Path::new("/data"), LOOK_TIMEOUT);
+        // Even a job that asks for tools gets none held.
+        job.tools = true;
+        let a = held_args(&job);
+        assert_eq!(&a[..3], ["-p", "--input-format", "stream-json"]);
+        let has = |f: &str| a.iter().any(|x| x == f);
+        assert!(has("--output-format") && has("--verbose"));
+        assert!(has("--no-session-persistence") && has("--strict-mcp-config"));
+        assert!(!has("--mcp-config"), "{a:?}");
+        assert!(!has("--allowedTools"), "{a:?}");
+        assert!(!has("--include-partial-messages"), "{a:?}");
+        let i = a.iter().position(|x| x == "--tools").unwrap();
+        assert_eq!(a[i + 1], "");
+        let i = a.iter().position(|x| x == "--model").unwrap();
+        assert_eq!(&a[i + 1..i + 4], ["sonnet", "--effort", "low"]);
+        assert!(
+            !a.iter()
+                .any(|x| x.contains("s3cret") || x.contains("IRORI_ASSISTANT_SECRET"))
+        );
+    }
+
+    #[test]
+    fn a_user_message_is_one_line_of_json() {
+        let m = user_message("line one\nline \"two\"");
+        assert!(m.ends_with('\n'));
+        assert_eq!(m.matches('\n').count(), 1, "{m:?}");
+        let v: serde_json::Value = serde_json::from_str(m.trim()).unwrap();
+        assert_eq!(v["type"], "user");
+        assert_eq!(v["message"]["role"], "user");
+        assert_eq!(v["message"]["content"], "line one\nline \"two\"");
+    }
+
+    #[test]
+    fn a_result_line_gives_the_reply_its_cost_and_context() {
+        // Trimmed from a real held session (Claude Code 2.1.319, #1046).
+        let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"<<title>>Release<</title>>","duration_ms":1029,"total_cost_usd":0.00152699,"usage":{"input_tokens":2,"cache_creation_input_tokens":68,"cache_read_input_tokens":6569,"output_tokens":88},"model_usage_since_last_result":{"claude-haiku-5-5":{"costUSD":0.00012349}}}"#;
+        let look = held_result(line).unwrap().unwrap();
+        assert_eq!(look.text, "<<title>>Release<</title>>");
+        assert_eq!(look.context, 2 + 68 + 6569 + 88);
+        assert!(
+            (look.cost_usd - 0.00012349).abs() < 1e-12,
+            "{}",
+            look.cost_usd
+        );
+        assert!(held_result(r#"{"type":"system","subtype":"init"}"#).is_none());
+        assert!(held_result("not json").is_none());
+        let out = held_result(
+            r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#,
+        );
+        assert_eq!(out, Some(Err(SIGNED_OUT.to_string())));
+    }
+
+    #[test]
+    fn a_huddle_id_must_be_fit_for_a_folder() {
+        assert!(valid_call("0123456789abcdef0123456789abcdef"));
+        for bad in ["", "../x", "a/b", "a b", &"x".repeat(65)] {
+            assert!(!valid_call(bad), "{bad:?}");
+        }
+    }
+
+    /// A fake held `claude`: logs its arguments (one line per start) and
+    /// every message, writes its pid, and answers each message with
+    /// `reply.txt` (`@N@` is the message's number), until stdin ends. A
+    /// `die` file makes it exit on the next message, a `hang` file makes it
+    /// answer nothing.
+    #[cfg(unix)]
+    fn fake_held(dir: &Path, context: u64) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        write_reply(dir, context);
+        let d = dir.display();
+        let p = dir.join("claude");
+        std::fs::write(
+            &p,
+            format!(
+                "#!/bin/sh\n\
+                 echo \"$@\" >> '{d}/argv.txt'\n\
+                 echo $$ > '{d}/pid'\n\
+                 n=0\n\
+                 while IFS= read -r line; do\n\
+                   n=$((n+1))\n\
+                   printf '%s\\n' \"$line\" >> '{d}/in.txt'\n\
+                   if [ -f '{d}/die' ]; then rm -f '{d}/die'; exit 1; fi\n\
+                   if [ -f '{d}/hang' ]; then exec sleep 30; fi\n\
+                   sed \"s/@N@/$n/g\" '{d}/reply.txt'\n\
+                 done\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    #[cfg(unix)]
+    fn write_reply(dir: &Path, context: u64) {
+        std::fs::write(
+            dir.join("reply.txt"),
+            format!(
+                "{{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"s\"}}\n\
+                 {{\"type\":\"assistant\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"look @N@\"}}]}}}}\n\
+                 {{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"look @N@\",\"usage\":{{\"input_tokens\":3,\"cache_creation_input_tokens\":10,\"cache_read_input_tokens\":{context},\"output_tokens\":7}},\"model_usage_since_last_result\":{{\"m\":{{\"costUSD\":0.0001}}}}}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[cfg(unix)]
+    fn lines_of(p: &Path) -> Vec<String> {
+        std::fs::read_to_string(p)
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect()
+    }
+
+    /// The messages the fake got, as their text.
+    #[cfg(unix)]
+    fn messages(dir: &Path) -> Vec<String> {
+        lines_of(&dir.join("in.txt"))
+            .iter()
+            .map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                v["message"]["content"].as_str().unwrap().to_string()
+            })
+            .collect()
+    }
+
+    #[cfg(unix)]
+    fn gone(e: &irori_core::LookError) -> bool {
+        matches!(e, irori_core::LookError::Gone(_))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_held_session_primes_then_answers_each_look_on_one_process() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_held(d.path(), 6000);
+        let job = held_job(d.path(), Duration::from_secs(20));
+        let pool = HeldPool::new();
+        let first = pool
+            .open(Ok(bin), Ok(job.clone()), "c0ffee", "PACKET")
+            .unwrap();
+        assert_eq!(first.text, "look 1");
+        assert_eq!(first.context, 3 + 10 + 6000 + 7);
+        assert!((first.cost_usd - 0.0001).abs() < 1e-12);
+        for i in 2..=4 {
+            let l = pool.look("c0ffee", &format!("lines {i}")).unwrap();
+            assert_eq!(l.text, format!("look {i}"));
+        }
+        assert_eq!(lines_of(&d.path().join("argv.txt")).len(), 1, "one process");
+        assert_eq!(
+            messages(d.path()),
+            ["PACKET", "lines 2", "lines 3", "lines 4"]
+        );
+        // Its folder has the system prompt and no MCP config.
+        assert_eq!(
+            std::fs::read_to_string(job.dir.join(SYSTEM_FILE)).unwrap(),
+            "You are Juno."
+        );
+        assert!(!job.dir.join(MCP_FILE).exists());
+        assert_eq!(pool.count(), 1);
+        pool.shutdown();
+        assert_eq!(pool.count(), 0);
+        assert!(!job.dir.exists(), "its folder goes with it");
+        let e = pool.look("c0ffee", "late").unwrap_err();
+        assert!(gone(&e), "{e:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_killed_session_is_gone_and_one_that_dies_mid_look_fails() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_held(d.path(), 6000);
+        let pool = HeldPool::new();
+        let job = held_job(d.path(), Duration::from_secs(20));
+        pool.open(Ok(bin.clone()), Ok(job.clone()), "c0ffee", "PACKET")
+            .unwrap();
+        // Killed between looks: the next look finds it gone, writes nothing.
+        let pid = std::fs::read_to_string(d.path().join("pid")).unwrap();
+        let st = Command::new("kill")
+            .args(["-9", pid.trim()])
+            .status()
+            .unwrap();
+        assert!(st.success());
+        std::thread::sleep(Duration::from_millis(200));
+        let e = pool.look("c0ffee", "lines").unwrap_err();
+        assert!(gone(&e), "{e:?}");
+        assert_eq!(messages(d.path()), ["PACKET"]);
+        // A new one dies on its next message: that look fails, and the one
+        // after finds it gone.
+        pool.open(Ok(bin), Ok(job), "c0ffee", "PACKET 2").unwrap();
+        std::fs::write(d.path().join("die"), "").unwrap();
+        let e = pool.look("c0ffee", "lines").unwrap_err();
+        assert!(!gone(&e), "{e:?}");
+        let e = pool.look("c0ffee", "more").unwrap_err();
+        assert!(gone(&e), "{e:?}");
+        pool.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_look_past_its_watchdog_is_killed_and_the_next_finds_it_gone() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_held(d.path(), 6000);
+        let pool = HeldPool::new();
+        pool.open(
+            Ok(bin),
+            Ok(held_job(d.path(), Duration::from_secs(5))),
+            "c0ffee",
+            "PACKET",
+        )
+        .unwrap();
+        std::fs::write(d.path().join("hang"), "").unwrap();
+        let t = std::time::Instant::now();
+        let e = pool.look("c0ffee", "lines").unwrap_err();
+        assert_eq!(e, irori_core::LookError::Failed(TOO_LONG.into()));
+        assert!(t.elapsed() < Duration::from_secs(20), "{:?}", t.elapsed());
+        let e = pool.look("c0ffee", "more").unwrap_err();
+        assert!(gone(&e), "{e:?}");
+        pool.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_that_cant_prime_says_why_and_is_not_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = d.path().join("claude");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\necho 'Not logged in · Please run /login' >&2\nexit 1\n",
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let pool = HeldPool::new();
+        let e = pool
+            .open(
+                Ok(bin),
+                Ok(held_job(d.path(), Duration::from_secs(20))),
+                "c0ffee",
+                "PACKET",
+            )
+            .unwrap_err();
+        assert_eq!(e, irori_core::LookError::Failed(SIGNED_OUT.into()));
+        assert_eq!(pool.count(), 0);
+        let e = pool
+            .open(
+                Err("none".into()),
+                Ok(held_job(d.path(), LOOK_TIMEOUT)),
+                "c0ffee",
+                "P",
+            )
+            .unwrap_err();
+        assert_eq!(e, irori_core::LookError::Failed(NO_CLAUDE.into()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reopening_a_huddle_replaces_its_session_and_the_pool_has_a_cap() {
+        let d = tempfile::tempdir().unwrap();
+        let bin = fake_held(d.path(), 6000);
+        let pool = HeldPool::new();
+        let job = |call: &str| {
+            let mut j = held_job(d.path(), Duration::from_secs(20));
+            j.dir = j.dir.with_file_name(call);
+            j
+        };
+        pool.open(Ok(bin.clone()), Ok(job("c0ffee")), "c0ffee", "P")
+            .unwrap();
+        pool.open(Ok(bin.clone()), Ok(job("c0ffee")), "c0ffee", "P")
+            .unwrap();
+        assert_eq!(pool.count(), 1);
+        for i in 1..MAX_HELD {
+            let c = format!("call{i}");
+            pool.open(Ok(bin.clone()), Ok(job(&c)), &c, "P").unwrap();
+        }
+        assert_eq!(pool.count(), MAX_HELD);
+        let e = pool
+            .open(Ok(bin), Ok(job("onemore")), "onemore", "P")
+            .unwrap_err();
+        assert!(!gone(&e), "{e:?}");
+        pool.close("c0ffee");
+        assert_eq!(pool.count(), MAX_HELD - 1);
+        pool.shutdown();
     }
 }

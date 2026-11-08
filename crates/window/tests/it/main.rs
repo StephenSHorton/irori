@@ -8,6 +8,7 @@ mod cards;
 mod common;
 mod crash_answer;
 mod gone_lead;
+mod huddle_held;
 mod later;
 mod long_text;
 mod mentions;
